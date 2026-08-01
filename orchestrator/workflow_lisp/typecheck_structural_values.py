@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .diagnostics import LispFrontendCompileError
-from .effects import EMPTY_EFFECT_SUMMARY
+from .effects import EMPTY_EFFECT_SUMMARY, effect_summary_contains_runs_ref
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -38,6 +38,7 @@ from .typecheck_context import (
     _type_label,
     _type_refs_compatible,
     raise_error,
+    raise_run_ref_placement_invalid,
 )
 
 
@@ -293,6 +294,11 @@ def typecheck_structural_value_expr(
         )
     if isinstance(expr, ListMapEffectExpr):
         typed_source = recurse(expr.source_expr)
+        if effect_summary_contains_runs_ref(typed_source.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_source.expr,
+                reason="is not permitted in a `list/map-effect` source",
+            )
         if not isinstance(typed_source.type_ref, ListTypeRef):
             raise_error(
                 "`list/map-effect` source must have a List type",
@@ -320,6 +326,25 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
+        from .expression_traversal import walk_expr
+        from .expressions import RunRefExpr
+
+        try:
+            direct_run_ref = next(
+                (
+                    candidate
+                    for candidate in walk_expr(expr.body_expr)
+                    if isinstance(candidate, RunRefExpr)
+                ),
+                None,
+            )
+        except TypeError:
+            direct_run_ref = None
+        if direct_run_ref is not None:
+            raise_run_ref_placement_invalid(
+                direct_run_ref,
+                reason="is not permitted in a `list/map-effect` body",
+            )
         if not isinstance(
             expr.body_expr,
             (
@@ -344,6 +369,11 @@ def typecheck_structural_value_expr(
             expr.binder_name: typed_source.type_ref.item_type_ref,
         }
         typed_body = recurse(expr.body_expr, value_env=body_env)
+        if effect_summary_contains_runs_ref(typed_body.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_body.expr,
+                reason="is not permitted in a `list/map-effect` body",
+            )
         from .expression_traversal import iter_child_exprs
         from .functions import _find_purity_violation
 

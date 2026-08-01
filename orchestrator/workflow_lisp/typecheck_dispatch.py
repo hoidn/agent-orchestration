@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING
 from .conditionals import classify_condition_expr
 from .compiler_session import CompilerSession, TypecheckSessionState
 from .diagnostics import LispFrontendCompileError
-from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary, merge_effect_summaries
+from .effects import (
+    EMPTY_EFFECT_SUMMARY,
+    EffectSummary,
+    effect_summary_contains_runs_ref,
+    merge_effect_summaries,
+)
 from .expressions import (
     BindProcExpr,
     CallExpr,
@@ -76,6 +81,7 @@ from .typecheck_context import (
     ValueEnvironment,
     merge_successful_session_outputs,
     raise_error as _raise_error,
+    raise_run_ref_placement_invalid,
     restore_session_state,
     snapshot_session_state,
     _literal_type_name,
@@ -879,6 +885,11 @@ def _typecheck(
             proc_ref_resolution_context=proc_ref_resolution_context,
             prompt_catalog=prompt_catalog,
         )
+        if effect_summary_contains_runs_ref(typed_condition.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_condition.expr,
+                reason="is not permitted in an `if` condition",
+            )
         if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
             _raise_error(
                 "`if` condition must resolve to exact `Bool`",
@@ -972,6 +983,11 @@ def _typecheck(
         )
     if isinstance(expr, LoopRecurExpr):
         typed_max = recurse(expr.max_iterations_expr)
+        if effect_summary_contains_runs_ref(typed_max.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_max.expr,
+                reason="is not permitted in `loop/recur` :max",
+            )
         if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
             _raise_error(
                 "`loop/recur :max` must resolve to `Int`",
@@ -980,6 +996,11 @@ def _typecheck(
                 form_path=expr.max_iterations_expr.form_path,
             )
         typed_state = recurse(expr.initial_state_expr)
+        if effect_summary_contains_runs_ref(typed_state.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_state.expr,
+                reason="is not permitted in `loop/recur` state",
+            )
         ensure_loop_projectable_type(
             typed_state.type_ref,
             code="loop_recur_state_type_invalid",
@@ -995,6 +1016,11 @@ def _typecheck(
             )
         finally:
             loop_context = session_state.loop_context.pop()
+        if effect_summary_contains_runs_ref(typed_body.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_body.expr,
+                reason="is not permitted in a `loop/recur` body",
+            )
         if not isinstance(typed_body.type_ref, LoopControlTypeRef):
             _raise_error(
                 "`loop/recur` body must terminate with `continue` or `done`",
@@ -1033,6 +1059,11 @@ def _typecheck(
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 prompt_catalog=prompt_catalog,
             )
+            if effect_summary_contains_runs_ref(typed_exhausted.effect_summary):
+                raise_run_ref_placement_invalid(
+                    typed_exhausted.expr,
+                    reason="is not permitted in `loop/recur` exhaustion",
+                )
             if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
                 _raise_error(
                     f"`loop/recur` exhaustion result expected `{_type_label(typed_body.type_ref.result_type_ref)}`"

@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.definitions import (
     UnionVariant,
 )
 from orchestrator.workflow_lisp.expressions import (
+    DoneExpr,
     RunRefBundleProgram,
     RunRefExpr,
     RunRefPathProgram,
@@ -27,9 +28,19 @@ from orchestrator.workflow_lisp.expressions import (
     ExprNode,
     FunctionCallExpr,
     IfExpr,
+    LetStarExpr,
+    LiveProviderBinding,
+    LiveProviderPeerBinding,
+    ListExpr,
+    ListMapEffectExpr,
     LiteralExpr,
+    LoopRecurExpr,
+    MatchArm,
+    MatchExpr,
     NameExpr,
     ProcedureCallExpr,
+    WithLiveProviderPeersExpr,
+    WithLiveProvidersExpr,
     parse_run_ref_expression,
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
@@ -534,6 +545,64 @@ def test_runs_ref_declared_effect_parses_and_renders_stably() -> None:
 
     assert effects == frozenset({RunsRefEffect(subject=("child-name",))})
     assert render_effect_atom(next(iter(effects))) == "runs-ref(child-name)"
+
+
+def test_runs_ref_declared_effect_preserves_imported_identity_as_one_subject() -> None:
+    from orchestrator.workflow_lisp.effects import RunsRefEffect, parse_effect_clause
+
+    syntax = syntax_node_datum(
+        _expression("((runs-ref imported.module/child-name))")
+    )
+    assert isinstance(syntax, SyntaxList)
+
+    effects = parse_effect_clause(
+        syntax,
+        span=syntax.span,
+        form_path=FORM_PATH,
+    )
+
+    assert effects == frozenset(
+        {RunsRefEffect(subject=("imported.module/child-name",))}
+    )
+    expr = replace(
+        _mode_one_expr(),
+        program=RunRefBundleProgram("imported.module/child-name"),
+    )
+    base_catalog = _catalog(expr)
+    catalog = replace(
+        base_catalog,
+        signatures_by_name={
+            "imported.module/child-name": replace(
+                base_catalog.signatures_by_name["child"],
+                name="imported.module/child-name",
+            )
+        },
+    )
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=catalog,
+    )
+    assert effects == typed.effect_summary.direct_effects
+
+
+def test_effect_summary_contains_runs_ref_checks_direct_and_transitive_sets() -> None:
+    from orchestrator.workflow_lisp.effects import (
+        RunsRefEffect,
+        effect_summary,
+        effect_summary_contains_runs_ref,
+    )
+
+    effect = RunsRefEffect(subject=("child",))
+
+    assert effect_summary_contains_runs_ref(
+        effect_summary(direct_effects=(effect,), transitive_effects=())
+    )
+    assert effect_summary_contains_runs_ref(
+        effect_summary(direct_effects=(), transitive_effects=(effect,))
+    )
+    assert not effect_summary_contains_runs_ref(effect_summary())
 
 
 def test_runs_ref_declared_effect_requires_one_static_subject() -> None:
@@ -1425,6 +1494,572 @@ def test_run_ref_effect_preserves_canonical_identity_as_one_subject() -> None:
         isinstance(effect, CallsWorkflowEffect)
         for effect in typed.effect_summary.transitive_effects
     )
+
+
+def _run_ref_procedure_context(expr: RunRefExpr, *, return_type=None):
+    from orchestrator.workflow_lisp.effects import RunsRefEffect, effect_summary
+    from orchestrator.workflow_lisp.procedures import (
+        ProcedureCatalog,
+        ProcedureLoweringMode,
+        ProcedureSignature,
+    )
+
+    signature = ProcedureSignature(
+        name="wrapper",
+        params=(),
+        return_type_ref=return_type or PrimitiveTypeRef("String"),
+        declared_effects=frozenset({RunsRefEffect(subject=("child",))}),
+        requested_lowering_mode=ProcedureLoweringMode.INLINE,
+        span=expr.span,
+        form_path=FORM_PATH,
+    )
+    return (
+        ProcedureCatalog(
+            signatures_by_name={"wrapper": signature},
+            definitions_by_name={},
+            call_graph={},
+        ),
+        {
+            "wrapper": effect_summary(
+                direct_effects=(RunsRefEffect(subject=("child",)),)
+            )
+        },
+    )
+
+
+def test_run_ref_is_allowed_in_ordinary_let_and_if_branches() -> None:
+    run_ref = _mode_one_expr()
+    let_expr = LetStarExpr(
+        bindings=(("child_result", run_ref),),
+        body=NameExpr("child_result", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    conditional = IfExpr(
+        condition_expr=LiteralExpr(True, "bool", run_ref.span, FORM_PATH),
+        then_expr=let_expr,
+        else_expr=run_ref,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    typed = typecheck_expression(
+        conditional,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(run_ref),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+def test_run_ref_is_allowed_in_match_arms() -> None:
+    run_ref = _mode_one_expr()
+    union_type = _transportable_types(run_ref.span)[2]
+    expr = MatchExpr(
+        subject=NameExpr("subject", run_ref.span, FORM_PATH),
+        arms=(
+            MatchArm(
+                variant_name="OK",
+                binding_name="matched",
+                body=run_ref,
+                span=run_ref.span,
+                form_path=FORM_PATH,
+            ),
+        ),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(union_type),
+        value_env={"subject": union_type},
+        workflow_catalog=_catalog(run_ref),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+def test_run_ref_is_allowed_transitively_through_procedure_and_workflow_calls() -> None:
+    from orchestrator.workflow_lisp.effects import (
+        CallsWorkflowEffect,
+        RunsRefEffect,
+        effect_summary,
+    )
+    from orchestrator.workflow_lisp.expressions import CallExpr
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
+    procedure = typecheck_expression(
+        ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+        type_env=_type_env(),
+        value_env={},
+        procedure_catalog=procedure_catalog,
+        procedure_effects_by_name=procedure_effects,
+    )
+    workflow = typecheck_expression(
+        CallExpr("child", (), run_ref.span, FORM_PATH),
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(run_ref),
+        workflow_effects_by_name={
+            "child": effect_summary(
+                direct_effects=(RunsRefEffect(subject=("grandchild",)),)
+            )
+        },
+    )
+
+    assert procedure.effect_summary.direct_effects == frozenset()
+    assert RunsRefEffect(subject=("child",)) in procedure.effect_summary.transitive_effects
+    assert CallsWorkflowEffect(subject=("child",)) in workflow.effect_summary.direct_effects
+    assert RunsRefEffect(subject=("grandchild",)) in workflow.effect_summary.transitive_effects
+
+
+@pytest.mark.parametrize(
+    ("owner", "reason"),
+    (
+        ("if", "is not permitted in an `if` condition"),
+        ("match", "is not permitted in a `match` discriminant"),
+        ("loop-max", "is not permitted in `loop/recur` :max"),
+        ("loop-body", "is not permitted in a `loop/recur` body"),
+        ("list-source", "is not permitted in a `list/map-effect` source"),
+        ("list-body", "is not permitted in a `list/map-effect` body"),
+    ),
+)
+def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
+    owner: str,
+    reason: str,
+) -> None:
+    run_ref = _mode_one_expr()
+    literal_list = ListExpr(
+        items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
+        element_type_ref=None,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    if owner == "if":
+        expr = IfExpr(
+            run_ref,
+            LiteralExpr("yes", "string", run_ref.span, FORM_PATH),
+            LiteralExpr("no", "string", run_ref.span, FORM_PATH),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "match":
+        expr = MatchExpr(run_ref, (), run_ref.span, FORM_PATH)
+    elif owner == "loop-max":
+        expr = LoopRecurExpr(
+            run_ref,
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            DoneExpr(
+                LiteralExpr("done", "string", run_ref.span, FORM_PATH),
+                run_ref.span,
+                FORM_PATH,
+            ),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-body":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            run_ref,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "list-source":
+        expr = ListMapEffectExpr(
+            "item", run_ref, 1, run_ref, None, None, run_ref.span, FORM_PATH
+        )
+    else:
+        expr = ListMapEffectExpr(
+            "item", literal_list, 1, run_ref, None, None, run_ref.span, FORM_PATH
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(run_ref),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert reason in diagnostic.message
+    assert diagnostic.span == run_ref.span
+
+
+def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() -> None:
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
+    expr = ListMapEffectExpr(
+        binder_name="item",
+        source_expr=ListExpr(
+            items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
+            element_type_ref=None,
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        ),
+        max_iterations=1,
+        body_expr=ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+
+
+def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
+    from orchestrator.workflow_lisp.functions import (
+        FunctionDef,
+        _validate_pure_function_expr,
+    )
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
+    function_def = FunctionDef(
+        name="pure_helper",
+        params=(),
+        body=_expression('"unused"'),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+        return_type_name="String",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_pure_function_expr(
+            ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+            function_def=function_def,
+            procedure_catalog=procedure_catalog,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+
+
+def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
+    from orchestrator.workflow_lisp.effects import UsesCommandEffect
+    from orchestrator.workflow_lisp.functions import (
+        FunctionDef,
+        _validate_pure_function_expr,
+    )
+
+    run_ref = _mode_one_expr()
+    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
+    signature = procedure_catalog.signatures_by_name["wrapper"]
+    procedure_catalog = replace(
+        procedure_catalog,
+        signatures_by_name={
+            "wrapper": replace(
+                signature,
+                declared_effects=frozenset(
+                    {UsesCommandEffect(subject=("shell",))}
+                ),
+            )
+        },
+    )
+    function_def = FunctionDef(
+        name="pure_helper",
+        params=(),
+        body=_expression('"unused"'),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+        return_type_name="String",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validate_pure_function_expr(
+            ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
+            function_def=function_def,
+            procedure_catalog=procedure_catalog,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
+
+
+@pytest.mark.parametrize(
+    ("owner", "return_type", "reason"),
+    (
+        ("if", PrimitiveTypeRef("Bool"), "is not permitted in an `if` condition"),
+        ("loop-max", PrimitiveTypeRef("Int"), "is not permitted in `loop/recur` :max"),
+        ("loop-state", PrimitiveTypeRef("Int"), "is not permitted in `loop/recur` state"),
+        ("loop-body", PrimitiveTypeRef("String"), "is not permitted in a `loop/recur` body"),
+        ("loop-exhaustion", PrimitiveTypeRef("String"), "is not permitted in `loop/recur` exhaustion"),
+    ),
+)
+def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
+    owner: str,
+    return_type,
+    reason: str,
+) -> None:
+    run_ref = _mode_one_expr()
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=return_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    done = DoneExpr(
+        LiteralExpr("done", "string", run_ref.span, FORM_PATH),
+        run_ref.span,
+        FORM_PATH,
+    )
+    if owner == "if":
+        expr = IfExpr(
+            call,
+            LiteralExpr("yes", "string", run_ref.span, FORM_PATH),
+            LiteralExpr("no", "string", run_ref.span, FORM_PATH),
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-max":
+        expr = LoopRecurExpr(
+            call,
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-state":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            call,
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+        )
+    elif owner == "loop-body":
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            call,
+            run_ref.span,
+            FORM_PATH,
+        )
+    else:
+        expr = LoopRecurExpr(
+            LiteralExpr(1, "int", run_ref.span, FORM_PATH),
+            LiteralExpr(0, "int", run_ref.span, FORM_PATH),
+            "state",
+            done,
+            run_ref.span,
+            FORM_PATH,
+            on_exhausted_result_expr=call,
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert reason in diagnostic.message
+    assert diagnostic.span == call.span
+
+
+def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic() -> None:
+    run_ref = _mode_one_expr()
+    union_type = _transportable_types(run_ref.span)[2]
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=union_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            MatchExpr(call, (), run_ref.span, FORM_PATH),
+            type_env=_type_env(union_type),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+
+
+def test_transitive_run_ref_in_list_map_effect_source_is_rejected() -> None:
+    run_ref = _mode_one_expr()
+    list_type = ListTypeRef("List[String]", PrimitiveTypeRef("String"))
+    procedure_catalog, procedure_effects = _run_ref_procedure_context(
+        run_ref,
+        return_type=list_type,
+    )
+    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
+    expr = ListMapEffectExpr(
+        "item",
+        call,
+        1,
+        call,
+        None,
+        None,
+        run_ref.span,
+        FORM_PATH,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+
+
+def _provider_steering_directive_type(span):
+    definition = UnionDef(
+        name="ProviderSteeringDirective",
+        variants=tuple(
+            UnionVariant(name=name, fields=(), span=span)
+            for name in ("CONTINUE", "STEER")
+        ),
+        span=span,
+    )
+    return UnionTypeRef(
+        name="ProviderSteeringDirective",
+        definition=definition,
+        variant_field_types={"CONTINUE": {}, "STEER": {}},
+    )
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ("live-settlement", "live-evaluation", "peer-settlement", "peer-evaluation"),
+)
+def test_run_ref_is_rejected_from_live_provider_evaluation_and_settlement(
+    kind: str,
+) -> None:
+    run_ref = _mode_one_expr()
+    directive = _provider_steering_directive_type(run_ref.span)
+    if kind.startswith("live-"):
+        worker_value = run_ref if kind == "live-evaluation" else NameExpr(
+            "worker_value", run_ref.span, FORM_PATH
+        )
+        expr = WithLiveProvidersExpr(
+            bindings=(
+                LiveProviderBinding(
+                    "worker", worker_value, None,
+                    run_ref.span, None, None, run_ref.span, FORM_PATH,
+                ),
+                LiveProviderBinding(
+                    "supervisor",
+                    NameExpr("supervisor_value", run_ref.span, FORM_PATH),
+                    "worker",
+                    run_ref.span,
+                    run_ref.span,
+                    run_ref.span,
+                    run_ref.span,
+                    FORM_PATH,
+                ),
+            ),
+            body=(
+                NameExpr("worker", run_ref.span, FORM_PATH)
+                if kind == "live-evaluation"
+                else run_ref
+            ),
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        )
+        value_env = {
+            "worker_value": PrimitiveTypeRef("String"),
+            "supervisor_value": directive,
+        }
+    else:
+        expr = WithLiveProviderPeersExpr(
+            bindings=tuple(
+                LiveProviderPeerBinding(
+                    name,
+                    (
+                        run_ref
+                        if kind == "peer-evaluation" and name == "first"
+                        else NameExpr(f"{name}_value", run_ref.span, FORM_PATH)
+                    ),
+                    run_ref.span,
+                    run_ref.span,
+                    FORM_PATH,
+                )
+                for name in ("first", "second")
+            ),
+            body=(
+                NameExpr("second", run_ref.span, FORM_PATH)
+                if kind == "peer-evaluation"
+                else run_ref
+            ),
+            span=run_ref.span,
+            form_path=FORM_PATH,
+        )
+        value_env = {
+            "first_value": PrimitiveTypeRef("String"),
+            "second_value": PrimitiveTypeRef("String"),
+        }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(directive),
+            value_env=value_env,
+            workflow_catalog=_catalog(run_ref),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
+
+
+def test_run_ref_is_rejected_from_result_guidance_before_constant_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import orchestrator.workflow_lisp.expressions as expression_module
+    from orchestrator.workflow_lisp.result_guidance import (
+        ResultGuidance,
+        validate_result_guidance_example,
+    )
+
+    run_ref = _mode_one_expr()
+    monkeypatch.setattr(
+        expression_module,
+        "elaborate_expression",
+        lambda *args, **kwargs: run_ref,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_result_guidance_example(
+            ResultGuidance(example_expr=_expression('"example"')),
+            expected_type=PrimitiveTypeRef("String"),
+            type_env=_type_env(),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "run_ref_placement_invalid"
 
 
 def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:

@@ -247,9 +247,22 @@ def validate_result_guidance_example(
         )
 
     from .effects import EMPTY_EFFECT_SUMMARY
+    from .expression_traversal import walk_expr
+    from .expressions import RunRefExpr
     from .lowering.pure_projection import is_pure_projection_expr
     from .type_env import OptionalTypeRef, type_refs_compatible
     from .typecheck import typecheck_expression
+    from .typecheck_context import raise_run_ref_placement_invalid
+
+    direct_run_ref = next(
+        (candidate for candidate in walk_expr(expr) if isinstance(candidate, RunRefExpr)),
+        None,
+    )
+    if direct_run_ref is not None:
+        raise_run_ref_placement_invalid(
+            direct_run_ref,
+            reason="is not permitted in a result-guidance example",
+        )
 
     if not is_pure_projection_expr(expr, allow_generated_relpath_seed=True):
         _raise_example_diagnostic(
@@ -275,6 +288,13 @@ def validate_result_guidance_example(
             )
         _raise_example_type_mismatch(expected_type, example_node=example_node, cause=exc)
     if typed.effect_summary != EMPTY_EFFECT_SUMMARY:
+        from .effects import effect_summary_contains_runs_ref
+
+        if effect_summary_contains_runs_ref(typed.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed.expr,
+                reason="is not permitted in a result-guidance example",
+            )
         _raise_example_diagnostic(
             "result_guidance_example_not_constant",
             "result guidance example must be an effect-free compile-time constant",

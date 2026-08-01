@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .effects import merge_effect_summaries
+from .effects import effect_summary_contains_runs_ref, merge_effect_summaries
 from .expressions import FieldAccessExpr, MatchExpr, NameExpr
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
@@ -18,7 +18,12 @@ from .type_env import (
     VariantCaseTypeRef,
     type_refs_compatible,
 )
-from .typecheck_context import raise_error, _type_label, _unify_loop_control_types
+from .typecheck_context import (
+    _type_label,
+    _unify_loop_control_types,
+    raise_error,
+    raise_run_ref_placement_invalid,
+)
 
 
 @dataclass(frozen=True)
@@ -176,6 +181,11 @@ def typecheck_match_expr(
     from dataclasses import replace
 
     typed_subject = recurse(expr.subject)
+    if effect_summary_contains_runs_ref(typed_subject.effect_summary):
+        raise_run_ref_placement_invalid(
+            typed_subject.expr,
+            reason="is not permitted in a `match` discriminant",
+        )
     if isinstance(typed_subject.type_ref, TypeParamRef):
         raise_error(
             f"match on type parameter `{typed_subject.type_ref.name}` requires declared `has-union-variant` capabilities",

@@ -370,6 +370,29 @@ def raise_error(
     )
 
 
+def raise_run_ref_placement_invalid(
+    expr: ExprNode,
+    *,
+    reason: str,
+) -> None:
+    """Reject child-run work at its owning authored form or call boundary."""
+
+    from .expression_traversal import walk_expr
+    from .expressions import RunRefExpr
+
+    owner = next(
+        (candidate for candidate in walk_expr(expr) if isinstance(candidate, RunRefExpr)),
+        expr,
+    )
+    raise_error(
+        f"`run-ref` {reason}",
+        code="run_ref_placement_invalid",
+        span=owner.span,
+        form_path=owner.form_path,
+        expansion_stack=owner.expansion_stack,
+    )
+
+
 def _require_normative_phase_ctx_type(
     type_ref: TypeRef,
     *,

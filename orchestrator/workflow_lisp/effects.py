@@ -222,6 +222,18 @@ def effect_summary_from_procedure_call(
     )
 
 
+def effect_summary_contains_runs_ref(summary: EffectSummary) -> bool:
+    """Return whether either effect-membership set contains child-run work."""
+
+    return any(
+        isinstance(effect, RunsRefEffect)
+        for effect in summary.direct_effects
+    ) or any(
+        isinstance(effect, RunsRefEffect)
+        for effect in summary.transitive_effects
+    )
+
+
 def merge_effect_summaries(*summaries: EffectSummary) -> EffectSummary:
     """Union multiple effect summaries for sequential or nested forms."""
 
@@ -391,7 +403,7 @@ def _parse_effect_group(
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
-        return (RunsRefEffect(subject=_normalize_subject(names[0])),)
+        return (RunsRefEffect(subject=(names[0],)),)
     constructors = {
         "reads": lambda value: ReadEffect(subject=_normalize_subject(value)),
         "writes": lambda value: WriteEffect(subject=_normalize_subject(value)),

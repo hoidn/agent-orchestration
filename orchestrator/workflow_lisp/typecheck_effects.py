@@ -12,6 +12,7 @@ from .effects import (
     UsesCommandEffect,
     UsesProviderEffect,
     effect_summary_from_direct,
+    effect_summary_contains_runs_ref,
     merge_effect_summaries,
 )
 from .expressions import (
@@ -42,7 +43,11 @@ from .prompts import (
     with_phased_prompt_attempt_identity,
 )
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
-from .typecheck_context import raise_error, raise_required_lint
+from .typecheck_context import (
+    raise_error,
+    raise_required_lint,
+    raise_run_ref_placement_invalid,
+)
 
 
 def typecheck_expected_extern_operand(
@@ -103,6 +108,12 @@ def typecheck_with_live_providers_expr(
     }
     typed_supervisor = typed_members[supervisor_binding.name]
     typed_worker = typed_members[worker_binding.name]
+    for typed_member in typed_members.values():
+        if effect_summary_contains_runs_ref(typed_member.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_member.expr,
+                reason="is not permitted in a live-provider evaluation body",
+            )
 
     directive_type = context.type_env.resolve_type(
         PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
@@ -147,6 +158,11 @@ def typecheck_with_live_providers_expr(
         },
     )
     body_effects = typed_body.effect_summary
+    if effect_summary_contains_runs_ref(body_effects):
+        raise_run_ref_placement_invalid(
+            typed_body.expr,
+            reason="is not permitted in a live-provider settlement body",
+        )
     if (
         body_effects.direct_effects
         or body_effects.transitive_effects
@@ -218,6 +234,12 @@ def typecheck_with_live_provider_peers_expr(
         binding.name: recurse(binding.value_expr)
         for binding in bindings
     }
+    for typed_member in typed_members.values():
+        if effect_summary_contains_runs_ref(typed_member.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_member.expr,
+                reason="is not permitted in a provider-peer evaluation body",
+            )
 
     from .contracts import is_transportable_result_type
 
@@ -245,6 +267,11 @@ def typecheck_with_live_provider_peers_expr(
         },
     )
     body_effects = typed_body.effect_summary
+    if effect_summary_contains_runs_ref(body_effects):
+        raise_run_ref_placement_invalid(
+            typed_body.expr,
+            reason="is not permitted in a provider-peer settlement body",
+        )
     if (
         body_effects.direct_effects
         or body_effects.transitive_effects

@@ -46,6 +46,7 @@ from .expressions import (
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
+    RunRefExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -264,7 +265,11 @@ def typecheck_function_definitions(
             prompt_catalog=prompt_catalog,
             session_state=compiler_session.elaboration,
         )
-        _validate_pure_function_expr(body_expr, function_def=function_def)
+        _validate_pure_function_expr(
+            body_expr,
+            function_def=function_def,
+            procedure_catalog=procedure_catalog,
+        )
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,
@@ -1011,7 +1016,36 @@ def _function_dependencies(expr: ExprNode) -> set[str]:
     }
 
 
-def _validate_pure_function_expr(expr: ExprNode, *, function_def: FunctionDef) -> None:
+def _validate_pure_function_expr(
+    expr: ExprNode,
+    *,
+    function_def: FunctionDef,
+    procedure_catalog: "ProcedureCatalog | None" = None,
+) -> None:
+    from .effects import RunsRefEffect
+    from .typecheck_context import raise_run_ref_placement_invalid
+
+    try:
+        for candidate in walk_expr(expr):
+            if isinstance(candidate, RunRefExpr):
+                raise_run_ref_placement_invalid(
+                    candidate,
+                    reason="is not permitted in a pure function",
+                )
+            if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
+                signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
+                if signature is not None and any(
+                    isinstance(effect, RunsRefEffect)
+                    for effect in signature.declared_effects
+                ):
+                    raise_run_ref_placement_invalid(
+                        candidate,
+                        reason="is not permitted in a pure function",
+                    )
+    except TypeError:
+        # Preserve the existing fail-closed purity diagnostic for unknown
+        # expression containers; the generic validator below owns that case.
+        pass
     violation = _find_purity_violation(expr)
     if violation is None:
         return
