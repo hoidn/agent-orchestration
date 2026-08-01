@@ -32,6 +32,7 @@ from .model import (
     WccProgram,
     WccRecJoin,
     WccRecordAtom,
+    WccRunRefPayload,
     WccValue,
 )
 from .analysis import WccArmScope, WccJoinSite, WccLoopSite, WccScopeAnalysis, analyze_wcc_body
@@ -81,6 +82,7 @@ __all__ = [
     "WccProgram",
     "WccRecJoin",
     "WccRecordAtom",
+    "WccRunRefPayload",
     "WccValue",
     "WccArmScope",
     "WccJoinSite",

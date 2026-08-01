@@ -4,17 +4,36 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+from orchestrator.workflow.run_ref.result_contract import (
+    is_transportable_type_descriptor,
+    validate_run_ref_result_descriptor,
+)
+from orchestrator.workflow.type_descriptor import (
+    validate_compiler_normalized_type_descriptor,
+)
 
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..spans import SourceSpan
 from ..type_env import TypeRef
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.run_ref.config import RunRefProgram
+    from orchestrator.workflow.run_ref.source import SourceRequest
 
 
 WCC_M1_ROUTE_SCHEMA_VERSION = "wcc_m1"
 WCC_M2_ROUTE_SCHEMA_VERSION = "wcc_m2"
 WCC_M3_ROUTE_SCHEMA_VERSION = "wcc_m3"
 WCC_M4_ROUTE_SCHEMA_VERSION = "wcc_m4"
+_RUN_REF_SITE_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_RUN_REF_RESULT_NAME = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
+_RUN_REF_INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
 
 
 def _stable_identity_digest(payload: dict[str, object]) -> str:
@@ -250,6 +269,125 @@ class WccInject:
 
 
 WccValue = WccAtom | WccInject | WccPureOp
+
+
+@dataclass(frozen=True, init=False)
+class WccRunRefPayload:
+    """Closed static run-ref facts carried separately from dynamic WCC inputs."""
+
+    source: SourceRequest
+    program: RunRefProgram
+    site_digest: str
+    generated_result_type: str
+    result_digest: str
+    _result_descriptor_json: bytes = field(repr=False)
+    _input_type_descriptor_rows: tuple[tuple[str, bytes], ...] = field(
+        repr=False
+    )
+
+    def __init__(
+        self,
+        *,
+        source: SourceRequest,
+        program: RunRefProgram,
+        site_digest: str,
+        generated_result_type: str,
+        result_descriptor: Mapping[str, object],
+        result_digest: str,
+        input_type_descriptors: tuple[
+            tuple[str, Mapping[str, object]], ...
+        ],
+    ) -> None:
+        from orchestrator.workflow.run_ref.config import BundleProgram, PathProgram
+        from orchestrator.workflow.run_ref.source import (
+            SourceRequest,
+            canonical_source_request,
+            source_request_from_dict,
+        )
+
+        if not isinstance(source, SourceRequest):
+            raise TypeError("WCC run-ref source must be a SourceRequest")
+        if not isinstance(program, (BundleProgram, PathProgram)):
+            raise TypeError("WCC run-ref program must be a closed program")
+        if not isinstance(site_digest, str) or _RUN_REF_SITE_DIGEST.fullmatch(
+            site_digest
+        ) is None:
+            raise ValueError("WCC run-ref site digest is invalid")
+        if (
+            not isinstance(generated_result_type, str)
+            or _RUN_REF_RESULT_NAME.fullmatch(generated_result_type) is None
+            or generated_result_type.removeprefix("RunRefResult$")
+            != site_digest[:16]
+        ):
+            raise ValueError("WCC run-ref generated result identity is invalid")
+        validate_run_ref_result_descriptor(
+            result_descriptor,
+            expected_generated_name=generated_result_type,
+            expected_digest=result_digest,
+        )
+        if isinstance(program, PathProgram):
+            value_descriptor = result_descriptor["envelope"]["fields"][0]["type"]
+            refinement = program.return_refinement
+            if refinement is None:
+                if value_descriptor != {"kind": "primitive", "name": "Value"}:
+                    raise ValueError(
+                        "WCC path run-ref without refinement requires Value"
+                    )
+            elif refinement != value_descriptor:
+                raise ValueError(
+                    "WCC path run-ref refinement does not match its result"
+                )
+        if not isinstance(input_type_descriptors, tuple):
+            raise TypeError("WCC run-ref input descriptors must be a tuple")
+        frozen_inputs: list[tuple[str, bytes]] = []
+        seen: set[str] = set()
+        for name, descriptor in input_type_descriptors:
+            if (
+                not isinstance(name, str)
+                or _RUN_REF_INPUT_NAME.fullmatch(name) is None
+                or name in seen
+            ):
+                raise ValueError("WCC run-ref input name is invalid or repeated")
+            validate_compiler_normalized_type_descriptor(
+                descriptor,
+                context=f"wcc_run_ref_input.{name}",
+            )
+            if not is_transportable_type_descriptor(descriptor):
+                raise ValueError("WCC run-ref input type is not transportable")
+            seen.add(name)
+            frozen_inputs.append((name, canonical_json_bytes(descriptor)))
+
+        canonical_source = source_request_from_dict(
+            canonical_source_request(source)
+        )
+        object.__setattr__(self, "source", canonical_source)
+        object.__setattr__(self, "program", program)
+        object.__setattr__(self, "site_digest", site_digest)
+        object.__setattr__(self, "generated_result_type", generated_result_type)
+        object.__setattr__(self, "result_digest", result_digest)
+        object.__setattr__(
+            self,
+            "_result_descriptor_json",
+            canonical_json_bytes(result_descriptor),
+        )
+        object.__setattr__(
+            self,
+            "_input_type_descriptor_rows",
+            tuple(frozen_inputs),
+        )
+
+    @property
+    def result_descriptor(self) -> dict[str, object]:
+        return json.loads(self._result_descriptor_json)
+
+    @property
+    def input_type_descriptors(
+        self,
+    ) -> tuple[tuple[str, dict[str, object]], ...]:
+        return tuple(
+            (name, json.loads(descriptor_json))
+            for name, descriptor_json in self._input_type_descriptor_rows
+        )
 
 
 @dataclass(frozen=True)

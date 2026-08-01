@@ -43,6 +43,9 @@ from ..expressions import (
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
+    RunRefBundleProgram,
+    RunRefExpr,
+    RunRefPathProgram,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -76,6 +79,9 @@ from ..typecheck_context import TypedExpr
 from ..loops import LoopControlTypeRef
 from ..loop_state import carrier_metadata_for_expr
 from ..lowering.pure_projection import is_pure_projection_expr
+from ..normalized_type_descriptor import compiler_normalized_type_descriptor
+from ..run_ref_result_contract import derive_run_ref_result_contract
+from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
 from ..workflow_refs import ResolvedWorkflowRef
 from .model import (
@@ -110,6 +116,7 @@ from .model import (
     WccRecJoin,
     WccRecordAtom,
     WccResumeOrStartPayload,
+    WccRunRefPayload,
     WccRunProviderPhasePayload,
     WccSpecializationCapture,
     WccValue,
@@ -1262,6 +1269,8 @@ def _substitute_wcc_payload(
     value,
     substitutions: Mapping[str, WccValue],
 ):
+    if isinstance(value, WccRunRefPayload):
+        return value
     if isinstance(
         value,
         (
@@ -1582,6 +1591,7 @@ def _elaborate_expr_to_body(
         (
             ProviderResultExpr,
             CommandResultExpr,
+            RunRefExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -1824,6 +1834,7 @@ def _elaborate_let_star(
             (
                 ProviderResultExpr,
                 CommandResultExpr,
+                RunRefExpr,
                 RunProviderPhaseExpr,
                 ProduceOneOfExpr,
                 ResumeOrStartExpr,
@@ -3618,6 +3629,23 @@ def _prebind_effect_argument_matches(
             ),
             tuple(match_bindings),
         )
+    if isinstance(expr, RunRefExpr):
+        return (
+            replace(
+                expr,
+                inputs=tuple(
+                    (
+                        input_name,
+                        replace_arg(
+                            input_expr,
+                            role=f"run-ref-input:{input_name}",
+                        ),
+                    )
+                    for input_name, input_expr in expr.inputs
+                ),
+            ),
+            tuple(match_bindings),
+        )
     if isinstance(expr, RunProviderPhaseExpr):
         return (
             replace(
@@ -3937,6 +3965,95 @@ def _elaborate_effect_expr_to_binding_value(
         effect_summary=effect_summary,
         phase_scope=active_phase_scope,
     )
+    if isinstance(expr, RunRefExpr):
+        from orchestrator.workflow.run_ref.config import BundleProgram, PathProgram
+        from orchestrator.workflow.run_ref.source import SourceRequest
+
+        metadata = resolve_unique_run_ref_site_metadata(
+            expr,
+            session_state=type_env.session_state,
+        )
+        result_contract = derive_run_ref_result_contract(
+            metadata.type_ref,
+            type_env=type_env,
+        )
+        input_names = tuple(name for name, _ in expr.inputs)
+        metadata_input_names = tuple(name for name, _ in metadata.input_types)
+        if input_names != metadata_input_names:
+            raise TypeError("typed run-ref input metadata order changed before WCC")
+        if isinstance(expr.program, RunRefBundleProgram):
+            program = BundleProgram(workflow_name=expr.program.workflow_name)
+            target_name = expr.program.workflow_name
+        elif isinstance(expr.program, RunRefPathProgram):
+            if expr.environment != "deterministic-effect-free":
+                raise TypeError("typed path run-ref environment changed before WCC")
+            program = PathProgram(
+                path=expr.program.path,
+                entry_name=expr.program.entry_name,
+                return_refinement=(
+                    None
+                    if expr.returns_type_name is None
+                    else compiler_normalized_type_descriptor(
+                        metadata.value_type_ref,
+                        type_env=type_env,
+                    )
+                ),
+            )
+            target_name = expr.program.entry_name
+        else:
+            raise TypeError("typed run-ref program mode changed before WCC")
+        payload = WccRunRefPayload(
+            source=SourceRequest(
+                locator=expr.source.repo,
+                commit=expr.source.commit,
+                setup=expr.setup,
+            ),
+            program=program,
+            site_digest=metadata.site_digest,
+            generated_result_type=metadata.generated_type_name,
+            result_descriptor=result_contract.descriptor,
+            result_digest=result_contract.digest,
+            input_type_descriptors=tuple(
+                (
+                    name,
+                    compiler_normalized_type_descriptor(
+                        input_type,
+                        type_env=type_env,
+                    ),
+                )
+                for name, input_type in metadata.input_types
+            ),
+        )
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:run_ref", **metadata_kwargs),
+            perform_kind="run_ref",
+            target_name=target_name,
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=tuple(
+                (
+                    name,
+                    _elaborate_atomic_value(
+                        input_expr,
+                        scope=scope.child_scope(
+                            "run-ref-input",
+                            authored_binding_name=name,
+                        ),
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                        effect_summary=effect_summary,
+                        procedure_edges_by_site=procedure_edges_by_site,
+                        compile_time_bindings=compile_time_bindings,
+                        active_phase_scope=active_phase_scope,
+                    ),
+                )
+                for name, input_expr in expr.inputs
+            ),
+            returns_type_name=metadata.generated_type_name,
+            operation_payload=payload,
+        )
     if isinstance(expr, WithLiveProviderPeersExpr):
         return _elaborate_live_provider_peer_group(
             expr,
@@ -4539,6 +4656,7 @@ def _elaborate_workflow_call_binding_value(
         (
             ProviderResultExpr,
             CommandResultExpr,
+            RunRefExpr,
             RunProviderPhaseExpr,
             FinalizeSelectedItemExpr,
             ResourceTransitionExpr,
@@ -4951,6 +5069,11 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
+    if isinstance(expr, RunRefExpr):
+        return resolve_unique_run_ref_site_metadata(
+            expr,
+            session_state=type_env.session_state,
+        ).type_ref
     if isinstance(expr, ProviderBundlePathExpr):
         return _resolve_wcc_type_name(
             expr.target_type_name,

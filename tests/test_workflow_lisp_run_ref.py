@@ -64,12 +64,25 @@ from orchestrator.workflow_lisp.type_env import (
     UnionTypeRef,
 )
 from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
+from orchestrator.workflow_lisp.typecheck_context import (
+    TypecheckSessionStateCollisionError,
+)
 from orchestrator.workflow_lisp.typecheck_run_ref import (
     RUN_REF_FIXED_TYPE_NAMES,
     compiler_run_ref_fixed_types,
     metadata_for_run_ref_expr,
     register_all_known_run_ref_types,
+    resolve_run_ref_site_metadata,
 )
+from orchestrator.workflow_lisp.wcc import (
+    WccCase,
+    WccHalt,
+    WccLet,
+    WccPerform,
+    WccRunRefPayload,
+    elaborate_typed_workflow_body,
+)
+from orchestrator.workflow_lisp.wcc.elaborate import _substitute_wcc_payload
 from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
 
 
@@ -2660,3 +2673,246 @@ def test_run_ref_success_resolves_without_mutation_then_hydrates_explicitly() ->
     )
     assert typed.type_ref.name in type_env._compiler_owned_type_names
     assert type_env._type_refs[typed.type_ref.name] == typed.type_ref
+
+
+def _typed_run_ref_for_wcc(
+    expr,
+    *,
+    params=(),
+    return_type=None,
+    extra_types=(),
+    value_env=None,
+):
+    type_env = _type_env(*extra_types)
+    session = CompilerSession()
+    resolved_value_env = dict(value_env or {})
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env=resolved_value_env,
+        workflow_catalog=_catalog(
+            expr,
+            params=params,
+            return_type=return_type,
+        ),
+        compiler_session=session,
+    )
+    type_env.session_state = session.typecheck
+    return typed, type_env, session, resolved_value_env
+
+
+def _wcc_run_ref_body(typed, *, type_env, value_env=None):
+    return elaborate_typed_workflow_body(
+        typed,
+        owner_name="run-ref-test",
+        type_env=type_env,
+        value_env=dict(value_env or {}),
+        route_schema_version="wcc_m4",
+    )
+
+
+def _wcc_run_ref_perform(typed, *, type_env) -> WccPerform:
+    body = _wcc_run_ref_body(typed, type_env=type_env)
+    assert isinstance(body, WccLet)
+    assert isinstance(body.bound_value, WccPerform)
+    assert isinstance(body.body, WccHalt)
+    return body.bound_value
+
+
+def test_run_ref_exact_metadata_resolver_cross_validates_both_registries() -> None:
+    expr = _mode_one_expr()
+    typed, _, session, _ = _typed_run_ref_for_wcc(expr)
+
+    metadata = resolve_run_ref_site_metadata(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata.generated_type_name == typed.type_ref.name
+
+    session.typecheck.run_ref_metadata_by_name.pop(metadata.generated_type_name)
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+
+def test_run_ref_exact_metadata_resolver_rejects_ambiguous_or_inconsistent_rows() -> None:
+    expr = _mode_one_expr()
+    typed, _, session, _ = _typed_run_ref_for_wcc(expr)
+    metadata = metadata_for_run_ref_expr(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+    rows = session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key]
+    rows["ambiguous"] = replace(metadata, type_signature="ambiguous")
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+    rows.pop("ambiguous")
+    rows[metadata.type_signature] = replace(metadata, site_digest="f" * 64)
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        resolve_run_ref_site_metadata(
+            expr,
+            result_type=typed.type_ref,
+            session_state=session.typecheck,
+        )
+
+
+def test_wcc_run_ref_payload_is_closed_frozen_and_keeps_dynamic_inputs_out() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("second", LiteralExpr(2, "int", span, FORM_PATH)),
+            ("first", LiteralExpr("one", "string", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("second", PrimitiveTypeRef("Int")),
+            ("first", PrimitiveTypeRef("String")),
+        ),
+    )
+
+    perform = _wcc_run_ref_perform(typed, type_env=type_env)
+
+    assert perform.perform_kind == "run_ref"
+    assert isinstance(perform.operation_payload, WccRunRefPayload)
+    payload = perform.operation_payload
+    assert tuple(name for name, _ in perform.keyword_args) == ("second", "first")
+    assert tuple(name for name, _ in payload.input_type_descriptors) == (
+        "second",
+        "first",
+    )
+    assert not any(isinstance(value, RunRefExpr) for value in vars(payload).values())
+    assert not any(
+        value is dynamic
+        for value in vars(payload).values()
+        for _, dynamic in perform.keyword_args
+    )
+    with pytest.raises(FrozenInstanceError):
+        payload.site_digest = "f" * 64
+
+    descriptor = payload.result_descriptor
+    descriptor["schema"] = "changed"
+    assert payload.result_descriptor["schema"] == RUN_REF_RESULT_CONTRACT_SCHEMA
+
+    input_descriptors = payload.input_type_descriptors
+    input_descriptors[0][1]["kind"] = "changed"
+    assert payload.input_type_descriptors[0][1]["kind"] == "primitive"
+
+    assert _substitute_wcc_payload(payload, {}) is payload
+
+
+def test_wcc_run_ref_elaboration_rejects_inconsistent_typed_metadata() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, session, _ = _typed_run_ref_for_wcc(expr)
+    metadata = metadata_for_run_ref_expr(
+        expr,
+        result_type=typed.type_ref,
+        session_state=session.typecheck,
+    )
+    assert metadata is not None
+    rows = session.typecheck.run_ref_metadata_by_expr_key[metadata.expression_key]
+    rows[metadata.type_signature] = replace(metadata, site_digest="f" * 64)
+
+    with pytest.raises(TypecheckSessionStateCollisionError):
+        _wcc_run_ref_perform(typed, type_env=type_env)
+
+
+def test_wcc_path_payload_preserves_omitted_vs_explicit_value_refinement() -> None:
+    omitted = _mode_two_expr()
+    explicit = _mode_two_expr(returns_type_name="Value")
+
+    omitted_typed, omitted_env, _, _ = _typed_run_ref_for_wcc(omitted)
+    explicit_typed, explicit_env, _, _ = _typed_run_ref_for_wcc(explicit)
+    omitted_payload = _wcc_run_ref_perform(
+        omitted_typed,
+        type_env=omitted_env,
+    ).operation_payload
+    explicit_payload = _wcc_run_ref_perform(
+        explicit_typed,
+        type_env=explicit_env,
+    ).operation_payload
+
+    assert isinstance(omitted_payload, WccRunRefPayload)
+    assert isinstance(explicit_payload, WccRunRefPayload)
+    assert omitted_payload.program.return_refinement is None
+    assert explicit_payload.program.return_refinement == {
+        "kind": "primitive",
+        "name": "Value",
+    }
+    assert omitted_payload.program.record != explicit_payload.program.record
+
+    with pytest.raises(ValueError):
+        WccRunRefPayload(
+            source=omitted_payload.source,
+            program=type(omitted_payload.program)(
+                path=omitted_payload.program.path,
+                entry_name=omitted_payload.program.entry_name,
+                return_refinement={"kind": "primitive", "name": "String"},
+            ),
+            site_digest=omitted_payload.site_digest,
+            generated_result_type=omitted_payload.generated_result_type,
+            result_descriptor=omitted_payload.result_descriptor,
+            result_digest=omitted_payload.result_digest,
+            input_type_descriptors=omitted_payload.input_type_descriptors,
+        )
+
+
+def test_wcc_run_ref_elaborates_in_let_and_match_arm_positions() -> None:
+    run_ref = _mode_one_expr()
+    let_expr = LetStarExpr(
+        bindings=(("child_result", run_ref),),
+        body=NameExpr("child_result", run_ref.span, FORM_PATH),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    let_typed, let_env, _, _ = _typed_run_ref_for_wcc(let_expr)
+    let_body = _wcc_run_ref_body(let_typed, type_env=let_env)
+
+    assert isinstance(let_body, WccLet)
+    assert isinstance(let_body.bound_value, WccPerform)
+    assert let_body.bound_value.perform_kind == "run_ref"
+
+    union_type = _transportable_types(run_ref.span)[2]
+    match_expr = MatchExpr(
+        subject=NameExpr("subject", run_ref.span, FORM_PATH),
+        arms=(
+            MatchArm(
+                variant_name="OK",
+                binding_name="case",
+                body=run_ref,
+                span=run_ref.span,
+                form_path=FORM_PATH,
+            ),
+        ),
+        span=run_ref.span,
+        form_path=FORM_PATH,
+    )
+    match_typed, match_env, _, value_env = _typed_run_ref_for_wcc(
+        match_expr,
+        extra_types=(union_type,),
+        value_env={"subject": union_type},
+    )
+    match_body = _wcc_run_ref_body(
+        match_typed,
+        type_env=match_env,
+        value_env=value_env,
+    )
+
+    assert isinstance(match_body, WccCase)
+    assert len(match_body.arms) == 1
+    assert isinstance(match_body.arms[0].body, WccLet)
+    assert isinstance(match_body.arms[0].body.bound_value, WccPerform)
+    assert match_body.arms[0].body.bound_value.perform_kind == "run_ref"

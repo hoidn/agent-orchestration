@@ -473,6 +473,110 @@ def metadata_for_run_ref_expr(
     return metadata if metadata.expression_key == _sha256(_expression_payload(expr)) else None
 
 
+def resolve_run_ref_site_metadata(
+    expr: RunRefExpr,
+    *,
+    result_type: TypeRef,
+    session_state,
+) -> RunRefSiteMetadata:
+    """Resolve one exact run-ref site while cross-checking both session indexes."""
+
+    if not isinstance(expr, RunRefExpr):
+        raise TypeError("run-ref metadata resolution requires RunRefExpr")
+    if session_state is None:
+        raise TypecheckSessionStateCollisionError(
+            "run-ref metadata session is unavailable"
+        )
+    expression_key = _sha256(_expression_payload(expr))
+    generated_name = getattr(result_type, "name", None)
+    if not isinstance(generated_name, str) or not generated_name:
+        raise TypecheckSessionStateCollisionError(
+            "run-ref result type has no generated metadata identity"
+        )
+    named = session_state.run_ref_metadata_by_name.get(generated_name)
+    if not isinstance(named, RunRefSiteMetadata):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref metadata is missing for {generated_name!r}"
+        )
+    if (
+        named.expression_key != expression_key
+        or named.generated_type_name != generated_name
+        or _type_identity(named.type_ref) != _type_identity(result_type)
+    ):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref named metadata is inconsistent for {generated_name!r}"
+        )
+
+    signature_rows = session_state.run_ref_metadata_by_expr_key.get(
+        expression_key
+    )
+    if not isinstance(signature_rows, dict):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref expression metadata is missing for {generated_name!r}"
+        )
+    matching = tuple(
+        candidate
+        for signature, candidate in signature_rows.items()
+        if (
+            isinstance(signature, str)
+            and isinstance(candidate, RunRefSiteMetadata)
+            and signature == candidate.type_signature
+            and candidate.generated_type_name == generated_name
+            and _type_identity(candidate.type_ref) == _type_identity(result_type)
+        )
+    )
+    if len(matching) != 1:
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref expression metadata is ambiguous for {generated_name!r}"
+        )
+    if not run_ref_metadata_equivalent(named, matching[0]):
+        raise TypecheckSessionStateCollisionError(
+            f"run-ref metadata indexes disagree for {generated_name!r}"
+        )
+    return named
+
+
+def resolve_unique_run_ref_site_metadata(
+    expr: RunRefExpr,
+    *,
+    session_state,
+) -> RunRefSiteMetadata:
+    """Resolve the sole typed result for an expression during WCC inference."""
+
+    if not isinstance(expr, RunRefExpr):
+        raise TypeError("run-ref metadata resolution requires RunRefExpr")
+    if session_state is None:
+        raise TypecheckSessionStateCollisionError(
+            "run-ref metadata session is unavailable during WCC inference"
+        )
+    expression_key = _sha256(_expression_payload(expr))
+    signature_rows = session_state.run_ref_metadata_by_expr_key.get(
+        expression_key
+    )
+    if not isinstance(signature_rows, dict):
+        raise TypecheckSessionStateCollisionError(
+            "run-ref expression metadata is missing during WCC inference"
+        )
+    candidates = tuple(
+        candidate
+        for signature, candidate in signature_rows.items()
+        if (
+            isinstance(signature, str)
+            and isinstance(candidate, RunRefSiteMetadata)
+            and signature == candidate.type_signature
+        )
+    )
+    if len(candidates) != 1:
+        raise TypecheckSessionStateCollisionError(
+            "run-ref expression metadata is ambiguous during WCC inference"
+        )
+    return resolve_run_ref_site_metadata(
+        expr,
+        result_type=candidates[0].type_ref,
+        session_state=session_state,
+    )
+
+
 def register_all_known_run_ref_types(type_env, *, session_state) -> None:
     """Hydrate another type environment with every known run-ref carrier."""
 
