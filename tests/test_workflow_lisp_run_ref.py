@@ -2,15 +2,30 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import get_args
 
 import pytest
 
-from orchestrator.workflow.run_ref.contracts import SetupCommand, SetupPolicy
+from orchestrator.workflow.run_ref.config import (
+    LiteralBinding,
+    ReferenceBinding,
+    RunRefStaticConfig,
+)
+from orchestrator.workflow.run_ref.contracts import (
+    SetupCommand,
+    SetupPolicy,
+    VerifiedCompilerRuntimeIdentity,
+)
+from orchestrator.workflow.state_layout import (
+    GeneratedPathResumeScope,
+    GeneratedPathSemanticRole,
+)
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler_session import (
     CompilerSession,
     ElaborationSessionState,
+    LoweringSessionState,
 )
 from orchestrator.workflow_lisp.definitions import (
     PathDef,
@@ -38,6 +53,7 @@ from orchestrator.workflow_lisp.expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    PureOpExpr,
     ProcedureCallExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
@@ -45,11 +61,17 @@ from orchestrator.workflow_lisp.expressions import (
 )
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
 from orchestrator.workflow_lisp.form_registry import get_form_spec
+from orchestrator.workflow_lisp.lowering.run_ref import (
+    LowerableRunRef,
+    LowerableRunRefInput,
+    _lower_run_ref_operation,
+)
 from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.run_ref_result_contract import (
     GeneratedRunRefResultContract,
     RUN_REF_RESULT_CONTRACT_SCHEMA,
+    derive_run_ref_output_bundle_fields,
     derive_run_ref_result_contract,
 )
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
@@ -2711,8 +2733,12 @@ def _wcc_run_ref_body(typed, *, type_env, value_env=None):
     )
 
 
-def _wcc_run_ref_perform(typed, *, type_env) -> WccPerform:
-    body = _wcc_run_ref_body(typed, type_env=type_env)
+def _wcc_run_ref_perform(typed, *, type_env, value_env=None) -> WccPerform:
+    body = _wcc_run_ref_body(
+        typed,
+        type_env=type_env,
+        value_env=value_env,
+    )
     assert isinstance(body, WccLet)
     assert isinstance(body.bound_value, WccPerform)
     assert isinstance(body.body, WccHalt)
@@ -2916,3 +2942,273 @@ def test_wcc_run_ref_elaborates_in_let_and_match_arm_positions() -> None:
     assert isinstance(match_body.arms[0].body, WccLet)
     assert isinstance(match_body.arms[0].body.bound_value, WccPerform)
     assert match_body.arms[0].body.bound_value.perform_kind == "run_ref"
+
+
+def _lowerable_run_ref(typed, *, type_env, value_env=None) -> LowerableRunRef:
+    assert isinstance(typed.expr, RunRefExpr)
+    perform = _wcc_run_ref_perform(
+        typed,
+        type_env=type_env,
+        value_env=value_env,
+    )
+    assert isinstance(perform.operation_payload, WccRunRefPayload)
+    metadata = metadata_for_run_ref_expr(
+        typed.expr,
+        result_type=typed.type_ref,
+        session_state=type_env.session_state,
+    )
+    assert metadata is not None
+    descriptors = dict(perform.operation_payload.input_type_descriptors)
+    return LowerableRunRef(
+        payload=perform.operation_payload,
+        inputs=tuple(
+            LowerableRunRefInput(
+                name=name,
+                value_expr=value_expr,
+                type_ref=input_type,
+                type_descriptor=descriptors[name],
+            )
+            for (name, value_expr), (_, input_type) in zip(
+                typed.expr.inputs,
+                metadata.input_types,
+                strict=True,
+            )
+        ),
+        span=typed.expr.span,
+        form_path=typed.expr.form_path,
+        expansion_stack=typed.expr.expansion_stack,
+    )
+
+
+def _run_ref_lowering_context(type_env, *, lowering_session=None):
+    return SimpleNamespace(
+        workflow_name="parent",
+        step_name_prefix="parent__candidate",
+        lowering_schema_version=2,
+        type_env=type_env,
+        lowering_session=lowering_session or LoweringSessionState(),
+        generated_path_allocations=[],
+        generated_path_spans={},
+        step_spans={},
+        origin_notes=(),
+        normalize_generated_step_id=lambda name: name,
+    )
+
+
+def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(
+            ("literal", LiteralExpr("task", "string", span, FORM_PATH)),
+            ("prior", NameExpr("prior", span, FORM_PATH)),
+        )
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(
+            ("literal", PrimitiveTypeRef("String")),
+            ("prior", PrimitiveTypeRef("String")),
+        ),
+        value_env={"prior": PrimitiveTypeRef("String")},
+    )
+    context = _run_ref_lowering_context(type_env)
+    identity = VerifiedCompilerRuntimeIdentity("sha256:" + "c" * 64)
+
+    steps, terminal = _lower_run_ref_operation(
+        _lowerable_run_ref(
+            typed,
+            type_env=type_env,
+            value_env=value_env,
+        ),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={"prior": "root.steps.seed.artifacts.value"},
+        identity_provider=lambda: identity,
+    )
+
+    assert len(steps) == 1
+    step = steps[0]
+    assert isinstance(step["run_ref"], RunRefStaticConfig)
+    config = step["run_ref"]
+    assert config.compiler_runtime_identity_digest == identity.digest
+    assert tuple(row.name for row in config.inputs) == ("literal", "prior")
+    assert config.inputs[0].binding == LiteralBinding("task")
+    assert config.inputs[1].binding == ReferenceBinding(
+        "root.steps.seed.artifacts.value"
+    )
+    assert len(context.generated_path_allocations) == 1
+    allocation = context.generated_path_allocations[0]
+    assert allocation.semantic_role == GeneratedPathSemanticRole.RUN_REF_RESULT_BUNDLE
+    assert allocation.resume_scope == GeneratedPathResumeScope.STEP_VISIT
+    assert step["output_bundle"]["path"] == allocation.concrete_path_template
+    assert tuple(field["name"] for field in step["output_bundle"]["fields"]) == tuple(
+        name.removeprefix("return__") for name in terminal.output_refs
+    )
+    assert allocation.generated_input_name in terminal.hidden_inputs
+    assert terminal.checkpoint_identity_component_digest is None
+
+
+def test_run_ref_leaf_caches_or_accepts_injected_compiler_identity() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+    context = _run_ref_lowering_context(type_env)
+    calls = 0
+
+    def identity_provider():
+        nonlocal calls
+        calls += 1
+        return VerifiedCompilerRuntimeIdentity("sha256:" + "d" * 64)
+
+    for _ in range(2):
+        _lower_run_ref_operation(
+            lowerable,
+            result_type=typed.type_ref,
+            context=context,
+            local_values={},
+            identity_provider=identity_provider,
+        )
+    assert calls == 1
+    assert context.lowering_session.run_ref_compiler_runtime_identity_digest == (
+        "sha256:" + "d" * 64
+    )
+
+    preseeded = _run_ref_lowering_context(
+        type_env,
+        lowering_session=LoweringSessionState(
+            run_ref_compiler_runtime_identity_digest="sha256:" + "e" * 64
+        ),
+    )
+    _lower_run_ref_operation(
+        lowerable,
+        result_type=typed.type_ref,
+        context=preseeded,
+        local_values={},
+        identity_provider=lambda: pytest.fail("preseeded identity was recomputed"),
+    )
+
+
+def test_run_ref_output_bundle_projection_matches_generated_terminal_shape() -> None:
+    expr = _mode_one_expr()
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
+    contract = derive_run_ref_result_contract(typed.type_ref, type_env=type_env)
+
+    fields = derive_run_ref_output_bundle_fields(contract)
+
+    assert fields
+    assert fields[0]["name"] == "value"
+    assert fields[0]["json_pointer"] == "/value"
+    changed_files = next(
+        field
+        for field in fields
+        if field["name"] == "workspace_delta__changed_files"
+    )
+    assert changed_files["type"] == "list"
+    assert changed_files["items"] == {"type": "value"}
+    assert any(field["name"] == "accounting__provider_attempts" for field in fields)
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_output_bundle_projection_accepts_every_transportable_child_root(
+    return_index: int,
+) -> None:
+    expr = _mode_one_expr()
+    value_type = _transportable_types(expr.span)[return_index]
+    contract, _, _ = _run_ref_result_contract(expr, value_type)
+
+    fields = derive_run_ref_output_bundle_fields(contract)
+
+    assert any(field["name"].startswith("value") for field in fields)
+    assert any(field["name"].startswith("workspace_delta__") for field in fields)
+    assert any(field["name"].startswith("accounting__") for field in fields)
+
+
+@pytest.mark.parametrize("value_kind", ("composite", "complex", "effectful"))
+def test_run_ref_leaf_rejects_values_deferred_to_structural_binding_slice(
+    value_kind: str,
+) -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(("value", LiteralExpr("ok", "string", span, FORM_PATH)),)
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", PrimitiveTypeRef("String")),),
+    )
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+    deferred_expr = {
+        "composite": ListExpr(
+            items=(LiteralExpr("ok", "string", span, FORM_PATH),),
+            element_type_ref=PrimitiveTypeRef("String"),
+            span=span,
+            form_path=FORM_PATH,
+        ),
+        "complex": PureOpExpr(
+            operator="string/concat",
+            args=(LiteralExpr("ok", "string", span, FORM_PATH),),
+            span=span,
+            form_path=FORM_PATH,
+        ),
+        "effectful": _mode_one_expr(),
+    }[value_kind]
+    lowerable = replace(
+        lowerable,
+        inputs=(replace(lowerable.inputs[0], value_expr=deferred_expr),),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _lower_run_ref_operation(
+            lowerable,
+            result_type=typed.type_ref,
+            context=_run_ref_lowering_context(type_env),
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "f" * 64
+            ),
+        )
+    assert excinfo.value.diagnostics[0].code == "run_ref_input_binding_unsupported"
+
+
+def test_run_ref_leaf_rejects_metadata_order_or_type_drift() -> None:
+    span = _mode_one_expr().span
+    expr = _mode_one_expr(
+        inputs=(("value", LiteralExpr("ok", "string", span, FORM_PATH)),)
+    )
+    typed, type_env, _, _ = _typed_run_ref_for_wcc(
+        expr,
+        params=(("value", PrimitiveTypeRef("String")),),
+    )
+    lowerable = _lowerable_run_ref(typed, type_env=type_env)
+
+    with pytest.raises(ValueError, match="metadata"):
+        _lower_run_ref_operation(
+            replace(
+                lowerable,
+                inputs=(replace(lowerable.inputs[0], name="renamed"),),
+            ),
+            result_type=typed.type_ref,
+            context=_run_ref_lowering_context(type_env),
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )
+
+    with pytest.raises(ValueError, match="metadata"):
+        _lower_run_ref_operation(
+            replace(
+                lowerable,
+                inputs=(
+                    replace(
+                        lowerable.inputs[0],
+                        type_descriptor={"kind": "primitive", "name": "Int"},
+                    ),
+                ),
+            ),
+            result_type=typed.type_ref,
+            context=_run_ref_lowering_context(type_env),
+            local_values={},
+            identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+                "sha256:" + "a" * 64
+            ),
+        )

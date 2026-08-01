@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
+import re
 from typing import Any
 
 from orchestrator.workflow.run_ref.contracts import (
@@ -155,3 +156,120 @@ def derive_run_ref_result_contract(
         descriptor,
         type_ref=result_type_ref,
     )
+
+
+def derive_run_ref_output_bundle_fields(
+    contract: GeneratedRunRefResultContract,
+) -> list[dict[str, Any]]:
+    """Project the exact run-ref envelope into runtime bundle artifact fields.
+
+    The generated result descriptor remains the authority for recursive value
+    validation. This projection only exposes the same record leaves that
+    lowering publishes through ``_record_output_refs``; collection elements
+    that contain records or unions use the transportable ``value`` schema
+    inside the collection rather than stretching the generic result encoder.
+    """
+
+    if not isinstance(contract, GeneratedRunRefResultContract):
+        raise TypeError("run-ref output bundle fields require a generated contract")
+    descriptor = contract.descriptor
+    validate_run_ref_result_descriptor(
+        descriptor,
+        expected_generated_name=contract.type_ref.name,
+        expected_digest=contract.digest,
+    )
+    fields: list[dict[str, Any]] = []
+
+    def visit(node: Mapping[str, Any], *, path: tuple[str, ...]) -> None:
+        if node.get("kind") == "record":
+            raw_fields = node.get("fields")
+            if not isinstance(raw_fields, list):
+                raise ValueError("run-ref record descriptor fields are malformed")
+            for field in raw_fields:
+                if not isinstance(field, Mapping):
+                    raise ValueError("run-ref record descriptor field is malformed")
+                name = field.get("name")
+                field_type = field.get("type")
+                if not isinstance(name, str) or not isinstance(field_type, Mapping):
+                    raise ValueError("run-ref record descriptor field is malformed")
+                visit(field_type, path=(*path, name))
+            return
+        fields.append(
+            {
+                "name": "__".join(path),
+                "json_pointer": "/" + "/".join(
+                    part.replace("~", "~0").replace("/", "~1")
+                    for part in path
+                ),
+                **_run_ref_output_schema(node),
+            }
+        )
+
+    envelope = descriptor.get("envelope")
+    if not isinstance(envelope, Mapping) or envelope.get("kind") != "record":
+        raise ValueError("run-ref result envelope descriptor is malformed")
+    visit(envelope, path=())
+    if not fields or any(not field["name"] for field in fields):
+        raise ValueError("run-ref output bundle projection is empty")
+    return fields
+
+
+def _run_ref_output_schema(descriptor: Mapping[str, Any]) -> dict[str, Any]:
+    kind = descriptor.get("kind")
+    if kind == "primitive":
+        primitive = descriptor.get("name")
+        return {
+            "type": {
+                "String": "string",
+                "Int": "integer",
+                "Float": "float",
+                "Bool": "bool",
+                "Value": "value",
+            }.get(primitive, "string")
+        }
+    if kind == "enum":
+        allowed = descriptor.get("allowed")
+        if not isinstance(allowed, list):
+            raise ValueError("run-ref enum descriptor is malformed")
+        return {"type": "enum", "allowed": list(allowed)}
+    if kind == "path":
+        under = descriptor.get("under")
+        must_exist = descriptor.get("must_exist_target")
+        if not isinstance(under, str) or not isinstance(must_exist, bool):
+            raise ValueError("run-ref path descriptor is malformed")
+        return {
+            "type": "relpath",
+            "under": under,
+            "must_exist_target": must_exist,
+        }
+    if kind == "optional":
+        item = descriptor.get("item")
+        if not isinstance(item, Mapping):
+            raise ValueError("run-ref optional descriptor is malformed")
+        return {"type": "optional", "item": _run_ref_nested_output_schema(item)}
+    if kind == "list":
+        item = descriptor.get("item")
+        if not isinstance(item, Mapping):
+            raise ValueError("run-ref list descriptor is malformed")
+        return {"type": "list", "items": _run_ref_nested_output_schema(item)}
+    if kind == "map":
+        key = descriptor.get("key")
+        value = descriptor.get("value")
+        if not isinstance(key, Mapping) or not isinstance(value, Mapping):
+            raise ValueError("run-ref map descriptor is malformed")
+        return {
+            "type": "map",
+            "keys": _run_ref_nested_output_schema(key),
+            "values": _run_ref_nested_output_schema(value),
+        }
+    if kind in {"record", "union", "variant_case"}:
+        return {"type": "value"}
+    raise ValueError("run-ref output descriptor kind is unsupported")
+
+
+def _run_ref_nested_output_schema(
+    descriptor: Mapping[str, Any],
+) -> dict[str, Any]:
+    if descriptor.get("kind") in {"record", "union", "variant_case"}:
+        return {"type": "value"}
+    return _run_ref_output_schema(descriptor)

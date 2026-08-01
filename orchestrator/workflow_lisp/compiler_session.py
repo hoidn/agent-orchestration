@@ -95,6 +95,7 @@ class LoweringSessionState:
     intrinsic_form_lowering_counts: dict[str, int] = field(
         default_factory=dict
     )
+    run_ref_compiler_runtime_identity_digest: str | None = None
 
 
 @dataclass
