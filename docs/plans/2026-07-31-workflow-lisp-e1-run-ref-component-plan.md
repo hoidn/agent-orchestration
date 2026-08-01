@@ -278,6 +278,39 @@ executable/runtime-plan/projection validators. A behavioral test patches the
 frontend reader/compiler to hard-fail and proves mode 1 never recompiles or
 reads mutable controller source.
 
+### Acyclic capsule-binding decision
+
+Task 5 uses one build-level capsule catalog for the union of every mode-1
+target reachable from the selected entry, following both ordinary call edges
+and nested mode-1 `run-ref` target edges. Canonical workflow names deduplicate
+that graph, so self- and mutually-referential target declarations do not make
+the serialized catalog recursive. Every reachable mode-1
+`RunRefStepConfig` in the controller artifact carries the same typed capsule
+binding and therefore the same expected capsule digest; mode 2 carries none.
+
+The capsule's pickle and canonical IR digest vector use a narrowly defined
+transport-normalized graph in which only that operational capsule binding is
+absent. No source, static `RunRefStaticConfig`, input, result, policy,
+checkpoint, call, asset, or other executable field is normalized away. The
+manifest identifies the normalization contract and hashes the unbound pickle,
+exact closure bytes, and normalized IR views. The outer parent config—not the
+adjacent manifest—is the authority for the expected capsule digest. Decode
+checks the size and that parent-bound digest before unpickling, requires every
+decoded mode-1 binding to be absent, injects the already-verified binding into
+all decoded mode-1 configs, refreezes the graph, and then runs the ordinary
+cross-validators. Recomputing the normalized views after injection must
+reproduce the manifest digests exactly.
+
+`RunRefStepConfig` receives a canonical step-config digest over the unchanged
+`RunRefStaticConfig.digest` plus the optional typed capsule binding. Task 4's
+lexical checkpoint identity remains the static-config digest and is not
+weakened or made self-referential; Task 7's ledger and committed-result reuse
+must additionally bind and validate the full step-config digest. Thus changing
+the capsule invalidates runtime reuse without asking the checkpoint record to
+hash itself. A capsule found only beside the pickle, a prebound config inside
+the pickle, or any disagreement between the outer binding and injected nested
+bindings fails closed.
+
 ## Mode-2 diagnostics API
 
 E1 adds an opt-in machine surface to the existing `orchestrator compile`
