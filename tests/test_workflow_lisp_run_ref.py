@@ -3,13 +3,15 @@ from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 import subprocess
 import sys
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import get_args
 
 import pytest
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow import core_ast as core_ast_module
+from orchestrator.workflow import executable_ir as executable_ir_module
+from orchestrator.workflow import lowering as workflow_lowering
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
@@ -27,6 +29,7 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathResumeScope,
     GeneratedPathSemanticRole,
 )
+from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow.surface_ast import (
     SurfaceStep,
     SurfaceStepCommonConfig,
@@ -3507,6 +3510,134 @@ def test_run_ref_core_json_revalidates_config_authority() -> None:
 
     with pytest.raises(ValueError, match="authority"):
         core_ast_module.workflow_core_ast_to_json(core)
+
+
+def _executable_run_ref_workflow(*, version: str = "2.24"):
+    mapping = _surface_mapping_with_run_ref(
+        _surface_run_ref_config(),
+        version=version,
+    )
+    mapping["steps"][0]["output_bundle"] = {
+        "value": {"kind": "scalar", "type": "string"}
+    }
+    surface = elaborate_surface_workflow(
+        mapping,
+        workflow_path=Path("/tmp/generated-run-ref-executable.orc"),
+        imported_bundles={},
+        allow_generated_step_kinds=True,
+    )
+    assert surface is not None
+    executable, projection = workflow_lowering.lower_surface_workflow(surface)
+    config = surface.steps[0].run_ref
+    assert type(config) is RunRefStaticConfig
+    return surface, executable, projection, config
+
+
+def test_run_ref_executable_lowering_preserves_typed_config_and_common() -> None:
+    surface, executable, _, config = _executable_run_ref_workflow()
+    [node] = executable.nodes.values()
+
+    assert node.kind is executable_ir_module.ExecutableNodeKind.RUN_REF
+    assert type(node.execution_config) is executable_ir_module.RunRefStepConfig
+    assert node.execution_config.run_ref is config
+    assert (
+        node.execution_config.common.output_bundle
+        == surface.steps[0].common.output_bundle
+    )
+    assert workflow_lowering._report_kind_for_node(node) == "run_ref"
+
+
+def test_run_ref_executable_json_uses_only_canonical_config_record() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    executable_ir_module.validate_executable_workflow(executable)
+
+    [node] = executable_ir_module.workflow_executable_ir_to_json(executable)[
+        "nodes"
+    ].values()
+    payload = node["execution_config"]["run_ref"]
+
+    assert payload == config.record
+    assert "digest" not in payload
+    assert "_canonical_bytes" not in repr(node)
+    assert "_result_descriptor_json" not in repr(node)
+
+
+def test_run_ref_executable_rejects_kind_config_mismatch_both_directions() -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+    [(node_id, node)] = executable.nodes.items()
+    common = node.execution_config.common
+    mismatches = (
+        replace(
+            node,
+            kind=executable_ir_module.ExecutableNodeKind.COMMAND,
+        ),
+        replace(
+            node,
+            execution_config=executable_ir_module.AssertStepConfig(
+                common=common,
+            ),
+        ),
+    )
+
+    for mismatched in mismatches:
+        invalid = replace(
+            executable,
+            nodes=MappingProxyType({node_id: mismatched}),
+        )
+        with pytest.raises(WorkflowValidationError, match="kind/config mismatch"):
+            executable_ir_module.validate_executable_workflow(invalid)
+
+
+def test_run_ref_executable_validation_rejects_authority_tampering() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    object.__setattr__(config, "site_digest", "0" * 64)
+
+    with pytest.raises(WorkflowValidationError, match="executable_ir_invalid"):
+        executable_ir_module.validate_executable_workflow(executable)
+    with pytest.raises(ValueError, match="authority"):
+        executable_ir_module.workflow_executable_ir_to_json(executable)
+
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    ("2.23", "2.24.-1", "3.-999", "02.24"),
+)
+def test_run_ref_executable_requires_canonical_target_2_24_or_later(
+    invalid_version: str,
+) -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+
+    with pytest.raises(WorkflowValidationError, match="target DSL 2.24"):
+        executable_ir_module.validate_executable_workflow(
+            replace(executable, version=invalid_version)
+        )
+
+
+@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0"))
+def test_run_ref_executable_accepts_canonical_target_2_24_or_later(
+    version: str,
+) -> None:
+    _, executable, _, _ = _executable_run_ref_workflow()
+
+    executable_ir_module.validate_executable_workflow(
+        replace(executable, version=version)
+    )
+
+
+def test_run_ref_runtime_step_preserves_typed_config_carrier() -> None:
+    _, executable, _, config = _executable_run_ref_workflow()
+    [node] = executable.nodes.values()
+
+    runtime_step = RuntimeStep(
+        node=node,
+        name=node.presentation_name,
+        step_id=node.step_id,
+        target_dsl_version=executable.version,
+    )
+
+    assert runtime_step["run_ref"] is config
+    assert "run_ref" in tuple(runtime_step)
+    assert runtime_step.to_compat_dict()["run_ref"] is config
 
 
 def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:

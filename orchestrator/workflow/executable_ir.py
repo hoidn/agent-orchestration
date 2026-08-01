@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
+import re
 from typing import Any, Mapping, NoReturn, Optional, cast
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
@@ -51,6 +52,10 @@ from .provider_peer_group.paths import (
     PeerGroupPathPlan,
     derive_provider_peer_group_paths,
 )
+from .run_ref.config import (
+    RunRefStaticConfig,
+    validate_run_ref_static_config_authority,
+)
 from .pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -72,6 +77,13 @@ def _serialize_provider_call_policy(
     return canonical_workflow_call_policy(policy)
 
 
+def _serialize_run_ref_static_config(
+    config: RunRefStaticConfig,
+) -> dict[str, Any]:
+    validate_run_ref_static_config_authority(config)
+    return config.record
+
+
 class WorkflowRegion(str, Enum):
     """Top-level execution region membership."""
 
@@ -86,6 +98,7 @@ class ExecutableNodeKind(str, Enum):
     PROVIDER = "provider"
     PROVIDER_SUPERVISION = "provider_supervision"
     PROVIDER_PEER_GROUP = "provider_peer_group"
+    RUN_REF = "run_ref"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -408,6 +421,21 @@ class ProviderPeerGroupStepConfig:
 
 
 @dataclass(frozen=True)
+class RunRefStepConfig:
+    """Closed executable config for one pinned child-run reference."""
+
+    common: StepCommonConfig
+    run_ref: RunRefStaticConfig = field(
+        metadata={"json_serializer": _serialize_run_ref_static_config},
+    )
+
+    def __post_init__(self) -> None:
+        if type(self.common) is not StepCommonConfig:
+            raise TypeError("run_ref executable common config must be StepCommonConfig")
+        validate_run_ref_static_config_authority(self.run_ref)
+
+
+@dataclass(frozen=True)
 class AdjudicatedProviderStepConfig:
     """Executable adjudicated-provider step config."""
 
@@ -531,6 +559,7 @@ ExecutableStepConfig = (
     | ProviderStepConfig
     | ProviderSupervisionStepConfig
     | ProviderPeerGroupStepConfig
+    | RunRefStepConfig
     | AdjudicatedProviderStepConfig
     | WaitForStepConfig
     | AssertStepConfig
@@ -717,6 +746,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     ProviderPeerGroupStepConfig,
+    RunRefStepConfig,
     AdjudicatedProviderStepConfig,
     WaitForStepConfig,
     AssertStepConfig,
@@ -743,6 +773,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.PROVIDER: ProviderStepConfig,
     ExecutableNodeKind.PROVIDER_SUPERVISION: ProviderSupervisionStepConfig,
     ExecutableNodeKind.PROVIDER_PEER_GROUP: ProviderPeerGroupStepConfig,
+    ExecutableNodeKind.RUN_REF: RunRefStepConfig,
     ExecutableNodeKind.ADJUDICATED_PROVIDER: AdjudicatedProviderStepConfig,
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
@@ -1026,6 +1057,25 @@ def _validate_node_shape(
                 workflow_name=workflow_name,
                 node=node,
             )
+        if isinstance(node.execution_config, RunRefStepConfig):
+            try:
+                validate_run_ref_static_config_authority(
+                    node.execution_config.run_ref
+                )
+            except (TypeError, ValueError) as exc:
+                _raise_executable_ir_invalid(
+                    "executable_ir_invalid: run_ref config authority is "
+                    f"invalid: {exc}",
+                    workflow_name=workflow_name,
+                    node=node,
+                )
+            if not _target_dsl_at_least_2_24(target_dsl_version):
+                _raise_executable_ir_invalid(
+                    "executable_ir_invalid: run_ref requires target DSL 2.24 "
+                    "or later",
+                    workflow_name=workflow_name,
+                    node=node,
+                )
     elif isinstance(node, CallBoundaryNode):
         if not isinstance(node.execution_config, CallStepConfig):
             _raise_executable_ir_invalid(
@@ -1693,6 +1743,17 @@ def _validate_ir_payload(
     known_nodes: Mapping[str, ExecutableNode],
     current_node: ExecutableNode | None,
 ) -> None:
+    if type(value) is RunRefStaticConfig:
+        try:
+            validate_run_ref_static_config_authority(value)
+        except (TypeError, ValueError) as exc:
+            _raise_executable_ir_invalid(
+                "executable_ir_invalid: run_ref config authority is invalid: "
+                f"{exc}",
+                workflow_name=workflow_name,
+                node=current_node,
+            )
+        return
     if value is None or isinstance(value, (str, int, float, bool, Enum, Path)):
         return
     if isinstance(value, Mapping):
@@ -1753,6 +1814,21 @@ def _validate_ir_payload(
         workflow_name=workflow_name,
         node=current_node,
     )
+
+
+_CANONICAL_TARGET_COMPONENT_RE = re.compile(r"(?:0|[1-9][0-9]*)\Z")
+
+
+def _target_dsl_at_least_2_24(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    raw_parts = value.split(".")
+    if len(raw_parts) < 2 or any(
+        _CANONICAL_TARGET_COMPONENT_RE.fullmatch(part) is None
+        for part in raw_parts
+    ):
+        return False
+    return tuple(int(part) for part in raw_parts) >= (2, 24)
 
 
 def _validate_bound_address(

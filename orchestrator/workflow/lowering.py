@@ -46,6 +46,7 @@ from .executable_ir import (
     ProviderSupervisionStepConfig,
     PureProjectionStepConfig,
     ResourceTransitionStepConfig,
+    RunRefStepConfig,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
@@ -935,6 +936,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.PROVIDER: ExecutableNodeKind.PROVIDER,
         SurfaceStepKind.PROVIDER_SUPERVISION: ExecutableNodeKind.PROVIDER_SUPERVISION,
         SurfaceStepKind.PROVIDER_PEER_GROUP: ExecutableNodeKind.PROVIDER_PEER_GROUP,
+        SurfaceStepKind.RUN_REF: ExecutableNodeKind.RUN_REF,
         SurfaceStepKind.ADJUDICATED_PROVIDER: ExecutableNodeKind.ADJUDICATED_PROVIDER,
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
@@ -1107,6 +1109,11 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
                 member_ids=member_ids,
             ),
         )
+    if step.kind is SurfaceStepKind.RUN_REF:
+        return RunRefStepConfig(
+            common=common,
+            run_ref=step.run_ref,
+        )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return AdjudicatedProviderStepConfig(
             common=common,
@@ -1204,6 +1211,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.PROVIDER: "provider",
         ExecutableNodeKind.PROVIDER_SUPERVISION: "provider_supervision",
         ExecutableNodeKind.PROVIDER_PEER_GROUP: "provider_peer_group",
+        ExecutableNodeKind.RUN_REF: "run_ref",
         ExecutableNodeKind.ADJUDICATED_PROVIDER: "adjudicated_provider",
         ExecutableNodeKind.COMMAND: "command",
         ExecutableNodeKind.WAIT_FOR: "wait_for",
