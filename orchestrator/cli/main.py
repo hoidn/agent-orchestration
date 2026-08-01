@@ -278,6 +278,11 @@ def create_parser() -> argparse.ArgumentParser:
         help='Path to workflow .orc file'
     )
     _add_frontend_flags(compile_parser, include_emit_artifact_exports=True)
+    compile_parser.add_argument(
+        '--diagnostics-json',
+        action='store_true',
+        help='Emit one versioned machine-readable compile diagnostics document'
+    )
 
     explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
     explain_parser.add_argument(

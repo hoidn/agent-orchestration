@@ -203,6 +203,170 @@ def test_serialize_diagnostic_includes_phase_location_and_notes() -> None:
     assert serialize_diagnostics((diagnostic,)) == [payload]
 
 
+def test_compile_diagnostics_document_has_closed_accepted_and_rejected_shapes() -> None:
+    diagnostics_module = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    build_document = getattr(
+        diagnostics_module,
+        "build_compile_diagnostics_document",
+    )
+    build_identity = getattr(
+        diagnostics_module,
+        "build_normalized_program_identity",
+    )
+    span = SourceSpan(
+        start=SourcePosition(path="candidate.orc", line=4, column=2, offset=10),
+        end=SourcePosition(path="candidate.orc", line=4, column=8, offset=16),
+    )
+    diagnostic = LispFrontendDiagnostic(
+        code="type_unknown",
+        message="unknown type `Missing`",
+        span=span,
+        phase="typecheck",
+    )
+
+    rejected = build_document(
+        status="rejected",
+        diagnostics=(diagnostic,),
+    )
+    selected_entry = {
+        "selected_name": "run",
+        "canonical_name": "candidate::run",
+        "signature": {
+            "parameters": [
+                {"name": "label", "type": "String", "required": True}
+            ],
+            "return_type": "Result",
+            "input_contracts": {},
+            "output_contracts": {},
+        },
+    }
+    program_identity = build_identity(
+        compiler_runtime_identity=f"sha256:{'a' * 64}",
+        module_source_revisions=(
+            {"module_name": "candidate", "source_sha256": f"sha256:{'b' * 64}"},
+        ),
+        selected_entry=selected_entry,
+        lowering_route="legacy",
+        lowering_schema_version=1,
+        configuration_payload_digests={
+            "provider_externs": f"sha256:{'c' * 64}",
+            "prompt_externs": f"sha256:{'d' * 64}",
+            "command_boundaries": f"sha256:{'e' * 64}",
+        },
+        configuration_revisions=(
+            {"role": "provider_externs", "source_sha256": None},
+            {"role": "prompt_externs", "source_sha256": None},
+            {"role": "command_boundaries", "source_sha256": None},
+        ),
+    )
+    accepted = build_document(
+        status="accepted",
+        diagnostics=(),
+        selected_entry=selected_entry,
+        normalized_program_identity=program_identity,
+    )
+    tampered_identity = dict(program_identity)
+    tampered_identity["digest"] = f"sha256:{'f' * 64}"
+
+    with pytest.raises(ValueError, match="identity digest"):
+        build_document(
+            status="accepted",
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=tampered_identity,
+        )
+
+    assert rejected == {
+        "schema_version": "workflow_lisp_compile_diagnostics.v1",
+        "status": "rejected",
+        "diagnostics": [
+            {
+                "code": "type_unknown",
+                "diagnostic_kind": "validation",
+                "severity": "error",
+                "message": "unknown type `Missing`",
+                "path": "candidate.orc",
+                "line": 4,
+                "column": 2,
+                "form_path": [],
+                "expansion_stack": [],
+                "notes": [],
+                "phase": "typecheck",
+                "validation_pass": "type",
+                "authority_layer": "frontend",
+            }
+        ],
+    }
+    assert accepted == {
+        "schema_version": "workflow_lisp_compile_diagnostics.v1",
+        "status": "accepted",
+        "selected_entry": selected_entry,
+        "normalized_program_identity": program_identity,
+        "diagnostics": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("status", "selected_entry", "program_identity"),
+    [
+        ("unknown", None, None),
+        ("accepted", None, None),
+        (
+            "rejected",
+            {"selected_name": "run"},
+            {"schema_version": "workflow_lisp_program_identity.v1"},
+        ),
+    ],
+)
+def test_compile_diagnostics_document_rejects_open_or_inconsistent_shapes(
+    status: str,
+    selected_entry: dict[str, object] | None,
+    program_identity: dict[str, object] | None,
+) -> None:
+    diagnostics_module = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    build_document = getattr(
+        diagnostics_module,
+        "build_compile_diagnostics_document",
+    )
+
+    with pytest.raises(ValueError):
+        build_document(
+            status=status,
+            diagnostics=(),
+            selected_entry=selected_entry,
+            normalized_program_identity=program_identity,
+        )
+
+
+def test_compile_diagnostics_document_preserves_compiler_diagnostic_order() -> None:
+    diagnostics_module = importlib.import_module(
+        "orchestrator.workflow_lisp.diagnostics"
+    )
+    build_document = getattr(
+        diagnostics_module,
+        "build_compile_diagnostics_document",
+    )
+    span = SourceSpan(
+        start=SourcePosition(path="candidate.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="candidate.orc", line=1, column=2, offset=1),
+    )
+    diagnostics = tuple(
+        LispFrontendDiagnostic(code=code, message=code, span=span)
+        for code in ("definition_duplicate", "type_unknown")
+    )
+
+    document = build_document(status="rejected", diagnostics=diagnostics)
+
+    assert [row["code"] for row in document["diagnostics"]] == [
+        "definition_duplicate",
+        "type_unknown",
+    ]
+
+
 def test_required_lint_registry_contains_active_and_reserved_policy_metadata() -> None:
     lints_module = importlib.import_module("orchestrator.workflow_lisp.lints")
     registry = getattr(lints_module, "REQUIRED_LINT_REGISTRY")

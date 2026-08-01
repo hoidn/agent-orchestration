@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 from argparse import Namespace
 from pathlib import Path
 
@@ -125,6 +126,7 @@ def _orc_compile_args(
     emit_semantic_ir: list[str | None] | None = None,
     emit_source_map: list[str | None] | None = None,
     emit_debug_yaml: list[str | None] | None = None,
+    diagnostics_json: bool = False,
 ) -> Namespace:
     return Namespace(
         workflow=str(workflow),
@@ -140,7 +142,48 @@ def _orc_compile_args(
         emit_semantic_ir=emit_semantic_ir or [],
         emit_source_map=emit_source_map or [],
         emit_debug_yaml=emit_debug_yaml or [],
+        diagnostics_json=diagnostics_json,
     )
+
+
+def _minimal_compile_args(
+    workflow: Path,
+    *,
+    diagnostics_json: bool,
+) -> Namespace:
+    return Namespace(
+        workflow=str(workflow),
+        diagnostics_json=diagnostics_json,
+        entry_workflow="run",
+        source_root=[str(workflow.parent)],
+        provider_externs_file=None,
+        prompt_externs_file=None,
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=None,
+        emit_executable_ir=[],
+        emit_core_ast=[],
+        emit_runtime_plan=[],
+        emit_semantic_ir=[],
+        emit_source_map=[],
+        emit_debug_yaml=[],
+    )
+
+
+def _minimal_compile_source(*, return_type: str = "Result") -> str:
+    return f"""\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.24")
+  (defmodule candidate)
+  (export Result run)
+  (defrecord Result
+    (value String))
+  (defworkflow run
+    ()
+    -> {return_type}
+    (record Result
+      :value "ok")))
+"""
 
 
 def _legacy_run_args(
@@ -251,6 +294,7 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
             "--emit-source-map",
             "out/maps/source_map.json",
             "--emit-debug-yaml",
+            "--diagnostics-json",
         ]
     )
     explain_args = parser.parse_args(
@@ -287,12 +331,192 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
     assert compile_args.emit_semantic_ir == ["exports/semantic_ir.json"]
     assert compile_args.emit_source_map == ["out/maps/source_map.json"]
     assert compile_args.emit_debug_yaml == [None]
+    assert compile_args.diagnostics_json is True
     assert explain_args.command == "explain"
     assert explain_args.form == "orchestrate"
     assert explain_args.emit_debug_yaml == [None]
     assert explain_args.emit_executable_ir == ["exports/executable_ir.json"]
     assert explain_args.emit_core_ast == [None, None]
     assert explain_args.emit_runtime_plan == [None]
+    assert not hasattr(explain_args, "diagnostics_json")
+
+
+def test_compile_diagnostics_json_acceptance_is_one_closed_machine_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level("ERROR"):
+        result = compile_workflow(
+            _orc_compile_args(diagnostics_json=True)
+        )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert result == 0
+    assert captured.err == ""
+    assert caplog.text == ""
+    assert set(payload) == {
+        "schema_version",
+        "status",
+        "selected_entry",
+        "normalized_program_identity",
+        "diagnostics",
+    }
+    assert payload["schema_version"] == "workflow_lisp_compile_diagnostics.v1"
+    assert payload["status"] == "accepted"
+    assert payload["diagnostics"] == []
+    assert set(payload["selected_entry"]) == {
+        "selected_name",
+        "canonical_name",
+        "signature",
+    }
+    assert payload["selected_entry"]["selected_name"] == "orchestrate"
+    assert payload["selected_entry"]["canonical_name"].endswith("::orchestrate")
+    assert set(payload["selected_entry"]["signature"]) == {
+        "parameters",
+        "return_type",
+        "input_contracts",
+        "output_contracts",
+    }
+    assert payload["selected_entry"]["signature"]["input_contracts"]
+    assert payload["selected_entry"]["signature"]["output_contracts"]
+    identity = payload["normalized_program_identity"]
+    assert set(identity) == {
+        "schema_version",
+        "digest",
+        "compiler_runtime_identity",
+        "module_source_revisions",
+        "selected_entry_sha256",
+        "lowering_route",
+        "lowering_schema_version",
+        "configuration_payload_digests",
+        "configuration_revisions",
+    }
+    assert identity["schema_version"] == "workflow_lisp_program_identity.v1"
+    assert identity["digest"].startswith("sha256:")
+    assert identity["compiler_runtime_identity"].startswith("sha256:")
+    assert identity["module_source_revisions"]
+
+
+def test_compile_diagnostics_json_rejection_suppresses_human_rendering(
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    args = Namespace(
+        workflow="legacy-workflow.yaml",
+        diagnostics_json=True,
+        entry_workflow=None,
+        source_root=None,
+        provider_externs_file=None,
+        prompt_externs_file=None,
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=None,
+        emit_executable_ir=[],
+        emit_core_ast=[],
+        emit_runtime_plan=[],
+        emit_semantic_ir=[],
+        emit_source_map=[],
+        emit_debug_yaml=[],
+    )
+
+    with caplog.at_level("ERROR"):
+        result = compile_workflow(args)
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert result == 2
+    assert captured.err == ""
+    assert caplog.text == ""
+    assert set(payload) == {"schema_version", "status", "diagnostics"}
+    assert payload["schema_version"] == "workflow_lisp_compile_diagnostics.v1"
+    assert payload["status"] == "rejected"
+    assert [row["code"] for row in payload["diagnostics"]] == [
+        "workflow_lisp_cli_input_unsupported"
+    ]
+
+
+def test_compile_diagnostics_json_preserves_full_compiler_rejection_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "candidate.orc"
+    source.write_text(
+        _minimal_compile_source(return_type="MissingResult"),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = compile_workflow(
+        _minimal_compile_args(source, diagnostics_json=True)
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 2
+    assert payload["status"] == "rejected"
+    assert [row["code"] for row in payload["diagnostics"]] == ["type_unknown"]
+    diagnostic = payload["diagnostics"][0]
+    assert diagnostic["path"] == str(source)
+    assert diagnostic["phase"] == "typecheck"
+    assert diagnostic["validation_pass"] == "type"
+
+
+def test_compile_diagnostics_json_identity_is_clone_root_independent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    identities: list[dict[str, object]] = []
+    for name in ("clone-a", "clone-b"):
+        root = tmp_path / name
+        shutil.copytree(CALLABLE_SOURCE_ROOT, root)
+        source = root / "neurips" / "entry.orc"
+        monkeypatch.chdir(root)
+
+        result = compile_workflow(
+            _orc_compile_args(
+                workflow=source,
+                source_root=root,
+                diagnostics_json=True,
+            )
+        )
+        payload = json.loads(capsys.readouterr().out)
+
+        assert result == 0, payload
+        identities.append(payload["normalized_program_identity"])
+
+    assert identities[0] == identities[1]
+
+
+def test_compile_diagnostics_json_closes_io_failures_as_machine_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    compile_module = importlib.import_module("orchestrator.cli.commands.compile")
+
+    def fail_build(_request: object) -> None:
+        raise OSError("fixture I/O failure")
+
+    monkeypatch.setattr(compile_module, "build_frontend_bundle", fail_build)
+
+    with caplog.at_level("ERROR"):
+        result = compile_workflow(
+            _orc_compile_args(diagnostics_json=True)
+        )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert result == 2
+    assert captured.err == ""
+    assert caplog.text == ""
+    assert [row["code"] for row in payload["diagnostics"]] == [
+        "workflow_lisp_cli_io_error"
+    ]
 
 
 def test_parser_accepts_orc_specific_run_flags() -> None:
@@ -610,6 +834,7 @@ def test_compile_workflow_exports_requested_artifacts_and_reports_them(
     payload = json.loads(captured.out)
 
     assert result == 0
+    assert captured.out == json.dumps(payload, indent=2, sort_keys=True) + "\n"
     assert (tmp_path / "executable_ir.json").exists()
     assert (tmp_path / "core_workflow_ast.json").exists()
     assert (tmp_path / "exports" / "runtime_plan.snapshot.json").exists()

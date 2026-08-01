@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
+
+from orchestrator.workflow.run_ref.contracts import (
+    canonical_json_bytes,
+    canonical_sha256,
+)
 
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     DiagnosticSource,
@@ -406,6 +412,171 @@ def serialize_diagnostics(
         serialize_diagnostic(diagnostic, lint_profile=lint_profile)
         for diagnostic in diagnostics
     ]
+
+
+def _canonical_json_value(value: object) -> object:
+    """Copy one closed JSON value through the canonical encoder."""
+
+    return json.loads(canonical_json_bytes(value))
+
+
+def _is_sha256_identity(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    digest = value.removeprefix("sha256:")
+    return len(digest) == 64 and all(
+        character in "0123456789abcdef" for character in digest
+    )
+
+
+def build_normalized_program_identity(
+    *,
+    compiler_runtime_identity: str,
+    module_source_revisions: Iterable[Mapping[str, object]],
+    selected_entry: Mapping[str, object],
+    lowering_route: str,
+    lowering_schema_version: int,
+    configuration_payload_digests: Mapping[str, str],
+    configuration_revisions: Iterable[Mapping[str, object]],
+) -> dict[str, object]:
+    """Build the path-independent identity exposed by machine compilation."""
+
+    if not _is_sha256_identity(compiler_runtime_identity):
+        raise ValueError("compiler/runtime identity must be a SHA-256 identity")
+    if not lowering_route:
+        raise ValueError("lowering route must be non-empty")
+    if lowering_schema_version < 1:
+        raise ValueError("lowering schema version must be positive")
+    module_rows = _canonical_json_value(list(module_source_revisions))
+    if not isinstance(module_rows, list) or not module_rows:
+        raise ValueError("program identity requires module source revisions")
+    if any(
+        not isinstance(row, Mapping)
+        or set(row) != {"module_name", "source_sha256"}
+        or not isinstance(row.get("module_name"), str)
+        or not row.get("module_name")
+        or not _is_sha256_identity(row.get("source_sha256"))
+        for row in module_rows
+    ):
+        raise ValueError("module source revisions have an invalid shape")
+    payload_digests = _canonical_json_value(dict(configuration_payload_digests))
+    expected_configuration_roles = {
+        "provider_externs",
+        "prompt_externs",
+        "command_boundaries",
+    }
+    if (
+        not isinstance(payload_digests, Mapping)
+        or set(payload_digests) != expected_configuration_roles
+        or any(not _is_sha256_identity(value) for value in payload_digests.values())
+    ):
+        raise ValueError("configuration payload digests have an invalid shape")
+    revision_rows = _canonical_json_value(list(configuration_revisions))
+    if not isinstance(revision_rows, list) or {
+        row.get("role")
+        for row in revision_rows
+        if isinstance(row, Mapping)
+    } != expected_configuration_roles:
+        raise ValueError("configuration revisions have an invalid role set")
+    if any(
+        not isinstance(row, Mapping)
+        or set(row) != {"role", "source_sha256"}
+        or not (
+            row.get("source_sha256") is None
+            or _is_sha256_identity(row.get("source_sha256"))
+        )
+        for row in revision_rows
+    ):
+        raise ValueError("configuration revisions have an invalid shape")
+    selected_entry_value = _canonical_json_value(selected_entry)
+    components = {
+        "schema_version": "workflow_lisp_program_identity.v1",
+        "compiler_runtime_identity": compiler_runtime_identity,
+        "module_source_revisions": module_rows,
+        "selected_entry_sha256": canonical_sha256(selected_entry_value),
+        "lowering_route": lowering_route,
+        "lowering_schema_version": lowering_schema_version,
+        "configuration_payload_digests": payload_digests,
+        "configuration_revisions": revision_rows,
+    }
+    return {
+        **components,
+        "digest": canonical_sha256(components),
+    }
+
+
+def build_compile_diagnostics_document(
+    *,
+    status: str,
+    diagnostics: Iterable[LispFrontendDiagnostic],
+    selected_entry: Mapping[str, object] | None = None,
+    normalized_program_identity: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Serialize one closed external full-compiler result document."""
+
+    if status not in {"accepted", "rejected"}:
+        raise ValueError("compile diagnostics status must be accepted or rejected")
+    accepted_payload_present = (
+        selected_entry is not None and normalized_program_identity is not None
+    )
+    if status == "accepted" and not accepted_payload_present:
+        raise ValueError("accepted compile diagnostics require entry and identity")
+    if status == "rejected" and (
+        selected_entry is not None or normalized_program_identity is not None
+    ):
+        raise ValueError("rejected compile diagnostics cannot carry accepted fields")
+    if status == "accepted":
+        if set(selected_entry or ()) != {
+            "selected_name",
+            "canonical_name",
+            "signature",
+        }:
+            raise ValueError("selected entry has an invalid shape")
+        signature = (selected_entry or {}).get("signature")
+        if not isinstance(signature, Mapping) or set(signature) != {
+            "parameters",
+            "return_type",
+            "input_contracts",
+            "output_contracts",
+        }:
+            raise ValueError("selected entry signature has an invalid shape")
+        if set(normalized_program_identity or ()) != {
+            "schema_version",
+            "digest",
+            "compiler_runtime_identity",
+            "module_source_revisions",
+            "selected_entry_sha256",
+            "lowering_route",
+            "lowering_schema_version",
+            "configuration_payload_digests",
+            "configuration_revisions",
+        }:
+            raise ValueError("normalized program identity has an invalid shape")
+        if (
+            (normalized_program_identity or {}).get("schema_version")
+            != "workflow_lisp_program_identity.v1"
+        ):
+            raise ValueError("normalized program identity version is invalid")
+        identity = dict(normalized_program_identity or {})
+        identity_digest = identity.pop("digest", None)
+        if identity_digest != canonical_sha256(identity):
+            raise ValueError("normalized program identity digest is invalid")
+        if identity.get("selected_entry_sha256") != canonical_sha256(
+            selected_entry
+        ):
+            raise ValueError("normalized program identity entry binding is invalid")
+
+    payload: dict[str, object] = {
+        "schema_version": "workflow_lisp_compile_diagnostics.v1",
+        "status": status,
+    }
+    if status == "accepted":
+        payload["selected_entry"] = _canonical_json_value(selected_entry)
+        payload["normalized_program_identity"] = _canonical_json_value(
+            normalized_program_identity
+        )
+    payload["diagnostics"] = serialize_diagnostics(diagnostics)
+    return payload
 
 
 def capture_frontend_diagnostic_identities(

@@ -245,6 +245,9 @@ class FrontendBuildResult:
     imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
     compile_result: LinkedStage3CompileResult
     compile_request_capture: FrontendCompileRequestCapture
+    resolved_request: FrontendBuildRequest
+    source_read_trace: FrontendSourceReadTraceSnapshot
+    configuration_trace: FrontendConfigurationTraceSnapshot
 
 
 @dataclass(frozen=True)
@@ -612,6 +615,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             workflow_boundary_projection_payload=workflow_boundary_projection_payload,
             persisted_surface_payload=persisted_surface_payload,
             compile_request_capture=in_memory.compile_request_capture,
+            source_read_trace=in_memory.source_read_trace,
+            configuration_trace=in_memory.configuration_trace,
         )
     except LispFrontendCompileError as error:
         _attach_compile_request_capture(
@@ -1072,6 +1077,8 @@ def _emit(
     workflow_boundary_projection_payload: Mapping[str, object],
     persisted_surface_payload: Mapping[str, object],
     compile_request_capture: FrontendCompileRequestCapture,
+    source_read_trace: FrontendSourceReadTraceSnapshot,
+    configuration_trace: FrontendConfigurationTraceSnapshot,
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -1150,6 +1157,9 @@ def _emit(
         imported_workflow_bundles=imported_bindings,
         compile_result=compile_result,
         compile_request_capture=compile_request_capture,
+        resolved_request=resolved_request,
+        source_read_trace=source_read_trace,
+        configuration_trace=configuration_trace,
     )
 
 
