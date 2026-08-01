@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–5 are closed, and
-  Task 6 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–6 are closed, and
+  Task 7 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -625,16 +625,34 @@ passed 434 build, bundle, call, and asset tests. Ordered review returned
 **Files:** create the run-ref child compile/admission module and focused mode-2
 tests only; do not add parent launch/ledger behavior yet.
 
-- [ ] RED ordinary full child compile from the pinned root, structured compile
+- [x] RED ordinary full child compile from the pinned root, structured compile
       rejection, missing program, signature mismatch, all transportable input
       bindings, and no reduced compiler path.
-- [ ] RED admits an effect-free committed candidate and rejects provider,
+- [x] RED admits an effect-free committed candidate and rejects provider,
       command, unknown, submodule, and LFS candidates with the exact accepted
       refusal envelope. Do not invoke or modify isolation/security code.
-- [ ] Bind normalized source/config/compiler identity and prove equal pinned
+- [x] Bind normalized source/config/compiler identity and prove equal pinned
       inputs produce equal program/evidence digests.
-- [ ] Run mode-2/compiler/effect selectors, ordered reviews, commit, and
+- [x] Run mode-2/compiler/effect selectors, ordered reviews, commit, and
       postcommit controls.
+
+Task 6 closed at exact reviewed commit
+`44d1aa2b`, tree
+`2fb03e6228651c63185d706cd5b269ba714e90e4`. Mode 2 now invokes the ordinary
+full WCC M4 builder from the pinned child root, consumes the shared machine
+diagnostic serializer, checks the compiler-owned normalized signature, and
+admits only exact deterministic-effect-free programs. A separate closed
+`transportable_child` boundary-admission profile reaches the same shared and
+executable validation pipeline, covers every existing transportable input and
+result family, and is bound by conditional program-identity v2; ordinary
+shared-callable builds retain their byte-compatible v1 identity and rejection
+behavior. Fresh postcommit controls passed 40 path-compile tests, 316 focused
+diagnostic/build-capture/LSP tests, 730 broader mode-2/compiler/effect tests
+after excluding one inherited lowering-file size assertion whose parent was
+already 2,681 lines against a `<2600` threshold, and 126 adjacent
+union/transportable/boundary/path tests. Ordered review returned
+`E1_TASK6_SPEC_APPROVED` and then distinct `E1_TASK6_QUALITY_APPROVED` with no
+findings. No parent runtime, ledger, child launch, or security surface changed.
 
 ## Task 7: Implement the parent runtime, child launch, ledger, and delta
 
