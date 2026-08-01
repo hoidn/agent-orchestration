@@ -786,6 +786,7 @@ ExprNode = (
     | IfExpr
     | MatchExpr
     | CallExpr
+    | RunRefExpr
     | FunctionCallExpr
     | ProcedureCallExpr
     | WithPhaseExpr
@@ -817,6 +818,30 @@ _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str], ElaborationSessionState],
     "ExprNode",
 ]
+
+
+def parse_run_ref_expression(
+    node: SyntaxNode,
+    *,
+    target_dsl_version: str,
+) -> RunRefExpr:
+    """Parse the isolated E1 mode-1 surface before compiler integration."""
+
+    datum = syntax_node_datum(node)
+    head = syntax_head(datum) if isinstance(datum, SyntaxList) else None
+    if head is None or head.resolved_name != "run-ref":
+        _raise_error(
+            "the run-ref parser requires one `run-ref` form",
+            code="run_ref_shape_invalid",
+            span=node.span,
+            form_path=node.form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return _parse_run_ref_syntax_list(
+        datum,
+        form_path=node.form_path,
+        target_dsl_version=target_dsl_version,
+    )
 
 
 def elaborate_expression(
@@ -1004,14 +1029,7 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    form_spec = get_form_spec(
-        head.resolved_name,
-        target_dsl_version=(
-            RUN_REF_MIN_TARGET_DSL_VERSION
-            if head.resolved_name == "run-ref"
-            else None
-        ),
-    )
+    form_spec = get_form_spec(head.resolved_name)
     if (
         form_spec is not None
         and head.resolved_name in list_traversal_authored_heads()
@@ -1289,7 +1307,6 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "continue_guard": _guard_continue_route,
         "done_guard": _guard_done_route,
         "call": _elaborate_call,
-        "run_ref": _elaborate_run_ref,
         "with_phase": _elaborate_with_phase,
         "phase_target": _route_phase_target,
         "generated_relpath_seed": _route_generated_relpath_seed,
@@ -1315,14 +1332,13 @@ def _run_ref_sections(
     items: list[object],
     *,
     label: str,
-    code: str,
     form_path: tuple[str, ...],
 ) -> dict[str, object]:
     if len(items) % 2 != 0:
         node = items[-1]
         _raise_error(
             f"{label} requires keyword/value pairs",
-            code=code,
+            code="run_ref_shape_invalid",
             span=node.span,
             form_path=form_path,
             expansion_stack=node.expansion_stack,
@@ -1334,7 +1350,7 @@ def _run_ref_sections(
         if not isinstance(keyword_node, SyntaxKeyword):
             _raise_error(
                 f"{label} entries must start with keywords",
-                code=code,
+                code="run_ref_shape_invalid",
                 span=keyword_node.span,
                 form_path=form_path,
                 expansion_stack=keyword_node.expansion_stack,
@@ -1342,7 +1358,7 @@ def _run_ref_sections(
         if keyword_node.value in sections:
             _raise_error(
                 f"{label} duplicated keyword `{keyword_node.value}`",
-                code=code,
+                code="run_ref_shape_invalid",
                 span=keyword_node.span,
                 form_path=form_path,
                 expansion_stack=keyword_node.expansion_stack,
@@ -1351,16 +1367,13 @@ def _run_ref_sections(
     return sections
 
 
-def _elaborate_run_ref(
+def _parse_run_ref_syntax_list(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
-    bound_names: frozenset[str],
-    procedure_names: frozenset[str],
-    session_state: ElaborationSessionState,
+    target_dsl_version: str,
 ) -> RunRefExpr:
-    del bound_names, procedure_names
-    if not target_dsl_supports_run_ref(session_state.target_dsl_version or ""):
+    if not target_dsl_supports_run_ref(target_dsl_version):
         _raise_error(
             f"`run-ref` requires target DSL {RUN_REF_MIN_TARGET_DSL_VERSION} or newer",
             code="run_ref_target_dsl_unsupported",
@@ -1372,13 +1385,12 @@ def _elaborate_run_ref(
     sections = _run_ref_sections(
         datum.items[1:],
         label="`run-ref`",
-        code="run_ref_form_invalid",
         form_path=form_path,
     )
     if set(sections) != {":source", ":program", ":inputs", ":policy"}:
         _raise_error(
             "`run-ref` requires exactly :source, :program, :inputs, and :policy",
-            code="run_ref_form_invalid",
+            code="run_ref_shape_invalid",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -1388,7 +1400,7 @@ def _elaborate_run_ref(
     if not isinstance(source_node, SyntaxList):
         _raise_error(
             "`run-ref :source` must contain :repo and :commit",
-            code="run_ref_source_invalid",
+            code="run_ref_literal_required",
             span=source_node.span,
             form_path=form_path,
             expansion_stack=source_node.expansion_stack,
@@ -1396,29 +1408,39 @@ def _elaborate_run_ref(
     source_sections = _run_ref_sections(
         source_node.items,
         label="`run-ref :source`",
-        code="run_ref_source_invalid",
         form_path=form_path,
     )
     repo_node = source_sections.get(":repo")
     commit_node = source_sections.get(":commit")
-    if (
-        set(source_sections) != {":repo", ":commit"}
-        or not isinstance(repo_node, SyntaxString)
-        or not isinstance(commit_node, SyntaxString)
-    ):
+    if set(source_sections) != {":repo", ":commit"}:
         _raise_error(
-            "`run-ref :source` requires literal :repo and :commit strings",
-            code="run_ref_source_invalid",
+            "`run-ref :source` requires exactly :repo and :commit",
+            code="run_ref_shape_invalid",
             span=source_node.span,
             form_path=form_path,
             expansion_stack=source_node.expansion_stack,
+        )
+    if not isinstance(repo_node, SyntaxString) or not isinstance(
+        commit_node, SyntaxString
+    ):
+        selected = (
+            repo_node
+            if not isinstance(repo_node, SyntaxString)
+            else commit_node
+        )
+        _raise_error(
+            "`run-ref :repo` and `:commit` require static string literals",
+            code="run_ref_literal_required",
+            span=selected.span,
+            form_path=form_path,
+            expansion_stack=selected.expansion_stack,
         )
 
     program_node = sections[":program"]
     if not isinstance(program_node, SyntaxList):
         _raise_error(
             "`run-ref :program` must select a bundle workflow",
-            code="run_ref_program_invalid",
+            code="run_ref_program_mode_invalid",
             span=program_node.span,
             form_path=form_path,
             expansion_stack=program_node.expansion_stack,
@@ -1426,25 +1448,32 @@ def _elaborate_run_ref(
     program_sections = _run_ref_sections(
         program_node.items,
         label="`run-ref :program`",
-        code="run_ref_program_invalid",
         form_path=form_path,
     )
     bundle_node = program_sections.get(":bundle")
-    bundle_identifier = syntax_identifier(bundle_node) if bundle_node is not None else None
-    if set(program_sections) != {":bundle"} or bundle_identifier is None:
+    if set(program_sections) != {":bundle"}:
         _raise_error(
             "`run-ref :program` requires exactly one static :bundle workflow name",
-            code="run_ref_program_invalid",
+            code="run_ref_program_mode_invalid",
             span=program_node.span,
             form_path=form_path,
             expansion_stack=program_node.expansion_stack,
+        )
+    bundle_identifier = syntax_identifier(bundle_node)
+    if bundle_identifier is None:
+        _raise_error(
+            "`run-ref :bundle` requires a static workflow-name symbol",
+            code="run_ref_literal_required",
+            span=bundle_node.span,
+            form_path=form_path,
+            expansion_stack=bundle_node.expansion_stack,
         )
 
     inputs_node = sections[":inputs"]
     if not isinstance(inputs_node, SyntaxList) or inputs_node.items:
         _raise_error(
             "this frontend slice accepts only empty `run-ref :inputs`",
-            code="run_ref_inputs_invalid",
+            code="run_ref_shape_invalid",
             span=inputs_node.span,
             form_path=form_path,
             expansion_stack=inputs_node.expansion_stack,
@@ -1454,7 +1483,7 @@ def _elaborate_run_ref(
     if not isinstance(policy_node, SyntaxList):
         _raise_error(
             "`run-ref :policy` must contain an empty :setup",
-            code="run_ref_policy_invalid",
+            code="run_ref_literal_required",
             span=policy_node.span,
             form_path=form_path,
             expansion_stack=policy_node.expansion_stack,
@@ -1462,21 +1491,32 @@ def _elaborate_run_ref(
     policy_sections = _run_ref_sections(
         policy_node.items,
         label="`run-ref :policy`",
-        code="run_ref_policy_invalid",
         form_path=form_path,
     )
     setup_node = policy_sections.get(":setup")
-    if (
-        set(policy_sections) != {":setup"}
-        or not isinstance(setup_node, SyntaxList)
-        or setup_node.items
-    ):
+    if set(policy_sections) != {":setup"}:
         _raise_error(
-            "this frontend slice accepts only an empty `run-ref :policy :setup`",
-            code="run_ref_policy_invalid",
+            "`run-ref :policy` requires exactly :setup",
+            code="run_ref_shape_invalid",
             span=policy_node.span,
             form_path=form_path,
             expansion_stack=policy_node.expansion_stack,
+        )
+    if not isinstance(setup_node, SyntaxList):
+        _raise_error(
+            "`run-ref :setup` requires a static setup list",
+            code="run_ref_literal_required",
+            span=setup_node.span,
+            form_path=form_path,
+            expansion_stack=setup_node.expansion_stack,
+        )
+    if setup_node.items:
+        _raise_error(
+            "this frontend slice accepts only an empty `run-ref :policy :setup`",
+            code="run_ref_shape_invalid",
+            span=setup_node.span,
+            form_path=form_path,
+            expansion_stack=setup_node.expansion_stack,
         )
 
     return RunRefExpr(
