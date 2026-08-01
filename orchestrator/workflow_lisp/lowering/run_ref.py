@@ -355,7 +355,17 @@ def _direct_binding_value(
                 )
             field_values = dict(value.fields)
         elif isinstance(resolved, Mapping):
-            variant_name = resolved.get("variant")
+            raw_variant = resolved.get("variant")
+            if isinstance(raw_variant, LiteralExpr):
+                variant_name = raw_variant.value
+            elif isinstance(raw_variant, (str, ProjectedPathRef)) or (
+                isinstance(raw_variant, Mapping)
+                and set(raw_variant) == {"ref"}
+                and isinstance(raw_variant.get("ref"), str)
+            ):
+                raise _DirectBindingUnavailable
+            else:
+                variant_name = raw_variant
             field_values = {
                 key: item for key, item in resolved.items() if key != "variant"
             }

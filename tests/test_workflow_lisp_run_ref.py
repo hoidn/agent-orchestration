@@ -3413,6 +3413,70 @@ def test_run_ref_leaf_uses_one_whole_input_projection_for_complex_pure_value() -
     assert terminal.step_name == run_ref_step["name"]
 
 
+def test_run_ref_leaf_projects_one_dynamically_selected_union_input() -> None:
+    span = _mode_one_expr().span
+    string_type = PrimitiveTypeRef("String")
+    union_definition = UnionDef(
+        name="DynamicChoice",
+        variants=(
+            UnionVariant(
+                name="OK",
+                fields=(RecordField(name="value", type_name="String", span=span),),
+                span=span,
+            ),
+            UnionVariant(
+                name="FAILED",
+                fields=(RecordField(name="reason", type_name="String", span=span),),
+                span=span,
+            ),
+        ),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="DynamicChoice",
+        definition=union_definition,
+        variant_field_types={
+            "OK": {"value": string_type},
+            "FAILED": {"reason": string_type},
+        },
+    )
+    expr = _mode_one_expr(
+        inputs=(("choice", NameExpr("choice", span, FORM_PATH)),)
+    )
+    typed, type_env, _, value_env = _typed_run_ref_for_wcc(
+        expr,
+        params=(("choice", union_type),),
+        extra_types=(union_type,),
+        value_env={"choice": union_type},
+    )
+    context = _run_ref_lowering_context(type_env)
+    context.local_type_bindings = {"choice": union_type}
+
+    steps, _ = _lower_run_ref_operation(
+        _lowerable_run_ref(typed, type_env=type_env, value_env=value_env),
+        result_type=typed.type_ref,
+        context=context,
+        local_values={
+            "choice": {
+                "variant": "root.steps.seed.artifacts.variant",
+                "value": "root.steps.seed.artifacts.value",
+                "reason": "root.steps.seed.artifacts.reason",
+            }
+        },
+        identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
+            "sha256:" + "f" * 64
+        ),
+    )
+
+    assert len(steps) == 2
+    projection, run_ref_step = steps
+    assert set(projection) >= {"pure_projection", "output_bundle"}
+    assert run_ref_step["run_ref"].inputs[0].binding == ReferenceBinding(
+        f"root.steps.{projection['name']}.artifacts.__result__"
+    )
+    assert len(context.generated_semantic_effects) == 1
+
+
 def test_run_ref_leaf_preflights_all_inputs_before_projection_or_identity_mutation() -> None:
     span = _mode_one_expr().span
     expr = _mode_one_expr(
@@ -3496,7 +3560,9 @@ def test_run_ref_leaf_rejects_malformed_structural_input_without_mutation(
             definition=definition,
             variant_field_types={"OK": {}},
         )
-        local_value = {"variant": "UNKNOWN"}
+        local_value = {
+            "variant": LiteralExpr("UNKNOWN", "string", span, FORM_PATH)
+        }
         extra_types = (input_type,)
     elif invalid_kind == "map":
         input_type = MapTypeRef("Map[String,String]", string_type, string_type)
