@@ -48,8 +48,10 @@ from .context import _compile_error, _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import (
     GeneratedSemanticEffectBinding,
+    LoweringOrigin,
     _origin_from_context_source,
     _record_step_origin,
+    _with_origin_key,
 )
 from .pure_projection import (
     build_pure_projection_payload,
@@ -60,12 +62,116 @@ from .values import ProjectedPathRef, _record_output_refs, _resolve_inline_expr_
 
 if TYPE_CHECKING:
     from ..wcc.model import WccRunRefPayload
+    from .core import LoweredWorkflow
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _WHOLE_INPUT_OUTPUT_CONTRACTS = {
     "__result__": {"kind": "value", "type": "value"},
 }
+
+
+def _shared_validation_source_map_payload(
+    lowered_workflow: LoweredWorkflow,
+) -> Mapping[str, object] | None:
+    """Project run-ref lineage needed by the shared bundle validators."""
+
+    workflow_name = lowered_workflow.typed_workflow.definition.name
+    generated_semantic_effects = tuple(
+        lowered_workflow.origin_map.generated_semantic_effects
+    )
+    run_ref_effects = tuple(
+        effect
+        for effect in generated_semantic_effects
+        if effect.effect_kind == "run_ref"
+    )
+    if not run_ref_effects:
+        return None
+
+    def origin_rows(
+        origins: Mapping[str, LoweringOrigin],
+        *,
+        entity_kind: str,
+    ) -> dict[str, dict[str, str]]:
+        return {
+            subject_name: {
+                "origin_key": _with_origin_key(
+                    origin,
+                    workflow_name=workflow_name,
+                    entity_kind=entity_kind,
+                    subject_name=subject_name,
+                ).origin_key
+            }
+            for subject_name, origin in origins.items()
+        }
+
+    generated_effects: list[dict[str, object]] = []
+    for effect in generated_semantic_effects:
+        if effect.effect_kind == "pointer_materialization":
+            entity_kind = "generated_path"
+            subject_name = str(
+                effect.details.get("pointer_path", effect.step_id)
+            )
+        elif effect.effect_kind == "provider_bundle_path_projection":
+            entity_kind = "generated_output"
+            subject_name = str(
+                effect.details.get("projected_output_name", effect.step_id)
+            )
+        else:
+            entity_kind = "step_id"
+            subject_name = effect.step_id
+        generated_effects.append(
+            {
+                "effect_key": effect.effect_key,
+                "step_id": effect.step_id,
+                "effect_kind": effect.effect_kind,
+                "origin_key": _with_origin_key(
+                    effect.origin,
+                    workflow_name=workflow_name,
+                    entity_kind=entity_kind,
+                    subject_name=subject_name,
+                ).origin_key,
+                "details": dict(effect.details),
+            }
+        )
+
+    return {
+        "workflows": {
+            workflow_name: {
+                "workflow_origin": {
+                    "origin_key": _with_origin_key(
+                        lowered_workflow.origin_map.workflow_origin,
+                        workflow_name=workflow_name,
+                        entity_kind="workflow",
+                        subject_name=workflow_name,
+                    ).origin_key
+                },
+                "step_ids": origin_rows(
+                    lowered_workflow.origin_map.step_spans,
+                    entity_kind="step_id",
+                ),
+                "generated_inputs": origin_rows(
+                    lowered_workflow.origin_map.authored_input_spans,
+                    entity_kind="generated_input",
+                ),
+                "generated_outputs": origin_rows(
+                    lowered_workflow.origin_map.generated_output_spans,
+                    entity_kind="generated_output",
+                ),
+                "generated_paths": origin_rows(
+                    lowered_workflow.origin_map.generated_path_spans,
+                    entity_kind="generated_path",
+                ),
+                "generated_internal_inputs": origin_rows(
+                    lowered_workflow.origin_map.internal_input_spans,
+                    entity_kind="generated_internal_input",
+                ),
+                "contract_fields": {},
+                "validation_subjects": [],
+                "generated_semantic_effects": generated_effects,
+            }
+        }
+    }
 
 
 class _DirectBindingUnavailable(Exception):

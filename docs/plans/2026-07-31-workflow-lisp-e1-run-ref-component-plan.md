@@ -727,15 +727,17 @@ also repaired one stale compiler-session fixture by supplying the already
 required shared-callable admission profile; no production byte changed.
 Ordered review returned `E1_TASK8_SPEC_APPROVED`, then distinct
 `E1_TASK8_QUALITY_APPROVED` after removing one host-umask-dependent assertion.
+The Task-8 evidence closure landed separately at `79540e0a` without changing
+the reviewed implementation bytes.
 
 ## Task 9: Route, verify, and close E1
 
 **Files:** exact roadmap/status/router/capability/readiness rows; this plan;
 `artifacts/review/e1-run-ref-final-review.md`.
 
-- [ ] Route 2.24 and `run-ref` as implemented-pending-final-gate while E2
+- [x] Route 2.24 and `run-ref` as implemented-pending-final-gate while E2
       remains selected-pending E1 and E3 remains selected-pending E2/study.
-- [ ] Run collect-only for every new module, all focused E1/adjacent selectors,
+- [x] Run collect-only for every new module, all focused E1/adjacent selectors,
       deterministic CLI/executor smoke, `git diff --check`, and the broad
       16-worker non-security suite in tmux.
 - [ ] Obtain `E1_FINAL_SPEC_APPROVED`, then distinct
@@ -745,6 +747,25 @@ Ordered review returned `E1_TASK8_SPEC_APPROVED`, then distinct
 - [ ] Record exactly one exit: `PASS_E1`, `REVISE_E1`, or `STOP_E1`. Only
       `PASS_E1` makes selected E2 eligible for its separate reviewed component
       plan; it does not start E2 behavior before that plan gate.
+
+The Task-9 pre-review gate collected all 4 new end-to-end tests, passed the
+deterministic CLI plus real-parent/child executor smoke 2/2, and passed 2,015
+focused E1 and adjacent tests. The first complete focused run passed 1,831
+tests and exposed the existing `typecheck_dispatch.py` 1,250-line ratchet;
+the complete `loop/recur` branch now has a dedicated owner and the facade is
+1,182 lines. The first broad run passed 11,087 tests and exposed six exact
+failures: the `lowering/core.py` 2,600-line ratchet plus five compatibility
+goldens missing the additive `run_ref: null` compiler-carrier field. Run-ref
+lineage moved intact into its existing lowering owner, leaving the core at
+2,586 lines, and an independent audit confirmed that only those five compiler
+rows and their digests changed. The corrected broad run, with all standing
+security/safety/secrets/provider-isolation exclusions plus the provider-launch
+shim excluded, passed 10,798 tests with 19 skipped and 5 warnings in 144.21
+seconds. Its complete log SHA-256 is
+`383a7ff687b2ce2c360b357a1184b666dca9741c5ac0cb98f60c275723e7d90f`;
+the final focused log SHA-256 is
+`f14ba4e1edab922069395bc5d4ddfa5b014e02f1a0b3d05dd6f98f73421e4cb8`.
+`git diff --check` passed.
 
 ## Final acceptance checklist
 

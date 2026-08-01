@@ -31,10 +31,10 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopRecurExpr,
     LoopStateField,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
-    LoopRecurExpr,
     MaterializeViewExpr,
     MatchExpr,
     NameExpr,
@@ -57,7 +57,7 @@ from .expressions import (
     WithLiveProvidersExpr,
     WithPhaseExpr,
 )
-from .loops import LoopControlTypeRef, ensure_loop_projectable_type
+from .loops import LoopControlTypeRef
 from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
 from .procedure_refs import (
     ProcRefResolutionContext,
@@ -75,7 +75,6 @@ from .typecheck_calls import (
     typecheck_workflow_ref_argument as _typecheck_workflow_ref_argument,
 )
 from .typecheck_context import (
-    LoopTypecheckContext,
     TypecheckContext,
     TypedExpr,
     ValueEnvironment,
@@ -102,6 +101,7 @@ from .typecheck_effects import (
     typecheck_with_live_provider_peers_expr as _typecheck_with_live_provider_peers_expr,
     typecheck_with_live_providers_expr as _typecheck_with_live_providers_expr,
 )
+from .typecheck_loop_recur import typecheck_loop_recur_expr
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_resource_view import (
     typecheck_finalize_selected_item_expr,
@@ -982,120 +982,12 @@ def _typecheck(
             expected_type=expected_type,
         )
     if isinstance(expr, LoopRecurExpr):
-        typed_max = recurse(expr.max_iterations_expr)
-        if effect_summary_contains_runs_ref(typed_max.effect_summary):
-            raise_run_ref_placement_invalid(
-                typed_max.expr,
-                reason="is not permitted in `loop/recur` :max",
-            )
-        if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
-            _raise_error(
-                "`loop/recur :max` must resolve to `Int`",
-                code="loop_recur_max_invalid",
-                span=expr.max_iterations_expr.span,
-                form_path=expr.max_iterations_expr.form_path,
-            )
-        typed_state = recurse(expr.initial_state_expr)
-        if effect_summary_contains_runs_ref(typed_state.effect_summary):
-            raise_run_ref_placement_invalid(
-                typed_state.expr,
-                reason="is not permitted in `loop/recur` state",
-            )
-        ensure_loop_projectable_type(
-            typed_state.type_ref,
-            code="loop_recur_state_type_invalid",
-            span=expr.initial_state_expr.span,
-            form_path=expr.initial_state_expr.form_path,
-        )
-        session_state.loop_context.append(LoopTypecheckContext(state_type_ref=typed_state.type_ref))
-        try:
-            typed_body = recurse(
-                expr.body_expr,
-                value_env={**value_env, expr.binding_name: typed_state.type_ref},
-                proof_scope=ProofScope(facts={}),
-            )
-        finally:
-            loop_context = session_state.loop_context.pop()
-        if effect_summary_contains_runs_ref(typed_body.effect_summary):
-            raise_run_ref_placement_invalid(
-                typed_body.expr,
-                reason="is not permitted in a `loop/recur` body",
-            )
-        if not isinstance(typed_body.type_ref, LoopControlTypeRef):
-            _raise_error(
-                "`loop/recur` body must terminate with `continue` or `done`",
-                code="loop_recur_missing_done",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-            )
-        if typed_body.type_ref.result_type_ref is None:
-            _raise_error(
-                "`loop/recur` body must contain at least one reachable `done`",
-                code="loop_recur_missing_done",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-            )
-        ensure_loop_projectable_type(
-            typed_body.type_ref.result_type_ref,
-            code="loop_recur_result_type_invalid",
-            span=expr.body_expr.span,
-            form_path=expr.body_expr.form_path,
-        )
-        exhaustion_summaries: list[EffectSummary] = []
-        typed_exhausted_expr = None
-        if expr.on_exhausted_result_expr is not None:
-            typed_exhausted = check(
-                expr.on_exhausted_result_expr,
-                type_env=type_env,
-                value_env={**value_env, expr.binding_name: typed_state.type_ref},
-                proof_scope=ProofScope(facts={}),
-                workflow_catalog=workflow_catalog,
-                procedure_catalog=procedure_catalog,
-                extern_environment=extern_environment,
-                command_boundary_environment=command_boundary_environment,
-                active_phase_scope=active_phase_scope,
-                procedure_effects_by_name=procedure_effects_by_name,
-                workflow_effects_by_name=workflow_effects_by_name,
-                proc_ref_resolution_context=proc_ref_resolution_context,
-                prompt_catalog=prompt_catalog,
-            )
-            if effect_summary_contains_runs_ref(typed_exhausted.effect_summary):
-                raise_run_ref_placement_invalid(
-                    typed_exhausted.expr,
-                    reason="is not permitted in `loop/recur` exhaustion",
-                )
-            if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
-                _raise_error(
-                    f"`loop/recur` exhaustion result expected `{_type_label(typed_body.type_ref.result_type_ref)}`"
-                    f" but got `{_type_label(typed_exhausted.type_ref)}`",
-                    code="loop_recur_done_type_mismatch",
-                    span=expr.on_exhausted_result_expr.span,
-                    form_path=expr.on_exhausted_result_expr.form_path,
-                )
-            if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
-                _raise_error(
-                    "`loop/recur` exhaustion projection must be pure",
-                    code="loop_recur_contract_invalid",
-                    span=expr.on_exhausted_result_expr.span,
-                    form_path=expr.on_exhausted_result_expr.form_path,
-                )
-            exhaustion_summaries.append(typed_exhausted.effect_summary)
-            typed_exhausted_expr = typed_exhausted.expr
-        return _typed(
-            expr=replace(
-                expr,
-                max_iterations_expr=typed_max.expr,
-                initial_state_expr=typed_state.expr,
-                body_expr=typed_body.expr,
-                on_exhausted_result_expr=typed_exhausted_expr,
-            ),
-            type_ref=typed_body.type_ref.result_type_ref,
-            effect=merge_effect_summaries(
-                typed_max.effect_summary,
-                typed_state.effect_summary,
-                typed_body.effect_summary,
-                *exhaustion_summaries,
-            ),
+        return typecheck_loop_recur_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            check=check,
+            typed_factory=_typed,
         )
     if type(expr) is CallExpr:
         return _typecheck_call_expr(

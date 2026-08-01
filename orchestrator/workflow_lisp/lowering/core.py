@@ -297,6 +297,9 @@ from .phase_stdlib import (
     review_loop_result_case_outputs as review_loop_result_case_outputs_owner,
     review_loop_result_output_contracts as review_loop_result_output_contracts_owner,
 )
+from .run_ref import _shared_validation_source_map_payload
+
+
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
@@ -2521,109 +2524,6 @@ def _validate_one_lowered_workflow(
         _raise_remapped_validation_error(lowered_workflow, list(result.errors))
     assert result.bundle is not None
     return result.bundle
-
-
-def _shared_validation_source_map_payload(
-    lowered_workflow: LoweredWorkflow,
-) -> Mapping[str, object] | None:
-    """Project run-ref lineage needed by the shared bundle validators."""
-
-    workflow_name = lowered_workflow.typed_workflow.definition.name
-    generated_semantic_effects = tuple(
-        lowered_workflow.origin_map.generated_semantic_effects
-    )
-    run_ref_effects = tuple(
-        effect
-        for effect in generated_semantic_effects
-        if effect.effect_kind == "run_ref"
-    )
-    if not run_ref_effects:
-        return None
-
-    def origin_rows(
-        origins: Mapping[str, LoweringOrigin],
-        *,
-        entity_kind: str,
-    ) -> dict[str, dict[str, str]]:
-        return {
-            subject_name: {
-                "origin_key": _with_origin_key(
-                    origin,
-                    workflow_name=workflow_name,
-                    entity_kind=entity_kind,
-                    subject_name=subject_name,
-                ).origin_key
-            }
-            for subject_name, origin in origins.items()
-        }
-
-    generated_effects: list[dict[str, object]] = []
-    for effect in generated_semantic_effects:
-        if effect.effect_kind == "pointer_materialization":
-            entity_kind = "generated_path"
-            subject_name = str(
-                effect.details.get("pointer_path", effect.step_id)
-            )
-        elif effect.effect_kind == "provider_bundle_path_projection":
-            entity_kind = "generated_output"
-            subject_name = str(
-                effect.details.get("projected_output_name", effect.step_id)
-            )
-        else:
-            entity_kind = "step_id"
-            subject_name = effect.step_id
-        generated_effects.append(
-            {
-                "effect_key": effect.effect_key,
-                "step_id": effect.step_id,
-                "effect_kind": effect.effect_kind,
-                "origin_key": _with_origin_key(
-                    effect.origin,
-                    workflow_name=workflow_name,
-                    entity_kind=entity_kind,
-                    subject_name=subject_name,
-                ).origin_key,
-                "details": dict(effect.details),
-            }
-        )
-
-    return {
-        "workflows": {
-            workflow_name: {
-                "workflow_origin": {
-                    "origin_key": _with_origin_key(
-                        lowered_workflow.origin_map.workflow_origin,
-                        workflow_name=workflow_name,
-                        entity_kind="workflow",
-                        subject_name=workflow_name,
-                    ).origin_key
-                },
-                "step_ids": origin_rows(
-                    lowered_workflow.origin_map.step_spans,
-                    entity_kind="step_id",
-                ),
-                "generated_inputs": origin_rows(
-                    lowered_workflow.origin_map.authored_input_spans,
-                    entity_kind="generated_input",
-                ),
-                "generated_outputs": origin_rows(
-                    lowered_workflow.origin_map.generated_output_spans,
-                    entity_kind="generated_output",
-                ),
-                "generated_paths": origin_rows(
-                    lowered_workflow.origin_map.generated_path_spans,
-                    entity_kind="generated_path",
-                ),
-                "generated_internal_inputs": origin_rows(
-                    lowered_workflow.origin_map.internal_input_spans,
-                    entity_kind="generated_internal_input",
-                ),
-                "contract_fields": {},
-                "validation_subjects": [],
-                "generated_semantic_effects": generated_effects,
-            }
-        }
-    }
 
 
 def _require_phase_scope_name_match(

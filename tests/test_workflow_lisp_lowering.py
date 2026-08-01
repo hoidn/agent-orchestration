@@ -922,6 +922,9 @@ def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
     control_loops_source = _lowering_owner_source_path(
         "control_loops"
     ).read_text(encoding="utf-8")
+    run_ref_source = _lowering_owner_source_path("run_ref").read_text(
+        encoding="utf-8"
+    )
     for helper_name in (
         "_capture_generated_repeat_until_on_exhausted_refs",
         "_iter_authored_step_mappings",
@@ -930,6 +933,8 @@ def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
     ):
         assert f"def {helper_name}(" not in core_source
         assert f"def {helper_name}(" in control_loops_source
+    assert "def _shared_validation_source_map_payload(" not in core_source
+    assert "def _shared_validation_source_map_payload(" in run_ref_source
     assert _physical_line_count(_lowering_source_path()) < 2600
 
 
