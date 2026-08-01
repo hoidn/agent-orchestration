@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Status:** executing; E1 is owner-selected, Tasks 0–3 are closed, and
-  Task 4 is the active implementation step
+  Task 4 is complete and Task 5 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -529,17 +529,33 @@ shared `surface_ast.py`, `core_ast.py`, `semantic_ir.py`, `executable_ir.py`,
 `runtime_plan.py`, `runtime_step.py`, lowering, persisted-surface and
 source-map modules; create `tests/test_workflow_lisp_run_ref.py`.
 
-- [ ] RED exact copy-safe syntax for both modes, direct/record/union/list/
+- [x] RED exact copy-safe syntax for both modes, direct/record/union/list/
       map/optional/path/Value returns, static mode-1 signature/input checking,
       optional mode-2 refinement, and closed malformed-form diagnostics.
-- [ ] RED purity/effect tests admit ordinary/branch/procedure placement and
+- [x] RED purity/effect tests admit ordinary/branch/procedure placement and
       reject functions, settlement/evaluation bodies, and effect loops.
-- [ ] Add generated site/result types, specialized envelope contract encoder,
+- [x] Add generated site/result types, specialized envelope contract encoder,
       `RunsRefEffect`, `SurfaceStepKind.RUN_REF`, `ExecutableNodeKind.RUN_REF`,
       closed config, semantic effect/state rows, source maps, WCC carriage,
       checkpoint policy, and persisted round-trip validation.
-- [ ] Run compiler/IR/persisted/checkpoint selectors, ordered reviews, commit,
+- [x] Run compiler/IR/persisted/checkpoint selectors, ordered reviews, commit,
       and postcommit controls.
+
+Task 4 closed at exact reviewed tip
+`c01c4149a5757cf1ecdb49195921aa9888e994c6`, tree
+`90b8b78d59c441b4338cf47f73b47454c6657d87`. The compiler now carries one
+typed `run-ref` boundary through surface, core, semantic, executable,
+runtime-plan, source-map, persisted-artifact, and lexical-checkpoint views.
+Its exact `RunRefStaticConfig.digest` is the checkpoint identity component
+and the `reuse_validated_run_ref_result` policy binds the same digest as
+`run_ref_result.step_config_digest`. Pending evidence remains a fail-closed
+restore barrier; Task 4 produces no completed-result reference, and forged
+references reject until Task 7 installs the authoritative runtime producer.
+The temporary executor path fails explicitly without launching or publishing.
+The ordered reviews returned `E1_TASK4_CHECKPOINT_SPEC_APPROVED` and
+`E1_TASK4_CHECKPOINT_QUALITY_APPROVED` against that exact tip and tree.
+Fresh postcommit controls passed eight focused tests, and the task-level
+16-worker compiler/IR/persisted/checkpoint gate passed 694 tests.
 
 ## Task 5: Implement the self-contained compiled-bundle capsule
 
