@@ -2518,6 +2518,7 @@ def _step_kind_from_mapping(step: Mapping[str, Any]) -> str:
     for key in (
         "command",
         "provider",
+        "run_ref",
         "adjudicated_provider",
         "resource_transition",
         "wait_for",

@@ -103,6 +103,7 @@ from orchestrator.workflow_lisp.run_ref_result_contract import (
     derive_run_ref_result_contract,
 )
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
+from orchestrator.workflow_lisp import source_map as source_map_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -4148,6 +4149,7 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
     assert effect.step_id == step["id"]
     assert effect.effect_kind == "run_ref"
     assert effect.origin == context.step_spans[step["id"]]
+    assert context.generated_path_spans[allocation.concrete_path_template] == effect.origin
     assert effect.details == {
         "run_ref_static_config_schema_version": "run_ref_static_config.v1",
         "run_ref_static_config_digest": config.digest,
@@ -4159,6 +4161,12 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
         "result_allocation_id": allocation.allocation_id,
         "output_bundle_path": allocation.concrete_path_template,
     }
+
+
+def test_run_ref_source_map_fallback_preserves_exact_step_kind() -> None:
+    assert source_map_module._step_kind_from_mapping(
+        {"run_ref": _surface_run_ref_config()}
+    ) == "run_ref"
 
 
 def test_run_ref_result_allocation_derives_one_entrypoint_managed_root() -> None:
