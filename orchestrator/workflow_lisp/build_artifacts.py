@@ -459,7 +459,11 @@ def _validate_lexical_checkpoint_artifacts(
     expected_run_ref_node_ids = {
         str(node_id)
         for node_id, node in runtime_nodes.items()
-        if isinstance(node, Mapping) and node.get("kind") == "run_ref"
+        if isinstance(node, Mapping)
+        and (
+            node.get("kind") == "run_ref"
+            or node.get("run_ref_config_digest") is not None
+        )
     }
     for point in points_payload.get("points", []):
         if not isinstance(point.get("wcc_identity", {}), Mapping):
@@ -511,7 +515,10 @@ def _validate_lexical_checkpoint_artifacts(
         )
         if (
             isinstance(runtime_node, Mapping)
-            and runtime_node.get("kind") == "run_ref"
+            and (
+                runtime_node.get("kind") == "run_ref"
+                or runtime_node.get("run_ref_config_digest") is not None
+            )
         ):
             expected_run_ref_digest = runtime_node.get(
                 "run_ref_config_digest"

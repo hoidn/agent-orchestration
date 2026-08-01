@@ -1579,7 +1579,10 @@ def checkpoint_runtime_program_identity(
             node_kind == "provider_peer_group"
             or _point_field(node, "provider_peer_group") is not None
         )
-        is_run_ref = node_kind == "run_ref"
+        is_run_ref = (
+            node_kind == "run_ref"
+            or _point_field(node, "run_ref_config_digest") is not None
+        )
         if not is_peer and not is_run_ref:
             continue
         step_id = _point_field(node, "step_id")

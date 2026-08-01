@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, replace
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from typing import get_args
 
 import pytest
 
+from orchestrator._common.canonical import sha256_json
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow import core_ast as core_ast_module
@@ -111,6 +113,7 @@ from orchestrator.workflow_lisp.run_ref_result_contract import (
 )
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
 from orchestrator.workflow_lisp import source_map as source_map_module
+from orchestrator.workflow_lisp import build_artifacts as build_artifacts_module
 from orchestrator.workflow_lisp import lexical_checkpoints as lexical_checkpoints_module
 from orchestrator.workflow_lisp import (
     lexical_checkpoint_effect_policies as checkpoint_policy_module,
@@ -3199,6 +3202,90 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
         executable_ir=result.validated_bundle.ir,
     )
     assert identity["executable_ir_digest"].startswith("sha256:")
+
+    runtime_node = result.validated_bundle.runtime_plan.nodes[
+        run_ref_node.node_id
+    ]
+    finalization_plan = replace(
+        result.validated_bundle.runtime_plan,
+        nodes=MappingProxyType(
+            {
+                **result.validated_bundle.runtime_plan.nodes,
+                run_ref_node.node_id: replace(
+                    runtime_node,
+                    kind="finalization_step",
+                    region="finalization",
+                ),
+            }
+        ),
+    )
+    lexical_checkpoints_module.checkpoint_runtime_program_identity(
+        state_manager=SimpleNamespace(
+            calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+        ),
+        runtime_plan=finalization_plan,
+        workflow_path=source_path,
+        executable_ir=result.validated_bundle.ir,
+    )
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_program_identity_mismatch",
+    ):
+        lexical_checkpoints_module.checkpoint_runtime_program_identity(
+            state_manager=SimpleNamespace(
+                calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+            ),
+            runtime_plan=replace(
+                finalization_plan,
+                lexical_checkpoint_points=(),
+            ),
+            workflow_path=source_path,
+            executable_ir=result.validated_bundle.ir,
+        )
+
+    persisted_points = json.loads(
+        result.artifact_paths["lexical_checkpoint_points"].read_text(
+            encoding="utf-8"
+        )
+    )
+    persisted_runtime_plan = json.loads(
+        result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")
+    )
+    persisted_semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    persisted_source_map = json.loads(
+        result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+    persisted_runtime_plan["nodes"][run_ref_node.node_id]["kind"] = (
+        "finalization_step"
+    )
+    persisted_runtime_plan["nodes"][run_ref_node.node_id]["region"] = (
+        "finalization"
+    )
+    persisted_points["program_identity"]["executable_ir_digest"] = (
+        sha256_json(persisted_runtime_plan)
+    )
+    build_artifacts_module._validate_lexical_checkpoint_artifacts(
+        persisted_points,
+        validated_bundle=result.validated_bundle,
+        semantic_ir_payload=persisted_semantic_ir,
+        runtime_plan_payload=persisted_runtime_plan,
+        source_map_payload=persisted_source_map,
+    )
+    missing_finalization_point = deepcopy(persisted_points)
+    missing_finalization_point["points"] = []
+    with pytest.raises(
+        ValueError,
+        match="lexical checkpoint executable identity drift",
+    ):
+        build_artifacts_module._validate_lexical_checkpoint_artifacts(
+            missing_finalization_point,
+            validated_bundle=result.validated_bundle,
+            semantic_ir_payload=persisted_semantic_ir,
+            runtime_plan_payload=persisted_runtime_plan,
+            source_map_payload=persisted_source_map,
+        )
 
     point_details = dict(point.details)
     point_details["executable_identity"] = {
