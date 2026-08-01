@@ -1409,7 +1409,10 @@ def test_build_compile_entry_uses_fresh_session_after_failure(
     from types import SimpleNamespace
 
     from orchestrator.workflow_lisp import build
-    from orchestrator.workflow_lisp.compiler import Stage3ValidationProfile
+    from orchestrator.workflow_lisp.compiler import (
+        Stage3ValidationProfile,
+        WorkflowBoundaryAdmissionProfile,
+    )
     from orchestrator.workflow_lisp.compiler_session import CompilerSession
     from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
@@ -1422,6 +1425,9 @@ def test_build_compile_entry_uses_fresh_session_after_failure(
         source_roots=(tmp_path,),
         entry_workflow=None,
         validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
+        boundary_admission_profile=(
+            WorkflowBoundaryAdmissionProfile.SHARED_CALLABLE
+        ),
         lint_profile="default",
         lowering_route=LoweringRoute.LEGACY,
         provider_externs={},

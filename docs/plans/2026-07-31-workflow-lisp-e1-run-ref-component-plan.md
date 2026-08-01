@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** executing; E1 is owner-selected, Tasks 0–6 are closed, and
-  Task 7 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–7 are closed, and
+  Task 8 is the active end-to-end proof step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
