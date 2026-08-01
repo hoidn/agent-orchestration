@@ -930,6 +930,32 @@ import sys
 
 blocked_name = "orchestrator.workflow.run_ref.config"
 
+# Isolate compiler-child imports from the package facade's eager compatibility
+# exports, just as the inverse neutral-config probe below isolates its target.
+import orchestrator.workflow_lisp
+
+eviction_names = {
+    name
+    for name in sys.modules
+    if name.startswith("orchestrator.workflow_lisp.")
+}
+eviction_names.add(blocked_name)
+for loaded_name in sorted(
+    eviction_names,
+    key=lambda name: (name.count("."), len(name)),
+    reverse=True,
+):
+    parent_name, _, child_name = loaded_name.rpartition(".")
+    parent = sys.modules.get(parent_name)
+    sys.modules.pop(loaded_name, None)
+    if parent is not None and child_name in vars(parent):
+        delattr(parent, child_name)
+assert blocked_name not in sys.modules
+assert not any(
+    name.startswith("orchestrator.workflow_lisp.")
+    for name in sys.modules
+)
+
 class BlockedImport(RuntimeError):
     pass
 
