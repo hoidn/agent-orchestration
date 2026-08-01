@@ -3027,7 +3027,10 @@ def _run_ref_lowering_context(type_env, *, lowering_session=None):
     )
 
 
-def _surface_run_ref_config() -> RunRefStaticConfig:
+def _surface_run_ref_config(
+    *,
+    compiler_identity_digit: str = "f",
+) -> RunRefStaticConfig:
     expr = _mode_one_expr()
     typed, type_env, _, _ = _typed_run_ref_for_wcc(expr)
     steps, _ = _lower_run_ref_operation(
@@ -3036,7 +3039,7 @@ def _surface_run_ref_config() -> RunRefStaticConfig:
         context=_run_ref_lowering_context(type_env),
         local_values={},
         identity_provider=lambda: VerifiedCompilerRuntimeIdentity(
-            "sha256:" + "f" * 64
+            "sha256:" + compiler_identity_digit * 64
         ),
     )
     config = steps[-1]["run_ref"]
@@ -3899,7 +3902,144 @@ def test_run_ref_semantic_ir_rejects_missing_effect_even_when_catalogs_agree() -
         ),
     )
 
-    with pytest.raises(WorkflowValidationError, match="exactly one run_ref effect"):
+    with pytest.raises(WorkflowValidationError, match="canonical run_ref effect"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_unlinked_effect_catalog_row() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    workflow_name, workflow = next(iter(semantic_ir.workflows.items()))
+    statement_id, statement = next(iter(workflow.statements.items()))
+    invalid = replace(
+        semantic_ir,
+        workflows=MappingProxyType(
+            {
+                workflow_name: replace(
+                    workflow,
+                    statements=MappingProxyType(
+                        {statement_id: replace(statement, effect_ids=())}
+                    ),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="canonical run_ref effect"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement_value"),
+    (
+        ("site_digest", "0" * 64),
+        ("result_digest", "sha256:" + "1" * 64),
+        ("program_mode", "path"),
+    ),
+)
+def test_run_ref_semantic_ir_rejects_closed_detail_tampering(
+    field_name: str,
+    replacement_value: str,
+) -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    effect_id, effect = next(
+        (effect_id, effect)
+        for effect_id, effect in semantic_ir.effects.items()
+        if effect.effect_kind == "run_ref"
+    )
+    invalid = replace(
+        semantic_ir,
+        effects=MappingProxyType(
+            {
+                **semantic_ir.effects,
+                effect_id: replace(
+                    effect,
+                    details=MappingProxyType(
+                        {**effect.details, field_name: replacement_value}
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="closed config details"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            invalid,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_valid_surface_config_disagreement() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    invalid_surface = replace(
+        surface,
+        steps=(
+            replace(
+                surface.steps[0],
+                run_ref=_surface_run_ref_config(compiler_identity_digit="e"),
+            ),
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="surface authority"):
+        semantic_ir_module.validate_workflow_semantic_ir(
+            semantic_ir,
+            ir=executable,
+            projection=projection,
+            runtime_plan=runtime_plan,
+            surface=invalid_surface,
+            imports={},
+        )
+
+
+def test_run_ref_semantic_ir_rejects_entrypoint_allocation_identity_tampering() -> None:
+    surface, executable, projection, runtime_plan, semantic_ir, _, _ = (
+        _semantic_run_ref_bundle()
+    )
+    layout_id, layout = next(
+        (layout_id, layout)
+        for layout_id, layout in semantic_ir.state_layout.items()
+        if layout.layout_kind == "entrypoint_managed_write_root"
+    )
+    invalid = replace(
+        semantic_ir,
+        state_layout=MappingProxyType(
+            {
+                **semantic_ir.state_layout,
+                layout_id: replace(
+                    layout,
+                    details=MappingProxyType(
+                        {**layout.details, "privacy": "compatibility_view"}
+                    ),
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError, match="entrypoint.*allocation"):
         semantic_ir_module.validate_workflow_semantic_ir(
             invalid,
             ir=executable,
