@@ -1003,31 +1003,67 @@ def forbidden(fullname):
         or fullname == "orchestrator.workflow.executable_ir"
     )
 
-for loaded_name in tuple(sys.modules):
-    if forbidden(loaded_name) or loaded_name in neutral_children:
-        del sys.modules[loaded_name]
+forbidden_roots = {
+    "orchestrator.workflow_lisp",
+    "orchestrator.workflow.semantic_ir",
+    "orchestrator.workflow.executable_ir",
+}
+eviction_names = neutral_children | forbidden_roots | {
+    loaded_name for loaded_name in sys.modules if forbidden(loaded_name)
+}
+
+def child_attribute_absent(fullname):
+    parent_name, _, child_name = fullname.rpartition(".")
+    parent = sys.modules.get(parent_name)
+    return parent is None or child_name not in vars(parent)
+
+for loaded_name in sorted(
+    eviction_names,
+    key=lambda name: (name.count("."), len(name)),
+    reverse=True,
+):
+    parent_name, _, child_name = loaded_name.rpartition(".")
+    parent = sys.modules.get(parent_name)
+    sys.modules.pop(loaded_name, None)
+    if parent is not None and child_name in vars(parent):
+        delattr(parent, child_name)
 assert not any(forbidden(name) for name in sys.modules)
 assert config_name not in sys.modules
+assert all(child_attribute_absent(name) for name in eviction_names)
 
 class BlockedImport(RuntimeError):
     pass
 
+blocked_requests = []
+
 class Blocker(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if forbidden(fullname):
+            blocked_requests.append(fullname)
             raise BlockedImport(fullname)
         return None
 
 sys.meta_path.insert(0, Blocker())
-config = importlib.import_module(config_name)
-assert config.RUN_REF_STATIC_CONFIG_SCHEMA == "run_ref_static_config.v1"
-assert not any(forbidden(name) for name in sys.modules)
 try:
-    importlib.import_module("orchestrator.workflow.semantic_ir")
+    from orchestrator.workflow import semantic_ir
 except BlockedImport:
     pass
 else:
-    raise AssertionError("forbidden IR import was not blocked")
+    raise AssertionError("cached-parent semantic IR import bypassed the blocker")
+try:
+    from orchestrator.workflow import executable_ir
+except BlockedImport:
+    pass
+else:
+    raise AssertionError("cached-parent executable IR import bypassed the blocker")
+assert {
+    "orchestrator.workflow.semantic_ir",
+    "orchestrator.workflow.executable_ir",
+}.issubset(blocked_requests)
+config = importlib.import_module(config_name)
+assert config.RUN_REF_STATIC_CONFIG_SCHEMA == "run_ref_static_config.v1"
+assert not any(forbidden(name) for name in sys.modules)
+assert all(child_attribute_absent(name) for name in forbidden_roots)
 ''',
         ),
         check=False,
