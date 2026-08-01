@@ -739,8 +739,16 @@ def test_run_ref_mode_one_rejects_signature_mismatches(
     assert excinfo.value.diagnostics[0].code == expected_code
 
 
-def test_run_ref_mode_one_never_omits_hidden_or_private_inputs() -> None:
-    expr = _mode_one_expr()
+@pytest.mark.parametrize("supply_private", (False, True))
+def test_run_ref_mode_one_rejects_selected_private_boundary_state(
+    supply_private: bool,
+) -> None:
+    inputs = (
+        (("private", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),)
+        if supply_private
+        else ()
+    )
+    expr = _mode_one_expr(inputs=inputs)
     string_type = PrimitiveTypeRef("String")
     signature = WorkflowSignature(
         name="child",
@@ -765,6 +773,96 @@ def test_run_ref_mode_one_never_omits_hidden_or_private_inputs() -> None:
             workflow_catalog=catalog,
         )
     assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("signature_kwargs", "supplied_name"),
+    (
+        ({"hidden_context_requirements": {"ctx": object()}}, "ctx"),
+        ({"hidden_context_ambiguities": {"ctx": ("one", "two")}}, "ctx"),
+    ),
+)
+@pytest.mark.parametrize("supply_hidden", (False, True))
+def test_run_ref_mode_one_rejects_selected_hidden_boundary_state(
+    signature_kwargs,
+    supplied_name: str,
+    supply_hidden: bool,
+) -> None:
+    inputs = (
+        ((supplied_name, LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),)
+        if supply_hidden
+        else ()
+    )
+    expr = _mode_one_expr(inputs=inputs)
+    signature = WorkflowSignature(
+        name="child",
+        params=(),
+        return_type_ref=PrimitiveTypeRef("String"),
+        span=expr.span,
+        form_path=FORM_PATH,
+        **signature_kwargs,
+    )
+    catalog = WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+def test_run_ref_mode_one_private_name_is_unknown_on_public_only_signature() -> None:
+    value_expr = LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)
+    expr = _mode_one_expr(inputs=(("private", value_expr),))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr),
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+def test_run_ref_effect_preserves_canonical_identity_as_one_subject() -> None:
+    expr = replace(
+        _mode_one_expr(),
+        program=RunRefBundleProgram("imported.module/child-name"),
+    )
+    catalog = _catalog(expr)
+    canonical_signature = replace(
+        catalog.signatures_by_name["child"],
+        name="imported.module/child-name",
+    )
+    catalog = replace(
+        catalog,
+        signatures_by_name={"imported.module/child-name": canonical_signature},
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=catalog,
+    )
+
+    from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("imported.module/child-name",))}
+    )
+    assert not any(
+        isinstance(effect, CallsWorkflowEffect)
+        for effect in typed.effect_summary.transitive_effects
+    )
 
 
 def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:

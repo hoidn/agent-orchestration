@@ -46,8 +46,21 @@ def _typecheck_mode_one(expr, *, context, recurse):
             expansion_stack=expr.expansion_stack,
         )
 
+    hidden_boundary_state = (
+        signature.private_compatibility_bridge_types
+        or signature.hidden_context_requirements
+        or signature.hidden_context_ambiguities
+    )
+    if hidden_boundary_state:
+        raise_error(
+            "run-ref bundle workflows must expose a complete public-only input signature",
+            code="workflow_signature_mismatch",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
     expected_inputs = dict(signature.params)
-    expected_inputs.update(signature.private_compatibility_bridge_types)
     defaulted = frozenset(signature.param_defaults)
     seen: set[str] = set()
     typed_inputs = []
@@ -174,7 +187,7 @@ def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
 
     run_effect = effect_summary_from_direct(
         direct_effects=(
-            RunsRefEffect(subject=tuple(effect_subject.split("."))),
+            RunsRefEffect(subject=(effect_subject,)),
         )
     )
     return typed_factory(
