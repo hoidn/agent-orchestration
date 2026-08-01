@@ -11,6 +11,10 @@ from orchestrator.workflow.run_ref.contracts import (
     canonical_json_bytes,
     canonical_sha256,
 )
+from orchestrator.workflow.run_ref.result_contract import (
+    RUN_REF_RESULT_CONTRACT_SCHEMA,
+    validate_run_ref_result_descriptor,
+)
 
 from .contracts import is_transportable_result_type
 from .normalized_type_descriptor import (
@@ -21,7 +25,6 @@ from .type_env import FrontendTypeEnvironment, RecordTypeRef
 from .typecheck_run_ref import compiler_run_ref_fixed_types
 
 
-RUN_REF_RESULT_CONTRACT_SCHEMA = "run_ref_result_contract.v1"
 _GENERATED_RESULT_NAME = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
 _RESULT_FIELD_NAMES = ("value", "workspace_delta", "accounting")
 
@@ -143,6 +146,11 @@ def derive_run_ref_result_contract(
         "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
         "envelope": envelope,
     }
+    validate_run_ref_result_descriptor(
+        descriptor,
+        expected_generated_name=result_type_ref.name,
+        expected_digest=canonical_sha256(descriptor),
+    )
     return _make_generated_run_ref_result_contract(
         descriptor,
         type_ref=result_type_ref,

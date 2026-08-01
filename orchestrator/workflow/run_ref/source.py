@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -22,6 +23,7 @@ from .contracts import (
     PostSetupBaselineIdentity,
     RepositoryRevisionId,
     RunRefSourceRefusal,
+    SetupCommand,
     SetupPolicy,
     VerifiedGitTreeIdentity,
     authored_setup_identity,
@@ -303,6 +305,80 @@ def canonical_source_request(request: SourceRequest) -> dict[str, object]:
         "authored_setup": authored_setup,
         "authored_setup_identity": authored_setup_identity(request.setup),
     }
+
+
+def source_request_from_dict(record: Mapping[str, object]) -> SourceRequest:
+    """Decode one exact canonical source-request record into immutable values."""
+
+    if not isinstance(record, Mapping):
+        raise TypeError("source request must be a mapping")
+    expected = {
+        "schema_version",
+        "normalized_locator",
+        "resolved_commit_sha",
+        "materializer_version",
+        "submodule_policy",
+        "lfs_policy",
+        "authored_setup",
+        "authored_setup_identity",
+    }
+    if set(record) != expected:
+        raise ValueError("source request has missing or extra fields")
+    if record["schema_version"] != _SOURCE_SCHEMA:
+        raise ValueError("source request schema is unsupported")
+
+    authored_setup = record["authored_setup"]
+    if not isinstance(authored_setup, Mapping) or set(authored_setup) != {"commands"}:
+        raise ValueError("source request authored_setup has invalid fields")
+    command_rows = authored_setup["commands"]
+    if not isinstance(command_rows, list):
+        raise TypeError("source request setup commands must be a list")
+    commands: list[SetupCommand] = []
+    for command_row in command_rows:
+        if not isinstance(command_row, Mapping) or set(command_row) != {"argv", "env"}:
+            raise ValueError("source request setup command has invalid fields")
+        argv = command_row["argv"]
+        env = command_row["env"]
+        if not isinstance(argv, list) or not isinstance(env, list):
+            raise TypeError("source request setup argv and env must be lists")
+        env_pairs: list[tuple[str, str]] = []
+        for pair in env:
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError("source request setup env row must be a pair")
+            name, value = pair
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise TypeError("source request setup env row must contain strings")
+            env_pairs.append((name, value))
+        if any(not isinstance(arg, str) for arg in argv):
+            raise TypeError("source request setup argv must contain strings")
+        commands.append(
+            SetupCommand(
+                argv=tuple(argv),
+                env=tuple(env_pairs),
+            )
+        )
+
+    string_fields = (
+        "normalized_locator",
+        "resolved_commit_sha",
+        "materializer_version",
+        "submodule_policy",
+        "lfs_policy",
+        "authored_setup_identity",
+    )
+    if any(not isinstance(record[field], str) for field in string_fields):
+        raise TypeError("source request identity fields must be strings")
+    request = SourceRequest(
+        locator=record["normalized_locator"],
+        commit=record["resolved_commit_sha"],
+        materializer_version=record["materializer_version"],
+        submodule_policy=record["submodule_policy"],
+        lfs_policy=record["lfs_policy"],
+        setup=SetupPolicy(commands=tuple(commands)),
+    )
+    if canonical_source_request(request) != dict(record):
+        raise ValueError("source request does not match its canonical identity")
+    return request
 
 
 def canonical_repository_revision_result(
@@ -1120,5 +1196,6 @@ __all__ = [
     "canonical_source_request",
     "materialize_source",
     "normalize_repository_locator",
+    "source_request_from_dict",
     "validate_commit_sha",
 ]
