@@ -1492,7 +1492,7 @@ def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None
         assert Path(E1_RUN_REF_PLAN_REVIEW_PATH).name in surface
     normalized_e1_plan = _normalized_routing_text(e1_plan)
     normalized_e1_plan_review = _normalized_routing_text(e1_plan_review)
-    assert "status: accepted for execution" in normalized_e1_plan
+    assert "status: executing" in normalized_e1_plan
     assert "task 0a result" in normalized_e1_plan
     assert "five tests and passed five of five" in normalized_e1_plan
     assert e1_plan.index("E1_PLAN_SPEC_APPROVED") < e1_plan.index(
