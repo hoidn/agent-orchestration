@@ -2,9 +2,8 @@
 
 ## Metadata
 
-- **Status:** proposed; E1 is owner-selected, but implementation remains
-  blocked on the preacceptance hermeticity proof in Task 0A and the ordered
-  plan-review gate in Task 0B
+- **Status:** accepted for execution; E1 is owner-selected, Task 0 is closed,
+  and Task 1 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -17,6 +16,12 @@
   `E1_PLAN_QUALITY_APPROVED`
 - **Required ordered final verdicts:** `E1_FINAL_SPEC_APPROVED`, then
   `E1_FINAL_QUALITY_APPROVED`
+- **Reviewed plan candidate:** commit
+  `0c392ac93e2e7a0304dbda48549d8113904ab90c`, tree
+  `3a55ac5f3e7dfcd9d9000d4ac3ca22474df31cb2`, plan SHA-256
+  `524e7a76afd23f8dbcbd7e5b9a33514efbaf347a7a2041bc2d1a8847be899389`
+- **Plan review:** `artifacts/review/e1-run-ref-plan-review.md`;
+  `E1_PLAN_SPEC_APPROVED`, then `E1_PLAN_QUALITY_APPROVED`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -418,14 +423,20 @@ No other ambient compiler input was observed by this fixture.
 status/routing rows in the E roadmap, execution sequence, design router,
 capability matrix, docs index, and routing tests.
 
-- [ ] Commit the proposed plan while status remains plan-review-pending and
+- [x] Commit the proposed plan while status remains plan-review-pending and
       bind the completed Task 0A result.
-- [ ] Obtain `E1_PLAN_SPEC_APPROVED` against the exact commit and governing
+- [x] Obtain `E1_PLAN_SPEC_APPROVED` against the exact commit and governing
       design digests; correct material findings and repeat if needed.
-- [ ] Obtain distinct `E1_PLAN_QUALITY_APPROVED` once.
-- [ ] Record verdicts and reviewed plan SHA, change status to
+- [x] Obtain distinct `E1_PLAN_QUALITY_APPROVED` once.
+- [x] Record verdicts and reviewed plan SHA, change status to
       accepted-for-execution, add behavioral routing assertions, and commit.
 - [ ] Run the complete routing module postcommit.
+
+Task 0B review closed against commit `0c392ac9`, tree `3a55ac5f`, after
+ordered `E1_PLAN_SPEC_APPROVED` then `E1_PLAN_QUALITY_APPROVED`. The exact
+bindings, corrected findings, and E1-only execution boundary are recorded in
+`artifacts/review/e1-run-ref-plan-review.md`. Task 1 may now begin; this gate
+does not claim target 2.24 behavior exists yet or make E2 eligible.
 
 ## Task 1: Land target-2.24 normative contracts first
 

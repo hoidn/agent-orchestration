@@ -33,9 +33,12 @@ The owner selected E1 through E3 on 2026-07-31 through the
 [durable selection record](2026-07-31-workflow-lisp-e1-e3-owner-selection.md).
 E1-E3 are owner-selected,
 but their accepted dependency order remains binding: E1
-planning is active at target 2.24; E2 is selected pending the canonical E1
-exit gate at target 2.25; and E3 is selected pending the canonical E2 exit
-gate and review of the first fixed study. E3 adds no language target.
+component plan is accepted for execution at target 2.24 under
+[the reviewed plan](2026-07-31-workflow-lisp-e1-run-ref-component-plan.md)
+and [plan review](../../artifacts/review/e1-run-ref-plan-review.md), with
+normative-contract Task 1 active; E2 is selected pending the canonical E1 exit
+gate at target 2.25; and E3 is selected pending the canonical E2 exit gate and
+review of the first fixed study. E3 adds no language target.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
 gate. C1, C2, and C3 remain Designed and unselected.

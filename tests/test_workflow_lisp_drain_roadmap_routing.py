@@ -182,6 +182,10 @@ E0_DIRECT_CONTROL_FINAL_REVIEW_PATH = (
 E1_E3_OWNER_SELECTION_PATH = (
     "docs/plans/2026-07-31-workflow-lisp-e1-e3-owner-selection.md"
 )
+E1_RUN_REF_PLAN_PATH = (
+    "docs/plans/2026-07-31-workflow-lisp-e1-run-ref-component-plan.md"
+)
+E1_RUN_REF_PLAN_REVIEW_PATH = "artifacts/review/e1-run-ref-plan-review.md"
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1365,6 +1369,10 @@ def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None
     selection = (REPO_ROOT / E1_E3_OWNER_SELECTION_PATH).read_text(
         encoding="utf-8"
     )
+    e1_plan = (REPO_ROOT / E1_RUN_REF_PLAN_PATH).read_text(encoding="utf-8")
+    e1_plan_review = (REPO_ROOT / E1_RUN_REF_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1408,7 +1416,10 @@ def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None
     assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
     assert "e0 is complete at fe7d6f9b" in normalized_roadmap
     assert "pass_e0" in normalized_roadmap
-    assert "e1 planning is active at target 2.24" in normalized_roadmap
+    assert (
+        "e1 component plan is accepted for execution at target 2.24"
+        in normalized_roadmap
+    )
     assert (
         "e2 is selected pending the canonical e1 exit gate at target 2.25"
         in normalized_roadmap
@@ -1458,7 +1469,10 @@ def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None
         normalized_trial_capability
     )
     assert "e1 e3 are owner selected" in normalized_trial_capability
-    assert "e1 planning is active at target 2.24" in normalized_trial_capability
+    assert (
+        "e1 component plan is accepted for execution at target 2.24"
+        in normalized_trial_capability
+    )
     assert "e2 and e3 remain prerequisite gated" in normalized_trial_capability
     assert "c1 c3 remain designed and unselected" in normalized_trial_capability
     assert "| Designed |" in gates_capability
@@ -1467,6 +1481,28 @@ def test_e_series_routes_completed_e0_and_owner_selected_e1_through_e3() -> None
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in design_index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
+    for surface in (
+        roadmap,
+        design_index,
+        index,
+        trial_capability,
+        sequence,
+    ):
+        assert Path(E1_RUN_REF_PLAN_PATH).name in surface
+        assert Path(E1_RUN_REF_PLAN_REVIEW_PATH).name in surface
+    normalized_e1_plan = _normalized_routing_text(e1_plan)
+    normalized_e1_plan_review = _normalized_routing_text(e1_plan_review)
+    assert "status: accepted for execution" in normalized_e1_plan
+    assert "task 0a result" in normalized_e1_plan
+    assert "five tests and passed five of five" in normalized_e1_plan
+    assert e1_plan.index("E1_PLAN_SPEC_APPROVED") < e1_plan.index(
+        "E1_PLAN_QUALITY_APPROVED"
+    )
+    assert "status: approved for e1 execution" in normalized_e1_plan_review
+    assert "0c392ac93e2e7a0304dbda48549d8113904ab90c" in e1_plan_review
+    assert e1_plan_review.index("E1_PLAN_SPEC_APPROVED") < e1_plan_review.index(
+        "E1_PLAN_QUALITY_APPROVED"
+    )
     normalized_plan = _normalized_routing_text(plan)
     assert "task 1 landed at b71bf62a" in normalized_plan
     assert "task 2 landed at 3d41a8bf" in normalized_plan
@@ -2104,7 +2140,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "e0 is complete" in normalized_evolution_status
     assert "e1 e3 are owner selected" in normalized_evolution_status
-    assert "e1 planning is active at target 2.24" in normalized_evolution_status
+    assert (
+        "e1 component plan is accepted for execution at target 2.24"
+        in normalized_evolution_status
+    )
     assert "e2 is selected pending the canonical e1 exit gate at target 2.25" in (
         normalized_evolution_status
     )
