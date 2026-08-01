@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for execution; E1 is owner-selected, Task 0 is closed,
-  and Task 1 is the active implementation step
+- **Status:** executing; E1 is owner-selected, Tasks 0–1 are closed, and
+  Task 2 is the active implementation step
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E1 only — pinned-workspace child execution through
   `run-ref`
@@ -447,13 +447,25 @@ hermeticity control passed 76 tests (71 routing and five hermeticity).
 **Files:** `specs/dsl.md`, `specs/state.md`, `specs/versioning.md`,
 `specs/index.md`; create focused target-2.24 contract tests.
 
-- [ ] Add RED assertions for unsupported 2.24 and absent normative rows.
-- [ ] Specify the exact syntax, generated result/evidence types, refusal and
+- [x] Add RED assertions for unsupported 2.24 and absent normative rows.
+- [x] Specify the exact syntax, generated result/evidence types, refusal and
       runtime diagnostic families, target gate, state/ledger/reuse contract,
       mode split, loop exclusion, and non-security boundary above.
-- [ ] Update supported-target routing only; no runtime behavior yet.
-- [ ] Run collect-only, spec/version selectors, ordered reviews, commit, and
+- [x] Update supported-target routing only; no runtime behavior yet.
+- [x] Run collect-only, spec/version selectors, ordered reviews, commit, and
       postcommit controls.
+
+Task 1 landed its target/spec/test candidate at
+`dc2c8a047db2f0c429c33982a41150e47ed24f4c`, tree
+`73e725bbe99d18d888f927f34c62fd5f7335e02d`. Quality review found one stale
+master-spec routing assertion; the exact correction landed at
+`c73cb00bc8f2b1f2a5e21f31d3bc9d204c2f0ecc`, tree
+`60adcb9f2ea84633940fa7bcf1a63d6e2a594427`. The new module collects three
+tests; the final Task-1, adjacent compiler, and complete routing control passed
+226 tests. After the correction, ordered `E1_TASK1_SPEC_APPROVED` then
+`E1_TASK1_QUALITY_APPROVED` approved the exact candidate. Only target-2.24
+admission and normative contracts landed; `run-ref` parsing and execution
+remain absent.
 
 ## Task 2: Prove and implement source identity and materialization
 
