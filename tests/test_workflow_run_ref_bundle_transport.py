@@ -18,6 +18,7 @@ from orchestrator.workflow.executable_ir import (
 )
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow_lisp.build import (
+    FrontendBuildResult,
     FrontendBuildRequest,
     build_frontend_bundle,
 )
@@ -52,7 +53,7 @@ def _compiled_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
     ).validated_bundle
 
 
-def _compiled_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
+def _compiled_controller_result(tmp_path: Path) -> FrontendBuildResult:
     source_path = tmp_path / "capsule_controller.orc"
     source_path.write_text(
         """\
@@ -83,7 +84,14 @@ def _compiled_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
             workspace_root=tmp_path,
             lowering_route=LoweringRoute.WCC_M4,
         )
-    ).validated_bundle
+    )
+
+
+def _compiled_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
+    result = _compiled_controller_result(tmp_path)
+    return result.compile_result.entry_result.validated_bundles[
+        "capsule_controller::entry"
+    ]
 
 
 def _compiled_mixed_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
@@ -117,7 +125,7 @@ def _compiled_mixed_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
 """,
         encoding="utf-8",
     )
-    return build_frontend_bundle(
+    result = build_frontend_bundle(
         FrontendBuildRequest(
             source_path=source_path,
             source_roots=(tmp_path,),
@@ -125,7 +133,10 @@ def _compiled_mixed_controller_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
             workspace_root=tmp_path,
             lowering_route=LoweringRoute.WCC_M4,
         )
-    ).validated_bundle
+    )
+    return result.compile_result.entry_result.validated_bundles[
+        "capsule_mixed::entry"
+    ]
 
 
 def _closure(source_path: Path) -> tuple[bundle_transport.BundleCapsuleClosureBlob, ...]:
@@ -258,6 +269,75 @@ def test_bundle_capsule_directory_rejects_unmanifested_file(
             capsule_root,
             expected_capsule_digest=encoded.capsule_digest,
         )
+
+
+def test_frontend_build_emits_reachable_mode_one_capsule_and_binds_controller(
+    tmp_path: Path,
+) -> None:
+    result = _compiled_controller_result(tmp_path)
+
+    assert result.run_ref_bundle_capsule is not None
+    encoded = result.run_ref_bundle_capsule
+    capsule_root = result.build_root / "run_ref_bundle_capsule.v1"
+    persisted = bundle_transport.read_bundle_capsule_directory(
+        capsule_root,
+        expected_capsule_digest=encoded.capsule_digest,
+    )
+    assert persisted == encoded
+    decoded = bundle_transport.decode_bundle_capsule(
+        manifest_bytes=encoded.manifest_bytes,
+        pickle_bytes=encoded.pickle_bytes,
+        closure=encoded.closure,
+        expected_capsule_digest=encoded.capsule_digest,
+        expected_compiler_runtime_identity_digest=(
+            next(
+                config.run_ref.compiler_runtime_identity_digest
+                for node in result.validated_bundle.ir.nodes.values()
+                if isinstance(
+                    (config := node.execution_config),
+                    RunRefStepConfig,
+                )
+            )
+        ),
+    )
+    assert decoded.target_workflow_names == ("capsule_controller::child",)
+    assert tuple(decoded.bundles_by_name) == ("capsule_controller::child",)
+    [controller_config] = [
+        node.execution_config
+        for node in result.validated_bundle.ir.nodes.values()
+        if isinstance(node.execution_config, RunRefStepConfig)
+    ]
+    assert controller_config.capsule_binding == RunRefBundleCapsuleBinding(
+        encoded.capsule_digest
+    )
+    assert result.artifact_paths["run_ref_bundle_capsule_manifest"] == (
+        capsule_root / "manifest.json"
+    )
+    assert result.artifact_paths["run_ref_bundle_capsule_pickle"] == (
+        capsule_root / "bundles.pkl"
+    )
+
+
+def test_frontend_build_without_mode_one_omits_capsule_artifacts(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_bundle(tmp_path)
+    result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=bundle.provenance.workflow_path,
+            source_roots=(tmp_path,),
+            entry_workflow="child",
+            workspace_root=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+        )
+    )
+
+    assert result.run_ref_bundle_capsule is None
+    assert not (result.build_root / "run_ref_bundle_capsule.v1").exists()
+    assert all(
+        not name.startswith("run_ref_bundle_capsule")
+        for name in result.artifact_paths
+    )
 
 
 def test_bundle_capsule_encoding_canonicalizes_catalog_order_without_global_reducer(

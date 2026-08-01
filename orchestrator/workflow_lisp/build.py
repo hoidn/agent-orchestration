@@ -16,6 +16,11 @@ from orchestrator.workflow.core_ast import (
 )
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.run_ref.bundle_transport import (
+    EncodedBundleCapsule,
+    write_bundle_capsule_directory,
+)
+from orchestrator.workflow.run_ref.capsule_build import assemble_bundle_capsule
 from orchestrator.workflow.persisted_surface import (
     PERSISTED_WORKFLOW_SURFACE_FILENAME,
     canonical_persisted_surface_bytes,
@@ -239,6 +244,7 @@ class FrontendBuildResult:
     manifest_path: Path
     selected_workflow_name: str
     validated_bundle: LoadedWorkflowBundle
+    run_ref_bundle_capsule: EncodedBundleCapsule | None
     diagnostics: tuple[LispFrontendDiagnostic, ...]
     artifact_paths: Mapping[str, Path]
     manifest: FrontendBuildManifest
@@ -307,6 +313,7 @@ class FrontendInMemoryBuildResult:
     resolved_request: FrontendBuildRequest
     selected_workflow_name: str | None
     validated_bundle: LoadedWorkflowBundle | None
+    run_ref_bundle_capsule: EncodedBundleCapsule | None
     diagnostics: tuple[LispFrontendDiagnostic, ...]
     entry_selection: FrontendEntrySelection | None
     imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
@@ -709,6 +716,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             compile_request_capture=in_memory.compile_request_capture,
             source_read_trace=in_memory.source_read_trace,
             configuration_trace=in_memory.configuration_trace,
+            run_ref_bundle_capsule=in_memory.run_ref_bundle_capsule,
         )
     except LispFrontendCompileError as error:
         _attach_compile_request_capture(
@@ -895,6 +903,7 @@ def _build_frontend_bundle_in_memory(
             resolved_request=resolved_request,
             selected_workflow_name=None,
             validated_bundle=None,
+            run_ref_bundle_capsule=None,
             diagnostics=compile_result.diagnostics,
             entry_selection=None,
             imported_workflow_bundles=imported_bindings,
@@ -940,6 +949,7 @@ def _build_frontend_bundle_in_memory(
         resolved_request=resolved_request,
         selected_workflow_name=entry_selection.selected_name,
         validated_bundle=reattached.validated_bundle,
+        run_ref_bundle_capsule=reattached.run_ref_bundle_capsule,
         diagnostics=compile_result.diagnostics,
         entry_selection=entry_selection,
         imported_workflow_bundles=imported_bindings,
@@ -1062,6 +1072,7 @@ class _SelectAndReattachResult:
     """
 
     validated_bundle: LoadedWorkflowBundle
+    run_ref_bundle_capsule: EncodedBundleCapsule | None
     source_map_payload: Mapping[str, object]
     workflow_boundary_projection_payload: Mapping[str, object]
     build_root: Path
@@ -1113,6 +1124,18 @@ def _select_and_reattach(
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
 
+    assembled_capsule = assemble_bundle_capsule(
+        selected_bundle,
+        local_catalog=compile_result,
+        imported_catalogs=imported_bindings,
+        raw_bytes_by_path=source_read_trace,
+        lowering_schema_version=(
+            compile_result.entry_result.lowering_schema_version
+        ),
+    )
+    if assembled_capsule is not None:
+        selected_bundle = assembled_capsule.bound_controller
+
     source_map_path = build_root / "source_map.json"
     persisted_surface_payload = serialize_persisted_workflow_surface_graph(selected_bundle)
     persisted_surface_bytes = canonical_persisted_surface_bytes(persisted_surface_payload)
@@ -1147,6 +1170,11 @@ def _select_and_reattach(
     )
     return _SelectAndReattachResult(
         validated_bundle=validated_bundle,
+        run_ref_bundle_capsule=(
+            assembled_capsule.encoded
+            if assembled_capsule is not None
+            else None
+        ),
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         build_root=build_root,
@@ -1172,6 +1200,7 @@ def _emit(
     compile_request_capture: FrontendCompileRequestCapture,
     source_read_trace: FrontendSourceReadTraceSnapshot,
     configuration_trace: FrontendConfigurationTraceSnapshot,
+    run_ref_bundle_capsule: EncodedBundleCapsule | None,
 ) -> FrontendBuildResult:
     """Write build artifacts and the manifest, and assemble the build result.
 
@@ -1195,6 +1224,23 @@ def _emit(
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         persisted_surface_payload=persisted_surface_payload,
     )
+    if run_ref_bundle_capsule is not None:
+        capsule_root = build_root / "run_ref_bundle_capsule.v1"
+        write_bundle_capsule_directory(
+            capsule_root,
+            run_ref_bundle_capsule,
+        )
+        artifact_paths = dict(artifact_paths)
+        artifact_paths.update(
+            {
+                "run_ref_bundle_capsule_manifest": (
+                    capsule_root / "manifest.json"
+                ),
+                "run_ref_bundle_capsule_pickle": (
+                    capsule_root / "bundles.pkl"
+                ),
+            }
+        )
     persisted_surface_path = artifact_paths["persisted_workflow_surface"]
     persisted_surface_bytes = persisted_surface_path.read_bytes()
     decoded_surface = decode_persisted_workflow_surface_graph(persisted_surface_bytes)
@@ -1243,6 +1289,7 @@ def _emit(
         manifest_path=manifest_path,
         selected_workflow_name=entry_selection.selected_name,
         validated_bundle=validated_bundle,
+        run_ref_bundle_capsule=run_ref_bundle_capsule,
         diagnostics=diagnostics,
         artifact_paths=artifact_paths,
         manifest=manifest,
