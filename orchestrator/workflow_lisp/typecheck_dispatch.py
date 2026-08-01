@@ -44,6 +44,7 @@ from .expressions import (
     ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
+    RunRefExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -102,6 +103,7 @@ from .typecheck_resource_view import (
     typecheck_resource_transition_expr,
 )
 from .typecheck_resume import typecheck_resume_or_start_expr
+from .typecheck_run_ref import typecheck_run_ref_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
     ProofScope,
@@ -1066,6 +1068,13 @@ def _typecheck(
         )
     if type(expr) is CallExpr:
         return _typecheck_call_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
+    if type(expr) is RunRefExpr:
+        return typecheck_run_ref_expr(
             expr,
             context=context,
             recurse=recurse,

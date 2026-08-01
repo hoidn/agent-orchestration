@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from typing import get_args
 
 import pytest
@@ -6,6 +6,13 @@ import pytest
 from orchestrator.workflow.run_ref.contracts import SetupCommand, SetupPolicy
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler_session import ElaborationSessionState
+from orchestrator.workflow_lisp.definitions import (
+    PathDef,
+    RecordDef,
+    RecordField,
+    UnionDef,
+    UnionVariant,
+)
 from orchestrator.workflow_lisp.expressions import (
     RunRefBundleProgram,
     RunRefExpr,
@@ -22,6 +29,18 @@ from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs
 from orchestrator.workflow_lisp.form_registry import get_form_spec
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    UnionTypeRef,
+)
+from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
+from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
 
 
 FORM_PATH = ("workflow-lisp", "run-ref-test")
@@ -37,6 +56,46 @@ def _expression(source: str) -> SyntaxNode:
         module_path="run_ref_expression.orc",
         form_path=FORM_PATH,
     )
+
+
+def _type_env(*extra_types) -> FrontendTypeEnvironment:
+    refs = {
+        name: PrimitiveTypeRef(name=name)
+        for name in ("String", "Int", "Float", "Bool", "Value", "Json")
+    }
+    refs.update({type_ref.name: type_ref for type_ref in extra_types})
+    return FrontendTypeEnvironment(refs, target_dsl_version="2.24")
+
+
+def _catalog(expr: RunRefExpr, *, params=(), return_type=None, defaults=()):
+    signature = WorkflowSignature(
+        name="child",
+        params=tuple(params),
+        return_type_ref=return_type or PrimitiveTypeRef("String"),
+        span=expr.span,
+        form_path=("workflow-lisp", "defworkflow", "child"),
+        param_defaults={name: object() for name in defaults},
+    )
+    return WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+
+def _mode_one_expr(*, inputs=(), source_path="run_ref_expression.orc") -> RunRefExpr:
+    parsed = read_sexpr_text(_mode_one_source(), source_path=source_path)
+    datum = parsed.items[0]
+    expr = parse_run_ref_expression(
+        SyntaxNode(
+            datum=datum,
+            span=datum.span,
+            module_path=source_path,
+            form_path=FORM_PATH,
+        ),
+        target_dsl_version="2.24",
+    )
+    return replace(expr, inputs=tuple(inputs))
 
 
 def _mode_one_source() -> str:
@@ -552,3 +611,235 @@ def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
 def test_run_ref_parser_is_not_registered_for_ordinary_elaboration() -> None:
     assert get_form_spec("run-ref", target_dsl_version="2.24") is None
     assert RunRefExpr in get_args(ExprNode)
+
+
+def _transportable_types(span):
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+    record_def = RecordDef(
+        name="ChildRecord",
+        fields=(RecordField(name="value", type_name="String", span=span),),
+        span=span,
+    )
+    record_type = RecordTypeRef(
+        name="ChildRecord",
+        definition=record_def,
+        field_types={"value": string_type},
+    )
+    union_def = UnionDef(
+        name="ChildUnion",
+        variants=(UnionVariant(name="OK", fields=(), span=span),),
+        span=span,
+    )
+    union_type = UnionTypeRef(
+        name="ChildUnion",
+        definition=union_def,
+        variant_field_types={"OK": {}},
+    )
+    path_def = PathDef(
+        name="ChildPath",
+        kind="relpath",
+        under="artifacts/work",
+        must_exist=False,
+        span=span,
+    )
+    return (
+        PrimitiveTypeRef("Bool"),
+        record_type,
+        union_type,
+        ListTypeRef("List[String]", string_type),
+        MapTypeRef("Map[String,Int]", string_type, int_type),
+        OptionalTypeRef("Optional[String]", string_type),
+        PathTypeRef("ChildPath", path_def),
+        PrimitiveTypeRef("Value"),
+    )
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_mode_one_accepts_every_transportable_return_root(
+    return_index: int,
+) -> None:
+    expr = _mode_one_expr()
+    return_type = _transportable_types(expr.span)[return_index]
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(*_transportable_types(expr.span)[1:]),
+        value_env={},
+        workflow_catalog=_catalog(expr, return_type=return_type),
+    )
+
+    assert typed.type_ref == return_type
+
+
+def test_run_ref_mode_one_checks_public_inputs_defaults_and_effect() -> None:
+    expr = _mode_one_expr(
+        inputs=(
+            ("task", LiteralExpr("work", "string", _mode_one_expr().span, FORM_PATH)),
+        )
+    )
+    string_type = PrimitiveTypeRef("String")
+    int_type = PrimitiveTypeRef("Int")
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(
+            expr,
+            params=(("task", string_type), ("attempt", int_type)),
+            defaults=("attempt",),
+        ),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.effect_summary.direct_effects == frozenset(
+        {RunsRefEffect(subject=("child",))}
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "params", "expected_code"),
+    (
+        ((), (("task", PrimitiveTypeRef("String")),), "workflow_signature_mismatch"),
+        (
+            (("extra", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),),
+            (),
+            "workflow_signature_mismatch",
+        ),
+        (
+            (
+                ("task", LiteralExpr("x", "string", _expression('"x"').span, FORM_PATH)),
+                ("task", LiteralExpr("y", "string", _expression('"y"').span, FORM_PATH)),
+            ),
+            (("task", PrimitiveTypeRef("String")),),
+            "workflow_signature_mismatch",
+        ),
+        (
+            (("task", LiteralExpr(1, "int", _expression("1").span, FORM_PATH)),),
+            (("task", PrimitiveTypeRef("String")),),
+            "type_mismatch",
+        ),
+    ),
+)
+def test_run_ref_mode_one_rejects_signature_mismatches(
+    inputs,
+    params,
+    expected_code: str,
+) -> None:
+    expr = _mode_one_expr(inputs=inputs)
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=_catalog(expr, params=params),
+        )
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
+def test_run_ref_mode_one_never_omits_hidden_or_private_inputs() -> None:
+    expr = _mode_one_expr()
+    string_type = PrimitiveTypeRef("String")
+    signature = WorkflowSignature(
+        name="child",
+        params=(),
+        return_type_ref=string_type,
+        span=expr.span,
+        form_path=FORM_PATH,
+        private_compatibility_bridge_types={"private": string_type},
+        allow_private_compatibility_bridge_omission=True,
+    )
+    catalog = WorkflowCatalog(
+        signatures_by_name={"child": signature},
+        definitions_by_name={},
+        imported_bundles_by_name={},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            workflow_catalog=catalog,
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+
+
+def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:
+    source = " ".join(
+        (
+            "(run-ref",
+            ':source (:repo "file:///workspace"',
+            ':commit "0123456789abcdef0123456789abcdef01234567")',
+            ':program (:path "candidate.orc" :entry candidate)',
+            ":inputs ()",
+            ":policy (:environment :deterministic-effect-free :setup ()))",
+        )
+    )
+    expr = parse_run_ref_expression(
+        _expression(source), target_dsl_version="2.24"
+    )
+    return replace(expr, returns_type_name=returns_type_name, inputs=tuple(inputs))
+
+
+@pytest.mark.parametrize("return_index", range(8))
+def test_run_ref_mode_two_resolves_every_transportable_return_refinement(
+    return_index: int,
+) -> None:
+    probe = _mode_two_expr()
+    types = _transportable_types(probe.span)
+    return_type = types[return_index]
+    expr = replace(probe, returns_type_name=return_type.name)
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(*types[1:]),
+        value_env={},
+    )
+
+    assert typed.type_ref == return_type
+
+
+def test_run_ref_mode_two_defaults_value_and_merges_input_effects() -> None:
+    inner = _mode_one_expr()
+    expr = _mode_two_expr(inputs=(("seed", inner),))
+
+    typed = typecheck_expression(
+        expr,
+        type_env=_type_env(),
+        value_env={},
+        workflow_catalog=_catalog(inner),
+    )
+
+    from orchestrator.workflow_lisp.effects import RunsRefEffect
+
+    assert typed.type_ref == PrimitiveTypeRef("Value")
+    assert typed.effect_summary.direct_effects == frozenset(
+        {
+            RunsRefEffect(subject=("child",)),
+            RunsRefEffect(subject=("candidate",)),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "expr",
+    (
+        _mode_two_expr(returns_type_name="Json"),
+        _mode_two_expr(
+            inputs=(("payload", NameExpr("payload", _expression("payload").span, FORM_PATH)),)
+        ),
+    ),
+)
+def test_run_ref_mode_two_rejects_nontransportable_returns_and_inputs(
+    expr: RunRefExpr,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={"payload": PrimitiveTypeRef("Json")},
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_type_invalid"
