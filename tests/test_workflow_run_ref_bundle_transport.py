@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copyreg
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -156,6 +157,43 @@ def test_bundle_capsule_encoding_canonicalizes_catalog_order_without_global_redu
 
     assert forward == reverse
     assert copyreg.dispatch_table == dispatch_before
+
+
+def test_bundle_capsule_encoding_canonicalizes_nested_mapping_order(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_bundle(tmp_path)
+    forward = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            context=MappingProxyType({"alpha": 1, "beta": 2}),
+        ),
+    )
+    reverse = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            context=MappingProxyType({"beta": 2, "alpha": 1}),
+        ),
+    )
+    kwargs = dict(
+        target_workflow_names=(bundle.surface.name,),
+        closure=_closure(bundle.provenance.workflow_path),
+        compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        lowering_schema_version=2,
+    )
+
+    first = bundle_transport.encode_bundle_capsule(
+        {bundle.surface.name: forward},
+        **kwargs,
+    )
+    second = bundle_transport.encode_bundle_capsule(
+        {bundle.surface.name: reverse},
+        **kwargs,
+    )
+
+    assert first == second
 
 
 @pytest.mark.parametrize(

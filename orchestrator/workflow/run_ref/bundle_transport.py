@@ -112,7 +112,18 @@ def _mapping_proxy_from_items(
 def _reduce_mapping_proxy(
     value: Mapping[Any, Any],
 ) -> tuple[Any, tuple[tuple[tuple[Any, Any], ...]]]:
-    return _mapping_proxy_from_items, (tuple(value.items()),)
+    items = tuple(
+        sorted(
+            value.items(),
+            key=lambda item: (
+                f"{type(item[0]).__module__}.{type(item[0]).__qualname__}:".encode(
+                    "utf-8"
+                )
+                + canonical_json_bytes(_json_value(item[0]))
+            ),
+        )
+    )
+    return _mapping_proxy_from_items, (items,)
 
 
 def _pickle_protocol_five(value: object) -> bytes:
