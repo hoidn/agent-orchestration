@@ -557,6 +557,18 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
     return config
 
 
+def validate_run_ref_static_config_authority(value: object) -> None:
+    """Require one exact static config to match its canonical reconstruction."""
+
+    if type(value) is not RunRefStaticConfig:
+        raise TypeError("run-ref static config authority requires RunRefStaticConfig")
+    reconstructed = decode_run_ref_static_config(
+        encode_run_ref_static_config(value)
+    )
+    if reconstructed != value:
+        raise ValueError("run-ref static config authority does not match canonical bytes")
+
+
 __all__ = [
     "RUN_REF_RESULT_CONTRACT_SCHEMA",
     "RUN_REF_STATIC_CONFIG_SCHEMA",
@@ -572,5 +584,6 @@ __all__ = [
     "decode_run_ref_static_config",
     "encode_run_ref_static_config",
     "run_ref_input_identity",
+    "validate_run_ref_static_config_authority",
     "validate_run_ref_result_descriptor",
 ]

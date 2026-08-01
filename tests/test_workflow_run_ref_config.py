@@ -24,6 +24,7 @@ from orchestrator.workflow.run_ref.config import (
     decode_run_ref_static_config,
     encode_run_ref_static_config,
     run_ref_input_identity,
+    validate_run_ref_static_config_authority,
     validate_run_ref_result_descriptor,
 )
 from orchestrator.workflow.run_ref.contracts import (
@@ -258,6 +259,42 @@ def test_builder_stores_canonical_source_and_matches_decoded_typed_view() -> Non
 
     assert config.source.locator == "file:///tmp/run-ref-source"
     assert config == decoded
+
+
+def test_static_config_authority_accepts_exact_canonical_instance() -> None:
+    assert validate_run_ref_static_config_authority(_config()) is None
+
+
+def test_static_config_authority_rejects_wrong_type_and_subclass() -> None:
+    class ForgedRunRefStaticConfig(RunRefStaticConfig):
+        pass
+
+    forged_subclass = object.__new__(ForgedRunRefStaticConfig)
+
+    with pytest.raises(TypeError):
+        validate_run_ref_static_config_authority(object())
+    with pytest.raises(TypeError):
+        validate_run_ref_static_config_authority(forged_subclass)
+
+
+def test_static_config_authority_rejects_forged_public_field() -> None:
+    config = _config()
+    object.__setattr__(config, "site_digest", "0" * 64)
+
+    with pytest.raises(ValueError, match="authority"):
+        validate_run_ref_static_config_authority(config)
+
+
+def test_static_config_authority_rejects_forged_cached_canonical_bytes() -> None:
+    config = _config()
+    object.__setattr__(
+        config,
+        "_canonical_bytes",
+        encode_run_ref_static_config(_config(mode="path")),
+    )
+
+    with pytest.raises(ValueError, match="authority"):
+        validate_run_ref_static_config_authority(config)
 
 
 @pytest.mark.parametrize(
