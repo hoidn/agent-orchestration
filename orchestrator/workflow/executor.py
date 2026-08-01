@@ -5199,6 +5199,8 @@ class WorkflowExecutor:
             return 'provider_supervision'
         if execution_kind is ExecutableNodeKind.PROVIDER_PEER_GROUP:
             return 'provider_peer_group'
+        if execution_kind is ExecutableNodeKind.RUN_REF:
+            return 'run_ref'
         if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
             return 'adjudicated_provider'
         if execution_kind is ExecutableNodeKind.COMMAND:
@@ -6197,6 +6199,29 @@ class WorkflowExecutor:
         if execution_kind is ExecutableNodeKind.MATCH_JOIN:
             result = self._execute_structured_match_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
+
+        if execution_kind is ExecutableNodeKind.RUN_REF:
+            return self._persist_step_result(
+                state,
+                step_name,
+                step,
+                {
+                    "status": "failed",
+                    "exit_code": 2,
+                    "duration_ms": 0,
+                    "output": "",
+                    "error": {
+                        "type": "run_ref_executor_unavailable",
+                        "message": (
+                            "run-ref execution is unavailable until the "
+                            "delegated runtime service is installed"
+                        ),
+                    },
+                },
+                phase_hint="pre_execution",
+                class_hint="pre_execution_failed",
+                retryable_hint=False,
+            )
 
         if execution_kind is ExecutableNodeKind.WAIT_FOR:
             result = self._execute_wait_for_result(step)

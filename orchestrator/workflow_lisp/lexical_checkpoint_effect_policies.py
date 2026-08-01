@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Mapping
 
 from orchestrator._common.canonical import sha256_json as _sha256_json
@@ -14,6 +15,7 @@ POLICY_KINDS = frozenset(
     {
         "recompute_or_reuse_checkpoint",
         "reuse_validated_structured_output",
+        "reuse_validated_run_ref_result",
         "reuse_validated_workflow_call",
         "regenerate_deterministic_view",
         "preserve_durable_view",
@@ -35,6 +37,7 @@ LEGACY_PROVISIONAL_POLICIES = frozenset({"shadow_record_only"})
 _REQUIRED_EVIDENCE_KEYS = {
     "recompute_or_reuse_checkpoint": (),
     "reuse_validated_structured_output": ("structured_output",),
+    "reuse_validated_run_ref_result": ("run_ref_result",),
     "reuse_validated_workflow_call": ("workflow_call",),
     "regenerate_deterministic_view": ("materialized_view",),
     "preserve_durable_view": ("materialized_view",),
@@ -54,6 +57,7 @@ class EffectPolicyDiagnosticCodes:
     evidence_missing: str = "lexical_checkpoint_effect_policy_evidence_missing"
     evidence_invalid: str = "lexical_checkpoint_effect_policy_evidence_stale"
     structured_output_invalid: str = "lexical_checkpoint_effect_policy_structured_output_invalid"
+    run_ref_result_invalid: str = "lexical_checkpoint_effect_policy_run_ref_result_invalid"
     command_uncertified: str = "lexical_checkpoint_effect_policy_command_uncertified"
     pending_effect_unsafe: str = "lexical_checkpoint_effect_policy_pending_effect_unsafe"
     transition_audit_missing: str = "lexical_checkpoint_effect_policy_transition_audit_missing"
@@ -205,6 +209,14 @@ def _validate_requirement_shape(*, key: str, requirement: Mapping[str, Any]) -> 
         if not isinstance(requirement.get("declared_target_only"), bool):
             raise ValueError(DIAGNOSTIC_CODES.structured_output_invalid)
         return
+    if key == "run_ref_result":
+        step_config_digest = requirement.get("step_config_digest")
+        if not isinstance(step_config_digest, str) or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            step_config_digest,
+        ) is None:
+            raise ValueError(DIAGNOSTIC_CODES.run_ref_result_invalid)
+        return
     if key == "materialized_view":
         _non_empty_string(requirement.get("renderer_id"), DIAGNOSTIC_CODES.materialized_view_mismatch)
         return
@@ -224,6 +236,12 @@ def _validate_requirement_shape(*, key: str, requirement: Mapping[str, Any]) -> 
 def _diagnostic_for_requirement_key(key: str, *, missing: bool) -> str:
     if key == "structured_output":
         return DIAGNOSTIC_CODES.structured_output_invalid if not missing else DIAGNOSTIC_CODES.evidence_missing
+    if key == "run_ref_result":
+        return (
+            DIAGNOSTIC_CODES.evidence_missing
+            if missing
+            else DIAGNOSTIC_CODES.run_ref_result_invalid
+        )
     if key == "materialized_view":
         return DIAGNOSTIC_CODES.materialized_view_mismatch if not missing else DIAGNOSTIC_CODES.evidence_missing
     if key == "transition":

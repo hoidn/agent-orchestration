@@ -735,5 +735,5 @@ def _lower_run_ref_operation(
                 run_ref,
             )
         },
-        checkpoint_identity_component_digest=None,
+        checkpoint_identity_component_digest=config.digest,
     )

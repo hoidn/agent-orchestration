@@ -9,12 +9,14 @@ from typing import get_args
 import pytest
 
 from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.state import StateManager
 from orchestrator.workflow import core_ast as core_ast_module
 from orchestrator.workflow import executable_ir as executable_ir_module
 from orchestrator.workflow import lowering as workflow_lowering
 from orchestrator.workflow import runtime_plan as runtime_plan_module
 from orchestrator.workflow import semantic_ir as semantic_ir_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
     LiteralBinding,
@@ -109,6 +111,13 @@ from orchestrator.workflow_lisp.run_ref_result_contract import (
 )
 from orchestrator.workflow_lisp.syntax import SyntaxList, SyntaxNode, syntax_node_datum
 from orchestrator.workflow_lisp import source_map as source_map_module
+from orchestrator.workflow_lisp import lexical_checkpoints as lexical_checkpoints_module
+from orchestrator.workflow_lisp import (
+    lexical_checkpoint_effect_policies as checkpoint_policy_module,
+)
+from orchestrator.workflow_lisp import (
+    lexical_checkpoint_restore as checkpoint_restore_module,
+)
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -3157,6 +3166,239 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
     assert result.manifest.source_map_coverage is not None
     assert set(result.manifest.source_map_coverage.values()) == {"covered"}
 
+    run_ref_points = [
+        point
+        for point in result.validated_bundle.runtime_plan.lexical_checkpoint_points
+        if point.details.get("step_kind") == "run_ref"
+    ]
+    assert len(run_ref_points) == 1
+    point = run_ref_points[0]
+    config_digest = run_ref_node.execution_config.run_ref.digest
+    assert point.details["executable_identity"][
+        "identity_component_digest"
+    ] == config_digest
+    policy = point.details["effect_boundary"]["policy"]
+    assert policy["policy_kind"] == "reuse_validated_run_ref_result"
+    assert policy["effect_kind"] == "run_ref"
+    assert policy["boundary_kind"] == "run_ref"
+    assert policy["unsafe_pending_behavior"] == "fail_closed"
+    assert policy["evidence_requirements"] == {
+        "run_ref_result": {"step_config_digest": config_digest}
+    }
+    checkpoint_policy_module.validate_effect_resume_policy(
+        policy,
+        expected_origin_key=point.origin_key,
+    )
+
+    identity = lexical_checkpoints_module.checkpoint_runtime_program_identity(
+        state_manager=SimpleNamespace(
+            calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+        ),
+        runtime_plan=result.validated_bundle.runtime_plan,
+        workflow_path=source_path,
+        executable_ir=result.validated_bundle.ir,
+    )
+    assert identity["executable_ir_digest"].startswith("sha256:")
+
+    point_details = dict(point.details)
+    point_details["executable_identity"] = {
+        **dict(point.details["executable_identity"]),
+        "identity_component_digest": "sha256:" + "0" * 64,
+    }
+    tampered_point = replace(point, details=point_details)
+    missing_component_details = dict(point.details)
+    missing_component_identity = dict(point.details["executable_identity"])
+    missing_component_identity.pop("identity_component_digest")
+    missing_component_details["executable_identity"] = missing_component_identity
+    missing_component_point = replace(
+        point,
+        details=missing_component_details,
+    )
+    for lexical_points in (
+        (tampered_point,),
+        (missing_component_point,),
+        (),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="lexical_checkpoint_program_identity_mismatch",
+        ):
+            lexical_checkpoints_module.checkpoint_runtime_program_identity(
+                state_manager=SimpleNamespace(
+                    calculate_checksum=lambda _path: "sha256:" + "f" * 64,
+                ),
+                runtime_plan=replace(
+                    result.validated_bundle.runtime_plan,
+                    lexical_checkpoint_points=lexical_points,
+                ),
+                workflow_path=source_path,
+                executable_ir=result.validated_bundle.ir,
+            )
+
+    point_payload = lexical_checkpoints_module._point_payload(point)
+    empty_record = {
+        "completed_effect_refs": [],
+        "validity_envelope": {
+            "completed_effect_refs_digest": (
+                lexical_checkpoints_module._completed_effect_refs_digest(())
+            )
+        },
+    }
+    lexical_checkpoints_module._validate_completed_effect_refs(
+        empty_record,
+        expected_point=point_payload,
+    )
+    forged_record = {
+        "completed_effect_refs": [
+            {
+                "effect_ref_schema_version": "workflow_lisp_completed_effect_ref.v1",
+                "effect_kind": "run_ref",
+                "step_id": point.step_id,
+                "status": "completed",
+                "source_map_origin_key": point.origin_key,
+                "evidence_kind": "run_ref_result",
+                "step_config_digest": config_digest,
+            }
+        ],
+    }
+    forged_record["validity_envelope"] = {
+        "completed_effect_refs_digest": (
+            lexical_checkpoints_module._completed_effect_refs_digest(
+                tuple(forged_record["completed_effect_refs"])
+            )
+        )
+    }
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_completed_effect_invalid",
+    ):
+        lexical_checkpoints_module._validate_completed_effect_refs(
+            forged_record,
+            expected_point=point_payload,
+        )
+
+    runtime_step = RuntimeStep(
+        node=run_ref_node,
+        name=point.presentation_key,
+        step_id=point.step_id,
+        target_dsl_version=result.validated_bundle.ir.version,
+    )
+    assert lexical_checkpoints_module.collect_completed_effect_refs(
+        SimpleNamespace(
+            state_manager=SimpleNamespace(state={"steps": {}}),
+            _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+        ),
+        point=point,
+        committed_step_state={
+            "status": "completed",
+            "step_id": point.step_id,
+        },
+    ) == []
+
+    run_workspace = tmp_path / "run"
+    run_workspace.mkdir()
+    state_manager = StateManager(
+        run_workspace,
+        run_id="run-ref-pending-checkpoint",
+    )
+    state_manager.initialize(str(source_path))
+    checkpoint_executor = SimpleNamespace(
+        runtime_plan=result.validated_bundle.runtime_plan,
+        state_manager=state_manager,
+        loaded_bundle=result.validated_bundle,
+        workspace=run_workspace,
+        _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+    )
+    record = lexical_checkpoints_module.emit_runtime_shadow_record(
+        executor=checkpoint_executor,
+        step_id=point.step_id,
+        execution_index=result.validated_bundle.runtime_plan.nodes[
+            run_ref_node.node_id
+        ].execution_index,
+        visit_count=1,
+    )
+    assert record is not None
+    assert record["completed_effect_refs"] == []
+
+    decision = checkpoint_restore_module.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=result.validated_bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=result.validated_bundle.ir,
+        loaded_workflow=result.validated_bundle,
+    )
+    assert decision.kind == checkpoint_restore_module.RESTORE_DECISION_NOT_RESTORABLE
+    assert decision.policy_decision is None
+    assert decision.diagnostics == (
+        checkpoint_restore_module.DIAGNOSTIC_CODES.pending_effect_unsafe,
+    )
+
+
+@pytest.mark.parametrize(
+    ("step_config_digest", "diagnostic"),
+    (
+        (None, "lexical_checkpoint_effect_policy_evidence_missing"),
+        ("", "lexical_checkpoint_effect_policy_run_ref_result_invalid"),
+        (
+            "sha256:not-a-digest",
+            "lexical_checkpoint_effect_policy_run_ref_result_invalid",
+        ),
+        (
+            "sha256:" + "A" * 64,
+            "lexical_checkpoint_effect_policy_run_ref_result_invalid",
+        ),
+    ),
+)
+def test_run_ref_checkpoint_policy_rejects_missing_or_malformed_config_digest(
+    step_config_digest: str | None,
+    diagnostic: str,
+) -> None:
+    requirement = {}
+    if step_config_digest is not None:
+        requirement["step_config_digest"] = step_config_digest
+    policy = {
+        "schema_version": "workflow_lisp_effect_resume_policy.v1",
+        "policy_kind": "reuse_validated_run_ref_result",
+        "effect_kind": "run_ref",
+        "boundary_kind": "run_ref",
+        "step_id": "root.reference",
+        "source_map_origin_key": "source:run-ref",
+        "evidence_requirements": {"run_ref_result": requirement},
+        "unsafe_pending_behavior": "fail_closed",
+    }
+    policy["policy_digest"] = (
+        checkpoint_policy_module.derive_effect_resume_policy_digest(policy)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=diagnostic,
+    ):
+        checkpoint_policy_module.validate_effect_resume_policy(policy)
+
+
+def test_run_ref_checkpoint_policy_requires_result_evidence_contract() -> None:
+    policy = {
+        "schema_version": "workflow_lisp_effect_resume_policy.v1",
+        "policy_kind": "reuse_validated_run_ref_result",
+        "effect_kind": "run_ref",
+        "boundary_kind": "run_ref",
+        "step_id": "root.reference",
+        "source_map_origin_key": "source:run-ref",
+        "evidence_requirements": {},
+        "unsafe_pending_behavior": "fail_closed",
+    }
+    policy["policy_digest"] = (
+        checkpoint_policy_module.derive_effect_resume_policy_digest(policy)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_evidence_missing",
+    ):
+        checkpoint_policy_module.validate_effect_resume_policy(policy)
+
 
 def _lowerable_run_ref(typed, *, type_env, value_env=None) -> LowerableRunRef:
     assert isinstance(typed.expr, RunRefExpr)
@@ -4467,7 +4709,7 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
         name.removeprefix("return__") for name in terminal.output_refs
     )
     assert allocation.generated_input_name in terminal.hidden_inputs
-    assert terminal.checkpoint_identity_component_digest is None
+    assert terminal.checkpoint_identity_component_digest == config.digest
     assert len(context.generated_semantic_effects) == 1
     [effect] = context.generated_semantic_effects
     assert effect.effect_key == f"run_ref:{step['id']}"
@@ -4486,6 +4728,74 @@ def test_run_ref_leaf_builds_exact_config_and_one_result_allocation() -> None:
         "result_allocation_id": allocation.allocation_id,
         "output_bundle_path": allocation.concrete_path_template,
     }
+
+
+def test_run_ref_executor_surface_is_explicitly_typed_but_unavailable() -> None:
+    executor = object.__new__(WorkflowExecutor)
+    executor._execution_kind_for_step = (  # type: ignore[method-assign]
+        lambda _step: executable_ir_module.ExecutableNodeKind.RUN_REF
+    )
+    persisted: list[tuple[object, ...]] = []
+
+    def persist(
+        state,
+        step_name,
+        step,
+        result,
+        *,
+        phase_hint=None,
+        class_hint=None,
+        retryable_hint=None,
+    ):
+        persisted.append(
+            (
+                state,
+                step_name,
+                step,
+                result,
+                phase_hint,
+                class_hint,
+                retryable_hint,
+            )
+        )
+        return result
+
+    executor._persist_step_result = persist  # type: ignore[method-assign]
+    state = {"steps": {}}
+    step = {"name": "Reference", "id": "root.reference"}
+
+    assert WorkflowExecutor._resolve_step_type(executor, step) == "run_ref"
+    result = WorkflowExecutor._run_top_level_step(
+        executor,
+        step,
+        state,
+        step_name="Reference",
+    )
+
+    assert result == {
+        "status": "failed",
+        "exit_code": 2,
+        "duration_ms": 0,
+        "output": "",
+        "error": {
+            "type": "run_ref_executor_unavailable",
+            "message": (
+                "run-ref execution is unavailable until the delegated "
+                "runtime service is installed"
+            ),
+        },
+    }
+    assert persisted == [
+        (
+            state,
+            "Reference",
+            step,
+            result,
+            "pre_execution",
+            "pre_execution_failed",
+            False,
+        )
+    ]
 
 
 def test_run_ref_source_map_fallback_preserves_exact_step_kind() -> None:

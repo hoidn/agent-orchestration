@@ -1629,6 +1629,25 @@ def _build_effect_resume_policy_payload(
                 }
             },
         )
+    if step_kind == "run_ref":
+        step_config_digest = terminal.checkpoint_identity_component_digest
+        if not isinstance(step_config_digest, str):
+            raise ValueError(
+                "run_ref checkpoint identity component is unavailable"
+            )
+        return build_effect_resume_policy(
+            policy_kind="reuse_validated_run_ref_result",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "run_ref_result": {
+                    "step_config_digest": step_config_digest,
+                }
+            },
+            unsafe_pending_behavior="fail_closed",
+        )
     if step_kind == "command":
         payload = value.operation_payload if isinstance(value, WccPerform) else None
         adapter_name = None

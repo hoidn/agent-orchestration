@@ -452,6 +452,15 @@ def _validate_lexical_checkpoint_artifacts(
         if isinstance(point, Mapping)
         and isinstance(point.get("checkpoint_id"), str)
     }
+    observed_run_ref_node_ids: list[str] = []
+    runtime_nodes = runtime_plan_payload.get("nodes", {})
+    if not isinstance(runtime_nodes, Mapping):
+        raise ValueError("lexical checkpoint executable identity drift")
+    expected_run_ref_node_ids = {
+        str(node_id)
+        for node_id, node in runtime_nodes.items()
+        if isinstance(node, Mapping) and node.get("kind") == "run_ref"
+    }
     for point in points_payload.get("points", []):
         if not isinstance(point.get("wcc_identity", {}), Mapping):
             raise ValueError("lexical checkpoint point missing WCC identity")
@@ -497,6 +506,29 @@ def _validate_lexical_checkpoint_artifacts(
             raise ValueError(
                 "lexical checkpoint executable identity drift"
             )
+        runtime_node = runtime_nodes.get(
+            expected_executable_identity["node_id"]
+        )
+        if (
+            isinstance(runtime_node, Mapping)
+            and runtime_node.get("kind") == "run_ref"
+        ):
+            expected_run_ref_digest = runtime_node.get(
+                "run_ref_config_digest"
+            )
+            if (
+                not isinstance(expected_run_ref_digest, str)
+                or observed_executable_identity.get(
+                    "identity_component_digest"
+                )
+                != expected_run_ref_digest
+            ):
+                raise ValueError(
+                    "lexical checkpoint executable identity drift"
+                )
+            observed_run_ref_node_ids.append(
+                str(expected_executable_identity["node_id"])
+            )
         if expected_executable_identity["node_id"] not in runtime_node_ids:
             raise ValueError("lexical checkpoint point missing executable node linkage")
         if point.get("source_lineage", {}).get("origin_key") not in origin_keys:
@@ -506,6 +538,11 @@ def _validate_lexical_checkpoint_artifacts(
                 dict(point.get("effect_boundary", {})),
                 expected_origin_key=str(point.get("source_lineage", {}).get("origin_key") or ""),
             )
+    if (
+        len(observed_run_ref_node_ids) != len(set(observed_run_ref_node_ids))
+        or set(observed_run_ref_node_ids) != expected_run_ref_node_ids
+    ):
+        raise ValueError("lexical checkpoint executable identity drift")
 
 
 def _serialize_lexical_checkpoint_shadow_report(

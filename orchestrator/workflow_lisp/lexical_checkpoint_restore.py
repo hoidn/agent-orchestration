@@ -1244,6 +1244,7 @@ def select_restore_candidate(
         if policy_kind in {
             "reuse_validated_structured_output",
             "reuse_validated_workflow_call",
+            "reuse_validated_run_ref_result",
             "certified_resume_protocol_required",
         }:
             if not has_completed_effect_refs:
