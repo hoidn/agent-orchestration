@@ -42,6 +42,7 @@ from .expressions import (
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
+    RunRefExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -147,6 +148,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return (expr.subject,) + tuple(arm.body for arm in expr.arms)
     if isinstance(expr, CallExpr):
         return tuple(binding_expr for _, binding_expr in expr.bindings)
+    if isinstance(expr, RunRefExpr):
+        return tuple(value_expr for _, value_expr in expr.inputs)
     if isinstance(expr, FunctionCallExpr):
         return expr.args
     if isinstance(expr, ProcedureCallExpr):

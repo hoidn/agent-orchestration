@@ -8,8 +8,18 @@ the full intended language surface.
 from __future__ import annotations
 
 from dataclasses import InitVar, dataclass, field
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
+from orchestrator.workflow.run_ref.contracts import (
+    RunRefSourceRefusal,
+    SetupCommand,
+    SetupPolicy,
+)
+from orchestrator.workflow.run_ref.source import (
+    normalize_repository_locator,
+    validate_commit_sha,
+)
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     PhasedDeliveryDiagnostic,
@@ -329,15 +339,25 @@ class RunRefBundleProgram:
 
 
 @dataclass(frozen=True)
+class RunRefPathProgram:
+    """One clone-relative Workflow Lisp program and static entrypoint."""
+
+    path: str
+    entry_name: str
+
+
+@dataclass(frozen=True)
 class RunRefExpr:
     """One target-2.24 pinned mode-1 child-run expression."""
 
     source: RunRefSource
-    program: RunRefBundleProgram
+    program: RunRefBundleProgram | RunRefPathProgram
     inputs: tuple[tuple[str, "ExprNode"], ...]
-    setup: tuple[object, ...]
+    setup: SetupPolicy
     span: SourceSpan
     form_path: tuple[str, ...]
+    returns_type_name: str | None = None
+    environment: str | None = None
     expansion_stack: ExpansionStack = ()
 
 
@@ -824,6 +844,7 @@ def parse_run_ref_expression(
     node: SyntaxNode,
     *,
     target_dsl_version: str,
+    bound_names: frozenset[str] = frozenset(),
 ) -> RunRefExpr:
     """Parse the isolated E1 mode-1 surface before compiler integration."""
 
@@ -841,6 +862,7 @@ def parse_run_ref_expression(
         datum,
         form_path=node.form_path,
         target_dsl_version=target_dsl_version,
+        bound_names=bound_names,
     )
 
 
@@ -1367,11 +1389,123 @@ def _run_ref_sections(
     return sections
 
 
+def _normalize_run_ref_program_path(path: str) -> str:
+    if (
+        not path
+        or "\\" in path
+        or path.startswith("/")
+        or not path.endswith(".orc")
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
+        raise ValueError(
+            "program path must be a canonical relative POSIX .orc path"
+        )
+    return PurePosixPath(path).as_posix()
+
+
+def _parse_run_ref_setup(
+    setup_node: object,
+    *,
+    form_path: tuple[str, ...],
+) -> SetupPolicy:
+    if not isinstance(setup_node, SyntaxList):
+        _raise_error(
+            "`run-ref :setup` requires a static setup list",
+            code="run_ref_literal_required",
+            span=setup_node.span,
+            form_path=form_path,
+            expansion_stack=setup_node.expansion_stack,
+        )
+    commands: list[SetupCommand] = []
+    for raw_command in setup_node.items:
+        if not isinstance(raw_command, SyntaxList):
+            _raise_error(
+                "`run-ref :setup` commands must be literal keyword forms",
+                code="run_ref_literal_required",
+                span=raw_command.span,
+                form_path=form_path,
+                expansion_stack=raw_command.expansion_stack,
+            )
+        command_sections = _run_ref_sections(
+            raw_command.items,
+            label="`run-ref :setup` command",
+            form_path=form_path,
+        )
+        if ":argv" not in command_sections or not set(
+            command_sections
+        ).issubset({":argv", ":env"}):
+            _raise_error(
+                "`run-ref :setup` commands require :argv and optional :env",
+                code="run_ref_shape_invalid",
+                span=raw_command.span,
+                form_path=form_path,
+                expansion_stack=raw_command.expansion_stack,
+            )
+        argv_node = command_sections[":argv"]
+        if (
+            not isinstance(argv_node, SyntaxList)
+            or not argv_node.items
+            or any(not isinstance(item, SyntaxString) for item in argv_node.items)
+        ):
+            _raise_error(
+                "`run-ref :setup :argv` requires nonempty literal strings",
+                code="run_ref_literal_required",
+                span=argv_node.span,
+                form_path=form_path,
+                expansion_stack=argv_node.expansion_stack,
+            )
+        env: tuple[tuple[str, str], ...] = ()
+        env_node = command_sections.get(":env")
+        if env_node is not None:
+            if not isinstance(env_node, SyntaxList):
+                _raise_error(
+                    "`run-ref :setup :env` requires literal keyword/string pairs",
+                    code="run_ref_literal_required",
+                    span=env_node.span,
+                    form_path=form_path,
+                    expansion_stack=env_node.expansion_stack,
+                )
+            env_sections = _run_ref_sections(
+                env_node.items,
+                label="`run-ref :setup :env`",
+                form_path=form_path,
+            )
+            if any(not isinstance(value, SyntaxString) for value in env_sections.values()):
+                _raise_error(
+                    "`run-ref :setup :env` values must be literal strings",
+                    code="run_ref_literal_required",
+                    span=env_node.span,
+                    form_path=form_path,
+                    expansion_stack=env_node.expansion_stack,
+                )
+            env = tuple(
+                (name[1:], value.value)
+                for name, value in env_sections.items()
+            )
+        try:
+            commands.append(
+                SetupCommand(
+                    argv=tuple(item.value for item in argv_node.items),
+                    env=env,
+                )
+            )
+        except ValueError as exc:
+            _raise_error(
+                f"`run-ref :setup` literal policy is invalid: {exc}",
+                code="run_ref_literal_required",
+                span=raw_command.span,
+                form_path=form_path,
+                expansion_stack=raw_command.expansion_stack,
+            )
+    return SetupPolicy(commands=tuple(commands))
+
+
 def _parse_run_ref_syntax_list(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
     target_dsl_version: str,
+    bound_names: frozenset[str],
 ) -> RunRefExpr:
     if not target_dsl_supports_run_ref(target_dsl_version):
         _raise_error(
@@ -1387,9 +1521,13 @@ def _parse_run_ref_syntax_list(
         label="`run-ref`",
         form_path=form_path,
     )
-    if set(sections) != {":source", ":program", ":inputs", ":policy"}:
+    required_sections = {":source", ":program", ":inputs", ":policy"}
+    allowed_sections = required_sections | {":returns"}
+    if not required_sections.issubset(sections) or not set(sections).issubset(
+        allowed_sections
+    ):
         _raise_error(
-            "`run-ref` requires exactly :source, :program, :inputs, and :policy",
+            "`run-ref` requires :source, :program, :inputs, and :policy with only approved keys",
             code="run_ref_shape_invalid",
             span=datum.span,
             form_path=form_path,
@@ -1435,6 +1573,26 @@ def _parse_run_ref_syntax_list(
             form_path=form_path,
             expansion_stack=selected.expansion_stack,
         )
+    try:
+        normalized_repo = normalize_repository_locator(repo_node.value)
+    except RunRefSourceRefusal as exc:
+        _raise_error(
+            f"`run-ref :repo` repository locator is invalid: {exc}",
+            code="run_ref_literal_required",
+            span=repo_node.span,
+            form_path=form_path,
+            expansion_stack=repo_node.expansion_stack,
+        )
+    try:
+        commit_sha = validate_commit_sha(commit_node.value)
+    except RunRefSourceRefusal as exc:
+        _raise_error(
+            f"`run-ref :commit` revision is invalid: {exc}",
+            code="run_ref_literal_required",
+            span=commit_node.span,
+            form_path=form_path,
+            expansion_stack=commit_node.expansion_stack,
+        )
 
     program_node = sections[":program"]
     if not isinstance(program_node, SyntaxList):
@@ -1450,34 +1608,138 @@ def _parse_run_ref_syntax_list(
         label="`run-ref :program`",
         form_path=form_path,
     )
-    bundle_node = program_sections.get(":bundle")
-    if set(program_sections) != {":bundle"}:
+    program_keys = set(program_sections)
+    if not program_keys.issubset({":bundle", ":path", ":entry"}):
         _raise_error(
-            "`run-ref :program` requires exactly one static :bundle workflow name",
+            "`run-ref :program` contains an unknown key",
+            code="run_ref_shape_invalid",
+            span=program_node.span,
+            form_path=form_path,
+            expansion_stack=program_node.expansion_stack,
+        )
+    if program_keys == {":bundle"}:
+        bundle_node = program_sections[":bundle"]
+        bundle_identifier = syntax_identifier(bundle_node)
+        if bundle_identifier is None:
+            _raise_error(
+                "`run-ref :bundle` requires a static workflow-name symbol",
+                code="run_ref_literal_required",
+                span=bundle_node.span,
+                form_path=form_path,
+                expansion_stack=bundle_node.expansion_stack,
+            )
+        program: RunRefBundleProgram | RunRefPathProgram = RunRefBundleProgram(
+            workflow_name=bundle_identifier.resolved_name
+        )
+        mode = "bundle"
+    elif program_keys == {":path", ":entry"}:
+        path_node = program_sections[":path"]
+        entry_node = program_sections[":entry"]
+        entry_identifier = syntax_identifier(entry_node)
+        if not isinstance(path_node, SyntaxString):
+            _raise_error(
+                "`run-ref :path` requires a static string literal",
+                code="run_ref_literal_required",
+                span=path_node.span,
+                form_path=form_path,
+                expansion_stack=path_node.expansion_stack,
+            )
+        if entry_identifier is None:
+            _raise_error(
+                "`run-ref :entry` requires a static workflow-name symbol",
+                code="run_ref_literal_required",
+                span=entry_node.span,
+                form_path=form_path,
+                expansion_stack=entry_node.expansion_stack,
+            )
+        try:
+            normalized_path = _normalize_run_ref_program_path(path_node.value)
+        except ValueError as exc:
+            _raise_error(
+                f"`run-ref :path` is invalid: {exc}",
+                code="run_ref_literal_required",
+                span=path_node.span,
+                form_path=form_path,
+                expansion_stack=path_node.expansion_stack,
+            )
+        program = RunRefPathProgram(
+            path=normalized_path,
+            entry_name=entry_identifier.resolved_name,
+        )
+        mode = "path"
+    else:
+        _raise_error(
+            "`run-ref :program` must select exactly :bundle or :path with :entry",
             code="run_ref_program_mode_invalid",
             span=program_node.span,
             form_path=form_path,
             expansion_stack=program_node.expansion_stack,
         )
-    bundle_identifier = syntax_identifier(bundle_node)
-    if bundle_identifier is None:
-        _raise_error(
-            "`run-ref :bundle` requires a static workflow-name symbol",
-            code="run_ref_literal_required",
-            span=bundle_node.span,
-            form_path=form_path,
-            expansion_stack=bundle_node.expansion_stack,
-        )
 
     inputs_node = sections[":inputs"]
-    if not isinstance(inputs_node, SyntaxList) or inputs_node.items:
+    if not isinstance(inputs_node, SyntaxList):
         _raise_error(
-            "this frontend slice accepts only empty `run-ref :inputs`",
+            "`run-ref :inputs` requires keyword/value pairs",
+            code="run_ref_literal_required",
+            span=inputs_node.span,
+            form_path=form_path,
+            expansion_stack=inputs_node.expansion_stack,
+        )
+    input_sections = _run_ref_sections(
+        inputs_node.items,
+        label="`run-ref :inputs`",
+        form_path=form_path,
+    )
+    if any(not name[1:] for name in input_sections):
+        _raise_error(
+            "`run-ref :inputs` names must be nonempty keywords",
             code="run_ref_shape_invalid",
             span=inputs_node.span,
             form_path=form_path,
             expansion_stack=inputs_node.expansion_stack,
         )
+    input_session = ElaborationSessionState(
+        target_dsl_version=target_dsl_version
+    )
+    inputs = tuple(
+        (
+            name[1:],
+            _elaborate(
+                value,
+                form_path=form_path + ("inputs", name[1:]),
+                bound_names=bound_names,
+                procedure_names=frozenset(),
+                session_state=input_session,
+            ),
+        )
+        for name, value in input_sections.items()
+    )
+
+    returns_node = sections.get(":returns")
+    returns_identifier = (
+        syntax_identifier(returns_node) if returns_node is not None else None
+    )
+    if mode == "bundle" and returns_node is not None:
+        _raise_error(
+            "bundle-mode `run-ref` forbids :returns",
+            code="run_ref_program_mode_invalid",
+            span=returns_node.span,
+            form_path=form_path,
+            expansion_stack=returns_node.expansion_stack,
+        )
+    if mode == "path" and returns_node is not None and returns_identifier is None:
+        _raise_error(
+            "`run-ref :returns` requires a static type-name symbol",
+            code="run_ref_literal_required",
+            span=returns_node.span,
+            form_path=form_path,
+            expansion_stack=returns_node.expansion_stack,
+        )
+    returns_type_name = (
+        returns_identifier.resolved_name
+        if returns_identifier is not None
+        else None
+    )
 
     policy_node = sections[":policy"]
     if not isinstance(policy_node, SyntaxList):
@@ -1493,8 +1755,34 @@ def _parse_run_ref_syntax_list(
         label="`run-ref :policy`",
         form_path=form_path,
     )
+    policy_keys = set(policy_sections)
+    if not policy_keys.issubset({":environment", ":setup"}):
+        _raise_error(
+            "`run-ref :policy` contains an unknown key",
+            code="run_ref_shape_invalid",
+            span=policy_node.span,
+            form_path=form_path,
+            expansion_stack=policy_node.expansion_stack,
+        )
+    if mode == "bundle" and ":environment" in policy_sections:
+        environment_node = policy_sections[":environment"]
+        _raise_error(
+            "bundle-mode `run-ref` forbids :environment",
+            code="run_ref_program_mode_invalid",
+            span=environment_node.span,
+            form_path=form_path,
+            expansion_stack=environment_node.expansion_stack,
+        )
+    if mode == "path" and policy_keys != {":environment", ":setup"}:
+        _raise_error(
+            "path-mode `run-ref` requires :environment and :setup",
+            code="run_ref_program_mode_invalid",
+            span=policy_node.span,
+            form_path=form_path,
+            expansion_stack=policy_node.expansion_stack,
+        )
     setup_node = policy_sections.get(":setup")
-    if set(policy_sections) != {":setup"}:
+    if mode == "bundle" and policy_keys != {":setup"}:
         _raise_error(
             "`run-ref :policy` requires exactly :setup",
             code="run_ref_shape_invalid",
@@ -1502,30 +1790,37 @@ def _parse_run_ref_syntax_list(
             form_path=form_path,
             expansion_stack=policy_node.expansion_stack,
         )
-    if not isinstance(setup_node, SyntaxList):
-        _raise_error(
-            "`run-ref :setup` requires a static setup list",
-            code="run_ref_literal_required",
-            span=setup_node.span,
-            form_path=form_path,
-            expansion_stack=setup_node.expansion_stack,
-        )
-    if setup_node.items:
-        _raise_error(
-            "this frontend slice accepts only an empty `run-ref :policy :setup`",
-            code="run_ref_shape_invalid",
-            span=setup_node.span,
-            form_path=form_path,
-            expansion_stack=setup_node.expansion_stack,
-        )
+    environment: str | None = None
+    if mode == "path":
+        environment_node = policy_sections[":environment"]
+        if not isinstance(environment_node, SyntaxKeyword):
+            _raise_error(
+                "`run-ref :environment` requires a static policy keyword",
+                code="run_ref_literal_required",
+                span=environment_node.span,
+                form_path=form_path,
+                expansion_stack=environment_node.expansion_stack,
+            )
+        if environment_node.value != ":deterministic-effect-free":
+            _raise_error(
+                "path-mode `run-ref` requires :deterministic-effect-free",
+                code="run_ref_program_mode_invalid",
+                span=environment_node.span,
+                form_path=form_path,
+                expansion_stack=environment_node.expansion_stack,
+            )
+        environment = environment_node.value[1:]
+    setup = _parse_run_ref_setup(setup_node, form_path=form_path)
 
     return RunRefExpr(
-        source=RunRefSource(repo=repo_node.value, commit=commit_node.value),
-        program=RunRefBundleProgram(workflow_name=bundle_identifier.resolved_name),
-        inputs=(),
-        setup=(),
+        source=RunRefSource(repo=normalized_repo, commit=commit_sha),
+        program=program,
+        inputs=inputs,
+        setup=setup,
         span=datum.span,
         form_path=form_path,
+        returns_type_name=returns_type_name,
+        environment=environment,
         expansion_stack=datum.expansion_stack,
     )
 

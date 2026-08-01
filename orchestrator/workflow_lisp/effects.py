@@ -80,6 +80,13 @@ class CallsWorkflowEffect:
 
 
 @dataclass(frozen=True)
+class RunsRefEffect:
+    """Declared pinned child-run execution dependency."""
+
+    subject: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class UpdatesStateEffect:
     """Declared mutation of workflow-owned state."""
 
@@ -130,6 +137,7 @@ EffectAtom = (
     | LivePeerMessagingEffect
     | UsesCommandEffect
     | CallsWorkflowEffect
+    | RunsRefEffect
     | UpdatesStateEffect
     | MovesResourceEffect
     | UpdatesLedgerEffect
@@ -324,6 +332,8 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "uses-command"
     elif isinstance(effect, CallsWorkflowEffect):
         label = "calls-workflow"
+    elif isinstance(effect, RunsRefEffect):
+        label = "runs-ref"
     elif isinstance(effect, UpdatesStateEffect):
         label = "updates-state"
     elif isinstance(effect, MovesResourceEffect):
@@ -373,6 +383,15 @@ def _parse_effect_group(
     expansion_stack: "ExpansionStack",
 ) -> tuple[EffectAtom, ...]:
     names = tuple(_effect_operand_name(operand, form_path=form_path, expansion_stack=expansion_stack) for operand in operands)
+    if kind == "runs-ref":
+        if len(names) != 1:
+            _raise_invalid_effect(
+                "`runs-ref` requires exactly one child workflow name",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return (RunsRefEffect(subject=_normalize_subject(names[0])),)
     constructors = {
         "reads": lambda value: ReadEffect(subject=_normalize_subject(value)),
         "writes": lambda value: WriteEffect(subject=_normalize_subject(value)),
