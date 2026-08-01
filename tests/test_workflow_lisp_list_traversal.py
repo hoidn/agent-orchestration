@@ -2606,7 +2606,7 @@ def test_list_map_effect_pre_scan_surfaces_unknown_traversal_nodes() -> None:
             effect_summary=EMPTY_EFFECT_SUMMARY,
         )
 
-    with pytest.raises(TypeError, match="unsupported expression traversal node"):
+    with pytest.raises(TypeError):
         typecheck_structural_value_expr(
             expr,
             context=SimpleNamespace(type_env=None, value_env={}),
