@@ -8,17 +8,21 @@ import json
 import math
 import re
 from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestrator.workflow.run_ref.config import (
     RunRefStaticConfig,
     decode_run_ref_static_config,
     validate_run_ref_static_config_authority,
 )
+from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 from orchestrator.workflow.type_descriptor import (
     validate_compiler_normalized_type_descriptor,
 )
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.executable_ir import TrialStepConfig
 
 
 TRIAL_STATIC_CONFIG_SCHEMA = "trial_static_config.v1"
@@ -478,3 +482,163 @@ def validate_trial_static_config_authority(value: object) -> None:
     decoded = decode_trial_static_config(bytes(value._canonical_bytes))
     if decoded != value or decoded.digest != value.digest:
         raise ValueError("trial static config authority disagrees with canonical bytes")
+
+
+@dataclass(frozen=True, init=False)
+class TrialRuntimeRequest:
+    """Path-neutral runtime identity for one exact reached trial visit."""
+
+    step_config: TrialStepConfig
+    static_config: TrialStaticConfig
+    visit: RunRefVisitKey
+    cell_domain: tuple[object, ...]
+    static_config_digest: str
+    trial_step_config_digest: str
+    evaluation_digest: str
+    budget_digest: str
+    result_contract_digest: str
+    compiler_runtime_identity_digest: str
+    digest: str
+    _resolved_inputs_json: bytes = field(repr=False)
+    _canonical_bytes: bytes = field(repr=False)
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise TypeError(
+            "TrialRuntimeRequest must be created by build_trial_runtime_request"
+        )
+
+    @property
+    def resolved_inputs_by_arm(self) -> dict[str, dict[str, Any]]:
+        rows = json.loads(self._resolved_inputs_json)
+        return {row["arm_id"]: row["inputs"] for row in rows}
+
+    @property
+    def arm_run_ref_authorities(self) -> tuple[dict[str, str], ...]:
+        return tuple(
+            {
+                "arm_id": arm.arm_id,
+                "run_ref_step_config_digest": arm.run_ref.step_config_digest,
+                "result_contract_digest": arm.run_ref.run_ref.result_digest,
+            }
+            for arm in self.step_config.arms
+        )
+
+    @property
+    def record(self) -> dict[str, Any]:
+        return json.loads(self._canonical_bytes)
+
+
+def build_trial_runtime_request(
+    *,
+    step_config: TrialStepConfig,
+    visit: RunRefVisitKey,
+    resolved_inputs_by_arm: Mapping[str, Mapping[str, Any]],
+) -> TrialRuntimeRequest:
+    """Bind exact parent visit and resolved inputs to existing static identities."""
+
+    from orchestrator.workflow.executable_ir import TrialStepConfig
+
+    from .contracts import TrialCellKey
+
+    if type(step_config) is not TrialStepConfig:
+        raise TypeError("trial runtime step config must be exact TrialStepConfig")
+    TrialStepConfig(
+        common=step_config.common,
+        trial=step_config.trial,
+        arms=step_config.arms,
+    )
+    static_config = step_config.trial
+    validate_trial_static_config_authority(static_config)
+    if type(visit) is not RunRefVisitKey:
+        raise TypeError("trial runtime visit must be exact RunRefVisitKey")
+    if not isinstance(resolved_inputs_by_arm, Mapping):
+        raise TypeError("resolved trial inputs must be a mapping")
+    arm_ids = tuple(arm.arm_id for arm in static_config.arms)
+    if set(resolved_inputs_by_arm) != set(arm_ids):
+        raise ValueError("resolved trial inputs must cover the exact arm domain")
+    resolved_rows: list[dict[str, Any]] = []
+    for arm in static_config.arms:
+        values = resolved_inputs_by_arm[arm.arm_id]
+        if not isinstance(values, Mapping) or any(
+            not isinstance(name, str) for name in values
+        ):
+            raise TypeError("resolved trial arm inputs must be string-keyed mappings")
+        expected_names = tuple(row.name for row in arm.run_ref.inputs)
+        if set(values) != set(expected_names):
+            raise ValueError("resolved trial arm inputs disagree with static authority")
+        ordered_values = {name: values[name] for name in expected_names}
+        try:
+            frozen_values = json.loads(canonical_json_bytes(ordered_values))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("resolved trial arm inputs are not canonical JSON") from exc
+        resolved_rows.append({"arm_id": arm.arm_id, "inputs": frozen_values})
+    cell_domain = tuple(
+        TrialCellKey(arm_id=arm.arm_id, rep=rep)
+        for arm in static_config.arms
+        for rep in range(1, static_config.reps + 1)
+    )
+    arm_run_ref_authorities = [
+        {
+            "arm_id": arm.arm_id,
+            "run_ref_step_config_digest": arm.run_ref.step_config_digest,
+            "result_contract_digest": arm.run_ref.run_ref.result_digest,
+        }
+        for arm in step_config.arms
+    ]
+    record = {
+        "schema_version": "trial_runtime_request.v1",
+        "trial_static_config_digest": static_config.digest,
+        "trial_step_config_digest": step_config.step_config_digest,
+        "arm_run_ref_authorities": arm_run_ref_authorities,
+        "evaluation_digest": static_config.evaluation_digest,
+        "budget_digest": static_config.budget_digest,
+        "result_contract_digest": static_config.result_digest,
+        "compiler_runtime_identity_digest": (
+            static_config.compiler_runtime_identity_digest
+        ),
+        "visit": visit.record,
+        "resolved_inputs_by_arm": resolved_rows,
+        "cell_domain": [cell.record for cell in cell_domain],
+        "cell_domain_digest": canonical_sha256(
+            [cell.record for cell in cell_domain]
+        ),
+    }
+    request = object.__new__(TrialRuntimeRequest)
+    for name, value in (
+        ("step_config", step_config),
+        ("static_config", static_config),
+        ("visit", visit),
+        ("cell_domain", cell_domain),
+        ("static_config_digest", static_config.digest),
+        ("trial_step_config_digest", step_config.step_config_digest),
+        ("evaluation_digest", static_config.evaluation_digest),
+        ("budget_digest", static_config.budget_digest),
+        ("result_contract_digest", static_config.result_digest),
+        (
+            "compiler_runtime_identity_digest",
+            static_config.compiler_runtime_identity_digest,
+        ),
+        ("digest", canonical_sha256(record)),
+    ):
+        object.__setattr__(request, name, value)
+    object.__setattr__(
+        request,
+        "_resolved_inputs_json",
+        canonical_json_bytes(resolved_rows),
+    )
+    object.__setattr__(request, "_canonical_bytes", canonical_json_bytes(record))
+    return request
+
+
+__all__ = [
+    "TRIAL_RESULT_CONTRACT_SCHEMA",
+    "TRIAL_STATIC_CONFIG_SCHEMA",
+    "TrialArmStaticConfig",
+    "TrialRuntimeRequest",
+    "TrialStaticConfig",
+    "build_trial_runtime_request",
+    "build_trial_static_config",
+    "decode_trial_static_config",
+    "encode_trial_static_config",
+    "validate_trial_static_config_authority",
+]

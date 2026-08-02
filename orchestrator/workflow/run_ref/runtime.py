@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
 import math
@@ -74,6 +74,7 @@ from .workspace import TreeManifest, freeze_tree
 
 
 RUN_REF_EVIDENCE_MANIFEST_SCHEMA = "run_ref_evidence_manifest.v1"
+RUN_REF_LIFECYCLE_EVENT_SCHEMA = "run_ref_lifecycle_event.v1"
 _ATTEMPT_LEDGER_FILENAME = "run-ref-attempts.jsonl"
 _REQUEST_FILENAME = "child-request.json"
 _CHILD_RESULT_FILENAME = "child-result.json"
@@ -85,6 +86,7 @@ _BASELINE_DIRECTORY = "baseline"
 _SAFE_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _CHILD_TEST_BOUNDARIES = frozenset({"mode_1_decode", "mode_2_compile"})
+_RUN_REF_DURABLE_ACK_TOKEN = object()
 
 
 class RunRefRuntimeError(ValueError):
@@ -153,6 +155,260 @@ class RunRefRuntimeError(ValueError):
         value = json.loads(self._machine_fields_json)
         assert isinstance(value, dict)
         return value
+
+
+class RunRefLifecycleDeadlineExceeded(RunRefRuntimeError):
+    """The exact caller-owned lifecycle deadline elapsed between boundaries."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "run_ref_child_launch_failed",
+            "run_ref_lifecycle_deadline_exceeded",
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class RunRefLifecycleEvent:
+    """One immutable, closed worker-to-caller lifecycle proposal."""
+
+    sequence: int
+    event_kind: str
+    stage: str
+    visit: RunRefVisitKey
+    attempt_ordinal: int
+    effect_instance_root: Path
+    event_digest: str
+    _payload_json: bytes
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        sequence: int,
+        event_kind: str,
+        stage: str,
+        visit: RunRefVisitKey,
+        attempt_ordinal: int,
+        effect_instance_root: Path,
+        payload: Mapping[str, Any],
+    ) -> RunRefLifecycleEvent:
+        if type(sequence) is not int or sequence < 1:
+            raise ValueError("run-ref lifecycle sequence must be positive")
+        expected_kind = (
+            "allocation"
+            if stage == "allocated"
+            else "prepared"
+            if stage == "completed_pending_parent_commit"
+            else "progress"
+        )
+        if event_kind != expected_kind or stage not in {
+            "allocated",
+            "materialized",
+            "setup_completed",
+            "program_prepared",
+            "launched",
+            "child_completed",
+            "delta_captured",
+            "completed_pending_parent_commit",
+        }:
+            raise ValueError("run-ref lifecycle event kind/stage is invalid")
+        if type(visit) is not RunRefVisitKey:
+            raise TypeError("run-ref lifecycle visit must be RunRefVisitKey")
+        if type(attempt_ordinal) is not int or attempt_ordinal < 1:
+            raise ValueError("run-ref lifecycle attempt ordinal must be positive")
+        root = _canonical_absolute(
+            Path(effect_instance_root),
+            field="effect_instance_root",
+        )
+        if not isinstance(payload, Mapping):
+            raise TypeError("run-ref lifecycle payload must be a mapping")
+        payload_json = canonical_json_bytes(dict(payload))
+        payload_copy = json.loads(payload_json)
+        if event_kind == "allocation":
+            expected_payload = {"bindings"}
+            binding_keys = set(RunRefAttemptBindings.__dataclass_fields__)
+            bindings = payload_copy.get("bindings")
+            if not isinstance(bindings, Mapping) or set(bindings) != binding_keys:
+                raise ValueError("run-ref lifecycle allocation bindings are not closed")
+        elif event_kind == "prepared":
+            expected_payload = {
+                "binding_updates",
+                "result_envelope_digest",
+                "artifact_projection_digest",
+                "evidence_manifest_digest",
+            }
+            if payload_copy.get("binding_updates") != {}:
+                raise ValueError("run-ref lifecycle prepared updates must be empty")
+            for name in (
+                "result_envelope_digest",
+                "artifact_projection_digest",
+                "evidence_manifest_digest",
+            ):
+                if (
+                    not isinstance(payload_copy.get(name), str)
+                    or _SHA256_RE.fullmatch(payload_copy[name]) is None
+                ):
+                    raise ValueError(
+                        "run-ref lifecycle prepared digest is invalid"
+                    )
+        else:
+            expected_payload = {"binding_updates"}
+        if set(payload_copy) != expected_payload:
+            raise ValueError("run-ref lifecycle payload is not closed")
+        if event_kind == "progress":
+            expected_updates = {
+                "materialized": {"verified_git_tree_id"},
+                "setup_completed": {
+                    "setup_evidence_digest",
+                    "post_setup_baseline_digest",
+                },
+                "program_prepared": {"program_preparation_digest"},
+                "launched": {"child_launch_digest"},
+                "child_completed": {
+                    "child_terminal_state_digest",
+                    "result_payload_digest",
+                },
+                "delta_captured": {
+                    "workspace_delta_digest",
+                    "accounting_digest",
+                    "evidence_manifest_digest",
+                },
+            }[stage]
+            updates = payload_copy.get("binding_updates")
+            if not isinstance(updates, Mapping) or set(updates) != expected_updates:
+                raise ValueError(
+                    "run-ref lifecycle stage binding updates are not closed"
+                )
+        record = {
+            "schema_version": RUN_REF_LIFECYCLE_EVENT_SCHEMA,
+            "sequence": sequence,
+            "event_kind": event_kind,
+            "stage": stage,
+            "visit": visit.record,
+            "attempt_ordinal": attempt_ordinal,
+            "effect_instance_root": root.as_posix(),
+            "payload": payload_copy,
+        }
+        event = object.__new__(cls)
+        for name, value in (
+            ("sequence", sequence),
+            ("event_kind", event_kind),
+            ("stage", stage),
+            ("visit", visit),
+            ("attempt_ordinal", attempt_ordinal),
+            ("effect_instance_root", root),
+            ("event_digest", canonical_sha256(record)),
+            ("_payload_json", payload_json),
+        ):
+            object.__setattr__(event, name, value)
+        return event
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return json.loads(self._payload_json)
+
+    @property
+    def record(self) -> dict[str, Any]:
+        return {
+            "schema_version": RUN_REF_LIFECYCLE_EVENT_SCHEMA,
+            "sequence": self.sequence,
+            "event_kind": self.event_kind,
+            "stage": self.stage,
+            "visit": self.visit.record,
+            "attempt_ordinal": self.attempt_ordinal,
+            "effect_instance_root": self.effect_instance_root.as_posix(),
+            "payload": self.payload,
+            "event_digest": self.event_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RunRefLifecycleAllocation:
+    """Caller-selected exact E1 ordinal and effect-instance scope."""
+
+    attempt_ordinal: int
+    effect_instance_root: Path
+    bindings: RunRefAttemptBindings
+    effect_instance_digest: str | None = None
+    expected_ledger_sequence: int = 1
+    expected_previous_row_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.attempt_ordinal) is not int or self.attempt_ordinal < 1:
+            raise ValueError("run-ref lifecycle attempt ordinal must be positive")
+        root = _canonical_absolute(
+            Path(self.effect_instance_root),
+            field="effect_instance_root",
+        )
+        if type(self.bindings) is not RunRefAttemptBindings:
+            raise TypeError("run-ref lifecycle bindings must be exact")
+        if self.effect_instance_digest is not None and (
+            not isinstance(self.effect_instance_digest, str)
+            or _SHA256_RE.fullmatch(self.effect_instance_digest) is None
+        ):
+            raise ValueError("run-ref effect-instance digest is invalid")
+        if type(self.expected_ledger_sequence) is not int or self.expected_ledger_sequence < 1:
+            raise ValueError("run-ref expected ledger sequence is invalid")
+        if self.expected_previous_row_digest is not None and (
+            not isinstance(self.expected_previous_row_digest, str)
+            or _SHA256_RE.fullmatch(self.expected_previous_row_digest) is None
+        ):
+            raise ValueError("run-ref expected previous row digest is invalid")
+        if (self.expected_ledger_sequence == 1) != (
+            self.expected_previous_row_digest is None
+        ):
+            raise ValueError("run-ref expected ledger head binding is invalid")
+        object.__setattr__(self, "effect_instance_root", root)
+
+    @property
+    def ledger_path(self) -> Path:
+        return self.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
+
+
+@dataclass(frozen=True, slots=True)
+class RunRefLifecycleAcknowledgement:
+    """Exact caller acknowledgement for one lifecycle event."""
+
+    sequence: int
+    stage: str
+    event_digest: str
+    authority: RunRefAttemptRecord
+    _durability_token: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if type(self.sequence) is not int or self.sequence < 1:
+            raise ValueError("run-ref lifecycle acknowledgement sequence is invalid")
+        if not isinstance(self.stage, str) or not self.stage:
+            raise ValueError("run-ref lifecycle acknowledgement stage is invalid")
+        if not isinstance(self.event_digest, str) or _SHA256_RE.fullmatch(
+            self.event_digest
+        ) is None:
+            raise ValueError("run-ref lifecycle acknowledgement digest is invalid")
+        if type(self.authority) is not RunRefAttemptRecord:
+            raise TypeError("run-ref lifecycle acknowledgement authority is invalid")
+        if self._durability_token is not _RUN_REF_DURABLE_ACK_TOKEN:
+            raise ValueError("run-ref lifecycle acknowledgement is not durable")
+
+    @property
+    def authority_digest(self) -> str:
+        return self.authority.row_digest
+
+    @classmethod
+    def _for_durable_row(
+        cls,
+        event: RunRefLifecycleEvent,
+        *,
+        authority: RunRefAttemptRecord,
+    ) -> RunRefLifecycleAcknowledgement:
+        if type(event) is not RunRefLifecycleEvent:
+            raise TypeError("acknowledgement event must be RunRefLifecycleEvent")
+        return cls(
+            sequence=event.sequence,
+            stage=event.stage,
+            event_digest=event.event_digest,
+            authority=authority,
+            _durability_token=_RUN_REF_DURABLE_ACK_TOKEN,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1165,15 +1421,11 @@ def _safe_workspace_segment(value: str, *, fallback: str) -> str:
     return f"{fallback}-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:24]}"
 
 
-def _next_attempt_ordinal(request: RunRefRuntimeRequest) -> int:
-    ledger = load_attempt_ledger(request.ledger_path)
-    matching = [row for row in ledger.rows if row.visit == request.visit]
-    return max((row.attempt_ordinal for row in matching), default=0) + 1
-
-
 def _workspace_for_ordinal(
     request: RunRefRuntimeRequest,
     attempt_ordinal: int,
+    *,
+    effect_instance_digest: str | None = None,
 ) -> Path:
     parent_segment = _safe_workspace_segment(
         request.visit.parent_run_id,
@@ -1189,8 +1441,20 @@ def _workspace_for_ordinal(
             "visit": request.visit.record,
         }
     ).removeprefix("sha256:")
+    workspace_root = request.run_ref_root
+    if effect_instance_digest is not None:
+        if _SHA256_RE.fullmatch(effect_instance_digest) is None:
+            raise RunRefRuntimeError(
+                "run_ref_ledger_invalid",
+                "effect_instance_digest_invalid",
+            )
+        workspace_root = (
+            workspace_root
+            / "effect-instances"
+            / effect_instance_digest.removeprefix("sha256:")
+        )
     return (
-        request.run_ref_root
+        workspace_root
         / "runs"
         / parent_segment
         / step_segment
@@ -1203,15 +1467,22 @@ def _workspace_for_ordinal(
 def _child_run_id(
     request: RunRefRuntimeRequest,
     attempt_ordinal: int,
+    *,
+    effect_instance_digest: str | None = None,
 ) -> str:
-    digest = canonical_sha256(
-        {
-            "schema_version": "run_ref_child_run_identity.v1",
-            "visit": request.visit.record,
-            "attempt_ordinal": attempt_ordinal,
-            "step_config_digest": request.step_config.step_config_digest,
+    identity = {
+        "schema_version": "run_ref_child_run_identity.v1",
+        "visit": request.visit.record,
+        "attempt_ordinal": attempt_ordinal,
+        "step_config_digest": request.step_config.step_config_digest,
+    }
+    if effect_instance_digest is not None:
+        identity = {
+            **identity,
+            "schema_version": "run_ref_child_run_identity.v2",
+            "effect_instance_digest": effect_instance_digest,
         }
-    ).removeprefix("sha256:")
+    digest = canonical_sha256(identity).removeprefix("sha256:")
     return f"run-ref-{digest[:40]}"
 
 
@@ -1221,6 +1492,7 @@ def _attempt_bindings(
     attempt_ordinal: int,
     workspace: Path,
     parent_values: Mapping[str, Any],
+    effect_instance_digest: str | None = None,
 ) -> RunRefAttemptBindings:
     static = request.step_config.run_ref
     program = static.program
@@ -1238,8 +1510,58 @@ def _attempt_bindings(
         policy_digest=_policy_digest(request),
         step_config_digest=request.step_config.step_config_digest,
         capsule_or_compiler_digest=capsule_or_compiler_digest,
-        child_run_id=_child_run_id(request, attempt_ordinal),
+        child_run_id=_child_run_id(
+            request,
+            attempt_ordinal,
+            effect_instance_digest=effect_instance_digest,
+        ),
         result_contract_digest=static.result_digest,
+    )
+
+
+def select_run_ref_lifecycle_allocation(
+    request: RunRefRuntimeRequest,
+    *,
+    effect_instance_root: Path | None = None,
+    effect_instance_digest: str | None = None,
+) -> RunRefLifecycleAllocation:
+    """Caller-side selection of one exact fresh ordinal and binding set."""
+
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    if (effect_instance_root is None) != (effect_instance_digest is None):
+        raise ValueError(
+            "effect_instance_root and effect_instance_digest must be supplied together"
+        )
+    root = _canonical_absolute(
+        effect_instance_root or request.parent_run_root,
+        field="effect_instance_root",
+    )
+    ledger_path = root / _ATTEMPT_LEDGER_FILENAME
+    ledger = load_attempt_ledger(ledger_path)
+    matching = [row for row in ledger.rows if row.visit == request.visit]
+    ordinal = max((row.attempt_ordinal for row in matching), default=0) + 1
+    parent_values = _resolved_parent_input_values(request)
+    workspace = _workspace_for_ordinal(
+        request,
+        ordinal,
+        effect_instance_digest=effect_instance_digest,
+    )
+    return RunRefLifecycleAllocation(
+        attempt_ordinal=ordinal,
+        effect_instance_root=root,
+        bindings=_attempt_bindings(
+            request,
+            attempt_ordinal=ordinal,
+            workspace=workspace,
+            parent_values=parent_values,
+            effect_instance_digest=effect_instance_digest,
+        ),
+        effect_instance_digest=effect_instance_digest,
+        expected_ledger_sequence=len(ledger.rows) + 1,
+        expected_previous_row_digest=(
+            ledger.rows[-1].row_digest if ledger.rows else None
+        ),
     )
 
 
@@ -1700,33 +2022,208 @@ def _evidence_manifest_record(
     }
 
 
-def prepare_run_ref_settlement(
+def _validate_lifecycle_acknowledgement_authority(
+    *,
+    event: RunRefLifecycleEvent,
+    acknowledgement: RunRefLifecycleAcknowledgement,
+) -> None:
+    """Validate the exact row the caller reports durably applying."""
+
+    row = acknowledgement.authority
+    row_payload = dict(row.record)
+    row_payload.pop("row_digest")
+    if canonical_sha256(row_payload) != row.row_digest:
+        raise ValueError("run-ref lifecycle acknowledgement row is not canonical")
+    if (
+        row.visit != event.visit
+        or row.attempt_ordinal != event.attempt_ordinal
+        or row.stage != event.stage
+    ):
+        raise ValueError("run-ref lifecycle acknowledgement authority disagrees")
+    payload = event.payload
+    if event.stage == "allocated":
+        if row.bindings.record != payload["bindings"]:
+            raise ValueError(
+                "run-ref lifecycle allocation acknowledgement disagrees"
+            )
+        return
+    for name, value in payload["binding_updates"].items():
+        observed = getattr(row.bindings, name)
+        if isinstance(observed, Path):
+            observed = observed.as_posix()
+        if observed != value:
+            raise ValueError("run-ref lifecycle progress acknowledgement disagrees")
+
+
+def acknowledge_persisted_run_ref_lifecycle_event(
+    event: RunRefLifecycleEvent,
+    *,
+    expected_row_digest: str,
+) -> RunRefLifecycleAcknowledgement:
+    """Reload the exact durable ledger head before acknowledging one event."""
+
+    if type(event) is not RunRefLifecycleEvent:
+        raise TypeError("event must be an exact RunRefLifecycleEvent")
+    if not isinstance(expected_row_digest, str) or _SHA256_RE.fullmatch(
+        expected_row_digest
+    ) is None:
+        raise ValueError("expected durable row digest is invalid")
+    ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
+    try:
+        ledger = load_attempt_ledger(ledger_path)
+    except RunRefLedgerError as exc:
+        raise ValueError("run-ref lifecycle authority is not durable") from exc
+    if not ledger.rows:
+        raise ValueError("run-ref lifecycle authority is not durable")
+    row = ledger.rows[-1]
+    if row.row_digest != expected_row_digest:
+        if any(
+            candidate.row_digest == expected_row_digest
+            for candidate in ledger.rows
+        ):
+            raise ValueError("run-ref lifecycle authority is not the ledger head")
+        raise ValueError("run-ref lifecycle authority is not durable")
+    acknowledgement = RunRefLifecycleAcknowledgement._for_durable_row(
+        event,
+        authority=row,
+    )
+    _validate_lifecycle_acknowledgement_authority(
+        event=event,
+        acknowledgement=acknowledgement,
+    )
+    return acknowledgement
+
+
+def drive_run_ref_lifecycle(
     request: RunRefRuntimeRequest,
     *,
+    allocation: RunRefLifecycleAllocation,
+    acknowledge: Callable[
+        [RunRefLifecycleEvent], RunRefLifecycleAcknowledgement
+    ],
     dependencies: RunRefRuntimeDependencies | None = None,
+    deadline_monotonic_ns: int | None = None,
+    started_monotonic_ns: int | None = None,
 ) -> PreparedRunRefSettlement:
-    """Execute one fresh attempt and stop at pending parent-state settlement."""
+    """Perform blocking E1 work through caller-acknowledged immutable events.
+
+    This driver never writes an attempt ledger.  The caller owns each event's
+    durable projection and must return its exact authority digest before the
+    driver may cross the next lifecycle boundary.
+    """
 
     if type(request) is not RunRefRuntimeRequest:
         raise TypeError("request must be an exact RunRefRuntimeRequest")
+    if type(allocation) is not RunRefLifecycleAllocation:
+        raise TypeError("allocation must be an exact RunRefLifecycleAllocation")
     effects = dependencies or RunRefRuntimeDependencies()
     if type(effects) is not RunRefRuntimeDependencies:
         raise TypeError("dependencies must be exact RunRefRuntimeDependencies")
-    started_ns = effects.monotonic_ns()
-    try:
-        _discard_incomplete_attempt(request, effects)
-        parent_values = _resolved_parent_input_values(request)
-        ordinal = _next_attempt_ordinal(request)
-        workspace = _workspace_for_ordinal(request, ordinal)
-        allocated = allocate_attempt(
-            request.ledger_path,
+    if not callable(acknowledge):
+        raise TypeError("acknowledge must be callable")
+    if deadline_monotonic_ns is not None and (
+        type(deadline_monotonic_ns) is not int or deadline_monotonic_ns < 0
+    ):
+        raise ValueError("deadline_monotonic_ns must be non-negative or None")
+    if started_monotonic_ns is not None and (
+        type(started_monotonic_ns) is not int or started_monotonic_ns < 0
+    ):
+        raise ValueError("started_monotonic_ns must be non-negative or None")
+
+    child_started = False
+
+    def require_before_deadline() -> None:
+        if (
+            not child_started
+            and
+            deadline_monotonic_ns is not None
+            and effects.monotonic_ns() >= deadline_monotonic_ns
+        ):
+            raise RunRefLifecycleDeadlineExceeded()
+
+    next_sequence = 1
+    previous_authority: RunRefAttemptRecord | None = None
+
+    def emit(
+        *,
+        stage: str,
+        event_kind: str,
+        attempt_ordinal: int,
+        payload: Mapping[str, Any],
+    ) -> RunRefLifecycleAcknowledgement:
+        nonlocal next_sequence, previous_authority
+        require_before_deadline()
+        event = RunRefLifecycleEvent.build(
+            sequence=next_sequence,
+            event_kind=event_kind,
+            stage=stage,
             visit=request.visit,
-            bindings=_attempt_bindings(
-                request,
-                attempt_ordinal=ordinal,
-                workspace=workspace,
-                parent_values=parent_values,
-            ),
+            attempt_ordinal=attempt_ordinal,
+            effect_instance_root=allocation.effect_instance_root,
+            payload=payload,
+        )
+        acknowledgement = acknowledge(event)
+        if (
+            type(acknowledgement) is not RunRefLifecycleAcknowledgement
+            or acknowledgement.sequence != event.sequence
+            or acknowledgement.stage != event.stage
+            or acknowledgement.event_digest != event.event_digest
+        ):
+            raise ValueError("run-ref lifecycle acknowledgement is invalid")
+        _validate_lifecycle_acknowledgement_authority(
+            event=event,
+            acknowledgement=acknowledgement,
+        )
+        authority = acknowledgement.authority
+        if previous_authority is None:
+            if (
+                authority.sequence != allocation.expected_ledger_sequence
+                or authority.previous_row_digest
+                != allocation.expected_previous_row_digest
+            ):
+                raise ValueError(
+                    "run-ref lifecycle allocation acknowledgement is not adjacent"
+                )
+        elif (
+            authority.sequence != previous_authority.sequence + 1
+            or authority.previous_row_digest != previous_authority.row_digest
+        ):
+            raise ValueError(
+                "run-ref lifecycle progress acknowledgement is not adjacent"
+            )
+        previous_authority = authority
+        next_sequence += 1
+        require_before_deadline()
+        return acknowledgement
+
+    started_ns = (
+        effects.monotonic_ns()
+        if started_monotonic_ns is None
+        else started_monotonic_ns
+    )
+    try:
+        require_before_deadline()
+        ordinal = allocation.attempt_ordinal
+        workspace = allocation.bindings.workspace_path
+        parent_values = _resolved_parent_input_values(request)
+        expected_bindings = _attempt_bindings(
+            request,
+            attempt_ordinal=ordinal,
+            workspace=workspace,
+            parent_values=parent_values,
+            effect_instance_digest=allocation.effect_instance_digest,
+        )
+        if allocation.bindings != expected_bindings:
+            raise RunRefRuntimeError(
+                "run_ref_ledger_invalid",
+                "lifecycle_allocation_authority_disagrees",
+            )
+        bindings = allocation.bindings
+        emit(
+            stage="allocated",
+            event_kind="allocation",
+            attempt_ordinal=ordinal,
+            payload={"bindings": bindings.record},
         )
         effects.crash_hook("allocation")
 
@@ -1743,6 +2240,7 @@ def prepare_run_ref_settlement(
             )
 
         try:
+            require_before_deadline()
             materialized = effects.materialize_source(
                 request.step_config.run_ref.source,
                 run_ref_root=request.run_ref_root,
@@ -1763,14 +2261,17 @@ def prepare_run_ref_settlement(
                 "run_ref_child_launch_failed",
                 "materializer_authority_invalid",
             )
-        materialized_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        bindings = replace(
+            bindings,
+            verified_git_tree_id=materialized.verified_git_tree.value,
+        )
+        emit(
             stage="materialized",
-            binding_updates={
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": {
                 "verified_git_tree_id": materialized.verified_git_tree.value,
-            },
+            }},
         )
 
         resolved_inputs = resolve_run_ref_inputs(
@@ -1782,21 +2283,22 @@ def prepare_run_ref_settlement(
         materialized, baseline_path, baseline_manifest = (
             _snapshot_post_input_baseline(materialized)
         )
-        setup_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        setup_updates = {
+            "setup_evidence_digest": materialized.setup_evidence_digest,
+            "post_setup_baseline_digest": baseline_manifest.digest,
+        }
+        bindings = replace(bindings, **setup_updates)
+        emit(
             stage="setup_completed",
-            binding_updates={
-                "setup_evidence_digest": materialized.setup_evidence_digest,
-                "post_setup_baseline_digest": baseline_manifest.digest,
-            },
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": setup_updates},
         )
 
         mode, child_request = _build_child_request(
             request,
             materialized=materialized,
-            child_run_id=allocated.bindings.child_run_id,
+            child_run_id=bindings.child_run_id,
             resolved_inputs=resolved_inputs,
             child_test_boundary=effects.child_test_boundary,
         )
@@ -1808,20 +2310,22 @@ def prepare_run_ref_settlement(
             mode=mode,
             child_request=child_request,
         )
-        prepared_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        preparation_updates = {"program_preparation_digest": preparation_digest}
+        bindings = replace(bindings, **preparation_updates)
+        emit(
             stage="program_prepared",
-            binding_updates={"program_preparation_digest": preparation_digest},
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": preparation_updates},
         )
         launch_digest = canonical_sha256(child_request)
-        launched_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        launch_updates = {"child_launch_digest": launch_digest}
+        bindings = replace(bindings, **launch_updates)
+        emit(
             stage="launched",
-            binding_updates={"child_launch_digest": launch_digest},
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": launch_updates},
         )
         effects.crash_hook("launch")
         launch = RunRefChildLaunch(
@@ -1829,9 +2333,11 @@ def prepare_run_ref_settlement(
             request_path=request_path,
             request_document=child_request,
             workspace=workspace,
-            child_run_id=allocated.bindings.child_run_id,
+            child_run_id=bindings.child_run_id,
         )
         try:
+            require_before_deadline()
+            child_started = True
             process = effects.launch_child(launch)
         except RunRefRuntimeError:
             raise
@@ -1852,21 +2358,22 @@ def prepare_run_ref_settlement(
         )
         _, child_state_path, child_state_digest = _child_terminal_state(
             workspace=workspace,
-            child_run_id=allocated.bindings.child_run_id,
+            child_run_id=bindings.child_run_id,
             workflow_outputs=child_result["workflow_outputs"],
         )
         child_result_path = attempt_root / _CHILD_RESULT_FILENAME
         _write_canonical_document(child_result_path, child_result)
         result_payload_digest = canonical_sha256(child_result)
-        child_completed_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        child_updates = {
+            "child_terminal_state_digest": child_state_digest,
+            "result_payload_digest": result_payload_digest,
+        }
+        bindings = replace(bindings, **child_updates)
+        emit(
             stage="child_completed",
-            binding_updates={
-                "child_terminal_state_digest": child_state_digest,
-                "result_payload_digest": result_payload_digest,
-            },
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": child_updates},
         )
         effects.crash_hook("child_completion")
 
@@ -1887,7 +2394,7 @@ def prepare_run_ref_settlement(
             declared_artifacts=declared_artifacts,
         )
         accounting = build_run_ref_accounting(
-            child_run_id=allocated.bindings.child_run_id,
+            child_run_id=bindings.child_run_id,
             attempt_ordinal=ordinal,
             terminal_status="completed",
             elapsed_ms=max(0, (effects.monotonic_ns() - started_ns) // 1_000_000),
@@ -1907,13 +2414,27 @@ def prepare_run_ref_settlement(
         result_envelope_digest = canonical_sha256(envelope)
 
         evidence_path = attempt_root / _EVIDENCE_FILENAME
-        provisional = replace(
-            child_completed_row,
-            bindings=replace(
-                child_completed_row.bindings,
-                workspace_delta_digest=delta.digest,
-                accounting_digest=accounting_digest,
+        delta_updates = {
+            "workspace_delta_digest": delta.digest,
+            "accounting_digest": accounting_digest,
+        }
+        provisional_bindings = replace(bindings, **delta_updates)
+        provisional = RunRefAttemptRecord(
+            sequence=0,
+            previous_row_digest=None,
+            row_digest=canonical_sha256(
+                {
+                    "schema_version": "run_ref_lifecycle_provisional_row.v1",
+                    "visit": request.visit.record,
+                    "attempt_ordinal": ordinal,
+                }
             ),
+            visit=request.visit,
+            attempt_ordinal=ordinal,
+            stage="delta_captured",
+            status="in_progress",
+            recorded_at="1970-01-01T00:00:00.000000Z",
+            bindings=provisional_bindings,
         )
         evidence = _evidence_manifest_record(
             request,
@@ -1931,24 +2452,29 @@ def prepare_run_ref_settlement(
         )
         evidence_digest = canonical_sha256(evidence)
         _write_canonical_document(evidence_path, evidence)
-        delta_row = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        delta_updates["evidence_manifest_digest"] = evidence_digest
+        bindings = replace(bindings, **delta_updates)
+        emit(
             stage="delta_captured",
-            binding_updates={
-                "workspace_delta_digest": delta.digest,
-                "accounting_digest": accounting_digest,
-                "evidence_manifest_digest": evidence_digest,
-            },
+            event_kind="progress",
+            attempt_ordinal=ordinal,
+            payload={"binding_updates": delta_updates},
         )
         effects.crash_hook("delta")
-        pending = advance_attempt(
-            request.ledger_path,
-            visit=request.visit,
-            attempt_ordinal=ordinal,
+        artifact_projection = flatten_run_ref_result_artifacts(
+            envelope,
+            request.step_config.run_ref.result_descriptor["envelope"],
+        )
+        pending_ack = emit(
             stage="completed_pending_parent_commit",
-            binding_updates={},
+            event_kind="prepared",
+            attempt_ordinal=ordinal,
+            payload={
+                "binding_updates": {},
+                "result_envelope_digest": result_envelope_digest,
+                "artifact_projection_digest": canonical_sha256(artifact_projection),
+                "evidence_manifest_digest": evidence_digest,
+            },
         )
     except RunRefLedgerError as exc:
         raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
@@ -1960,13 +2486,101 @@ def prepare_run_ref_settlement(
 
     return PreparedRunRefSettlement(
         envelope=envelope,
-        artifacts=flatten_run_ref_result_artifacts(
-            envelope,
-            request.step_config.run_ref.result_descriptor["envelope"],
+        artifacts=artifact_projection,
+        settled_result=SettledRunRefResultBinding(
+            visit=request.visit,
+            attempt_ordinal=ordinal,
+            step_config_digest=bindings.step_config_digest,
+            run_ref_root=bindings.run_ref_root,
+            workspace_path=bindings.workspace_path,
+            child_run_id=bindings.child_run_id,
+            pending_row_digest=pending_ack.authority_digest,
+            child_terminal_state_digest=bindings.child_terminal_state_digest,
+            result_contract_digest=bindings.result_contract_digest,
+            result_payload_digest=bindings.result_payload_digest,
+            workspace_delta_digest=bindings.workspace_delta_digest,
+            accounting_digest=bindings.accounting_digest,
+            evidence_manifest_digest=bindings.evidence_manifest_digest,
         ),
-        settled_result=settled_result_binding(pending),
-        ledger_path=request.ledger_path,
+        ledger_path=allocation.ledger_path,
         evidence_manifest_path=evidence_path,
+    )
+
+
+def persist_run_ref_lifecycle_event(
+    request: RunRefRuntimeRequest,
+    event: RunRefLifecycleEvent,
+) -> RunRefLifecycleAcknowledgement:
+    """Apply one exact driver event to the E1 ledger as its caller."""
+
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    if type(event) is not RunRefLifecycleEvent:
+        raise TypeError("event must be an exact RunRefLifecycleEvent")
+    if (
+        event.visit != request.visit
+    ):
+        raise RunRefRuntimeError(
+            "run_ref_ledger_invalid",
+            "lifecycle_event_scope_disagrees",
+        )
+    payload = event.payload
+    ledger_path = event.effect_instance_root / _ATTEMPT_LEDGER_FILENAME
+    try:
+        if event.stage == "allocated":
+            bindings = RunRefAttemptBindings(**payload["bindings"])
+            row = allocate_attempt(
+                ledger_path,
+                visit=request.visit,
+                bindings=bindings,
+            )
+            if row.attempt_ordinal != event.attempt_ordinal:
+                raise RunRefLedgerError(
+                    "lifecycle allocation ordinal disagrees"
+                )
+        else:
+            row = advance_attempt(
+                ledger_path,
+                visit=request.visit,
+                attempt_ordinal=event.attempt_ordinal,
+                stage=event.stage,
+                binding_updates=payload["binding_updates"],
+            )
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    return acknowledge_persisted_run_ref_lifecycle_event(
+        event,
+        expected_row_digest=row.row_digest,
+    )
+
+
+def prepare_run_ref_settlement(
+    request: RunRefRuntimeRequest,
+    *,
+    dependencies: RunRefRuntimeDependencies | None = None,
+) -> PreparedRunRefSettlement:
+    """Synchronous compatibility wrapper over the acknowledged E1 driver."""
+
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    effects = dependencies or RunRefRuntimeDependencies()
+    if type(effects) is not RunRefRuntimeDependencies:
+        raise TypeError("dependencies must be exact RunRefRuntimeDependencies")
+    started_ns = effects.monotonic_ns()
+    try:
+        _discard_incomplete_attempt(request, effects)
+        allocation = select_run_ref_lifecycle_allocation(request)
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    return drive_run_ref_lifecycle(
+        request,
+        allocation=allocation,
+        dependencies=effects,
+        started_monotonic_ns=started_ns,
+        acknowledge=lambda event: persist_run_ref_lifecycle_event(
+            request,
+            event,
+        ),
     )
 
 
@@ -2473,21 +3087,30 @@ def reuse_run_ref_settlement(
 
 __all__ = [
     "RUN_REF_EVIDENCE_MANIFEST_SCHEMA",
+    "RUN_REF_LIFECYCLE_EVENT_SCHEMA",
     "ParentBundleOrphanPreimage",
     "PreparedRunRefSettlement",
     "RunRefChildLaunch",
     "RunRefChildProcessResult",
     "RunRefExecutionResult",
+    "RunRefLifecycleAcknowledgement",
+    "RunRefLifecycleAllocation",
+    "RunRefLifecycleDeadlineExceeded",
+    "RunRefLifecycleEvent",
     "RunRefRuntimeDependencies",
     "RunRefRuntimeError",
     "RunRefRuntimeRequest",
+    "acknowledge_persisted_run_ref_lifecycle_event",
     "build_run_ref_accounting",
     "declared_artifacts_from_value",
+    "drive_run_ref_lifecycle",
     "extract_run_ref_value",
     "finalize_run_ref_parent_commit",
     "flatten_run_ref_result_artifacts",
+    "persist_run_ref_lifecycle_event",
     "prepare_run_ref_settlement",
     "resolve_run_ref_inputs",
     "reuse_run_ref_settlement",
+    "select_run_ref_lifecycle_allocation",
     "validate_completed_run_ref_authority",
 ]
