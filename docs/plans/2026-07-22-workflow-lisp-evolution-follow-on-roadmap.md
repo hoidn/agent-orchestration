@@ -60,6 +60,12 @@ After `PASS_E2`, retirement and removal of the superseded lean-pilot
 apparatus is owned by tracked, unselected Phase ME in the
 [substrate maintenance track](2026-07-26-substrate-maintenance-track.md);
 it consumes the gate as an external signal and never gates an E exit.
+The [2026-08-01 post-E2 stage sequencing record](2026-08-01-workflow-lisp-post-e2-stage-sequencing.md)
+applies the owner-delegated stage picks at the `PASS_E2` joint: the first
+preregistered effectiveness study (ES) runs on-spine and its results are a
+required additional input to the E3 continue/narrow/stop review, while
+Phase ME runs off-spine in parallel; ES and ME each remain plan- and
+review-gated.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
 gate. C1, C2, and C3 remain Designed and unselected.
