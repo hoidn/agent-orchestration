@@ -44,12 +44,13 @@ postcommit control passed 864 tests. The
 [target-2.25 E2 component plan](2026-08-01-workflow-lisp-e2-trial-component-plan.md)
 is accepted at `c6046d38`, tree `40c533fc`, after ordered
 `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`; see the
-[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–4 are
+[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–5 are
 complete: feasibility evidence at `456acc7a`, target-2.25 normative contracts
 at `6b431087`, nested structural transport at `43ae8d5c`, and typed `trial`
-syntax/generated contracts at `ba430ed2`, tree `dd649f39`. Task 5 IR,
-lowering, persistence, and checkpoint carriage is selected; no E2 trial
-runtime producer exists yet. E3 remains selected pending the
+syntax/generated contracts at `ba430ed2`, followed by IR, lowering,
+persistence, and checkpoint carriage at `a7a8a083`, tree `c36e90f6`. Task 6
+E1 lifecycle extraction plus trial identities and ledgers is selected; no E2
+concurrent trial execution producer exists yet. E3 remains selected pending the
 canonical E2 exit gate and review of the first fixed study. E3 adds no
 language target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that

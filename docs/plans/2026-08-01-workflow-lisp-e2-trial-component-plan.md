@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–4 complete and Task 5 selected
+- **Status:** accepted for E2 execution; Tasks 0–5 complete and Task 6 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -549,15 +549,26 @@ landed no `TRIAL` IR, lowering, persistence, checkpoint, or runtime producer.
 persisted-surface, source-map, WCC and checkpoint owners; create narrow
 `orchestrator/workflow_lisp/lowering/trial.py`; extend compiler artifacts.
 
-- [ ] RED exact cross-view identity and round trip for direct/record/union/
+- [x] RED exact cross-view identity and round trip for direct/record/union/
       optional/list/map/path/Value arms; changed arm/evaluation/budget inputs
       change only their owning identities.
-- [ ] Add one distinct `TRIAL` node/config and specialized result contract;
+- [x] Add one distinct `TRIAL` node/config and specialized result contract;
       preserve source spans and WCC/legacy compatibility for older targets.
-- [ ] Install `reuse_validated_trial_result` as a fail-closed checkpoint policy
+- [x] Install `reuse_validated_trial_result` as a fail-closed checkpoint policy
       with no runtime producer yet.
-- [ ] Run compiler/IR/persisted/checkpoint selectors, ordered Task-5 reviews,
+- [x] Run compiler/IR/persisted/checkpoint selectors, ordered Task-5 reviews,
       commit, and postcommit controls.
+
+Task 5 closed at exact reviewed commit `a7a8a083`, tree `c36e90f6`, from
+staged candidate SHA-256
+`bf56adc3c6f3d26d68e4cf1c76d9a8431a2fe162b8bc7bbc8ec57d522c819ee0`.
+Ordered `E2_TASK5_SPEC_APPROVED` then `E2_TASK5_QUALITY_APPROVED` approved
+those exact bytes after the generic union-projection validator was corrected
+to bind projected discriminants to an exact required enum schema. The fresh
+broad non-security Workflow Lisp gate passed 5,018 tests with one skip, and
+the postcommit output-contract/trial-lowering control passed 73 tests. Task 6
+may begin; no concurrent trial execution or Task-7 runtime producer exists
+yet.
 
 ## Task 6: Split E1 lifecycle and implement trial identities and ledgers
 
