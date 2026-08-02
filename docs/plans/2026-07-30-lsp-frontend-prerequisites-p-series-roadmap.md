@@ -1,9 +1,12 @@
 # LSP Frontend Prerequisites P-Series Roadmap
 
-Status: tracked, sequenced after the E program (2026-07-30 owner decision).
-Not active work instructions and not a selector: no P item is selected by
-listing, and P implementation remains unselected until this document's entry
-conditions hold and the owner records a selection act. The P-series was
+Status: tracked and owner-slated behind the E program (sequenced 2026-07-30;
+slated by the
+[2026-08-01 owner slating record](2026-08-01-workflow-lisp-p-series-owner-slating.md)).
+Not active work instructions and not a selector: slating queues the P-series
+as E's successor program but selects no P item, and P implementation remains
+unselected until this document's entry conditions hold and the owner records
+a selection act. The P-series was
 introduced and deferred together in the accepted
 [language server design](../design/workflow_lisp_language_server.md)
 (proposed 2026-07-13, accepted 2026-07-25), which owns each item's technical
@@ -45,7 +48,11 @@ which is independent of this sequencing.
   after the E-series (tracked in the incorporated
   [evolution follow-on roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md))
   reaches its recorded completion or an explicit owner decision closes or
-  re-parks it. Rationale: E-series trial-run authoring is the expected
+  re-parks it. The
+  [2026-08-01 owner slating record](2026-08-01-workflow-lisp-p-series-owner-slating.md)
+  queues the P-series as the successor program at that boundary without a
+  separate what-comes-next decision; it selects no item and waives no entry
+  gate. Rationale: E-series trial-run authoring is the expected
   driver of `.orc` authoring volume, and authoring volume is the recorded
   justification trigger for core-frontend surgery.
 - **Owner acceleration:** the owner may select a P item earlier by explicit

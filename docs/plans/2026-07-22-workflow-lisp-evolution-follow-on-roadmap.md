@@ -52,6 +52,13 @@ lowering, persistence, and checkpoint carriage is selected; no E2 trial
 runtime producer exists yet. E3 remains selected pending the
 canonical E2 exit gate and review of the first fixed study. E3 adds no
 language target.
+Recorded pilot forensics and post-`PASS_E2` study inputs for that
+first-fixed-study review live in the
+[2026-08-01 forensics report](../reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md).
+After `PASS_E2`, retirement and removal of the superseded lean-pilot
+apparatus is owned by tracked, unselected Phase ME in the
+[substrate maintenance track](2026-07-26-substrate-maintenance-track.md);
+it consumes the gate as an external signal and never gates an E exit.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
 gate. C1, C2, and C3 remain Designed and unselected.
@@ -132,6 +139,14 @@ Successor ordering (owner-directed 2026-07-30): the
 is sequenced after this E program; the P-series enters selection only after
 E's recorded completion or an explicit owner closure/re-park decision, with
 owner acceleration as the sole exception.
+The [2026-08-01 owner slating record](2026-08-01-workflow-lisp-p-series-owner-slating.md)
+queues the P-series as the successor program at that boundary; slating
+selects no P item and waives no P entry gate.
+The tracked, unselected
+[REC-series recursion roadmap](2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md)
+sequences its compiler-touching items (REC1/REC1b) after this E program or
+behind explicit owner acceleration with a reviewed sequencing amendment; its
+REC0 measurement item is authoring-only and unconstrained by E.
 
 ## Purpose
 

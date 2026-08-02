@@ -69,7 +69,10 @@
   [MC Common-Helper Consolidation Component Plan](2026-07-30-mc-common-helper-consolidation-component-plan.md).
   MR-4 is historical complete at `836721ce`; the remaining MR tranches, M3b,
   M3c, and M4 are not selected by listing and still require their own valid
-  entry gates and component plans. No successor substrate tranche is selected.
+  entry gates and component plans. Phase ME (lean-pilot apparatus retirement
+  and removal) is tracked as of 2026-08-01 by owner direction, gated on the
+  E-series canonical `PASS_E2`, and unselected. No successor substrate
+  tranche is selected.
 - **Relation:** parallel substrate track beside the completed
   `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
   (Q/L tracks). The accepted Q3 identity satisfies M2's entry prerequisite,
@@ -182,6 +185,7 @@ seams that loosening defines.
 | M2 | Persistence-parsimony design | historical complete: ML complete; Q3 identity accepted; owner depth fixed at component (a) | satisfied by accepted pure-result replay design, executable feasibility fixture, broad gate, and ordered final reviews |
 | M3 | Persistence implementation | M3a historical complete at `76427bde`, tree `c5d8247a`; 3b/3c retain their separate gates | M3a satisfied by refreshed focused/broad evidence, ordered final review, exact closure commit, and 189-pass postcommit control; no later tranche is selected by this row |
 | M4 | Structural decomposition | M3 complete or owner-recorded M2/M3 no-go; owner M4 go decision | touched modules split along the then-current seams; full suite green; no behavior change |
+| ME | Lean-pilot experiment apparatus retirement and removal | E-series canonical `PASS_E2` recorded; owner selection act; reviewed component plan | frozen inventory with per-entry disposition; zero undispositioned live consumers; deletion in dependency order; capability-matrix row retired; focused plus broad non-security gates; ordered specification then quality review |
 
 ## Phase M0: Green Baseline
 
@@ -507,6 +511,40 @@ using the owner-module extraction method proven by the typecheck-family
 completion plan. Behavior-preserving only; full suite green; no new
 abstractions beyond the module boundaries themselves.
 
+## Phase ME: Lean-Pilot Apparatus Retirement And Removal
+
+**Status:** tracked 2026-08-01 by owner direction (retirement and removal);
+unselected. Entry requires the E-series canonical `PASS_E2` exit recorded, an
+owner selection act, and a reviewed component plan. ME consumes `PASS_E2` as
+an external gate signal only: it edits no E-series surface, is not part of
+any E exit condition, and never blocks or gates E work. The lean-pilot
+apparatus is Layer-0 experiment machinery that predates the E tranches, so
+the no-re-litigation bound (E-series work stays out of this track) is
+unaffected.
+
+Rationale: the target-2.25 `trial` / target-2.24 `run-ref` platform
+supersedes the single-study lean-pilot coordination apparatus. ME deletes the
+served-purpose machinery under the same discipline M1 used and the historical
+E3R tranche specified: frozen inventory, reference/export/CLI/docs/route
+scans, fail-closed on live consumers, provenance retained through
+content-addressed evidence and version control rather than a live archive,
+and fresh before/after verification. Pure deletion; the
+deletion-over-refactoring bound holds without exception.
+
+Scope split:
+
+| Estate | Disposition |
+| --- | --- |
+| `orchestrator/experiments/` (45 files, ~11.5k physical lines: sealed controller, workspace staging, label maps, product guards, evaluation, summary generation), the treatment driver, and their dedicated tests | Delete after `PASS_E2`; the trial platform owns every one of these responsibilities |
+| Pilot treatment workflows and prompts (`workflows/experiments/repository_task_pilot/`) | Disposition separately once a current-target successor ORC treatment exists (the REC0 measurement rewrite tracked in the [REC-series roadmap](2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md) is the natural producer). Pinned-commit `run-ref` consumers, including E2 fixed-study fixtures, are unaffected by HEAD deletion |
+| Frozen pilot control tree (`experiments/orc_effectiveness/lean_pilot/`), the external A1-v7 evidence root, and every locked digest | Never mutated; these are evidence, not machinery |
+
+Gate: frozen inventory digest with per-entry owner and disposition; zero
+undispositioned live consumers after reference/export/route scans; deletion
+in dependency order; the lean-pilot apparatus capability-matrix row updated
+to Retired with normal routing removed; focused deletion checks plus the
+broad non-security suite; one ordered specification then quality review.
+
 ## Concurrency Rules
 
 - M0 and M1 touch test, retirement, run-store, and hook surfaces only; they
@@ -519,6 +557,9 @@ abstractions beyond the module boundaries themselves.
   is complete through Task 5 plus correction `a15c3862`; Task 6 status is
   externally resolved and is not a current selection. No successor substrate
   tranche is selected.
+- ME is `PASS_E2`-gated and touches only the lean-pilot apparatus estate; it
+  is exclusive with nothing in the Q/L or E programs and consumes the E gate
+  as an external signal only.
 - MR-4 is historical complete at `836721ce`; no Q/L gate is reopened.
 - M2 serialized after Q3 (identity junction) and after ML. Any separately
   selected M3b/M3c work remains exclusive with other work on executor,
