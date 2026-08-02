@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–6 complete and Task 7 selected
+- **Status:** accepted for E2 execution; Tasks 0–7 complete and Task 8 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -604,26 +604,44 @@ those exact bytes after the ordinary `run-ref` wrapper was corrected to keep
 its historical malformed-ledger error translation across the extracted
 lifecycle preflights. The fresh lifecycle/ledger selector passed 28 tests,
 the E1-plus-Task-6 regression selector passed 791 tests, and the broad
-non-security Workflow Lisp gate passed 5,018 tests with one skip. Task 7 may
-begin; bounded concurrent trial execution is selected but not implemented.
+non-security Workflow Lisp gate passed 5,018 tests with one skip. Task 7 then
+closed the bounded concurrent runtime; Task 8 is the selected successor.
 
 ## Task 7: Implement bounded concurrent arm execution
 
 **Files:** create `orchestrator/workflow/trial/runtime.py` and scheduler helper;
 create `tests/test_workflow_trial_runtime.py`.
 
-- [ ] RED randomized completion order still yields authored `(arm, rep)`
+- [x] RED randomized completion order still yields authored `(arm, rep)`
       result order; active children never exceed the cap; each cell has one
       exact E1 request.
-- [ ] RED failures are values and do not cancel siblings; arm/trial timeout
+- [x] RED failures are values and do not cancel siblings; arm/trial timeout
       settles pending cells while in-flight cells finish; all work is charged.
-- [ ] RED crashes at trial allocation, E1 preparation, cell settlement,
+- [x] RED crashes at trial allocation, E1 preparation, cell settlement,
       and E1-finalize boundaries reconcile without duplicate child launch.
-- [ ] Implement workers that perform blocking E1 stages and submit immutable
+- [x] Implement workers that perform blocking E1 stages and submit immutable
       lifecycle events; one coordinator acknowledges stages and serializes
       every parent-owned ledger/settlement transition.
-- [ ] Run concurrency/property/crash/resume plus E1 controls, ordered Task-7
+- [x] Run concurrency/property/crash/resume plus E1 controls, ordered Task-7
       reviews, commit, and postcommit controls.
+
+Task 7 closed at exact reviewed commit `41e64d14`, tree `fb6082d9`, from
+candidate-manifest SHA-256
+`3e5bee691d762ce9915579ce522eedd17900d4fbf6c3b05c7fa2c1dc53baee64`
+and staged-diff SHA-256
+`3e8f5ff27347cd8170429ace7cb53b72e341856db32054da862e6df4d6740f5e`.
+The ordered Task-7 specification approval preceded
+`E2_TASK7_QUALITY_APPROVED`. Review-driven corrections made deadlines durable
+across resume, required complete current E1 authority before failed-cell
+reuse, validated existing state before mutation, replaced a timing-based
+concurrency proof with an event dependency, and preflighted every mixed
+bundle/path E1 request with per-arm capsule authority before creating trial
+state. Fresh verification passed 29 Task-7 tests, 518 adjacent E1/trial tests,
+the 900-test 16-worker E1/trial union, and 5,018 broad non-security Workflow
+Lisp tests with one skip; the postcommit Task-7 control passed 29 tests. Task 8
+may begin. The concurrent cell producer now exists, while evidence freeze,
+checks, evaluator scoring, verdict production, and the public executor surface
+remain absent until their owning tasks close.
 
 ## Task 8: Freeze evidence, run checks, blind packets, and adjudicate
 

@@ -1436,15 +1436,18 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "accepted at c6046d38" in normalized_roadmap
     assert "e2_plan_spec_approved" in normalized_roadmap
     assert "e2_plan_quality_approved" in normalized_roadmap
-    assert "tasks 1 6 are complete" in normalized_roadmap
+    assert "tasks 1 7 are complete" in normalized_roadmap
     assert "target 2.25 normative contracts at 6b431087" in normalized_roadmap
     assert "nested structural transport at 43ae8d5c" in normalized_roadmap
     assert "typed trial syntax/generated contracts at ba430ed2" in normalized_roadmap
     assert "checkpoint carriage at a7a8a083" in normalized_roadmap
     assert "e1 lifecycle extraction plus trial identities and ledgers at 5d28619d" in normalized_roadmap
     assert "tree 44eb381b" in normalized_roadmap
-    assert "task 7 bounded concurrent arm execution is selected" in normalized_roadmap
-    assert "no e2 concurrent trial execution producer exists yet" in normalized_roadmap
+    assert "bounded concurrent cell execution at 41e64d14" in normalized_roadmap
+    assert "tree fb6082d9" in normalized_roadmap
+    assert "task 8 evidence freeze, checks, blinding, scoring," in normalized_roadmap
+    assert "and verdict production is selected" in normalized_roadmap
+    assert "no e2 evaluator/verdict producer or public executor surface exists yet" in normalized_roadmap
     assert (
         "e3 remains selected pending the canonical e2 exit gate and review of the first fixed study"
         in normalized_roadmap
@@ -1498,7 +1501,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "e2 component plan is accepted" in (
         normalized_trial_capability
     )
-    assert "tasks 1 6 are complete" in normalized_trial_capability
+    assert "tasks 1 7 are complete" in normalized_trial_capability
     for task_commit in (
         "456acc7a",
         "6b431087",
@@ -1506,13 +1509,14 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         "ba430ed2",
         "a7a8a083",
         "5d28619d",
+        "41e64d14",
     ):
         assert task_commit in normalized_trial_capability
     assert "tree 44eb381b" in normalized_trial_capability
-    assert "task 7" in (
+    assert "task 8" in (
         normalized_trial_capability
     )
-    assert "no e2 concurrent trial execution producer exists yet" in (
+    assert "no e2 evaluator/verdict producer or public executor surface exists yet" in (
         normalized_trial_capability
     )
     assert "e3 remains selected pending pass_e2" in normalized_trial_capability
@@ -1536,7 +1540,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E2_TRIAL_PLAN_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
     normalized_e2_plan = _normalized_routing_text(e2_plan)
-    assert "status: accepted for e2 execution; tasks 0 6 complete and task 7 selected" in (
+    assert "status: accepted for e2 execution; tasks 0 7 complete and task 8 selected" in (
         normalized_e2_plan
     )
     assert "task 6 closed at exact reviewed commit 5d28619d" in normalized_e2_plan
@@ -1545,6 +1549,10 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert e2_plan.index("E2_TASK6_SPEC_APPROVED") < e2_plan.index(
         "E2_TASK6_QUALITY_APPROVED"
     )
+    assert "task 7 closed at exact reviewed commit 41e64d14" in normalized_e2_plan
+    assert "tree fb6082d9" in normalized_e2_plan
+    assert "3e5bee691d762ce9915579ce522eedd17900d4fbf6c3b05c7fa2c1dc53baee64" in e2_plan
+    assert "e2_task7_quality_approved" in normalized_e2_plan
     assert "target dsl: 2.25" in normalized_e2_plan
     assert "authority reconciliation" in normalized_e2_plan
     assert "historical e2 section describes an older" in normalized_e2_plan
@@ -1662,7 +1670,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
     assert "e0 and e1 complete" in normalized_design_index
-    assert "e2 tasks 1 6 complete and task 7 selected" in (
+    assert "e2 tasks 1 7 complete and task 8 selected" in (
         normalized_design_index
     )
     assert "target 2.24 run ref has pass_e1" in normalized_index
@@ -2264,7 +2272,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "accepted at c6046d38" in normalized_evolution_status
     assert "e2_plan_spec_approved" in normalized_evolution_status
     assert "e2_plan_quality_approved" in normalized_evolution_status
-    assert "tasks 1 6 are complete" in (
+    assert "tasks 1 7 are complete" in (
         normalized_evolution_status
     )
     assert "target 2.25 normative contracts at 6b431087" in (
@@ -2281,10 +2289,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         normalized_evolution_status
     )
     assert "tree 44eb381b" in normalized_evolution_status
-    assert "task 7 bounded concurrent arm execution is selected" in (
+    assert "bounded concurrent cell execution at 41e64d14" in (
         normalized_evolution_status
     )
-    assert "no e2 concurrent trial execution producer exists yet" in (
+    assert "tree fb6082d9" in normalized_evolution_status
+    assert "task 8 evidence freeze, checks, blinding, scoring," in (
+        normalized_evolution_status
+    )
+    assert "and verdict production is selected" in normalized_evolution_status
+    assert "no e2 evaluator/verdict producer or public executor surface exists yet" in (
         normalized_evolution_status
     )
     assert "c1, c2, and c3 remain designed and unselected" in (
