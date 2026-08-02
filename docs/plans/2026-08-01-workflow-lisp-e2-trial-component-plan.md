@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–1 complete and Task 2 selected
+- **Status:** accepted for E2 execution; Tasks 0–2 complete and Task 3 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -453,16 +453,34 @@ trial/M2 parity remains Tasks 9–10, and Task 3 owns nested transport admission
 `specs/observability.md`, `specs/versioning.md`, `specs/index.md`; create
 `tests/test_workflow_lisp_e2_trial_contract.py`.
 
-- [ ] RED unsupported target 2.25, absent form/state/provider/observability
+- [x] RED unsupported target 2.25, absent form/state/provider/observability
       rows, missing refusal codes, and any registry/handle wording presented as
       current authority.
-- [ ] Specify the exact syntax, bounds, result/outcome types, identity,
+- [x] Specify the exact syntax, bounds, result/outcome types, identity,
       trial/E1 settlement order, persistence/M2 rule, packet exclusions,
       evaluator/citation contract, budget behavior, SDK/CLI boundary, and
       non-security claim.
-- [ ] Add target 2.25 only; targets through 2.24 remain byte-compatible.
-- [ ] Run spec/version/routing selectors, ordered Task-2 reviews, commit, and
+- [x] Add target 2.25 only; targets through 2.24 remain byte-compatible.
+- [x] Run spec/version/routing selectors, ordered Task-2 reviews, commit, and
       postcommit controls.
+
+Task 2 closed at exact reviewed commit
+`6b43108742a4f6c36b698dc6385f0e8d94851d41`, tree
+`0fa896c3f861e9497f327e09b27c3c3c5ea0a5b6`. Seven new contract tests
+admit the ordinary target-2.25 frontend while target 2.26 remains fail-closed,
+and the normative DSL/provider/state/observability/version/index surfaces now
+bind the bounded static trial contract. The specs also close Task 3's generic
+transport resource bounds at root depth 0, maximum depth 64, and 16,777,216
+inclusive bytes of canonical compact sorted-key UTF-8 direct JSON. Initial
+quality review found an ambiguity between excluding authored source identity
+and admitting delta/artifact evidence; the correction excludes the authored
+arm/workflow identity while explicitly retaining selected bounded changed
+paths, diff content, and artifact relpaths. Ordered
+`E2_TASK2_SPEC_APPROVED` then `E2_TASK2_QUALITY_APPROVED` approved the exact
+corrected bytes. Fresh postcommit controls passed 81 normative/routing tests
+and 149 target-gating tests (819 deselected). This gate adds no `trial` parser,
+compiler node, or runtime behavior; Task 3 owns the selected generic transport
+widening.
 
 ## Task 3: Admit bounded nested structural transport
 

@@ -44,9 +44,10 @@ postcommit control passed 864 tests. The
 [target-2.25 E2 component plan](2026-08-01-workflow-lisp-e2-trial-component-plan.md)
 is accepted at `c6046d38`, tree `40c533fc`, after ordered
 `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`; see the
-[plan review](../../artifacts/review/e2-trial-plan-review.md). Task 1's
-feasibility evidence is complete at `456acc7a`; Task 2 normative contracts
-are selected, but no production E2 trial behavior exists. E3 remains selected pending the
+[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–2 are
+complete: feasibility evidence at `456acc7a` and target-2.25 normative
+contracts at `6b431087`. Task 3 nested structural transport is selected, but
+no production E2 trial behavior exists. E3 remains selected pending the
 canonical E2 exit gate and review of the first fixed study. E3 adds no
 language target.
 Selection does not waive any feasibility,
