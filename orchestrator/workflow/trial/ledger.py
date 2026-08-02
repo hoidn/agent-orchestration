@@ -238,6 +238,22 @@ _VERDICT_PUBLISHED_KEYS = {
     "verdict_artifact_digest",
     "verdict_artifact_relpath",
 }
+_TRIAL_PREPARED_KEYS = {
+    "verdict_publication_row_digest",
+    "result_contract_digest",
+    "result_envelope_digest",
+    "authored_outcomes_digest",
+    "verdict_digest",
+    "verdict_artifact_digest",
+    "verdict_artifact_relpath",
+    "budget_digest",
+    "budget_accounting_digest",
+}
+_TRIAL_PARENT_COMMITTED_KEYS = {
+    "trial_prepared_row_digest",
+    "result_envelope_digest",
+    "parent_state_settlement_digest",
+}
 _FROZEN_SCORE_KEYS = {
     "opaque_label",
     "score_settlement_row_digest",
@@ -292,6 +308,8 @@ _PAYLOAD_KEYS_BY_KIND = {
     "aggregation_frozen": _AGGREGATION_FROZEN_KEYS,
     "verdict_settled": _VERDICT_SETTLED_KEYS,
     "verdict_published": _VERDICT_PUBLISHED_KEYS,
+    "trial_prepared": _TRIAL_PREPARED_KEYS,
+    "trial_parent_committed": _TRIAL_PARENT_COMMITTED_KEYS,
 }
 
 
@@ -1128,6 +1146,32 @@ def _validate_row_payload(row: TrialLedgerRow) -> None:
         )
         _trial_artifact_relpath(payload["verdict_artifact_relpath"])
         return
+    if row.kind == "trial_prepared":
+        for field in (
+            "verdict_publication_row_digest",
+            "result_contract_digest",
+            "result_envelope_digest",
+            "authored_outcomes_digest",
+            "verdict_digest",
+            "verdict_artifact_digest",
+            "budget_digest",
+            "budget_accounting_digest",
+        ):
+            _digest(payload[field], field=field)
+        artifact_relpath = _trial_artifact_relpath(
+            payload["verdict_artifact_relpath"]
+        )
+        if not artifact_relpath:
+            _fail("trial prepared result artifact path is invalid")
+        return
+    if row.kind == "trial_parent_committed":
+        for field in (
+            "trial_prepared_row_digest",
+            "result_envelope_digest",
+            "parent_state_settlement_digest",
+        ):
+            _digest(payload[field], field=field)
+        return
     cell = _cell(payload["cell"])
     attempt = (
         _optional_positive_integer(
@@ -1421,14 +1465,28 @@ def _validate_lifecycle(
     aggregation_row: TrialLedgerRow | None = None
     verdict_settlement_row: TrialLedgerRow | None = None
     verdict_publication_row: TrialLedgerRow | None = None
+    trial_prepared_row: TrialLedgerRow | None = None
+    trial_parent_committed_row: TrialLedgerRow | None = None
     evaluator_allocations: dict[str, TrialLedgerRow] = {}
     evaluator_settlements: dict[str, TrialLedgerRow] = {}
     score_settlements: dict[str, TrialLedgerRow] = {}
     for row in rows[1:]:
         payload = row.payload
-        if verdict_publication_row is not None:
+        if trial_parent_committed_row is not None:
+            _fail("trial event follows terminal parent settlement")
+        if trial_prepared_row is not None and row.kind != "trial_parent_committed":
+            _fail("trial parent commit must immediately follow preparation")
+        if (
+            verdict_publication_row is not None
+            and trial_prepared_row is None
+            and row.kind != "trial_prepared"
+        ):
             _fail("trial event follows terminal verdict publication")
-        if verdict_settlement_row is not None and row.kind != "verdict_published":
+        if (
+            verdict_settlement_row is not None
+            and verdict_publication_row is None
+            and row.kind != "verdict_published"
+        ):
             _fail("trial verdict publication must immediately follow settlement")
         if (
             aggregation_row is not None
@@ -1763,6 +1821,52 @@ def _validate_lifecycle(
             ):
                 _fail("trial verdict publication settlement authority disagrees")
             verdict_publication_row = row
+            continue
+        if row.kind == "trial_prepared":
+            if verdict_publication_row is None:
+                _fail("trial preparation requires verdict publication")
+            if trial_prepared_row is not None:
+                _fail("trial preparation authority is ambiguous")
+            header = rows[0].payload
+            settlement = verdict_settlement_row
+            assert settlement is not None
+            assert aggregation_row is not None
+            if (
+                payload["authored_outcomes_digest"]
+                != aggregation_row.payload["final_outcomes_digest"]
+            ):
+                _fail("trial prepared authored outcomes digest disagrees")
+            if (
+                row.previous_row_digest != verdict_publication_row.row_digest
+                or payload["verdict_publication_row_digest"]
+                != verdict_publication_row.row_digest
+                or payload["result_contract_digest"]
+                != header["result_contract_digest"]
+                or payload["verdict_digest"]
+                != settlement.payload["verdict_digest"]
+                or payload["verdict_artifact_digest"]
+                != verdict_publication_row.payload["verdict_artifact_digest"]
+                or payload["verdict_artifact_relpath"]
+                != verdict_publication_row.payload["verdict_artifact_relpath"]
+                or payload["budget_digest"] != header["budget_digest"]
+            ):
+                _fail("trial preparation authority disagrees")
+            trial_prepared_row = row
+            continue
+        if row.kind == "trial_parent_committed":
+            if trial_prepared_row is None:
+                _fail("trial parent settlement requires trial preparation")
+            if trial_parent_committed_row is not None:
+                _fail("trial parent settlement authority is ambiguous")
+            if (
+                row.previous_row_digest != trial_prepared_row.row_digest
+                or payload["trial_prepared_row_digest"]
+                != trial_prepared_row.row_digest
+                or payload["result_envelope_digest"]
+                != trial_prepared_row.payload["result_envelope_digest"]
+            ):
+                _fail("trial parent settlement authority disagrees")
+            trial_parent_committed_row = row
             continue
         if freeze_row is not None:
             _fail("trial cell transition follows the evidence freeze")
@@ -3038,6 +3142,95 @@ def append_trial_verdict_publication(
     )
 
 
+def append_trial_preparation(
+    path: Path,
+    *,
+    expected_head_digest: str,
+    verdict_publication_row_digest: str,
+    result_contract_digest: str,
+    result_envelope_digest: str,
+    authored_outcomes_digest: str,
+    verdict_digest: str,
+    verdict_artifact_digest: str,
+    verdict_artifact_relpath: str,
+    budget_digest: str,
+    budget_accounting_digest: str,
+    recorded_at: str | None = None,
+) -> TrialLedgerRow:
+    """Prepare one exact terminal trial result for atomic parent settlement."""
+
+    return _append(
+        Path(path),
+        expected_head_digest=expected_head_digest,
+        kind="trial_prepared",
+        payload={
+            "verdict_publication_row_digest": _digest(
+                verdict_publication_row_digest,
+                field="verdict_publication_row_digest",
+            ),
+            "result_contract_digest": _digest(
+                result_contract_digest,
+                field="result_contract_digest",
+            ),
+            "result_envelope_digest": _digest(
+                result_envelope_digest,
+                field="result_envelope_digest",
+            ),
+            "authored_outcomes_digest": _digest(
+                authored_outcomes_digest,
+                field="authored_outcomes_digest",
+            ),
+            "verdict_digest": _digest(verdict_digest, field="verdict_digest"),
+            "verdict_artifact_digest": _digest(
+                verdict_artifact_digest,
+                field="verdict_artifact_digest",
+            ),
+            "verdict_artifact_relpath": _trial_artifact_relpath(
+                verdict_artifact_relpath
+            ),
+            "budget_digest": _digest(budget_digest, field="budget_digest"),
+            "budget_accounting_digest": _digest(
+                budget_accounting_digest,
+                field="budget_accounting_digest",
+            ),
+        },
+        recorded_at=recorded_at,
+    )
+
+
+def append_trial_parent_commit(
+    path: Path,
+    *,
+    expected_head_digest: str,
+    trial_prepared_row_digest: str,
+    result_envelope_digest: str,
+    parent_state_settlement_digest: str,
+    recorded_at: str | None = None,
+) -> TrialLedgerRow:
+    """Record the adjacent edge after the caller atomically settles state."""
+
+    return _append(
+        Path(path),
+        expected_head_digest=expected_head_digest,
+        kind="trial_parent_committed",
+        payload={
+            "trial_prepared_row_digest": _digest(
+                trial_prepared_row_digest,
+                field="trial_prepared_row_digest",
+            ),
+            "result_envelope_digest": _digest(
+                result_envelope_digest,
+                field="result_envelope_digest",
+            ),
+            "parent_state_settlement_digest": _digest(
+                parent_state_settlement_digest,
+                field="parent_state_settlement_digest",
+            ),
+        },
+        recorded_at=recorded_at,
+    )
+
+
 def append_trial_e1_allocation_start(
     path: Path,
     *,
@@ -4265,6 +4458,8 @@ __all__ = [
     "append_trial_evaluator_attempt_allocation",
     "append_trial_evaluator_attempt_settlement",
     "append_trial_packets_freeze",
+    "append_trial_parent_commit",
+    "append_trial_preparation",
     "append_trial_score_settlement",
     "append_trial_scorer_freeze",
     "append_trial_scores_freeze",
