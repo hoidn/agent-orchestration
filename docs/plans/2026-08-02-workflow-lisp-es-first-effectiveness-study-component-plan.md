@@ -148,9 +148,32 @@ The required retained projection has 1,948 leaves and tree
 parent and contains no unrelated source objects. The canonical recipe uses
 author and committer
 `E-series source projection <e-series-source-projection@invalid>`, timestamp
-`1784674813 -0700`, and the reviewed canonical message; it is expected to
-produce commit `8f191031f233d50a4d020d8a988036e99487f570` before visible F1
-assets are added in one separately bound task-seed commit.
+`1784674813 -0700`, and the following exact UTF-8 commit message, including
+its final newline (204 bytes,
+`sha256:b183cb771aca6398acdcb01f4983f110c92b43ad7cc148a01ca48f7719e464be`):
+
+```text
+E-series F1 deterministic source projection
+
+Source-Commit: c081b7b6cd160b3da7031ee325bbf0ade1025d7a
+Source-Tree: 9193ae2f81116d1bac4cf3cb74395613c1220dbe
+Projection-Policy: e-series-source-projection.v1
+```
+
+The exact commit content begins with these headers, followed by one blank line
+and the message above; it has no `parent` header:
+
+```text
+tree e64f3c05f5a0894f41c047d128a9040a2cda6764
+author E-series source projection <e-series-source-projection@invalid> 1784674813 -0700
+committer E-series source projection <e-series-source-projection@invalid> 1784674813 -0700
+```
+
+The complete commit content is 430 bytes with
+`sha256:c2989a3daeb32130711591a4941b0eaf3345e1a3f3816430dd8583d945411e31`;
+framing it as `commit 430\0<content>` must produce Git object ID
+`8f191031f233d50a4d020d8a988036e99487f570`. Visible F1 assets are then
+added in one separately bound task-seed commit.
 
 The manifest binds the original rows, six-row exclusion digest
 `8f7b02d2fe83700990f133e523e25c7a808c4057c15710567896d7496cee4141`,
@@ -189,7 +212,7 @@ timeout, noninteractive stdin transport, and the exact
 interactive TUI or directory-trust dialog is in the execution path. Calls use
 fresh sessions; resume and cross-arm session reuse are forbidden.
 
-Treatment call bounds are:
+Completed treatment-route call bounds are:
 
 | Arm | Minimum | Maximum |
 | --- | ---: | ---: |
@@ -202,22 +225,58 @@ An `APPROVE` review skips its revision/fix. `REVISE` permits exactly one
 correction. A second rejection or blocked correction terminates that arm and
 remains a treatment outcome. There is no ceremonial correction. Design review
 includes the recorded parsimony criterion: reject a boundary whose surface
-exceeds the task.
+exceeds the task. A terminal arm may make fewer calls than its completed-route
+minimum, including zero when child compilation or materialization fails before
+the first provider checkpoint. The decision lock therefore enumerates every
+terminal route and its exact call count rather than treating the completed
+route minima as universal lower bounds.
 
 E2 performs exactly one non-retried scorer call for each of the four frozen
 cells. Those absolute score rows remain visible as E2 apparatus evidence but
 do not replace the F1 review sequence. Before hard evaluation, two fresh
 independent reviewers each receive the same four opaque candidate packages in
 a precommitted presentation order, assess each independently, and then return
-the frozen pairwise vector. Material disagreement invokes at most one fresh
-adjudicator. After the initial records are sealed, hard evaluation runs on
-immutable candidate copies; one fresh integrated reviewer then sees the
-initial records and hard evidence without editing either.
+the frozen pairwise vector. Their distinct, frozen perspectives are
+`SCIENTIFIC_APPLICATION_SEMANTICS` and
+`API_PERSISTENCE_MIGRATION_MAINTAINABILITY`; neither substitutes for the
+other. Material disagreement invokes at most one fresh adjudicator. After the
+initial records are sealed, hard evaluation runs on immutable candidate
+copies; one fresh integrated reviewer then sees the initial records and hard
+evidence without editing either.
 
-This yields 17–22 provider invocations per complete valid block: 10–14
-treatment calls, four E2 scorer calls, two initial-review calls, zero or one
-adjudication call, and one integrated-review call. Any reviewed topology change
-must regenerate the bounds before owner adoption.
+The imported F1 hard contract is behavior-level and includes all of the
+following before launch:
+
+- existing declared focused suites;
+- candidate evidence-manifest and lifecycle-adapter schema conformance;
+- unchanged construction and state signatures for existing built-ins;
+- supported artifact-era model, checkpoint, and bundle fixtures continuing to
+  decode and strict-load;
+- both nominated architectures completing evaluator-owned construct, forward,
+  backward, optimizer-step, save, fresh-process reload, and inference;
+- the witness architecture preserving every structural value across save and
+  fresh-process reload;
+- missing, extra, unknown, or unsupported structural identity failing before
+  a module is returned;
+- declared structural fields changing frozen artifact/content identity
+  deterministically;
+- equality between the candidate-declared supported public construction route
+  and the implementation selected by persisted rebuild; and
+- existing physics, loss, scaling, and data ownership remaining outside the
+  extension boundary.
+
+Every hard finding has exactly one frozen disposition:
+`PRODUCT_DEFECT`, `ORACLE_DEFECT`, `SPEC_AMBIGUITY`, `INFRASTRUCTURE`, or
+`UNRESOLVED`. Only a confirmed critical violation of the frozen product
+contract is a product-blocking finding; oracle and infrastructure defects stay
+visible and cannot be silently charged to a candidate.
+
+A valid block has 7–22 provider invocations across all terminal routes: zero
+to fourteen treatment calls, four E2 scorer calls, two initial-review calls,
+zero or one adjudication call, and one integrated-review call. The completed
+treatment-route subrange is 17–22. Any reviewed topology or terminal-route
+change must regenerate the route table and aggregate bounds before owner
+adoption.
 
 ## Metering and cost contract
 
@@ -273,9 +332,10 @@ attestation:
 The exact paired-superiority calculation gives required non-tied comparisons
 `N=2`, critical RICH wins `k=2`, null tail `1/4`, achieved power `81/100`,
 and fixed valid-block cap `M=3`. With non-tie probability `3/4`, accrual at
-`M=3` is `27/32`; `M=2` reaches only `9/16`. At the reviewed 17–22 call
-range, three valid blocks require 51–66 calls; the absolute ceiling including
-one fully charged invalid attempt is 88 calls.
+`M=3` is `27/32`; `M=2` reaches only `9/16`. Across all valid terminal
+routes, three valid blocks require 21–66 calls; 51–66 is only the completed
+treatment-route subrange. The absolute ceiling including one fully charged
+invalid attempt is 88 calls.
 
 Alpha `0.25` is deliberate: this is an internal investment screen whose only
 positive consequence is eligibility for a separate reviewed E3 plan. A pass
@@ -285,7 +345,8 @@ stronger alpha-`0.05`, practical-effect-`0.9` alternative would require
 task-specific gate. Any future confirmatory claim needs its own series.
 
 The owner-adopted lock must include all authored choices above, exact derived
-fractions and minimality witnesses, per-role call bounds, a four-attempt
+fractions and minimality witnesses, an exhaustive terminal-route table with
+exact per-role call counts and derived aggregate bounds, a four-attempt
 randomization schedule (`M` plus invalid-attempt capacity), digest bindings,
 and the lock digest. Stage selection alone is not numeric adoption. Ollie must
 personally adopt the final exact lock digest and authored-choice block, or
@@ -299,6 +360,29 @@ all workspace/process freezes, complete usage receipts, both initial reviews,
 hard-evaluator dispositions, and the integrated review. Arm-specific provider,
 compiler, runtime, typed-output, check, timeout, or product failure is an
 outcome and never invalidates or selectively reruns the block.
+
+The authoritative primary sampling event is derived only from the sealed
+typed field
+`integrated_review.product_quality_outcome.rich_vs_direct`, whose closed
+domain is `RICH | DIRECT | TIE | INDETERMINATE`. The deterministic hard-contract
+override is applied before accrual:
+
+1. if either primary candidate lacks a reproducible trusted product freeze,
+   the derived outcome is `INDETERMINATE`;
+2. if a candidate has an `UNRESOLVED` hard failure or a confirmed critical
+   `PRODUCT_DEFECT`, that candidate cannot be the derived winner; a raw field
+   selecting it becomes `INDETERMINATE`;
+3. if both candidates have comparable confirmed critical defects, a raw
+   winner becomes `INDETERMINATE`, while an authored `TIE` remains `TIE`; and
+4. otherwise the derived outcome equals the exact sealed typed field.
+
+Method nonviability never awards product quality to the other arm. It is
+reported through the separate viability vector; when it prevents a trusted
+freeze, rule 1 supplies `INDETERMINATE`. A derived `RICH` is one favorable
+non-tied event, `DIRECT` is one unfavorable non-tied event, and `TIE` or
+`INDETERMINATE` contributes no non-tied accrual. E2 scorer values, reviewer
+prose, cost, and method viability cannot supply, repair, or replace this
+primary field.
 
 Invalidity is limited to predeclared shared/controller faults that prevent a
 symmetrical block from existing: source/task binding failure, controller
@@ -394,8 +478,10 @@ manifest assets under `experiments/orc_effectiveness/f1_es/`, and
 - [ ] RED original-source identity mismatch, any exclusion-set drift,
       retained-row drift, parent/history leakage, extra/unreachable object,
       unsafe symlink, LFS marker, and noncanonical manifest.
-- [ ] Generate the exact single-root projection and independently verify all
-      retained blobs/modes/symlinks and the expected tree/commit.
+- [ ] Generate the exact single-root projection from the literal 204-byte
+      message and 430-byte commit-content vector above; independently verify
+      its message SHA-256, content SHA-256, framed Git object ID, retained
+      blobs/modes/symlinks, and expected tree/commit.
 - [ ] Prove original F1 fails E1's existing submodule guard and the projection
       passes actual E1 materialization.
 - [ ] Bind a content-addressed absolute projection locator outside the mutable
@@ -414,7 +500,9 @@ tests under `scripts/experiments/es/` and `tests/experiments/`.
 
 - [ ] Freeze the neutral task, one lifecycle-adapter path, versioned request,
       result, and candidate-evidence schemas, artifact-era fixtures, focused
-      selectors, environment identity, and claim limits.
+      selectors, environment identity, claim limits, the complete ten-clause
+      F1 hard contract, all five hard-finding dispositions, and the two
+      distinct reviewer perspectives.
 - [ ] Add the visible assets to one deterministic task-seed commit atop the
       projection and bind both identities.
 - [ ] RED missing/extra/unknown structural identity, schema/version drift,
@@ -424,7 +512,11 @@ tests under `scripts/experiments/es/` and `tests/experiments/`.
 - [ ] Calibrate the evaluator on controlled conforming and defective fixtures;
       evaluator copies must remain byte-identical.
 - [ ] Prove configure, construct, forward/backward, optimizer step, save, and
-      fresh-process reload/inference in the projected baseline closure.
+      fresh-process reload/inference in the projected baseline closure,
+      including unchanged built-in construction/state signatures, supported
+      artifact-era decode plus strict load, public-construction/persisted-
+      rebuild implementation equality, and preserved physics/loss/scaling/data
+      ownership.
 - [ ] Obtain ordered Task-2 reviews, commit, and rerun postcommit controls.
 
 ## Task 3: Land exact metering and decision-lock validation
@@ -442,8 +534,10 @@ and focused tests. Do not import `orchestrator.experiments`.
 - [ ] Derive the `N=2`, `k=2`, `M=3`, `1/4`, `81/100`, and `27/32`
       vector mechanically with exact reduced rationals and minimality
       witnesses; retain the alpha-`0.05` known vector as a test.
-- [ ] Prove complete per-role receipt joins, 17–22 valid-block calls, 51–66
-      calls at `M`, and 88 absolute calls with one invalid attempt.
+- [ ] Prove every exact terminal-route call row, complete per-role receipt
+      joins, 7–22 calls across valid-block terminal routes, 21–66 calls at
+      `M`, the 17–22/51–66 completed-treatment subranges, and 88 absolute calls
+      with one invalid attempt.
 - [ ] Generate the four-attempt randomization manifest and require exact
       cardinality/permutation bindings.
 - [ ] Obtain ordered Task-3 reviews, commit, and rerun controls.
@@ -482,6 +576,10 @@ synthesis modules, fixtures, and E2 integration tests.
       coherent concurrent launch, freeze, one scorer per cell, opaque packets,
       initial reviews, hard evidence, integrated review, receipt join, and
       deterministic report.
+- [ ] RED every primary-outcome mapping: exact `RICH`, `DIRECT`, `TIE`, and
+      `INDETERMINATE`; no-trusted-freeze and nonviability behavior; one-sided
+      and comparable critical defects; unresolved findings; and attempted
+      substitution from scorer values or reviewer prose.
 - [ ] Prove required-check failure, scorer/reviewer failure, arm timeout,
       common invalidity, interruption, fresh next-attempt replacement, and the
       absolute call ceiling. Never resume an attempt.
@@ -497,7 +595,8 @@ synthesis modules, fixtures, and E2 integration tests.
 `artifacts/review/es-first-effectiveness-study-prelaunch-review.md`.
 
 - [ ] Freeze all task-seed, environment, apparatus, workflow, prompt,
-      evaluator, fixture, schedule, and report bytes.
+      evaluator, fixture, schedule, report, hard-contract/disposition, and
+      reviewer-perspective bytes.
 - [ ] Generate the complete canonical decision lock and verify every derived
       field from scratch.
 - [ ] Run the projected baseline, provider-free end to end, metering
