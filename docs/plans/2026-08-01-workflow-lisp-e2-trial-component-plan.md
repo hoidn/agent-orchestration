@@ -2,7 +2,9 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–9 complete and Task 10 selected
+- **Status:** accepted for E2 execution; Tasks 0–9 complete; Task 10
+  implementation and pre-review evidence are complete, pending ordered final
+  reviews, unchanged commit, postcommit controls, and exit
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -752,17 +754,17 @@ not generally copy-safe and has no `PASS_E2`.
 **Files:** create `tests/e2e/test_e2e_workflow_lisp_trial.py`; exact
 routing/status rows; this plan; `artifacts/review/e2-trial-final-review.md`.
 
-- [ ] Run one deterministic two-arm E2E through the real compiler, parent
+- [x] Run one deterministic two-arm E2E through the real compiler, parent
       executor, concurrent E1 children, checks, scorer, verdict, clean reuse,
       and interrupted/resumed reconciliation.
-- [ ] Run one new platform-owned DIRECT/COORDINATOR/ORC fixed-study fixture
+- [x] Run one new platform-owned DIRECT/COORDINATOR/ORC fixed-study fixture
       with identical pins/inputs/budgets, opaque randomized presentation, and
       explicit treatment-specific failure accounting. Preserve authored output
       order only after unblinding.
-- [ ] Run the treatment-labeling probe over evaluator-visible packet bytes;
+- [x] Run the treatment-labeling probe over evaluator-visible packet bytes;
       require chance-level labeling and exact exclusion diagnostics for every
       injected forbidden field.
-- [ ] Run collect-only, all focused E2/E1/M2/adjudication/CLI selectors, one
+- [x] Run collect-only, all focused E2/E1/M2/adjudication/CLI selectors, one
       real subprocess smoke, `git diff --check`, and the broad 16-worker
       non-security suite in tmux.
 - [ ] Obtain `E2_FINAL_SPEC_APPROVED`, then distinct
@@ -773,6 +775,40 @@ routing/status rows; this plan; `artifacts/review/e2-trial-final-review.md`.
       `PASS_E2` makes the already selected E3 eligible only for review of this
       first fixed study and a separate E3 component plan; it does not select
       E2O, C1-C3, or any historical registry substrate.
+
+Task 10 implementation and pre-review evidence are complete. The exact
+Task-10 slice collected 51 tests (log SHA-256
+`df0d4a4aa5a59d3a78e44df275b00c93057a36fd6b55469fea0eae4e6ee50f5d`)
+and passed all 51 in 28.54 seconds / 29.12 seconds elapsed (log SHA-256
+`414d7abc19f3402dad981e73eb8e5b3162521cab8ba9be1cbb317f1fc0485f38`).
+The frozen 77-module focused gate passed 3,557 tests in 142.40 seconds /
+142.70 seconds elapsed (log SHA-256
+`aa0c6ee49472930d0370cf76aac48487b6f98da6c794c9fa5ceee6ffc729703e`);
+the real-subprocess fixed-study smoke passed one test in 4.71 seconds /
+5.34 seconds elapsed (log SHA-256
+`cbd2d70cb4e68682ea8913d42483ebd349645ca9d94ae248c0c99f6c996635d5`);
+and the adjacent stale Task-5 v4 fixture repair gate passed 249 tests in
+35.04 seconds / 35.61 seconds elapsed (log SHA-256
+`a2ff7bc710cc699479828913b8fb839dbe2a5287104c20ae452b98fae3015b1c`).
+The corrected broad non-security gate passed 11,403 tests with 19 skipped and
+5 warnings in 152.01 seconds / 152.63 seconds elapsed (log SHA-256
+`77bd779cd22acee2fa97ba322bf56a04e1043e7584f2cbfbbee6577fd184d276`),
+and the pre-review routing/readiness control passed 112 tests in 8.60 seconds
+(log SHA-256
+`0edf256b2efd3e4a5613e71771c07e36bb0393f8953bae58dba2f6e483098814`).
+
+The fixed-study proof holds the result, Git pin, task input, setup, checks,
+scorer, observation contract, and budgets constant while exercising one
+provider call for DIRECT and two each for COORDINATOR and ORC. The blinded
+sorted presentation order is ORC/DIRECT/COORDINATOR, the packet-byte-only
+classifier identifies one of three arms, and all 29 forbidden identity fields
+produce exact exclusion diagnostics. The success fixture records an explicit
+all-zero failure table; a separate deterministic COORDINATOR launch failure is
+retained as an outcome while its DIRECT and ORC siblings complete. This is a
+mechanism proof only. It makes no effectiveness, security, isolation, or
+sandbox claim, and the accepted security/isolation exclusions are unchanged.
+No `PASS_E2` has been recorded: ordered final reviews, unchanged commit,
+postcommit focused/routing/readiness controls, and the exact exit remain open.
 
 ## Final acceptance checklist
 

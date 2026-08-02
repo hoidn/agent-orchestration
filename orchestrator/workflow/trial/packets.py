@@ -181,12 +181,61 @@ def _validate_evidence_paths(value: object) -> None:
             _validate_evidence_paths(member)
 
 
+def _identity_token_character(value: str) -> bool:
+    return value.isalnum()
+
+
+def _contains_identity_token(text: str, identity: str) -> bool:
+    """Match an identity as a whole delimiter-bounded token."""
+
+    if not identity:
+        return False
+    start = 0
+    while True:
+        index = text.find(identity, start)
+        if index < 0:
+            return False
+        end = index + len(identity)
+        left_bound = index == 0 or not _identity_token_character(text[index - 1])
+        right_bound = end == len(text) or not _identity_token_character(text[end])
+        if left_bound and right_bound:
+            return True
+        start = index + 1
+
+
+def _identity_token_byte(value: int) -> bool:
+    return (
+        ord("0") <= value <= ord("9")
+        or ord("A") <= value <= ord("Z")
+        or ord("a") <= value <= ord("z")
+    )
+
+
+def _contains_identity_token_bytes(payload: bytes, identity: bytes) -> bool:
+    """Apply the identity-token rule without decoding arbitrary output bytes."""
+
+    if not identity:
+        return False
+    start = 0
+    while True:
+        index = payload.find(identity, start)
+        if index < 0:
+            return False
+        end = index + len(identity)
+        left_bound = index == 0 or not _identity_token_byte(payload[index - 1])
+        right_bound = end == len(payload) or not _identity_token_byte(payload[end])
+        if left_bound and right_bound:
+            return True
+        start = index + 1
+
+
 def _contains_text(value: object, needle: str) -> bool:
     if isinstance(value, str):
-        return needle in value
+        return _contains_identity_token(value, needle)
     if isinstance(value, Mapping):
         return any(
-            needle in str(key) or _contains_text(member, needle)
+            _contains_identity_token(str(key), needle)
+            or _contains_text(member, needle)
             for key, member in value.items()
         )
     if isinstance(value, list):
@@ -366,7 +415,7 @@ def _validate_nonexempt_blinding(
         return
     for stream in _decoded_check_result_streams(value):
         for sealed in sealed_identity_values:
-            if sealed.encode("utf-8") in stream:
+            if _contains_identity_token_bytes(stream, sealed.encode("utf-8")):
                 _fail(
                     "trial_blinding_policy_invalid",
                     sealed,

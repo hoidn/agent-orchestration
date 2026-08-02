@@ -39,6 +39,8 @@ LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
     (
         "persisted_workflow_surface_graph.v1",
         "persisted_workflow_surface_graph.v2",
+        "persisted_workflow_surface_graph.v3",
+        "persisted_workflow_surface_graph.v4",
     ),
 )
 def test_persisted_surface_anchor_accepts_each_supported_schema(
@@ -58,7 +60,7 @@ def test_persisted_surface_anchor_rejects_unknown_schema() -> None:
     with pytest.raises(PersistedCompiledWorkflowError, match="unsupported"):
         _closed_anchor(
             {
-                "schema_version": "persisted_workflow_surface_graph.v4",
+                "schema_version": "unsupported.v1",
                 "path": f"build/{FINGERPRINT}/persisted_workflow_surface.json",
                 "entry_workflow": ENTRY_WORKFLOW,
                 "sha256": "sha256:" + "a" * 64,

@@ -233,6 +233,8 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
     (
         "persisted_workflow_surface_graph.v1",
         "persisted_workflow_surface_graph.v2",
+        "persisted_workflow_surface_graph.v3",
+        "persisted_workflow_surface_graph.v4",
     ),
 )
 def test_record_compiled_frontend_surface_persists_complete_graph_anchor(
@@ -334,7 +336,7 @@ def test_record_compiled_frontend_surface_omits_malformed_digest(
     [
         (
             "0123456789abcdef",
-            "persisted_workflow_surface_graph.v4",
+            "unsupported.v1",
             "build/0123456789abcdef/persisted_workflow_surface.json",
             "example::run",
         ),
