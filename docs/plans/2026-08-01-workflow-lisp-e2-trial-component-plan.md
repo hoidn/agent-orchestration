@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–8 complete and Task 9 selected
+- **Status:** accepted for E2 execution; Tasks 0–9 complete and Task 10 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -33,6 +33,13 @@
   `a8ea6bf96db19b775d605a48919a8ce88d0547c22af315a7bb88b0130f739924`;
   manifest-content SHA-256
   `4449b6595d9e7dae89d20d0aad8d7648a9cbe3b8950145eb3a81542be2389374`
+- **Task-9 implementation range:** base
+  `167b4a5d` through commit
+  `3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa`, tree
+  `f214f7627906e84782ad8ce04dc7c3bae51b276f`, after ordered
+  `E2_TASK9_SPEC_APPROVED` then `E2_TASK9_QUALITY_APPROVED`
+- **Task-9 cumulative diff SHA-256:**
+  `ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -686,9 +693,22 @@ those exact candidate bytes. Fresh precommit verification passed 222 scoped
 tests and 1,100 adjacent tests; the fresh postcommit control passed 222 tests.
 The evidence freeze, deterministic checks, treatment-blind packet projection,
 bounded evaluator attempts, resumable score authority, verdict aggregation,
-and verdict artifact producer now exist. The public trial executor, SDK, and
-CLI remain absent until Task 9 closes; Task 9 is selected. No `PASS_E2` has
-been recorded, so E3 is not yet eligible.
+and verdict artifact producer now exist. Task 9 then implemented the public
+executor, SDK, and CLI through the ordinary compiler/runtime path across exact
+range `167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa`, final tree
+`f214f7627906e84782ad8ce04dc7c3bae51b276f`, and cumulative diff SHA-256
+`ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745`.
+Its commits/trees were `c69f05c9`/`d2fe944a`,
+`587ad8af`/`f944092e`, `e510844f`/`7f90defa`,
+`f8d7527e`/`04096b96`, `15609efc`/`1b253369`, and
+`3560b62e`/`f214f762`; ordered `E2_TASK9_SPEC_APPROVED` then
+`E2_TASK9_QUALITY_APPROVED` approved the complete range. Fresh verification
+passed the 26-test SDK, 487-test integration, 55-test observability,
+208-test final-slice, and 492-test expanded combined selectors; these counts
+overlap and are not additive. E2 is not generally copy-safe, no `PASS_E2` has
+been recorded, and Task 10 is selected. E3 remains owner-selected but
+ineligible pending `PASS_E2`, review of the first fixed study, and a separate
+component plan.
 
 ## Task 9: Integrate executor, state, observability, SDK, and CLI
 
@@ -697,20 +717,35 @@ been recorded, so E3 is not yet eligible.
 `orchestrator/cli/commands/trial.py`; CLI registration; create
 `tests/test_workflow_trial_integration.py` and `tests/test_cli_trial.py`.
 
-- [ ] RED one outer atomic workflow settlement, validated completed reuse,
+- [x] RED one outer atomic workflow settlement, validated completed reuse,
       derived-pure replay parity, current-only bounded status/report sidecar,
       and zero trial imports/work/sidecars for ordinary non-trial runs.
-- [ ] RED a crash before outer-parent settlement reuses the validated terminal
+- [x] RED a crash before outer-parent settlement reuses the validated terminal
       trial result and performs no child, check, or evaluator effect twice.
-- [ ] RED SDK and CLI compile the same `.orc` entry through the ordinary full
+- [x] RED SDK and CLI compile the same `.orc` entry through the ordinary full
       compiler, invoke the same runtime, return the same versioned summary,
       and reject raw configs, wrong targets, non-trial results, and privileged
       bypass attempts.
-- [ ] Prove a generated exact-pin two-arm `.orc` what-if wrapper works through
+- [x] Prove a generated exact-pin two-arm `.orc` what-if wrapper works through
       both surfaces and that no portable/dynamic-pin syntax was added.
-- [ ] Run integration/CLI/ordinary-run selectors plus one deterministic
+- [x] Run integration/CLI/ordinary-run selectors plus one deterministic
       orchestrator smoke, ordered Task-9 reviews, commit, and postcommit
       controls.
+
+Task 9 closed across exact range
+`167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa`, final tree
+`f214f7627906e84782ad8ce04dc7c3bae51b276f`, with cumulative diff SHA-256
+`ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745`.
+The six commits/trees are `c69f05c9`/`d2fe944a`,
+`587ad8af`/`f944092e`, `e510844f`/`7f90defa`,
+`f8d7527e`/`04096b96`, `15609efc`/`1b253369`, and
+`3560b62e`/`f214f762`. Ordered `E2_TASK9_SPEC_APPROVED` then
+`E2_TASK9_QUALITY_APPROVED` approved the complete implementation. Fresh
+verification passed 26 SDK tests, 487 integration tests, 55 observability
+tests, 208 final-slice tests, and 492 expanded combined tests; the selectors
+overlap, so these counts are not additive. The public executor, SDK, and CLI
+now share the ordinary compiler/runtime path. Task 10 is selected; E2 remains
+not generally copy-safe and has no `PASS_E2`.
 
 ## Task 10: Prove the fixed study and close E2
 

@@ -1436,7 +1436,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "accepted at c6046d38" in normalized_roadmap
     assert "e2_plan_spec_approved" in normalized_roadmap
     assert "e2_plan_quality_approved" in normalized_roadmap
-    assert "tasks 1 8 are complete" in normalized_roadmap
+    assert "tasks 0 9 are complete" in normalized_roadmap
     assert "target 2.25 normative contracts at 6b431087" in normalized_roadmap
     assert "nested structural transport at 43ae8d5c" in normalized_roadmap
     assert "typed trial syntax/generated contracts at ba430ed2" in normalized_roadmap
@@ -1455,18 +1455,18 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert roadmap.index("E2_TASK8_SPEC_APPROVED") < roadmap.index(
         "E2_TASK8_QUALITY_APPROVED"
     )
-    assert "the e2 evaluator/verdict producer now exists" in normalized_roadmap
-    assert (
-        "the public executor, sdk, and cli remain absent until task 9 closes"
-        in normalized_roadmap
-    )
-    assert "task 9 is selected" in normalized_roadmap
+    assert "public executor, sdk, and cli" in normalized_roadmap
+    assert "ordinary compiler/runtime path" in normalized_roadmap
+    assert "task 10 is selected" in normalized_roadmap
+    assert "e2 is not generally copy safe" in normalized_roadmap
     assert "no pass_e2 has been recorded" in normalized_roadmap
     assert "e3 remains owner selected but is not yet eligible" in (
         normalized_roadmap
     )
-    assert "eligibility still requires the canonical e2 exit gate" in (
-        normalized_roadmap
+    assert (
+        "eligibility still requires pass_e2, review of the first fixed study, "
+        "and a separate component plan"
+        in normalized_roadmap
     )
     assert "c1, c2, and c3 remain designed and unselected" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
@@ -1517,27 +1517,14 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "e2 component plan is accepted" in (
         normalized_trial_capability
     )
-    assert "tasks 1 8 are complete" in normalized_trial_capability
-    for task_commit in (
-        "456acc7a",
-        "6b431087",
-        "43ae8d5c",
-        "ba430ed2",
-        "a7a8a083",
-        "5d28619d",
-        "41e64d14",
-        "ebf8a1a9",
-    ):
-        assert task_commit in normalized_trial_capability
-    assert "tree 44eb381b" in normalized_trial_capability
+    assert "tasks 0 9 are complete" in normalized_trial_capability
+    assert "ebf8a1a9" in normalized_trial_capability
     assert "tree 7f3a3b22" in normalized_trial_capability
-    assert "until selected task 9 closes" in normalized_trial_capability
-    assert "the e2 evaluator/verdict producer exists" in (
+    assert "public executor/sdk/cli through the ordinary compiler/runtime path" in (
         normalized_trial_capability
     )
-    assert "the public executor, sdk, and cli remain absent" in (
-        normalized_trial_capability
-    )
+    assert "task 10 is selected" in normalized_trial_capability
+    assert "e2 is not generally copy safe" in normalized_trial_capability
     assert "no pass_e2 has been recorded" in normalized_trial_capability
     assert "e3 remains owner selected but is not yet eligible" in (
         normalized_trial_capability
@@ -1563,7 +1550,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
     normalized_e2_plan = _normalized_routing_text(e2_plan)
     assert (
-        "status: accepted for e2 execution; tasks 0 8 complete and task 9 "
+        "status: accepted for e2 execution; tasks 0 9 complete and task 10 "
         "selected"
         in normalized_e2_plan
     )
@@ -1599,10 +1586,35 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         in normalized_e2_plan
     )
     assert "fresh postcommit control passed 222 tests" in normalized_e2_plan
-    assert (
-        "public trial executor, sdk, and cli remain absent until task 9 closes"
-        in normalized_e2_plan
+    assert "public executor, sdk, and cli" in normalized_e2_plan
+    assert "ordinary compiler/runtime path" in normalized_e2_plan
+    assert "task 10 is selected" in normalized_e2_plan
+    assert "e2 is not generally copy safe" in normalized_e2_plan
+    assert "167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa" in e2_plan
+    assert "f214f7627906e84782ad8ce04dc7c3bae51b276f" in e2_plan
+    assert "ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745" in e2_plan
+    for task_commit, task_tree in (
+        ("c69f05c9", "d2fe944a"),
+        ("587ad8af", "f944092e"),
+        ("e510844f", "7f90defa"),
+        ("f8d7527e", "04096b96"),
+        ("15609efc", "1b253369"),
+        ("3560b62e", "f214f762"),
+    ):
+        assert task_commit in e2_plan
+        assert task_tree in e2_plan
+    assert e2_plan.index("E2_TASK9_SPEC_APPROVED") < e2_plan.index(
+        "E2_TASK9_QUALITY_APPROVED"
     )
+    for count, label in (
+        ("26", "sdk"),
+        ("487", "integration"),
+        ("55", "observability"),
+        ("208", "final slice"),
+        ("492", "expanded combined"),
+    ):
+        assert f"{count} {label}" in normalized_e2_plan
+    assert "counts are not additive" in normalized_e2_plan
     assert "no pass_e2 has been recorded" in normalized_e2_plan
     assert "target dsl: 2.25" in normalized_e2_plan
     assert "authority reconciliation" in normalized_e2_plan
@@ -1700,12 +1712,18 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         normalized_trial_capability,
         normalized_sequence,
     ):
-        assert "tasks 1 8" in e2_progress_surface
+        assert "tasks 0 9" in e2_progress_surface
         assert "ebf8a1a9" in e2_progress_surface
-        assert "e2_task8_spec_approved" in e2_progress_surface
-        assert "e2_task8_quality_approved" in e2_progress_surface
-        assert "e2 evaluator/verdict producer" in e2_progress_surface
-        assert "public executor, sdk, and cli remain absent" in e2_progress_surface
+        assert "3560b62e" in e2_progress_surface
+        assert "f214f762" in e2_progress_surface
+        assert "e2_task9_spec_approved" in e2_progress_surface
+        assert "e2_task9_quality_approved" in e2_progress_surface
+        assert "public executor" in e2_progress_surface
+        assert "sdk" in e2_progress_surface
+        assert "cli" in e2_progress_surface
+        assert "ordinary compiler/runtime path" in e2_progress_surface
+        assert "task 10 is selected" in e2_progress_surface
+        assert "not generally copy safe" in e2_progress_surface
         assert "no pass_e2 has been recorded" in e2_progress_surface
         assert "not yet eligible" in e2_progress_surface
     normalized_selection = _normalized_routing_text(selection)
@@ -1736,7 +1754,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
     assert "e0 and e1 complete" in normalized_design_index
-    assert "e2 tasks 1 8 complete and task 9 selected" in (
+    assert "e2 tasks 0 9 complete and task 10 selected" in (
         normalized_design_index
     )
     assert "target 2.24 run ref has pass_e1" in normalized_index
@@ -2338,7 +2356,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "accepted at c6046d38" in normalized_evolution_status
     assert "e2_plan_spec_approved" in normalized_evolution_status
     assert "e2_plan_quality_approved" in normalized_evolution_status
-    assert "tasks 1 8 are complete" in (
+    assert "tasks 0 9 are complete" in (
         normalized_evolution_status
     )
     assert "target 2.25 normative contracts at 6b431087" in (
@@ -2366,14 +2384,18 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "e2_task8_spec_approved" in normalized_evolution_status
     assert "e2_task8_quality_approved" in normalized_evolution_status
-    assert "the e2 evaluator/verdict producer now exists" in (
+    assert "public executor, sdk, and cli" in normalized_evolution_status
+    assert "ordinary compiler/runtime path" in normalized_evolution_status
+    assert "3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa" in (
         normalized_evolution_status
     )
-    assert (
-        "the public executor, sdk, and cli remain absent until task 9 closes"
-        in normalized_evolution_status
+    assert "f214f7627906e84782ad8ce04dc7c3bae51b276f" in (
+        normalized_evolution_status
     )
-    assert "task 9 is selected" in normalized_evolution_status
+    assert "e2_task9_spec_approved" in normalized_evolution_status
+    assert "e2_task9_quality_approved" in normalized_evolution_status
+    assert "task 10 is selected" in normalized_evolution_status
+    assert "e2 is not generally copy safe" in normalized_evolution_status
     assert "no pass_e2 has been recorded" in normalized_evolution_status
     assert "c1, c2, and c3 remain designed and unselected" in (
         normalized_evolution_status

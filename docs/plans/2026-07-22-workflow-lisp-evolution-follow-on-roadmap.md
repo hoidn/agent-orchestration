@@ -44,7 +44,7 @@ postcommit control passed 864 tests. The
 [target-2.25 E2 component plan](2026-08-01-workflow-lisp-e2-trial-component-plan.md)
 is accepted at `c6046d38`, tree `40c533fc`, after ordered
 `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`; see the
-[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–8 are
+[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 0–9 are
 complete: feasibility evidence at `456acc7a`, target-2.25 normative contracts
 at `6b431087`, nested structural transport at `43ae8d5c`, and typed `trial`
 syntax/generated contracts at `ba430ed2`, followed by IR, lowering,
@@ -53,11 +53,22 @@ extraction plus trial identities and ledgers at `5d28619d`, tree `44eb381b`,
 bounded concurrent cell execution at `41e64d14`, tree `fb6082d9`, and Task 8
 evidence freeze, checks, blinding, scoring, and verdict production at
 `ebf8a1a9`, tree `7f3a3b22`, after ordered `E2_TASK8_SPEC_APPROVED` then
-`E2_TASK8_QUALITY_APPROVED`. The E2 evaluator/verdict producer now exists;
-the public executor, SDK, and CLI remain absent until Task 9 closes. Task 9 is
-selected. No `PASS_E2` has been recorded, so E3 remains owner-selected but is
-not yet eligible; eligibility still requires the canonical E2 exit gate and
-review of the first fixed study. E3 adds no language target.
+`E2_TASK8_QUALITY_APPROVED`, followed by Task 9's public executor, SDK, and CLI
+through the ordinary compiler/runtime path across exact range
+`167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa`, final tree
+`f214f7627906e84782ad8ce04dc7c3bae51b276f`, and cumulative diff SHA-256
+`ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745`.
+Its commits/trees were `c69f05c9`/`d2fe944a`,
+`587ad8af`/`f944092e`, `e510844f`/`7f90defa`,
+`f8d7527e`/`04096b96`, `15609efc`/`1b253369`, and
+`3560b62e`/`f214f762`, approved by ordered `E2_TASK9_SPEC_APPROVED` then
+`E2_TASK9_QUALITY_APPROVED`. Fresh verification passed 26 SDK, 487
+integration, 55 observability, 208 final-slice, and 492 expanded combined
+tests; the selector counts overlap and are not additive. Task 10 is selected.
+E2 is not generally copy-safe and no `PASS_E2` has been recorded, so E3
+remains owner-selected but is not yet eligible; eligibility still requires
+`PASS_E2`, review of the first fixed study, and a separate component plan. E3
+adds no language target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that
 first-fixed-study review live in the
 [2026-08-01 forensics report](../reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md).
