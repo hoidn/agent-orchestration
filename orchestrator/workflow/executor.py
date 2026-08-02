@@ -1008,6 +1008,22 @@ class WorkflowExecutor:
             return None
         return node.kind
 
+    def _workflow_owns_trial_node(self) -> bool:
+        """Read trial ownership from typed executable IR without trial imports."""
+
+        nodes = getattr(self.executable_ir, "nodes", None)
+        if not isinstance(nodes, Mapping):
+            return False
+        for node in nodes.values():
+            execution_kind = (
+                node.execution_kind
+                if isinstance(node, FinalizationStepNode)
+                else getattr(node, "kind", None)
+            )
+            if execution_kind is ExecutableNodeKind.TRIAL:
+                return True
+        return False
+
     def _typed_execution_step(self, step: RuntimeStepInput) -> RuntimeStepInput:
         """Return an IR-backed runtime step view for one executable step mapping."""
         if isinstance(step, RuntimeStep):
@@ -4216,6 +4232,30 @@ class WorkflowExecutor:
                 run_state,
                 resume=resume,
             )
+            if resume:
+                if self._workflow_owns_trial_node():
+                    trial_validation_state = (
+                        self._pure_replay_runtime.overlay_active_state(state)
+                        if self._pure_replay_runtime is not None
+                        else state
+                    )
+                    try:
+                        self._reconcile_completed_trials_before_resume(
+                            trial_validation_state,
+                        )
+                    except (OSError, TypeError, ValueError) as exc:
+                        return self._fail_resume_state_integrity(
+                            "trial_resume_state_integrity_error",
+                            "Completed trial authority is invalid.",
+                            {
+                                "diagnostic": getattr(
+                                    exc,
+                                    "code",
+                                    "trial_settlement_invalid",
+                                ),
+                                "error": str(exc),
+                            },
+                        )
             self._initialize_provider_observation_manager()
             completed_phased_resume_boundary = None
             completed_resume_candidate = (
@@ -5250,6 +5290,8 @@ class WorkflowExecutor:
             return 'provider_peer_group'
         if execution_kind is ExecutableNodeKind.RUN_REF:
             return 'run_ref'
+        if execution_kind is ExecutableNodeKind.TRIAL:
+            return 'trial'
         if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
             return 'adjudicated_provider'
         if execution_kind is ExecutableNodeKind.COMMAND:
@@ -5637,13 +5679,14 @@ class WorkflowExecutor:
         step_id: str,
         resume_current_step: bool,
     ) -> int | None:
-        """Reuse one interrupted run-ref visit so its attempt ledger remains addressable."""
+        """Reuse one interrupted external-effect visit so its ledger remains addressable."""
 
-        if (
-            not resume_current_step
-            or self._execution_kind_for_step(step)
-            is not ExecutableNodeKind.RUN_REF
-        ):
+        execution_kind = self._execution_kind_for_step(step)
+        effect_type = {
+            ExecutableNodeKind.RUN_REF: "run_ref",
+            ExecutableNodeKind.TRIAL: "trial",
+        }.get(execution_kind)
+        if not resume_current_step or effect_type is None:
             return None
         current = state.get("current_step")
         visits = state.get("step_visits")
@@ -5656,7 +5699,7 @@ class WorkflowExecutor:
             isinstance(current, Mapping)
             and current.get("name") == step_name
             and current.get("step_id") == step_id
-            and current.get("type") == "run_ref"
+            and current.get("type") == effect_type
             and current.get("status") in {"running", "failed"}
             and not isinstance(visit_count, bool)
             and isinstance(visit_count, int)
@@ -5666,7 +5709,7 @@ class WorkflowExecutor:
         )
         if not valid:
             raise ResumeStateIntegrityError(
-                "run-ref interrupted visit identity is invalid",
+                f"{effect_type.replace('_', '-')} interrupted visit identity is invalid",
                 context={
                     "step_name": step_name,
                     "step_id": step_id,
@@ -5767,6 +5810,127 @@ class WorkflowExecutor:
             capsule_dir=self._run_ref_capsule_dir(step_config),
             parent_bundle_orphan_preimage=parent_bundle_orphan_preimage,
         )
+
+    def _trial_runtime_request(
+        self,
+        step: RuntimeStepInput,
+        state: Mapping[str, Any],
+        *,
+        step_id: str,
+        visit_count: int,
+    ) -> Any:
+        """Build one exact trial request without importing trial runtime code eagerly."""
+
+        from .executable_ir import TrialStepConfig
+        from .run_ref.runtime import (
+            resolve_run_ref_parent_input_values_for_config,
+        )
+        from .trial.config import build_trial_runtime_request
+
+        node = self._executable_node_for_step(step)
+        step_config = getattr(node, "execution_config", None)
+        if type(step_config) is not TrialStepConfig:
+            raise ValueError("trial typed step config is missing")
+        resolved_inputs = {
+            arm.arm_id: resolve_run_ref_parent_input_values_for_config(
+                arm.run_ref,
+                state,
+            )
+            for arm in step_config.arms
+        }
+        return build_trial_runtime_request(
+            step_config=step_config,
+            visit=self._run_ref_visit_key(
+                step_id=step_id,
+                visit_count=visit_count,
+            ),
+            resolved_inputs_by_arm=resolved_inputs,
+        )
+
+    def _trial_capsule_dir(self, step_config: Any) -> Path | None:
+        """Resolve the one compiler-owned capsule shared by bundle-mode arms."""
+
+        bound_arms = tuple(
+            arm.run_ref
+            for arm in step_config.arms
+            if arm.run_ref.capsule_binding is not None
+        )
+        if not bound_arms:
+            return None
+        binding = bound_arms[0].capsule_binding
+        if any(arm.capsule_binding != binding for arm in bound_arms[1:]):
+            raise ValueError("trial arm capsule bindings disagree")
+        return self._run_ref_capsule_dir(bound_arms[0])
+
+    def _read_trial_persisted_parent_state(self) -> Dict[str, Any]:
+        """Reread and select the exact persisted root or call-frame leaf."""
+
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        root = owner.root_manager.load().to_dict()
+        if not isinstance(root, dict):
+            raise ValueError("persisted trial aggregate root is invalid")
+        scoped = root
+        for frame_id in owner.resume_scope_path.call_frame_ids:
+            call_frames = scoped.get("call_frames")
+            frame = (
+                call_frames.get(frame_id)
+                if isinstance(call_frames, Mapping)
+                else None
+            )
+            nested = frame.get("state") if isinstance(frame, Mapping) else None
+            if (
+                not isinstance(frame, Mapping)
+                or frame.get("call_frame_id") != frame_id
+                or not isinstance(nested, Mapping)
+            ):
+                raise ValueError("persisted trial call-frame path is invalid")
+            scoped = dict(nested)
+        return scoped
+
+    def _trial_sealed_opaque_labels(
+        self,
+        request: Any,
+        *,
+        parent_run_root: Path,
+        run_ref_root: Path,
+    ) -> Any:
+        """Create first-visit labels or recover the exact persisted label map."""
+
+        from .trial.contracts import (
+            build_sealed_opaque_label_map,
+            derive_trial_cell_effect_scopes,
+        )
+
+        scopes = derive_trial_cell_effect_scopes(
+            request=request,
+            parent_run_root=parent_run_root,
+            run_ref_root=run_ref_root,
+        )
+        ledger_path = scopes[0].trial_root / "trial-events.jsonl"
+        if not os.path.lexists(ledger_path):
+            return build_sealed_opaque_label_map(
+                request.cell_domain,
+                salt=os.urandom(32),
+            )
+
+        from .trial.ledger import load_trial_event_ledger
+
+        ledger = load_trial_event_ledger(ledger_path)
+        header = ledger.rows[0].payload
+        try:
+            labels = tuple(
+                binding["opaque_label"]
+                for binding in header["sealed_opaque_label_map"]["bindings"]
+            )
+            sealed = build_sealed_opaque_label_map(
+                request.cell_domain,
+                labels=labels,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("trial sealed opaque-label authority is invalid") from exc
+        if sealed.digest != header.get("sealed_opaque_label_map_digest"):
+            raise ValueError("trial sealed opaque-label authority disagrees")
+        return sealed
 
     def _run_ref_parent_output_bundle_path(
         self,
@@ -5882,6 +6046,359 @@ class WorkflowExecutor:
                 step,
                 dict(persisted),
             )
+
+    def _reconcile_completed_trials_before_resume(
+        self,
+        state: Dict[str, Any],
+    ) -> None:
+        """Validate or close completed trial settlements before resume selection."""
+
+        steps = state.get("steps")
+        if not isinstance(steps, Mapping):
+            raise ValueError("trial parent steps are invalid")
+        for node_id in self._step_node_ids:
+            step = self._runtime_step_for_node_id(node_id)
+            if self._execution_kind_for_step(step) is not ExecutableNodeKind.TRIAL:
+                continue
+            step_name = step.get("name")
+            if not isinstance(step_name, str) or not step_name:
+                raise ValueError("trial parent step name is invalid")
+            persisted = steps.get(step_name)
+            if (
+                not isinstance(persisted, Mapping)
+                or persisted.get("status") != "completed"
+            ):
+                continue
+            visit_count = persisted.get("visit_count")
+            envelope = persisted.get("trial")
+            artifacts = persisted.get("artifacts")
+            if (
+                isinstance(visit_count, bool)
+                or not isinstance(visit_count, int)
+                or visit_count < 1
+                or not isinstance(envelope, Mapping)
+                or not isinstance(artifacts, Mapping)
+            ):
+                raise ValueError("persisted trial parent settlement is invalid")
+
+            request = self._trial_runtime_request(
+                step,
+                state,
+                step_id=self._step_id(step),
+                visit_count=visit_count,
+            )
+            owner = resolve_aggregate_run_owner(self.state_manager)
+            parent_run_root = Path(owner.aggregate_root).resolve()
+            run_ref_root = self._bound_run_ref_runtime_root(owner)
+
+            from .trial.contracts import derive_trial_cell_effect_scopes
+            from .trial.settlement import (
+                commit_trial_parent_settlement,
+                prepare_trial_parent_settlement,
+            )
+
+            scopes = derive_trial_cell_effect_scopes(
+                request=request,
+                parent_run_root=parent_run_root,
+                run_ref_root=run_ref_root,
+            )
+            ledger_path = scopes[0].trial_root / "trial-events.jsonl"
+            prepared = prepare_trial_parent_settlement(
+                ledger_path,
+                request=request,
+                parent_workspace=Path(self.workspace).resolve(),
+                result_envelope=envelope,
+            )
+            read_parent_state = self._trial_reconciliation_parent_state_reader(
+                ledger_path=ledger_path,
+                request=request,
+            )
+            commit_trial_parent_settlement(
+                ledger_path,
+                request=request,
+                prepared=prepared,
+                step_name=step_name,
+                expected_artifacts=dict(artifacts),
+                read_parent_state=read_parent_state,
+            )
+            self._emit_lexical_checkpoint_shadow_after_step_commit(
+                state,
+                step_name,
+                step,
+                dict(persisted),
+            )
+
+    def _trial_reconciliation_parent_state_reader(
+        self,
+        *,
+        ledger_path: Path,
+        request: Any,
+    ) -> Any:
+        """Select current or historical state according to the durable ledger stage."""
+
+        from .trial.ledger import load_trial_event_ledger
+
+        ledger = load_trial_event_ledger(ledger_path)
+        committed_rows = tuple(
+            row for row in ledger.rows if row.kind == "trial_parent_committed"
+        )
+        if len(committed_rows) > 1 or (
+            committed_rows
+            and ledger.rows[-1].row_digest != committed_rows[0].row_digest
+        ):
+            raise ValueError("trial parent commit authority is ambiguous")
+        if not committed_rows:
+            return self._read_trial_persisted_parent_state
+
+        persisted = self._read_trial_persisted_parent_state()
+        current_step = persisted.get("current_step")
+        if current_step is not None:
+            later_step_id = (
+                current_step.get("step_id")
+                if isinstance(current_step, Mapping)
+                else None
+            )
+            if (
+                not isinstance(later_step_id, str)
+                or not later_step_id
+                or later_step_id == request.visit.step_id
+            ):
+                raise ValueError(
+                    "trial committed parent state has a conflicting current step"
+                )
+        historical = dict(persisted)
+        historical["current_step"] = None
+        return lambda: historical
+
+    def _execute_trial(
+        self,
+        step: RuntimeStepInput,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+    ) -> Dict[str, Any]:
+        """Execute and atomically settle one bounded trial effect."""
+
+        from .trial.adjudication import (
+            TrialEvaluationDependencies,
+            evaluate_trial_execution,
+        )
+        from .trial.runtime import (
+            TrialRuntimeDependencies,
+            execute_trial_cells,
+        )
+        from .trial.settlement import (
+            commit_trial_parent_settlement,
+            prepare_trial_parent_settlement,
+        )
+
+        step_id = self._step_id(step)
+        step_visits = state.get("step_visits")
+        visit_count = (
+            step_visits.get(step_name)
+            if isinstance(step_visits, Mapping)
+            else None
+        )
+        if (
+            isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count < 1
+        ):
+            raise ValueError("trial parent visit is missing")
+
+        request = self._trial_runtime_request(
+            step,
+            state,
+            step_id=step_id,
+            visit_count=visit_count,
+        )
+        owner = resolve_aggregate_run_owner(self.state_manager)
+        parent_run_root = Path(owner.aggregate_root).resolve()
+        run_ref_root = self._bound_run_ref_runtime_root(owner)
+        sealed_labels = self._trial_sealed_opaque_labels(
+            request,
+            parent_run_root=parent_run_root,
+            run_ref_root=run_ref_root,
+        )
+        runtime_dependencies = getattr(
+            self,
+            "_trial_runtime_dependencies",
+            None,
+        )
+        if (
+            runtime_dependencies is not None
+            and type(runtime_dependencies) is not TrialRuntimeDependencies
+        ):
+            raise TypeError(
+                "_trial_runtime_dependencies must be exact TrialRuntimeDependencies"
+            )
+        execution = execute_trial_cells(
+            request,
+            parent_state=state,
+            parent_workspace=Path(self.workspace).resolve(),
+            parent_run_root=parent_run_root,
+            run_ref_root=run_ref_root,
+            capsule_dir=self._trial_capsule_dir(request.step_config),
+            sealed_opaque_labels=sealed_labels,
+            dependencies=runtime_dependencies,
+        )
+
+        evaluation_dependencies = getattr(
+            self,
+            "_trial_evaluation_dependencies",
+            None,
+        )
+        if evaluation_dependencies is None:
+            import subprocess
+
+            evaluation_dependencies = TrialEvaluationDependencies(
+                provider_registry=self.provider_registry,
+                prompt_composer=self.prompt_composer,
+                provider_executor=self.provider_executor,
+                check_runner=subprocess.run,
+            )
+        elif type(evaluation_dependencies) is not TrialEvaluationDependencies:
+            raise TypeError(
+                "_trial_evaluation_dependencies must be exact "
+                "TrialEvaluationDependencies"
+            )
+        adjudicated = evaluate_trial_execution(
+            request,
+            execution,
+            parent_workspace=Path(self.workspace).resolve(),
+            dependencies=evaluation_dependencies,
+        )
+        envelope = json.loads(
+            canonical_json_bytes(
+                {
+                    "outcomes": list(adjudicated.authored_outcomes),
+                    "verdict": adjudicated.verdict,
+                    "verdict_artifact": adjudicated.verdict_artifact.relpath,
+                }
+            )
+        )
+        prepared = prepare_trial_parent_settlement(
+            execution.ledger_path,
+            request=request,
+            parent_workspace=Path(self.workspace).resolve(),
+            result_envelope=envelope,
+        )
+
+        bundle_path = self._run_ref_parent_output_bundle_path(step, state)
+        durable_atomic_write(
+            bundle_path,
+            canonical_json_bytes(envelope) + b"\n",
+        )
+        budget_accounting = adjudicated.verdict.get("budget_accounting")
+        duration_ms = (
+            budget_accounting.get("elapsed_ms")
+            if isinstance(budget_accounting, Mapping)
+            and not isinstance(budget_accounting.get("elapsed_ms"), bool)
+            and isinstance(budget_accounting.get("elapsed_ms"), int)
+            else 0
+        )
+        result = self._apply_expected_outputs_contract(
+            step,
+            {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": duration_ms,
+                "output": "",
+                "trial": envelope,
+            },
+            state,
+        )
+        if (
+            result.get("status") != "completed"
+            or result.get("exit_code") != 0
+            or result.get("trial") != envelope
+            or not isinstance(result.get("artifacts"), Mapping)
+        ):
+            raise ValueError("trial parent output contract disagrees")
+
+        publish_error = self._record_published_artifacts(
+            step,
+            step_name,
+            result,
+            state,
+            persist=False,
+        )
+        if publish_error is not None:
+            raise ValueError("trial parent publication failed")
+        finalized = self._attach_outcome(step, result)
+        finalized.setdefault("name", step_name)
+        finalized.setdefault("step_id", step_id)
+        finalized.setdefault("visit_count", visit_count)
+        state.setdefault("steps", {})[step_name] = finalized
+        self._finalize_consumes(
+            step,
+            step_name,
+            state,
+            succeeded=True,
+            persist=False,
+        )
+
+        artifact_versions = state.get("artifact_versions")
+        artifact_consumes = state.get("artifact_consumes")
+        private_artifact_versions = state.get("private_artifact_versions")
+        private_artifact_consumes = state.get("private_artifact_consumes")
+
+        def prepared_guard() -> bool:
+            observed = prepare_trial_parent_settlement(
+                execution.ledger_path,
+                request=request,
+                parent_workspace=Path(self.workspace).resolve(),
+                result_envelope=envelope,
+            )
+            return observed == prepared
+
+        self.state_manager.finalize_step_with_dataflow(
+            step_name,
+            self._to_step_result(finalized, step_name),
+            artifact_versions=(
+                artifact_versions
+                if isinstance(artifact_versions, dict)
+                else {}
+            ),
+            artifact_consumes=(
+                artifact_consumes
+                if isinstance(artifact_consumes, dict)
+                else {}
+            ),
+            private_artifact_versions=(
+                private_artifact_versions
+                if isinstance(private_artifact_versions, dict)
+                else {}
+            ),
+            private_artifact_consumes=(
+                private_artifact_consumes
+                if isinstance(private_artifact_consumes, dict)
+                else {}
+            ),
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+            expected_step_name=step_name,
+            expected_step_type="trial",
+            expected_step_status="running",
+            commit_guard=prepared_guard,
+        )
+        state["current_step"] = None
+        commit_trial_parent_settlement(
+            execution.ledger_path,
+            request=request,
+            prepared=prepared,
+            step_name=step_name,
+            expected_artifacts=dict(finalized["artifacts"]),
+            read_parent_state=self._read_trial_persisted_parent_state,
+        )
+        self._emit_lexical_checkpoint_shadow_after_step_commit(
+            state,
+            step_name,
+            step,
+            finalized,
+        )
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
 
     def _execute_run_ref(
         self,
@@ -6672,6 +7189,9 @@ class WorkflowExecutor:
 
         if execution_kind is ExecutableNodeKind.RUN_REF:
             return self._execute_run_ref(step, state, step_name=step_name)
+
+        if execution_kind is ExecutableNodeKind.TRIAL:
+            return self._execute_trial(step, state, step_name=step_name)
 
         if execution_kind is ExecutableNodeKind.WAIT_FOR:
             result = self._execute_wait_for_result(step)

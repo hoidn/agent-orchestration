@@ -53,6 +53,7 @@ class StepResult:
     outcome: Optional[Dict[str, Any]] = None
     visit_count: Optional[int] = None
     run_ref: Optional[Dict[str, Any]] = None
+    trial: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, omitting None values."""
