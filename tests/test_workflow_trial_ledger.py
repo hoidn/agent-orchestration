@@ -33,12 +33,14 @@ from orchestrator.workflow.trial.ledger import (
     TRIAL_EVENT_LEDGER_SCHEMA,
     TrialLedgerError,
     append_trial_cell_settlement,
+    append_trial_e1_allocation_start,
     append_trial_e1_committed,
     append_trial_e1_boundary,
     classify_trial_cell_resume,
     discard_incomplete_trial_cell,
     initialize_trial_event_ledger,
     load_trial_event_ledger,
+    select_trial_e1_allocation_start,
 )
 from tests.test_workflow_lisp_trial_lowering import (
     _build_transportable_trial,
@@ -362,12 +364,6 @@ def _append_event(header, scope, event, acknowledgement):
 
 def _append_allocation(header, scope):
     bindings = _attempt_bindings(scope)
-    applied = allocate_attempt(
-        scope.ledger_path,
-        visit=header.request.visit,
-        bindings=bindings,
-        recorded_at="2026-08-02T12:00:00.000000Z",
-    )
     event = RunRefLifecycleEvent.build(
         sequence=1,
         event_kind="allocation",
@@ -377,12 +373,134 @@ def _append_allocation(header, scope):
         effect_instance_root=scope.effect_instance_root,
         payload={"bindings": bindings.record},
     )
+    append_trial_e1_allocation_start(
+        header.path,
+        expected_head_digest=load_trial_event_ledger(header.path).rows[-1].row_digest,
+        cell=scope.cell,
+        event=event,
+        started_at_unix_ns=1_000_000_000,
+        started_monotonic_ns=7_000_000,
+        recorded_at="2026-08-02T12:00:00.000000Z",
+    )
+    applied = allocate_attempt(
+        scope.ledger_path,
+        visit=header.request.visit,
+        bindings=bindings,
+        recorded_at="2026-08-02T12:00:00.000000Z",
+    )
     acknowledgement = acknowledge_persisted_run_ref_lifecycle_event(
         event,
         expected_row_digest=applied.row_digest,
     )
     row = _append_event(header, scope, event, acknowledgement)
     return row, bindings, event, acknowledgement
+
+
+def test_allocation_start_is_durable_idempotent_authority_before_e1(
+    tmp_path: Path,
+) -> None:
+    _result, _node, _request, scopes, _sealed, header = _initialized(tmp_path)
+    scope = scopes[0]
+    bindings = _attempt_bindings(scope)
+    event = RunRefLifecycleEvent.build(
+        sequence=1,
+        event_kind="allocation",
+        stage="allocated",
+        visit=header.request.visit,
+        attempt_ordinal=1,
+        effect_instance_root=scope.effect_instance_root,
+        payload={"bindings": bindings.record},
+    )
+    start = append_trial_e1_allocation_start(
+        header.path,
+        expected_head_digest=load_trial_event_ledger(header.path).rows[-1].row_digest,
+        cell=scope.cell,
+        event=event,
+        started_at_unix_ns=100,
+        started_monotonic_ns=200,
+        recorded_at="2026-08-02T12:00:01.000000Z",
+    )
+    before = header.path.read_bytes()
+
+    reused = append_trial_e1_allocation_start(
+        header.path,
+        expected_head_digest=start.row_digest,
+        cell=scope.cell,
+        event=event,
+        started_at_unix_ns=100,
+        started_monotonic_ns=200,
+        recorded_at="2026-08-02T12:00:02.000000Z",
+    )
+
+    assert reused == start
+    assert reused.payload["started_at_unix_ns"] == 100
+    assert reused.payload["started_monotonic_ns"] == 200
+    assert header.path.read_bytes() == before
+    assert select_trial_e1_allocation_start(
+        header.path,
+        request=header.request,
+        cell=scope.cell,
+        event=event,
+    ) == start
+    tampered_bindings = {
+        **bindings.record,
+        "child_run_id": "different-child",
+    }
+    tampered_event = RunRefLifecycleEvent.build(
+        sequence=1,
+        event_kind="allocation",
+        stage="allocated",
+        visit=header.request.visit,
+        attempt_ordinal=1,
+        effect_instance_root=scope.effect_instance_root,
+        payload={"bindings": tampered_bindings},
+    )
+    with pytest.raises(TrialLedgerError, match="selector authority disagrees"):
+        select_trial_e1_allocation_start(
+            header.path,
+            request=header.request,
+            cell=scope.cell,
+            event=tampered_event,
+        )
+    assert header.path.read_bytes() == before
+    with pytest.raises(TrialLedgerError, match="start.*authority"):
+        append_trial_e1_allocation_start(
+            header.path,
+            expected_head_digest=start.row_digest,
+            cell=scope.cell,
+            event=event,
+            started_at_unix_ns=9_999,
+            started_monotonic_ns=8_888,
+            recorded_at="2026-08-02T12:00:02.000000Z",
+        )
+    assert header.path.read_bytes() == before
+    decision = classify_trial_cell_resume(
+        header.path,
+        request=header.request,
+        cell=scope.cell,
+    )
+    assert decision.action == "allocate_fresh"
+    assert decision.next_attempt_ordinal == 1
+
+
+def test_orphan_e1_allocation_without_explicit_start_fails_closed(
+    tmp_path: Path,
+) -> None:
+    _result, _node, _request, scopes, _sealed, header = _initialized(tmp_path)
+    scope = scopes[0]
+    allocate_attempt(
+        scope.ledger_path,
+        visit=header.request.visit,
+        bindings=_attempt_bindings(scope),
+        recorded_at="2026-08-02T12:00:01.000000Z",
+    )
+
+    with pytest.raises(TrialLedgerError, match="start authority is missing"):
+        classify_trial_cell_resume(
+            header.path,
+            request=header.request,
+            cell=scope.cell,
+        )
 
 
 _TRANSITIONS = (
@@ -698,13 +816,7 @@ def test_incomplete_discard_removes_exact_workspace_and_allocates_fresh_ordinal(
     assert awaiting_fresh.action == "allocate_fresh"
     assert awaiting_fresh.attempt_ordinal == 1
     assert awaiting_fresh.next_attempt_ordinal == 2
-    fresh = allocate_attempt(
-        scope.ledger_path,
-        visit=header.request.visit,
-        bindings=_attempt_bindings(scope, ordinal=2),
-        recorded_at="2026-08-02T12:00:11.000000Z",
-    )
-    assert fresh.attempt_ordinal == 2
+    fresh_bindings = _attempt_bindings(scope, ordinal=2)
     fresh_event = RunRefLifecycleEvent.build(
         sequence=1,
         event_kind="allocation",
@@ -712,8 +824,24 @@ def test_incomplete_discard_removes_exact_workspace_and_allocates_fresh_ordinal(
         visit=header.request.visit,
         attempt_ordinal=2,
         effect_instance_root=scope.effect_instance_root,
-        payload={"bindings": fresh.bindings.record},
+        payload={"bindings": fresh_bindings.record},
     )
+    append_trial_e1_allocation_start(
+        header.path,
+        expected_head_digest=load_trial_event_ledger(header.path).rows[-1].row_digest,
+        cell=scope.cell,
+        event=fresh_event,
+        started_at_unix_ns=2_000_000_000,
+        started_monotonic_ns=8_000_000,
+        recorded_at="2026-08-02T12:00:11.000000Z",
+    )
+    fresh = allocate_attempt(
+        scope.ledger_path,
+        visit=header.request.visit,
+        bindings=fresh_bindings,
+        recorded_at="2026-08-02T12:00:11.000000Z",
+    )
+    assert fresh.attempt_ordinal == 2
     fresh_ack = acknowledge_persisted_run_ref_lifecycle_event(
         fresh_event,
         expected_row_digest=fresh.row_digest,

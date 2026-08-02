@@ -660,7 +660,10 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     its validated result, bounded normalized E1 workspace delta, permitted
     declared artifacts, and deterministic check results. A failed cell
     includes only explicit failure evidence and other selected facts that
-    actually exist. Every item has one unique citable ID.
+    actually exist. In v1, a selected `task_spec` is the exact resolved input
+    mapping common to every arm; if those mappings differ, packet construction
+    fails closed rather than exposing an arm-specific task view. Every item has
+    one unique citable ID.
   - Packet projection always excludes treatment and authored arm IDs; the
     authored `run-ref` source locator, program selector, workflow source text,
     and authored workflow filenames that identify an arm; proposer and
@@ -682,6 +685,11 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     cross-packet citation fails as `trial_packet_citation_invalid`.
   - One resolved provider, rubric asset, persisted scorer snapshot, and
     `same_trust_boundary` confidentiality declaration apply to every cell.
+    The evaluator instruction is one versioned platform-owned structured
+    contract block derived by the runtime; trial authors select neither an
+    evaluator prompt source nor evaluator provider parameters. The provider
+    registry and authored rubric asset remain the only resolved judgment
+    inputs.
     Scorer identity reuses the adjudication scorer-identity algorithm and
     binds provider policy, evaluator prompt and rubric identities, strict
     output contract, packet schema, evidence limits, confidentiality, and
@@ -696,9 +704,51 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     contains only trial-request, evaluation-label, packet, scorer, score,
     summary, and citation facts; it contains no arm/treatment, source,
     provider/model, candidate, promotion, or completion-order field.
-  - Repetitions combine by median and ties resolve by authored-order only
-    after all required score or failure rows settle. Failures remain outcomes.
-    The total evaluator-attempt and evaluator-concurrency limits are runtime
+  - Repetitions combine by median only when an arm has exactly `reps` valid
+    scores; otherwise that arm's aggregate is null. Failures remain outcomes
+    and are not dropped from the required repetition set. Score-bearing arms
+    rank by descending median, with authored-order breaking equal-median ties;
+    arms with null aggregates follow in authored-order. The leader is compared
+    with the rank-2 strongest score-bearing alternative, never with an
+    authored-position control. Fewer than two score-bearing arms yields
+    `insufficient_scored_arms`.
+  - A final trial cell is `Completed` only when its child has one validated
+    committed result, every required deterministic check has status
+    `COMPLETED` and exit code `0`, and evaluation has one valid settled score.
+    Every other final cell is `Failed`; an optional-check failure alone does
+    not change completion. For a failed cell, a valid evaluator score remains
+    audit evidence only: the repetition score is null and cannot enter the
+    median, ranking, success-rule disposition, or selection. Higher-authority
+    child or required-check failures remain primary; later lower-authority
+    failures are ordered secondary causes.
+  - `child_attempts` counts validated durable E1 `launched` transitions, not
+    allocations or cells. Budget `elapsed_ms` is the sum of durable charged
+    E1-attempt durations and evaluator-attempt settlement durations. Failed
+    and discarded E1 attempts therefore persist their duration; absence is a
+    validation failure and is never replaced by zero or inferred from event
+    timestamps. Token and cost totals use only validated bound facts; any
+    missing or `UNKNOWN` charged fact makes the corresponding total `UNKNOWN`.
+  - A leader/alternative cost comparison is known only when every charged
+    child and evaluator cost fact for both arms is present, marked known,
+    finite, nonnegative, and expressed in one common currency. Any absent,
+    `UNKNOWN`, non-finite, or negative fact yields `cost_unknown`; complete
+    known facts with differing currencies yield `cost_incomparable`.
+  - The success rule evaluates `superior` first. The leader is superior only
+    when its median exceeds the alternative's by at least
+    `min_abs_improvement` and its cost divided by the alternative's cost is at
+    most `max_cost_ratio`. When the alternative cost is zero, this cost
+    condition passes only when the leader cost is also zero, with the ratio
+    defined as `1`. Otherwise the rule evaluates
+    `non_inferior_lower_cost`: the leader's median must be no lower and its
+    proportional cost reduction against a positive-cost alternative must be
+    at least `min_cost_reduction`; a zero-cost alternative cannot satisfy this
+    rule.
+  - The closed verdict dispositions are `superior`,
+    `non_inferior_lower_cost`, `no_material_advantage`,
+    `insufficient_scored_arms`, `cost_unknown`, and `cost_incomparable`.
+    `selected_arm` names the leader only for `superior` or
+    `non_inferior_lower_cost`; it is null for every other disposition.
+  - The total evaluator-attempt and evaluator-concurrency limits are runtime
     ceilings: once the attempt ceiling or trial deadline is exhausted,
     pending evaluations settle as failures, while already running evaluator
     attempts finish and remain charged. A late result never erases its cost or

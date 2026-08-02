@@ -74,6 +74,7 @@ def _rewrite_rechained_trial_ledger(path: Path, mutate) -> None:
     for row in rows:
         original_digest = row["row_digest"]
         for field in (
+            "allocation_started_row_digest",
             "prepared_trial_row_digest",
             "trial_settlement_row_digest",
         ):
@@ -348,6 +349,7 @@ class _CellHarnesses:
         first_wave_barrier: Barrier | None = None,
         launch_waits: dict[TrialCellKey, Event] | None = None,
         completion_signals: dict[TrialCellKey, Event] | None = None,
+        result_value=None,
     ) -> None:
         self.delays = delays or {}
         self.failing = failing or set()
@@ -356,6 +358,7 @@ class _CellHarnesses:
         self.first_wave_barrier = first_wave_barrier
         self.launch_waits = launch_waits or {}
         self.completion_signals = completion_signals or {}
+        self.result_value = result_value
         self.requests = []
         self.launches: list[TrialCellKey] = []
         self.completions: list[TrialCellKey] = []
@@ -416,7 +419,11 @@ class _CellHarnesses:
                     )
                 return _successful_process(
                     child,
-                    value=f"{cell.arm_id}:{cell.rep}",
+                    value=(
+                        f"{cell.arm_id}:{cell.rep}"
+                        if self.result_value is None
+                        else self.result_value(cell)
+                    ),
                 )
             finally:
                 with self._lock:
@@ -512,6 +519,31 @@ def test_parent_inputs_are_snapshotted_before_workers_can_observe_mutation(
         request.parent_state["bound_inputs"]["payload"] == "fixed"
         for _cell, request in harnesses.requests
     )
+
+
+def test_lifecycle_proposal_rejects_start_not_bound_to_coordinator_sample(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = _runtime_fixture(tmp_path, max_concurrency=1)
+    proposal_type = trial_runtime_module._LifecycleProposal
+
+    def tampered_proposal(**kwargs):
+        kwargs["started_monotonic_ns"] += 1
+        return proposal_type(**kwargs)
+
+    monkeypatch.setattr(
+        trial_runtime_module,
+        "_LifecycleProposal",
+        tampered_proposal,
+    )
+
+    with pytest.raises(TrialLedgerError, match="start binding"):
+        _execute(fixture, _CellHarnesses(), clock=lambda: 1_000_000_000)
+
+    ledger_path = fixture["scopes"][0].trial_root / "trial-events.jsonl"
+    assert load_trial_event_ledger(ledger_path).rows[1:] == ()
+    assert not fixture["scopes"][0].ledger_path.exists()
 
 
 def test_fresh_parent_input_mismatch_fails_before_creating_trial_state(

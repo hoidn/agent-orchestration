@@ -16,7 +16,18 @@ from .models import (
 )
 from .utils import _atomic_write_text, _canonical_json, _is_finite_score, _stable_hash
 
-def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
+def scorer_contract_identity_hash(
+    scorer: Mapping[str, Any],
+    *,
+    evaluator_json_contract: str,
+    evaluation_packet_schema: str,
+) -> str:
+    """Hash one resolved scorer against caller-owned packet/output contracts."""
+
+    if not isinstance(evaluator_json_contract, str) or not evaluator_json_contract:
+        raise ValueError("evaluator JSON contract identity must be non-empty")
+    if not isinstance(evaluation_packet_schema, str) or not evaluation_packet_schema:
+        raise ValueError("evaluation packet schema identity must be non-empty")
     return _stable_hash(
         {
             "evaluator_provider": scorer.get("evaluator_provider"),
@@ -27,12 +38,20 @@ def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
             "rubric_source_kind": scorer.get("rubric_source_kind"),
             "rubric_source": scorer.get("rubric_source"),
             "rubric_hash": scorer.get("rubric_hash"),
-            "evaluator_json_contract": EVALUATOR_JSON_CONTRACT,
-            "evaluation_packet_schema": EVALUATION_PACKET_SCHEMA,
+            "evaluator_json_contract": evaluator_json_contract,
+            "evaluation_packet_schema": evaluation_packet_schema,
             "evidence_limits": scorer.get("evidence_limits"),
             "evidence_confidentiality": scorer.get("evidence_confidentiality"),
             "secret_detection_policy": SECRET_DETECTION_POLICY,
         }
+    )
+
+
+def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
+    return scorer_contract_identity_hash(
+        scorer,
+        evaluator_json_contract=EVALUATOR_JSON_CONTRACT,
+        evaluation_packet_schema=EVALUATION_PACKET_SCHEMA,
     )
 
 

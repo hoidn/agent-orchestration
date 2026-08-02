@@ -59,6 +59,7 @@ from .ledger import (
     TrialLedgerError,
     append_trial_cell_failure,
     append_trial_cell_settlement,
+    append_trial_e1_allocation_start,
     append_trial_e1_boundary,
     append_trial_e1_committed,
     build_trial_runtime_budget_window,
@@ -67,6 +68,7 @@ from .ledger import (
     initialize_trial_event_ledger,
     load_trial_event_ledger,
     reconcile_orphan_trial_cell_allocation,
+    select_trial_e1_allocation_start,
     validate_trial_event_ledger_authority,
 )
 
@@ -83,6 +85,12 @@ _CELL_FAILURE_CODES = frozenset(
 
 def _no_crash(_boundary: str) -> None:
     return None
+
+
+def _clock_ns(value: object, *, field: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{field} must be non-negative")
+    return value
 
 
 def _default_run_ref_dependencies(
@@ -214,6 +222,8 @@ class _LifecycleProposal:
     cell: TrialCellKey
     request: RunRefRuntimeRequest
     event: RunRefLifecycleEvent
+    started_at_unix_ns: int
+    started_monotonic_ns: int
     reply: Queue[_AckReply]
 
 
@@ -448,12 +458,14 @@ def execute_trial_cells(
     effects = dependencies or TrialRuntimeDependencies()
     if type(effects) is not TrialRuntimeDependencies:
         raise TypeError("dependencies must be exact TrialRuntimeDependencies")
-    origin_ns = effects.monotonic_ns()
-    if type(origin_ns) is not int or origin_ns < 0:
-        raise ValueError("trial monotonic origin must be non-negative")
-    wall_now_ns = effects.wall_time_ns()
-    if type(wall_now_ns) is not int or wall_now_ns < 0:
-        raise ValueError("trial wall-clock origin must be non-negative")
+    origin_ns = _clock_ns(
+        effects.monotonic_ns(),
+        field="trial monotonic origin",
+    )
+    wall_now_ns = _clock_ns(
+        effects.wall_time_ns(),
+        field="trial wall-clock origin",
+    )
     try:
         frozen_parent_state = json.loads(canonical_json_bytes(dict(parent_state)))
     except (TypeError, ValueError) as exc:
@@ -593,12 +605,17 @@ def execute_trial_cells(
                 cell=cell,
             )
         if decision.action in {"discard_incomplete", "reconcile_discarded_e1"}:
+            reconciliation_wall_time_ns = _clock_ns(
+                effects.wall_time_ns(),
+                field="trial discard reconciliation wall time",
+            )
             discard_incomplete_trial_cell(
                 ledger_path,
                 expected_head_digest=_head(ledger_path),
                 request=request,
                 cell=cell,
                 current_step_config_digest=e1_request.step_config.step_config_digest,
+                reconciliation_wall_time_ns=reconciliation_wall_time_ns,
             )
             pending.append(cell)
             continue
@@ -693,11 +710,15 @@ def execute_trial_cells(
         with abort_lock:
             return abort_error[0] or RuntimeError("trial coordinator stopped")
 
+    scheduled_starts: dict[TrialCellKey, tuple[int, int]] = {}
+
     def run_cell(
         cell: TrialCellKey,
         e1_request: RunRefRuntimeRequest,
         allocation: RunRefLifecycleAllocation,
         cell_effects: RunRefRuntimeDependencies,
+        started_at_unix_ns: int,
+        started_monotonic_ns: int,
     ) -> _WorkerResult:
         def acknowledge(event: RunRefLifecycleEvent) -> RunRefLifecycleAcknowledgement:
             if abort.is_set():
@@ -708,6 +729,8 @@ def execute_trial_cells(
                     cell=cell,
                     request=e1_request,
                     event=event,
+                    started_at_unix_ns=started_at_unix_ns,
+                    started_monotonic_ns=started_monotonic_ns,
                     reply=reply,
                 )
             )
@@ -733,7 +756,7 @@ def execute_trial_cells(
                 arm_deadlines[cell.arm_id],
                 trial_deadline,
             ),
-            started_monotonic_ns=origin_ns,
+            started_monotonic_ns=started_monotonic_ns,
         )
         return _WorkerResult(
             cell=cell,
@@ -744,6 +767,7 @@ def execute_trial_cells(
 
     def service(proposal: _LifecycleProposal) -> None:
         scope = scope_by_cell.get(proposal.cell)
+        scheduled_start = scheduled_starts.get(proposal.cell)
         if (
             scope is None
             or proposal.request is not e1_requests[proposal.cell]
@@ -751,6 +775,28 @@ def execute_trial_cells(
             or proposal.event.effect_instance_root != scope.effect_instance_root
         ):
             raise TrialLedgerError("trial lifecycle proposal carries cross-cell scope")
+        proposal_start = (
+            proposal.started_at_unix_ns,
+            proposal.started_monotonic_ns,
+        )
+        if (
+            type(proposal.started_at_unix_ns) is not int
+            or proposal.started_at_unix_ns < 0
+            or type(proposal.started_monotonic_ns) is not int
+            or proposal.started_monotonic_ns < 0
+            or scheduled_start is None
+            or proposal_start != scheduled_start
+        ):
+            raise TrialLedgerError("trial lifecycle proposal start binding disagrees")
+        if proposal.event.stage == "allocated":
+            append_trial_e1_allocation_start(
+                ledger_path,
+                expected_head_digest=_head(ledger_path),
+                cell=proposal.cell,
+                event=proposal.event,
+                started_at_unix_ns=proposal.started_at_unix_ns,
+                started_monotonic_ns=proposal.started_monotonic_ns,
+            )
         acknowledgement = persist_run_ref_lifecycle_event(
             proposal.request,
             proposal.event,
@@ -779,6 +825,10 @@ def execute_trial_cells(
         cell: TrialCellKey,
         error: RunRefRuntimeError,
     ) -> TrialCellOutcome:
+        terminal_monotonic_ns = _clock_ns(
+            effects.monotonic_ns(),
+            field="trial failed cell monotonic terminal",
+        )
         e1 = load_attempt_ledger(e1_requests[cell].ledger_path)
         authority = e1.rows[-1] if e1.rows else None
         phase = "scheduling" if authority is None else authority.stage
@@ -794,6 +844,9 @@ def execute_trial_cells(
             cell=cell,
             failure=failure.record,
             e1_authority=authority,
+            terminal_monotonic_ns=(
+                None if authority is None else terminal_monotonic_ns
+            ),
         )
         return _failed_outcome(cell, failure, authority)
 
@@ -835,12 +888,53 @@ def execute_trial_cells(
                     cell_effects,
                     monotonic_ns=effects.monotonic_ns,
                 )
+                allocation_event = RunRefLifecycleEvent.build(
+                    sequence=1,
+                    event_kind="allocation",
+                    stage="allocated",
+                    visit=request.visit,
+                    attempt_ordinal=allocation.attempt_ordinal,
+                    effect_instance_root=allocation.effect_instance_root,
+                    payload={"bindings": allocation.bindings.record},
+                )
+                start_authority = select_trial_e1_allocation_start(
+                    ledger_path,
+                    request=request,
+                    cell=cell,
+                    event=allocation_event,
+                )
+                if start_authority is None:
+                    allocation_wall_start = _clock_ns(
+                        effects.wall_time_ns(),
+                        field="trial allocation wall-clock start",
+                    )
+                    allocation_monotonic_start = _clock_ns(
+                        effects.monotonic_ns(),
+                        field="trial allocation monotonic start",
+                    )
+                else:
+                    allocation_wall_start = start_authority.payload[
+                        "started_at_unix_ns"
+                    ]
+                    allocation_monotonic_start = start_authority.payload[
+                        "started_monotonic_ns"
+                    ]
+                if cell in scheduled_starts:
+                    raise TrialLedgerError(
+                        "trial cell allocation start is already scheduled"
+                    )
+                scheduled_starts[cell] = (
+                    allocation_wall_start,
+                    allocation_monotonic_start,
+                )
                 future = executor.submit(
                     run_cell,
                     cell,
                     e1_request,
                     allocation,
                     cell_effects,
+                    allocation_wall_start,
+                    allocation_monotonic_start,
                 )
                 futures[future] = cell
 
