@@ -452,6 +452,14 @@ class ParentBundleOrphanPreimage:
 
 
 @dataclass(frozen=True, slots=True)
+class _RunRefRuntimeRequestPaths:
+    parent_workspace: Path
+    parent_run_root: Path
+    run_ref_root: Path
+    capsule_dir: Path | None
+
+
+@dataclass(frozen=True, slots=True)
 class RunRefRuntimeRequest:
     """All parent-owned authority needed to execute one exact run-ref visit."""
 
@@ -465,69 +473,21 @@ class RunRefRuntimeRequest:
     parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None
 
     def __post_init__(self) -> None:
-        if type(self.step_config) is not RunRefStepConfig:
-            raise TypeError("step_config must be an exact RunRefStepConfig")
-        if type(self.visit) is not RunRefVisitKey:
-            raise TypeError("visit must be an exact RunRefVisitKey")
-        if not isinstance(self.parent_state, Mapping):
-            raise TypeError("parent_state must be a mapping")
-        if (
-            self.parent_bundle_orphan_preimage is not None
-            and type(self.parent_bundle_orphan_preimage)
-            is not ParentBundleOrphanPreimage
-        ):
-            raise TypeError(
-                "parent_bundle_orphan_preimage must be an exact "
-                "ParentBundleOrphanPreimage or None"
-            )
-        parent_workspace = _canonical_directory(
-            self.parent_workspace,
-            field="parent_workspace",
+        paths = _validate_run_ref_runtime_request_authority(
+            step_config=self.step_config,
+            visit=self.visit,
+            parent_state=self.parent_state,
+            parent_workspace=self.parent_workspace,
+            parent_run_root=self.parent_run_root,
+            run_ref_root=self.run_ref_root,
+            capsule_dir=self.capsule_dir,
+            parent_bundle_orphan_preimage=self.parent_bundle_orphan_preimage,
+            parent_run_root_must_exist=True,
         )
-        parent_run_root = _canonical_directory(
-            self.parent_run_root,
-            field="parent_run_root",
-        )
-        run_ref_root = _canonical_absolute(
-            self.run_ref_root,
-            field="run_ref_root",
-        )
-        overlaps = False
-        for candidate, root in (
-            (run_ref_root, parent_workspace),
-            (parent_workspace, run_ref_root),
-        ):
-            try:
-                candidate.relative_to(root)
-            except ValueError:
-                continue
-            overlaps = True
-        if overlaps:
-            raise RunRefRuntimeError(
-                "run_ref_ledger_invalid",
-                "run_ref_root_overlaps_parent_workspace",
-            )
-        if isinstance(self.step_config.run_ref.program, BundleProgram):
-            if self.step_config.capsule_binding is None or self.capsule_dir is None:
-                raise RunRefRuntimeError(
-                    "run_ref_capsule_invalid",
-                    "mode_1_capsule_binding_missing",
-                )
-            capsule_dir = _canonical_directory(
-                self.capsule_dir,
-                field="capsule_dir",
-            )
-        else:
-            if self.step_config.capsule_binding is not None or self.capsule_dir is not None:
-                raise RunRefRuntimeError(
-                    "run_ref_child_launch_failed",
-                    "mode_2_capsule_binding_forbidden",
-                )
-            capsule_dir = None
-        object.__setattr__(self, "parent_workspace", parent_workspace)
-        object.__setattr__(self, "parent_run_root", parent_run_root)
-        object.__setattr__(self, "run_ref_root", run_ref_root)
-        object.__setattr__(self, "capsule_dir", capsule_dir)
+        object.__setattr__(self, "parent_workspace", paths.parent_workspace)
+        object.__setattr__(self, "parent_run_root", paths.parent_run_root)
+        object.__setattr__(self, "run_ref_root", paths.run_ref_root)
+        object.__setattr__(self, "capsule_dir", paths.capsule_dir)
 
     @property
     def ledger_path(self) -> Path:
@@ -677,6 +637,121 @@ def _canonical_directory(path: Path, *, field: str) -> Path:
     if not resolved.is_dir():
         raise RunRefRuntimeError("run_ref_ledger_invalid", f"{field}_not_directory")
     return resolved
+
+
+def _validate_run_ref_runtime_request_authority(
+    *,
+    step_config: RunRefStepConfig,
+    visit: RunRefVisitKey,
+    parent_state: Mapping[str, Any],
+    parent_workspace: Path,
+    parent_run_root: Path,
+    run_ref_root: Path,
+    capsule_dir: Path | None,
+    parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None,
+    parent_run_root_must_exist: bool,
+) -> _RunRefRuntimeRequestPaths:
+    if type(step_config) is not RunRefStepConfig:
+        raise TypeError("step_config must be an exact RunRefStepConfig")
+    if type(visit) is not RunRefVisitKey:
+        raise TypeError("visit must be an exact RunRefVisitKey")
+    if not isinstance(parent_state, Mapping):
+        raise TypeError("parent_state must be a mapping")
+    if (
+        parent_bundle_orphan_preimage is not None
+        and type(parent_bundle_orphan_preimage) is not ParentBundleOrphanPreimage
+    ):
+        raise TypeError(
+            "parent_bundle_orphan_preimage must be an exact "
+            "ParentBundleOrphanPreimage or None"
+        )
+    normalized_workspace = _canonical_directory(
+        parent_workspace,
+        field="parent_workspace",
+    )
+    normalized_parent_root = _canonical_absolute(
+        Path(parent_run_root),
+        field="parent_run_root",
+    )
+    if parent_run_root_must_exist:
+        if not normalized_parent_root.is_dir():
+            raise RunRefRuntimeError(
+                "run_ref_ledger_invalid",
+                "parent_run_root_not_directory",
+            )
+    elif (
+        os.path.lexists(normalized_parent_root)
+        and not normalized_parent_root.is_dir()
+    ):
+        raise RunRefRuntimeError(
+            "run_ref_ledger_invalid",
+            "parent_run_root_not_directory",
+        )
+    normalized_run_ref_root = _canonical_absolute(
+        run_ref_root,
+        field="run_ref_root",
+    )
+    for candidate, root in (
+        (normalized_run_ref_root, normalized_workspace),
+        (normalized_workspace, normalized_run_ref_root),
+    ):
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            continue
+        raise RunRefRuntimeError(
+            "run_ref_ledger_invalid",
+            "run_ref_root_overlaps_parent_workspace",
+        )
+    if isinstance(step_config.run_ref.program, BundleProgram):
+        if step_config.capsule_binding is None or capsule_dir is None:
+            raise RunRefRuntimeError(
+                "run_ref_capsule_invalid",
+                "mode_1_capsule_binding_missing",
+            )
+        normalized_capsule = _canonical_directory(
+            capsule_dir,
+            field="capsule_dir",
+        )
+    else:
+        if step_config.capsule_binding is not None or capsule_dir is not None:
+            raise RunRefRuntimeError(
+                "run_ref_child_launch_failed",
+                "mode_2_capsule_binding_forbidden",
+            )
+        normalized_capsule = None
+    return _RunRefRuntimeRequestPaths(
+        parent_workspace=normalized_workspace,
+        parent_run_root=normalized_parent_root,
+        run_ref_root=normalized_run_ref_root,
+        capsule_dir=normalized_capsule,
+    )
+
+
+def preflight_run_ref_runtime_request(
+    *,
+    step_config: RunRefStepConfig,
+    visit: RunRefVisitKey,
+    parent_state: Mapping[str, Any],
+    parent_workspace: Path,
+    prospective_parent_run_root: Path,
+    run_ref_root: Path,
+    capsule_dir: Path | None,
+    parent_bundle_orphan_preimage: ParentBundleOrphanPreimage | None = None,
+) -> None:
+    """Validate E1 request authority before a nested parent root exists."""
+
+    _validate_run_ref_runtime_request_authority(
+        step_config=step_config,
+        visit=visit,
+        parent_state=parent_state,
+        parent_workspace=parent_workspace,
+        parent_run_root=prospective_parent_run_root,
+        run_ref_root=run_ref_root,
+        capsule_dir=capsule_dir,
+        parent_bundle_orphan_preimage=parent_bundle_orphan_preimage,
+        parent_run_root_must_exist=False,
+    )
 
 
 def build_run_ref_accounting(
@@ -1374,17 +1449,43 @@ def _sha256_bytes(payload: bytes) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-def _resolved_parent_input_values(request: RunRefRuntimeRequest) -> dict[str, Any]:
+def resolve_run_ref_parent_input_values_for_config(
+    step_config: RunRefStepConfig,
+    parent_state: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve E1 parent values before a filesystem-bound request is built."""
+
+    if type(step_config) is not RunRefStepConfig:
+        raise TypeError("step_config must be an exact RunRefStepConfig")
+    if not isinstance(parent_state, Mapping):
+        raise TypeError("parent_state must be a mapping")
     resolver = ReferenceResolver()
     result: dict[str, Any] = {}
-    for row in request.step_config.run_ref.inputs:
+    for row in step_config.run_ref.inputs:
         raw = _resolve_binding(
             row.binding,
-            parent_state=request.parent_state,
+            parent_state=parent_state,
             resolver=resolver,
         )
         result[row.name] = _json_value(raw, context="input_value_invalid")
     return result
+
+
+def _resolved_parent_input_values(request: RunRefRuntimeRequest) -> dict[str, Any]:
+    return resolve_run_ref_parent_input_values_for_config(
+        request.step_config,
+        request.parent_state,
+    )
+
+
+def resolve_run_ref_parent_input_values(
+    request: RunRefRuntimeRequest,
+) -> dict[str, Any]:
+    """Resolve the exact parent values used by E1 identity without effects."""
+
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    return _resolved_parent_input_values(request)
 
 
 def _input_digest(
@@ -1563,6 +1664,107 @@ def select_run_ref_lifecycle_allocation(
             ledger.rows[-1].row_digest if ledger.rows else None
         ),
     )
+
+
+def _validate_run_ref_lifecycle_attempt_authority(
+    request: RunRefRuntimeRequest,
+    *,
+    authority: RunRefAttemptRecord,
+    effect_instance_root: Path,
+    effect_instance_digest: str,
+    disagreement_reason: str,
+) -> None:
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    if type(authority) is not RunRefAttemptRecord:
+        raise TypeError("authority must be an exact RunRefAttemptRecord")
+    root = _canonical_absolute(
+        Path(effect_instance_root),
+        field="effect_instance_root",
+    )
+    try:
+        ledger = load_attempt_ledger(root / _ATTEMPT_LEDGER_FILENAME)
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    parent_values = _resolved_parent_input_values(request)
+    expected = _attempt_bindings(
+        request,
+        attempt_ordinal=authority.attempt_ordinal,
+        workspace=_workspace_for_ordinal(
+            request,
+            authority.attempt_ordinal,
+            effect_instance_digest=effect_instance_digest,
+        ),
+        parent_values=parent_values,
+        effect_instance_digest=effect_instance_digest,
+    )
+    identity_fields = (
+        "run_ref_root",
+        "workspace_path",
+        "source_digest",
+        "program_digest",
+        "input_digest",
+        "policy_digest",
+        "step_config_digest",
+        "capsule_or_compiler_digest",
+        "child_run_id",
+        "result_contract_digest",
+    )
+    if (
+        authority.visit != request.visit
+        or authority.status != "in_progress"
+        or not ledger.rows
+        or ledger.rows[-1] != authority
+        or any(
+            getattr(authority.bindings, field) != getattr(expected, field)
+            for field in identity_fields
+        )
+    ):
+        raise RunRefRuntimeError(
+            "run_ref_ledger_invalid",
+            disagreement_reason,
+        )
+
+
+def validate_run_ref_lifecycle_attempt_authority(
+    request: RunRefRuntimeRequest,
+    *,
+    authority: RunRefAttemptRecord,
+    effect_instance_root: Path,
+    effect_instance_digest: str,
+) -> None:
+    """Validate one durable nested E1 head against the complete current identity."""
+
+    _validate_run_ref_lifecycle_attempt_authority(
+        request,
+        authority=authority,
+        effect_instance_root=effect_instance_root,
+        effect_instance_digest=effect_instance_digest,
+        disagreement_reason="lifecycle_attempt_authority_disagrees",
+    )
+
+
+def validate_run_ref_lifecycle_allocation(
+    request: RunRefRuntimeRequest,
+    *,
+    authority: RunRefAttemptRecord,
+    effect_instance_root: Path,
+    effect_instance_digest: str,
+) -> None:
+    """Validate one already-durable nested E1 allocation against current input."""
+
+    _validate_run_ref_lifecycle_attempt_authority(
+        request,
+        authority=authority,
+        effect_instance_root=effect_instance_root,
+        effect_instance_digest=effect_instance_digest,
+        disagreement_reason="lifecycle_allocation_authority_disagrees",
+    )
+    if authority.stage != "allocated" or authority.status != "in_progress":
+        raise RunRefRuntimeError(
+            "run_ref_ledger_invalid",
+            "lifecycle_allocation_authority_disagrees",
+        )
 
 
 def _discard_incomplete_attempt(
@@ -2700,6 +2902,8 @@ def _validate_child_request_document(
 def _validate_bound_authority(
     request: RunRefRuntimeRequest,
     row: RunRefAttemptRecord,
+    *,
+    effect_instance_digest: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if row.visit != request.visit:
         raise RunRefRuntimeError(
@@ -2710,8 +2914,13 @@ def _validate_bound_authority(
     expected = _attempt_bindings(
         request,
         attempt_ordinal=row.attempt_ordinal,
-        workspace=_workspace_for_ordinal(request, row.attempt_ordinal),
+        workspace=_workspace_for_ordinal(
+            request,
+            row.attempt_ordinal,
+            effect_instance_digest=effect_instance_digest,
+        ),
         parent_values=parent_values,
+        effect_instance_digest=effect_instance_digest,
     )
     for name in (
         "run_ref_root",
@@ -2996,12 +3205,76 @@ def validate_completed_run_ref_authority(
     )
 
 
+def recover_run_ref_settlement(
+    request: RunRefRuntimeRequest,
+    *,
+    settled_result: Mapping[str, Any],
+    reconcile_pending: bool,
+    effect_instance_digest: str | None = None,
+) -> RunRefExecutionResult:
+    """Rebuild exact E1 result authority for a durable nested caller boundary."""
+
+    if type(request) is not RunRefRuntimeRequest:
+        raise TypeError("request must be an exact RunRefRuntimeRequest")
+    if not isinstance(settled_result, Mapping):
+        raise TypeError("settled_result must be a mapping")
+    if type(reconcile_pending) is not bool:
+        raise TypeError("reconcile_pending must be a bool")
+    try:
+        settled = settled_result_binding_from_record(settled_result)
+        observed: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+        def validate(row: RunRefAttemptRecord) -> None:
+            observed.append(
+                _validate_bound_authority(
+                    request,
+                    row,
+                    effect_instance_digest=effect_instance_digest,
+                )
+            )
+
+        if reconcile_pending:
+            reconcile_pending_parent_commit(
+                request.ledger_path,
+                settled_result=settled,
+                current_step_config_digest=request.step_config.step_config_digest,
+                validate_bound_authority=validate,
+            )
+        committed = select_committed_reuse(
+            request.ledger_path,
+            settled_result=settled,
+            current_step_config_digest=request.step_config.step_config_digest,
+            validate_bound_authority=validate,
+        )
+    except RunRefLedgerError as exc:
+        raise RunRefRuntimeError("run_ref_ledger_invalid", str(exc)) from exc
+    except RunRefDeltaError as exc:
+        raise RunRefRuntimeError(
+            "run_ref_delta_capture_failed",
+            ",".join(exc.secondary_causes),
+        ) from exc
+    if not observed:
+        raise RunRefRuntimeError(
+            "run_ref_evidence_invalid",
+            "authority_validation_not_executed",
+        )
+    envelope, artifacts = observed[-1]
+    return RunRefExecutionResult(
+        envelope=envelope,
+        artifacts=artifacts,
+        settled_result=settled,
+        committed_row_digest=committed.row_digest,
+        reused=True,
+    )
+
+
 def finalize_run_ref_parent_commit(
     request: RunRefRuntimeRequest,
     prepared: PreparedRunRefSettlement,
     *,
     persisted_settled_result: Mapping[str, Any],
     dependencies: RunRefRuntimeDependencies | None = None,
+    effect_instance_digest: str | None = None,
 ) -> RunRefExecutionResult:
     """Validate the caller's atomic settlement and append the commit edge."""
 
@@ -3040,7 +3313,11 @@ def finalize_run_ref_parent_commit(
             "run_ref_ledger_invalid",
             "pending_parent_settlement_ambiguous",
         )
-    envelope, artifacts = _validate_bound_authority(request, pending[0])
+    envelope, artifacts = _validate_bound_authority(
+        request,
+        pending[0],
+        effect_instance_digest=effect_instance_digest,
+    )
     if envelope != dict(prepared.envelope) or artifacts != dict(prepared.artifacts):
         raise RunRefRuntimeError(
             "run_ref_evidence_invalid",
@@ -3055,6 +3332,7 @@ def finalize_run_ref_parent_commit(
             validate_bound_authority=lambda row: _validate_bound_authority(
                 request,
                 row,
+                effect_instance_digest=effect_instance_digest,
             ),
         )
     except RunRefLedgerError as exc:
@@ -3108,9 +3386,15 @@ __all__ = [
     "finalize_run_ref_parent_commit",
     "flatten_run_ref_result_artifacts",
     "persist_run_ref_lifecycle_event",
+    "preflight_run_ref_runtime_request",
     "prepare_run_ref_settlement",
+    "recover_run_ref_settlement",
     "resolve_run_ref_inputs",
+    "resolve_run_ref_parent_input_values",
+    "resolve_run_ref_parent_input_values_for_config",
     "reuse_run_ref_settlement",
     "select_run_ref_lifecycle_allocation",
     "validate_completed_run_ref_authority",
+    "validate_run_ref_lifecycle_attempt_authority",
+    "validate_run_ref_lifecycle_allocation",
 ]

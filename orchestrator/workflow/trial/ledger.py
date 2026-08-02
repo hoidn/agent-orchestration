@@ -29,6 +29,7 @@ from orchestrator.workflow.run_ref.ledger import (
 from orchestrator.workflow.run_ref.runtime import (
     RunRefLifecycleAcknowledgement,
     RunRefLifecycleEvent,
+    acknowledge_persisted_run_ref_lifecycle_event,
 )
 
 from .config import TrialRuntimeRequest
@@ -69,6 +70,8 @@ _HEADER_KEYS = {
     "cell_domain_digest",
     "sealed_opaque_label_map",
     "sealed_opaque_label_map_digest",
+    "runtime_budget_window",
+    "runtime_budget_window_digest",
 }
 _ALLOCATION_KEYS = {
     "cell",
@@ -101,6 +104,15 @@ _SETTLEMENT_KEYS = {
     "outcome_digest",
     "evidence_digest",
 }
+_FAILED_KEYS = {
+    "cell",
+    "attempt_ordinal",
+    "e1_authority_row_digest",
+    "failure",
+    "failure_digest",
+    "outcome_digest",
+    "evidence_digest",
+}
 _COMMITTED_KEYS = {
     "cell",
     "attempt_ordinal",
@@ -121,6 +133,7 @@ _PAYLOAD_KEYS_BY_KIND = {
     "cell_allocated": _ALLOCATION_KEYS,
     "cell_prepared": _PREPARED_KEYS,
     "cell_settled": _SETTLEMENT_KEYS,
+    "cell_failed": _FAILED_KEYS,
     "cell_e1_committed": _COMMITTED_KEYS,
     "cell_discarded": _DISCARDED_KEYS,
 }
@@ -162,6 +175,12 @@ def _positive_integer(value: object, *, field: str) -> int:
     return value
 
 
+def _optional_positive_integer(value: object, *, field: str) -> int | None:
+    if value is None:
+        return None
+    return _positive_integer(value, field=field)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
@@ -178,6 +197,36 @@ def _cell(value: object) -> TrialCellKey:
         return TrialCellKey(arm_id=row["arm_id"], rep=row["rep"])
     except (TypeError, ValueError) as exc:
         raise TrialLedgerError("trial cell is invalid") from exc
+
+
+def _failed_outcome_digest(
+    *,
+    cell: TrialCellKey,
+    failure: Mapping[str, Any],
+) -> str:
+    return canonical_sha256(
+        {
+            "schema_version": "trial_cell_failed_outcome.v1",
+            "cell": cell.record,
+            "failure": dict(failure),
+        }
+    )
+
+
+def _failed_evidence_digest(
+    *,
+    cell: TrialCellKey,
+    failure_digest: str,
+    e1_authority_row_digest: str | None,
+) -> str:
+    return canonical_sha256(
+        {
+            "schema_version": "trial_cell_partial_evidence.v1",
+            "cell": cell.record,
+            "failure_digest": failure_digest,
+            "e1_authority_row_digest": e1_authority_row_digest,
+        }
+    )
 
 
 def _canonical_absolute(value: object, *, field: str) -> Path:
@@ -224,6 +273,31 @@ class TrialEventLedger:
 
 
 @dataclass(frozen=True, slots=True)
+class TrialRuntimeBudgetWindow:
+    """Durable absolute deadline authority for one trial request."""
+
+    opened_at_unix_ns: int
+    arm_deadlines: tuple[tuple[str, int], ...]
+    trial_deadline_unix_ns: int
+
+    @property
+    def record(self) -> dict[str, Any]:
+        return {
+            "schema_version": "trial_runtime_budget_window.v1",
+            "opened_at_unix_ns": self.opened_at_unix_ns,
+            "arm_deadlines": [
+                {"arm_id": arm_id, "deadline_unix_ns": deadline}
+                for arm_id, deadline in self.arm_deadlines
+            ],
+            "trial_deadline_unix_ns": self.trial_deadline_unix_ns,
+        }
+
+    @property
+    def digest(self) -> str:
+        return canonical_sha256(self.record)
+
+
+@dataclass(frozen=True, slots=True)
 class InitializedTrialLedger:
     path: Path
     request: TrialRuntimeRequest
@@ -239,6 +313,7 @@ class TrialCellResumeDecision:
     attempt_ordinal: int
     next_attempt_ordinal: int | None
     trial_settlement_row_digest: str | None = None
+    failure_row_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,8 +442,13 @@ def _validate_header(row: TrialLedgerRow) -> None:
         "compiler_runtime_identity_digest",
         "cell_domain_digest",
         "sealed_opaque_label_map_digest",
+        "runtime_budget_window_digest",
     ):
         _digest(payload[field], field=field)
+    _decode_runtime_budget_window(
+        payload["runtime_budget_window"],
+        expected_digest=payload["runtime_budget_window_digest"],
+    )
     arm_steps = payload["arm_run_ref_authorities"]
     if not isinstance(arm_steps, list) or not arm_steps:
         _fail("trial header arm step-config digests are invalid")
@@ -465,10 +545,59 @@ def _validate_row_payload(row: TrialLedgerRow) -> None:
         _validate_header(row)
         return
     cell = _cell(payload["cell"])
-    attempt = _positive_integer(
-        payload["attempt_ordinal"],
-        field="trial attempt ordinal",
+    attempt = (
+        _optional_positive_integer(
+            payload["attempt_ordinal"],
+            field="trial attempt ordinal",
+        )
+        if row.kind == "cell_failed"
+        else _positive_integer(
+            payload["attempt_ordinal"],
+            field="trial attempt ordinal",
+        )
     )
+    if row.kind == "cell_failed":
+        authority_digest = _digest(
+            payload["e1_authority_row_digest"],
+            field="e1_authority_row_digest",
+            optional=True,
+        )
+        if (attempt is None) != (authority_digest is None):
+            _fail("trial failed cell attempt authority is incomplete")
+        failure = _closed(
+            payload["failure"],
+            {"code", "phase", "retryable", "secondary_causes"},
+            field="trial failure",
+        )
+        if any(
+            not isinstance(failure[field], str) or not failure[field]
+            for field in ("code", "phase")
+        ):
+            _fail("trial failure code and phase must be non-empty text")
+        if type(failure["retryable"]) is not bool:
+            _fail("trial failure retryable flag must be boolean")
+        if not isinstance(failure["secondary_causes"], list):
+            _fail("trial failure secondary causes must be an ordered list")
+        try:
+            failure_digest = canonical_sha256(dict(failure))
+        except (TypeError, ValueError) as exc:
+            raise TrialLedgerError("trial failure is not canonical JSON") from exc
+        if payload["failure_digest"] != failure_digest:
+            _fail("trial failure digest disagrees")
+        _digest(payload["outcome_digest"], field="outcome_digest")
+        _digest(payload["evidence_digest"], field="evidence_digest")
+        if payload["outcome_digest"] != _failed_outcome_digest(
+            cell=cell,
+            failure=failure,
+        ):
+            _fail("trial failed outcome digest disagrees")
+        if payload["evidence_digest"] != _failed_evidence_digest(
+            cell=cell,
+            failure_digest=failure_digest,
+            e1_authority_row_digest=authority_digest,
+        ):
+            _fail("trial failed evidence digest disagrees")
+        return
     if row.kind == "cell_allocated":
         try:
             TrialOpaqueLabelBinding(
@@ -580,7 +709,7 @@ def _validate_lifecycle(
         if row.kind == "cell_allocated":
             if "allocated" in state and "discarded" not in state:
                 _fail("trial cell allocation is ambiguous")
-            if "committed" in state or "settled" in state:
+            if "committed" in state or "settled" in state or "failed" in state:
                 _fail("trial cell allocation follows a terminal settlement")
             expected_attempt = (
                 state["discarded"].payload["next_attempt_ordinal"]
@@ -613,6 +742,7 @@ def _validate_lifecycle(
                 "allocated" not in state
                 or "prepared" in state
                 or "discarded" in state
+                or "failed" in state
             ):
                 _fail("trial cell prepared transition is invalid")
             allocation = state["allocated"].payload
@@ -645,6 +775,7 @@ def _validate_lifecycle(
                 "prepared" not in state
                 or "settled" in state
                 or "discarded" in state
+                or "failed" in state
             ):
                 _fail("trial cell settlement transition is invalid")
             prepared = state["prepared"]
@@ -677,7 +808,12 @@ def _validate_lifecycle(
                 _fail("trial cell E1 commit authority disagrees")
             state["committed"] = row
         elif row.kind == "cell_discarded":
-            if "allocated" not in state or "settled" in state or "discarded" in state:
+            if (
+                "allocated" not in state
+                or "settled" in state
+                or "discarded" in state
+                or "failed" in state
+            ):
                 _fail("trial cell discard transition is invalid")
             if payload["attempt_ordinal"] != state["allocated"].payload[
                 "attempt_ordinal"
@@ -688,6 +824,24 @@ def _validate_lifecycle(
             ].payload["e1_pending_row_digest"]:
                 _fail("trial cell discard pending authority disagrees")
             state["discarded"] = row
+        elif row.kind == "cell_failed":
+            if "failed" in state or "settled" in state or "committed" in state:
+                _fail("trial cell failure transition is invalid")
+            attempt = payload["attempt_ordinal"]
+            authority_digest = payload["e1_authority_row_digest"]
+            if attempt is None:
+                if "allocated" in state and "discarded" not in state:
+                    _fail("trial unstarted failure follows an active allocation")
+            else:
+                if (
+                    "allocated" not in state
+                    or "prepared" in state
+                    or "discarded" in state
+                    or attempt != state["allocated"].payload["attempt_ordinal"]
+                    or authority_digest is None
+                ):
+                    _fail("trial failed cell authority disagrees")
+            state["failed"] = row
 
 
 def _expected_effect_root_from_domain(
@@ -777,6 +931,7 @@ def initialize_trial_event_ledger(
     request: TrialRuntimeRequest,
     sealed_opaque_labels: SealedTrialOpaqueLabelMap,
     cell_scopes: tuple[TrialCellEffectScope, ...],
+    runtime_budget_window: TrialRuntimeBudgetWindow | None = None,
     recorded_at: str | None = None,
 ) -> InitializedTrialLedger:
     if type(request) is not TrialRuntimeRequest:
@@ -791,6 +946,13 @@ def initialize_trial_event_ledger(
         _fail("trial cell scopes disagree with ordered domain")
     if tuple(binding.cell for binding in sealed_opaque_labels.bindings) != request.cell_domain:
         _fail("sealed labels disagree with ordered cell domain")
+    window = runtime_budget_window or build_trial_runtime_budget_window(
+        request,
+        opened_at_unix_ns=0,
+    )
+    if type(window) is not TrialRuntimeBudgetWindow:
+        raise TypeError("runtime budget window must be exact TrialRuntimeBudgetWindow")
+    _validate_runtime_budget_window_for_request(window, request)
     roots = {scope.trial_root for scope in cell_scopes}
     if len(roots) != 1:
         _fail("trial cell scopes disagree on trial root")
@@ -837,6 +999,8 @@ def initialize_trial_event_ledger(
         ),
         "sealed_opaque_label_map": sealed_opaque_labels.record,
         "sealed_opaque_label_map_digest": sealed_opaque_labels.digest,
+        "runtime_budget_window": window.record,
+        "runtime_budget_window_digest": window.digest,
     }
     row = _build_row(
         sequence=1,
@@ -860,10 +1024,115 @@ def _header_domain(ledger: TrialEventLedger) -> tuple[TrialCellKey, ...]:
     return tuple(_cell(value) for value in ledger.rows[0].payload["cell_domain"])
 
 
+def _nonnegative_integer(value: object, *, field: str) -> int:
+    if type(value) is not int or value < 0:
+        _fail(f"{field} must be a non-negative integer")
+    return value
+
+
+def build_trial_runtime_budget_window(
+    request: TrialRuntimeRequest,
+    *,
+    opened_at_unix_ns: int,
+) -> TrialRuntimeBudgetWindow:
+    if type(request) is not TrialRuntimeRequest:
+        raise TypeError("request must be exact TrialRuntimeRequest")
+    opened = _nonnegative_integer(
+        opened_at_unix_ns,
+        field="trial runtime budget opened time",
+    )
+    budget = request.static_config.budget
+    arm_deadline = opened + budget["arm_timeout_ms"] * 1_000_000
+    return TrialRuntimeBudgetWindow(
+        opened_at_unix_ns=opened,
+        arm_deadlines=tuple(
+            (arm.arm_id, arm_deadline) for arm in request.static_config.arms
+        ),
+        trial_deadline_unix_ns=(
+            opened + budget["trial_timeout_ms"] * 1_000_000
+        ),
+    )
+
+
+def _decode_runtime_budget_window(
+    value: object,
+    *,
+    expected_digest: object,
+) -> TrialRuntimeBudgetWindow:
+    record = _closed(
+        value,
+        {
+            "schema_version",
+            "opened_at_unix_ns",
+            "arm_deadlines",
+            "trial_deadline_unix_ns",
+        },
+        field="trial runtime budget window",
+    )
+    if record["schema_version"] != "trial_runtime_budget_window.v1":
+        _fail("trial runtime budget window schema is invalid")
+    opened = _nonnegative_integer(
+        record["opened_at_unix_ns"],
+        field="trial runtime budget opened time",
+    )
+    deadline_rows = record["arm_deadlines"]
+    if not isinstance(deadline_rows, list) or not deadline_rows:
+        _fail("trial runtime arm deadlines are invalid")
+    arm_deadlines: list[tuple[str, int]] = []
+    for raw in deadline_rows:
+        row = _closed(
+            raw,
+            {"arm_id", "deadline_unix_ns"},
+            field="trial runtime arm deadline",
+        )
+        arm_id = row["arm_id"]
+        if not isinstance(arm_id, str) or not arm_id:
+            _fail("trial runtime arm deadline id is invalid")
+        deadline = _nonnegative_integer(
+            row["deadline_unix_ns"],
+            field="trial runtime arm deadline",
+        )
+        if deadline < opened:
+            _fail("trial runtime arm deadline precedes its opening")
+        arm_deadlines.append((arm_id, deadline))
+    if len({arm_id for arm_id, _deadline in arm_deadlines}) != len(arm_deadlines):
+        _fail("trial runtime arm deadline domain is ambiguous")
+    trial_deadline = _nonnegative_integer(
+        record["trial_deadline_unix_ns"],
+        field="trial runtime trial deadline",
+    )
+    if trial_deadline < opened:
+        _fail("trial runtime trial deadline precedes its opening")
+    window = TrialRuntimeBudgetWindow(
+        opened_at_unix_ns=opened,
+        arm_deadlines=tuple(arm_deadlines),
+        trial_deadline_unix_ns=trial_deadline,
+    )
+    observed_digest = _digest(
+        expected_digest,
+        field="runtime_budget_window_digest",
+    )
+    if window.digest != observed_digest:
+        _fail("trial runtime budget window digest disagrees")
+    return window
+
+
+def _validate_runtime_budget_window_for_request(
+    window: TrialRuntimeBudgetWindow,
+    request: TrialRuntimeRequest,
+) -> None:
+    expected = build_trial_runtime_budget_window(
+        request,
+        opened_at_unix_ns=window.opened_at_unix_ns,
+    )
+    if window != expected:
+        _fail("trial runtime budget window disagrees with current runtime request")
+
+
 def _validate_current_request_authority(
     ledger: TrialEventLedger,
     request: TrialRuntimeRequest,
-) -> None:
+) -> TrialRuntimeBudgetWindow:
     if type(request) is not TrialRuntimeRequest:
         raise TypeError("request must be exact TrialRuntimeRequest")
     header = ledger.rows[0].payload
@@ -887,6 +1156,34 @@ def _validate_current_request_authority(
     }
     if any(header[name] != value for name, value in expected.items()):
         _fail("trial ledger disagrees with current runtime request")
+    window = _decode_runtime_budget_window(
+        header["runtime_budget_window"],
+        expected_digest=header["runtime_budget_window_digest"],
+    )
+    _validate_runtime_budget_window_for_request(window, request)
+    return window
+
+
+def validate_trial_event_ledger_authority(
+    path: Path,
+    *,
+    request: TrialRuntimeRequest,
+    sealed_opaque_labels: SealedTrialOpaqueLabelMap,
+) -> TrialRuntimeBudgetWindow:
+    """Validate the complete existing header before any resume-side mutation."""
+
+    if type(sealed_opaque_labels) is not SealedTrialOpaqueLabelMap:
+        raise TypeError("sealed labels must be exact SealedTrialOpaqueLabelMap")
+    ledger = load_trial_event_ledger(path)
+    window = _validate_current_request_authority(ledger, request)
+    header = ledger.rows[0].payload
+    if (
+        header["sealed_opaque_label_map"] != sealed_opaque_labels.record
+        or header["sealed_opaque_label_map_digest"]
+        != sealed_opaque_labels.digest
+    ):
+        _fail("trial sealed opaque-label authority disagrees")
+    return window
 
 
 def _opaque_label(ledger: TrialEventLedger, cell: TrialCellKey) -> str:
@@ -1103,6 +1400,98 @@ def append_trial_cell_settlement(
     )
 
 
+def append_trial_cell_failure(
+    path: Path,
+    *,
+    expected_head_digest: str,
+    cell: TrialCellKey,
+    failure: Mapping[str, Any],
+    e1_authority: RunRefAttemptRecord | None = None,
+    recorded_at: str | None = None,
+) -> TrialLedgerRow:
+    """Persist one terminal cell failure using only authority that exists.
+
+    An active failed E1 attempt and its workspace deliberately remain intact as
+    partial evidence.  The exact durable E1 head is bound here and the terminal
+    trial row prevents that incident workspace from being relaunched or reused
+    as a successful result.
+    """
+
+    ledger = load_trial_event_ledger(path)
+    if cell not in _header_domain(ledger):
+        _fail("trial failure names an unknown cell")
+    failure_row = _closed(
+        failure,
+        {"code", "phase", "retryable", "secondary_causes"},
+        field="trial failure",
+    )
+    if e1_authority is not None and type(e1_authority) is not RunRefAttemptRecord:
+        raise TypeError("E1 authority must be exact RunRefAttemptRecord or None")
+    if e1_authority is None:
+        if failure_row["phase"] != "scheduling":
+            _fail("trial unstarted failure phase is invalid")
+    elif (
+        e1_authority.status != "in_progress"
+        or failure_row["phase"] != e1_authority.stage
+    ):
+        _fail("trial failure phase disagrees with active E1 authority")
+    failure_digest = canonical_sha256(dict(failure_row))
+    authority_digest = (
+        None if e1_authority is None else e1_authority.row_digest
+    )
+    # Validate the closed value before any mutation.
+    probe = _build_row(
+        sequence=len(ledger.rows) + 1,
+        previous_row_digest=expected_head_digest,
+        kind="cell_failed",
+        recorded_at=recorded_at or _now(),
+        payload={
+            "cell": cell.record,
+            "attempt_ordinal": (
+                None if e1_authority is None else e1_authority.attempt_ordinal
+            ),
+            "e1_authority_row_digest": (
+                authority_digest
+            ),
+            "failure": dict(failure_row),
+            "failure_digest": failure_digest,
+            "outcome_digest": _failed_outcome_digest(
+                cell=cell,
+                failure=failure_row,
+            ),
+            "evidence_digest": _failed_evidence_digest(
+                cell=cell,
+                failure_digest=failure_digest,
+                e1_authority_row_digest=authority_digest,
+            ),
+        },
+    )
+    active = _active_rows_for_cell(ledger, cell)
+    if any(
+        row.kind
+        in {"cell_prepared", "cell_failed", "cell_settled", "cell_e1_committed"}
+        for row in active
+    ):
+        _fail("trial cell failure follows a terminal outcome")
+    allocations = [row for row in active if row.kind == "cell_allocated"]
+    if e1_authority is None:
+        if allocations:
+            _fail("trial unstarted failure omits existing E1 authority")
+    else:
+        if len(allocations) != 1:
+            _fail("trial failed cell E1 authority is missing or ambiguous")
+        latest = _load_cell_e1_latest(ledger, allocations[0])
+        if latest != e1_authority:
+            _fail("trial failed cell E1 authority is not the durable head")
+    return _append(
+        Path(path),
+        expected_head_digest=expected_head_digest,
+        kind="cell_failed",
+        payload=probe.payload,
+        recorded_at=probe.recorded_at,
+    )
+
+
 def append_trial_e1_committed(
     path: Path,
     *,
@@ -1207,6 +1596,111 @@ def _load_cell_e1_latest(
     return latest
 
 
+def reconcile_orphan_trial_cell_allocation(
+    path: Path,
+    *,
+    expected_head_digest: str,
+    request: TrialRuntimeRequest,
+    scope: TrialCellEffectScope,
+    recorded_at: str | None = None,
+) -> TrialLedgerRow:
+    """Project the exact allocation persisted immediately before caller crash."""
+
+    if type(scope) is not TrialCellEffectScope:
+        raise TypeError("scope must be exact TrialCellEffectScope")
+    ledger = load_trial_event_ledger(path)
+    _validate_current_request_authority(ledger, request)
+    if ledger.rows[-1].row_digest != expected_head_digest:
+        _fail("trial ledger concurrent head drift")
+    decision = classify_trial_cell_resume(
+        path,
+        request=request,
+        cell=scope.cell,
+    )
+    if decision.action != "reconcile_orphan_e1_allocation":
+        _fail("trial cell has no exact orphan E1 allocation")
+    if scope.cell not in _header_domain(ledger):
+        _fail("trial orphan allocation names an unknown cell")
+    historical = _rows_for_cell(ledger, scope.cell)
+    if historical and historical[-1].kind != "cell_discarded":
+        _fail("trial orphan allocation is not adjacent to a fresh ordinal")
+    expected_root = _expected_effect_root(Path(path), ledger, scope.cell)
+    if scope.effect_instance_root != expected_root or scope.ledger_path != (
+        expected_root / "run-ref-attempts.jsonl"
+    ):
+        _fail("trial orphan allocation scope disagrees")
+    try:
+        e1 = load_attempt_ledger(scope.ledger_path)
+    except RunRefLedgerError as exc:
+        raise TrialLedgerError("trial orphan E1 ledger is unreadable") from exc
+    if any(row.visit != request.visit for row in e1.rows):
+        _fail("trial orphan E1 ledger carries cross-cell visit authority")
+    if historical:
+        discarded = historical[-1]
+        predecessor_digest = discarded.payload["e1_discarded_row_digest"]
+        predecessors = [
+            row for row in e1.rows if row.row_digest == predecessor_digest
+        ]
+        if len(predecessors) != 1:
+            _fail("trial orphan E1 predecessor is missing or ambiguous")
+        predecessor = predecessors[0]
+        suffix = e1.rows[e1.rows.index(predecessor) + 1 :]
+        expected_attempt = discarded.payload["next_attempt_ordinal"]
+    else:
+        predecessor = None
+        suffix = e1.rows
+        expected_attempt = 1
+    if len(suffix) != 1:
+        _fail("trial orphan E1 allocation is missing or ambiguous")
+    authority = suffix[0]
+    expected_namespace = (
+        scope.run_ref_root
+        / "effect-instances"
+        / scope.effect_instance_digest.removeprefix("sha256:")
+    )
+    try:
+        relative = authority.bindings.workspace_path.relative_to(expected_namespace)
+    except ValueError as exc:
+        raise TrialLedgerError(
+            "trial orphan E1 allocation carries cross-cell scope"
+        ) from exc
+    if (
+        authority.visit != request.visit
+        or authority.previous_row_digest
+        != (None if predecessor is None else predecessor.row_digest)
+        or authority.attempt_ordinal != expected_attempt
+        or authority.stage != "allocated"
+        or authority.status != "in_progress"
+        or authority.bindings.run_ref_root != scope.run_ref_root
+        or authority.bindings.step_config_digest
+        != scope.run_ref_step_config_digest
+        or authority.bindings.result_contract_digest != scope.result_contract_digest
+        or relative == Path(".")
+    ):
+        _fail("trial orphan E1 allocation authority disagrees")
+    event = RunRefLifecycleEvent.build(
+        sequence=1,
+        event_kind="allocation",
+        stage="allocated",
+        visit=request.visit,
+        attempt_ordinal=expected_attempt,
+        effect_instance_root=scope.effect_instance_root,
+        payload={"bindings": authority.bindings.record},
+    )
+    acknowledgement = acknowledge_persisted_run_ref_lifecycle_event(
+        event,
+        expected_row_digest=authority.row_digest,
+    )
+    return append_trial_e1_boundary(
+        Path(path),
+        expected_head_digest=expected_head_digest,
+        cell=scope.cell,
+        event=event,
+        acknowledgement=acknowledgement,
+        recorded_at=recorded_at,
+    )
+
+
 def _discard_disposition_record(
     *,
     cell: TrialCellKey,
@@ -1275,9 +1769,42 @@ def classify_trial_cell_resume(
         _fail("trial resume names an unknown cell")
     rows = _active_rows_for_cell(ledger, cell)
     allocations = [row for row in rows if row.kind == "cell_allocated"]
+    failures = [row for row in rows if row.kind == "cell_failed"]
+    if failures:
+        if len(failures) != 1 or rows[-1] != failures[0]:
+            _fail("trial failed cell authority is ambiguous")
+        failure = failures[0]
+        attempt = failure.payload["attempt_ordinal"]
+        if attempt is not None:
+            if len(allocations) != 1:
+                _fail("trial failed cell allocation is missing or ambiguous")
+            latest = _load_cell_e1_latest(ledger, allocations[0])
+            if latest.row_digest != failure.payload["e1_authority_row_digest"]:
+                _fail("trial failed cell E1 authority disagrees")
+        return TrialCellResumeDecision(
+            action="reuse_failed",
+            cell=cell,
+            attempt_ordinal=attempt or 0,
+            next_attempt_ordinal=None,
+            failure_row_digest=failure.row_digest,
+        )
     if not rows:
         historical = _rows_for_cell(ledger, cell)
         if not historical:
+            orphan_path = _expected_effect_root(Path(path), ledger, cell) / (
+                "run-ref-attempts.jsonl"
+            )
+            try:
+                orphan = load_attempt_ledger(orphan_path)
+            except RunRefLedgerError as exc:
+                raise TrialLedgerError("trial orphan E1 ledger is unreadable") from exc
+            if orphan.rows:
+                return TrialCellResumeDecision(
+                    action="reconcile_orphan_e1_allocation",
+                    cell=cell,
+                    attempt_ordinal=orphan.rows[-1].attempt_ordinal,
+                    next_attempt_ordinal=None,
+                )
             return TrialCellResumeDecision(
                 action="allocate_fresh",
                 cell=cell,
@@ -1291,21 +1818,55 @@ def classify_trial_cell_resume(
             ]
             if not allocations:
                 _fail("trial discarded cell lacks allocation authority")
-            latest = _load_cell_e1_latest(ledger, allocations[-1])
+            e1_path = Path(allocations[-1].payload["e1_ledger_path"])
+            try:
+                e1 = load_attempt_ledger(e1_path)
+            except RunRefLedgerError as exc:
+                raise TrialLedgerError("trial E1 ledger is missing or unreadable") from exc
+            if not e1.rows:
+                _fail("trial E1 ledger is missing or unreadable")
+            visit = _visit_from_header(ledger.rows[0].payload["visit"])
+            if any(row.visit != visit for row in e1.rows):
+                _fail("trial E1 ledger carries cross-cell visit authority")
+            matching_discarded = [
+                row
+                for row in e1.rows
+                if row.row_digest == discarded.payload["e1_discarded_row_digest"]
+            ]
+            if len(matching_discarded) != 1:
+                _fail("trial discarded cell authority disagrees")
+            durable_discarded = matching_discarded[0]
             incomplete_digest, disposition_digest = (
                 _validate_discarded_e1_disposition(
                     cell=cell,
-                    discarded=latest,
+                    discarded=durable_discarded,
                 )
             )
             if (
-                latest.row_digest != discarded.payload["e1_discarded_row_digest"]
-                or incomplete_digest
+                incomplete_digest
                 != discarded.payload["e1_incomplete_row_digest"]
                 or disposition_digest != discarded.payload["disposition_digest"]
-                or latest.attempt_ordinal != discarded.payload["attempt_ordinal"]
+                or durable_discarded.attempt_ordinal
+                != discarded.payload["attempt_ordinal"]
             ):
                 _fail("trial discarded cell authority disagrees")
+            suffix = e1.rows[e1.rows.index(durable_discarded) + 1 :]
+            if suffix:
+                expected_attempt = discarded.payload["next_attempt_ordinal"]
+                if (
+                    len(suffix) != 1
+                    or suffix[0].stage != "allocated"
+                    or suffix[0].status != "in_progress"
+                    or suffix[0].attempt_ordinal != expected_attempt
+                    or suffix[0].previous_row_digest != durable_discarded.row_digest
+                ):
+                    _fail("trial orphan E1 allocation is ambiguous")
+                return TrialCellResumeDecision(
+                    action="reconcile_orphan_e1_allocation",
+                    cell=cell,
+                    attempt_ordinal=expected_attempt,
+                    next_attempt_ordinal=None,
+                )
             return TrialCellResumeDecision(
                 action="allocate_fresh",
                 cell=cell,
@@ -1342,6 +1903,19 @@ def classify_trial_cell_resume(
         _fail("trial cell settlement is ambiguous")
     settlement = settlements[0]
     if not commits:
+        if (
+            latest.stage == "committed"
+            and latest.status == "committed"
+            and latest.previous_row_digest
+            == settlement.payload["e1_pending_row_digest"]
+        ):
+            return TrialCellResumeDecision(
+                action="reconcile_e1_committed",
+                cell=cell,
+                attempt_ordinal=attempt,
+                next_attempt_ordinal=None,
+                trial_settlement_row_digest=settlement.row_digest,
+            )
         if (
             latest.stage != "completed_pending_parent_commit"
             or latest.row_digest != settlement.payload["e1_pending_row_digest"]
@@ -1499,11 +2073,16 @@ __all__ = [
     "TrialEventLedger",
     "TrialLedgerError",
     "TrialLedgerRow",
+    "TrialRuntimeBudgetWindow",
+    "append_trial_cell_failure",
     "append_trial_cell_settlement",
     "append_trial_e1_boundary",
     "append_trial_e1_committed",
     "classify_trial_cell_resume",
+    "build_trial_runtime_budget_window",
     "discard_incomplete_trial_cell",
     "initialize_trial_event_ledger",
     "load_trial_event_ledger",
+    "reconcile_orphan_trial_cell_allocation",
+    "validate_trial_event_ledger_authority",
 ]
