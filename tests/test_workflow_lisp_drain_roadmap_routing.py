@@ -190,6 +190,7 @@ E1_RUN_REF_FINAL_REVIEW_PATH = "artifacts/review/e1-run-ref-final-review.md"
 E2_TRIAL_PLAN_PATH = (
     "docs/plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md"
 )
+E2_TRIAL_PLAN_REVIEW_PATH = "artifacts/review/e2-trial-plan-review.md"
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1381,6 +1382,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         encoding="utf-8"
     )
     e2_plan = (REPO_ROOT / E2_TRIAL_PLAN_PATH).read_text(encoding="utf-8")
+    e2_plan_review = (REPO_ROOT / E2_TRIAL_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1429,7 +1433,10 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "e1_final_spec_approved" in normalized_roadmap
     assert "e1_final_quality_approved" in normalized_roadmap
     assert "target 2.25 e2 component plan" in normalized_roadmap
-    assert "proposed with ordered plan review pending" in normalized_roadmap
+    assert "accepted at c6046d38" in normalized_roadmap
+    assert "e2_plan_spec_approved" in normalized_roadmap
+    assert "e2_plan_quality_approved" in normalized_roadmap
+    assert "task 1 is selected" in normalized_roadmap
     assert "no e2 behavior exists" in normalized_roadmap
     assert (
         "e3 remains selected pending the canonical e2 exit gate and review of the first fixed study"
@@ -1481,7 +1488,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "route readiness registry remains unchanged" in (
         normalized_trial_capability
     )
-    assert "e2 component plan is proposed with ordered plan review pending" in (
+    assert "e2 component plan is accepted and task 1 is selected" in (
         normalized_trial_capability
     )
     assert "no e2 behavior exists" in normalized_trial_capability
@@ -1504,8 +1511,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E1_RUN_REF_PLAN_REVIEW_PATH).name in surface
         assert Path(E1_RUN_REF_FINAL_REVIEW_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_PATH).name in surface
+        assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
     normalized_e2_plan = _normalized_routing_text(e2_plan)
-    assert "status: proposed; ordered component plan review pending" in (
+    assert "status: accepted for e2 execution; task 0 complete and task 1 selected" in (
         normalized_e2_plan
     )
     assert "target dsl: 2.25" in normalized_e2_plan
@@ -1517,6 +1525,23 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert e2_plan.index("E2_PLAN_SPEC_APPROVED") < e2_plan.index(
         "E2_PLAN_QUALITY_APPROVED"
     )
+    assert "c6046d38e53dc495270f473592a55de47731e64d" in e2_plan
+    assert "40c533fc0ab21230415a5ce5d84dfcc677552f51" in e2_plan
+    assert "single winner candidate selection is explicitly not reused" in (
+        normalized_e2_plan
+    )
+    normalized_e2_plan_review = _normalized_routing_text(e2_plan_review)
+    assert "status: approved for e2 execution" in normalized_e2_plan_review
+    assert e2_plan_review.index("E2_PLAN_SPEC_APPROVED") < (
+        e2_plan_review.index("E2_PLAN_QUALITY_APPROVED")
+    )
+    e2_plan_review_digest = hashlib.sha256(
+        (REPO_ROOT / E2_TRIAL_PLAN_REVIEW_PATH).read_bytes()
+    ).hexdigest()
+    assert e2_plan_review_digest == (
+        "3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001"
+    )
+    assert e2_plan_review_digest in e2_plan
     for task_number in range(11):
         assert f"## Task {task_number}:" in e2_plan
     assert "pass_e2 makes the already selected e3 eligible only" in (
@@ -1608,7 +1633,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
     assert "e0 and e1 complete" in normalized_design_index
-    assert "e2 component plan proposed with ordered review pending" in (
+    assert "e2 reviewed plan accepted and task 1 selected" in (
         normalized_design_index
     )
     assert "target 2.24 run ref has pass_e1" in normalized_index
@@ -2207,7 +2232,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "e1 tasks 0 9 are complete" in normalized_evolution_status
     assert "pass_e1 at commit 577715f1" in normalized_evolution_status
     assert "target 2.25 e2 component plan" in normalized_evolution_status
-    assert "proposed with ordered plan review pending" in normalized_evolution_status
+    assert "accepted at c6046d38" in normalized_evolution_status
+    assert "e2_plan_spec_approved" in normalized_evolution_status
+    assert "e2_plan_quality_approved" in normalized_evolution_status
+    assert "task 1 is selected" in normalized_evolution_status
     assert "no e2 behavior exists" in normalized_evolution_status
     assert "c1, c2, and c3 remain designed and unselected" in (
         normalized_evolution_status

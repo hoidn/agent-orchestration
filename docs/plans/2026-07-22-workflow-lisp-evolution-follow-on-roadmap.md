@@ -42,9 +42,12 @@ and [plan review](../../artifacts/review/e1-run-ref-plan-review.md). The
 `E1_FINAL_SPEC_APPROVED` then `E1_FINAL_QUALITY_APPROVED`; its fresh
 postcommit control passed 864 tests. The
 [target-2.25 E2 component plan](2026-08-01-workflow-lisp-e2-trial-component-plan.md)
-is proposed with ordered plan review pending; no E2 behavior exists. E3
-remains selected pending the canonical E2 exit gate and review of the first
-fixed study. E3 adds no language target.
+is accepted at `c6046d38`, tree `40c533fc`, after ordered
+`E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`; see the
+[plan review](../../artifacts/review/e2-trial-plan-review.md). Task 1 is
+selected, but no E2 behavior exists. E3 remains selected pending the
+canonical E2 exit gate and review of the first fixed study. E3 adds no
+language target.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
 gate. C1, C2, and C3 remain Designed and unselected.

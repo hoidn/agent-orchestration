@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** proposed; ordered component-plan review pending
+- **Status:** accepted for E2 execution; Task 0 complete and Task 1 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -18,6 +18,13 @@
   `E2_PLAN_QUALITY_APPROVED`
 - **Required ordered final verdicts:** `E2_FINAL_SPEC_APPROVED`, then
   `E2_FINAL_QUALITY_APPROVED`
+- **Reviewed plan candidate:** commit
+  `c6046d38e53dc495270f473592a55de47731e64d`, tree
+  `40c533fc0ab21230415a5ce5d84dfcc677552f51`, plan SHA-256
+  `abf62404ec0f7a443a9547e9bec2c86c32941e4ffc448ef5ca437e86170a1510`
+- **Plan review:** `artifacts/review/e2-trial-plan-review.md`
+  (`sha256:3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001`);
+  `E2_PLAN_SPEC_APPROVED`, then `E2_PLAN_QUALITY_APPROVED`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -378,15 +385,25 @@ excluded test counts as passing E2 evidence.
 **Files:** this plan; `artifacts/review/e2-trial-plan-review.md`; exact E-series
 routing/status rows and routing tests.
 
-- [ ] Commit a proposed plan with status plan-review-pending and no E2
+- [x] Commit a proposed plan with status plan-review-pending and no E2
       implementation claim.
-- [ ] Obtain `E2_PLAN_SPEC_APPROVED` against exact plan bytes, the governing
+- [x] Obtain `E2_PLAN_SPEC_APPROVED` against exact plan bytes, the governing
       design digests, `PASS_E1`, and the authority reconciliation above.
-- [ ] Obtain distinct `E2_PLAN_QUALITY_APPROVED` once.
-- [ ] Correct material findings, replay the ordered pair only if bytes change,
+- [x] Obtain distinct `E2_PLAN_QUALITY_APPROVED` once.
+- [x] Correct material findings, replay the ordered pair only if bytes change,
       record the reviewed plan digest, mark it accepted-for-execution, and
       commit the routing transition.
 - [ ] Run the complete routing and route-readiness controls postcommit.
+
+Task 0 review closed against commit `c6046d38`, tree `40c533fc`, after
+ordered `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`. The first
+quality pass rejected reuse of target-2.11 single-winner selection and found
+three recovery REDs scheduled before their owning mechanisms. The corrected
+candidate explicitly makes aggregation trial-owned and places child,
+evaluation, and outer-settlement recovery in Tasks 7, 8, and 9 respectively;
+the ordered review pair then approved the same exact bytes. Bindings and the
+E2-only boundary are recorded in `artifacts/review/e2-trial-plan-review.md`.
+Task 1 may begin; this gate claims no target-2.25 behavior.
 
 ## Task 1: Close feasibility proofs 5 and 6 before production work
 
