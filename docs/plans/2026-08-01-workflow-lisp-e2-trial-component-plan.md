@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–2 complete and Task 3 selected
+- **Status:** accepted for E2 execution; Tasks 0–3 complete and Task 4 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -487,19 +487,32 @@ widening.
 **Files:** shared normalized type/transport/result-contract owners; create
 `tests/test_workflow_lisp_nested_transportable_value.py`.
 
-- [ ] RED recursively transportable records and closed unions below
+- [x] RED recursively transportable records and closed unions below
       list/optional/map containers for direct values, output bundles,
       persistence, resume, and strict JSON; retain rejection for any
       non-transportable leaf, non-string map key, invalid union tag, excessive
       nesting, or oversized value.
-- [ ] Implement one generic recursive predicate/encoder/validator shared by
+- [x] Implement one generic recursive predicate/encoder/validator shared by
       Workflow Lisp and runtime result contracts. Do not add a trial-name
       branch, envelope, nominal wrapper, or alternate wire format.
-- [ ] Gate the authored widening at target 2.25 while allowing compiler-owned
+- [x] Gate the authored widening at target 2.25 while allowing compiler-owned
       target-2.25 trial contracts to use the same machinery; targets through
       2.24 retain their accepted source behavior.
-- [ ] Run native-return/Value/record/union/list/map/persistence/resume selectors,
+- [x] Run native-return/Value/record/union/list/map/persistence/resume selectors,
       ordered Task-3 reviews, commit, and postcommit controls.
+
+Task 3 closed at exact reviewed commit `43ae8d5c`, tree `3b81d218`,
+from staged candidate SHA-256
+`417d34dc1d797d19e85bff71952b4be028a2af4fd507fe2d965a3f49665b3a16`.
+Ordered `E2_TASK3_SPEC_APPROVED` then `E2_TASK3_QUALITY_APPROVED` approved
+those exact bytes. The generic target-2.25 widening covers direct values,
+output bundles, run-ref persistence and capsules, imported/native child
+boundaries, path-mode admission, and resume fingerprints while targets through
+2.24 retain their prior defaults. Closed-union discriminant collisions,
+invalid leaves/keys/tags, excessive depth/size, and unrepresentable Float
+inputs fail deterministically. The fresh postcommit non-security control
+passed 934 tests under 16-worker work-stealing. Task 4 may begin; no `trial`
+form or production E2 trial behavior landed in this task.
 
 ## Task 4: Add the typed `trial` form and generated result contracts
 
