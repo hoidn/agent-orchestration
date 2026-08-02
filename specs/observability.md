@@ -195,6 +195,43 @@ derives solely from the validated `.orc` executable and `state.json`.
     - callee finalization failure with exports suppressed
     - call-frame resume/export state when a run is interrupted mid-call
 
+## Target 2.25 Trial Observability
+
+- A reached target-2.25 trial owns one run/frame/step/visit directory below
+  `RUN_ROOT/trials/`. Run-owned ledgers, bounded evidence snapshots, check
+  receipts, evaluator-attempt receipts, score rows, and terminal verdict
+  evidence are observability sidecars. The validated `StepResult.trial` and
+  typed verdict artifact remain result authority; sidecars and reports are
+  non-authoritative and cannot settle, route, retry, promote, or repair a run.
+- Status and report snapshots render one outer step with kind `trial`. While
+  active, the view is current-only and may expose the frozen cell count,
+  terminal completed/failed counts, active child and evaluator counts,
+  configured concurrency ceilings, exact budget counters, current phase, and
+  bounded named failure diagnostics. It must not infer a cell result from a
+  child directory or present a prepared row as committed.
+- Before scoring completes, snapshots expose opaque cell counts and digests
+  only. Authored arm IDs may appear only after the unblinded verdict join and
+  only in the validated terminal outcome/verdict projection. A terminal view
+  may expose authored-order outcomes, aggregate scores, ranking, nullable
+  selected arm, success-rule disposition, verdict digest and relpath, evidence
+  freeze digest, and complete budget accounting.
+- The sealed opaque-label map, source/program identities, workspace paths,
+  provider/model identities, completion timing/order, packet bodies, evaluator
+  prompt/output bodies, mutable logs, `.orchestrate` child sidecars, and score
+  summaries remain absent from stable status fields. Debug access to permitted
+  run-owned evidence never adds those bytes to a workflow value, checkpoint,
+  result, verdict artifact, or evaluator packet.
+- Under `derived_pure_replay.v1`, status and persisted step summaries show the
+  exact value-free completion shell for eligible pure trial projections, never
+  a reconstructed ordering, median, ranking, packet view, or report value. The
+  outer trial effect and verdict keep their ordinary durable result views.
+- The public SDK and CLI project the same closed versioned terminal summary:
+  run ID, terminal status, verdict digest and path, and a bounded failure
+  diagnostic. They expose no executable config, sealed mapping, child state,
+  packet content, provider transcript, or privileged control. Ordinary
+  non-trial runs perform no trial projection work and create zero trial
+  sidecars.
+
 ## Workflow Lisp Judgment Views
 
 - Every JSON report has the exact additive top-level sibling below, including

@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.24"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.25"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -746,6 +746,182 @@ source.
       `orchestrator compile <program.orc> --diagnostics-json`; accepted exits
       zero and rejected exits two. Human compiler output remains unchanged
       when this machine surface is not requested.
+
+  - Workflow Lisp bounded static trials (target 2.25):
+    - `trial` is one step-level durable `TRIAL` effect over two or more
+      statically elaborated target-2.24 `run-ref` configurations. It is not a
+      first-class effect value, general parallel block, dynamic arm builder,
+      selection primitive, source-promotion primitive, closure, or runtime
+      evaluation surface. Its closed authored form is:
+
+      ```lisp
+      (trial
+        :arms ((:id "direct"
+                :run-ref
+                (run-ref
+                  :source (:repo "/absolute/repository"
+                           :commit "0123456789abcdef0123456789abcdef01234567")
+                  :program (:bundle direct)
+                  :inputs (:task task)
+                  :policy (:setup ())))
+               (:id "orc"
+                :run-ref
+                (run-ref
+                  :source (:repo "/absolute/repository"
+                           :commit "89abcdef0123456789abcdef0123456789abcdef")
+                  :program (:path "experiments/orc.orc" :entry orchestrated)
+                  :inputs (:task task)
+                  :returns Value
+                  :policy (:environment :deterministic-effect-free
+                           :setup ()))))
+        :reps 3
+        :max-concurrency 4
+        :evaluation
+        (record
+          :checks (list
+            (record :id "correctness"
+                    :command (list "python" "-m" "pytest" "-q")
+                    :authority "correctness"
+                    :required true
+                    :timeout-ms 600000))
+          :judgment
+          (record :provider "scorer"
+                  :rubric-asset "rubrics/trial.md"
+                  :evidence-confidentiality "same_trust_boundary"
+                  :evidence-limits
+                  (record :max-item-bytes 65536
+                          :max-packet-bytes 262144))
+          :observation
+          (record :include
+                  (list "task_spec" "validated_result" "workspace_delta"
+                        "check_results" "declared_artifacts"
+                        "failure_evidence")
+                  :diff-cap-bytes 262144
+                  :reveal-provider-identity false)
+          :aggregation
+          (record :mode "independent_rubric"
+                  :rep-combine "median"
+                  :tie "authored_order")
+          :success-rule
+          (record
+            :superior
+            (record :min-abs-improvement 0.10 :max-cost-ratio 1.5)
+            :non-inferior
+            (record :min-cost-reduction 0.20)
+            :count-failures-as-outcomes true))
+        :budget
+        (record :arm-timeout-ms 900000
+                :trial-timeout-ms 3600000
+                :max-evaluator-attempts 6
+                :max-evaluator-concurrency 2))
+      ```
+
+    - The top-level keys are closed, unique, and all required. There are
+      2–16 authored arms with unique non-empty literal string IDs, 1–64
+      repetitions, at most 256 total `(arm, rep)` cells, and arm concurrency
+      in 1–32 that does not exceed the cell count. Each `:run-ref` is nested
+      syntax elaborated into one static E1 configuration and retains E1's
+      literal source, program, and policy identity plus ordinary dynamic input
+      expressions. All arms must have the same normalized child `value`
+      descriptor; exact `Value` is the opt-in common boundary for otherwise
+      heterogeneous JSON values.
+    - Target 2.25 admits recursively transportable records and closed unions
+      below bounded list, optional, and string-keyed map containers for
+      authored values and compiler-owned result contracts. This is one generic
+      structural transport rule, not a `trial`-name exception; every leaf,
+      union tag, depth limit, size limit, and direct strict-JSON wire value is
+      still validated. The maximum descriptor/value nesting depth is 64 with
+      root depth 0; the first child at depth 65 rejects. The maximum canonical
+      compact UTF-8 JSON value size is 16,777,216 bytes inclusive, measured
+      after direct-value normalization with sorted keys, `ensure_ascii=False`,
+      and separators `(",", ":")`, not from raw bundle or file bytes. These
+      are generic transport resource bounds, not security or isolation claims.
+      Targets through 2.24 retain their narrower accepted source and transport
+      behavior.
+    - `:evaluation` and `:budget` are compile-time pure closed structural
+      record values. Checks have unique non-empty literal IDs, literal argv
+      executed without a shell, authority exactly `correctness|invariant`, a
+      Boolean `required`, and a positive `timeout-ms`. Judgment resolves one
+      provider alias and one rubric asset for every cell, requires exact
+      `same_trust_boundary`, and has positive canonical item/packet byte caps
+      with packet cap greater than or equal to item cap. Observation uses only
+      the six shown include names, has a positive diff cap, and requires
+      `reveal-provider-identity` to be false. Aggregation is exactly
+      independent-rubric scoring, median repetition combination, and
+      authored-order tie handling; one frozen success rule applies to every
+      arm.
+    - Arm and trial timeouts are positive. `max-evaluator-attempts` is one
+      positive total ceiling across the trial and
+      `max-evaluator-concurrency` is positive and no larger than that ceiling.
+      Exhausting a deadline or evaluator-attempt ceiling settles work that has
+      not started as explicit failed outcomes. Already running child or
+      evaluator work finishes and remains fully charged. Provider attempts,
+      elapsed time, tokens, and cost are recorded; unknown tokens or cost stay
+      the exact fact `"UNKNOWN"` and are never replaced with zero.
+    - `trial` is admitted wherever `run-ref` is admitted, including ordinary
+      workflow bodies, branches, reusable calls, and effectful procedures. It
+      remains invalid in pure functions, pure settlement/evaluation bodies,
+      `loop/recur`, `list/map-effect`, generated iteration frames, or any site
+      whose reachable trial or arm graph contains another `trial`. Failures
+      are values and do not cancel completed or in-flight siblings.
+    - Each site receives compiler-generated monomorphic contracts. `T` is the
+      one normalized arm value descriptor:
+
+      ```text
+      TrialResult$<site-digest> = {
+        outcomes: List[TrialArmOutcome$<site-digest>],
+        verdict: TrialVerdict,
+        verdict_artifact: TrialVerdictPath
+      }
+
+      TrialArmOutcome$<site-digest> =
+          Completed { arm_id: String, rep: Int, value: T,
+                      evidence: CompletedTrialEvidence$<site-digest> }
+        | Failed    { arm_id: String, rep: Int, failure: TrialFailure,
+                      evidence: PartialTrialEvidence }
+
+      TrialFailure = {
+        code: String,
+        phase: String,
+        retryable: Bool,
+        secondary_causes: List[Value]
+      }
+      ```
+
+      Completed evidence retains the validated E1 workspace delta and
+      accounting, deterministic checks, opaque evaluation label,
+      packet/scorer identity, score, and exact run/attempt lineage. Partial
+      evidence contains only facts that exist and never fills absent facts
+      with defaults. `TrialVerdict` records authored arm order, per-repetition
+      outcomes and scores, aggregates, ranking, nullable selected arm,
+      success-rule disposition, and complete budget accounting.
+      `TrialVerdictPath` is a load-bearing existing relpath rooted below
+      `artifacts/trials/`. Authored arm IDs enter the result only after scoring
+      and the sealed unblinding join; packets and trial score rows use opaque
+      labels.
+    - `TrialStaticConfig.digest` hashes target and lowering versions, source
+      site identity, authored arm order and E1 config digests, the common
+      result contract, repetitions, evaluation, budget, and compiler/runtime
+      identity. The runtime request digest adds the complete parent
+      run/frame/step/visit identity and resolved input values. Completion
+      order, timestamps, workspace paths, opaque-label salt, provider output,
+      and report bytes enter neither identity. The lexical checkpoint policy
+      is exactly `reuse_validated_trial_result` and preserves every existing
+      root, callee, input, checkpoint, and result guard.
+    - Targets below 2.25 reject `trial` with
+      `trial_target_dsl_unsupported`. Closed shape/type/placement refusals are
+      `trial_arms_invalid`, `trial_arm_result_mismatch`,
+      `trial_nested_unsupported`, `trial_evaluation_contract_not_pure`,
+      `trial_evaluation_contract_invalid`,
+      `trial_evaluation_provider_unresolved`,
+      `trial_evaluation_rubric_unresolved`, `trial_reps_invalid`,
+      `trial_concurrency_invalid`, `trial_budget_invalid`,
+      `trial_packet_policy_invalid`, `trial_packet_limit_invalid`,
+      `trial_blinding_policy_invalid`, and
+      `trial_packet_citation_invalid`. E1 source, program, environment, and
+      runtime failures retain their existing closed codes per arm. Every
+      refusal includes its `code`, rejected value, stable secondary causes,
+      and source span when available; human prose is never routing authority.
 
   - Workflow Lisp WCC child-call argument projection:
     - Within existing bounded `list/map-effect`, an existing typed

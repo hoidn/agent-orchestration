@@ -47,11 +47,11 @@ def test_ordinary_target_2_24_library_module_compiles_through_the_full_frontend(
     assert result.validated_bundles_by_name == {}
 
 
-def test_target_2_25_remains_fail_closed(
+def test_target_2_26_remains_fail_closed(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "2.25")
+        _compile(tmp_path, "2.26")
 
     assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 
@@ -113,5 +113,13 @@ def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:
     assert 'schema_version: "2.2"' not in state
 
     assert re.search(r"(?m)^\| 2\.24 \|[^\n]*`run-ref`", versioning)
-    assert re.search(r"(?m)^# .*v1\.1 through v2\.24", index)
+    master_version = re.search(
+        r"(?m)^# .*v1\.1 through v(?P<major>\d+)\.(?P<minor>\d+)",
+        index,
+    )
+    assert master_version is not None
+    assert (
+        int(master_version.group("major")),
+        int(master_version.group("minor")),
+    ) >= (2, 24)
     assert "`run-ref`" in index

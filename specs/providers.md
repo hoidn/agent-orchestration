@@ -647,6 +647,69 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
   - Candidate-prompt consume rendering modes do not weaken evaluator evidence. After reserved-session exclusion and `prompt_consumes` filtering choose the selected consume rows, evaluator packets continue to carry the normalized selected consume values and any selected relpath target file content even when the candidate prompt rendered a row as `reference` or suppressed it with `none`.
   - Evaluators must not depend on reading candidate or parent workspace files, bounded prompt previews, candidate stdout/stderr, transport logs, or other non-scoring sidecars. Those paths may be retained for audit, but they are not score-critical evidence.
 
+- Workflow Lisp trial evaluator delivery (target 2.25)
+  - Evaluation begins only after the coordinator freezes the complete admitted
+    `(arm, rep)` outcome set and its digest. Deterministic checks then run in
+    declared authority order before any judgment call. The runtime constructs
+    one closed `trial.evaluation_packet.v1` for each opaque evaluation label;
+    neither authored prompts nor evaluator behavior may construct, widen, or
+    filter score-critical evidence.
+  - A packet contains only the observation members explicitly selected from
+    `task_spec`, `validated_result`, `workspace_delta`, `check_results`,
+    `declared_artifacts`, and `failure_evidence`. A completed cell may include
+    its validated result, bounded normalized E1 workspace delta, permitted
+    declared artifacts, and deterministic check results. A failed cell
+    includes only explicit failure evidence and other selected facts that
+    actually exist. Every item has one unique citable ID.
+  - Packet projection always excludes treatment and authored arm IDs; the
+    authored `run-ref` source locator, program selector, workflow source text,
+    and authored workflow filenames that identify an arm; proposer and
+    candidate lineage; child or evaluator completion order; mutable run logs;
+    `.orchestrate` state and sidecars; previous scores; and provider/model
+    identity. This exclusion does not redact normalized changed-file paths,
+    diff content, or declared-artifact relpaths carried inside a selected,
+    bounded `workspace_delta` or `declared_artifacts` member: those bytes are
+    the evidence being judged and remain subject to the closed packet schema
+    and byte limits. Full lineage and the opaque label binding stay sealed in
+    the trial ledger and are joined only after score settlement.
+    `reveal-provider-identity` is false in v1 and cannot override these
+    exclusions.
+  - Canonical UTF-8 packet items must not exceed `max_item_bytes`; the complete
+    canonical packet must not exceed `max_packet_bytes`, and the packet limit
+    is at least the item limit. Oversize, malformed, excluded, duplicate, or
+    uncitable evidence fails closed before provider launch. Every evaluator
+    citation must name a citable item in that exact packet; an unknown or
+    cross-packet citation fails as `trial_packet_citation_invalid`.
+  - One resolved provider, rubric asset, persisted scorer snapshot, and
+    `same_trust_boundary` confidentiality declaration apply to every cell.
+    Scorer identity reuses the adjudication scorer-identity algorithm and
+    binds provider policy, evaluator prompt and rubric identities, strict
+    output contract, packet schema, evidence limits, confidentiality, and
+    secret-detection policy. Reusing these primitives does not reuse
+    candidate fan-out, single-winner selection, candidate-shaped packet rows,
+    or artifact promotion.
+  - Evaluator stdout is one strict JSON object containing `candidate_id`, a
+    finite numeric `score` in `[0.0, 1.0]`, a non-empty `summary`, and a
+    `citations` string list. `candidate_id` must equal the packet's opaque
+    evaluation label. The runtime validates JSON, label, score, summary, and
+    citations before recording the closed `trial.score.v1` row. That row
+    contains only trial-request, evaluation-label, packet, scorer, score,
+    summary, and citation facts; it contains no arm/treatment, source,
+    provider/model, candidate, promotion, or completion-order field.
+  - Repetitions combine by median and ties resolve by authored-order only
+    after all required score or failure rows settle. Failures remain outcomes.
+    The total evaluator-attempt and evaluator-concurrency limits are runtime
+    ceilings: once the attempt ceiling or trial deadline is exhausted,
+    pending evaluations settle as failures, while already running evaluator
+    attempts finish and remain charged. A late result never erases its cost or
+    displaces a previously committed score row.
+  - Packet construction, exclusion, canonical byte limits, scorer identity,
+    strict output parsing, citation validation, attempt accounting,
+    aggregation, and the sealed join are deterministic runtime obligations,
+    not provider instructions. Source promotion is excluded: E2 emits one
+    validated verdict artifact and publishes no candidate workspace or source
+    change.
+
 - Reusable-call provider boundary
   - `asset_file` and `asset_depends_on` resolve relative to the authored workflow file and must stay within that workflow source tree.
   - `input_file` and plain `depends_on` remain workspace-relative, even under `call`.

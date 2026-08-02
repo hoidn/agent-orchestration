@@ -532,6 +532,74 @@ profiled root.
   outputs; ledger/evidence views never substitute for them or for
   `RunRefResult$<site-digest>`.
 
+## Target 2.25 Trial State, Settlement, And Replay
+
+- Target-2.25 `trial` is additive under `schema_version: "2.1"`. One
+  append-only `trial_event_ledger.v1` lives at the exact
+  run/frame/step/visit scope below
+  `RUN_ROOT/trials/<frame-scope>/<step-id>/<visit>/`. The ledger header binds
+  the static config, runtime request, evaluation, budget, result-contract, and
+  compiler/runtime identity digests plus the frozen authored-order
+  `(arm, rep)` cell domain. Sequence numbers are contiguous and rows use a
+  closed event grammar.
+- The ledger records only validated effect and public-boundary facts: each
+  cell allocation and disjoint trial-scoped E1 root/ledger; prepared E1
+  settlement and committed-edge digests; completed or failed cell settlement;
+  one sealed opaque-label map and digest; the frozen admitted evidence-set
+  digest; deterministic check results; packet, scorer-attempt, and score
+  digests; aggregation-input, verdict, verdict-artifact, and outer-parent
+  settlement digests; terminal status; and exact launch, evaluator-attempt,
+  elapsed-time, token, and cost counters. Missing facts remain absent rather
+  than receiving default values.
+- The trial coordinator is the sole writer of the trial ledger, every
+  trial-scoped E1 ledger, and parent state. Workers may perform blocking child
+  stages and emit immutable lifecycle events, but they cannot allocate
+  ordinals, append rows, settle a cell, write parent state, or finalize an E1
+  edge. Each child remains an ordinary E1 run with its own state root and
+  run-lifetime writer lock.
+- Per-cell settlement has one order: allocate the cell and fresh E1 ordinal;
+  validate and acknowledge each E1 lifecycle event; receive the prepared E1
+  settlement; append the exact cell settlement bound to that pending E1 row;
+  then append the adjacent E1 `committed` transition. A cell settled before
+  that adjacent transition is reconciled from the exact validated trial row
+  with zero launch. A child or E1 attempt that completed before cell settlement
+  remains incomplete and non-authoritative: retain available incident facts,
+  discard only its exact workspace, and rerun the cell with a fresh ordinal.
+- After every admitted cell is terminal, the coordinator appends the frozen
+  admitted evidence-set digest before any check or evaluator dispatch. It then
+  commits checks in authority order, packet/scorer attempts and scores,
+  aggregation inputs, the unblinded verdict, and the existing verdict artifact.
+  A terminal prepared-trial row binds the exact result, verdict, artifact, and
+  budget digests. One atomic outer parent transition stores
+  `StepResult.trial` plus typed artifacts and clears `current_step`; only then
+  is the adjacent outer-parent `committed` event appended. A crash in that
+  final gap reconciles from the exact parent result and prepared row without
+  launching a child, check, or evaluator again.
+- Resume validates the source/executable/projection, parent run/frame/visit,
+  `TrialStaticConfig`, runtime request, ordered cell domain, E1 roots and rows,
+  sealed map, evidence freeze, check/score/verdict chain, result contract, and
+  artifact digests before reuse. An exact settled cell is reused with no child
+  launch. Missing, corrupt, ambiguous, escaping, cross-cell, or multiply bound
+  authority fails closed without mutation or launch. A failed cell is a
+  durable `TrialArmOutcome.Failed` value and never causes an otherwise valid
+  sibling settlement to be removed or rerun.
+- The outer lexical checkpoint policy is
+  `reuse_validated_trial_result`. It retains every existing root, callee,
+  bound-input, checkpoint, visit, result-contract, and completed-effect guard.
+  The trial result is a durable effect/public-boundary fact; replay never
+  recomputes or substitutes it from a report, packet, score summary, or
+  verdict view.
+- M2's `derived_pure_replay.v1` boundary applies without exception. Pure
+  ordering, median and ranking, rendered packet views, and report projections
+  are reconstructed transiently from validated durable facts. An eligible
+  successful compiler-generated pure projection persists the exact value-free
+  completion shell and no value-bearing row, bundle, private lineage value, or
+  pure checkpoint. Trial state creates no second derived-value cache, no
+  effect-identity memo key, no memo-first path, no cross-run memo, and no
+  persisted optimizer state. Failed/skipped pure rows, E1 effects, checks,
+  evaluator attempts, scores, the verdict artifact, and the outer trial
+  settlement keep their owning durable contracts.
+
 ## Workflow Lisp Typed Prompt-Input Evidence
 
 - Each provider invocation's prompt composition returns one closed, validated
