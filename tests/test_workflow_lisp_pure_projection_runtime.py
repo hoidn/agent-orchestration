@@ -19,7 +19,11 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.type_env import MapTypeRef, PrimitiveTypeRef
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    MapTypeRef,
+    PrimitiveTypeRef,
+)
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import historical_workflow_lisp_bundle_context
 
@@ -416,10 +420,13 @@ def test_pure_projection_collection_root_contract_uses_direct_result() -> None:
         key_type_ref=PrimitiveTypeRef(name="String"),
         value_type_ref=PrimitiveTypeRef(name="Int"),
     )
+    context = SimpleNamespace(
+        type_env=FrontendTypeEnvironment({}, target_dsl_version="2.25")
+    )
 
     assert pure_projection_lowering._output_contracts_for_type(
         map_ref,
-        context=None,
+        context=context,
         span=span,
         form_path=("workflow", "return"),
     ) == {

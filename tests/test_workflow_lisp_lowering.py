@@ -2267,17 +2267,20 @@ def test_output_contracts_for_type_root_parity_across_lowering_lanes() -> None:
             definition=PRELUDE_PATH_TYPES["Path.state-root"],
         ),
     )
+    context = SimpleNamespace(
+        type_env=FrontendTypeEnvironment({}, target_dsl_version="2.25")
+    )
 
     for type_ref in root_type_refs:
         core_contracts = core_module._output_contracts_for_type(
             type_ref,
-            context=None,
+            context=context,
             span=span,
             form_path=(),
         )
         pure_contracts = pure_projection_module._output_contracts_for_type(
             type_ref,
-            context=None,
+            context=context,
             span=span,
             form_path=(),
         )
