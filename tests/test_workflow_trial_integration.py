@@ -22,6 +22,118 @@ from tests.test_workflow_trial_runtime import _execute
 from tests.test_workflow_trial_runtime import _runtime_fixture
 
 
+def test_compiled_exact_pin_trial_executes_and_commits_parent_result(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.runtime_observability import (
+        record_compiled_frontend_provenance,
+    )
+    from orchestrator.state import StateManager
+    from orchestrator.workflow.pure_result_replay import (
+        DERIVED_PURE_REPLAY_PROFILE,
+    )
+    from orchestrator.workflow.trial.runtime import TrialRuntimeDependencies
+    from orchestrator.workflow_lisp.wcc.route import (
+        workflow_lisp_context_with_lowering_schema,
+    )
+    from tests.test_workflow_lisp_trial_lowering import (
+        COMMIT_A,
+        COMMIT_B,
+        _compile_trial_source,
+        _write_trial_module,
+    )
+    from tests.test_workflow_trial_adjudication import (
+        _Executor,
+        _dependencies,
+    )
+    from tests.workflow_bundle_helpers import bundle_context_dict
+
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    source_path = _write_trial_module(workspace)
+    compiled = _compile_trial_source(source_path, workspace=workspace)
+    bundle = compiled.validated_bundle
+    trial_nodes = tuple(
+        node for node in bundle.ir.nodes.values() if node.kind.value == "trial"
+    )
+    assert len(trial_nodes) == 1
+    assert tuple(
+        arm.run_ref.source.commit
+        for arm in trial_nodes[0].execution_config.trial.arms
+    ) == (COMMIT_A, COMMIT_B)
+
+    run_ref_root = (tmp_path / "child-runs").resolve()
+    run_ref_root.mkdir()
+    manager = StateManager(
+        workspace=workspace,
+        run_id="deterministic-trial-smoke",
+        state_dir=(workspace / "state").resolve(),
+    )
+    context = workflow_lisp_context_with_lowering_schema(
+        bundle_context_dict(bundle),
+        compiled.manifest.lowering_schema_version,
+    )
+    run_state = manager.initialize(
+        source_path.relative_to(workspace).as_posix(),
+        context=context,
+        bound_inputs={},
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    manager.bind_run_ref_root(run_ref_root)
+    with manager.state_transaction() as transaction_state:
+        record_compiled_frontend_provenance(
+            transaction_state,
+            bundle.provenance,
+        )
+
+    harnesses = _blinded_cell_harnesses()
+    evaluation_dependencies, check_calls = _dependencies(_Executor())
+    executor = WorkflowExecutor(
+        bundle,
+        workspace,
+        manager,
+        logs_dir=manager.logs_dir,
+        max_retries=0,
+        retry_delay_ms=0,
+        provider_observation_enabled=False,
+    )
+    executor._trial_runtime_dependencies = TrialRuntimeDependencies(
+        run_ref_dependencies=harnesses.factory,
+    )
+    executor._trial_evaluation_dependencies = evaluation_dependencies
+
+    result = executor.execute(
+        run_id=run_state.run_id,
+        on_error="stop",
+        max_retries=0,
+        retry_delay_ms=0,
+    )
+
+    assert result["status"] == "completed", result
+    terminal = tuple(
+        step
+        for step in result["steps"].values()
+        if isinstance(step, dict) and isinstance(step.get("trial"), dict)
+    )
+    assert len(terminal) == 1
+    assert terminal[0]["status"] == "completed"
+    assert terminal[0]["trial"]["verdict"]["ranking"] == ["direct", "orc"]
+    assert terminal[0]["trial"]["verdict"]["selected_arm"] is None
+    assert result["workflow_outputs"][
+        "return__verdict__budget_accounting__token_usage__variant"
+    ] == "UNKNOWN"
+    assert (
+        "return__verdict__budget_accounting__token_usage__prompt_tokens"
+        not in result["workflow_outputs"]
+    )
+    ledger_paths = tuple(manager.run_root.rglob("trial-events.jsonl"))
+    assert len(ledger_paths) == 1
+    ledger = load_trial_event_ledger(ledger_paths[0])
+    assert ledger.rows[-1].kind == "trial_parent_committed"
+    assert len(harnesses.launches) == 4
+    assert check_calls == []
+
+
 def test_trial_step_result_round_trips_exact_outer_authority() -> None:
     trial = {
         "schema_version": "trial_parent_result.v1",

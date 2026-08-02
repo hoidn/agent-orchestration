@@ -500,7 +500,7 @@ def derive_workflow_signature_contracts(
             )
             flattened_inputs.append(flattened_field)
 
-    return_projection: UnionWorkflowBoundaryProjection | None = None
+    return_union_metadata: Mapping[str, Mapping[str, Any]] = {}
     if isinstance(signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
         return_kind = "record" if isinstance(signature.return_type_ref, RecordTypeRef) else "union"
         return_fields = derive_workflow_boundary_fields(
@@ -512,13 +512,13 @@ def derive_workflow_signature_contracts(
             allow_transportable_value=allow_compiler_direct_result,
             type_env=type_env,
         )
+        return_union_metadata = _derive_union_workflow_output_metadata(
+            signature.return_type_ref,
+            span=signature.span,
+            form_path=signature.form_path,
+            type_env=type_env,
+        )
         if isinstance(signature.return_type_ref, UnionTypeRef):
-            return_projection = derive_union_workflow_boundary_projection(
-                signature.return_type_ref,
-                span=signature.span,
-                form_path=signature.form_path,
-                type_env=type_env,
-            )
             return_fields = _relax_variant_only_relpath_outputs(
                 signature.return_type_ref,
                 return_fields,
@@ -539,12 +539,11 @@ def derive_workflow_signature_contracts(
 
     for flattened_field in return_fields:
         definition = dict(flattened_field.contract_definition)
-        if return_projection is not None:
-            definition = _annotate_union_workflow_output_definition(
-                definition,
-                flattened_field=flattened_field,
-                projection=return_projection,
-            )
+        union_metadata = return_union_metadata.get(
+            flattened_field.generated_name
+        )
+        if union_metadata is not None:
+            definition["projection"] = dict(union_metadata)
         outputs[flattened_field.generated_name] = SurfaceContract(
             name=flattened_field.generated_name,
             kind=definition["kind"],
@@ -573,6 +572,59 @@ def derive_workflow_signature_contracts(
     )
 
 
+def _derive_union_workflow_output_metadata(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    type_env: Any | None,
+) -> Mapping[str, Mapping[str, Any]]:
+    """Retain union activity metadata while flattening record returns."""
+
+    metadata_by_name: dict[str, Mapping[str, Any]] = {}
+
+    def visit(
+        current: TypeRef,
+        *,
+        generated_name: str,
+        source_path: tuple[str, ...],
+    ) -> None:
+        if isinstance(current, RecordTypeRef):
+            for field in current.definition.fields:
+                visit(
+                    _resolve_record_field_type(current, field.name),
+                    generated_name=f"{generated_name}__{field.name}",
+                    source_path=(*source_path, field.name),
+                )
+            return
+        if not isinstance(current, UnionTypeRef):
+            return
+        projection = derive_union_workflow_boundary_projection(
+            current,
+            span=span,
+            form_path=form_path,
+            generated_name=generated_name,
+            source_path=source_path,
+            type_env=type_env,
+        )
+        for flattened_field in _union_projection_fields(
+            projection,
+            span=span,
+            form_path=form_path,
+        ):
+            annotated = _annotate_union_workflow_output_definition(
+                {},
+                flattened_field=flattened_field,
+                projection=projection,
+            )
+            metadata_by_name[flattened_field.generated_name] = annotated[
+                "projection"
+            ]
+
+    visit(type_ref, generated_name="return", source_path=("return",))
+    return metadata_by_name
+
+
 def _annotate_union_workflow_output_definition(
     definition: dict[str, Any],
     *,
@@ -583,11 +635,15 @@ def _annotate_union_workflow_output_definition(
 
     output_name = flattened_field.generated_name
     variant_names = tuple(projection.variant_fields)
+    discriminant_output = projection.discriminant_field.generated_name
+    suffix = "__variant"
+    if not discriminant_output.endswith(suffix):
+        raise TypeError("union workflow discriminant name is malformed")
     metadata: dict[str, Any] = {
         "projection_class": "union_workflow_boundary",
         "return_kind": "union",
-        "union_output_group": "return",
-        "discriminant_output": projection.discriminant_field.generated_name,
+        "union_output_group": discriminant_output[: -len(suffix)],
+        "discriminant_output": discriminant_output,
     }
     if output_name == projection.discriminant_field.generated_name:
         metadata["field_role"] = "discriminant"

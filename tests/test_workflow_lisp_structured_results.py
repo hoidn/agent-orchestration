@@ -2171,6 +2171,65 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
     assert blocker_class["projection"]["active_variants"] == ["BLOCKED"]
 
 
+def test_nested_union_boundary_projection_retains_direct_result_authority(
+    tmp_path: Path,
+) -> None:
+    types_path = _write_module(
+        tmp_path / "nested_union_boundary.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.25")',
+                "  (defunion Usage",
+                "    (KNOWN (amount Int))",
+                "    (UNKNOWN))",
+                "  (defrecord Summary",
+                "    (usage Usage)))",
+            ]
+        ),
+    )
+    syntax_module = _build_syntax_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(
+        compile_stage1_module(types_path)
+    )
+    summary = type_env.resolve_type(
+        "Summary",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+    assert isinstance(summary, RecordTypeRef)
+    signature = WorkflowSignature(
+        name="summarize",
+        params=(),
+        return_type_ref=summary,
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defworkflow", "summarize"),
+    )
+
+    _, outputs, _ = derive_workflow_signature_contracts(
+        signature,
+        type_env=type_env,
+    )
+
+    common = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "return__usage",
+        "discriminant_output": "return__usage__variant",
+    }
+    assert outputs["return__usage__variant"].definition["projection"] == {
+        **common,
+        "field_role": "discriminant",
+        "active_variants": ["KNOWN", "UNKNOWN"],
+    }
+    assert outputs["return__usage__amount"].definition["projection"] == {
+        **common,
+        "field_role": "variant",
+        "active_variants": ["KNOWN"],
+    }
+
+
 def test_normalized_union_output_contracts_match_authored_boundary_shape() -> None:
     type_env = _build_type_env()
     syntax_module = _build_syntax_module(TYPE_FIXTURE)
