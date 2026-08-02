@@ -33,20 +33,32 @@ def _state_only_step_kind(payload: Mapping[str, Any]) -> Any:
     """Resolve persisted kind without guessing across debug discriminators."""
 
     if "type" in payload:
-        return payload.get("type") or "unknown"
+        explicit = payload.get("type") or "unknown"
+        if isinstance(payload.get("trial"), Mapping) and explicit != "trial":
+            raise ValueError(
+                "persisted trial result conflicts with explicit step kind"
+            )
+        return explicit
 
     debug_payload = payload.get("debug")
-    if not isinstance(debug_payload, Mapping):
-        return "unknown"
-    candidates = sorted(
+    debug_candidates = sorted(
         discriminator
         for discriminator in _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS
-        if isinstance(debug_payload.get(discriminator), Mapping)
+        if isinstance(debug_payload, Mapping)
+        and isinstance(debug_payload.get(discriminator), Mapping)
     )
-    if len(candidates) > 1:
+    if len(debug_candidates) > 1:
         raise ValueError(
             "ambiguous persisted step kind debug discriminators: "
-            + ", ".join(candidates)
+            + ", ".join(debug_candidates)
+        )
+    candidates = [*debug_candidates]
+    if isinstance(payload.get("trial"), Mapping):
+        candidates.append("trial")
+    if len(candidates) > 1:
+        raise ValueError(
+            "ambiguous persisted step kind discriminators: "
+            + ", ".join(sorted(candidates))
         )
     return candidates[0] if candidates else "unknown"
 
@@ -114,6 +126,17 @@ def _state_only_snapshot(
 
     def step_entry(name: str, value: Any) -> dict[str, Any]:
         payload = value if isinstance(value, Mapping) else {}
+        kind = _state_only_step_kind(payload)
+        status = result_status(value)
+        if kind == "trial":
+            return {
+                "name": name,
+                "step_id": payload.get("step_id"),
+                "kind": kind,
+                "status": status,
+                "input": {},
+                "output": {},
+            }
         debug_payload = payload.get("debug")
         raw_preview = payload.get("output")
         if raw_preview is None:
@@ -138,8 +161,8 @@ def _state_only_snapshot(
         return {
             "name": name,
             "step_id": payload.get("step_id"),
-            "kind": _state_only_step_kind(payload),
-            "status": result_status(value),
+            "kind": kind,
+            "status": status,
             "input": {},
             "output": output_payload,
         }

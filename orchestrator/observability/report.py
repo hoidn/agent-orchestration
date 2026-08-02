@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Optional, cast
 
 from orchestrator._common.status import is_step_settled
 from orchestrator.runtime_observability import compute_active_runtime
@@ -18,6 +18,9 @@ from orchestrator.workflow.loaded_bundle import workflow_bundle
 from orchestrator.workflow.prompt_context_report import (
     project_prompt_context_v2,
 )
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.executable_ir import TrialStepConfig
 
 
 _PREVIEW_LIMIT = 200
@@ -374,7 +377,11 @@ def build_status_snapshot(
         if definition.command is not None:
             entry["input"]["command"] = _report_compatible_value(definition.command)
 
-        if isinstance(result, dict) and result:
+        if (
+            isinstance(result, dict)
+            and result
+            and definition.report_kind != "trial"
+        ):
             entry["output"] = {
                 "exit_code": result.get("exit_code"),
                 "duration_ms": result.get("duration_ms"),
@@ -399,6 +406,36 @@ def build_status_snapshot(
             selected_variant = _selected_variant_projection(result)
             if selected_variant is not None:
                 entry["output"]["selected_variant"] = selected_variant
+
+        trial_reached = is_current_step or (
+            isinstance(result, Mapping)
+            and isinstance(result.get("trial"), Mapping)
+        )
+        if definition.report_kind == "trial" and trial_reached:
+            from orchestrator.workflow.trial.observability import (
+                project_trial_observability,
+            )
+
+            executable_node = bundle.ir.nodes.get(node_id)
+            trial_projection = (
+                project_trial_observability(
+                    step_config=cast(
+                        "TrialStepConfig",
+                        executable_node.execution_config,
+                    ),
+                    state=state,
+                    run_root=run_root,
+                    parent_workspace=bundle.provenance.source_root,
+                    step_name=name,
+                    step_id=projection_entry.step_id,
+                    is_current=is_current_step,
+                    result=result if isinstance(result, Mapping) else None,
+                )
+                if executable_node is not None
+                else None
+            )
+            if trial_projection is not None:
+                entry["output"]["trial_observability"] = trial_projection
 
         if status == "completed":
             entry["summary"] = "completed"
@@ -487,6 +524,123 @@ def build_status_snapshot(
 
 def _render_kv_lines(items: Iterable[tuple[str, Any]]) -> str:
     return "\n".join(f"- {key}: `{value}`" for key, value in items if value is not None)
+
+
+def _append_trial_observability_markdown(
+    lines: list[str],
+    payload: Mapping[str, Any],
+) -> None:
+    """Render only the closed trial projection, never legacy step output."""
+
+    if payload.get("schema_version") != "workflow_trial_observability.v1":
+        return
+    lines.append("- trial_observability:")
+    for key in ("status", "phase"):
+        if key in payload:
+            lines.append(f"  - {key}: `{payload[key]}`")
+
+    cells = payload.get("cell_counts")
+    if isinstance(cells, Mapping):
+        for source, label in (
+            ("frozen", "frozen_cells"),
+            ("completed", "completed_cells"),
+            ("failed", "failed_cells"),
+        ):
+            if source in cells:
+                lines.append(f"  - {label}: `{cells[source]}`")
+    active = payload.get("active_counts")
+    if isinstance(active, Mapping):
+        for source, label in (
+            ("children", "active_children"),
+            ("evaluators", "active_evaluators"),
+        ):
+            if source in active:
+                lines.append(f"  - {label}: `{active[source]}`")
+    concurrency = payload.get("concurrency")
+    if isinstance(concurrency, Mapping):
+        for source, label in (
+            ("children", "child_concurrency"),
+            ("evaluators", "evaluator_concurrency"),
+        ):
+            if source in concurrency:
+                lines.append(f"  - {label}: `{concurrency[source]}`")
+    budget = payload.get("budget")
+    if isinstance(budget, Mapping):
+        for key in (
+            "child_attempts",
+            "evaluator_attempts",
+            "max_evaluator_attempts",
+        ):
+            if key in budget:
+                lines.append(f"  - {key}: `{budget[key]}`")
+
+    digests = payload.get("digests")
+    if isinstance(digests, Mapping):
+        lines.append("  - digests:")
+        for key in (
+            "trial_request",
+            "cell_domain",
+            "ledger_head",
+            "evidence_set",
+            "check_set",
+            "packet_set",
+            "score_set",
+            "aggregation_input",
+            "verdict",
+        ):
+            if key in digests:
+                lines.append(f"    - {key}: `{digests[key]}`")
+
+    failures = payload.get("failures")
+    if isinstance(failures, list) and failures:
+        lines.append("  - failures:")
+        for failure in failures:
+            if not isinstance(failure, Mapping):
+                continue
+            lines.append(
+                "    - "
+                f"code `{failure.get('code')}`, "
+                f"phase `{failure.get('phase')}`, "
+                f"retryable `{failure.get('retryable')}`, "
+                f"count `{failure.get('count')}`"
+            )
+
+    for key in ("outcomes", "aggregate_scores", "ranking"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            lines.append(
+                f"  - {key}: `"
+                + json.dumps(value, sort_keys=True, separators=(",", ":"))
+                + "`"
+            )
+    for key in ("selected_arm", "success_rule_disposition"):
+        if key in payload:
+            lines.append(f"  - {key}: `{payload[key]}`")
+    verdict = payload.get("verdict")
+    if isinstance(verdict, Mapping):
+        for source, label in (("digest", "verdict_digest"), ("relpath", "verdict_relpath")):
+            if source in verdict:
+                lines.append(f"  - {label}: `{verdict[source]}`")
+    if "evidence_freeze_digest" in payload:
+        lines.append(
+            "  - evidence_freeze_digest: "
+            f"`{payload['evidence_freeze_digest']}`"
+        )
+    accounting = payload.get("budget_accounting")
+    if isinstance(accounting, Mapping):
+        lines.append("  - budget_accounting:")
+        for key in (
+            "cell_count",
+            "completed_count",
+            "failed_count",
+            "child_attempts",
+            "evaluator_attempts",
+            "elapsed_ms",
+            "token_usage",
+            "cost",
+        ):
+            if key in accounting:
+                lines.append(f"    - {key}: `{accounting[key]}`")
 
 
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
@@ -607,37 +761,45 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
 
         output_payload = step.get("output", {})
         if output_payload:
-            lines.append("- output:")
-            lines.append(f"  - exit_code: `{output_payload.get('exit_code')}`")
-            lines.append(f"  - duration_ms: `{output_payload.get('duration_ms')}`")
-            preview = output_payload.get("output_preview")
-            if preview:
-                lines.append("  - preview:")
-                lines.append("```")
-                lines.append(str(preview))
-                lines.append("```")
-            artifacts = output_payload.get("artifacts")
-            if artifacts:
-                lines.append(f"  - artifacts: `{artifacts}`")
-            debug_payload = output_payload.get("debug")
-            if debug_payload:
-                lines.append(f"  - debug: `{debug_payload}`")
-            provider_session = output_payload.get("provider_session")
-            if provider_session:
-                lines.append(f"  - provider_session: `{provider_session}`")
-            adjudication = output_payload.get("adjudication")
-            if adjudication:
-                lines.append("  - adjudication:")
-                for key, value in adjudication.items():
-                    lines.append(f"    - {key}: `{value}`")
-            selected_variant = output_payload.get("selected_variant")
-            if selected_variant:
-                lines.append(f"  - selected_variant: `{selected_variant}`")
-            snapshots = output_payload.get("snapshots")
-            if snapshots:
-                lines.append("  - snapshots:")
-                for snapshot_name, snapshot_payload in snapshots.items():
-                    lines.append(f"    - {snapshot_name}: `{snapshot_payload}`")
+            trial_observability = output_payload.get("trial_observability")
+            if step.get("kind") == "trial":
+                if isinstance(trial_observability, Mapping):
+                    _append_trial_observability_markdown(
+                        lines,
+                        trial_observability,
+                    )
+            else:
+                lines.append("- output:")
+                lines.append(f"  - exit_code: `{output_payload.get('exit_code')}`")
+                lines.append(f"  - duration_ms: `{output_payload.get('duration_ms')}`")
+                preview = output_payload.get("output_preview")
+                if preview:
+                    lines.append("  - preview:")
+                    lines.append("```")
+                    lines.append(str(preview))
+                    lines.append("```")
+                artifacts = output_payload.get("artifacts")
+                if artifacts:
+                    lines.append(f"  - artifacts: `{artifacts}`")
+                debug_payload = output_payload.get("debug")
+                if debug_payload:
+                    lines.append(f"  - debug: `{debug_payload}`")
+                provider_session = output_payload.get("provider_session")
+                if provider_session:
+                    lines.append(f"  - provider_session: `{provider_session}`")
+                adjudication = output_payload.get("adjudication")
+                if adjudication:
+                    lines.append("  - adjudication:")
+                    for key, value in adjudication.items():
+                        lines.append(f"    - {key}: `{value}`")
+                selected_variant = output_payload.get("selected_variant")
+                if selected_variant:
+                    lines.append(f"  - selected_variant: `{selected_variant}`")
+                snapshots = output_payload.get("snapshots")
+                if snapshots:
+                    lines.append("  - snapshots:")
+                    for snapshot_name, snapshot_payload in snapshots.items():
+                        lines.append(f"    - {snapshot_name}: `{snapshot_payload}`")
 
         lines.append("")
 
