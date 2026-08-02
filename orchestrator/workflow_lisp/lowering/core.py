@@ -1749,6 +1749,14 @@ def _inline_output_refs_for_expr(
     """Resolve direct branch output refs without synthesizing a child step."""
 
     output_refs: dict[str, str] = {}
+    allow_compiler_direct_result = (
+        type_ref == context.signature.return_type_ref
+        and isinstance(
+            getattr(context.signature, "compiler_direct_result_contract_digest", None),
+            str,
+        )
+        and context.type_env.target_dsl_version == "2.25"
+    )
     fields = (
         derive_workflow_boundary_fields(
             type_ref,
@@ -1756,6 +1764,8 @@ def _inline_output_refs_for_expr(
             source_path=("return",),
             span=expr.span,
             form_path=expr.form_path,
+            allow_transportable_value=allow_compiler_direct_result,
+            type_env=context.type_env,
         )
         if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
         else (

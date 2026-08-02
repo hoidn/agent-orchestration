@@ -195,11 +195,7 @@ def typecheck_trial_expr(expr, *, context, recurse, typed_factory):
                 expr.span.end.line,
                 expr.span.end.column,
             ],
-            "arms": arm_type_payloads,
-            "reps": expr.reps,
-            "max_concurrency": expr.max_concurrency,
-            "evaluation": asdict(expr.evaluation),
-            "budget": asdict(expr.budget),
+            "value_contract": value_descriptors[0],
         }
     )
     generated = build_trial_generated_types(
@@ -217,7 +213,11 @@ def typecheck_trial_expr(expr, *, context, recurse, typed_factory):
         direct_effects=(RunsTrialEffect(),)
     )
     return typed_factory(
-        expr=replace(expr, arms=tuple(typed_arms)),
+        expr=replace(
+            expr,
+            arms=tuple(typed_arms),
+            site_digest=site_digest,
+        ),
         type_ref=generated.result_type,
         effect=merge_effect_summaries(*arm_summaries, trial_effect),
     )

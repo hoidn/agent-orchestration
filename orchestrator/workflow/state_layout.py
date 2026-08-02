@@ -37,6 +37,7 @@ class GeneratedPathSemanticRole(str, Enum):
     COMMAND_RESULT_BUNDLE = "command_result_bundle"
     PROVIDER_RESULT_BUNDLE = "provider_result_bundle"
     RUN_REF_RESULT_BUNDLE = "run_ref_result_bundle"
+    TRIAL_RESULT_BUNDLE = "trial_result_bundle"
     VARIANT_PROJECTION_BUNDLE = "variant_projection_bundle"
     PURE_PROJECTION_BUNDLE = "pure_projection_bundle"
     RESOURCE_STATE = "resource_state"
@@ -273,6 +274,7 @@ def derive_entrypoint_managed_write_root_allocations(
                 GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.RUN_REF_RESULT_BUNDLE,
+                GeneratedPathSemanticRole.TRIAL_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
                 GeneratedPathSemanticRole.PURE_PROJECTION_BUNDLE,
             }

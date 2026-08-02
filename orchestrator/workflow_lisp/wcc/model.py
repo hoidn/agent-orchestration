@@ -34,6 +34,7 @@ WCC_M4_ROUTE_SCHEMA_VERSION = "wcc_m4"
 _RUN_REF_SITE_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _RUN_REF_RESULT_NAME = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
 _RUN_REF_INPUT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
+_TRIAL_RESULT_NAME = re.compile(r"TrialResult\$[0-9a-f]{16}\Z")
 
 
 def _stable_identity_digest(payload: dict[str, object]) -> str:
@@ -401,6 +402,135 @@ class WccRunRefPayload:
             (name, json.loads(descriptor_json))
             for name, descriptor_json in self._input_type_descriptor_rows
         )
+
+
+@dataclass(frozen=True)
+class WccTrialArmPayload:
+    """One closed nested E1 payload and its dynamic WCC keyword names."""
+
+    arm_id: str
+    run_ref: WccRunRefPayload
+    input_keywords: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.arm_id, str) or not self.arm_id:
+            raise ValueError("WCC trial arm id must be non-empty")
+        if not isinstance(self.run_ref, WccRunRefPayload):
+            raise TypeError("WCC trial arm requires a closed run-ref payload")
+        if not isinstance(self.input_keywords, tuple):
+            raise TypeError("WCC trial arm input keywords must be a tuple")
+        source_names = tuple(name for name, _ in self.input_keywords)
+        keyword_names = tuple(name for _, name in self.input_keywords)
+        if source_names != tuple(
+            name for name, _ in self.run_ref.input_type_descriptors
+        ):
+            raise ValueError("WCC trial arm inputs disagree with run-ref payload")
+        if len(set(keyword_names)) != len(keyword_names) or any(
+            _RUN_REF_INPUT_NAME.fullmatch(name) is None for name in keyword_names
+        ):
+            raise ValueError("WCC trial arm keyword identities are invalid")
+
+
+@dataclass(frozen=True, init=False)
+class WccTrialPayload:
+    """Closed static trial facts carried separately from dynamic arm inputs."""
+
+    arms: tuple[WccTrialArmPayload, ...]
+    site_digest: str
+    generated_result_type: str
+    result_digest: str
+    reps: int
+    max_concurrency: int
+    _evaluation_json: bytes = field(repr=False)
+    _budget_json: bytes = field(repr=False)
+    _result_descriptor_json: bytes = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        arms: tuple[WccTrialArmPayload, ...],
+        site_digest: str,
+        generated_result_type: str,
+        result_descriptor: Mapping[str, object],
+        result_digest: str,
+        reps: int,
+        max_concurrency: int,
+        evaluation: Mapping[str, object],
+        budget: Mapping[str, object],
+    ) -> None:
+        if (
+            not isinstance(arms, tuple)
+            or not 2 <= len(arms) <= 16
+            or any(not isinstance(arm, WccTrialArmPayload) for arm in arms)
+        ):
+            raise ValueError("WCC trial requires 2-16 typed arms")
+        arm_ids = tuple(arm.arm_id for arm in arms)
+        if len(set(arm_ids)) != len(arm_ids):
+            raise ValueError("WCC trial arm ids must be unique")
+        keyword_names = tuple(
+            keyword
+            for arm in arms
+            for _, keyword in arm.input_keywords
+        )
+        if len(set(keyword_names)) != len(keyword_names):
+            raise ValueError("WCC trial input keyword identities must be unique")
+        if not isinstance(site_digest, str) or _RUN_REF_SITE_DIGEST.fullmatch(
+            site_digest
+        ) is None:
+            raise ValueError("WCC trial site digest is invalid")
+        if (
+            not isinstance(generated_result_type, str)
+            or _TRIAL_RESULT_NAME.fullmatch(generated_result_type) is None
+            or generated_result_type.removeprefix("TrialResult$")
+            != site_digest[:16]
+        ):
+            raise ValueError("WCC trial generated result identity is invalid")
+        if type(reps) is not int or not 1 <= reps <= 64 or len(arms) * reps > 256:
+            raise ValueError("WCC trial repetitions are invalid")
+        if (
+            type(max_concurrency) is not int
+            or not 1 <= max_concurrency <= 32
+            or max_concurrency > len(arms) * reps
+        ):
+            raise ValueError("WCC trial concurrency is invalid")
+        descriptor = dict(result_descriptor)
+        if set(descriptor) != {"schema", "envelope"}:
+            raise ValueError("WCC trial result descriptor is not closed")
+        validate_compiler_normalized_type_descriptor(
+            descriptor["envelope"],
+            context="wcc_trial_result",
+        )
+        if descriptor["envelope"].get("name") != generated_result_type:
+            raise ValueError("WCC trial result descriptor identity changed")
+        from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+        if canonical_sha256(descriptor) != result_digest:
+            raise ValueError("WCC trial result digest is invalid")
+        object.__setattr__(self, "arms", arms)
+        object.__setattr__(self, "site_digest", site_digest)
+        object.__setattr__(self, "generated_result_type", generated_result_type)
+        object.__setattr__(self, "result_digest", result_digest)
+        object.__setattr__(self, "reps", reps)
+        object.__setattr__(self, "max_concurrency", max_concurrency)
+        object.__setattr__(self, "_evaluation_json", canonical_json_bytes(evaluation))
+        object.__setattr__(self, "_budget_json", canonical_json_bytes(budget))
+        object.__setattr__(
+            self,
+            "_result_descriptor_json",
+            canonical_json_bytes(descriptor),
+        )
+
+    @property
+    def evaluation(self) -> dict[str, object]:
+        return json.loads(self._evaluation_json)
+
+    @property
+    def budget(self) -> dict[str, object]:
+        return json.loads(self._budget_json)
+
+    @property
+    def result_descriptor(self) -> dict[str, object]:
+        return json.loads(self._result_descriptor_json)
 
 
 @dataclass(frozen=True)

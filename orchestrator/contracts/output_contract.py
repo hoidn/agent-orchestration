@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import json
 import math
 from dataclasses import dataclass
@@ -315,6 +315,214 @@ def validate_prompt_output_position_destinations(
             )
 
 
+_UNION_OUTPUT_PROJECTION_KEYS = frozenset(
+    {
+        "projection_class",
+        "return_kind",
+        "union_output_group",
+        "discriminant_output",
+        "field_role",
+        "active_variants",
+    }
+)
+
+
+def _resolve_union_output_projection_activity(
+    fields: list[Any],
+    document: Any,
+    *,
+    bundle_path: str,
+) -> tuple[dict[str, bool], list[ContractViolation]]:
+    """Validate union projection metadata and resolve active raw members."""
+
+    violations: list[ContractViolation] = []
+    specs_by_name: dict[str, Mapping[str, Any]] = {}
+    metadata_by_name: dict[str, Mapping[str, Any]] = {}
+
+    def reject(
+        *,
+        name: str,
+        reason: str,
+        projection: object,
+    ) -> None:
+        violations.append(
+            ContractViolation(
+                type="invalid_output_projection",
+                message="Output bundle projection metadata is invalid",
+                context={
+                    "path": bundle_path,
+                    "name": name,
+                    "reason": reason,
+                    "projection": projection,
+                },
+            )
+        )
+
+    for spec in fields:
+        if not isinstance(spec, Mapping) or "projection" not in spec:
+            continue
+        name_value = spec.get("name")
+        name = name_value.strip() if isinstance(name_value, str) else ""
+        projection = spec.get("projection")
+        if not isinstance(projection, Mapping):
+            reject(name=name, reason="metadata_not_object", projection=projection)
+            continue
+        projection_class = projection.get("projection_class")
+        if projection_class == "provider_bundle_path_projection":
+            continue
+        if projection_class != "union_workflow_boundary":
+            reject(name=name, reason="unknown_projection_class", projection=projection)
+            continue
+        if set(projection) != _UNION_OUTPUT_PROJECTION_KEYS:
+            reject(name=name, reason="metadata_keys_mismatch", projection=projection)
+            continue
+        group = projection.get("union_output_group")
+        discriminant_output = projection.get("discriminant_output")
+        field_role = projection.get("field_role")
+        active_variants = projection.get("active_variants")
+        if (
+            projection.get("return_kind") != "union"
+            or not isinstance(group, str)
+            or not group
+            or not isinstance(discriminant_output, str)
+            or not discriminant_output
+            or field_role not in {"discriminant", "shared", "variant"}
+            or not isinstance(active_variants, Sequence)
+            or isinstance(active_variants, (str, bytes))
+            or not active_variants
+            or any(
+                not isinstance(variant, str) or not variant
+                for variant in active_variants
+            )
+            or len(set(active_variants)) != len(active_variants)
+        ):
+            reject(name=name, reason="metadata_value_invalid", projection=projection)
+            continue
+        if not name:
+            reject(name=name, reason="projected_field_name_invalid", projection=projection)
+            continue
+        specs_by_name[name] = spec
+        metadata_by_name[name] = projection
+
+    activity: dict[str, bool] = {}
+    groups: dict[str, list[str]] = {}
+    for name, projection in metadata_by_name.items():
+        groups.setdefault(str(projection["union_output_group"]), []).append(name)
+
+    for group, members in groups.items():
+        discriminants = [
+            name
+            for name in members
+            if metadata_by_name[name]["field_role"] == "discriminant"
+        ]
+        if len(discriminants) != 1:
+            for name in members:
+                reject(
+                    name=name,
+                    reason="group_discriminant_count_invalid",
+                    projection=metadata_by_name[name],
+                )
+            continue
+        discriminant_name = discriminants[0]
+        discriminant = metadata_by_name[discriminant_name]
+        allowed_variants = tuple(discriminant["active_variants"])
+        discriminant_spec = specs_by_name[discriminant_name]
+        schema_allowed = discriminant_spec.get("allowed")
+        if (
+            discriminant_spec.get("type") != "enum"
+            or discriminant_spec.get("required", True) is False
+            or not isinstance(schema_allowed, Sequence)
+            or isinstance(schema_allowed, (str, bytes))
+            or not schema_allowed
+            or any(
+                not isinstance(variant, str) or not variant
+                for variant in schema_allowed
+            )
+            or len(set(schema_allowed)) != len(schema_allowed)
+            or tuple(schema_allowed) != allowed_variants
+        ):
+            reject(
+                name=discriminant_name,
+                reason="discriminant_schema_mismatch",
+                projection=discriminant,
+            )
+            continue
+        group_valid = True
+        for name in members:
+            projection = metadata_by_name[name]
+            active_variants = tuple(projection["active_variants"])
+            active_set = set(active_variants)
+            ordered_active_variants = tuple(
+                variant for variant in allowed_variants if variant in active_set
+            )
+            role = projection["field_role"]
+            if (
+                projection["discriminant_output"] != discriminant_name
+                or not active_set.issubset(allowed_variants)
+                or ordered_active_variants != active_variants
+                or (role in {"discriminant", "shared"} and active_variants != allowed_variants)
+                or (role == "variant" and active_variants == allowed_variants)
+            ):
+                reject(
+                    name=name,
+                    reason="group_membership_invalid",
+                    projection=projection,
+                )
+                group_valid = False
+        if not group_valid:
+            continue
+        discriminant_pointer = specs_by_name[discriminant_name].get("json_pointer")
+        if not isinstance(discriminant_pointer, str) or (
+            discriminant_pointer != "" and not discriminant_pointer.startswith("/")
+        ):
+            continue
+        found, active_variant = _resolve_json_pointer(document, discriminant_pointer)
+        if (
+            not found
+            or not isinstance(active_variant, str)
+            or active_variant not in allowed_variants
+        ):
+            continue
+        for name in members:
+            projection = metadata_by_name[name]
+            is_active = (
+                projection["field_role"] != "variant"
+                or active_variant in projection["active_variants"]
+            )
+            activity[name] = is_active
+            if is_active:
+                continue
+            pointer = specs_by_name[name].get("json_pointer")
+            if not isinstance(pointer, str) or (
+                pointer != "" and not pointer.startswith("/")
+            ):
+                continue
+            present, _ = _resolve_json_pointer(document, pointer)
+            if present:
+                violations.append(
+                    ContractViolation(
+                        type="inactive_union_output_present",
+                        message=(
+                            "Output bundle contains a payload for an inactive "
+                            "union variant"
+                        ),
+                        context={
+                            "path": bundle_path,
+                            "name": name,
+                            "json_pointer": pointer,
+                            "union_output_group": group,
+                            "active_variant": active_variant,
+                        },
+                        subject_refs=_field_subject_refs(
+                            specs_by_name[name],
+                            selected_variant=active_variant,
+                        ),
+                    )
+                )
+
+    return activity, violations
+
+
 def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
     """Validate output_bundle JSON contract and return typed artifact values."""
     resolved_workspace = workspace.resolve()
@@ -366,6 +574,15 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
             )
         ])
 
+    projection_activity, projection_violations = (
+        _resolve_union_output_projection_activity(
+            fields,
+            document,
+            bundle_path=bundle_path,
+        )
+    )
+    violations.extend(projection_violations)
+
     for i, spec in enumerate(fields):
         if not isinstance(spec, dict):
             violations.append(ContractViolation(
@@ -409,6 +626,8 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
             continue
 
         found, raw_value = _resolve_json_pointer(document, json_pointer)
+        if projection_activity.get(artifact_name) is False:
+            continue
         if not found:
             if _is_optional_spec(spec):
                 artifacts[artifact_name] = None

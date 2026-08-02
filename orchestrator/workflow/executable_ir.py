@@ -60,6 +60,10 @@ from .run_ref.config import (
     validate_run_ref_static_config_authority,
 )
 from .run_ref.contracts import canonical_sha256
+from .trial.config import (
+    TrialStaticConfig,
+    validate_trial_static_config_authority,
+)
 from .pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -74,6 +78,7 @@ PROVIDER_SUPERVISION_SCHEMA_VERSION = "provider_supervision.v1"
 PROVIDER_PEER_GROUP_SCHEMA_VERSION = "provider_peer_group.v1"
 PROVIDER_PEER_GROUP_MESSAGING_POLICY = "all_other_members"
 RUN_REF_STEP_CONFIG_IDENTITY_SCHEMA = "run_ref_step_config_identity.v1"
+TRIAL_STEP_CONFIG_IDENTITY_SCHEMA = "trial_step_config_identity.v1"
 
 
 def _serialize_provider_call_policy(
@@ -96,6 +101,13 @@ def _serialize_run_ref_capsule_binding(
     return binding.record
 
 
+def _serialize_trial_static_config(
+    config: TrialStaticConfig,
+) -> dict[str, Any]:
+    validate_trial_static_config_authority(config)
+    return config.record
+
+
 class WorkflowRegion(str, Enum):
     """Top-level execution region membership."""
 
@@ -111,6 +123,7 @@ class ExecutableNodeKind(str, Enum):
     PROVIDER_SUPERVISION = "provider_supervision"
     PROVIDER_PEER_GROUP = "provider_peer_group"
     RUN_REF = "run_ref"
+    TRIAL = "trial"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
@@ -477,6 +490,93 @@ class RunRefStepConfig:
 
 
 @dataclass(frozen=True)
+class TrialArmStepConfig:
+    """One authored trial arm with complete E1 executable authority."""
+
+    arm_id: str
+    run_ref: RunRefStepConfig
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.arm_id, str) or not self.arm_id:
+            raise ValueError("trial arm id must be non-empty")
+        if type(self.run_ref) is not RunRefStepConfig:
+            raise TypeError("trial arm requires RunRefStepConfig")
+
+
+@dataclass(frozen=True)
+class TrialStepConfig:
+    """Closed executable config for one bounded static trial."""
+
+    common: StepCommonConfig
+    trial: TrialStaticConfig = field(
+        metadata={"json_serializer": _serialize_trial_static_config},
+    )
+    arms: tuple[TrialArmStepConfig, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.common) is not StepCommonConfig:
+            raise TypeError("trial executable common config must be StepCommonConfig")
+        validate_trial_static_config_authority(self.trial)
+        if not isinstance(self.arms, tuple) or any(
+            type(arm) is not TrialArmStepConfig for arm in self.arms
+        ):
+            raise TypeError("trial executable arms must be an ordered tuple")
+        if len(self.arms) != len(self.trial.arms):
+            raise ValueError("trial executable arm count disagrees with static authority")
+        for arm, static_arm in zip(self.arms, self.trial.arms, strict=True):
+            if (
+                arm.arm_id != static_arm.arm_id
+                or arm.run_ref.run_ref != static_arm.run_ref
+            ):
+                raise ValueError(
+                    "trial executable arm authority disagrees with static config"
+                )
+
+    @property
+    def step_config_digest(self) -> str:
+        return canonical_sha256(
+            {
+                "schema_version": TRIAL_STEP_CONFIG_IDENTITY_SCHEMA,
+                "trial_static_config_digest": self.trial.digest,
+                "result_contract_digest": self.trial.result_digest,
+                "arms": [
+                    {
+                        "arm_id": arm.arm_id,
+                        "run_ref_step_config_digest": (
+                            arm.run_ref.step_config_digest
+                        ),
+                    }
+                    for arm in self.arms
+                ],
+            }
+        )
+
+
+def derive_unbound_trial_step_config(
+    trial: TrialStaticConfig,
+    *,
+    common: StepCommonConfig | None = None,
+) -> TrialStepConfig:
+    """Derive the unique pre-capsule executable carrier from static authority."""
+
+    validate_trial_static_config_authority(trial)
+    return TrialStepConfig(
+        common=StepCommonConfig() if common is None else common,
+        trial=trial,
+        arms=tuple(
+            TrialArmStepConfig(
+                arm_id=arm.arm_id,
+                run_ref=RunRefStepConfig(
+                    common=StepCommonConfig(),
+                    run_ref=arm.run_ref,
+                ),
+            )
+            for arm in trial.arms
+        ),
+    )
+
+
+@dataclass(frozen=True)
 class AdjudicatedProviderStepConfig:
     """Executable adjudicated-provider step config."""
 
@@ -601,6 +701,7 @@ ExecutableStepConfig = (
     | ProviderSupervisionStepConfig
     | ProviderPeerGroupStepConfig
     | RunRefStepConfig
+    | TrialStepConfig
     | AdjudicatedProviderStepConfig
     | WaitForStepConfig
     | AssertStepConfig
@@ -788,6 +889,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     ProviderSupervisionStepConfig,
     ProviderPeerGroupStepConfig,
     RunRefStepConfig,
+    TrialStepConfig,
     AdjudicatedProviderStepConfig,
     WaitForStepConfig,
     AssertStepConfig,
@@ -815,6 +917,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.PROVIDER_SUPERVISION: ProviderSupervisionStepConfig,
     ExecutableNodeKind.PROVIDER_PEER_GROUP: ProviderPeerGroupStepConfig,
     ExecutableNodeKind.RUN_REF: RunRefStepConfig,
+    ExecutableNodeKind.TRIAL: TrialStepConfig,
     ExecutableNodeKind.ADJUDICATED_PROVIDER: AdjudicatedProviderStepConfig,
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
@@ -1168,6 +1271,13 @@ def _validate_node_shape(
             node=node,
             target_dsl_version=target_dsl_version,
         )
+    if isinstance(node.execution_config, TrialStepConfig):
+        _validate_trial_step_config(
+            node.execution_config,
+            workflow_name=workflow_name,
+            node=node,
+            target_dsl_version=target_dsl_version,
+        )
 
     if isinstance(node, FinalizationStepNode) and node.region is not WorkflowRegion.FINALIZATION:
         _raise_executable_ir_invalid(
@@ -1208,6 +1318,35 @@ def _validate_run_ref_step_config(
     if not _target_dsl_at_least_2_24(target_dsl_version):
         _raise_executable_ir_invalid(
             "executable_ir_invalid: run_ref requires target DSL 2.24 or later",
+            workflow_name=workflow_name,
+            node=node,
+        )
+
+
+def _validate_trial_step_config(
+    config: TrialStepConfig,
+    *,
+    workflow_name: str | None,
+    node: ExecutableNode,
+    target_dsl_version: str,
+) -> None:
+    try:
+        validate_trial_static_config_authority(config.trial)
+        TrialStepConfig(
+            common=config.common,
+            trial=config.trial,
+            arms=config.arms,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_executable_ir_invalid(
+            "executable_ir_invalid: trial config authority is invalid: "
+            f"{exc}",
+            workflow_name=workflow_name,
+            node=node,
+        )
+    if not _target_dsl_at_least_2_25(target_dsl_version):
+        _raise_executable_ir_invalid(
+            "executable_ir_invalid: trial requires target DSL 2.25 or later",
             workflow_name=workflow_name,
             node=node,
         )
@@ -1814,6 +1953,17 @@ def _validate_ir_payload(
                 node=current_node,
             )
         return
+    if type(value) is TrialStaticConfig:
+        try:
+            validate_trial_static_config_authority(value)
+        except (TypeError, ValueError) as exc:
+            _raise_executable_ir_invalid(
+                "executable_ir_invalid: trial config authority is invalid: "
+                f"{exc}",
+                workflow_name=workflow_name,
+                node=current_node,
+            )
+        return
     if value is None or isinstance(value, (str, int, float, bool, Enum, Path)):
         return
     if isinstance(value, Mapping):
@@ -1889,6 +2039,18 @@ def _target_dsl_at_least_2_24(value: str) -> bool:
     ):
         return False
     return tuple(int(part) for part in raw_parts) >= (2, 24)
+
+
+def _target_dsl_at_least_2_25(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    raw_parts = value.split(".")
+    if len(raw_parts) < 2 or any(
+        _CANONICAL_TARGET_COMPONENT_RE.fullmatch(part) is None
+        for part in raw_parts
+    ):
+        return False
+    return tuple(int(part) for part in raw_parts) >= (2, 25)
 
 
 def _validate_bound_address(

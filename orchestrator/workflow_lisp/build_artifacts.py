@@ -21,7 +21,10 @@ from typing import TYPE_CHECKING, Any
 
 from orchestrator._common.canonical import sha256_json
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.executable_ir import (
+    TrialStepConfig,
+    workflow_executable_ir_to_json,
+)
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
 from orchestrator.workflow.persisted_surface import (
     PERSISTED_WORKFLOW_SURFACE_FILENAME,
@@ -377,6 +380,12 @@ def _serialize_lexical_checkpoint_points(
         component_digest = _checkpoint_identity_component_digest(point)
         if component_digest is not None:
             payload["identity_component_digest"] = component_digest
+        point_executable_identity = point.details.get("executable_identity")
+        if isinstance(point_executable_identity, Mapping):
+            for name in ("trial_result_contract_digest",):
+                value = point_executable_identity.get(name)
+                if value is not None:
+                    payload[name] = value
         return payload
 
     points = [
@@ -453,6 +462,7 @@ def _validate_lexical_checkpoint_artifacts(
         and isinstance(point.get("checkpoint_id"), str)
     }
     observed_run_ref_node_ids: list[str] = []
+    observed_trial_node_ids: list[str] = []
     runtime_nodes = runtime_plan_payload.get("nodes", {})
     if not isinstance(runtime_nodes, Mapping):
         raise ValueError("lexical checkpoint executable identity drift")
@@ -463,6 +473,15 @@ def _validate_lexical_checkpoint_artifacts(
         and (
             node.get("kind") == "run_ref"
             or node.get("run_ref_config_digest") is not None
+        )
+    }
+    expected_trial_node_ids = {
+        str(node_id)
+        for node_id, node in runtime_nodes.items()
+        if isinstance(node, Mapping)
+        and (
+            node.get("kind") == "trial"
+            or node.get("trial_config_digest") is not None
         )
     }
     for point in points_payload.get("points", []):
@@ -501,6 +520,10 @@ def _validate_lexical_checkpoint_artifacts(
             expected_executable_identity["identity_component_digest"] = (
                 expected_component_digest
             )
+        for name in ("trial_result_contract_digest",):
+            value = runtime_executable_identity.get(name)
+            if value is not None:
+                expected_executable_identity[name] = value
         observed_executable_identity = point.get("executable_identity")
         if (
             not isinstance(observed_executable_identity, Mapping)
@@ -536,6 +559,46 @@ def _validate_lexical_checkpoint_artifacts(
             observed_run_ref_node_ids.append(
                 str(expected_executable_identity["node_id"])
             )
+        if (
+            isinstance(runtime_node, Mapping)
+            and (
+                runtime_node.get("kind") == "trial"
+                or runtime_node.get("trial_config_digest") is not None
+            )
+        ):
+            if (
+                observed_executable_identity.get("identity_component_digest")
+                != runtime_node.get("trial_config_digest")
+                or observed_executable_identity.get(
+                    "trial_result_contract_digest"
+                )
+                != runtime_node.get("trial_result_contract_digest")
+            ):
+                raise ValueError(
+                    "lexical checkpoint executable identity drift"
+                )
+            if validated_bundle is not None:
+                executable_node = validated_bundle.ir.nodes.get(
+                    str(expected_executable_identity["node_id"])
+                )
+                executable_config = getattr(
+                    executable_node,
+                    "execution_config",
+                    None,
+                )
+                if (
+                    type(executable_config) is not TrialStepConfig
+                    or runtime_node.get("trial_config_digest")
+                    != executable_config.trial.digest
+                    or runtime_node.get("trial_result_contract_digest")
+                    != executable_config.trial.result_digest
+                ):
+                    raise ValueError(
+                        "lexical checkpoint executable identity drift"
+                    )
+            observed_trial_node_ids.append(
+                str(expected_executable_identity["node_id"])
+            )
         if expected_executable_identity["node_id"] not in runtime_node_ids:
             raise ValueError("lexical checkpoint point missing executable node linkage")
         if point.get("source_lineage", {}).get("origin_key") not in origin_keys:
@@ -548,6 +611,11 @@ def _validate_lexical_checkpoint_artifacts(
     if (
         len(observed_run_ref_node_ids) != len(set(observed_run_ref_node_ids))
         or set(observed_run_ref_node_ids) != expected_run_ref_node_ids
+    ):
+        raise ValueError("lexical checkpoint executable identity drift")
+    if (
+        len(observed_trial_node_ids) != len(set(observed_trial_node_ids))
+        or set(observed_trial_node_ids) != expected_trial_node_ids
     ):
         raise ValueError("lexical checkpoint executable identity drift")
 

@@ -44,6 +44,7 @@ from ..expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -954,6 +955,16 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        return
+    if isinstance(expr, TrialExpr):
+        for arm in expr.arms:
+            for _, input_expr in arm.run_ref.inputs:
+                _validate_wcc_m4_expr_supported(
+                    input_expr,
+                    workflow_name=workflow_name,
+                    local_workflow_signatures=local_workflow_signatures,
+                    workflow_ref_value_names=workflow_ref_value_names,
+                )
         return
     if isinstance(expr, ProviderResultExpr):
         _validate_wcc_m4_expr_supported(

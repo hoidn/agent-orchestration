@@ -48,16 +48,24 @@ from orchestrator.workflow.provider_phased_delivery.models import (
     partition_provider_call_policy,
 )
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
+from orchestrator.workflow.trial.config import (
+    TrialStaticConfig,
+    decode_trial_static_config,
+    encode_trial_static_config,
+    validate_trial_static_config_authority,
+)
 
 
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA = "persisted_workflow_surface_graph.v1"
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2 = "persisted_workflow_surface_graph.v2"
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3 = "persisted_workflow_surface_graph.v3"
+PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4 = "persisted_workflow_surface_graph.v4"
 SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS = frozenset(
     {
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
     }
 )
 PERSISTED_WORKFLOW_SURFACE_FILENAME = "persisted_workflow_surface.json"
@@ -104,6 +112,7 @@ class PersistedSurfaceStep:
         CompilerPromptAttemptBindingPlan | None
     ) = None
     provider_call_policy: Mapping[str, object] | None = None
+    trial: TrialStaticConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -234,12 +243,16 @@ def serialize_persisted_workflow_surface_graph(
     if resolved_entry_name != entry_workflow:
         raise ValueError("persisted workflow surface entry identity is inconsistent")
     schema_version = (
-        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
-        if _serialized_nodes_contain_q3(nodes)
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+        if _serialized_nodes_contain_trial(nodes)
         else (
-            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
-            if _serialized_nodes_contain_q2(nodes)
-            else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+            if _serialized_nodes_contain_q3(nodes)
+            else (
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+                if _serialized_nodes_contain_q2(nodes)
+                else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+            )
         )
     )
     return {
@@ -345,16 +358,29 @@ def decode_persisted_workflow_surface_graph(
         _persisted_steps_contain_q3((*node.steps, *node.finalization_steps))
         for node in nodes.values()
     )
+    has_trial = any(
+        _persisted_steps_contain_trial((*node.steps, *node.finalization_steps))
+        for node in nodes.values()
+    )
     expected_schema = (
-        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
-        if has_q3
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+        if has_trial
         else (
-            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
-            if has_fragment_carriage
-            else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+            if has_q3
+            else (
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+                if has_fragment_carriage
+                else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+            )
         )
     )
     if schema_version != expected_schema:
+        if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4 or has_trial:
+            raise ValueError(
+                "trial_static_config_persistence_mismatch: "
+                "persisted graph schema does not match its trial carriage"
+            )
         if (
             schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
             or has_q3
@@ -533,7 +559,51 @@ def _serialize_step(
         )
     if persisted_provider_call_policy is not None:
         payload["provider_call_policy"] = persisted_provider_call_policy
+    if step.kind is SurfaceStepKind.TRIAL:
+        if step.trial is None:
+            raise ValueError("trial_static_config_persistence_mismatch: trial is missing")
+        if not _target_dsl_at_least(target_dsl_version, (2, 25)):
+            raise ValueError(
+                "trial_static_config_persistence_mismatch: "
+                "trial carriage requires target DSL 2.25"
+            )
+        validate_trial_static_config_authority(step.trial)
+        payload["trial"] = step.trial.record
     return payload
+
+
+def _serialized_nodes_contain_trial(nodes: Mapping[str, Any]) -> bool:
+    def step_contains(step: Any) -> bool:
+        if not isinstance(step, Mapping):
+            return False
+        if step.get("kind") == SurfaceStepKind.TRIAL.value:
+            return True
+        nested_groups: list[Any] = [
+            step.get("for_each_steps"),
+            step.get("then_steps"),
+            step.get("else_steps"),
+        ]
+        match_cases = step.get("match_cases")
+        if isinstance(match_cases, Mapping):
+            nested_groups.extend(match_cases.values())
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            nested_groups.append(repeat_until.get("steps"))
+        return any(
+            isinstance(group, list)
+            and any(step_contains(child) for child in group)
+            for group in nested_groups
+        )
+
+    return any(
+        isinstance(node, Mapping)
+        and any(
+            isinstance(steps, list)
+            and any(step_contains(step) for step in steps)
+            for steps in (node.get("steps"), node.get("finalization_steps"))
+        )
+        for node in nodes.values()
+    )
 
 
 def _serialized_nodes_contain_q2(nodes: Mapping[str, Any]) -> bool:
@@ -670,6 +740,24 @@ def _persisted_steps_contain_q3(
     return False
 
 
+def _persisted_steps_contain_trial(
+    steps: tuple[PersistedSurfaceStep, ...],
+) -> bool:
+    for step in steps:
+        if step.kind is SurfaceStepKind.TRIAL:
+            return True
+        nested = (
+            *step.for_each_steps,
+            *step.then_steps,
+            *step.else_steps,
+            *(child for case_steps in step.match_cases.values() for child in case_steps),
+            *(() if step.repeat_until is None else step.repeat_until.steps),
+        )
+        if _persisted_steps_contain_trial(nested):
+            return True
+    return False
+
+
 _STEP_KEYS = {
     "name",
     "step_id",
@@ -702,6 +790,7 @@ _V3_OPTIONAL_STEP_KEYS = {
 _Q5_OPTIONAL_STEP_KEYS = {
     "provider_call_policy",
 }
+_V4_TRIAL_STEP_KEYS = {"trial"}
 _COMMON_KEYS = {
     "publishes",
     "consumes",
@@ -730,6 +819,12 @@ def _optional_step_keys(
 ) -> set[str]:
     keys = set(_OPTIONAL_STEP_KEYS)
     if (
+        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+        and kind is SurfaceStepKind.TRIAL
+        and _target_dsl_at_least(target_dsl_version, (2, 25))
+    ):
+        keys.update(_V4_TRIAL_STEP_KEYS)
+    if (
         kind is not SurfaceStepKind.PROVIDER
         or schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
     ):
@@ -737,11 +832,18 @@ def _optional_step_keys(
     if _target_dsl_at_least(target_dsl_version, (2, 21)):
         keys.update(_V2_OPTIONAL_STEP_KEYS)
     if (
-        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+        schema_version
+        in {
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+        }
         and _target_dsl_at_least(target_dsl_version, (2, 22))
     ):
         keys.update(_V3_OPTIONAL_STEP_KEYS)
-    if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3:
+    if schema_version in {
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+    }:
         keys.update(_Q5_OPTIONAL_STEP_KEYS)
     return keys
 
@@ -757,6 +859,22 @@ def _decode_step(
         kind = SurfaceStepKind(_non_empty_string(raw["kind"], "step kind"))
     except (KeyError, ValueError) as exc:
         raise ValueError("persisted surface step kind is unsupported") from exc
+    has_trial = "trial" in raw
+    if kind is SurfaceStepKind.TRIAL:
+        if (
+            schema_version != PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+            or not _target_dsl_at_least(target_dsl_version, (2, 25))
+            or not has_trial
+        ):
+            raise ValueError(
+                "trial_static_config_persistence_mismatch: "
+                "trial requires v4 carriage at target DSL 2.25"
+            )
+    elif has_trial:
+        raise ValueError(
+            "trial_static_config_persistence_mismatch: "
+            "trial carriage requires a trial step"
+        )
     if (
         schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
         and {
@@ -874,7 +992,11 @@ def _decode_step(
         )
         fragment_schema = fragment_payload.get("schema_version")
         q3_fragment_carriage = (
-            schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+            schema_version
+            in {
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+            }
             and _target_dsl_at_least(target_dsl_version, (2, 22))
         )
         allowed_fragment_schemas = (
@@ -924,6 +1046,18 @@ def _decode_step(
         identity_version=decoded_q3_version,
         target_dsl_version=target_dsl_version,
     )
+    decoded_trial = None
+    if has_trial:
+        trial_payload = _mapping(raw["trial"], "persisted trial static config")
+        try:
+            decoded_trial = decode_trial_static_config(
+                encode_trial_static_config_payload(trial_payload)
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "trial_static_config_persistence_mismatch: "
+                f"persisted trial authority is invalid: {exc}"
+            ) from exc
     decoded = PersistedSurfaceStep(
         name=_non_empty_string(raw["name"], "step name"),
         step_id=_non_empty_string(raw["step_id"], "step id"),
@@ -1006,6 +1140,7 @@ def _decode_step(
             if decoded_provider_call_policy is None
             else MappingProxyType(decoded_provider_call_policy)
         ),
+        trial=decoded_trial,
     )
     validate_compiler_prompt_fragment_pair(
         decoded.compiler_prompt_fragment_contract,
@@ -1020,6 +1155,18 @@ def _decode_step(
         target_dsl_version=target_dsl_version,
     )
     return decoded
+
+
+def encode_trial_static_config_payload(value: Mapping[str, Any]) -> bytes:
+    """Encode one embedded trial record using the config's canonical wire form."""
+
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 def _validate_q5_provider_carriage(

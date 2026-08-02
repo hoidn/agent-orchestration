@@ -74,18 +74,18 @@ _WHOLE_INPUT_OUTPUT_CONTRACTS = {
 def _shared_validation_source_map_payload(
     lowered_workflow: LoweredWorkflow,
 ) -> Mapping[str, object] | None:
-    """Project run-ref lineage needed by the shared bundle validators."""
+    """Project generated E1/trial lineage for shared bundle validators."""
 
     workflow_name = lowered_workflow.typed_workflow.definition.name
     generated_semantic_effects = tuple(
         lowered_workflow.origin_map.generated_semantic_effects
     )
-    run_ref_effects = tuple(
+    identity_effects = tuple(
         effect
         for effect in generated_semantic_effects
-        if effect.effect_kind == "run_ref"
+        if effect.effect_kind in {"run_ref", "trial"}
     )
-    if not run_ref_effects:
+    if not identity_effects:
         return None
 
     def origin_rows(
@@ -214,6 +214,13 @@ class LowerableRunRef:
             not isinstance(row, LowerableRunRefInput) for row in self.inputs
         ):
             raise TypeError("lowerable run-ref inputs must be an ordered tuple")
+
+
+@dataclass(frozen=True)
+class _RunRefContractView:
+    descriptor: Mapping[str, object]
+    digest: str
+    allow_nested_structures: bool
 
 
 def _input_binding_error(
@@ -683,109 +690,15 @@ def _lower_run_ref_operation(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     """Build an inert run-ref step without selecting a public lowering route."""
 
-    if not isinstance(run_ref, LowerableRunRef):
-        raise TypeError("run-ref lowering requires LowerableRunRef")
-    if not isinstance(result_type, RecordTypeRef):
-        raise TypeError("run-ref lowering requires its generated record result")
-    contract = derive_run_ref_result_contract(
-        result_type,
-        type_env=context.type_env,
-    )
-    if (
-        result_type.name != run_ref.payload.generated_result_type
-        or contract.descriptor != run_ref.payload.result_descriptor
-        or contract.digest != run_ref.payload.result_digest
-        or contract.allow_nested_structures
-        is not run_ref.payload.allow_nested_structures
-    ):
-        raise ValueError("run-ref result metadata changed before lowering")
-    output_fields = derive_run_ref_output_bundle_fields(contract)
-
-    payload_descriptors = run_ref.payload.input_type_descriptors
-    if len(run_ref.inputs) != len(payload_descriptors):
-        raise ValueError("run-ref input metadata changed before lowering")
-    input_plans: list[_RunRefInputBindingPlan] = []
-    for row, (payload_name, payload_descriptor) in zip(
-        run_ref.inputs,
-        payload_descriptors,
-        strict=True,
-    ):
-        normalized_descriptor = compiler_normalized_type_descriptor(
-            row.type_ref,
-            type_env=context.type_env,
-            source_read_trace=getattr(context, "source_read_trace", None),
-        )
-        if (
-            row.name != payload_name
-            or dict(row.type_descriptor) != payload_descriptor
-            or normalized_descriptor != payload_descriptor
-        ):
-            raise ValueError("run-ref input metadata changed before lowering")
-        input_plans.append(
-            _plan_run_ref_input_binding(
-                row,
-                context=context,
-                local_values=local_values,
-            )
-        )
-
-    prefix_steps: list[dict[str, Any]] = []
-    lowered_inputs: list[RunRefInput] = []
-    for plan, (_, payload_descriptor) in zip(
-        input_plans,
-        payload_descriptors,
-        strict=True,
-    ):
-        binding = plan.direct_binding
-        if plan.requires_projection:
-            projection_step_name = context.normalize_generated_step_id(
-                f"{context.step_name_prefix}__input__{plan.row.name}"
-            )
-            lowered_projection = lower_pure_projection_step(
-                plan.row.value_expr,
-                result_type=plan.row.type_ref,
-                context=context,
-                local_values=local_values,
-                step_name=projection_step_name,
-                step_id=projection_step_name,
-                stable_target=f"run_ref_input_{plan.row.name}",
-                output_contracts=_WHOLE_INPUT_OUTPUT_CONTRACTS,
-            )
-            binding_ref = lowered_projection.output_refs.get("return")
-            if (
-                set(lowered_projection.output_refs) != {"return"}
-                or not isinstance(binding_ref, str)
-            ):
-                raise ValueError(
-                    "run-ref whole-input projection did not expose one root ref"
-                )
-            prefix_steps.append(lowered_projection.step)
-            binding = ReferenceBinding(binding_ref)
-        if binding is None:
-            raise AssertionError("run-ref input plan did not produce a binding")
-        lowered_inputs.append(
-            RunRefInput(
-                name=plan.row.name,
-                type_descriptor=payload_descriptor,
-                binding=binding,
-                allow_nested_structures=contract.allow_nested_structures,
-            )
-        )
-
-    compiler_identity = _compiler_runtime_identity_digest(
-        context.lowering_session,
+    prefix_steps, config, contract = _lower_run_ref_static_config(
+        run_ref,
+        result_type=result_type,
+        context=context,
+        local_values=local_values,
         identity_provider=identity_provider,
     )
-    config = build_run_ref_static_config(
-        compiler_runtime_identity_digest=compiler_identity,
-        site_digest=run_ref.payload.site_digest,
-        source=run_ref.payload.source,
-        program=run_ref.payload.program,
-        inputs=tuple(lowered_inputs),
-        result_descriptor=contract.descriptor,
-        result_digest=contract.digest,
-        target_dsl_version=context.type_env.target_dsl_version,
-    )
+    output_fields = derive_run_ref_output_bundle_fields(contract)
+
     step_name = context.step_name_prefix
     step_id = context.normalize_generated_step_id(step_name)
     allocation = allocate_generated_result_bundle(
@@ -847,3 +760,138 @@ def _lower_run_ref_operation(
         },
         checkpoint_identity_component_digest=config.digest,
     )
+
+
+def _lower_run_ref_static_config(
+    run_ref: LowerableRunRef,
+    *,
+    result_type: RecordTypeRef | None,
+    context: _LoweringContext,
+    local_values: Mapping[str, object],
+    identity_provider: Callable[
+        [], VerifiedCompilerRuntimeIdentity
+    ] = compute_compiler_runtime_identity,
+    projection_step_role: str = "input",
+):
+    """Lower one nested E1 form without emitting its own effect node."""
+
+    if not isinstance(run_ref, LowerableRunRef):
+        raise TypeError("run-ref lowering requires LowerableRunRef")
+    if result_type is not None and not isinstance(result_type, RecordTypeRef):
+        raise TypeError("run-ref lowering requires its generated record result")
+    contract = (
+        derive_run_ref_result_contract(
+            result_type,
+            type_env=context.type_env,
+        )
+        if isinstance(result_type, RecordTypeRef)
+        else _RunRefContractView(
+            descriptor=run_ref.payload.result_descriptor,
+            digest=run_ref.payload.result_digest,
+            allow_nested_structures=run_ref.payload.allow_nested_structures,
+        )
+    )
+    if (
+        (
+            isinstance(result_type, RecordTypeRef)
+            and result_type.name != run_ref.payload.generated_result_type
+        )
+        or contract.descriptor != run_ref.payload.result_descriptor
+        or contract.digest != run_ref.payload.result_digest
+        or contract.allow_nested_structures
+        is not run_ref.payload.allow_nested_structures
+    ):
+        raise ValueError("run-ref result metadata changed before lowering")
+    if isinstance(result_type, RecordTypeRef):
+        # Keep the public leaf's established fail-before-mutation contract:
+        # output flattening can reject collisions, so validate it before
+        # projection allocation or compiler-identity caching.
+        derive_run_ref_output_bundle_fields(contract)
+    payload_descriptors = run_ref.payload.input_type_descriptors
+    if len(run_ref.inputs) != len(payload_descriptors):
+        raise ValueError("run-ref input metadata changed before lowering")
+    input_plans: list[_RunRefInputBindingPlan] = []
+    for row, (payload_name, payload_descriptor) in zip(
+        run_ref.inputs,
+        payload_descriptors,
+        strict=True,
+    ):
+        normalized_descriptor = compiler_normalized_type_descriptor(
+            row.type_ref,
+            type_env=context.type_env,
+            source_read_trace=getattr(context, "source_read_trace", None),
+        )
+        if (
+            row.name != payload_name
+            or dict(row.type_descriptor) != payload_descriptor
+            or normalized_descriptor != payload_descriptor
+        ):
+            raise ValueError("run-ref input metadata changed before lowering")
+        input_plans.append(
+            _plan_run_ref_input_binding(
+                row,
+                context=context,
+                local_values=local_values,
+            )
+        )
+
+    prefix_steps: list[dict[str, Any]] = []
+    lowered_inputs: list[RunRefInput] = []
+    for plan, (_, payload_descriptor) in zip(
+        input_plans,
+        payload_descriptors,
+        strict=True,
+    ):
+        binding = plan.direct_binding
+        if plan.requires_projection:
+            projection_step_name = context.normalize_generated_step_id(
+                f"{context.step_name_prefix}__{projection_step_role}__{plan.row.name}"
+            )
+            lowered_projection = lower_pure_projection_step(
+                plan.row.value_expr,
+                result_type=plan.row.type_ref,
+                context=context,
+                local_values=local_values,
+                step_name=projection_step_name,
+                step_id=projection_step_name,
+                stable_target=(
+                    f"run_ref_{projection_step_role}_{plan.row.name}"
+                ),
+                output_contracts=_WHOLE_INPUT_OUTPUT_CONTRACTS,
+            )
+            binding_ref = lowered_projection.output_refs.get("return")
+            if (
+                set(lowered_projection.output_refs) != {"return"}
+                or not isinstance(binding_ref, str)
+            ):
+                raise ValueError(
+                    "run-ref whole-input projection did not expose one root ref"
+                )
+            prefix_steps.append(lowered_projection.step)
+            binding = ReferenceBinding(binding_ref)
+        if binding is None:
+            raise AssertionError("run-ref input plan did not produce a binding")
+        lowered_inputs.append(
+            RunRefInput(
+                name=plan.row.name,
+                type_descriptor=payload_descriptor,
+                binding=binding,
+                allow_nested_structures=contract.allow_nested_structures,
+            )
+        )
+
+    compiler_identity = _compiler_runtime_identity_digest(
+        context.lowering_session,
+        identity_provider=identity_provider,
+    )
+    config = build_run_ref_static_config(
+        compiler_runtime_identity_digest=compiler_identity,
+        site_digest=run_ref.payload.site_digest,
+        source=run_ref.payload.source,
+        program=run_ref.payload.program,
+        inputs=tuple(lowered_inputs),
+        result_descriptor=contract.descriptor,
+        result_digest=contract.digest,
+        target_dsl_version=context.type_env.target_dsl_version,
+    )
+    return prefix_steps, config, contract

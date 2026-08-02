@@ -435,3 +435,150 @@ def derive_trial_result_contract(
     object.__setattr__(contract, "digest", canonical_sha256(descriptor))
     object.__setattr__(contract, "type_ref", result_type_ref)
     return contract
+
+
+def derive_trial_output_bundle_fields(
+    contract: GeneratedTrialResultContract,
+) -> list[dict[str, Any]]:
+    """Project the exact generated trial envelope into bundle fields."""
+
+    if not isinstance(contract, GeneratedTrialResultContract):
+        raise TypeError("trial output bundle fields require a generated contract")
+    descriptor = contract.descriptor
+    if canonical_sha256(descriptor) != contract.digest:
+        raise ValueError("trial result contract digest is invalid")
+    envelope = descriptor.get("envelope")
+    if not isinstance(envelope, dict) or envelope.get("kind") != "record":
+        raise ValueError("trial result envelope descriptor is malformed")
+    fields: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+
+    def visit(
+        node: dict[str, Any],
+        path: tuple[str, ...],
+        *,
+        projection: dict[str, Any] | None = None,
+    ) -> None:
+        if node.get("kind") == "record":
+            raw_fields = node.get("fields")
+            if not isinstance(raw_fields, list):
+                raise ValueError("trial result record fields are malformed")
+            for raw_field in raw_fields:
+                if not isinstance(raw_field, dict):
+                    raise ValueError("trial result record field is malformed")
+                name = raw_field.get("name")
+                field_type = raw_field.get("type")
+                if not isinstance(name, str) or not isinstance(field_type, dict):
+                    raise ValueError("trial result record field is malformed")
+                visit(field_type, (*path, name), projection=projection)
+            return
+        if node.get("kind") == "union":
+            if projection is not None:
+                raise ValueError(
+                    "trial result output projection cannot encode nested "
+                    "conditional unions"
+                )
+            raw_variants = node.get("variants")
+            if not isinstance(raw_variants, list) or not raw_variants:
+                raise ValueError("trial result union variants are malformed")
+            variant_names: list[str] = []
+            payloads: dict[str, tuple[dict[str, Any], list[str]]] = {}
+            for raw_variant in raw_variants:
+                if not isinstance(raw_variant, dict):
+                    raise ValueError("trial result union variant is malformed")
+                variant_name = raw_variant.get("name")
+                variant_fields = raw_variant.get("fields")
+                if not isinstance(variant_name, str) or not isinstance(
+                    variant_fields,
+                    list,
+                ):
+                    raise ValueError("trial result union variant is malformed")
+                if not variant_name or variant_name in variant_names:
+                    raise ValueError("trial result union variant is malformed")
+                variant_names.append(variant_name)
+                variant_payload_names: set[str] = set()
+                for raw_field in variant_fields:
+                    if not isinstance(raw_field, dict):
+                        raise ValueError("trial result union field is malformed")
+                    name = raw_field.get("name")
+                    field_type = raw_field.get("type")
+                    if (
+                        not isinstance(name, str)
+                        or not name
+                        or name in variant_payload_names
+                        or not isinstance(field_type, dict)
+                    ):
+                        raise ValueError("trial result union field is malformed")
+                    variant_payload_names.add(name)
+                    previous = payloads.get(name)
+                    if previous is None:
+                        payloads[name] = (field_type, [variant_name])
+                    else:
+                        previous_type, active_variants = previous
+                        if previous_type != field_type:
+                            raise ValueError(
+                                "trial result union payload schemas disagree"
+                            )
+                        active_variants.append(variant_name)
+            discriminant_name = "__".join((*path, "variant"))
+            union_output_group = "__".join(path)
+            if not discriminant_name or not union_output_group:
+                raise ValueError("trial result union output projection is malformed")
+            common_projection = {
+                "projection_class": "union_workflow_boundary",
+                "return_kind": "union",
+                "union_output_group": union_output_group,
+                "discriminant_output": discriminant_name,
+            }
+            visit(
+                {
+                    "kind": "enum",
+                    "name": f"{node.get('name', 'TrialUnion')}Variant",
+                    "allowed": variant_names,
+                },
+                (*path, "variant"),
+                projection={
+                    **common_projection,
+                    "field_role": "discriminant",
+                    "active_variants": list(variant_names),
+                },
+            )
+            for name, (field_type, active_variants) in payloads.items():
+                visit(
+                    field_type,
+                    (*path, name),
+                    projection={
+                        **common_projection,
+                        "field_role": (
+                            "shared"
+                            if active_variants == variant_names
+                            else "variant"
+                        ),
+                        "active_variants": list(active_variants),
+                    },
+                )
+            return
+        name = "__".join(path)
+        if not name or name in seen_names:
+            raise ValueError("trial result output projection is ambiguous")
+        seen_names.add(name)
+        field = {
+            "name": name,
+            "json_pointer": "/"
+            + "/".join(
+                part.replace("~", "~0").replace("/", "~1")
+                for part in path
+            ),
+            **transport_schema_for_descriptor(
+                node,
+                allow_nested_structures=True,
+            ),
+        }
+        if projection is not None:
+            field["projection"] = projection
+        fields.append(field)
+
+    visit(envelope, ())
+    if not fields:
+        raise ValueError("trial result output projection is empty")
+    return fields

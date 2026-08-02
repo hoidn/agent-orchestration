@@ -457,6 +457,24 @@ def derive_workflow_signature_contracts(
     outputs: dict[str, SurfaceContract] = {}
     flattened_inputs: list[FlattenedContractField] = []
     flattened_outputs: list[FlattenedContractField] = []
+    allow_compiler_direct_result = False
+    direct_result_digest = getattr(
+        signature,
+        "compiler_direct_result_contract_digest",
+        None,
+    )
+    if isinstance(direct_result_digest, str):
+        from .trial_result_contract import derive_trial_result_contract
+
+        if getattr(type_env, "target_dsl_version", None) != "2.25":
+            raise ValueError("compiler direct result requires target DSL 2.25")
+        contract = derive_trial_result_contract(
+            signature.return_type_ref,
+            type_env=type_env,
+        )
+        if contract.digest != direct_result_digest:
+            raise ValueError("compiler direct result contract digest changed")
+        allow_compiler_direct_result = True
 
     for param_name, type_ref in signature.params:
         for flattened_field in derive_workflow_boundary_fields(
@@ -491,6 +509,7 @@ def derive_workflow_signature_contracts(
             source_path=("return",),
             span=signature.span,
             form_path=signature.form_path,
+            allow_transportable_value=allow_compiler_direct_result,
             type_env=type_env,
         )
         if isinstance(signature.return_type_ref, UnionTypeRef):

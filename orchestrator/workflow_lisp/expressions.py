@@ -427,6 +427,7 @@ class TrialExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    site_digest: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

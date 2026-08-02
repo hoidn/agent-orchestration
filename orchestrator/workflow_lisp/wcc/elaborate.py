@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields as dataclass_fields, is_dataclass, replace
+from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
 from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -46,6 +46,7 @@ from ..expressions import (
     RunRefBundleProgram,
     RunRefExpr,
     RunRefPathProgram,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -81,6 +82,7 @@ from ..loop_state import carrier_metadata_for_expr
 from ..lowering.pure_projection import is_pure_projection_expr
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import derive_run_ref_result_contract
+from ..trial_result_contract import derive_trial_result_contract
 from ..syntax import target_dsl_supports_nested_structural_transport
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
@@ -118,6 +120,8 @@ from .model import (
     WccRecordAtom,
     WccResumeOrStartPayload,
     WccRunRefPayload,
+    WccTrialArmPayload,
+    WccTrialPayload,
     WccRunProviderPhasePayload,
     WccSpecializationCapture,
     WccValue,
@@ -1270,7 +1274,7 @@ def _substitute_wcc_payload(
     value,
     substitutions: Mapping[str, WccValue],
 ):
-    if isinstance(value, WccRunRefPayload):
+    if isinstance(value, (WccRunRefPayload, WccTrialPayload)):
         return value
     if isinstance(
         value,
@@ -1593,6 +1597,7 @@ def _elaborate_expr_to_body(
             ProviderResultExpr,
             CommandResultExpr,
             RunRefExpr,
+            TrialExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -1836,6 +1841,7 @@ def _elaborate_let_star(
                 ProviderResultExpr,
                 CommandResultExpr,
                 RunRefExpr,
+                TrialExpr,
                 RunProviderPhaseExpr,
                 ProduceOneOfExpr,
                 ResumeOrStartExpr,
@@ -3647,6 +3653,35 @@ def _prebind_effect_argument_matches(
             ),
             tuple(match_bindings),
         )
+    if isinstance(expr, TrialExpr):
+        return (
+            replace(
+                expr,
+                arms=tuple(
+                    replace(
+                        arm,
+                        run_ref=replace(
+                            arm.run_ref,
+                            inputs=tuple(
+                                (
+                                    input_name,
+                                    replace_arg(
+                                        input_expr,
+                                        role=(
+                                            f"trial-arm:{arm_index}:"
+                                            f"run-ref-input:{input_name}"
+                                        ),
+                                    ),
+                                )
+                                for input_name, input_expr in arm.run_ref.inputs
+                            ),
+                        ),
+                    )
+                    for arm_index, arm in enumerate(expr.arms)
+                ),
+            ),
+            tuple(match_bindings),
+        )
     if isinstance(expr, RunProviderPhaseExpr):
         return (
             replace(
@@ -4059,6 +4094,129 @@ def _elaborate_effect_expr_to_binding_value(
                 for name, input_expr in expr.inputs
             ),
             returns_type_name=metadata.generated_type_name,
+            operation_payload=payload,
+        )
+    if isinstance(expr, TrialExpr):
+        from orchestrator.workflow.run_ref.config import BundleProgram, PathProgram
+        from orchestrator.workflow.run_ref.source import SourceRequest
+
+        if not isinstance(expr.site_digest, str):
+            raise TypeError("typed trial site identity is unavailable before WCC")
+        result_contract = derive_trial_result_contract(
+            result_type,
+            type_env=type_env,
+        )
+        arms: list[WccTrialArmPayload] = []
+        keyword_args: list[tuple[str, WccValue]] = []
+        for arm_index, arm in enumerate(expr.arms):
+            run_ref = arm.run_ref
+            metadata = resolve_unique_run_ref_site_metadata(
+                run_ref,
+                session_state=type_env.session_state,
+            )
+            arm_contract = derive_run_ref_result_contract(
+                metadata.type_ref,
+                type_env=type_env,
+            )
+            if isinstance(run_ref.program, RunRefBundleProgram):
+                program = BundleProgram(
+                    workflow_name=run_ref.program.workflow_name
+                )
+            elif isinstance(run_ref.program, RunRefPathProgram):
+                if run_ref.environment != "deterministic-effect-free":
+                    raise TypeError(
+                        "typed path run-ref environment changed before WCC"
+                    )
+                program = PathProgram(
+                    path=run_ref.program.path,
+                    entry_name=run_ref.program.entry_name,
+                    return_refinement=(
+                        None
+                        if run_ref.returns_type_name is None
+                        else compiler_normalized_type_descriptor(
+                            metadata.value_type_ref,
+                            type_env=type_env,
+                        )
+                    ),
+                    allow_nested_structures=True,
+                )
+            else:
+                raise TypeError("typed trial arm program mode changed before WCC")
+            arm_payload = WccRunRefPayload(
+                source=SourceRequest(
+                    locator=run_ref.source.repo,
+                    commit=run_ref.source.commit,
+                    setup=run_ref.setup,
+                ),
+                program=program,
+                site_digest=metadata.site_digest,
+                generated_result_type=metadata.generated_type_name,
+                result_descriptor=arm_contract.descriptor,
+                result_digest=arm_contract.digest,
+                allow_nested_structures=True,
+                input_type_descriptors=tuple(
+                    (
+                        name,
+                        compiler_normalized_type_descriptor(
+                            input_type,
+                            type_env=type_env,
+                        ),
+                    )
+                    for name, input_type in metadata.input_types
+                ),
+            )
+            input_keywords: list[tuple[str, str]] = []
+            for input_name, input_expr in run_ref.inputs:
+                keyword = f"arm_{arm_index}__{input_name}"
+                input_keywords.append((input_name, keyword))
+                keyword_args.append(
+                    (
+                        keyword,
+                        _elaborate_atomic_value(
+                            input_expr,
+                            scope=scope.child_scope(
+                                "trial-arm-input",
+                                authored_binding_name=(
+                                    f"{arm_index}:{input_name}"
+                                ),
+                            ),
+                            type_env=type_env,
+                            value_env=value_env,
+                            workflow_return_types=workflow_return_types,
+                            procedure_return_types=procedure_return_types,
+                            effect_summary=effect_summary,
+                            procedure_edges_by_site=procedure_edges_by_site,
+                            compile_time_bindings=compile_time_bindings,
+                            active_phase_scope=active_phase_scope,
+                        ),
+                    )
+                )
+            arms.append(
+                WccTrialArmPayload(
+                    arm_id=arm.arm_id,
+                    run_ref=arm_payload,
+                    input_keywords=tuple(input_keywords),
+                )
+            )
+        payload = WccTrialPayload(
+            arms=tuple(arms),
+            site_digest=expr.site_digest,
+            generated_result_type=result_type.name,
+            result_descriptor=result_contract.descriptor,
+            result_digest=result_contract.digest,
+            reps=expr.reps,
+            max_concurrency=expr.max_concurrency,
+            evaluation=asdict(expr.evaluation),
+            budget=asdict(expr.budget),
+        )
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:trial", **metadata_kwargs),
+            perform_kind="trial",
+            target_name="trial",
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=tuple(keyword_args),
+            returns_type_name=result_type.name,
             operation_payload=payload,
         )
     if isinstance(expr, WithLiveProviderPeersExpr):
@@ -4664,6 +4822,7 @@ def _elaborate_workflow_call_binding_value(
             ProviderResultExpr,
             CommandResultExpr,
             RunRefExpr,
+            TrialExpr,
             RunProviderPhaseExpr,
             FinalizeSelectedItemExpr,
             ResourceTransitionExpr,
@@ -5081,6 +5240,13 @@ def _infer_expr_type(
             expr,
             session_state=type_env.session_state,
         ).type_ref
+    if isinstance(expr, TrialExpr):
+        if not isinstance(expr.site_digest, str):
+            raise TypeError("typed trial site identity is unavailable before WCC")
+        resolved = type_env._type_refs.get(f"TrialResult${expr.site_digest[:16]}")
+        if not isinstance(resolved, RecordTypeRef):
+            raise TypeError("typed trial result contract is unavailable before WCC")
+        return resolved
     if isinstance(expr, ProviderBundlePathExpr):
         return _resolve_wcc_type_name(
             expr.target_type_name,

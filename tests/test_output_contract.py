@@ -1,6 +1,7 @@
 """Tests for deterministic artifact output contracts."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from types import MappingProxyType
 
@@ -1152,6 +1153,158 @@ def test_validate_output_bundle_missing_pointer_raises_violation(tmp_path: Path)
         validate_output_bundle(bundle, workspace=tmp_path)
 
     assert any(v["type"] == "json_pointer_not_found" for v in exc_info.value.violations)
+
+
+def _union_projected_output_bundle() -> dict[str, object]:
+    common = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "choice",
+        "discriminant_output": "choice__variant",
+    }
+    return {
+        "path": "state/result.json",
+        "fields": [
+            {
+                "name": "choice__variant",
+                "json_pointer": "/choice/variant",
+                "type": "enum",
+                "allowed": ["KNOWN", "UNKNOWN"],
+                "projection": {
+                    **common,
+                    "field_role": "discriminant",
+                    "active_variants": ["KNOWN", "UNKNOWN"],
+                },
+            },
+            {
+                "name": "choice__value",
+                "json_pointer": "/choice/value",
+                "type": "integer",
+                "projection": {
+                    **common,
+                    "field_role": "variant",
+                    "active_variants": ["KNOWN"],
+                },
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "malformation",
+    ("unknown_class", "missing_member", "unknown_role", "wrong_group_binding"),
+)
+def test_validate_output_bundle_rejects_malformed_union_projection_metadata(
+    tmp_path: Path,
+    malformation: str,
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {"variant": "UNKNOWN"}}),
+        encoding="utf-8",
+    )
+    bundle = deepcopy(_union_projected_output_bundle())
+    projection = bundle["fields"][1]["projection"]
+    if malformation == "unknown_class":
+        projection["projection_class"] = "unknown_projection"
+    elif malformation == "missing_member":
+        projection.pop("active_variants")
+    elif malformation == "unknown_role":
+        projection["field_role"] = "sometimes"
+    else:
+        projection["discriminant_output"] = "other__variant"
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(
+        violation["type"] == "invalid_output_projection"
+        for violation in exc_info.value.violations
+    )
+
+
+@pytest.mark.parametrize(
+    "discriminant_schema",
+    (
+        {"type": "enum", "allowed": ["KNOWN", "UNKNOWN", "OTHER"]},
+        {"type": "enum", "allowed": ["KNOWN"]},
+        {"type": "string"},
+    ),
+    ids=("wider-enum", "narrower-enum", "non-enum"),
+)
+def test_validate_output_bundle_binds_union_projection_to_exact_enum_schema(
+    tmp_path: Path,
+    discriminant_schema: dict[str, object],
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {"variant": "UNKNOWN"}}),
+        encoding="utf-8",
+    )
+    bundle = _union_projected_output_bundle()
+    discriminant = bundle["fields"][0]
+    discriminant.pop("allowed")
+    discriminant.update(discriminant_schema)
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(
+        violation["type"] == "invalid_output_projection"
+        and violation["context"]["reason"]
+        == "discriminant_schema_mismatch"
+        for violation in exc_info.value.violations
+    )
+
+
+def test_validate_output_bundle_rejects_nonrequired_union_discriminant(
+    tmp_path: Path,
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {}}),
+        encoding="utf-8",
+    )
+    bundle = _union_projected_output_bundle()
+    discriminant = bundle["fields"][0]
+    discriminant["required"] = False
+    payload = bundle["fields"][1]
+    payload["type"] = "optional"
+    payload["item"] = {"type": "integer"}
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(
+        violation["type"] == "invalid_output_projection"
+        and violation["context"]["reason"]
+        == "discriminant_schema_mismatch"
+        for violation in exc_info.value.violations
+    )
+
+
+def test_validate_output_bundle_preserves_active_projected_optional_omission(
+    tmp_path: Path,
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {"variant": "KNOWN"}}),
+        encoding="utf-8",
+    )
+    bundle = _union_projected_output_bundle()
+    bundle["fields"][1]["type"] = "optional"
+    bundle["fields"][1]["item"] = {"type": "integer"}
+
+    artifacts = validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert artifacts == {
+        "choice__variant": "KNOWN",
+        "choice__value": None,
+    }
 
 
 def test_validate_output_bundle_invalid_enum_raises_violation(tmp_path: Path):

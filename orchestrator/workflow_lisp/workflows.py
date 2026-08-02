@@ -389,6 +389,7 @@ class WorkflowSignature:
     entry_hidden_context_callees: frozenset[str] = frozenset()
     allowed_private_compatibility_bridge_callees: frozenset[str] = frozenset()
     entry_bootstrap_gate_denial: str | None = None
+    compiler_direct_result_contract_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2671,8 +2672,7 @@ def typecheck_workflow_definitions(
             clear_active_workflow_signature(compiler_session.typecheck)
         if (
             type_env.target_dsl_version == "2.25"
-            and isinstance(signature.return_type_ref, PrimitiveTypeRef)
-            and signature.return_type_ref.name == "Value"
+            and workflow_def.return_type_name == "Value"
             and isinstance(body_expr, TrialExpr)
             and isinstance(typed_body.type_ref, RecordTypeRef)
             and typed_body.type_ref.name in type_env._compiler_owned_type_names
@@ -2680,7 +2680,7 @@ def typecheck_workflow_definitions(
             from .trial_result_contract import derive_trial_result_contract
 
             try:
-                derive_trial_result_contract(
+                direct_result_contract = derive_trial_result_contract(
                     typed_body.type_ref,
                     type_env=type_env,
                 )
@@ -2690,6 +2690,9 @@ def typecheck_workflow_definitions(
                 signature = replace(
                     signature,
                     return_type_ref=typed_body.type_ref,
+                    compiler_direct_result_contract_digest=(
+                        direct_result_contract.digest
+                    ),
                 )
                 workflow_catalog.signatures_by_name[workflow_def.name] = signature
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):

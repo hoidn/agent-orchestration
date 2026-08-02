@@ -13,6 +13,7 @@ from orchestrator.workflow.executable_ir import (
     CallBoundaryNode,
     ProviderStepConfig,
     RunRefStepConfig,
+    TrialStepConfig,
 )
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
@@ -63,6 +64,8 @@ def _run_ref_configs(
         config = getattr(node, "execution_config", None)
         if isinstance(config, RunRefStepConfig):
             configs.append(config)
+        elif type(config) is TrialStepConfig:
+            configs.extend(arm.run_ref for arm in config.arms)
     return tuple(configs)
 
 

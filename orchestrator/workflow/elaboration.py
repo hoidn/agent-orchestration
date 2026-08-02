@@ -38,6 +38,7 @@ from .surface_ast import (
     SurfaceStep,
     SurfaceStepCommonConfig,
     SurfaceStepKind,
+    TrialSurfaceStep,
     SurfaceWorkflow,
     WorkflowProvenance,
     freeze_mapping,
@@ -77,6 +78,7 @@ _RUN_REF_CONFLICTING_STEP_KEYS = frozenset(
         "compiler_prompt_attempt_binding_plan",
         "provider_supervision",
         "provider_peer_group",
+        "trial",
         "command",
         "wait_for",
         "assert",
@@ -495,7 +497,15 @@ def _elaborate_step(
             ),
         )
 
-    return SurfaceStep(
+    surface_step_type = (
+        TrialSurfaceStep if kind is SurfaceStepKind.TRIAL else SurfaceStep
+    )
+    trial_kwargs = (
+        {"trial": step.get("trial")}
+        if kind is SurfaceStepKind.TRIAL
+        else {}
+    )
+    return surface_step_type(
         name=str(step.get("name", "")),
         step_id=str(step.get("step_id", "")),
         kind=kind,
@@ -642,6 +652,7 @@ def _elaborate_step(
         ),
         call_alias=step.get("call") if kind is SurfaceStepKind.CALL and isinstance(step.get("call"), str) else None,
         call_bindings=MappingProxyType(call_bindings),
+        **trial_kwargs,
     )
 
 
@@ -975,6 +986,26 @@ def _surface_step_kind(
     *,
     allow_generated_step_kinds: bool,
 ) -> SurfaceStepKind:
+    if "trial" in step:
+        conflicting_keys = tuple(
+            sorted(
+                _RUN_REF_CONFLICTING_STEP_KEYS.intersection(step)
+                - {"trial"}
+            )
+        )
+        if "run_ref" in step:
+            conflicting_keys = (*conflicting_keys, "run_ref")
+        if conflicting_keys:
+            raise ValueError(
+                "trial cannot be combined with another operation kind: "
+                + ", ".join(conflicting_keys)
+            )
+        if not allow_generated_step_kinds:
+            raise ValueError(
+                "trial is compiler-generated only and cannot appear in "
+                "authored workflows"
+            )
+        return SurfaceStepKind.TRIAL
     if "run_ref" in step:
         conflicting_keys = tuple(
             sorted(_RUN_REF_CONFLICTING_STEP_KEYS.intersection(step))
@@ -1062,6 +1093,10 @@ def _validate_reserved_generated_step_kinds(
             if "run_ref" in step:
                 validation_backend.add_error(
                     f"Step '{step_name}': run_ref is compiler-generated only and cannot appear in authored workflows"
+                )
+            if "trial" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': trial is compiler-generated only and cannot appear in authored workflows"
                 )
             if "pure_projection" in step:
                 validation_backend.add_error(

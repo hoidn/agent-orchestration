@@ -45,6 +45,7 @@ class _TerminalResult:
     hidden_inputs: Mapping[str, LoweringOrigin]
     provider_bundle_identity: Mapping[str, Any] | None = None
     checkpoint_identity_component_digest: str | None = None
+    checkpoint_result_contract_digest: str | None = None
     returned_union_type_name: str | None = None
     returned_union_variant_name: str | None = None
 

@@ -34,6 +34,7 @@ from .executable_ir import (
     ResourceTransitionStepConfig,
     RepeatUntilStepConfig,
     RunRefStepConfig,
+    TrialStepConfig,
     SelectVariantOutputStepConfig,
     SetScalarStepConfig,
     StepCommonConfig,
@@ -343,6 +344,11 @@ class RuntimeStep(Mapping[str, Any]):
                 return config.run_ref
             raise KeyError(key)
 
+        if isinstance(config, TrialStepConfig):
+            if key == "trial":
+                return config
+            raise KeyError(key)
+
         if isinstance(config, AdjudicatedProviderStepConfig):
             if key == "adjudicated_provider":
                 return thaw_runtime_value(config.adjudicated_provider)
@@ -497,6 +503,10 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, RunRefStepConfig):
             yield "run_ref"
+            return
+
+        if isinstance(config, TrialStepConfig):
+            yield "trial"
             return
 
         if isinstance(config, AdjudicatedProviderStepConfig):

@@ -181,7 +181,7 @@ def _checkpoint_identity_component_digest(
     executable_identity = _mapping(payload.get("executable_identity"))
     component_digest = executable_identity.get("identity_component_digest")
     if component_digest is None:
-        if required or step_kind in {"provider_peer_group", "run_ref"}:
+        if required or step_kind in {"provider_peer_group", "run_ref", "trial"}:
             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
         return None
     if not isinstance(component_digest, str) or re.fullmatch(
@@ -202,7 +202,7 @@ def _component_checkpoint_policy_digest(
     details = _point_details(point)
     payload = details if details else _mapping(point)
     step_kind = payload.get("step_kind")
-    supported_kinds = {"provider_peer_group", "run_ref"}
+    supported_kinds = {"provider_peer_group", "run_ref", "trial"}
     if not required and step_kind not in supported_kinds:
         return None
     effect_boundary = _mapping(payload.get("effect_boundary"))
@@ -214,20 +214,35 @@ def _component_checkpoint_policy_digest(
         point,
         required=True,
     )
-    expected_policy_kind = (
-        "fail_closed_non_idempotent"
-        if step_kind == "provider_peer_group"
-        else "reuse_validated_run_ref_result"
-    )
-    expected_evidence = (
-        {}
-        if step_kind == "provider_peer_group"
-        else {
+    expected_policy_kind = {
+        "provider_peer_group": "fail_closed_non_idempotent",
+        "run_ref": "reuse_validated_run_ref_result",
+        "trial": "reuse_validated_trial_result",
+    }[step_kind]
+    if step_kind == "provider_peer_group":
+        expected_evidence: Mapping[str, Any] = {}
+    elif step_kind == "run_ref":
+        expected_evidence = {
             "run_ref_result": {
                 "step_config_digest": component_digest,
             }
         }
-    )
+    else:
+        trial_static_digest = component_digest
+        trial_result_digest = executable_identity.get(
+            "trial_result_contract_digest"
+        )
+        for digest in (trial_result_digest,):
+            if not isinstance(digest, str) or re.fullmatch(
+                r"sha256:[0-9a-f]{64}", digest
+            ) is None:
+                raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        expected_evidence = {
+            "trial_result": {
+                "trial_static_config_digest": trial_static_digest,
+                "result_contract_digest": trial_result_digest,
+            }
+        }
     if (
         _point_field(point, "point_kind") != "effect_boundary"
         or effect_boundary.get("effect_kind") != step_kind
@@ -278,6 +293,13 @@ def _runtime_program_identity_point(
     )
     if component_digest is not None:
         payload["identity_component_digest"] = component_digest
+    executable_identity = _mapping(
+        (_point_details(point) or _mapping(point)).get("executable_identity")
+    )
+    if executable_identity.get("trial_result_contract_digest") is not None:
+        payload["trial_result_contract_digest"] = executable_identity.get(
+            "trial_result_contract_digest"
+        )
     policy_digest = _component_checkpoint_policy_digest(
         point,
         required=component_digest is not None,
@@ -1009,6 +1031,8 @@ def collect_completed_effect_refs(
         return []
     if effect_kind == "pure_projection":
         return []
+    if effect_kind == "trial":
+        return []
     runtime_step = _runtime_step_for_point(executor, point)
     step_state = (
         _mapping(committed_step_state)
@@ -1159,6 +1183,15 @@ def _validate_completed_effect_refs(
 
     validity_envelope = _mapping(record.get("validity_envelope"))
     observed_digest = validity_envelope.get("completed_effect_refs_digest")
+    if effect_kind == "trial":
+        if completed_effect_refs or observed_digest not in {
+            None,
+            _completed_effect_refs_digest(()),
+        }:
+            raise ValueError(
+                EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
+            )
+        return
     if not completed_effect_refs:
         if observed_digest is None:
             return

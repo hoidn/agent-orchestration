@@ -29,6 +29,7 @@ from .executable_ir import (
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     RunRefStepConfig,
+    TrialStepConfig,
     provider_peer_group_config_to_runtime_dict,
 )
 from .prompt_dependency_contract import (
@@ -49,6 +50,10 @@ from .runtime_plan import WorkflowRuntimePlan
 from .run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
+)
+from .trial.config import (
+    TrialStaticConfig,
+    validate_trial_static_config_authority,
 )
 from .state_layout import (
     GeneratedPathAllocationRequest,
@@ -79,6 +84,7 @@ _PROMOTED_GENERATED_EFFECT_KINDS = frozenset(
         "pure_projection",
         "materialize_view",
         "run_ref",
+        "trial",
     }
 )
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
@@ -1362,6 +1368,16 @@ def validate_workflow_semantic_ir(
                 runtime_plan=runtime_plan,
                 surface=surface,
             )
+        elif effect.effect_kind == "trial":
+            _validate_trial_effect(
+                semantic_ir=semantic_ir,
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+                ir=ir,
+                runtime_plan=runtime_plan,
+                surface=surface,
+            )
         elif effect.effect_kind == _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
             _validate_provider_bundle_path_projection_effect(
                 semantic_ir=semantic_ir,
@@ -1423,6 +1439,44 @@ def validate_workflow_semantic_ir(
                     statement,
                 ),
             )
+        trial_effects = tuple(
+            effect
+            for effect in semantic_ir.effects.values()
+            if effect.statement_id == statement.statement_id
+            and effect.effect_kind == "trial"
+        )
+        if statement.step_kind == SurfaceStepKind.TRIAL.value:
+            canonical_effect_id = _effect_id(
+                workflow_name,
+                statement.step_id,
+                "trial",
+            )
+            if (
+                len(trial_effects) != 1
+                or trial_effects[0].effect_id != canonical_effect_id
+                or semantic_ir.effects.get(canonical_effect_id)
+                is not trial_effects[0]
+                or statement.effect_ids.count(canonical_effect_id) != 1
+            ):
+                _raise_semantic_ir_invalid(
+                    "semantic_ir_invalid: trial statement "
+                    f"`{statement.step_id}` requires exactly one canonical trial effect",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(
+                        workflow_name,
+                        statement,
+                    ),
+                )
+        elif trial_effects:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: non-trial statement "
+                f"`{statement.step_id}` cannot carry a trial effect",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(
+                    workflow_name,
+                    statement,
+                ),
+            )
     run_ref_effect_allocation_ids = tuple(
         effect.details.get("result_allocation_id")
         for effect in semantic_ir.effects.values()
@@ -1452,6 +1506,28 @@ def validate_workflow_semantic_ir(
     ):
         _raise_semantic_ir_invalid(
             "semantic_ir_invalid: run_ref effects and result allocations must match exactly",
+            workflow_name=workflow_name,
+        )
+    trial_effect_allocation_ids = tuple(
+        effect.details.get("result_allocation_id")
+        for effect in semantic_ir.effects.values()
+        if effect.effect_kind == "trial"
+    )
+    trial_layout_allocation_ids = tuple(
+        layout.details.get("allocation_id")
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "trial_result_bundle"
+    )
+    if (
+        any(not isinstance(value, str) or not value for value in trial_effect_allocation_ids)
+        or any(not isinstance(value, str) or not value for value in trial_layout_allocation_ids)
+        or len(set(trial_effect_allocation_ids)) != len(trial_effect_allocation_ids)
+        or len(set(trial_layout_allocation_ids)) != len(trial_layout_allocation_ids)
+        or set(trial_effect_allocation_ids) != set(trial_layout_allocation_ids)
+    ):
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: trial effects and result allocations must match exactly",
             workflow_name=workflow_name,
         )
 
@@ -2440,6 +2516,61 @@ def _generated_promoted_effect_details(
                 "output_bundle_path": output_bundle_path,
             }
         )
+
+    if effect_kind == "trial":
+        if surface_step.kind is not SurfaceStepKind.TRIAL:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a trial surface",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        config = surface_step.trial
+        if type(config) is not TrialStaticConfig:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires typed trial config authority",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        try:
+            validate_trial_static_config_authority(config)
+        except (TypeError, ValueError) as exc:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has invalid trial config authority: {exc}",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        result_allocation_id = details.get("result_allocation_id")
+        output_bundle_path = details.get("output_bundle_path")
+        expected = {
+            "trial_static_config_schema_version": config.record["schema_version"],
+            "trial_static_config_digest": config.digest,
+            "compiler_runtime_identity_digest": config.compiler_runtime_identity_digest,
+            "site_digest": config.site_digest,
+            "generated_result_type": config.generated_result_type,
+            "result_digest": config.result_digest,
+            "arms_digest": config.arms_digest,
+            "evaluation_digest": config.evaluation_digest,
+            "budget_digest": config.budget_digest,
+            "result_allocation_id": result_allocation_id,
+            "output_bundle_path": output_bundle_path,
+        }
+        output_bundle = surface_step.common.output_bundle
+        if (
+            not isinstance(result_allocation_id, str)
+            or not result_allocation_id
+            or not isinstance(output_bundle_path, str)
+            or not output_bundle_path
+            or set(details) != set(expected)
+            or any(details.get(name) != value for name, value in expected.items())
+            or not isinstance(output_bundle, Mapping)
+            or output_bundle.get("path") != output_bundle_path
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent trial config or allocation lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        return MappingProxyType(expected)
 
     if effect_kind == "run_ref":
         if surface_step.kind is not SurfaceStepKind.RUN_REF:
@@ -3969,6 +4100,215 @@ def _validate_run_ref_effect(
     ):
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: run_ref effect `{effect.effect_id}` entrypoint allocation disagrees with its result allocation",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_trial_effect(
+    *,
+    semantic_ir: SemanticWorkflowIR,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+    ir: ExecutableWorkflow,
+    runtime_plan: WorkflowRuntimePlan,
+    surface: SurfaceWorkflow | None,
+) -> None:
+    """Require one exact trial authority across every shared compiler view."""
+
+    statement = workflow.statements[effect.statement_id]
+    if (
+        statement.step_kind != SurfaceStepKind.TRIAL.value
+        or len(statement.executable_node_ids) != 1
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` requires one trial statement node",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    node_id = statement.executable_node_ids[0]
+    node = ir.nodes.get(node_id)
+    execution_kind = (
+        node.execution_kind
+        if isinstance(node, FinalizationStepNode)
+        else getattr(node, "kind", None)
+    )
+    config = getattr(node, "execution_config", None)
+    if (
+        execution_kind is not ExecutableNodeKind.TRIAL
+        or type(config) is not TrialStepConfig
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` requires typed executable trial authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    try:
+        validate_trial_static_config_authority(config.trial)
+        TrialStepConfig(
+            common=config.common,
+            trial=config.trial,
+            arms=config.arms,
+        )
+    except (TypeError, ValueError) as exc:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` has invalid executable authority: {exc}",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if surface is not None:
+        surface_step = next(
+            (
+                candidate
+                for candidate in _iter_surface_steps(surface)
+                if candidate.step_id == statement.step_id
+                or statement.step_id in _step_id_aliases(candidate.step_id)
+            ),
+            None,
+        )
+        surface_config = (
+            surface_step.trial
+            if surface_step is not None
+            and surface_step.kind is SurfaceStepKind.TRIAL
+            else None
+        )
+        if (
+            type(surface_config) is not TrialStaticConfig
+            or surface_config.digest != config.trial.digest
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: trial effect `{effect.effect_id}` disagrees with surface authority",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+    runtime_node = runtime_plan.nodes.get(node_id)
+    if (
+        runtime_node is None
+        or runtime_node.trial_config_digest != config.trial.digest
+        or runtime_node.trial_result_contract_digest
+        != config.trial.result_digest
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` disagrees with runtime-plan authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    allocation_id = effect.details.get("result_allocation_id")
+    output_bundle_path = effect.details.get("output_bundle_path")
+    expected_details = {
+        "trial_static_config_schema_version": config.trial.record["schema_version"],
+        "trial_static_config_digest": config.trial.digest,
+        "compiler_runtime_identity_digest": config.trial.compiler_runtime_identity_digest,
+        "site_digest": config.trial.site_digest,
+        "generated_result_type": config.trial.generated_result_type,
+        "result_digest": config.trial.result_digest,
+        "arms_digest": config.trial.arms_digest,
+        "evaluation_digest": config.trial.evaluation_digest,
+        "budget_digest": config.trial.budget_digest,
+        "result_allocation_id": allocation_id,
+        "output_bundle_path": output_bundle_path,
+    }
+    if (
+        set(effect.details) != set(expected_details)
+        or any(
+            effect.details.get(name) != value
+            for name, value in expected_details.items()
+        )
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` closed details disagree with executable authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    layouts = tuple(
+        layout
+        for layout in semantic_ir.state_layout.values()
+        if layout.workflow_name == workflow_name
+        and layout.layout_kind == "trial_result_bundle"
+        and layout.details.get("allocation_id") == allocation_id
+    )
+    if len(layouts) != 1:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` requires exactly one result allocation",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    [layout] = layouts
+    if (
+        layout.details.get("privacy") != "private_generated"
+        or layout.details.get("resume_scope") != "step_visit"
+        or layout.details.get("concrete_path_template") != output_bundle_path
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` has inconsistent result allocation lineage",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    generated_input_name = layout.details.get("generated_input_name")
+    entrypoint_layouts = tuple(
+        candidate
+        for candidate in semantic_ir.state_layout.values()
+        if candidate.workflow_name == workflow_name
+        and candidate.layout_kind == "entrypoint_managed_write_root"
+        and candidate.details.get("generated_input_name") == generated_input_name
+    )
+    managed_input_layouts = tuple(
+        candidate
+        for candidate in semantic_ir.state_layout.values()
+        if candidate.workflow_name == workflow_name
+        and candidate.layout_kind == "managed_write_root_input"
+        and candidate.details.get("input_name") == generated_input_name
+    )
+    if (
+        not isinstance(generated_input_name, str)
+        or not generated_input_name
+        or len(entrypoint_layouts) != 1
+        or len(managed_input_layouts) != 1
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` requires one entrypoint and managed-root state row",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    stable_identity = layout.details.get("stable_identity")
+    if not isinstance(stable_identity, str) or not stable_identity:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` has invalid result allocation identity",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    expected_entrypoint = StateLayout.allocate(
+        GeneratedPathAllocationRequest(
+            owner="workflow_runtime",
+            workflow_name=workflow_name,
+            semantic_role=GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT,
+            privacy=GeneratedPathPrivacy.PRIVATE_GENERATED,
+            resume_scope=GeneratedPathResumeScope.RUN,
+            stable_identity=f"{stable_identity}/entry",
+            generated_input_name=generated_input_name,
+            projection_hints={"source_allocation_id": allocation_id},
+        )
+    )
+    [entrypoint] = entrypoint_layouts
+    expected_entrypoint_details = {
+        "allocation_id": expected_entrypoint.allocation_id,
+        "privacy": expected_entrypoint.privacy.value,
+        "resume_scope": expected_entrypoint.resume_scope.value,
+        "stable_identity": expected_entrypoint.stable_identity,
+        "concrete_path_template": expected_entrypoint.concrete_path_template,
+        "generated_input_name": expected_entrypoint.generated_input_name,
+        "path_safety_policy": expected_entrypoint.path_safety_policy,
+    }
+    if (
+        set(entrypoint.details) != set(expected_entrypoint_details)
+        or any(
+            entrypoint.details.get(name) != value
+            for name, value in expected_entrypoint_details.items()
+        )
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: trial effect `{effect.effect_id}` entrypoint allocation disagrees with its result allocation",
             workflow_name=workflow_name,
             subject_refs=_subject_refs_for_statement(workflow_name, statement),
         )

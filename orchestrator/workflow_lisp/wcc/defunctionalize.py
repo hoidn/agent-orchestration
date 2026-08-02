@@ -104,6 +104,11 @@ from ..lowering.run_ref import (
     LowerableRunRefInput,
     _lower_run_ref_operation,
 )
+from ..lowering.trial import (
+    LowerableTrial,
+    LowerableTrialInput,
+    _lower_trial_operation,
+)
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..phase import eligible_private_context_source_param_names
@@ -157,6 +162,7 @@ from .model import (
     WccRecordAtom,
     WccResumeOrStartPayload,
     WccRunRefPayload,
+    WccTrialPayload,
     WccRunProviderPhasePayload,
     WccValue,
 )
@@ -1267,6 +1273,7 @@ def _base_checkpoint_point_payload(
     binding_schema_digest: str,
     storage_scope: str,
     identity_component_digest: str | None = None,
+    trial_result_contract_digest: str | None = None,
 ) -> Mapping[str, object]:
     point_identity = {
         "wcc_node_id": wcc_node_id,
@@ -1292,6 +1299,15 @@ def _base_checkpoint_point_payload(
         )
         executable_identity["identity_component_digest"] = (
             identity_component_digest
+        )
+    if trial_result_contract_digest is not None:
+        if not isinstance(identity_component_digest, str):
+            raise ValueError("trial checkpoint authority is incomplete")
+        point_identity["trial_result_contract_digest"] = (
+            trial_result_contract_digest
+        )
+        executable_identity["trial_result_contract_digest"] = (
+            trial_result_contract_digest
         )
     program_point_id = derive_program_point_id(
         workflow_name=workflow_name,
@@ -1654,6 +1670,28 @@ def _build_effect_resume_policy_payload(
             },
             unsafe_pending_behavior="fail_closed",
         )
+    if step_kind == "trial":
+        step_config_digest = terminal.checkpoint_identity_component_digest
+        result_digest = terminal.checkpoint_result_contract_digest
+        if not all(
+            isinstance(value, str)
+            for value in (step_config_digest, result_digest)
+        ):
+            raise ValueError("trial checkpoint identity authority is unavailable")
+        return build_effect_resume_policy(
+            policy_kind="reuse_validated_trial_result",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "trial_result": {
+                    "trial_static_config_digest": step_config_digest,
+                    "result_contract_digest": result_digest,
+                }
+            },
+            unsafe_pending_behavior="fail_closed",
+        )
     if step_kind == "command":
         payload = value.operation_payload if isinstance(value, WccPerform) else None
         adapter_name = None
@@ -1834,6 +1872,9 @@ def _effect_boundary_checkpoint_point_payload(
             storage_scope="step_visit",
             identity_component_digest=(
                 terminal.checkpoint_identity_component_digest
+            ),
+            trial_result_contract_digest=(
+                terminal.checkpoint_result_contract_digest
             ),
         )
     )
@@ -5406,6 +5447,41 @@ def _lower_effectful_binding(
                 context=context,
                 local_values=local_values,
             )
+        if value.perform_kind == "trial":
+            payload = value.operation_payload
+            if not isinstance(payload, WccTrialPayload):
+                raise TypeError("trial WCC lowering requires a typed payload")
+            expected_keywords = tuple(
+                keyword
+                for arm in payload.arms
+                for _, keyword in arm.input_keywords
+            )
+            if tuple(name for name, _ in value.keyword_args) != expected_keywords:
+                raise TypeError(
+                    "trial WCC input atoms disagree with typed payload order"
+                )
+            return _lower_trial_operation(
+                LowerableTrial(
+                    payload=payload,
+                    inputs=tuple(
+                        LowerableTrialInput(
+                            keyword=name,
+                            value_expr=_frontend_expr_from_wcc_value_with_env(
+                                atom,
+                                local_values,
+                            ),
+                            type_ref=atom.metadata.type_ref,
+                        )
+                        for name, atom in value.keyword_args
+                    ),
+                    span=value.metadata.source_span,
+                    form_path=value.metadata.form_path,
+                    expansion_stack=value.metadata.expansion_stack,
+                ),
+                result_type=binding_type,
+                context=context,
+                local_values=local_values,
+            )
         if value.perform_kind == "command_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
             adapter_inputs = operation_payload.get("adapter_inputs") or ()
@@ -6220,6 +6296,15 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
     if isinstance(value, WccNameAtom):
         resolved = env.get(value.name)
         if resolved is not None:
+            # A live union is retained in the WCC environment as its flattened
+            # variant/payload reference map.  Preserve the authored name here
+            # so the shared pure-projection lane can reconstitute the tagged
+            # direct value instead of mistaking that map for a static union.
+            if isinstance(value.metadata.type_ref, UnionTypeRef) and isinstance(
+                resolved,
+                Mapping,
+            ):
+                return _frontend_expr_from_wcc_value(value)
             return resolved
     if isinstance(value, WccFieldAccessAtom):
         base_expr = _frontend_expr_from_wcc_value_with_env(value.base, env)

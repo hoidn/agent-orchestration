@@ -288,6 +288,7 @@ def allocation_reason(allocation: GeneratedPathAllocation) -> str | None:
         GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
         GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
         GeneratedPathSemanticRole.RUN_REF_RESULT_BUNDLE,
+        GeneratedPathSemanticRole.TRIAL_RESULT_BUNDLE,
         GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
         GeneratedPathSemanticRole.PURE_PROJECTION_BUNDLE,
         GeneratedPathSemanticRole.GENERATED_INTERNAL_INPUT_BINDING,

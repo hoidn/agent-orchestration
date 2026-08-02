@@ -26,6 +26,8 @@ from orchestrator.workflow.core_ast import (
 )
 from orchestrator.workflow.executable_ir import (
     RunRefStepConfig,
+    TrialArmStepConfig,
+    TrialStepConfig,
     validate_executable_workflow,
     workflow_executable_ir_to_json,
 )
@@ -340,15 +342,29 @@ def _result_contract_digests(bundle: LoadedWorkflowBundle) -> dict[str, str]:
     digests: dict[str, str] = {}
     for node_id, node in sorted(bundle.ir.nodes.items()):
         config = getattr(node, "execution_config", None)
-        if not isinstance(config, RunRefStepConfig):
-            continue
-        validate_run_ref_result_descriptor(
-            config.run_ref.result_descriptor,
-            allow_nested_structures=(
-                config.run_ref.target_dsl_version == "2.25"
-            ),
+        configs = (
+            ((node_id, config),)
+            if isinstance(config, RunRefStepConfig)
+            else (
+                tuple(
+                    (
+                        f"{node_id}::trial_arm::{arm.arm_id}",
+                        arm.run_ref,
+                    )
+                    for arm in config.arms
+                )
+                if type(config) is TrialStepConfig
+                else ()
+            )
         )
-        digests[node_id] = config.run_ref.result_digest
+        for config_id, run_ref_config in configs:
+            validate_run_ref_result_descriptor(
+                run_ref_config.run_ref.result_descriptor,
+                allow_nested_structures=(
+                    run_ref_config.run_ref.target_dsl_version == "2.25"
+                ),
+            )
+            digests[config_id] = run_ref_config.run_ref.result_digest
     return digests
 
 
@@ -363,6 +379,50 @@ def _require_unbound_capsule_configs(
                 and config.capsule_binding is not None
             ):
                 _fail("run_ref_bundle_prebound_config")
+            if type(config) is TrialStepConfig and any(
+                arm.run_ref.capsule_binding is not None
+                for arm in config.arms
+            ):
+                _fail("run_ref_bundle_prebound_config")
+
+
+def _rewrite_run_ref_step_config(
+    config: RunRefStepConfig,
+    *,
+    binding: RunRefBundleCapsuleBinding | None,
+) -> RunRefStepConfig:
+    return replace(
+        config,
+        capsule_binding=(
+            binding
+            if isinstance(config.run_ref.program, BundleProgram)
+            else None
+        ),
+    )
+
+
+def _rewrite_execution_capsule_binding(
+    config: object,
+    *,
+    binding: RunRefBundleCapsuleBinding | None,
+) -> object:
+    if isinstance(config, RunRefStepConfig):
+        return _rewrite_run_ref_step_config(config, binding=binding)
+    if type(config) is not TrialStepConfig:
+        return config
+    return replace(
+        config,
+        arms=tuple(
+            TrialArmStepConfig(
+                arm_id=arm.arm_id,
+                run_ref=_rewrite_run_ref_step_config(
+                    arm.run_ref,
+                    binding=binding,
+                ),
+            )
+            for arm in config.arms
+        ),
+    )
 
 
 def _rewrite_catalog_capsule_binding(
@@ -383,26 +443,12 @@ def _rewrite_catalog_capsule_binding(
     for name, original in canonical.items():
         nodes = MappingProxyType(
             {
-                node_id: (
-                    replace(
-                        node,
-                        execution_config=replace(
-                            node.execution_config,
-                            capsule_binding=(
-                                binding
-                                if isinstance(
-                                    node.execution_config.run_ref.program,
-                                    BundleProgram,
-                                )
-                                else None
-                            ),
-                        ),
-                    )
-                    if isinstance(
+                node_id: replace(
+                    node,
+                    execution_config=_rewrite_execution_capsule_binding(
                         node.execution_config,
-                        RunRefStepConfig,
-                    )
-                    else node
+                        binding=binding,
+                    ),
                 )
                 for node_id, node in sorted(original.ir.nodes.items())
             }

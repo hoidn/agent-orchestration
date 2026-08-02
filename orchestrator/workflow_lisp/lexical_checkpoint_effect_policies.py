@@ -16,6 +16,7 @@ POLICY_KINDS = frozenset(
         "recompute_or_reuse_checkpoint",
         "reuse_validated_structured_output",
         "reuse_validated_run_ref_result",
+        "reuse_validated_trial_result",
         "reuse_validated_workflow_call",
         "regenerate_deterministic_view",
         "preserve_durable_view",
@@ -38,6 +39,7 @@ _REQUIRED_EVIDENCE_KEYS = {
     "recompute_or_reuse_checkpoint": (),
     "reuse_validated_structured_output": ("structured_output",),
     "reuse_validated_run_ref_result": ("run_ref_result",),
+    "reuse_validated_trial_result": ("trial_result",),
     "reuse_validated_workflow_call": ("workflow_call",),
     "regenerate_deterministic_view": ("materialized_view",),
     "preserve_durable_view": ("materialized_view",),
@@ -58,6 +60,7 @@ class EffectPolicyDiagnosticCodes:
     evidence_invalid: str = "lexical_checkpoint_effect_policy_evidence_stale"
     structured_output_invalid: str = "lexical_checkpoint_effect_policy_structured_output_invalid"
     run_ref_result_invalid: str = "lexical_checkpoint_effect_policy_run_ref_result_invalid"
+    trial_result_invalid: str = "lexical_checkpoint_effect_policy_trial_result_invalid"
     command_uncertified: str = "lexical_checkpoint_effect_policy_command_uncertified"
     pending_effect_unsafe: str = "lexical_checkpoint_effect_policy_pending_effect_unsafe"
     transition_audit_missing: str = "lexical_checkpoint_effect_policy_transition_audit_missing"
@@ -193,6 +196,10 @@ def _validate_evidence_requirements(
     evidence_requirements: Mapping[str, Any],
 ) -> None:
     required_keys = _REQUIRED_EVIDENCE_KEYS[policy_kind]
+    if policy_kind == "reuse_validated_trial_result" and set(
+        evidence_requirements
+    ) != {"trial_result"}:
+        raise ValueError(DIAGNOSTIC_CODES.trial_result_invalid)
     for key in required_keys:
         requirement = _mapping(evidence_requirements.get(key))
         if not requirement:
@@ -216,6 +223,22 @@ def _validate_requirement_shape(*, key: str, requirement: Mapping[str, Any]) -> 
             step_config_digest,
         ) is None:
             raise ValueError(DIAGNOSTIC_CODES.run_ref_result_invalid)
+        return
+    if key == "trial_result":
+        if set(requirement) != {
+            "trial_static_config_digest",
+            "result_contract_digest",
+        }:
+            raise ValueError(DIAGNOSTIC_CODES.trial_result_invalid)
+        for name in (
+            "trial_static_config_digest",
+            "result_contract_digest",
+        ):
+            value = requirement.get(name)
+            if not isinstance(value, str) or re.fullmatch(
+                r"sha256:[0-9a-f]{64}", value
+            ) is None:
+                raise ValueError(DIAGNOSTIC_CODES.trial_result_invalid)
         return
     if key == "materialized_view":
         _non_empty_string(requirement.get("renderer_id"), DIAGNOSTIC_CODES.materialized_view_mismatch)
@@ -241,6 +264,12 @@ def _diagnostic_for_requirement_key(key: str, *, missing: bool) -> str:
             DIAGNOSTIC_CODES.evidence_missing
             if missing
             else DIAGNOSTIC_CODES.run_ref_result_invalid
+        )
+    if key == "trial_result":
+        return (
+            DIAGNOSTIC_CODES.evidence_missing
+            if missing
+            else DIAGNOSTIC_CODES.trial_result_invalid
         )
     if key == "materialized_view":
         return DIAGNOSTIC_CODES.materialized_view_mismatch if not missing else DIAGNOSTIC_CODES.evidence_missing
