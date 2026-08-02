@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–5 complete and Task 6 selected
+- **Status:** accepted for E2 execution; Tasks 0–6 complete and Task 7 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -577,24 +577,35 @@ yet.
 `tests/test_run_ref_lifecycle_driver.py` and
 `tests/test_workflow_trial_ledger.py`.
 
-- [ ] RED canonical static/request/evaluation/budget identities, closed ledger
+- [x] RED canonical static/request/evaluation/budget identities, closed ledger
       rows, ordered cell domain, sealed opaque map, per-cell disjoint E1 roots,
       and tamper/extra/missing/ambiguity/escape failures.
-- [ ] RED clean/reuse, incomplete discard/fresh ordinal, pending-E1-commit
+- [x] RED clean/reuse, incomplete discard/fresh ordinal, pending-E1-commit
       reconciliation, and exact cross-cell rejection.
-- [ ] RED the E1 driver emits closed allocation/progress/prepared events,
+- [x] RED the E1 driver emits closed allocation/progress/prepared events,
       blocks each next stage until its caller acknowledges the preceding
       event, supports an exact arm deadline, and permits only the caller to
       mutate ledgers. A worker killed or timed out mid-child produces an
       incomplete attempt, never a synthetic settlement.
-- [ ] Add the minimum generic lifecycle/event and effect-instance-root seams;
+- [x] Add the minimum generic lifecycle/event and effect-instance-root seams;
       ordinary run-ref wraps them synchronously and keeps its exact existing
       paths, event order, settlement bytes, crash behavior, and public API.
-- [ ] Persist only the M2-compatible facts enumerated above; no derived result
+- [x] Persist only the M2-compatible facts enumerated above; no derived result
       cache or memo key.
-- [ ] Run E1 regression plus lifecycle/ledger selectors, ordered Task-6
+- [x] Run E1 regression plus lifecycle/ledger selectors, ordered Task-6
       reviews, commit,
       and postcommit controls.
+
+Task 6 closed at exact reviewed commit `5d28619d`, tree `44eb381b`, from
+staged candidate SHA-256
+`9e4ed9fca5e536692e2017864350caccec8cbee737b3237161e525a378b3f24f`.
+Ordered `E2_TASK6_SPEC_APPROVED` then `E2_TASK6_QUALITY_APPROVED` approved
+those exact bytes after the ordinary `run-ref` wrapper was corrected to keep
+its historical malformed-ledger error translation across the extracted
+lifecycle preflights. The fresh lifecycle/ledger selector passed 28 tests,
+the E1-plus-Task-6 regression selector passed 791 tests, and the broad
+non-security Workflow Lisp gate passed 5,018 tests with one skip. Task 7 may
+begin; bounded concurrent trial execution is selected but not implemented.
 
 ## Task 7: Implement bounded concurrent arm execution
 
