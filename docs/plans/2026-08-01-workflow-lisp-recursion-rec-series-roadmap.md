@@ -1,7 +1,16 @@
 # Workflow Lisp Recursion REC-Series Roadmap
 
-Status: tracked (per the
-[2026-08-01 owner direction record](2026-08-01-workflow-lisp-rec-series-owner-direction.md)).
+Status: complete (2026-08-01). REC0 executed under the owner's "execute
+rec0" direction: the
+[reviewed residual measurement](../reports/2026-08-01-workflow-lisp-rec0-residual-measurement.md)
+found a 77% code reduction at the current surface with immaterial REC1/REC1b
+residuals, and the
+[Gate REC0 decision record](2026-08-01-workflow-lisp-gate-rec0-decision.md)
+recorded `STOP_REC_SUGAR`, completing the program under Program Stop And
+Completion state 1. REC1, REC1b, Gate REC, REC2, and REC2' are stopped or
+never convene; the report's two redirects remain unselected candidates.
+Tracked per the
+[2026-08-01 owner direction record](2026-08-01-workflow-lisp-rec-series-owner-direction.md).
 Pre-incorporation review: an independent
 [contract review](../../artifacts/review/rec-series-roadmap-contract-review.md)
 (`APPROVE_WITH_CHANGES`, ten findings, all incorporated) and an independent

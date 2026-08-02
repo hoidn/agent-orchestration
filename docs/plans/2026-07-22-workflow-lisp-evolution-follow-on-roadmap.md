@@ -143,11 +143,10 @@ owner acceleration as the sole exception.
 The [2026-08-01 owner slating record](2026-08-01-workflow-lisp-p-series-owner-slating.md)
 queues the P-series as the successor program at that boundary; slating
 selects no P item and waives no P entry gate.
-The tracked, unselected
-[REC-series recursion roadmap](2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md)
-sequences its compiler-touching items (REC1/REC1b) after this E program or
-behind explicit owner acceleration with a reviewed sequencing amendment; its
-REC0 measurement item is authoring-only and unconstrained by E.
+The [REC-series recursion roadmap](2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md)
+completed on 2026-08-01: its REC0 measurement found immaterial residuals
+and [Gate REC0](2026-08-01-workflow-lisp-gate-rec0-decision.md) recorded
+`STOP_REC_SUGAR`, so no REC item queues behind this E program.
 
 ## Purpose
 
