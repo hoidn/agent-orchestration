@@ -393,7 +393,7 @@ routing/status rows and routing tests.
 - [x] Correct material findings, replay the ordered pair only if bytes change,
       record the reviewed plan digest, mark it accepted-for-execution, and
       commit the routing transition.
-- [ ] Run the complete routing and route-readiness controls postcommit.
+- [x] Run the complete routing and route-readiness controls postcommit.
 
 Task 0 review closed against commit `c6046d38`, tree `40c533fc`, after
 ordered `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`. The first
@@ -404,6 +404,8 @@ evaluation, and outer-settlement recovery in Tasks 7, 8, and 9 respectively;
 the ordered review pair then approved the same exact bytes. Bindings and the
 E2-only boundary are recorded in `artifacts/review/e2-trial-plan-review.md`.
 Task 1 may begin; this gate claims no target-2.25 behavior.
+The acceptance/routing candidate landed at `88951b20`, tree `b66170bb`;
+its postcommit routing and route-readiness control passed 112 tests.
 
 ## Task 1: Close feasibility proofs 5 and 6 before production work
 
