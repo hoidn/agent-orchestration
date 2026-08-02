@@ -191,6 +191,7 @@ E2_TRIAL_PLAN_PATH = (
     "docs/plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md"
 )
 E2_TRIAL_PLAN_REVIEW_PATH = "artifacts/review/e2-trial-plan-review.md"
+E2_TRIAL_FINAL_REVIEW_PATH = "artifacts/review/e2-trial-final-review.md"
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1385,6 +1386,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     e2_plan_review = (REPO_ROOT / E2_TRIAL_PLAN_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
+    e2_final_review = (REPO_ROOT / E2_TRIAL_FINAL_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1457,25 +1461,35 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "public executor, sdk, and cli" in normalized_roadmap
     assert "ordinary compiler/runtime path" in normalized_roadmap
-    assert "task 10 implementation and pre review evidence are complete" in (
+    assert "task 10 and the e2 exit are complete at commit 8aad035d" in (
         normalized_roadmap
+    )
+    assert "tree aafa31c" in normalized_roadmap
+    assert "e2_final_spec_approved" in normalized_roadmap
+    assert "e2_final_quality_approved" in normalized_roadmap
+    assert roadmap.index("E2_FINAL_SPEC_APPROVED") < roadmap.index(
+        "E2_FINAL_QUALITY_APPROVED"
     )
     assert "provider calls 1/2/2" in normalized_roadmap
     assert "one of three packet byte classifier result" in normalized_roadmap
     assert "rejected all 29 forbidden identity fields" in normalized_roadmap
     assert "mechanism proof only" in normalized_roadmap
-    assert "ordered final reviews, the unchanged commit" in normalized_roadmap
-    assert "e2 is not generally copy safe" in normalized_roadmap
-    assert "no pass_e2 has been recorded" in normalized_roadmap
-    assert "e3 remains owner selected but is not yet eligible" in (
+    assert "records pass_e2 within the exact target 2.25 component contract" in (
         normalized_roadmap
     )
-    assert (
-        "eligibility still requires pass_e2, review of the first fixed study, "
-        "and a separate component plan"
-        in normalized_roadmap
+    assert "no production .orc registry row was added" in normalized_roadmap
+    assert "route readiness remains unchanged" in normalized_roadmap
+    assert "first effectiveness study (es) is now the next on spine" in (
+        normalized_roadmap
     )
-    assert "c1, c2, and c3 remain designed and unselected" in normalized_roadmap
+    assert "phase me may proceed in parallel and never blocks an e exit" in (
+        normalized_roadmap
+    )
+    assert "e3 remains gated on review of the fixed study, es results" in (
+        normalized_roadmap
+    )
+    assert "c1, c2, c3, e2o" in normalized_roadmap
+    assert "remain unselected" in normalized_roadmap
     assert "owner decision handoff is complete" in normalized_roadmap
     assert "creates no effect identity memo key" in normalized_roadmap
     assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
@@ -1522,26 +1536,30 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "route readiness remains unchanged" in (
         normalized_trial_capability
     )
-    assert "e2 plan is accepted" in (
-        normalized_trial_capability
-    )
-    assert "tasks 0 9 are complete" in normalized_trial_capability
-    assert "task 10 implementation and pre review evidence are complete" in (
-        normalized_trial_capability
-    )
-    assert "51 exact tests" in normalized_trial_capability
-    assert "3,557 focused tests" in normalized_trial_capability
-    assert "11,403 broad non security tests" in normalized_trial_capability
+    assert "e2 is complete at 8aad035d" in normalized_trial_capability
+    assert "tree aafa31c" in normalized_trial_capability
+    assert "pass_e2" in normalized_trial_capability
+    assert "e2_final_spec_approved" in normalized_trial_capability
+    assert "e2_final_quality_approved" in normalized_trial_capability
+    assert "exact slice passed 51 tests" in normalized_trial_capability
+    assert "focused gates each passed 3,557" in normalized_trial_capability
+    assert "broad non security gate passed 11,403" in normalized_trial_capability
     assert "provider calls 1/2/2" in normalized_trial_capability
     assert "all 29 forbidden identity fields" in normalized_trial_capability
     assert "mechanism proof only" in normalized_trial_capability
-    assert "ordered final reviews, unchanged commit" in normalized_trial_capability
-    assert "e2 is not generally copy safe" in normalized_trial_capability
-    assert "no pass_e2 has been recorded" in normalized_trial_capability
-    assert "e3 remains owner selected but ineligible" in (
+    assert "no checked in production .orc registry row" in (
         normalized_trial_capability
     )
-    assert "c1 c3 remain designed and unselected" in normalized_trial_capability
+    assert "route readiness remains unchanged" in normalized_trial_capability
+    assert "es is the next on spine plan and review gated stage" in (
+        normalized_trial_capability
+    )
+    assert "phase me is parallel and nonblocking" in normalized_trial_capability
+    assert "e3 remains gated on fixed study review, es results" in (
+        normalized_trial_capability
+    )
+    assert "c1 c3, e2o" in normalized_trial_capability
+    assert "remain unselected" in normalized_trial_capability
     assert "| Designed |" in gates_capability
     assert "No current syntax/runtime capability may be inferred" in gates_capability
     assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in roadmap
@@ -1560,14 +1578,11 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E1_RUN_REF_FINAL_REVIEW_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
+        assert Path(E2_TRIAL_FINAL_REVIEW_PATH).name in surface
     normalized_e2_plan = _normalized_routing_text(e2_plan)
-    assert "status: accepted for e2 execution; tasks 0 9 complete" in (
+    assert "status: pass_e2; tasks 0 10 and the canonical e2 exit gate are closed" in (
         normalized_e2_plan
     )
-    assert "task 10 implementation and pre review evidence are complete" in (
-        normalized_e2_plan
-    )
-    assert "pending ordered final reviews, unchanged commit" in normalized_e2_plan
     assert "task 6 closed at exact reviewed commit 5d28619d" in normalized_e2_plan
     assert "tree 44eb381b" in normalized_e2_plan
     assert "9e4ed9fca5e536692e2017864350caccec8cbee737b3237161e525a378b3f24f" in e2_plan
@@ -1602,10 +1617,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "fresh postcommit control passed 222 tests" in normalized_e2_plan
     assert "public executor, sdk, and cli" in normalized_e2_plan
     assert "ordinary compiler/runtime path" in normalized_e2_plan
-    assert "task 10 implementation and pre review evidence are complete" in (
+    assert "task 10 and the canonical e2 exit gate are complete" in (
         normalized_e2_plan
     )
-    assert "e2 is not generally copy safe" in normalized_e2_plan
     assert "167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa" in e2_plan
     assert "f214f7627906e84782ad8ce04dc7c3bae51b276f" in e2_plan
     assert "ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745" in e2_plan
@@ -1657,11 +1671,31 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     task_10_section = e2_plan.split("## Task 10:", maxsplit=1)[1].split(
         "## Final acceptance checklist", maxsplit=1
     )[0]
-    assert task_10_section.count("- [x]") == 4
-    assert task_10_section.count("- [ ]") == 2
+    assert task_10_section.count("- [x]") == 6
+    assert task_10_section.count("- [ ]") == 0
     final_checklist = e2_plan.split("## Final acceptance checklist", maxsplit=1)[1]
-    assert "- [x]" not in final_checklist
-    assert "no pass_e2 has been recorded" in normalized_e2_plan
+    assert final_checklist.count("- [x]") == 9
+    assert "- [ ]" not in final_checklist
+    assert "records pass_e2" in normalized_e2_plan
+    assert "8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4" in e2_plan
+    assert "aafa31c09730544a12e33dbc692847a24726a54f" in e2_plan
+    assert "f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961" in e2_plan
+    assert e2_plan.index("E2_FINAL_SPEC_APPROVED") < e2_plan.index(
+        "E2_FINAL_QUALITY_APPROVED"
+    )
+    for digest in (
+        "55e4cae63797201447bbbc3ef8b7d7aeccfd1819f901f4112c78e6d8e389f402",
+        "253ae8bb6e4f62d8f4f5c6a21ce525675b2bc5b9ac00eb6dcca23f100c83bdc7",
+        "1ddb875c44c7e01030a4cdc86595127b83a06ae6a79bfe90315436059e0d5eb3",
+        "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83",
+    ):
+        assert digest in e2_plan
+    assert "es is now the next on spine plan and review gated stage" in (
+        normalized_e2_plan
+    )
+    assert "e3 remains gated on fixed study review, es results" in (
+        normalized_e2_plan
+    )
     assert "target dsl: 2.25" in normalized_e2_plan
     assert "authority reconciliation" in normalized_e2_plan
     assert "historical e2 section describes an older" in normalized_e2_plan
@@ -1688,9 +1722,35 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         "3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001"
     )
     assert e2_plan_review_digest in e2_plan
+    normalized_e2_final_review = _normalized_routing_text(e2_final_review)
+    assert "status: pass_e2" in normalized_e2_final_review
+    assert e2_final_review.index("E2_FINAL_SPEC_APPROVED") < (
+        e2_final_review.index("E2_FINAL_QUALITY_APPROVED")
+    )
+    assert "925ce4ac56a5cd099a7b9ccea7cb496779f7454e" in e2_final_review
+    assert "bebcba4a1bbaab8389ad8993cf1cc356ea235be3" in e2_final_review
+    assert "f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961" in (
+        e2_final_review
+    )
+    assert "8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4" in e2_final_review
+    assert "aafa31c09730544a12e33dbc692847a24726a54f" in e2_final_review
+    e2_final_review_digest = hashlib.sha256(
+        (REPO_ROOT / E2_TRIAL_FINAL_REVIEW_PATH).read_bytes()
+    ).hexdigest()
+    assert e2_final_review_digest == (
+        "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83"
+    )
+    assert e2_final_review_digest in e2_plan
+    assert "mechanism proof, not effectiveness or output quality evidence" in (
+        normalized_e2_final_review
+    )
+    assert "no production .orc registry row was added" in normalized_e2_final_review
+    assert "e3 remains gated on review of this fixed study, es results" in (
+        normalized_e2_final_review
+    )
     for task_number in range(11):
         assert f"## Task {task_number}:" in e2_plan
-    assert "pass_e2 makes the already selected e3 eligible only" in (
+    assert "pass_e2 advances the already selected e3 only" in (
         normalized_e2_plan
     )
     normalized_e1_plan = _normalized_routing_text(e1_plan)
@@ -1750,7 +1810,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert _normalized_routing_text(
             Path(E1_E3_OWNER_SELECTION_PATH).name
         ) in selected_surface
-    assert "e3 remains owner selected but ineligible" in (
+    assert "e3 remains gated on fixed study review, es results" in (
         normalized_trial_capability
     )
     assert _normalized_routing_text(
@@ -1763,27 +1823,28 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         normalized_trial_capability,
         normalized_sequence,
     ):
-        assert "tasks 0 9" in e2_progress_surface
-        assert "3560b62e" in e2_progress_surface
-        assert "f214f762" in e2_progress_surface
-        assert "task 10 implementation" in e2_progress_surface
-        assert "pre review evidence" in e2_progress_surface
+        assert "8aad035d" in e2_progress_surface
+        assert "aafa31c" in e2_progress_surface
+        assert "pass_e2" in e2_progress_surface
+        assert "e2_final_spec_approved" in e2_progress_surface
+        assert "e2_final_quality_approved" in e2_progress_surface
+        assert "e2 trial final review.md" in e2_progress_surface
+        assert "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83" in (
+            e2_progress_surface
+        )
         assert "51" in e2_progress_surface
         assert "3,557" in e2_progress_surface
         assert "11,403" in e2_progress_surface
         assert "1/2/2" in e2_progress_surface
         assert "29" in e2_progress_surface
         assert "mechanism proof only" in e2_progress_surface
-        assert "ordered final reviews" in e2_progress_surface
-        assert "unchanged commit" in e2_progress_surface
-        assert "postcommit controls" in e2_progress_surface
-        assert "exit remain open" in e2_progress_surface
-        assert "not generally copy safe" in e2_progress_surface
-        assert "no pass_e2 has been recorded" in e2_progress_surface
-        assert (
-            "not yet eligible" in e2_progress_surface
-            or "ineligible" in e2_progress_surface
-        )
+        assert "production" in e2_progress_surface
+        assert ".orc registry row" in e2_progress_surface
+        assert "route readiness" in e2_progress_surface
+        assert "es" in e2_progress_surface
+        assert "e3 remains gated" in e2_progress_surface
+        assert "e2o" in e2_progress_surface
+        assert "remain unselected" in e2_progress_surface
     normalized_selection = _normalized_routing_text(selection)
     assert "status: applied owner selection" in normalized_selection
     assert "select e1 through e3. continue executing roadmap" in (
@@ -1811,10 +1872,8 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         normalized_index
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
-    assert "e0 and e1 complete" in normalized_design_index
-    assert "e2 task 10 implementation and pre review evidence complete" in (
-        normalized_design_index
-    )
+    assert "e0 e2 complete" in normalized_design_index
+    assert "pass_e2" in normalized_design_index
     assert "target 2.24 run ref has pass_e1" in normalized_index
     assert "fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b" in plan
     assert "c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3" in plan
@@ -2414,9 +2473,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "accepted at c6046d38" in normalized_evolution_status
     assert "e2_plan_spec_approved" in normalized_evolution_status
     assert "e2_plan_quality_approved" in normalized_evolution_status
-    assert "tasks 0 9 are complete" in (
+    assert "task 10 and the e2 exit are complete at commit 8aad035d" in (
         normalized_evolution_status
     )
+    assert "tree aafa31c" in normalized_evolution_status
     assert "target 2.25 normative contracts at 6b431087" in (
         normalized_evolution_status
     )
@@ -2452,20 +2512,21 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "e2_task9_spec_approved" in normalized_evolution_status
     assert "e2_task9_quality_approved" in normalized_evolution_status
-    assert "task 10 implementation and pre review evidence are complete" in (
-        normalized_evolution_status
-    )
+    assert "e2_final_spec_approved" in normalized_evolution_status
+    assert "e2_final_quality_approved" in normalized_evolution_status
     assert "provider calls 1/2/2" in normalized_evolution_status
     assert "all 29 forbidden identity fields" in normalized_evolution_status
     assert "mechanism proof only" in normalized_evolution_status
-    assert "ordered final reviews, the unchanged commit" in (
+    assert "records pass_e2 within the exact target 2.25 component contract" in (
         normalized_evolution_status
     )
-    assert "e2 is not generally copy safe" in normalized_evolution_status
-    assert "no pass_e2 has been recorded" in normalized_evolution_status
-    assert "c1, c2, and c3 remain designed and unselected" in (
+    assert "first effectiveness study (es) is now the next on spine" in (
         normalized_evolution_status
     )
+    assert "e3 remains gated on review of the fixed study, es results" in (
+        normalized_evolution_status
+    )
+    assert "c1, c2, c3, e2o" in normalized_evolution_status
 
     normalized_value = _normalized_routing_text(
         "\n".join(value_design.splitlines()[:35])

@@ -64,25 +64,30 @@ Its commits/trees were `c69f05c9`/`d2fe944a`,
 `3560b62e`/`f214f762`, approved by ordered `E2_TASK9_SPEC_APPROVED` then
 `E2_TASK9_QUALITY_APPROVED`. Fresh verification passed 26 SDK, 487
 integration, 55 observability, 208 final-slice, and 492 expanded combined
-tests; the selector counts overlap and are not additive. Task 10 implementation
-and pre-review evidence are complete. Its exact slice collected and passed 51
-tests; the frozen 77-module focused gate passed 3,557; the real-subprocess
-fixed-study smoke passed; the adjacent stale Task-5 v4 fixture repair gate
-passed 249; the corrected broad non-security gate passed 11,403 with 19
-skipped and 5 warnings; and the pre-review routing/readiness control passed
-112. The fixed study held the result, pin, input, setup, checks, scorer,
-observation contract, and budgets constant; made DIRECT/COORDINATOR/ORC
-provider calls 1/2/2; presented the blinded sorted order
-ORC/DIRECT/COORDINATOR; produced a one-of-three packet-byte classifier result;
-rejected all 29 forbidden identity fields; recorded an all-zero success failure
-table; and retained a deterministic COORDINATOR launch failure while its
-siblings completed. This is a mechanism proof only, with no effectiveness,
-security, isolation, or sandbox claim. Ordered final reviews, the unchanged
-commit, postcommit controls, and the exact E2 exit remain open. E2 is not
-generally copy-safe and no `PASS_E2` has been recorded, so E3 remains
-owner-selected but is not yet eligible; eligibility still requires `PASS_E2`,
-review of the first fixed study, and a separate component plan. E3 adds no
-language target.
+tests; the selector counts overlap and are not additive. Task 10 and the E2
+exit are complete at commit `8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4`, tree
+`aafa31c09730544a12e33dbc692847a24726a54f`, after ordered
+`E2_FINAL_SPEC_APPROVED` then `E2_FINAL_QUALITY_APPROVED`. Its exact slice
+collected and passed 51 tests; the frozen precommit and postcommit 77-module
+focused gates each passed 3,557; the real-subprocess fixed-study smoke passed;
+the adjacent stale Task-5 v4 fixture repair gate passed 249; the corrected broad
+non-security gate passed 11,403 with 19 skipped and 5 warnings; and the fresh
+postcommit routing/readiness control passed 112. The fixed study held the
+result, pin, input, setup, checks, scorer, observation contract, and budgets
+constant; made DIRECT/COORDINATOR/ORC provider calls 1/2/2; presented the
+blinded sorted order ORC/DIRECT/COORDINATOR; produced a one-of-three
+packet-byte classifier result; rejected all 29 forbidden identity fields;
+recorded an all-zero success failure table; and retained a deterministic
+COORDINATOR launch failure while its siblings completed. This is a mechanism
+proof only, with no effectiveness, security, isolation, or sandbox claim. The
+[final review](../../artifacts/review/e2-trial-final-review.md)
+(`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`)
+records `PASS_E2` within the exact target-2.25 component contract. No production
+`.orc` registry row was added and route-readiness remains unchanged. The first
+effectiveness study (ES) is now the next on-spine plan- and review-gated stage;
+Phase ME may proceed in parallel and never blocks an E exit. E3 remains gated
+on review of the fixed study, ES results, and a separate reviewed component
+plan. E3 adds no language target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that
 first-fixed-study review live in the
 [2026-08-01 forensics report](../reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md).
@@ -95,10 +100,11 @@ applies the owner-delegated stage picks at the `PASS_E2` joint: the first
 preregistered effectiveness study (ES) runs on-spine and its results are a
 required additional input to the E3 continue/narrow/stop review, while
 Phase ME runs off-spine in parallel; ES and ME each remain plan- and
-review-gated.
+review-gated. C1, C2, C3, E2O, the historical execution-registry substrate,
+and security work remain unselected.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
-gate. C1, C2, and C3 remain Designed and unselected.
+gate.
 
 Copy safety: planning reference only. The canonical direct-control source is
 copy-safe after `PASS_E0` only for its bounded one-call direct-task shape. The

@@ -2,9 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–9 complete; Task 10
-  implementation and pre-review evidence are complete, pending ordered final
-  reviews, unchanged commit, postcommit controls, and exit
+- **Status:** `PASS_E2`; Tasks 0–10 and the canonical E2 exit gate are closed
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -42,6 +40,18 @@
   `E2_TASK9_SPEC_APPROVED` then `E2_TASK9_QUALITY_APPROVED`
 - **Task-9 cumulative diff SHA-256:**
   `ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745`
+- **Task-10 implementation:** commit
+  `8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4`, tree
+  `aafa31c09730544a12e33dbc692847a24726a54f`, after ordered
+  `E2_FINAL_SPEC_APPROVED` then `E2_FINAL_QUALITY_APPROVED`
+- **Task-10 candidate bindings:** base commit/tree
+  `925ce4ac56a5cd099a7b9ccea7cb496779f7454e` /
+  `bebcba4a1bbaab8389ad8993cf1cc356ea235be3`; staged binary-diff
+  SHA-256
+  `f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961`
+- **Final review:** `artifacts/review/e2-trial-final-review.md`
+  (`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`);
+  `PASS_E2`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -707,10 +717,9 @@ Its commits/trees were `c69f05c9`/`d2fe944a`,
 `E2_TASK9_QUALITY_APPROVED` approved the complete range. Fresh verification
 passed the 26-test SDK, 487-test integration, 55-test observability,
 208-test final-slice, and 492-test expanded combined selectors; these counts
-overlap and are not additive. E2 is not generally copy-safe, no `PASS_E2` has
-been recorded, and Task 10 is selected. E3 remains owner-selected but
-ineligible pending `PASS_E2`, review of the first fixed study, and a separate
-component plan.
+overlap and are not additive. Task 10 subsequently closed the exact E2
+component contract with `PASS_E2`; E3 remains fixed-study-review,
+effectiveness-study, and separate-component-plan gated.
 
 ## Task 9: Integrate executor, state, observability, SDK, and CLI
 
@@ -746,8 +755,9 @@ The six commits/trees are `c69f05c9`/`d2fe944a`,
 verification passed 26 SDK tests, 487 integration tests, 55 observability
 tests, 208 final-slice tests, and 492 expanded combined tests; the selectors
 overlap, so these counts are not additive. The public executor, SDK, and CLI
-now share the ordinary compiler/runtime path. Task 10 is selected; E2 remains
-not generally copy-safe and has no `PASS_E2`.
+now share the ordinary compiler/runtime path. Task 10 subsequently completed
+the fixed-study exit proof and recorded `PASS_E2` for the exact target-2.25
+component contract.
 
 ## Task 10: Prove the fixed study and close E2
 
@@ -767,16 +777,18 @@ routing/status rows; this plan; `artifacts/review/e2-trial-final-review.md`.
 - [x] Run collect-only, all focused E2/E1/M2/adjudication/CLI selectors, one
       real subprocess smoke, `git diff --check`, and the broad 16-worker
       non-security suite in tmux.
-- [ ] Obtain `E2_FINAL_SPEC_APPROVED`, then distinct
+- [x] Obtain `E2_FINAL_SPEC_APPROVED`, then distinct
       `E2_FINAL_QUALITY_APPROVED`, against exact candidate bytes and evidence;
       commit the unchanged candidate and rerun focused/routing/readiness
       controls.
-- [ ] Record exactly one exit: `PASS_E2`, `REVISE_E2`, or `STOP_E2`.
-      `PASS_E2` makes the already selected E3 eligible only for review of this
-      first fixed study and a separate E3 component plan; it does not select
-      E2O, C1-C3, or any historical registry substrate.
+- [x] Record exactly one exit: `PASS_E2`, `REVISE_E2`, or `STOP_E2`.
+      `PASS_E2` advances the already selected E3 only to its remaining gates:
+      review of this first fixed study, the plan- and review-gated first
+      effectiveness study (ES) and its results, and a separate reviewed E3
+      component plan. It does not select E2O, C1-C3, or any historical
+      registry substrate.
 
-Task 10 implementation and pre-review evidence are complete. The exact
+Task 10 and the canonical E2 exit gate are complete. The exact
 Task-10 slice collected 51 tests (log SHA-256
 `df0d4a4aa5a59d3a78e44df275b00c93057a36fd6b55469fea0eae4e6ee50f5d`)
 and passed all 51 in 28.54 seconds / 29.12 seconds elapsed (log SHA-256
@@ -796,6 +808,9 @@ The corrected broad non-security gate passed 11,403 tests with 19 skipped and
 and the pre-review routing/readiness control passed 112 tests in 8.60 seconds
 (log SHA-256
 `0edf256b2efd3e4a5613e71771c07e36bb0393f8953bae58dba2f6e483098814`).
+The pending-candidate routing/readiness control passed 112 tests in 6.22
+seconds / 6.84 seconds elapsed (log SHA-256
+`55e4cae63797201447bbbc3ef8b7d7aeccfd1819f901f4112c78e6d8e389f402`).
 
 The fixed-study proof holds the result, Git pin, task input, setup, checks,
 scorer, observation contract, and budgets constant while exercising one
@@ -807,25 +822,46 @@ all-zero failure table; a separate deterministic COORDINATOR launch failure is
 retained as an outcome while its DIRECT and ORC siblings complete. This is a
 mechanism proof only. It makes no effectiveness, security, isolation, or
 sandbox claim, and the accepted security/isolation exclusions are unchanged.
-No `PASS_E2` has been recorded: ordered final reviews, unchanged commit,
-postcommit focused/routing/readiness controls, and the exact exit remain open.
+Ordered `E2_FINAL_SPEC_APPROVED` by `/root/e2_task10_final_spec` then distinct
+`E2_FINAL_QUALITY_APPROVED` by `/root/e2_task10_final_quality` approved exact
+base commit/tree `925ce4ac56a5cd099a7b9ccea7cb496779f7454e` /
+`bebcba4a1bbaab8389ad8993cf1cc356ea235be3`, reviewed staged tree
+`aafa31c09730544a12e33dbc692847a24726a54f`, and staged binary-diff SHA-256
+`f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961`.
+The unchanged candidate committed as `8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4`,
+tree `aafa31c09730544a12e33dbc692847a24726a54f`. Fresh postcommit controls
+passed the same frozen 77-module focused gate with 3,557 tests in 143.41
+seconds / 143.637078763 seconds elapsed (log SHA-256
+`253ae8bb6e4f62d8f4f5c6a21ce525675b2bc5b9ac00eb6dcca23f100c83bdc7`)
+and routing/readiness with 112 tests in 6.30 seconds / 6.80 seconds elapsed
+(log SHA-256
+`1ddb875c44c7e01030a4cdc86595127b83a06ae6a79bfe90315436059e0d5eb3`).
+The final review at `artifacts/review/e2-trial-final-review.md`
+(`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`)
+records `PASS_E2`. E2 is complete within the exact target-2.25 component
+contract. No checked-in production `.orc` registry row was added and
+route-readiness is unchanged. ES is now the next on-spine plan- and
+review-gated stage; Phase ME may run in parallel and never blocks an E exit.
+E3 remains gated on fixed-study review, ES results, and a separate reviewed
+component plan. C1-C3, E2O, the historical registry substrate, and security
+work remain unselected.
 
 ## Final acceptance checklist
 
-- [ ] Target 2.25 is normative, gated, and backward compatible.
-- [ ] Static homogeneous arms and bounds compile into one distinct durable
+- [x] Target 2.25 is normative, gated, and backward compatible.
+- [x] Static homogeneous arms and bounds compile into one distinct durable
       trial effect over exact E1 configs.
-- [ ] Authored-order results, sibling-independent failure values, concurrency,
+- [x] Authored-order results, sibling-independent failure values, concurrency,
       deadlines, and evaluator-attempt budgets are deterministic and proven.
-- [ ] Clean/resume parity reuses committed cells, reruns incomplete cells with
+- [x] Clean/resume parity reuses committed cells, reruns incomplete cells with
       fresh ordinals, launches no duplicate, and obeys M2 persistence.
-- [ ] Evidence freezes before evaluation; packets are closed, bounded,
+- [x] Evidence freezes before evaluation; packets are closed, bounded,
       treatment-blind, and citation-complete.
-- [ ] Deterministic authority precedes judgment; scoring, repetition combine,
+- [x] Deterministic authority precedes judgment; scoring, repetition combine,
       success rule, unblinded join, and verdict artifact validate exactly.
-- [ ] SDK, CLI, and non-evolution wrapper share the ordinary compiler/runtime
+- [x] SDK, CLI, and non-evolution wrapper share the ordinary compiler/runtime
       path and expose no privileged backdoor.
-- [ ] Feasibility proofs 5–6, fixed-study E2E, labeling probe, focused/broad
+- [x] Feasibility proofs 5–6, fixed-study E2E, labeling probe, focused/broad
       gates, ordered reviews, and postcommit controls are fresh and bound.
-- [ ] E3 remains study-review/plan-gated and all later/unselected surfaces stay
+- [x] E3 remains study-review/plan-gated and all later/unselected surfaces stay
       truthfully absent.
