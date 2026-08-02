@@ -301,11 +301,14 @@ runtime obligations, never prompt instructions.
 
 Reuse is algorithmic, not a false claim that existing candidate-provider
 packets already fit. E2 reuses adjudication scorer identity, strict JSON
-output parsing, provider execution, score selection primitives, and ledger
-materialization. It introduces trial packet and trial score-row schemas because
-the existing packet/rows are intrinsically candidate-prompt/provider-shaped;
-trial code must not fabricate provider-candidate metadata to fit them.
-Source promotion remains excluded: E2 emits a verdict artifact only.
+output parsing, provider execution, and ledger materialization. Existing
+single-winner candidate selection is explicitly not reused: E2 owns
+repetition aggregation, failures-as-outcomes, success-rule disposition, and
+authored-order tie handling. It introduces trial packet and trial score-row
+schemas because the existing packet/rows are intrinsically
+candidate-prompt/provider-shaped; trial code must not fabricate
+provider-candidate metadata to fit them. Source promotion remains excluded:
+E2 emits a verdict artifact only.
 
 ## Public experimental SDK, CLI, and non-evolution client
 
@@ -392,8 +395,9 @@ fixtures/helpers. No production or normative file changes.
 
 - [ ] RED/characterization: two complete E1 envelopes and one failed envelope
       enter a test-only opaque packet adapter, the existing adjudication scorer
-      identity/strict-output/selection primitives consume them, and trial-
-      shaped score rows can remain candidate-provider-free.
+      identity and strict-output primitives consume them, and trial-shaped
+      score rows can remain candidate-provider-free. Characterize existing
+      single-winner selection as inapplicable rather than reusing it.
 - [ ] Prove the packet's citable set includes the bounded workspace delta and
       excludes treatment, source, provider, completion-order, and sidecar
       facts.
@@ -512,11 +516,10 @@ create `tests/test_workflow_trial_runtime.py`.
 - [ ] RED randomized completion order still yields authored `(arm, rep)`
       result order; active children never exceed the cap; each cell has one
       exact E1 request.
-- [ ] RED failures are values and do not cancel siblings; arm/trial timeout and
-      evaluator-attempt exhaustion settle pending cells while in-flight cells
-      finish; all work is charged.
+- [ ] RED failures are values and do not cancel siblings; arm/trial timeout
+      settles pending cells while in-flight cells finish; all work is charged.
 - [ ] RED crashes at trial allocation, E1 preparation, cell settlement,
-      E1-finalize, evidence-freeze, and outer-parent-settlement boundaries.
+      and E1-finalize boundaries reconcile without duplicate child launch.
 - [ ] Implement workers that perform blocking E1 stages and submit immutable
       lifecycle events; one coordinator acknowledges stages and serializes
       every parent-owned ledger/settlement transition.
@@ -538,6 +541,10 @@ create `tests/test_workflow_trial_evaluation.py`.
 - [ ] RED strict invalid/then-valid evaluator behavior, scorer identity,
       attempt budgets, median combine, authored-order ties, failures-as-
       outcomes, success-rule disposition, and verdict artifact digest.
+- [ ] RED evaluator-attempt exhaustion settles pending evaluations while
+      in-flight evaluations finish and remain charged; crashes after evidence
+      freeze, check settlement, and score settlement resume from the earliest
+      validated phase without refreezing or rescoring committed work.
 - [ ] Add trial packet/score schemas while reusing existing scorer/provider
       primitives; do not run adjudicated-provider candidate fan-out or source
       promotion.
@@ -554,6 +561,8 @@ create `tests/test_workflow_trial_evaluation.py`.
 - [ ] RED one outer atomic workflow settlement, validated completed reuse,
       derived-pure replay parity, current-only bounded status/report sidecar,
       and zero trial imports/work/sidecars for ordinary non-trial runs.
+- [ ] RED a crash before outer-parent settlement reuses the validated terminal
+      trial result and performs no child, check, or evaluator effect twice.
 - [ ] RED SDK and CLI compile the same `.orc` entry through the ordinary full
       compiler, invoke the same runtime, return the same versioned summary,
       and reject raw configs, wrong targets, non-trial results, and privileged
