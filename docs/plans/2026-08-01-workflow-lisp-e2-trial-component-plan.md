@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–7 complete and Task 8 selected
+- **Status:** accepted for E2 execution; Tasks 0–8 complete and Task 9 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -25,6 +25,14 @@
 - **Plan review:** `artifacts/review/e2-trial-plan-review.md`
   (`sha256:3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001`);
   `E2_PLAN_SPEC_APPROVED`, then `E2_PLAN_QUALITY_APPROVED`
+- **Task-8 implementation:** commit
+  `ebf8a1a96d05b873c201e927d2aa462a45c4c703`, tree
+  `7f3a3b2224e3c4f053bd5fb4a46d89f4b1bae834`, after ordered
+  `E2_TASK8_SPEC_APPROVED` then `E2_TASK8_QUALITY_APPROVED`
+- **Task-8 candidate bindings:** staged-diff SHA-256
+  `a8ea6bf96db19b775d605a48919a8ce88d0547c22af315a7bb88b0130f739924`;
+  manifest-content SHA-256
+  `4449b6595d9e7dae89d20d0aad8d7648a9cbe3b8950145eb3a81542be2389374`
 - **Governing inputs:**
   - `docs/design/workflow_lisp_trial_runs.md`
     (`sha256:ed4b4090b71f4310e09aa59d3f347245c640c0727eceec8baf1344a14c53cf53`)
@@ -639,9 +647,8 @@ bundle/path E1 request with per-arm capsule authority before creating trial
 state. Fresh verification passed 29 Task-7 tests, 518 adjacent E1/trial tests,
 the 900-test 16-worker E1/trial union, and 5,018 broad non-security Workflow
 Lisp tests with one skip; the postcommit Task-7 control passed 29 tests. Task 8
-may begin. The concurrent cell producer now exists, while evidence freeze,
-checks, evaluator scoring, verdict production, and the public executor surface
-remain absent until their owning tasks close.
+then closed the evidence-adjudication producer; Task 9 is the selected
+successor.
 
 ## Task 8: Freeze evidence, run checks, blind packets, and adjudicate
 
@@ -650,23 +657,38 @@ remain absent until their owning tasks close.
 only generic evaluator transport/scoring seams from adjudication as needed;
 create `tests/test_workflow_trial_evaluation.py`.
 
-- [ ] RED checks run after child completion and before scoring, in authority
+- [x] RED checks run after child completion and before scoring, in authority
       order, via literal argv/no shell, with complete bounded evidence.
-- [ ] RED one mechanical evidence freeze precedes all evaluation calls; packet
+- [x] RED one mechanical evidence freeze precedes all evaluation calls; packet
       inclusion/exclusion, byte caps, opaque labels, sealed joins, and
       packet-only citations fail closed in both directions.
-- [ ] RED strict invalid/then-valid evaluator behavior, scorer identity,
+- [x] RED strict invalid/then-valid evaluator behavior, scorer identity,
       attempt budgets, median combine, authored-order ties, failures-as-
       outcomes, success-rule disposition, and verdict artifact digest.
-- [ ] RED evaluator-attempt exhaustion settles pending evaluations while
+- [x] RED evaluator-attempt exhaustion settles pending evaluations while
       in-flight evaluations finish and remain charged; crashes after evidence
       freeze, check settlement, and score settlement resume from the earliest
       validated phase without refreezing or rescoring committed work.
-- [ ] Add trial packet/score schemas while reusing existing scorer/provider
+- [x] Add trial packet/score schemas while reusing existing scorer/provider
       primitives; do not run adjudicated-provider candidate fan-out or source
       promotion.
-- [ ] Run adjudication regression plus evaluation/blinding selectors, ordered
+- [x] Run adjudication regression plus evaluation/blinding selectors, ordered
       Task-8 reviews, commit, and postcommit controls.
+
+Task 8 closed at exact reviewed commit
+`ebf8a1a96d05b873c201e927d2aa462a45c4c703`, tree
+`7f3a3b2224e3c4f053bd5fb4a46d89f4b1bae834`, from staged-diff SHA-256
+`a8ea6bf96db19b775d605a48919a8ce88d0547c22af315a7bb88b0130f739924`
+and manifest-content SHA-256
+`4449b6595d9e7dae89d20d0aad8d7648a9cbe3b8950145eb3a81542be2389374`.
+Ordered `E2_TASK8_SPEC_APPROVED` then `E2_TASK8_QUALITY_APPROVED` approved
+those exact candidate bytes. Fresh precommit verification passed 222 scoped
+tests and 1,100 adjacent tests; the fresh postcommit control passed 222 tests.
+The evidence freeze, deterministic checks, treatment-blind packet projection,
+bounded evaluator attempts, resumable score authority, verdict aggregation,
+and verdict artifact producer now exist. The public trial executor, SDK, and
+CLI remain absent until Task 9 closes; Task 9 is selected. No `PASS_E2` has
+been recorded, so E3 is not yet eligible.
 
 ## Task 9: Integrate executor, state, observability, SDK, and CLI
 

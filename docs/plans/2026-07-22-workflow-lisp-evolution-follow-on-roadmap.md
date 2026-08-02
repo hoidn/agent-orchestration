@@ -15,7 +15,7 @@ document is the detailed historical reference.
 
 Created: 2026-07-22
 
-Last materially updated: 2026-08-01
+Last materially updated: 2026-08-02
 
 Current implementation status: the recovered E0/C1 designs passed ordered
 `E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`. ML closure and
@@ -44,19 +44,20 @@ postcommit control passed 864 tests. The
 [target-2.25 E2 component plan](2026-08-01-workflow-lisp-e2-trial-component-plan.md)
 is accepted at `c6046d38`, tree `40c533fc`, after ordered
 `E2_PLAN_SPEC_APPROVED` then `E2_PLAN_QUALITY_APPROVED`; see the
-[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–7 are
+[plan review](../../artifacts/review/e2-trial-plan-review.md). Tasks 1–8 are
 complete: feasibility evidence at `456acc7a`, target-2.25 normative contracts
 at `6b431087`, nested structural transport at `43ae8d5c`, and typed `trial`
 syntax/generated contracts at `ba430ed2`, followed by IR, lowering,
 persistence, and checkpoint carriage at `a7a8a083`, then E1 lifecycle
 extraction plus trial identities and ledgers at `5d28619d`, tree `44eb381b`,
-and bounded concurrent cell execution at `41e64d14`, tree `fb6082d9`.
-Task 8 evidence freeze, checks, blinding, scoring,
-and verdict production is selected. The concurrent cell producer exists; no
-E2 evaluator/verdict producer or public executor surface exists yet. E3
-remains selected pending the
-canonical E2 exit gate and review of the first fixed study. E3 adds no
-language target.
+bounded concurrent cell execution at `41e64d14`, tree `fb6082d9`, and Task 8
+evidence freeze, checks, blinding, scoring, and verdict production at
+`ebf8a1a9`, tree `7f3a3b22`, after ordered `E2_TASK8_SPEC_APPROVED` then
+`E2_TASK8_QUALITY_APPROVED`. The E2 evaluator/verdict producer now exists;
+the public executor, SDK, and CLI remain absent until Task 9 closes. Task 9 is
+selected. No `PASS_E2` has been recorded, so E3 remains owner-selected but is
+not yet eligible; eligibility still requires the canonical E2 exit gate and
+review of the first fixed study. E3 adds no language target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that
 first-fixed-study review live in the
 [2026-08-01 forensics report](../reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md).
