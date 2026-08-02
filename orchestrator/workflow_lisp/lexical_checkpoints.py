@@ -696,6 +696,8 @@ def _policy_ref_invalid_diagnostic(expected_point: Mapping[str, Any]) -> str:
         return EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing
     if effect_kind == "run_ref":
         return EFFECT_POLICY_DIAGNOSTIC_CODES.run_ref_result_invalid
+    if effect_kind == "trial":
+        return EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
     return DIAGNOSTIC_CODES.completed_effect_invalid
 
 
@@ -1019,6 +1021,270 @@ def _run_ref_completed_effect_ref(
     }
 
 
+def _runtime_step_field(runtime_step: Any, name: str) -> Any:
+    getter = getattr(runtime_step, "get", None)
+    if callable(getter):
+        return getter(name)
+    return getattr(runtime_step, name, None)
+
+
+def _trial_runtime_request_for_checkpoint(
+    *,
+    state_manager: Any,
+    workspace: Path,
+    runtime_step: Any,
+    step_state: Mapping[str, Any],
+    state: Mapping[str, Any],
+    point: Any,
+    frame_identity: Mapping[str, Any] | None = None,
+) -> tuple[Any, Path]:
+    """Rebuild one trial request and its derived ledger path from live authority."""
+
+    from orchestrator.workflow.executable_ir import TrialStepConfig
+    from orchestrator.workflow.provider_attempts import resolve_aggregate_run_owner
+    from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
+    from orchestrator.workflow.run_ref.runtime import (
+        resolve_run_ref_parent_input_values_for_config,
+    )
+    from orchestrator.workflow.trial.config import (
+        build_trial_runtime_request,
+        validate_trial_static_config_authority,
+    )
+    from orchestrator.workflow.trial.contracts import (
+        derive_trial_cell_effect_scopes,
+    )
+
+    diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
+    execution_config = getattr(
+        getattr(runtime_step, "node", None),
+        "execution_config",
+        None,
+    )
+    if type(execution_config) is not TrialStepConfig:
+        raise ValueError(diagnostic)
+    try:
+        validate_trial_static_config_authority(execution_config.trial)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(diagnostic) from exc
+    point_payload = (
+        dict(point)
+        if isinstance(point, Mapping)
+        else _point_payload(point)
+    )
+    effect_boundary = _mapping(point_payload.get("effect_boundary"))
+    point_policy = _mapping(effect_boundary.get("policy"))
+    requirement = _mapping(
+        _mapping(point_policy.get("evidence_requirements")).get(
+            "trial_result"
+        )
+    )
+    step_name = _runtime_step_field(runtime_step, "name")
+    step_id = _runtime_step_field(runtime_step, "step_id")
+    visit_count = step_state.get("visit_count")
+    if (
+        effect_boundary.get("effect_kind") != "trial"
+        or point_policy.get("policy_kind") != "reuse_validated_trial_result"
+        or requirement.get("trial_static_config_digest")
+        != execution_config.trial.digest
+        or requirement.get("result_contract_digest")
+        != execution_config.trial.result_digest
+        or not isinstance(step_name, str)
+        or not step_name
+        or not isinstance(step_id, str)
+        or not step_id
+        or step_id != point_payload.get("step_id")
+        or step_state.get("status") != "completed"
+        or step_state.get("step_id") != step_id
+        or isinstance(visit_count, bool)
+        or not isinstance(visit_count, int)
+        or visit_count < 1
+        or not isinstance(step_state.get("trial"), Mapping)
+        or not isinstance(step_state.get("artifacts"), Mapping)
+    ):
+        raise ValueError(diagnostic)
+
+    try:
+        owner = resolve_aggregate_run_owner(state_manager)
+        root_manager = owner.root_manager
+        parent_workspace = Path(root_manager.workspace).resolve()
+        if Path(workspace).resolve() != parent_workspace:
+            raise ValueError(diagnostic)
+        parent_run_root = Path(owner.aggregate_root)
+        if (
+            not parent_run_root.is_absolute()
+            or parent_run_root.resolve(strict=False) != parent_run_root
+        ):
+            raise ValueError(diagnostic)
+        root_state = root_manager.state
+        run_ref_root_value = getattr(root_state, "run_ref_root", None)
+        if not isinstance(run_ref_root_value, str) or not run_ref_root_value:
+            raise ValueError(diagnostic)
+        run_ref_root = Path(run_ref_root_value)
+        if (
+            not run_ref_root.is_absolute()
+            or run_ref_root.resolve(strict=False) != run_ref_root
+        ):
+            raise ValueError(diagnostic)
+        frame_ids = owner.resume_scope_path.call_frame_ids
+        call_frame_id = frame_ids[-1] if frame_ids else None
+        execution_frame_id = call_frame_id or "root"
+        if frame_identity is not None and (
+            frame_identity.get("visit_count") != visit_count
+            or frame_identity.get("call_frame_id") != call_frame_id
+        ):
+            raise ValueError(diagnostic)
+        resolved_inputs = {
+            arm.arm_id: resolve_run_ref_parent_input_values_for_config(
+                arm.run_ref,
+                state,
+            )
+            for arm in execution_config.arms
+        }
+        request = build_trial_runtime_request(
+            step_config=execution_config,
+            visit=RunRefVisitKey(
+                parent_run_id=root_manager.run_id,
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
+                step_id=step_id,
+                visit_count=visit_count,
+            ),
+            resolved_inputs_by_arm=resolved_inputs,
+        )
+        scopes = derive_trial_cell_effect_scopes(
+            request=request,
+            parent_run_root=parent_run_root,
+            run_ref_root=run_ref_root,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        if str(exc) == diagnostic:
+            raise
+        raise ValueError(diagnostic) from exc
+    if not scopes or len({scope.trial_root for scope in scopes}) != 1:
+        raise ValueError(diagnostic)
+    return request, scopes[0].trial_root / "trial-events.jsonl"
+
+
+def _validated_terminal_trial_rows(
+    *,
+    ledger_path: Path,
+    request: Any,
+    workspace: Path,
+    step_name: str,
+    step_state: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> tuple[Any, Any]:
+    """Reuse the settled rows only after proving the ledger is already terminal."""
+
+    from orchestrator.workflow.trial.ledger import load_trial_event_ledger
+    from orchestrator.workflow.trial.settlement import (
+        commit_trial_parent_settlement,
+        prepare_trial_parent_settlement,
+    )
+
+    diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
+    try:
+        ledger = load_trial_event_ledger(ledger_path)
+        prepared_rows = tuple(
+            row for row in ledger.rows if row.kind == "trial_prepared"
+        )
+        committed_rows = tuple(
+            row for row in ledger.rows if row.kind == "trial_parent_committed"
+        )
+        if (
+            len(prepared_rows) != 1
+            or len(committed_rows) != 1
+            or ledger.rows[-1].row_digest != committed_rows[0].row_digest
+        ):
+            raise ValueError(diagnostic)
+        prepared = prepare_trial_parent_settlement(
+            ledger_path,
+            request=request,
+            parent_workspace=Path(workspace).resolve(),
+            result_envelope=step_state["trial"],
+        )
+        # The commit edge binds the moment this trial cleared current_step.
+        # A later step may now be current, but this same trial may not be.
+        settlement_state = dict(state)
+        current_step = settlement_state.get("current_step")
+        if current_step is not None:
+            later_step_id = _mapping(current_step).get("step_id")
+            if (
+                not isinstance(current_step, Mapping)
+                or not isinstance(later_step_id, str)
+                or not later_step_id
+                or later_step_id == request.visit.step_id
+            ):
+                raise ValueError(diagnostic)
+        settlement_state.pop("current_step", None)
+        committed = commit_trial_parent_settlement(
+            ledger_path,
+            request=request,
+            prepared=prepared,
+            step_name=step_name,
+            expected_artifacts=step_state["artifacts"],
+            read_parent_state=lambda: settlement_state,
+        )
+        if (
+            prepared.row.row_digest != prepared_rows[0].row_digest
+            or committed.row_digest != committed_rows[0].row_digest
+        ):
+            raise ValueError(diagnostic)
+    except (OSError, TypeError, ValueError) as exc:
+        if str(exc) == diagnostic:
+            raise
+        raise ValueError(diagnostic) from exc
+    return prepared, committed
+
+
+def _trial_completed_effect_ref(
+    executor: Any,
+    *,
+    point: Any,
+    runtime_step: Any,
+    step_state: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    state = _state_snapshot(executor)
+    workspace = Path(
+        getattr(
+            executor,
+            "workspace",
+            getattr(executor.state_manager, "workspace", Path.cwd()),
+        )
+    )
+    request, ledger_path = _trial_runtime_request_for_checkpoint(
+        state_manager=executor.state_manager,
+        workspace=workspace,
+        runtime_step=runtime_step,
+        step_state=step_state,
+        state=state,
+        point=point,
+    )
+    prepared, committed = _validated_terminal_trial_rows(
+        ledger_path=ledger_path,
+        request=request,
+        workspace=workspace,
+        step_name=str(_runtime_step_field(runtime_step, "name")),
+        step_state=step_state,
+        state=state,
+    )
+    return {
+        **_completed_effect_ref_base(point, effect_kind="trial"),
+        "evidence_kind": "trial_result",
+        "trial_static_config_digest": request.static_config_digest,
+        "trial_step_config_digest": request.trial_step_config_digest,
+        "trial_request_digest": request.digest,
+        "trial_visit_digest": _sha256_json(request.visit.record),
+        "result_contract_digest": request.result_contract_digest,
+        "result_envelope_digest": _sha256_json(step_state["trial"]),
+        "trial_prepared_row_digest": prepared.row.row_digest,
+        "trial_parent_committed_row_digest": committed.row_digest,
+        "parent_state_settlement_digest": committed.payload[
+            "parent_state_settlement_digest"
+        ],
+    }
+
+
 def collect_completed_effect_refs(
     executor: Any,
     *,
@@ -1030,8 +1296,6 @@ def collect_completed_effect_refs(
     if not isinstance(effect_kind, str) or not effect_kind:
         return []
     if effect_kind == "pure_projection":
-        return []
-    if effect_kind == "trial":
         return []
     runtime_step = _runtime_step_for_point(executor, point)
     step_state = (
@@ -1095,6 +1359,15 @@ def collect_completed_effect_refs(
                 point_policy=point_policy,
             )
         ]
+    if effect_kind == "trial":
+        return [
+            _trial_completed_effect_ref(
+                executor,
+                point=point,
+                runtime_step=runtime_step,
+                step_state=step_state,
+            )
+        ]
     return []
 
 
@@ -1108,6 +1381,26 @@ _RUN_REF_COMPLETED_EFFECT_REF_KEYS = frozenset(
         "evidence_kind",
         "step_config_digest",
         "settled_result",
+    }
+)
+
+_TRIAL_COMPLETED_EFFECT_REF_KEYS = frozenset(
+    {
+        "effect_ref_schema_version",
+        "effect_kind",
+        "step_id",
+        "status",
+        "source_map_origin_key",
+        "evidence_kind",
+        "trial_static_config_digest",
+        "trial_step_config_digest",
+        "trial_request_digest",
+        "trial_visit_digest",
+        "result_contract_digest",
+        "result_envelope_digest",
+        "trial_prepared_row_digest",
+        "trial_parent_committed_row_digest",
+        "parent_state_settlement_digest",
     }
 )
 
@@ -1162,6 +1455,57 @@ def _validate_run_ref_completed_effect_ref(
         raise ValueError(diagnostic)
 
 
+def _validate_trial_completed_effect_ref(
+    ref: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> None:
+    diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
+    if set(ref) != _TRIAL_COMPLETED_EFFECT_REF_KEYS:
+        raise ValueError(diagnostic)
+    if (
+        ref.get("effect_ref_schema_version")
+        != COMPLETED_EFFECT_REF_SCHEMA_VERSION
+        or ref.get("effect_kind") != "trial"
+        or ref.get("step_id") != expected_point.get("step_id")
+        or ref.get("status") != "completed"
+        or ref.get("source_map_origin_key")
+        != expected_point.get("origin_key")
+        or ref.get("evidence_kind") != "trial_result"
+    ):
+        raise ValueError(diagnostic)
+    for field in (
+        "trial_static_config_digest",
+        "trial_step_config_digest",
+        "trial_request_digest",
+        "trial_visit_digest",
+        "result_contract_digest",
+        "result_envelope_digest",
+        "trial_prepared_row_digest",
+        "trial_parent_committed_row_digest",
+        "parent_state_settlement_digest",
+    ):
+        value = ref.get(field)
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None
+        ):
+            raise ValueError(diagnostic)
+    requirement = _mapping(
+        _mapping(point_policy.get("evidence_requirements")).get(
+            "trial_result"
+        )
+    )
+    if (
+        ref.get("trial_static_config_digest")
+        != requirement.get("trial_static_config_digest")
+        or ref.get("result_contract_digest")
+        != requirement.get("result_contract_digest")
+    ):
+        raise ValueError(diagnostic)
+
+
 def _validate_completed_effect_refs(
     record: Mapping[str, Any],
     *,
@@ -1183,15 +1527,6 @@ def _validate_completed_effect_refs(
 
     validity_envelope = _mapping(record.get("validity_envelope"))
     observed_digest = validity_envelope.get("completed_effect_refs_digest")
-    if effect_kind == "trial":
-        if completed_effect_refs or observed_digest not in {
-            None,
-            _completed_effect_refs_digest(()),
-        }:
-            raise ValueError(
-                EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
-            )
-        return
     if not completed_effect_refs:
         if observed_digest is None:
             return
@@ -1209,6 +1544,13 @@ def _validate_completed_effect_refs(
     point_policy = _mapping(effect_boundary.get("policy"))
     if effect_kind == "run_ref":
         _validate_run_ref_completed_effect_ref(
+            ref,
+            expected_point=expected_point,
+            point_policy=point_policy,
+        )
+        return
+    if effect_kind == "trial":
+        _validate_trial_completed_effect_ref(
             ref,
             expected_point=expected_point,
             point_policy=point_policy,
@@ -1491,6 +1833,47 @@ def validate_completed_effect_refs_against_authoritative_state(
                 artifacts=artifacts,
                 reconcile_pending=False,
             )
+        except (OSError, TypeError, ValueError) as exc:
+            if str(exc) == diagnostic:
+                raise
+            raise ValueError(diagnostic) from exc
+        return
+
+    if effect_kind == "trial":
+        diagnostic = EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
+        try:
+            request, ledger_path = _trial_runtime_request_for_checkpoint(
+                state_manager=state_manager,
+                workspace=Path(workspace),
+                runtime_step=runtime_step,
+                step_state=step_state,
+                state=state,
+                point=expected_point,
+                frame_identity=_mapping(record.get("frame_identity")),
+            )
+            prepared, committed = _validated_terminal_trial_rows(
+                ledger_path=ledger_path,
+                request=request,
+                workspace=Path(workspace),
+                step_name=str(_runtime_step_field(runtime_step, "name")),
+                step_state=step_state,
+                state=state,
+            )
+            expected = {
+                "trial_static_config_digest": request.static_config_digest,
+                "trial_step_config_digest": request.trial_step_config_digest,
+                "trial_request_digest": request.digest,
+                "trial_visit_digest": _sha256_json(request.visit.record),
+                "result_contract_digest": request.result_contract_digest,
+                "result_envelope_digest": _sha256_json(step_state["trial"]),
+                "trial_prepared_row_digest": prepared.row.row_digest,
+                "trial_parent_committed_row_digest": committed.row_digest,
+                "parent_state_settlement_digest": committed.payload[
+                    "parent_state_settlement_digest"
+                ],
+            }
+            if any(ref.get(name) != value for name, value in expected.items()):
+                raise ValueError(diagnostic)
         except (OSError, TypeError, ValueError) as exc:
             if str(exc) == diagnostic:
                 raise
@@ -1867,7 +2250,10 @@ def checkpoint_runtime_program_identity(
     runtime_points = tuple(
         getattr(runtime_plan, "lexical_checkpoint_points", ())
     )
-    required_component_nodes: dict[str, tuple[str, str | None]] = {}
+    required_component_nodes: dict[
+        str,
+        tuple[str, str, str | None, str | None],
+    ] = {}
     for node in _mapping(getattr(runtime_plan, "nodes", {})).values():
         node_kind = _point_field(node, "kind")
         is_peer = (
@@ -1878,8 +2264,16 @@ def checkpoint_runtime_program_identity(
             node_kind == "run_ref"
             or _point_field(node, "run_ref_config_digest") is not None
         )
-        if not is_peer and not is_run_ref:
+        is_trial = (
+            node_kind == "trial"
+            or _point_field(node, "trial_config_digest") is not None
+            or _point_field(node, "trial_result_contract_digest") is not None
+        )
+        matched_kinds = sum((is_peer, is_run_ref, is_trial))
+        if matched_kinds == 0:
             continue
+        if matched_kinds != 1:
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
         step_id = _point_field(node, "step_id")
         node_id = _point_field(node, "node_id")
         if (
@@ -1890,7 +2284,15 @@ def checkpoint_runtime_program_identity(
             or step_id in required_component_nodes
         ):
             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        component_kind = (
+            "provider_peer_group"
+            if is_peer
+            else "run_ref"
+            if is_run_ref
+            else "trial"
+        )
         expected_component_digest = None
+        expected_result_contract_digest = None
         if is_run_ref:
             expected_component_digest = _point_field(
                 node,
@@ -1901,9 +2303,31 @@ def checkpoint_runtime_program_identity(
                 expected_component_digest,
             ) is None:
                 raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        elif is_trial:
+            expected_component_digest = _point_field(
+                node,
+                "trial_config_digest",
+            )
+            expected_result_contract_digest = _point_field(
+                node,
+                "trial_result_contract_digest",
+            )
+            for digest in (
+                expected_component_digest,
+                expected_result_contract_digest,
+            ):
+                if not isinstance(digest, str) or re.fullmatch(
+                    r"sha256:[0-9a-f]{64}",
+                    digest,
+                ) is None:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    )
         required_component_nodes[step_id] = (
             node_id,
+            component_kind,
             expected_component_digest,
+            expected_result_contract_digest,
         )
     observed_required_points: dict[str, list[Any]] = {
         step_id: [] for step_id in required_component_nodes
@@ -1913,7 +2337,12 @@ def checkpoint_runtime_program_identity(
         if step_id in observed_required_points:
             observed_required_points[step_id].append(point)
     for step_id, points in observed_required_points.items():
-        expected_node_id, expected_component_digest = (
+        (
+            expected_node_id,
+            component_kind,
+            expected_component_digest,
+            expected_result_contract_digest,
+        ) = (
             required_component_nodes[step_id]
         )
         if (
@@ -1931,12 +2360,18 @@ def checkpoint_runtime_program_identity(
             and observed_component_digest != expected_component_digest
         ):
             raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
-        if expected_component_digest is not None and executable_ir is not None:
-            from orchestrator.workflow.executable_ir import RunRefStepConfig
-            from orchestrator.workflow.run_ref.config import (
-                validate_run_ref_static_config_authority,
+        observed_identity = _mapping(
+            (_point_details(points[0]) or _mapping(points[0])).get(
+                "executable_identity"
             )
-
+        )
+        if (
+            expected_result_contract_digest is not None
+            and observed_identity.get("trial_result_contract_digest")
+            != expected_result_contract_digest
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+        if expected_component_digest is not None and executable_ir is not None:
             executable_nodes = _mapping(
                 getattr(executable_ir, "nodes", {})
             )
@@ -1946,18 +2381,55 @@ def checkpoint_runtime_program_identity(
                 "execution_config",
                 None,
             )
-            if type(execution_config) is not RunRefStepConfig:
-                raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
-            try:
-                validate_run_ref_static_config_authority(
-                    execution_config.run_ref
+            if component_kind == "run_ref":
+                from orchestrator.workflow.executable_ir import RunRefStepConfig
+                from orchestrator.workflow.run_ref.config import (
+                    validate_run_ref_static_config_authority,
                 )
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    DIAGNOSTIC_CODES.program_identity_mismatch
-                ) from exc
-            if execution_config.run_ref.digest != expected_component_digest:
-                raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+
+                if type(execution_config) is not RunRefStepConfig:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    )
+                try:
+                    validate_run_ref_static_config_authority(
+                        execution_config.run_ref
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    ) from exc
+                if execution_config.run_ref.digest != expected_component_digest:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    )
+            elif component_kind == "trial":
+                from orchestrator.workflow.executable_ir import TrialStepConfig
+                from orchestrator.workflow.trial.config import (
+                    validate_trial_static_config_authority,
+                )
+
+                if type(execution_config) is not TrialStepConfig:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    )
+                try:
+                    validate_trial_static_config_authority(
+                        execution_config.trial
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    ) from exc
+                if (
+                    execution_config.trial.digest
+                    != expected_component_digest
+                    or execution_config.trial.result_digest
+                    != expected_result_contract_digest
+                ):
+                    raise ValueError(
+                        DIAGNOSTIC_CODES.program_identity_mismatch
+                    )
     lexical_points = [
         _runtime_program_identity_point(
             point,

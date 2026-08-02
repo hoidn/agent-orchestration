@@ -503,17 +503,21 @@ def test_public_compiler_carries_one_trial_across_all_compiler_views(
         step_id=checkpoint_point.step_id,
         target_dsl_version=result.validated_bundle.ir.version,
     )
-    assert lexical_checkpoints.collect_completed_effect_refs(
-        SimpleNamespace(
-            state_manager=SimpleNamespace(state={"steps": {}}),
-            _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
-        ),
-        point=checkpoint_point,
-        committed_step_state={
-            "status": "completed",
-            "step_id": checkpoint_point.step_id,
-        },
-    ) == []
+    with pytest.raises(
+        ValueError,
+        match="lexical_checkpoint_effect_policy_trial_result_invalid",
+    ):
+        lexical_checkpoints.collect_completed_effect_refs(
+            SimpleNamespace(
+                state_manager=SimpleNamespace(state={"steps": {}}),
+                _runtime_step_for_node_id=lambda *_args, **_kwargs: runtime_step,
+            ),
+            point=checkpoint_point,
+            committed_step_state={
+                "status": "completed",
+                "step_id": checkpoint_point.step_id,
+            },
+        )
     point_payload = lexical_checkpoints._point_payload(checkpoint_point)
     empty_record = {
         "completed_effect_refs": [],
