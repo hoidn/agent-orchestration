@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Task 0 complete and Task 1 selected
+- **Status:** accepted for E2 execution; Tasks 0–1 complete and Task 2 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -412,24 +412,40 @@ its postcommit routing and route-readiness control passed 112 tests.
 **Files:** create `tests/test_workflow_lisp_e2_trial_feasibility.py`; test-only
 fixtures/helpers. No production or normative file changes.
 
-- [ ] RED/characterization: two complete E1 envelopes and one failed envelope
+- [x] RED/characterization: two complete E1 envelopes and one failed-arm
+      evidence value
       enter a test-only opaque packet adapter, the existing adjudication scorer
       identity and strict-output primitives consume them, and trial-shaped
       score rows can remain candidate-provider-free. Characterize existing
       single-winner selection as inapplicable rather than reusing it.
-- [ ] Prove the packet's citable set includes the bounded workspace delta and
+- [x] Prove the packet's citable set includes the bounded workspace delta and
       excludes treatment, source, provider, completion-order, and sidecar
       facts.
-- [ ] Model the intended durable cell facts over one clean and one
+- [x] Model the intended durable cell facts over one clean and one
       crash/resume execution; prove committed E1 effects are not re-spent,
       incomplete effects require fresh ordinals, derived ordering/median values
       are transient, and no memo key appears.
-- [ ] Characterize the current rejection of record/union elements below list
+- [x] Characterize the current rejection of record/union elements below list
       containers and bind it as the exact target-2.25 prerequisite owned by
       Task 3 rather than weakening the typed outcome contract.
-- [ ] Collect and run the new module, obtain ordered Task-1 reviews, commit,
+- [x] Collect and run the new module, obtain ordered Task-1 reviews, commit,
       and run its postcommit control. Any failed proof stops E2 before specs or
       production code and records `REVISE_E2` or `STOP_E2`.
+
+Task 1 closed at exact reviewed commit
+`456acc7a517fae2797b7e4f10bb73c1e11a6dd15`, tree
+`7b7e53517e1c10bf9673337bff6bc811ad971004`. The six-test feasibility
+module has SHA-256
+`e5ac975de81c89264694e364871475ede4769084f54b25fdbd41cdcb0c0debe2`.
+Ordered `E2_TASK1_SPEC_APPROVED` then `E2_TASK1_QUALITY_APPROVED` approved
+those exact bytes. Its public E1 contracts prove closed packet projection,
+score-ledger materialization, real attempt deletion/relaunch accounting,
+committed-result reuse without re-spend, and the current nested-transport
+rejection. The failed cell is deliberately failed-arm evidence rather than an
+invented E1 failure envelope. The adjacent regression gate passed 165 tests;
+the fresh postcommit module passed six tests. This is feasibility evidence
+only: production trial packet/citation/aggregation remain Task 8, executable
+trial/M2 parity remains Tasks 9–10, and Task 3 owns nested transport admission.
 
 ## Task 2: Land target-2.25 normative contracts first
 
