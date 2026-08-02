@@ -12,6 +12,7 @@ def _add_frontend_flags(
     *,
     include_form: bool = False,
     include_emit_artifact_exports: bool = False,
+    require_entry_workflow: bool = False,
 ) -> None:
     if include_form:
         parser.add_argument(
@@ -22,6 +23,7 @@ def _add_frontend_flags(
     parser.add_argument(
         '--entry-workflow',
         type=str,
+        required=require_entry_workflow,
         help='Entry workflow name for .orc entrypoints'
     )
     parser.add_argument(
@@ -275,6 +277,38 @@ def create_parser() -> argparse.ArgumentParser:
         help='Maximum provider transport tail chars passed to live note provider'
     )
     _add_frontend_flags(run_parser)
+
+    trial_parser = subparsers.add_parser(
+        'trial',
+        help='Run a target-2.25 terminal trial entry',
+    )
+    trial_parser.add_argument(
+        'workflow',
+        type=str,
+        help='Path to a Workflow Lisp .orc source file',
+    )
+    trial_parser.add_argument(
+        '--input',
+        action='append',
+        metavar='NAME=VALUE',
+        help='Workflow signature inputs (can be specified multiple times)',
+    )
+    trial_parser.add_argument(
+        '--input-file',
+        type=str,
+        help='Path to JSON file containing workflow signature inputs',
+    )
+    trial_parser.add_argument(
+        '--state-dir',
+        type=str,
+        help='Override default state directory',
+    )
+    trial_parser.add_argument(
+        '--run-ref-root',
+        type=str,
+        help='Canonical absolute runtime root for trial child workspaces',
+    )
+    _add_frontend_flags(trial_parser, require_entry_workflow=True)
 
     compile_parser = subparsers.add_parser('compile', help='Compile a Workflow Lisp entrypoint')
     compile_parser.add_argument(
@@ -554,6 +588,9 @@ def main(args: Optional[list] = None) -> int:
 
     if parsed_args.command == 'run':
         return run_workflow(parsed_args)
+    elif parsed_args.command == 'trial':
+        from orchestrator.cli.commands.trial import trial_workflow
+        return trial_workflow(parsed_args)
     elif parsed_args.command == 'compile':
         from orchestrator.cli.commands import compile_workflow
         return compile_workflow(parsed_args)
