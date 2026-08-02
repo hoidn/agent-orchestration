@@ -1,10 +1,16 @@
 # Workflow Lisp Recursion REC-Series Roadmap
 
 Status: tracked (per the
-[2026-08-01 owner direction record](2026-08-01-workflow-lisp-rec-series-owner-direction.md);
-the owner waived independent pre-incorporation subagent review, and
-incorporation-time verification is the routing test suite plus this
-document's directly measured citations). Not active work instructions and not a selector: no
+[2026-08-01 owner direction record](2026-08-01-workflow-lisp-rec-series-owner-direction.md)).
+Pre-incorporation review: an independent
+[contract review](../../artifacts/review/rec-series-roadmap-contract-review.md)
+(`APPROVE_WITH_CHANGES`, ten findings, all incorporated) and an independent
+[fact-check review](../../artifacts/review/rec-series-roadmap-fact-check-review.md)
+(`APPROVE`, zero wrong citations, advisories incorporated), delivered in the
+drafting session and persisted as review artifacts; incorporation-time
+verification additionally ran the routing test suite. A second reviewer
+pair in a concurrent session was cancelled by owner direction and no
+further review round is required. Not active work instructions and not a selector: no
 REC item is selected by listing, and REC implementation remains unselected
 until this document's entry conditions hold and the owner records a
 selection act. Technical definitions for REC1/REC1b land in their own
