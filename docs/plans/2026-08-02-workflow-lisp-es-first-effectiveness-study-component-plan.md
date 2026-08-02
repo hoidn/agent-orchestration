@@ -475,7 +475,7 @@ current E roadmap/index/routing assertions needed to show plan status.
 - [x] Obtain distinct `ES_PLAN_QUALITY_APPROVED` against the same candidate.
 - [x] Correct material findings, replay the pair only if bytes change, bind
       the accepted digest/commit/tree, and commit the plan-status transition.
-- [ ] Run routing/readiness controls postcommit.
+- [x] Run routing/readiness controls postcommit.
 
 Task 0 review closed against corrected commit `27be07e2`, tree `e669471a`,
 after ordered `ES_PLAN_SPEC_APPROVED` then distinct
@@ -486,6 +486,10 @@ F1 hard contract. The exact review and candidate bindings are recorded in
 `artifacts/review/es-first-effectiveness-study-plan-review.md`. Task 1 may
 begin after the routing transition; this gate authorizes no live ES call and
 does not adopt the proposed scientific lock.
+
+The acceptance transition committed at `2e4e39ea`. Its fresh postcommit
+routing and route-readiness control passed all 112 tests in 6.31 seconds.
+Task 0 is complete and Task 1 is active.
 
 ## Task 1: Build and prove the history-free F1 projection
 
