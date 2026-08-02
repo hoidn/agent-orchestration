@@ -633,6 +633,7 @@ def _lower_one_wcc_workflow(
         allow_transportable_inputs=(
             workflow_catalog.allow_transportable_input_boundaries
         ),
+        type_env=type_env,
     )
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}

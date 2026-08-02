@@ -78,7 +78,10 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
     resolved_workspace = workspace.resolve()
     value_type = spec.get("type")
 
-    if isinstance(raw_value, str) and value_type in {"list", "map"}:
+    if isinstance(raw_value, str) and (
+        value_type in {"list", "map"}
+        or _descriptor_contains_direct_structure(spec)
+    ):
         normalized_value = raw_value.strip()
         try:
             decoded_value = json.loads(normalized_value)
@@ -818,6 +821,42 @@ def _parse_output_bundle_value(
     workspace: Path,
     value_path: str = "",
 ) -> tuple[Any, ContractViolation | None]:
+    if _descriptor_contains_direct_structure(spec):
+        from orchestrator.workflow.type_descriptor import (
+            transport_descriptor_for_schema,
+            validate_transport_value,
+        )
+
+        try:
+            descriptor = transport_descriptor_for_schema(spec)
+            return (
+                validate_transport_value(
+                    raw_value,
+                    descriptor,
+                    allow_nested_structures=True,
+                    path_validator=lambda value, path_descriptor: (
+                        _require_nested_transport_path(
+                            value,
+                            path_descriptor,
+                            workspace,
+                        )
+                    ),
+                ),
+                None,
+            )
+        except (RecursionError, TypeError, ValueError) as exc:
+            return None, ContractViolation(
+                type="invalid_transportable_value",
+                message=(
+                    "Output value does not match its nested structural "
+                    "transport contract"
+                ),
+                context={
+                    "value_path": value_path,
+                    "error": str(exc),
+                },
+            )
+
     if value_type == "value":
         return _validate_transportable_value(raw_value, value_path=value_path)
 
@@ -981,6 +1020,26 @@ def _parse_output_bundle_value(
     )
 
 
+def _require_nested_transport_path(
+    value: str,
+    descriptor: Mapping[str, Any],
+    workspace: Path,
+) -> str:
+    parsed, violation = _validate_relpath_value(
+        value,
+        {
+            "type": "relpath",
+            "under": descriptor["under"],
+            "must_exist_target": descriptor["must_exist_target"],
+        },
+        workspace,
+    )
+    if violation is not None:
+        raise ValueError(f"{violation.type}: {violation.message}")
+    assert isinstance(parsed, str)
+    return parsed
+
+
 def _validate_transportable_value(
     raw_value: Any,
     *,
@@ -1069,7 +1128,7 @@ def _append_value_path(value_path: str, token: str) -> str:
 
 
 def _contract_contains_value(contract: Mapping[str, Any]) -> bool:
-    """Return whether any output-contract descriptor contains ``type: value``."""
+    """Return whether a contract requires strict direct-JSON decoding."""
 
     if _descriptor_contains_value(contract.get("discriminant")):
         return True
@@ -1095,12 +1154,23 @@ def _contract_contains_value(contract: Mapping[str, Any]) -> bool:
 def _descriptor_contains_value(descriptor: Any) -> bool:
     if not isinstance(descriptor, Mapping):
         return False
-    if descriptor.get("type") == "value":
+    if descriptor.get("type") in {"value", "record", "union"}:
         return True
     for child_key in ("item", "items", "keys", "values"):
         if _descriptor_contains_value(descriptor.get(child_key)):
             return True
     return False
+
+
+def _descriptor_contains_direct_structure(descriptor: Any) -> bool:
+    if not isinstance(descriptor, Mapping):
+        return False
+    if descriptor.get("type") in {"record", "union"}:
+        return True
+    return any(
+        _descriptor_contains_direct_structure(descriptor.get(child_key))
+        for child_key in ("item", "items", "keys", "values")
+    )
 
 
 def _load_bundle_json(

@@ -44,6 +44,7 @@ PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION = "2.21"
 PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION = "2.22"
 PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
 RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
+NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -106,6 +107,24 @@ def target_dsl_supports_value(target_dsl_version: str) -> bool:
         )
         minimum = tuple(
             int(part) for part in VALUE_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_nested_structural_transport(
+    target_dsl_version: str,
+) -> bool:
+    """Return whether authored nested record/union transport is available."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION.split(
+                "."
+            )
         )
     except (AttributeError, TypeError, ValueError):
         return False

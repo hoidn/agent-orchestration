@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from orchestrator.workflow.type_descriptor import (
+    is_transportable_type_descriptor as _shared_is_transportable_type_descriptor,
     validate_compiler_normalized_type_descriptor,
 )
 
@@ -16,7 +17,6 @@ from .contracts import canonical_sha256
 RUN_REF_RESULT_CONTRACT_SCHEMA = "run_ref_result_contract.v1"
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _GENERATED_RESULT_RE = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
-_NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt"})
 
 
 def _require_exact_keys(
@@ -145,38 +145,19 @@ def is_transportable_type_descriptor(
     descriptor: Mapping[str, Any],
     *,
     collection_item: bool = False,
+    allow_nested_structures: bool = False,
 ) -> bool:
-    """Return whether a validated normalized descriptor is transportable."""
+    """Compatibility wrapper over the neutral transportability owner."""
 
-    kind = descriptor["kind"]
-    if kind == "primitive":
-        return descriptor["name"] not in _NONTRANSPORTABLE_PRIMITIVES
-    if kind in {"enum", "path"}:
-        return True
-    if kind in {"optional", "list"}:
-        return is_transportable_type_descriptor(
-            descriptor["item"],
-            collection_item=True,
+    if collection_item and descriptor.get("kind") in {"record", "union"}:
+        return allow_nested_structures and _shared_is_transportable_type_descriptor(
+            descriptor,
+            allow_nested_structures=True,
         )
-    if kind == "map":
-        return descriptor["key"] == _primitive(
-            "String"
-        ) and is_transportable_type_descriptor(
-            descriptor["value"],
-            collection_item=True,
-        )
-    if kind == "record":
-        return not collection_item and all(
-            is_transportable_type_descriptor(field["type"])
-            for field in descriptor["fields"]
-        )
-    if kind == "union":
-        return not collection_item and all(
-            is_transportable_type_descriptor(field["type"])
-            for variant in descriptor["variants"]
-            for field in variant["fields"]
-        )
-    return False
+    return _shared_is_transportable_type_descriptor(
+        descriptor,
+        allow_nested_structures=allow_nested_structures,
+    )
 
 
 def validate_run_ref_result_descriptor(
@@ -184,6 +165,7 @@ def validate_run_ref_result_descriptor(
     *,
     expected_generated_name: str | None = None,
     expected_digest: str | None = None,
+    allow_nested_structures: bool = False,
 ) -> None:
     """Validate one full exact runtime-owned run-ref result descriptor."""
 
@@ -215,7 +197,10 @@ def validate_run_ref_result_descriptor(
         "accounting",
     ]:
         raise ValueError("run-ref result field order is invalid")
-    if not is_transportable_type_descriptor(fields[0]["type"]):
+    if not is_transportable_type_descriptor(
+        fields[0]["type"],
+        allow_nested_structures=allow_nested_structures,
+    ):
         raise ValueError("run-ref result value descriptor is not transportable")
     if fields[1]["type"] != _workspace_delta_descriptor():
         raise ValueError("run-ref workspace delta schema is invalid")

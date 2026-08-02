@@ -260,7 +260,10 @@ def _signature_mismatch_causes(
     signature: Mapping[str, object],
     configured_inputs: tuple[RunRefInput, ...],
     program: PathProgram,
+    *,
+    target_dsl_version: str = "2.24",
 ) -> tuple[str, ...]:
+    allow_nested_structures = target_dsl_version == "2.25"
     expected_rows = signature["inputs"]
     if not isinstance(expected_rows, list):
         return ("signature_inputs_malformed",)
@@ -272,7 +275,8 @@ def _signature_mismatch_causes(
     for name, row in expected_by_name.items():
         descriptor = row.get("type")
         if not isinstance(descriptor, Mapping) or not is_transportable_type_descriptor(
-            descriptor
+            descriptor,
+            allow_nested_structures=allow_nested_structures,
         ):
             causes.append(f"input_nontransportable:{name}")
         configured = configured_by_name.get(name)
@@ -288,7 +292,8 @@ def _signature_mismatch_causes(
         causes.append(f"extra_input:{name}")
     return_descriptor = signature.get("return")
     if not isinstance(return_descriptor, Mapping) or not is_transportable_type_descriptor(
-        return_descriptor
+        return_descriptor,
+        allow_nested_structures=allow_nested_structures,
     ):
         causes.append("return_nontransportable")
     return_claim = program.return_refinement or _VALUE_DESCRIPTOR
@@ -417,6 +422,7 @@ def compile_and_admit_path_program(
         signature,
         step_config.run_ref.inputs,
         program,
+        target_dsl_version=step_config.run_ref.target_dsl_version,
     )
     if mismatch_causes:
         raise _refuse(

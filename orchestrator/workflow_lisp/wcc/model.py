@@ -280,6 +280,7 @@ class WccRunRefPayload:
     site_digest: str
     generated_result_type: str
     result_digest: str
+    allow_nested_structures: bool
     _result_descriptor_json: bytes = field(repr=False)
     _input_type_descriptor_rows: tuple[tuple[str, bytes], ...] = field(
         repr=False
@@ -294,6 +295,7 @@ class WccRunRefPayload:
         generated_result_type: str,
         result_descriptor: Mapping[str, object],
         result_digest: str,
+        allow_nested_structures: bool = False,
         input_type_descriptors: tuple[
             tuple[str, Mapping[str, object]], ...
         ],
@@ -320,10 +322,13 @@ class WccRunRefPayload:
             != site_digest[:16]
         ):
             raise ValueError("WCC run-ref generated result identity is invalid")
+        if type(allow_nested_structures) is not bool:
+            raise TypeError("WCC run-ref nested-transport capability must be boolean")
         validate_run_ref_result_descriptor(
             result_descriptor,
             expected_generated_name=generated_result_type,
             expected_digest=result_digest,
+            allow_nested_structures=allow_nested_structures,
         )
         if isinstance(program, PathProgram):
             value_descriptor = result_descriptor["envelope"]["fields"][0]["type"]
@@ -352,7 +357,10 @@ class WccRunRefPayload:
                 descriptor,
                 context=f"wcc_run_ref_input.{name}",
             )
-            if not is_transportable_type_descriptor(descriptor):
+            if not is_transportable_type_descriptor(
+                descriptor,
+                allow_nested_structures=allow_nested_structures,
+            ):
                 raise ValueError("WCC run-ref input type is not transportable")
             seen.add(name)
             frozen_inputs.append((name, canonical_json_bytes(descriptor)))
@@ -365,6 +373,11 @@ class WccRunRefPayload:
         object.__setattr__(self, "site_digest", site_digest)
         object.__setattr__(self, "generated_result_type", generated_result_type)
         object.__setattr__(self, "result_digest", result_digest)
+        object.__setattr__(
+            self,
+            "allow_nested_structures",
+            allow_nested_structures,
+        )
         object.__setattr__(
             self,
             "_result_descriptor_json",

@@ -96,14 +96,14 @@ DEFAULT_SUPPORTED_VERSIONS = frozenset(
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-        "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24",
+        "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24", "2.25",
     }
 )
 DEFAULT_VERSION_ORDER = (
     "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
-    "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24",
+    "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24", "2.25",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -4290,10 +4290,28 @@ class _WorkflowMappingValidator:
     def _descriptor_contains_value(cls, spec: Mapping[str, Any]) -> bool:
         if spec.get('type') == 'value':
             return True
-        return any(
+        if any(
             isinstance(spec.get(key), Mapping)
             and cls._descriptor_contains_value(spec[key])
             for key in ('item', 'items', 'keys', 'values')
+        ):
+            return True
+        fields = spec.get('fields')
+        if isinstance(fields, list) and any(
+            isinstance(field, Mapping) and cls._descriptor_contains_value(field)
+            for field in fields
+        ):
+            return True
+        variants = spec.get('variants')
+        return isinstance(variants, Mapping) and any(
+            isinstance(variant, Mapping)
+            and isinstance(variant.get('fields'), list)
+            and any(
+                isinstance(field, Mapping)
+                and cls._descriptor_contains_value(field)
+                for field in variant['fields']
+            )
+            for variant in variants.values()
         )
 
     @classmethod
@@ -4310,6 +4328,30 @@ class _WorkflowMappingValidator:
             child = schema.get(key)
             if isinstance(child, Mapping):
                 schema[key] = cls._guidance_example_schema(child)
+        fields = schema.get('fields')
+        if isinstance(fields, list):
+            schema['fields'] = [
+                cls._guidance_example_schema(field)
+                if isinstance(field, Mapping)
+                else field
+                for field in fields
+            ]
+        variants = schema.get('variants')
+        if isinstance(variants, Mapping):
+            schema['variants'] = {
+                name: {
+                    **dict(variant),
+                    'fields': [
+                        cls._guidance_example_schema(field)
+                        if isinstance(field, Mapping)
+                        else field
+                        for field in variant.get('fields', ())
+                    ],
+                }
+                if isinstance(variant, Mapping)
+                else variant
+                for name, variant in variants.items()
+            }
         return schema
 
     @classmethod
@@ -4337,6 +4379,22 @@ class _WorkflowMappingValidator:
             return isinstance(value, (int, float)) and not isinstance(value, bool)
         if value_type == 'bool':
             return isinstance(value, bool)
+        if value_type in {'record', 'union'}:
+            try:
+                from orchestrator.workflow.type_descriptor import (
+                    transport_descriptor_for_schema,
+                    validate_transport_value,
+                )
+
+                descriptor = transport_descriptor_for_schema(spec)
+                validate_transport_value(
+                    value,
+                    descriptor,
+                    allow_nested_structures=True,
+                )
+            except (RecursionError, TypeError, ValueError):
+                return False
+            return True
         return False
 
     def _validate_output_schema_spec(
@@ -4348,6 +4406,7 @@ class _WorkflowMappingValidator:
         subject_refs: tuple[ValidationSubjectRef, ...] = (),
         kind_label: str,
         allow_guidance_keys: bool = False,
+        below_container: bool = False,
     ) -> None:
         if not allow_guidance_keys and self._version_at_least(version, "2.15"):
             for key in ('description', 'format_hint', 'example', 'guidance_context', 'guidance_by_variant'):
@@ -4394,6 +4453,63 @@ class _WorkflowMappingValidator:
                         subject_refs=subject_refs,
                     )
 
+        if output_type in {'record', 'union'}:
+            if not below_container:
+                self._add_error(
+                    (
+                        f"{field_context} {kind_label} structural type must appear "
+                        "below optional|list|map"
+                    ),
+                    subject_refs=subject_refs,
+                )
+                return
+            try:
+                from orchestrator.workflow.type_descriptor import (
+                    is_transportable_type_descriptor,
+                    transport_descriptor_for_schema,
+                )
+
+                descriptor = transport_descriptor_for_schema(spec)
+                if not is_transportable_type_descriptor(
+                    descriptor,
+                    allow_nested_structures=True,
+                ):
+                    raise ValueError("nested structural schema is not transportable")
+            except (RecursionError, TypeError, ValueError) as exc:
+                self._add_error(
+                    f"{field_context} invalid nested structural schema: {exc}",
+                    subject_refs=subject_refs,
+                )
+                return
+            if output_type == 'record':
+                nested_fields = spec.get('fields', ())
+            else:
+                nested_fields = tuple(
+                    field
+                    for variant in spec.get('variants', {}).values()
+                    for field in variant.get('fields', ())
+                )
+                discriminant = spec.get('discriminant')
+                if isinstance(discriminant, dict):
+                    self._validate_output_schema_spec(
+                        discriminant,
+                        field_context=f"{field_context}.discriminant",
+                        version=version,
+                        subject_refs=subject_refs,
+                        kind_label=kind_label,
+                        below_container=True,
+                    )
+            for index, nested_field in enumerate(nested_fields):
+                self._validate_output_schema_spec(
+                    nested_field,
+                    field_context=f"{field_context}.fields[{index}]",
+                    version=version,
+                    subject_refs=subject_refs,
+                    kind_label=kind_label,
+                    below_container=True,
+                )
+            return
+
         if 'under' in spec:
             if not isinstance(spec['under'], str):
                 self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
@@ -4423,6 +4539,7 @@ class _WorkflowMappingValidator:
                 version=version,
                 subject_refs=subject_refs,
                 kind_label=kind_label,
+                below_container=True,
             )
             return
 
@@ -4437,6 +4554,7 @@ class _WorkflowMappingValidator:
                 version=version,
                 subject_refs=subject_refs,
                 kind_label=kind_label,
+                below_container=True,
             )
             return
 
@@ -4452,6 +4570,7 @@ class _WorkflowMappingValidator:
                     version=version,
                     subject_refs=subject_refs,
                     kind_label=kind_label,
+                    below_container=True,
                 )
                 if key_spec.get('type') != 'string':
                     self._add_error(f"{field_context}.keys map key schema must use type 'string'", subject_refs=subject_refs)
@@ -4464,6 +4583,7 @@ class _WorkflowMappingValidator:
                     version=version,
                     subject_refs=subject_refs,
                     kind_label=kind_label,
+                    below_container=True,
                 )
 
     def _extend_variant_proof_context(
@@ -5942,6 +6062,8 @@ class _WorkflowMappingValidator:
             supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
         if self._version_at_least(version, "2.19"):
             supported_types.add("value")
+        if self._version_at_least(version, "2.25"):
+            supported_types.update({"record", "union"})
         return supported_types
 
     def _supported_scalar_types(self, version: str) -> Set[str]:
@@ -5956,7 +6078,7 @@ class _WorkflowMappingValidator:
         return (
             self._supported_output_types(version)
             - self.PRIVATE_COLLECTION_OUTPUT_TYPES
-            - {"value"}
+            - {"value", "record", "union"}
         )
 
     def _scalar_type_list(self, version: str) -> str:

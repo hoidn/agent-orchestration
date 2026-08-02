@@ -42,12 +42,16 @@ from .typecheck_context import (
 )
 
 
-def _is_transportable_result_type(type_ref: TypeRef) -> bool:
+def _is_transportable_result_type(
+    type_ref: TypeRef,
+    *,
+    type_env=None,
+) -> bool:
     # `contracts` owns this predicate but imports workflow signatures, which
     # return through this typechecker during module initialization.
     from .contracts import is_transportable_result_type
 
-    return is_transportable_result_type(type_ref)
+    return is_transportable_result_type(type_ref, type_env=type_env)
 
 
 def typecheck_structural_value_expr(
@@ -161,7 +165,7 @@ def typecheck_structural_value_expr(
                     form_path=expr.form_path,
                     expansion_stack=expr.expansion_stack,
                 )
-        if not _is_transportable_result_type(list_type):
+        if not _is_transportable_result_type(list_type, type_env=type_env):
             raise_error(
                 (
                     "list collection contract is unsupported for complete type "
@@ -199,7 +203,10 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        if not _is_transportable_result_type(typed_source.type_ref):
+        if not _is_transportable_result_type(
+            typed_source.type_ref,
+            type_env=type_env,
+        ):
             raise_error(
                 (
                     "list collection contract is unsupported for complete type "
@@ -227,7 +234,7 @@ def typecheck_structural_value_expr(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,
         )
-        if not _is_transportable_result_type(result_type):
+        if not _is_transportable_result_type(result_type, type_env=type_env):
             raise_error(
                 (
                     "list collection contract is unsupported for complete type "
@@ -315,7 +322,10 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        if not _is_transportable_result_type(typed_source.type_ref):
+        if not _is_transportable_result_type(
+            typed_source.type_ref,
+            type_env=type_env,
+        ):
             raise_error(
                 (
                     "list collection contract is unsupported for complete type "
@@ -397,7 +407,7 @@ def typecheck_structural_value_expr(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,
         )
-        if not _is_transportable_result_type(result_type):
+        if not _is_transportable_result_type(result_type, type_env=type_env):
             raise_error(
                 (
                     "list collection contract is unsupported for complete type "

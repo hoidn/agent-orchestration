@@ -16,11 +16,13 @@ from typing import Any
 from orchestrator import __version__ as ORCHESTRATOR_VERSION
 from orchestrator.exceptions import ValidationSubjectRef, serialize_validation_subject_ref
 from orchestrator.workflow.surface_ast import SurfaceContract
+from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import ReusableArtifactRequirement
 from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
+from .syntax import target_dsl_supports_nested_structural_transport
 from .type_env import (
     ListTypeRef,
     MapTypeRef,
@@ -133,7 +135,12 @@ class GeneratedBundleContract:
         return "root_value"
 
 
-def is_transportable_result_type(type_ref: TypeRef) -> bool:
+def is_transportable_result_type(
+    type_ref: TypeRef,
+    *,
+    type_env: Any | None = None,
+    target_dsl_version: str | None = None,
+) -> bool:
     """Return whether one declared result type can derive a runtime result contract.
 
     This is the single shared transportability decision for workflow, provider,
@@ -146,8 +153,19 @@ def is_transportable_result_type(type_ref: TypeRef) -> bool:
 
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return True
+    target = target_dsl_version or getattr(type_env, "target_dsl_version", None)
+    allow_nested_structures = (
+        isinstance(target, str)
+        and target_dsl_supports_nested_structural_transport(target)
+    )
     try:
-        _structured_result_field_definition(type_ref, span=None, form_path=())
+        _structured_result_field_definition(
+            type_ref,
+            span=None,
+            form_path=(),
+            type_env=type_env,
+            allow_nested_structures=allow_nested_structures,
+        )
     except (LispFrontendCompileError, TypeError):
         return False
     return True
@@ -285,6 +303,11 @@ def _derive_structured_result_contract(
     """
 
     path = _bundle_path(workflow_name=workflow_name, step_id=step_id)
+    target_dsl_version = getattr(type_env, "target_dsl_version", None)
+    allow_nested_structures = (
+        isinstance(target_dsl_version, str)
+        and target_dsl_supports_nested_structural_transport(target_dsl_version)
+    )
     root_guidance = (
         normalized_result_guidance_payload(
             guidance,
@@ -310,6 +333,8 @@ def _derive_structured_result_contract(
                         type_ref,
                         span=span,
                         form_path=form_path,
+                        type_env=type_env,
+                        allow_nested_structures=allow_nested_structures,
                     ),
                     **(root_guidance or {}),
                     "source_map_subject": serialize_validation_subject_ref(root_subject),
@@ -379,6 +404,7 @@ def _derive_structured_result_contract(
         step_id=step_id,
         span=span,
         form_path=form_path,
+        type_env=type_env,
     )
     for variant_name, fields in variant_fields.items():
         for field in fields:
@@ -423,6 +449,7 @@ def derive_workflow_signature_contracts(
     signature: WorkflowSignature,
     *,
     allow_transportable_inputs: bool = False,
+    type_env: Any | None = None,
 ) -> tuple[Mapping[str, SurfaceContract], Mapping[str, SurfaceContract], WorkflowBoundaryProjection]:
     """Flatten workflow-boundary contracts into loader-accepted field specs."""
 
@@ -439,6 +466,7 @@ def derive_workflow_signature_contracts(
             span=signature.span,
             form_path=signature.form_path,
             allow_transportable_value=allow_transportable_inputs,
+            type_env=type_env,
         ):
             flattened_field = _apply_workflow_input_defaults(
                 param_name=param_name,
@@ -463,18 +491,21 @@ def derive_workflow_signature_contracts(
             source_path=("return",),
             span=signature.span,
             form_path=signature.form_path,
+            type_env=type_env,
         )
         if isinstance(signature.return_type_ref, UnionTypeRef):
             return_projection = derive_union_workflow_boundary_projection(
                 signature.return_type_ref,
                 span=signature.span,
                 form_path=signature.form_path,
+                type_env=type_env,
             )
             return_fields = _relax_variant_only_relpath_outputs(
                 signature.return_type_ref,
                 return_fields,
                 span=signature.span,
                 form_path=signature.form_path,
+                type_env=type_env,
             )
     else:
         return_kind = "root"
@@ -483,6 +514,7 @@ def derive_workflow_signature_contracts(
                 signature.return_type_ref,
                 span=signature.span,
                 form_path=signature.form_path,
+                type_env=type_env,
             ),
         )
 
@@ -562,6 +594,7 @@ def _relax_variant_only_relpath_outputs(
     *,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> tuple[FlattenedContractField, ...]:
     """Do not require inactive union-variant relpaths at the flat output boundary.
 
@@ -575,6 +608,7 @@ def _relax_variant_only_relpath_outputs(
         type_ref,
         span=span,
         form_path=form_path,
+        type_env=type_env,
     )
     variant_only_names = {
         field.generated_name
@@ -673,6 +707,7 @@ def derive_union_workflow_boundary_projection(
     form_path: tuple[str, ...],
     generated_name: str = "return",
     source_path: tuple[str, ...] = ("return",),
+    type_env: Any | None = None,
 ) -> UnionWorkflowBoundaryProjection:
     """Project a frontend union into flattened output-contract metadata.
 
@@ -700,6 +735,7 @@ def derive_union_workflow_boundary_projection(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=type_env,
         )
     )
     variant_fields: dict[str, tuple[FlattenedContractField, ...]] = {}
@@ -715,6 +751,7 @@ def derive_union_workflow_boundary_projection(
                 variant.name,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
             )
         )
     return UnionWorkflowBoundaryProjection(
@@ -788,10 +825,17 @@ def _strip_contract_provenance_for_fingerprint(value: Any) -> Any:
     return value
 
 
-def derive_reusable_state_public_input_hash_basis(signature: WorkflowSignature) -> tuple[str, ...]:
+def derive_reusable_state_public_input_hash_basis(
+    signature: WorkflowSignature,
+    *,
+    type_env: Any | None = None,
+) -> tuple[str, ...]:
     """Return the flattened public workflow input names that feed reuse hashing."""
 
-    _, _, projection = derive_workflow_signature_contracts(signature)
+    _, _, projection = derive_workflow_signature_contracts(
+        signature,
+        type_env=type_env,
+    )
     return tuple(
         field.generated_name
         for field in projection.flattened_inputs
@@ -823,6 +867,7 @@ def derive_reusable_state_producer_fingerprint_basis(
     target_dsl_version: str,
     reusable_variants: tuple[str, ...],
     producer_context: Mapping[str, object] | None = None,
+    type_env: Any | None = None,
 ) -> Mapping[str, Any]:
     """Return the compiler-owned producer identity basis for reusable-state summaries."""
 
@@ -834,7 +879,12 @@ def derive_reusable_state_producer_fingerprint_basis(
         "target_dsl_version": target_dsl_version,
         "compiler_version": ORCHESTRATOR_VERSION,
         "reusable_variants": list(reusable_variants),
-        "public_input_hash_basis": list(derive_reusable_state_public_input_hash_basis(signature)),
+        "public_input_hash_basis": list(
+            derive_reusable_state_public_input_hash_basis(
+                signature,
+                type_env=type_env,
+            )
+        ),
     }
     if producer_context is not None:
         basis.update(producer_context)
@@ -862,6 +912,7 @@ def derive_workflow_boundary_fields(
     span: SourceSpan,
     form_path: tuple[str, ...],
     allow_transportable_value: bool = False,
+    type_env: Any | None = None,
 ) -> tuple[FlattenedContractField, ...]:
     """Flatten one frontend boundary type into concrete shared contract fields.
 
@@ -879,6 +930,7 @@ def derive_workflow_boundary_fields(
                 form_path=form_path,
                 generated_name=generated_name,
                 source_path=source_path,
+                type_env=type_env,
             ),
             span=span,
             form_path=form_path,
@@ -890,6 +942,7 @@ def derive_workflow_boundary_fields(
         span=span,
         form_path=form_path,
         allow_transportable_value=allow_transportable_value,
+        type_env=type_env,
     )
 
 
@@ -898,6 +951,7 @@ def root_workflow_boundary_field(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> FlattenedContractField:
     """Derive the single generated `__result__` output for a root-valued return.
 
@@ -914,6 +968,13 @@ def root_workflow_boundary_field(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=type_env,
+            allow_nested_structures=(
+                isinstance(getattr(type_env, "target_dsl_version", None), str)
+                and target_dsl_supports_nested_structural_transport(
+                    type_env.target_dsl_version
+                )
+            ),
         )
     )
     return FlattenedContractField(
@@ -1034,6 +1095,7 @@ def _flatten_workflow_boundary_fields(
     span: SourceSpan,
     form_path: tuple[str, ...],
     allow_transportable_value: bool = False,
+    type_env: Any | None = None,
 ) -> tuple[FlattenedContractField, ...]:
     if isinstance(type_ref, RecordTypeRef):
         flattened: list[FlattenedContractField] = []
@@ -1047,6 +1109,7 @@ def _flatten_workflow_boundary_fields(
                     span=span,
                     form_path=form_path,
                     allow_transportable_value=allow_transportable_value,
+                    type_env=type_env,
                 )
             )
         return _dedupe_projection_fields(flattened, span=span, form_path=form_path)
@@ -1059,6 +1122,7 @@ def _flatten_workflow_boundary_fields(
                 form_path=form_path,
                 generated_name=generated_name,
                 source_path=source_path,
+                type_env=type_env,
             ),
             span=span,
             form_path=form_path,
@@ -1072,6 +1136,16 @@ def _flatten_workflow_boundary_fields(
                 type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                allow_nested_structures=(
+                    isinstance(
+                        getattr(type_env, "target_dsl_version", None),
+                        str,
+                    )
+                    and target_dsl_supports_nested_structural_transport(
+                        type_env.target_dsl_version
+                    )
+                ),
             )
         )
     else:
@@ -1079,6 +1153,7 @@ def _flatten_workflow_boundary_fields(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=type_env,
         )
     return (
         FlattenedContractField(
@@ -1094,8 +1169,14 @@ def _workflow_boundary_contract_definition(
     *,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> dict[str, Any]:
-    definition = _field_contract_definition(type_ref, span=span, form_path=form_path)
+    definition = _field_contract_definition(
+        type_ref,
+        span=span,
+        form_path=form_path,
+        type_env=type_env,
+    )
     if definition["type"] == "relpath":
         return {
             "kind": "relpath",
@@ -1167,6 +1248,7 @@ def _field_contract_definition(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> dict[str, Any]:
     if isinstance(type_ref, ListTypeRef):
         return {
@@ -1175,6 +1257,16 @@ def _field_contract_definition(
                 type_ref.item_type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                allow_nested_structures=(
+                    isinstance(
+                        getattr(type_env, "target_dsl_version", None),
+                        str,
+                    )
+                    and target_dsl_supports_nested_structural_transport(
+                        type_env.target_dsl_version
+                    )
+                ),
             ),
         }
     if isinstance(type_ref, (OptionalTypeRef, MapTypeRef)):
@@ -1256,6 +1348,7 @@ def _derive_union_contract_field_lineage(
     step_id: str,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> tuple[
     dict[str, dict[str, ValidationSubjectRef]],
     tuple[GeneratedContractFieldOrigin, ...],
@@ -1280,6 +1373,7 @@ def _derive_union_contract_field_lineage(
                 field_path=(field.name,),
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
             )
             for flattened_field in flattened_fields:
                 subject_ref = ValidationSubjectRef(
@@ -1492,7 +1586,18 @@ def _flatten_structured_result_field(
     return [{
         "name": "__".join(field_path),
         "json_pointer": _json_pointer(field_path),
-        **_structured_result_field_definition(type_ref, span=span, form_path=form_path),
+        **_structured_result_field_definition(
+            type_ref,
+            span=span,
+            form_path=form_path,
+            type_env=type_env,
+            allow_nested_structures=(
+                isinstance(getattr(type_env, "target_dsl_version", None), str)
+                and target_dsl_supports_nested_structural_transport(
+                    type_env.target_dsl_version
+                )
+            ),
+        ),
         **({"guidance_context": list(guidance_context)} if guidance_context else {}),
         **(direct_guidance or {}),
     }]
@@ -1533,6 +1638,8 @@ def _structured_result_field_definition(
     *,
     span: SourceSpan | None,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
+    allow_nested_structures: bool = False,
 ) -> dict[str, Any]:
     if isinstance(type_ref, OptionalTypeRef):
         return {
@@ -1541,6 +1648,8 @@ def _structured_result_field_definition(
                 type_ref.item_type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                allow_nested_structures=allow_nested_structures,
             ),
         }
     if isinstance(type_ref, ListTypeRef):
@@ -1550,6 +1659,8 @@ def _structured_result_field_definition(
                 type_ref.item_type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                allow_nested_structures=allow_nested_structures,
             ),
         }
     if isinstance(type_ref, MapTypeRef):
@@ -1560,9 +1671,23 @@ def _structured_result_field_definition(
                 type_ref.value_type_ref,
                 span=span,
                 form_path=form_path,
+                type_env=type_env,
+                allow_nested_structures=allow_nested_structures,
             ),
         }
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        if allow_nested_structures and type_env is not None:
+            from .normalized_type_descriptor import (
+                compiler_normalized_type_descriptor,
+            )
+
+            return transport_schema_for_descriptor(
+                compiler_normalized_type_descriptor(
+                    type_ref,
+                    type_env=type_env,
+                ),
+                allow_nested_structures=True,
+            )
         _raise_contract_error(
             code="collection_element_type_unsupported",
             message=f"`{type_ref.name}` cannot appear inside a collection-valued structured result",
@@ -1576,7 +1701,12 @@ def _structured_result_field_definition(
             span=span,
             form_path=form_path,
         )
-    return _field_contract_definition(type_ref, span=span, form_path=form_path)
+    return _field_contract_definition(
+        type_ref,
+        span=span,
+        form_path=form_path,
+        type_env=type_env,
+    )
 
 
 def _raise_contract_error(

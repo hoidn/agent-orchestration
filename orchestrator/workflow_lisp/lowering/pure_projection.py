@@ -1121,11 +1121,13 @@ def _output_contracts_for_type(
             source_path=("return",),
             span=span,
             form_path=form_path,
+            type_env=context.type_env,
         )
     root_field = root_workflow_boundary_field(
         type_ref,
         span=span,
         form_path=form_path,
+        type_env=context.type_env,
     )
     return {"__result__": dict(root_field.contract_definition)}
 
@@ -1159,6 +1161,7 @@ def output_contracts_for_boundary_type(
     generated_name: str,
     span,
     form_path: tuple[str, ...],
+    type_env: FrontendTypeEnvironment | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build output contracts for one arbitrary boundary name prefix."""
 
@@ -1169,6 +1172,7 @@ def output_contracts_for_boundary_type(
             source_path=(generated_name,),
             span=span,
             form_path=form_path,
+            type_env=type_env,
         )
     return {
         generated_name: {
@@ -1206,6 +1210,7 @@ def _structured_output_contracts(
     source_path: tuple[str, ...],
     span,
     form_path: tuple[str, ...],
+    type_env: FrontendTypeEnvironment | None = None,
 ) -> dict[str, dict[str, Any]]:
     fields = derive_workflow_boundary_fields(
         type_ref,
@@ -1213,6 +1218,7 @@ def _structured_output_contracts(
         source_path=source_path,
         span=span,
         form_path=form_path,
+        type_env=type_env,
     )
     if not isinstance(type_ref, UnionTypeRef):
         return {
@@ -1224,6 +1230,7 @@ def _structured_output_contracts(
         type_ref,
         span=span,
         form_path=form_path,
+        type_env=type_env,
     )
     variant_names = tuple(projection.variant_fields)
     shared_names = {field.generated_name for field in projection.shared_fields}

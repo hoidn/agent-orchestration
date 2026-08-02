@@ -155,10 +155,12 @@ def typecheck_resume_or_start_expr(
         form_path=expr.form_path,
     )
     public_input_hash_basis = _derive_resume_public_input_hash_basis(
-        context.session_state
+        context.session_state,
+        type_env=context.type_env,
     )
     producer_fingerprint_basis = _derive_resume_producer_fingerprint_basis(
         session_state=context.session_state,
+        type_env=context.type_env,
         return_type_name=expr.returns_type_name,
         structured_contract_kind=structured_contract_kind,
         expected_contract_fingerprint=expected_contract_fingerprint,
@@ -242,17 +244,25 @@ def _derive_resume_metadata(
     )
 
 
-def _derive_resume_public_input_hash_basis(session_state) -> tuple[str, ...]:
+def _derive_resume_public_input_hash_basis(
+    session_state,
+    *,
+    type_env,
+) -> tuple[str, ...]:
     from .contracts import derive_reusable_state_public_input_hash_basis
 
     if session_state.workflow_signature is None:
         return ()
-    return derive_reusable_state_public_input_hash_basis(session_state.workflow_signature)
+    return derive_reusable_state_public_input_hash_basis(
+        session_state.workflow_signature,
+        type_env=type_env,
+    )
 
 
 def _derive_resume_producer_fingerprint_basis(
     *,
     session_state,
+    type_env,
     return_type_name: str,
     structured_contract_kind: str,
     expected_contract_fingerprint: str,
@@ -287,4 +297,5 @@ def _derive_resume_producer_fingerprint_basis(
         target_dsl_version=target_dsl_version,
         reusable_variants=reusable_variants,
         producer_context=session_state.reusable_state_producer_context,
+        type_env=type_env,
     )

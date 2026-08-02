@@ -615,12 +615,12 @@ def known_run_ref_type(type_name: str, *, session_state) -> TypeRef | None:
     return matched
 
 
-def _require_transportable(type_ref, *, expr, role: str) -> None:
+def _require_transportable(type_ref, *, expr, role: str, type_env) -> None:
     # Import lazily: contracts owns workflow-signature projection and therefore
     # reaches this dispatch module through the workflow compiler at import time.
     from .contracts import is_transportable_result_type
 
-    if is_transportable_result_type(type_ref):
+    if is_transportable_result_type(type_ref, type_env=type_env):
         return
     raise_error(
         f"`run-ref` {role} type `{type_ref.name}` is not transportable",
@@ -686,12 +686,18 @@ def _typecheck_mode_one(expr, *, context, recurse):
                 form_path=value_expr.form_path,
                 expansion_stack=value_expr.expansion_stack,
             )
-        _require_transportable(expected, expr=value_expr, role=f"input `:{name}`")
+        _require_transportable(
+            expected,
+            expr=value_expr,
+            role=f"input `:{name}`",
+            type_env=context.type_env,
+        )
         typed = recurse(value_expr, expected_type=expected)
         _require_transportable(
             typed.type_ref,
             expr=value_expr,
             role=f"input `:{name}`",
+            type_env=context.type_env,
         )
         if not type_refs_compatible(expected, typed.type_ref):
             raise_error(
@@ -722,6 +728,7 @@ def _typecheck_mode_one(expr, *, context, recurse):
         signature.return_type_ref,
         expr=expr,
         role="child return",
+        type_env=context.type_env,
     )
     return (
         signature.return_type_ref,
@@ -749,7 +756,12 @@ def _typecheck_mode_two(expr, *, context, recurse):
             expansion_stack=expr.expansion_stack,
             session_state=context.session_state,
         )
-    _require_transportable(value_type, expr=expr, role="return refinement")
+    _require_transportable(
+        value_type,
+        expr=expr,
+        role="return refinement",
+        type_env=context.type_env,
+    )
 
     seen: set[str] = set()
     typed_inputs = []
@@ -770,6 +782,7 @@ def _typecheck_mode_two(expr, *, context, recurse):
             typed.type_ref,
             expr=value_expr,
             role=f"input `:{name}`",
+            type_env=context.type_env,
         )
         typed_inputs.append((name, typed.expr))
         input_effects.append(typed.effect_summary)

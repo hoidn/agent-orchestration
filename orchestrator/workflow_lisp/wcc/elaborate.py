@@ -81,6 +81,7 @@ from ..loop_state import carrier_metadata_for_expr
 from ..lowering.pure_projection import is_pure_projection_expr
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import derive_run_ref_result_contract
+from ..syntax import target_dsl_supports_nested_structural_transport
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
 from ..workflow_refs import ResolvedWorkflowRef
@@ -3998,6 +3999,11 @@ def _elaborate_effect_expr_to_binding_value(
                         type_env=type_env,
                     )
                 ),
+                allow_nested_structures=(
+                    target_dsl_supports_nested_structural_transport(
+                        type_env.target_dsl_version
+                    )
+                ),
             )
             target_name = expr.program.entry_name
         else:
@@ -4013,6 +4019,7 @@ def _elaborate_effect_expr_to_binding_value(
             generated_result_type=metadata.generated_type_name,
             result_descriptor=result_contract.descriptor,
             result_digest=result_contract.digest,
+            allow_nested_structures=result_contract.allow_nested_structures,
             input_type_descriptors=tuple(
                 (
                     name,

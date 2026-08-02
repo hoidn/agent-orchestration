@@ -1514,6 +1514,7 @@ def _lower_pure_call_binding_if_eligible(
             generated_name=binding_name,
             span=expr.span,
             form_path=expr.form_path,
+            type_env=context.type_env,
         ),
     )
 

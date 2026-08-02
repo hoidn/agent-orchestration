@@ -138,7 +138,10 @@ def typecheck_with_live_providers_expr(
 
     from .contracts import is_transportable_result_type
 
-    if not is_transportable_result_type(typed_worker.type_ref):
+    if not is_transportable_result_type(
+        typed_worker.type_ref,
+        type_env=context.type_env,
+    ):
         raise_error(
             "the observed provider must return a transportable result type",
             code="provider_supervision_worker_type_invalid",
@@ -245,7 +248,10 @@ def typecheck_with_live_provider_peers_expr(
 
     for binding in bindings:
         typed_member = typed_members[binding.name]
-        if not is_transportable_result_type(typed_member.type_ref):
+        if not is_transportable_result_type(
+            typed_member.type_ref,
+            type_env=context.type_env,
+        ):
             raise_error(
                 (
                     f"provider-peer member `{binding.name}` must return "
@@ -287,7 +293,10 @@ def typecheck_with_live_provider_peers_expr(
             form_path=expr.body.form_path,
             expansion_stack=expr.body.expansion_stack,
         )
-    if not is_transportable_result_type(typed_body.type_ref):
+    if not is_transportable_result_type(
+        typed_body.type_ref,
+        type_env=context.type_env,
+    ):
         raise_error(
             (
                 "`with-live-provider-peers` settlement must return a "
@@ -779,7 +788,10 @@ def typecheck_provider_result_expr(
         expected_type=return_type,
         type_env=context.type_env,
     )
-    if not is_transportable_result_type(return_type):
+    if not is_transportable_result_type(
+        return_type,
+        type_env=context.type_env,
+    ):
         raise_error(
             f"`provider-result` must return a transportable result type, got `{expr.returns_type_name}`",
             code="provider_result_return_type_invalid",
@@ -1095,7 +1107,10 @@ def typecheck_command_result_expr(
         expected_type=return_type,
         type_env=context.type_env,
     )
-    if not is_transportable_result_type(return_type):
+    if not is_transportable_result_type(
+        return_type,
+        type_env=context.type_env,
+    ):
         raise_error(
             f"`command-result` must return a transportable result type, got `{expr.returns_type_name}`",
             code="command_result_return_type_invalid",

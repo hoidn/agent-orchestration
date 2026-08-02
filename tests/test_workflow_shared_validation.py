@@ -515,6 +515,197 @@ def _default_options(tmp_path: Path):
     )
 
 
+@pytest.mark.parametrize("structural_type", ("record", "union"))
+def test_target_225_legacy_expected_outputs_rejects_structural_root_types(
+    tmp_path: Path,
+    structural_type: str,
+) -> None:
+    validation = _validation_module()
+    mapping = _minimal_mapping("nested-expected-output-rejection")
+    mapping["version"] = "2.25"
+    mapping["steps"][0]["expected_outputs"] = [
+        {
+            "name": "result",
+            "path": "state/result.json",
+            "type": structural_type,
+        }
+    ]
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "nested-expected-output-rejection.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert result.bundle is None
+    assert any(
+        error.message.endswith(
+            f"invalid expected_outputs type '{structural_type}'"
+        )
+        for error in result.errors
+    )
+
+
+def _target_225_structural_output_schema(structural_type: str) -> dict:
+    if structural_type == "record":
+        return {
+            "type": "record",
+            "record_name": "Result",
+            "fields": [{"name": "label", "type": "string"}],
+        }
+    return {
+        "type": "union",
+        "union_name": "Result",
+        "discriminant": {
+            "name": "variant",
+            "type": "enum",
+            "allowed": ["OK"],
+        },
+        "variants": {
+            "OK": {"fields": [{"name": "label", "type": "string"}]},
+        },
+    }
+
+
+def _target_225_output_bundle_mapping(field_schema: dict) -> dict:
+    mapping = _minimal_mapping("nested-output-bundle-boundary")
+    mapping["version"] = "2.25"
+    mapping["steps"][0]["output_bundle"] = {
+        "path": "state/result.json",
+        "fields": [
+            {
+                "name": "result",
+                "json_pointer": "/result",
+                **field_schema,
+            }
+        ],
+    }
+    return mapping
+
+
+@pytest.mark.parametrize("structural_type", ("record", "union"))
+@pytest.mark.parametrize("container_type", ("list", "optional", "map"))
+def test_target_225_output_bundle_structures_require_container_parent(
+    tmp_path: Path,
+    structural_type: str,
+    container_type: str,
+) -> None:
+    validation = _validation_module()
+    structural_schema = _target_225_structural_output_schema(structural_type)
+
+    root_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=_target_225_output_bundle_mapping(structural_schema),
+            workflow_path=tmp_path / f"root-{structural_type}.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+    assert root_result.bundle is None
+    assert any(
+        "structural type must appear below optional|list|map" in error.message
+        for error in root_result.errors
+    )
+
+    container_schema = {
+        "list": {"type": "list", "items": structural_schema},
+        "optional": {"type": "optional", "item": structural_schema},
+        "map": {
+            "type": "map",
+            "keys": {"type": "string"},
+            "values": structural_schema,
+        },
+    }[container_type]
+    nested_result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=_target_225_output_bundle_mapping(container_schema),
+            workflow_path=tmp_path / f"{container_type}-{structural_type}.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+    assert nested_result.errors == ()
+    assert nested_result.bundle is not None
+
+
+@pytest.mark.parametrize("container_type", ("list", "optional", "map"))
+@pytest.mark.parametrize(
+    ("payload_name", "is_admitted"),
+    (("variant", False), ("label", True)),
+)
+def test_target_225_output_bundle_union_payload_reserves_discriminant_name(
+    tmp_path: Path,
+    container_type: str,
+    payload_name: str,
+    is_admitted: bool,
+) -> None:
+    validation = _validation_module()
+    union_schema = _target_225_structural_output_schema("union")
+    union_schema["variants"]["OK"]["fields"][0]["name"] = payload_name
+    container_schema = {
+        "list": {"type": "list", "items": union_schema},
+        "optional": {"type": "optional", "item": union_schema},
+        "map": {
+            "type": "map",
+            "keys": {"type": "string"},
+            "values": union_schema,
+        },
+    }[container_type]
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=_target_225_output_bundle_mapping(container_schema),
+            workflow_path=tmp_path / f"{container_type}-{payload_name}.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    if is_admitted:
+        assert result.errors == ()
+        assert result.bundle is not None
+    else:
+        assert result.bundle is None
+        assert any(
+            "invalid nested structural schema" in error.message
+            for error in result.errors
+        )
+
+
+def test_target_224_output_bundle_union_payload_remains_unsupported(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    union_schema = _target_225_structural_output_schema("union")
+    union_schema["variants"]["OK"]["fields"][0]["name"] = "variant"
+    mapping = _target_225_output_bundle_mapping(
+        {"type": "list", "items": union_schema}
+    )
+    mapping["version"] = "2.24"
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "target-224-union-payload.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert result.bundle is None
+    assert any(
+        error.message.endswith("invalid output_bundle field type 'union'")
+        for error in result.errors
+    )
+    assert not any(
+        "invalid nested structural schema" in error.message
+        for error in result.errors
+    )
+
+
 @pytest.mark.parametrize(
     "contract_names",
     [
@@ -806,7 +997,7 @@ def test_shared_validation_returns_structured_errors(tmp_path: Path) -> None:
     assert "Unsupported version '9.9'" in result.errors[0].message
 
 
-def test_shared_validation_target_dsl_supports_2_24_as_latest_closed_version() -> None:
+def test_shared_validation_target_dsl_supports_2_25_as_latest_closed_version() -> None:
     validation = _validation_module()
 
     assert "2.20" in validation.DEFAULT_SUPPORTED_VERSIONS
@@ -814,10 +1005,11 @@ def test_shared_validation_target_dsl_supports_2_24_as_latest_closed_version() -
     assert "2.22" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.23" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.24" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.25" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert validation.DEFAULT_VERSION_ORDER[-3:] == (
-        "2.22",
         "2.23",
         "2.24",
+        "2.25",
     )
 
 

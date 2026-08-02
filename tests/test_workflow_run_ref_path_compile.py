@@ -45,6 +45,48 @@ from orchestrator.workflow.run_ref.workspace import manifest_from_entries
 _COMMIT = "0123456789abcdef0123456789abcdef01234567"
 _SITE = "6c347f1d65bf55f7" + "0" * 48
 _VALUE = {"kind": "primitive", "name": "Value"}
+_NESTED_TRANSPORT_BOUNDARIES = (
+    (
+        "List[Measurement]",
+        ("(defrecord Measurement (score Float))",),
+        {
+            "kind": "list",
+            "item": {
+                "kind": "record",
+                "name": "Measurement",
+                "fields": [
+                    {
+                        "name": "score",
+                        "type": {"kind": "primitive", "name": "Float"},
+                    }
+                ],
+            },
+        },
+    ),
+    (
+        "List[Outcome]",
+        ("(defunion Outcome (SCORED (score Float)) (SKIPPED))",),
+        {
+            "kind": "list",
+            "item": {
+                "kind": "union",
+                "name": "Outcome",
+                "variants": [
+                    {
+                        "name": "SCORED",
+                        "fields": [
+                            {
+                                "name": "score",
+                                "type": {"kind": "primitive", "name": "Float"},
+                            }
+                        ],
+                    },
+                    {"name": "SKIPPED", "fields": []},
+                ],
+            },
+        },
+    ),
+)
 
 
 def _result_descriptor(value_descriptor: dict[str, object]) -> dict[str, object]:
@@ -95,6 +137,7 @@ def _config(
     inputs: tuple[RunRefInput, ...] = (),
     return_refinement: dict[str, object] | None = _VALUE,
     compiler_identity: str | None = None,
+    target_dsl_version: str = "2.24",
 ):
     result_descriptor = _result_descriptor(
         _VALUE if return_refinement is None else return_refinement
@@ -109,10 +152,12 @@ def _config(
             path="candidate.orc",
             entry_name="run",
             return_refinement=return_refinement,
+            allow_nested_structures=target_dsl_version == "2.25",
         ),
         inputs=inputs,
         result_descriptor=result_descriptor,
         result_digest=canonical_sha256(result_descriptor),
+        target_dsl_version=target_dsl_version,
     )
     return RunRefStepConfig(common=StepCommonConfig(), run_ref=static_config)
 
@@ -143,6 +188,7 @@ def _write_typed_passthrough(
     *,
     type_name: str,
     definitions: tuple[str, ...] = (),
+    target_dsl_version: str = "2.24",
 ) -> None:
     workspace.mkdir(parents=True)
     (workspace / "candidate.orc").write_text(
@@ -150,7 +196,7 @@ def _write_typed_passthrough(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.24")',
+                f'  (:target-dsl "{target_dsl_version}")',
                 "  (defmodule candidate)",
                 "  (export run)",
                 *(f"  {definition}" for definition in definitions),
@@ -603,6 +649,85 @@ def test_exact_union_optional_and_map_signature_descriptors_are_admissible(
             return_refinement=descriptor,
         ),
     ) == ()
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    tuple(row[2] for row in _NESTED_TRANSPORT_BOUNDARIES),
+    ids=("list-record", "list-union"),
+)
+def test_nested_structural_signature_admission_is_explicitly_target_gated(
+    descriptor: dict[str, object],
+) -> None:
+    configured_input = RunRefInput(
+        name="payload",
+        type_descriptor=descriptor,
+        binding=ReferenceBinding("inputs.payload"),
+        allow_nested_structures=True,
+    )
+    signature = {
+        "inputs": [{"name": "payload", "required": True, "type": descriptor}],
+        "return": descriptor,
+    }
+    program = PathProgram(
+        path="candidate.orc",
+        entry_name="run",
+        return_refinement=descriptor,
+        allow_nested_structures=True,
+    )
+
+    assert path_compile_module._signature_mismatch_causes(
+        signature,
+        (configured_input,),
+        program,
+    ) == ("input_nontransportable:payload", "return_nontransportable")
+    assert path_compile_module._signature_mismatch_causes(
+        signature,
+        (configured_input,),
+        program,
+        target_dsl_version="2.25",
+    ) == ()
+
+
+@pytest.mark.parametrize(
+    ("type_name", "definitions", "descriptor"),
+    _NESTED_TRANSPORT_BOUNDARIES,
+    ids=("list-record", "list-union"),
+)
+def test_full_compile_admits_target_2_25_nested_structural_input_and_return(
+    tmp_path: Path,
+    type_name: str,
+    definitions: tuple[str, ...],
+    descriptor: dict[str, object],
+) -> None:
+    workspace = tmp_path / "workspace"
+    _write_typed_passthrough(
+        workspace,
+        type_name=type_name,
+        definitions=definitions,
+        target_dsl_version="2.25",
+    )
+
+    admitted = compile_and_admit_path_program(
+        materialized_source=_materialized(workspace),
+        step_config=_config(
+            inputs=(
+                RunRefInput(
+                    name="payload",
+                    type_descriptor=descriptor,
+                    binding=ReferenceBinding("inputs.payload"),
+                    allow_nested_structures=True,
+                ),
+            ),
+            return_refinement=descriptor,
+            target_dsl_version="2.25",
+        ),
+    )
+
+    assert admitted.signature == {
+        "inputs": [{"name": "payload", "required": True, "type": descriptor}],
+        "return": descriptor,
+    }
 
 
 def test_omitted_default_input_is_admitted(tmp_path: Path) -> None:

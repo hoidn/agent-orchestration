@@ -1032,6 +1032,7 @@ def _lower_one_workflow(
         allow_transportable_inputs=(
             workflow_catalog.allow_transportable_input_boundaries
         ),
+        type_env=type_env,
     )
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
@@ -1697,6 +1698,7 @@ def _output_contracts_for_type(
         type_ref,
         span=span,
         form_path=form_path,
+        type_env=context.type_env,
     )
     return {"__result__": dict(root_field.contract_definition)}
 
@@ -1762,6 +1764,7 @@ def _inline_output_refs_for_expr(
                     type_ref,
                     span=expr.span,
                     form_path=expr.form_path,
+                    type_env=context.type_env,
                 ),
                 generated_name="return",
             ),

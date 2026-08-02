@@ -2674,6 +2674,62 @@ def test_typecheck_resume_or_start_derives_summary_metadata_contract(tmp_path: P
     assert plan_gate_spec.artifact_requirements["APPROVED"][1].field_path == ("execution_report_path",)
 
 
+def test_resume_or_start_hash_basis_uses_target_aware_nested_public_input_projection(
+    tmp_path: Path,
+) -> None:
+    legacy_path = _rewrite_fixture(
+        VALID_RESUME_FIXTURE,
+        replacements=(('(:target-dsl "2.14")', '(:target-dsl "2.24")'),),
+        tmp_path=tmp_path,
+        filename="phase_stdlib_resume_or_start.orc",
+    )
+    legacy_result = _compile(legacy_path, tmp_path=tmp_path)
+    legacy_spec = next(
+        node.validation_spec
+        for workflow in legacy_result.typed_workflows
+        for node in _walk_nodes(workflow.typed_body)
+        if type(node).__name__ == "ResumeOrStartExpr" and node.resume_name == "checks"
+    )
+    assert legacy_spec is not None
+    assert "inputs__report_path" in legacy_spec.public_input_hash_basis
+    assert legacy_spec.producer_fingerprint_basis["public_input_hash_basis"] == list(
+        legacy_spec.public_input_hash_basis
+    )
+
+    nested_path = _rewrite_fixture(
+        VALID_RESUME_FIXTURE,
+        replacements=(
+            ('(:target-dsl "2.14")', '(:target-dsl "2.25")'),
+            (
+                "  (defrecord ResumeInputs\n",
+                "  (defrecord Measurement\n"
+                "    (label String)\n"
+                "    (count Int))\n"
+                "  (defrecord ResumeInputs\n",
+            ),
+            (
+                "    (report_path WorkReport))",
+                "    (report_path WorkReport)\n"
+                "    (measurements List[Measurement]))",
+            ),
+        ),
+        tmp_path=tmp_path,
+        filename="phase_stdlib_resume_or_start.orc",
+    )
+    nested_result = _compile(nested_path, tmp_path=tmp_path)
+    nested_spec = next(
+        node.validation_spec
+        for workflow in nested_result.typed_workflows
+        for node in _walk_nodes(workflow.typed_body)
+        if type(node).__name__ == "ResumeOrStartExpr" and node.resume_name == "checks"
+    )
+    assert nested_spec is not None
+    assert "inputs__measurements" in nested_spec.public_input_hash_basis
+    assert nested_spec.producer_fingerprint_basis["public_input_hash_basis"] == list(
+        nested_spec.public_input_hash_basis
+    )
+
+
 def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_RESUME_FIXTURE,

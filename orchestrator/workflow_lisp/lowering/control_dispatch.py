@@ -478,6 +478,7 @@ def _lower_pure_projection_binding_expr(
                 generated_name=binding_name,
                 span=source_expr.span,
                 form_path=source_expr.form_path,
+                type_env=context.type_env,
             )
             if isinstance(binding_type, (RecordTypeRef, UnionTypeRef))
             else None

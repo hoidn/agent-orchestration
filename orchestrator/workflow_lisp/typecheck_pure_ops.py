@@ -227,7 +227,10 @@ def typecheck_pure_expr(
                 )
             from .contracts import is_transportable_result_type
 
-            if not is_transportable_result_type(list_type):
+            if not is_transportable_result_type(
+                list_type,
+                type_env=context.type_env,
+            ):
                 raise_error(
                     (
                         "list collection contract is unsupported for complete type "

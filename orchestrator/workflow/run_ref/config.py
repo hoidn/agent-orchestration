@@ -25,7 +25,8 @@ from .source import SourceRequest, canonical_source_request, source_request_from
 
 RUN_REF_STATIC_CONFIG_SCHEMA = "run_ref_static_config.v1"
 RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA = "run_ref_bundle_capsule_binding.v1"
-_TARGET_DSL_VERSION = "2.24"
+_DEFAULT_TARGET_DSL_VERSION = "2.24"
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25"})
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
 _PATH_ENVIRONMENT = "deterministic-effect-free"
@@ -243,6 +244,7 @@ class RunRefInput:
         name: str,
         type_descriptor: Mapping[str, Any],
         binding: InputBinding,
+        allow_nested_structures: bool = False,
     ) -> None:
         if not isinstance(name, str) or _INPUT_NAME_RE.fullmatch(name) is None:
             raise ValueError("run-ref input name must be a canonical static name")
@@ -252,7 +254,10 @@ class RunRefInput:
             type_descriptor,
             context=f"run_ref_input.{name}.type_descriptor",
         )
-        if not is_transportable_type_descriptor(type_descriptor):
+        if not is_transportable_type_descriptor(
+            type_descriptor,
+            allow_nested_structures=allow_nested_structures,
+        ):
             raise ValueError("run-ref input type descriptor is not transportable")
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "binding", binding)
@@ -309,6 +314,7 @@ class PathProgram:
         entry_name: str,
         return_refinement: Mapping[str, Any] | None = None,
         environment: str = _PATH_ENVIRONMENT,
+        allow_nested_structures: bool = False,
     ) -> None:
         if not isinstance(path, str) or not path or "\\" in path:
             raise ValueError("path program path must be a canonical relative path")
@@ -330,7 +336,10 @@ class PathProgram:
                 return_refinement,
                 context="run_ref_path_program.return_refinement",
             )
-            if not is_transportable_type_descriptor(return_refinement):
+            if not is_transportable_type_descriptor(
+                return_refinement,
+                allow_nested_structures=allow_nested_structures,
+            ):
                 raise ValueError("path program return refinement is not transportable")
             refinement_json = canonical_json_bytes(return_refinement)
         object.__setattr__(self, "path", path)
@@ -358,7 +367,11 @@ class PathProgram:
 RunRefProgram: TypeAlias = BundleProgram | PathProgram
 
 
-def _program_from_record(value: object) -> RunRefProgram:
+def _program_from_record(
+    value: object,
+    *,
+    allow_nested_structures: bool = False,
+) -> RunRefProgram:
     if not isinstance(value, Mapping):
         raise TypeError("run-ref program must be a mapping")
     mode = value.get("mode")
@@ -386,12 +399,14 @@ def _program_from_record(value: object) -> RunRefProgram:
             entry_name=row["entry_name"],
             environment=row["environment"],
             return_refinement=row["return_refinement"],
+            allow_nested_structures=allow_nested_structures,
         )
     raise ValueError("run-ref program mode is unsupported")
 
 
 @dataclass(frozen=True, init=False)
 class RunRefStaticConfig:
+    target_dsl_version: str
     compiler_runtime_identity_digest: str
     site_digest: str
     generated_result_type: str
@@ -427,6 +442,7 @@ def build_run_ref_static_config(
     inputs: tuple[RunRefInput, ...],
     result_descriptor: Mapping[str, Any],
     result_digest: str,
+    target_dsl_version: str = _DEFAULT_TARGET_DSL_VERSION,
 ) -> RunRefStaticConfig:
     """Build one immutable, content-addressed static run-ref configuration."""
 
@@ -436,6 +452,12 @@ def build_run_ref_static_config(
         raise ValueError("compiler/runtime identity must be sha256:<64 lowercase hex>")
     if not isinstance(site_digest, str) or _SITE_DIGEST_RE.fullmatch(site_digest) is None:
         raise ValueError("run-ref site digest must be 64 lowercase hexadecimal characters")
+    if (
+        type(target_dsl_version) is not str
+        or target_dsl_version not in _SUPPORTED_TARGET_DSL_VERSIONS
+    ):
+        raise ValueError("run-ref target DSL version is unsupported")
+    allow_nested_structures = target_dsl_version == "2.25"
     generated_result_type = f"RunRefResult${site_digest[:16]}"
     if not isinstance(source, SourceRequest):
         raise TypeError("run-ref source must be a SourceRequest")
@@ -448,10 +470,27 @@ def build_run_ref_static_config(
     names = [row.name for row in inputs]
     if len(set(names)) != len(names):
         raise ValueError("run-ref input names must be unique")
+    for row in inputs:
+        if not is_transportable_type_descriptor(
+            row.type_descriptor,
+            allow_nested_structures=allow_nested_structures,
+        ):
+            raise ValueError(
+                "run-ref input type descriptor is not transportable for target"
+            )
+    if isinstance(program, PathProgram) and program.return_refinement is not None:
+        if not is_transportable_type_descriptor(
+            program.return_refinement,
+            allow_nested_structures=allow_nested_structures,
+        ):
+            raise ValueError(
+                "run-ref path return refinement is not transportable for target"
+            )
     validate_run_ref_result_descriptor(
         result_descriptor,
         expected_generated_name=generated_result_type,
         expected_digest=result_digest,
+        allow_nested_structures=allow_nested_structures,
     )
     if isinstance(program, PathProgram):
         value_descriptor = result_descriptor["envelope"]["fields"][0]["type"]
@@ -469,7 +508,7 @@ def build_run_ref_static_config(
     canonical_source = source_request_from_dict(source_record)
     record = {
         "schema_version": RUN_REF_STATIC_CONFIG_SCHEMA,
-        "target_dsl_version": _TARGET_DSL_VERSION,
+        "target_dsl_version": target_dsl_version,
         "lowering_route": _LOWERING_ROUTE,
         "lowering_schema_version": _LOWERING_SCHEMA_VERSION,
         "compiler_runtime_identity_digest": compiler_runtime_identity_digest,
@@ -483,6 +522,7 @@ def build_run_ref_static_config(
     }
     canonical_bytes = canonical_json_bytes(record)
     config = object.__new__(RunRefStaticConfig)
+    object.__setattr__(config, "target_dsl_version", target_dsl_version)
     object.__setattr__(
         config,
         "compiler_runtime_identity_digest",
@@ -552,9 +592,14 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
         },
         context="run-ref static config",
     )
+    if (
+        type(row["target_dsl_version"]) is not str
+        or row["target_dsl_version"] not in _SUPPORTED_TARGET_DSL_VERSIONS
+    ):
+        raise ValueError("run-ref static config target_dsl_version is invalid")
+    allow_nested_structures = row["target_dsl_version"] == "2.25"
     fixed = (
         ("schema_version", RUN_REF_STATIC_CONFIG_SCHEMA),
-        ("target_dsl_version", _TARGET_DSL_VERSION),
         ("lowering_route", _LOWERING_ROUTE),
         ("lowering_schema_version", _LOWERING_SCHEMA_VERSION),
     )
@@ -578,6 +623,7 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
                     input_row["binding"],
                     context=f"run-ref input[{index}].binding",
                 ),
+                allow_nested_structures=allow_nested_structures,
             )
         )
     if not isinstance(row["generated_result_type"], str):
@@ -586,10 +632,14 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
         compiler_runtime_identity_digest=row["compiler_runtime_identity_digest"],
         site_digest=row["site_digest"],
         source=source_request_from_dict(row["source"]),
-        program=_program_from_record(row["program"]),
+        program=_program_from_record(
+            row["program"],
+            allow_nested_structures=allow_nested_structures,
+        ),
         inputs=tuple(inputs),
         result_descriptor=row["result_descriptor"],
         result_digest=row["result_digest"],
+        target_dsl_version=row["target_dsl_version"],
     )
     if config.generated_result_type != row["generated_result_type"]:
         raise ValueError("run-ref generated result type does not match site digest")

@@ -695,6 +695,8 @@ def _lower_run_ref_operation(
         result_type.name != run_ref.payload.generated_result_type
         or contract.descriptor != run_ref.payload.result_descriptor
         or contract.digest != run_ref.payload.result_digest
+        or contract.allow_nested_structures
+        is not run_ref.payload.allow_nested_structures
     ):
         raise ValueError("run-ref result metadata changed before lowering")
     output_fields = derive_run_ref_output_bundle_fields(contract)
@@ -766,6 +768,7 @@ def _lower_run_ref_operation(
                 name=plan.row.name,
                 type_descriptor=payload_descriptor,
                 binding=binding,
+                allow_nested_structures=contract.allow_nested_structures,
             )
         )
 
@@ -781,6 +784,7 @@ def _lower_run_ref_operation(
         inputs=tuple(lowered_inputs),
         result_descriptor=contract.descriptor,
         result_digest=contract.digest,
+        target_dsl_version=context.type_env.target_dsl_version,
     )
     step_name = context.step_name_prefix
     step_id = context.normalize_generated_step_id(step_name)

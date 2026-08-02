@@ -58,7 +58,7 @@ _PICKLE_PROTOCOL = 5
 _MAPPING_PROXY_TYPE = type(MappingProxyType({}))
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _CLOSURE_ROLES = frozenset({"orc", "prompt_asset", "workflow_asset"})
-_TARGET_DSL_VERSION = "2.24"
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25"})
 
 
 class BundleCapsuleValidationError(ValueError):
@@ -228,6 +228,19 @@ def _bundle_name(bundle: LoadedWorkflowBundle) -> str:
     return name
 
 
+def _catalog_target_dsl_version(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+) -> str:
+    versions = [bundle.surface.version for bundle in bundles_by_name.values()]
+    if (
+        any(not isinstance(version, str) for version in versions)
+        or len(set(versions)) != 1
+        or versions[0] not in _SUPPORTED_TARGET_DSL_VERSIONS
+    ):
+        _fail("run_ref_bundle_version_invalid")
+    return versions[0]
+
+
 def _validate_catalog(
     bundles_by_name: Mapping[str, LoadedWorkflowBundle],
     *,
@@ -329,7 +342,12 @@ def _result_contract_digests(bundle: LoadedWorkflowBundle) -> dict[str, str]:
         config = getattr(node, "execution_config", None)
         if not isinstance(config, RunRefStepConfig):
             continue
-        validate_run_ref_result_descriptor(config.run_ref.result_descriptor)
+        validate_run_ref_result_descriptor(
+            config.run_ref.result_descriptor,
+            allow_nested_structures=(
+                config.run_ref.target_dsl_version == "2.25"
+            ),
+        )
         digests[node_id] = config.run_ref.result_digest
     return digests
 
@@ -538,11 +556,7 @@ def encode_bundle_capsule(
         or lowering_schema_version != LOWERING_SCHEMA_WCC
     ):
         _fail("run_ref_bundle_lowering_schema_invalid")
-    if any(
-        bundle.surface.version != _TARGET_DSL_VERSION
-        for bundle in catalog.values()
-    ):
-        _fail("run_ref_bundle_version_invalid")
+    _catalog_target_dsl_version(catalog)
     _require_unbound_capsule_configs(catalog)
     for bundle in catalog.values():
         _validate_bundle(bundle)
@@ -663,7 +677,13 @@ def _validate_manifest_shape(manifest: Mapping[str, Any]) -> None:
         or lowering != LOWERING_SCHEMA_WCC
     ):
         _fail("run_ref_bundle_lowering_schema_invalid")
-    if manifest.get("target_dsl_versions") != [_TARGET_DSL_VERSION]:
+    target_dsl_versions = manifest.get("target_dsl_versions")
+    if (
+        not isinstance(target_dsl_versions, list)
+        or len(target_dsl_versions) != 1
+        or not isinstance(target_dsl_versions[0], str)
+        or target_dsl_versions[0] not in _SUPPORTED_TARGET_DSL_VERSIONS
+    ):
         _fail("run_ref_bundle_version_invalid")
     for key in ("target_workflow_names", "bundle_names"):
         names = manifest.get(key)
@@ -804,6 +824,10 @@ def decode_bundle_capsule(
         target_workflow_names=tuple(targets_value),
         require_mapping_proxy=True,
     )
+    if _catalog_target_dsl_version(catalog) != manifest[
+        "target_dsl_versions"
+    ][0]:
+        _fail("run_ref_bundle_version_invalid")
     if list(catalog) != bundle_names:
         _fail("run_ref_bundle_catalog_invalid")
     _require_unbound_capsule_configs(catalog)

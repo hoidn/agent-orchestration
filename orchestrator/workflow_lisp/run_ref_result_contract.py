@@ -16,12 +16,14 @@ from orchestrator.workflow.run_ref.result_contract import (
     RUN_REF_RESULT_CONTRACT_SCHEMA,
     validate_run_ref_result_descriptor,
 )
+from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 
 from .contracts import is_transportable_result_type
 from .normalized_type_descriptor import (
     compiler_normalized_type_descriptor,
     validate_compiler_normalized_type_descriptor,
 )
+from .syntax import target_dsl_supports_nested_structural_transport
 from .type_env import FrontendTypeEnvironment, RecordTypeRef
 from .typecheck_run_ref import compiler_run_ref_fixed_types
 
@@ -37,6 +39,7 @@ class GeneratedRunRefResultContract:
     _descriptor_json: bytes = field(repr=False)
     digest: str
     type_ref: RecordTypeRef
+    allow_nested_structures: bool
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         raise TypeError(
@@ -55,6 +58,7 @@ def _make_generated_run_ref_result_contract(
     descriptor: dict[str, Any],
     *,
     type_ref: RecordTypeRef,
+    allow_nested_structures: bool,
 ) -> GeneratedRunRefResultContract:
     contract = object.__new__(GeneratedRunRefResultContract)
     object.__setattr__(
@@ -64,6 +68,11 @@ def _make_generated_run_ref_result_contract(
     )
     object.__setattr__(contract, "digest", canonical_sha256(descriptor))
     object.__setattr__(contract, "type_ref", type_ref)
+    object.__setattr__(
+        contract,
+        "allow_nested_structures",
+        allow_nested_structures,
+    )
     return contract
 
 
@@ -101,7 +110,10 @@ def derive_run_ref_result_contract(
     value_type = result_type_ref.field_types["value"]
     workspace_delta_type = result_type_ref.field_types["workspace_delta"]
     accounting_type = result_type_ref.field_types["accounting"]
-    if not is_transportable_result_type(value_type):
+    allow_nested_structures = target_dsl_supports_nested_structural_transport(
+        type_env.target_dsl_version
+    )
+    if not is_transportable_result_type(value_type, type_env=type_env):
         raise ValueError("run-ref result value type must be transportable")
     if not isinstance(workspace_delta_type, RecordTypeRef) or (
         workspace_delta_type.name != "WorkspaceDelta"
@@ -151,10 +163,12 @@ def derive_run_ref_result_contract(
         descriptor,
         expected_generated_name=result_type_ref.name,
         expected_digest=canonical_sha256(descriptor),
+        allow_nested_structures=allow_nested_structures,
     )
     return _make_generated_run_ref_result_contract(
         descriptor,
         type_ref=result_type_ref,
+        allow_nested_structures=allow_nested_structures,
     )
 
 
@@ -177,6 +191,7 @@ def derive_run_ref_output_bundle_fields(
         descriptor,
         expected_generated_name=contract.type_ref.name,
         expected_digest=contract.digest,
+        allow_nested_structures=contract.allow_nested_structures,
     )
     fields: list[dict[str, Any]] = []
     field_paths_by_name: dict[str, tuple[str, ...]] = {}
@@ -211,7 +226,14 @@ def derive_run_ref_output_bundle_fields(
                     part.replace("~", "~0").replace("/", "~1")
                     for part in path
                 ),
-                **_run_ref_output_schema(node),
+                **(
+                    transport_schema_for_descriptor(
+                        node,
+                        allow_nested_structures=True,
+                    )
+                    if contract.allow_nested_structures
+                    else _run_ref_output_schema(node)
+                ),
             }
         )
 

@@ -849,7 +849,10 @@ def build_workflow_catalog(
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
         )
-        if not is_transportable_result_type(return_type_ref):
+        if not is_transportable_result_type(
+            return_type_ref,
+            type_env=type_env,
+        ):
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_return_type_invalid",
@@ -913,7 +916,7 @@ def build_workflow_catalog(
             param_diagnostic = None
             if not (
                 allow_transportable_input_boundaries
-                and is_transportable_result_type(param_type)
+                and is_transportable_result_type(param_type, type_env=type_env)
             ):
                 param_analysis = analyze_workflow_boundary_type(
                     param_type,
@@ -1774,7 +1777,10 @@ def _signature_from_imported_bundle(
         span=span,
         form_path=form_path,
     )
-    if not is_transportable_result_type(return_type_ref):
+    if not is_transportable_result_type(
+        return_type_ref,
+        type_env=type_env,
+    ):
         raise LispFrontendCompileError(
             (
                 required_lint_diagnostic(
@@ -2157,6 +2163,7 @@ def _root_boundary_type_from_contract(
             reconstructed,
             span=span,
             form_path=form_path,
+            type_env=type_env,
         ).contract_definition
     )
     if round_trip != _normalize_boundary_contract_definition(definition):
@@ -2211,6 +2218,54 @@ def _reconstruct_root_contract_type(
             and candidate.definition.under == under
             and candidate.definition.must_exist == must_exist,
             leaf_label=f"relpath under `{under}`",
+            span=span,
+            form_path=form_path,
+        )
+    if value_type in {"record", "union"}:
+        from orchestrator.workflow.type_descriptor import (
+            transport_descriptor_for_schema,
+            transport_schema_for_descriptor,
+        )
+
+        from .normalized_type_descriptor import (
+            compiler_normalized_type_descriptor,
+        )
+
+        try:
+            descriptor = transport_descriptor_for_schema(definition)
+        except (TypeError, ValueError) as exc:
+            raise LispFrontendCompileError(
+                (
+                    required_lint_diagnostic(
+                        "workflow_call_signature_erased",
+                        message=(
+                            "imported workflow root `__result__` boundary "
+                            "contains an invalid nested structural schema"
+                        ),
+                        span=span,
+                        form_path=form_path,
+                    ),
+                )
+            ) from exc
+        def matches_structural_contract(candidate: TypeRef) -> bool:
+            if not isinstance(candidate, (RecordTypeRef, UnionTypeRef)):
+                return False
+            try:
+                candidate_schema = transport_schema_for_descriptor(
+                    compiler_normalized_type_descriptor(
+                        candidate,
+                        type_env=type_env,
+                    ),
+                    allow_nested_structures=True,
+                )
+            except (TypeError, ValueError):
+                return False
+            return candidate_schema == definition
+
+        return _match_root_leaf_candidate(
+            type_env,
+            matches=matches_structural_contract,
+            leaf_label=f"nested structural type `{descriptor['name']}`",
             span=span,
             form_path=form_path,
         )

@@ -202,6 +202,7 @@ def _config(
     inputs=None,
     source: SourceRequest | None = None,
     return_refinement=_AUTO_RETURN_REFINEMENT,
+    target_dsl_version: str = "2.24",
 ):
     descriptor, result_digest = _result_contract(value_descriptor)
     program = (
@@ -225,7 +226,39 @@ def _config(
         inputs=_inputs() if inputs is None else inputs,
         result_descriptor=descriptor,
         result_digest=result_digest,
+        target_dsl_version=target_dsl_version,
     )
+
+
+def test_target_225_nested_result_descriptor_round_trips_explicitly() -> None:
+    nested_value = {
+        "kind": "list",
+        "item": {
+            "kind": "record",
+            "name": "ChildMeasurement",
+            "fields": [
+                {
+                    "name": "count",
+                    "type": {"kind": "primitive", "name": "Int"},
+                }
+            ],
+        },
+    }
+
+    with pytest.raises(ValueError, match="not transportable"):
+        _config(value_descriptor=nested_value)
+
+    config = _config(
+        value_descriptor=nested_value,
+        target_dsl_version="2.25",
+    )
+    decoded = decode_run_ref_static_config(encode_run_ref_static_config(config))
+
+    assert decoded == config
+    assert decoded.target_dsl_version == "2.25"
+    assert decoded.record["result_descriptor"]["envelope"]["fields"][0][
+        "type"
+    ] == nested_value
 
 
 def test_local_result_descriptor_fixture_has_independent_canonical_digest() -> None:

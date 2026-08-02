@@ -26,13 +26,18 @@ from orchestrator.workflow_lisp.compiler import LoweringRoute
 from orchestrator.workflow.run_ref import bundle_transport
 
 
-def _compiled_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
+def _compiled_bundle(
+    tmp_path: Path,
+    *,
+    target_dsl_version: str = "2.24",
+    entry_workflow: str = "child",
+) -> LoadedWorkflowBundle:
     source_path = tmp_path / "capsule_catalog.orc"
     source_path.write_text(
-        """\
+        f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.24")
+  (:target-dsl "{target_dsl_version}")
   (defmodule capsule_catalog)
   (export child sibling)
   (defworkflow child () -> String
@@ -46,7 +51,7 @@ def _compiled_bundle(tmp_path: Path) -> LoadedWorkflowBundle:
         FrontendBuildRequest(
             source_path=source_path,
             source_roots=(tmp_path,),
-            entry_workflow="child",
+            entry_workflow=entry_workflow,
             workspace_root=tmp_path,
             lowering_route=LoweringRoute.WCC_M4,
         )
@@ -210,6 +215,12 @@ def test_bundle_capsule_protocol_five_round_trip_is_deterministic_and_frozen(
 
     assert first == second
     assert first.pickle_bytes.startswith(b"\x80\x05")
+    assert first.manifest_bytes == canonical_json_bytes(
+        json.loads(first.manifest_bytes)
+    )
+    assert json.loads(first.manifest_bytes)["target_dsl_versions"] == [
+        "2.24"
+    ]
     assert first.capsule_digest == _manifest_digest(first.manifest_bytes)
 
     decoded = bundle_transport.decode_bundle_capsule(
@@ -232,6 +243,86 @@ def test_bundle_capsule_protocol_five_round_trip_is_deterministic_and_frozen(
     assert type(decoded_bundle.imports).__name__ == "mappingproxy"
     assert type(decoded_bundle.ir.nodes).__name__ == "mappingproxy"
     assert decoded_bundle.surface.name == bundle.surface.name
+
+
+def test_bundle_capsule_target_2_25_round_trip_uses_catalog_version(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_bundle(tmp_path, target_dsl_version="2.25")
+    bundles = {bundle.surface.name: bundle}
+
+    encoded = bundle_transport.encode_bundle_capsule(
+        bundles,
+        target_workflow_names=(bundle.surface.name,),
+        closure=_closure(bundle.provenance.workflow_path),
+        workflow_closure_paths=_workflow_closure_paths(bundles),
+        compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        lowering_schema_version=2,
+    )
+
+    assert json.loads(encoded.manifest_bytes)["target_dsl_versions"] == [
+        "2.25"
+    ]
+
+    decoded = bundle_transport.decode_bundle_capsule(
+        manifest_bytes=encoded.manifest_bytes,
+        pickle_bytes=encoded.pickle_bytes,
+        closure=encoded.closure,
+        expected_capsule_digest=encoded.capsule_digest,
+        expected_compiler_runtime_identity_digest="sha256:" + "c" * 64,
+    )
+
+    assert decoded.bundles_by_name[bundle.surface.name].surface.version == "2.25"
+
+
+def test_bundle_capsule_encode_rejects_mixed_supported_catalog_versions(
+    tmp_path: Path,
+) -> None:
+    target_2_24 = _compiled_bundle(tmp_path)
+    target_2_25 = _compiled_bundle(
+        tmp_path,
+        target_dsl_version="2.25",
+        entry_workflow="sibling",
+    )
+    target_2_24 = replace(
+        target_2_24,
+        imports=MappingProxyType({"target_2_25": target_2_25}),
+    )
+    bundles = {
+        target_2_24.surface.name: target_2_24,
+        target_2_25.surface.name: target_2_25,
+    }
+
+    with pytest.raises(ValueError, match="run_ref_bundle_version_invalid"):
+        bundle_transport.encode_bundle_capsule(
+            bundles,
+            target_workflow_names=(target_2_24.surface.name,),
+            closure=_closure(target_2_25.provenance.workflow_path),
+            workflow_closure_paths=_workflow_closure_paths(bundles),
+            compiler_runtime_identity_digest="sha256:" + "c" * 64,
+            lowering_schema_version=2,
+        )
+
+
+def test_bundle_capsule_encode_rejects_unsupported_catalog_version(
+    tmp_path: Path,
+) -> None:
+    bundle = _compiled_bundle(tmp_path, target_dsl_version="2.25")
+    unsupported = replace(
+        bundle,
+        surface=replace(bundle.surface, version="2.26"),
+    )
+    bundles = {unsupported.surface.name: unsupported}
+
+    with pytest.raises(ValueError, match="run_ref_bundle_version_invalid"):
+        bundle_transport.encode_bundle_capsule(
+            bundles,
+            target_workflow_names=(unsupported.surface.name,),
+            closure=_closure(unsupported.provenance.workflow_path),
+            workflow_closure_paths=_workflow_closure_paths(bundles),
+            compiler_runtime_identity_digest="sha256:" + "c" * 64,
+            lowering_schema_version=2,
+        )
 
 
 def test_bundle_capsule_directory_round_trip_preserves_exact_bytes(
@@ -745,6 +836,36 @@ def test_bundle_capsule_rejects_version_and_manifest_catalog_skew_before_unpickl
     )
 
     with pytest.raises(ValueError, match=diagnostic):
+        bundle_transport.decode_bundle_capsule(
+            manifest_bytes=manifest_bytes,
+            pickle_bytes=encoded.pickle_bytes,
+            closure=encoded.closure,
+            expected_capsule_digest=capsule_digest,
+            expected_compiler_runtime_identity_digest="sha256:" + "c" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "target_dsl_versions",
+    (
+        ["2.25"],
+        ["2.26"],
+        ["2.24", "2.25"],
+    ),
+)
+def test_bundle_capsule_decode_rejects_mismatched_or_unsupported_versions(
+    tmp_path: Path,
+    target_dsl_versions: list[str],
+) -> None:
+    encoded = _encoded_capsule(tmp_path)
+    manifest_bytes, capsule_digest = _rewrite_manifest(
+        encoded,
+        lambda manifest: manifest.__setitem__(
+            "target_dsl_versions", target_dsl_versions
+        ),
+    )
+
+    with pytest.raises(ValueError, match="run_ref_bundle_version_invalid"):
         bundle_transport.decode_bundle_capsule(
             manifest_bytes=manifest_bytes,
             pickle_bytes=encoded.pickle_bytes,
