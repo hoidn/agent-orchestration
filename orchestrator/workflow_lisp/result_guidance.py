@@ -294,6 +294,7 @@ def validate_result_guidance_example(
             raise_run_ref_placement_invalid(
                 typed.expr,
                 reason="is not permitted in a result-guidance example",
+                effect_summary=typed.effect_summary,
             )
         _raise_example_diagnostic(
             "result_guidance_example_not_constant",

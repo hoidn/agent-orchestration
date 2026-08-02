@@ -87,6 +87,11 @@ class RunsRefEffect:
 
 
 @dataclass(frozen=True)
+class RunsTrialEffect:
+    """Compiler-inferred execution of one bounded static trial."""
+
+
+@dataclass(frozen=True)
 class UpdatesStateEffect:
     """Declared mutation of workflow-owned state."""
 
@@ -138,6 +143,7 @@ EffectAtom = (
     | UsesCommandEffect
     | CallsWorkflowEffect
     | RunsRefEffect
+    | RunsTrialEffect
     | UpdatesStateEffect
     | MovesResourceEffect
     | UpdatesLedgerEffect
@@ -223,13 +229,13 @@ def effect_summary_from_procedure_call(
 
 
 def effect_summary_contains_runs_ref(summary: EffectSummary) -> bool:
-    """Return whether either effect-membership set contains child-run work."""
+    """Return whether either membership set contains child-run or trial work."""
 
     return any(
-        isinstance(effect, RunsRefEffect)
+        isinstance(effect, (RunsRefEffect, RunsTrialEffect))
         for effect in summary.direct_effects
     ) or any(
-        isinstance(effect, RunsRefEffect)
+        isinstance(effect, (RunsRefEffect, RunsTrialEffect))
         for effect in summary.transitive_effects
     )
 
@@ -346,6 +352,8 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "calls-workflow"
     elif isinstance(effect, RunsRefEffect):
         label = "runs-ref"
+    elif isinstance(effect, RunsTrialEffect):
+        return "runs-trial"
     elif isinstance(effect, UpdatesStateEffect):
         label = "updates-state"
     elif isinstance(effect, MovesResourceEffect):
@@ -404,6 +412,15 @@ def _parse_effect_group(
                 expansion_stack=expansion_stack,
             )
         return (RunsRefEffect(subject=(names[0],)),)
+    if kind == "runs-trial":
+        if names:
+            _raise_invalid_effect(
+                "`runs-trial` does not accept an authored subject",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return (RunsTrialEffect(),)
     constructors = {
         "reads": lambda value: ReadEffect(subject=_normalize_subject(value)),
         "writes": lambda value: WriteEffect(subject=_normalize_subject(value)),

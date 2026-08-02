@@ -374,16 +374,38 @@ def raise_run_ref_placement_invalid(
     expr: ExprNode,
     *,
     reason: str,
+    effect_summary: EffectSummary | None = None,
 ) -> None:
     """Reject child-run work at its owning authored form or call boundary."""
 
     from .expression_traversal import walk_expr
-    from .expressions import RunRefExpr
+    from .expressions import RunRefExpr, TrialExpr
 
+    candidates = tuple(walk_expr(expr))
     owner = next(
-        (candidate for candidate in walk_expr(expr) if isinstance(candidate, RunRefExpr)),
-        expr,
+        (candidate for candidate in candidates if isinstance(candidate, TrialExpr)),
+        next(
+            (candidate for candidate in candidates if isinstance(candidate, RunRefExpr)),
+            expr,
+        ),
     )
+    from .effects import RunsTrialEffect
+
+    summary_contains_trial = effect_summary is not None and any(
+        isinstance(effect, RunsTrialEffect)
+        for effect in (
+            *effect_summary.direct_effects,
+            *effect_summary.transitive_effects,
+        )
+    )
+    if isinstance(owner, TrialExpr) or summary_contains_trial:
+        raise_error(
+            f"`trial` {reason}",
+            code="trial_nested_unsupported",
+            span=owner.span,
+            form_path=owner.form_path,
+            expansion_stack=owner.expansion_stack,
+        )
     raise_error(
         f"`run-ref` {reason}",
         code="run_ref_placement_invalid",

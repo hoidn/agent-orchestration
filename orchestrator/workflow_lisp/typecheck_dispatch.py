@@ -50,6 +50,7 @@ from .expressions import (
     RecordExpr,
     ResumeOrStartExpr,
     RunRefExpr,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -110,6 +111,7 @@ from .typecheck_resource_view import (
 )
 from .typecheck_resume import typecheck_resume_or_start_expr
 from .typecheck_run_ref import typecheck_run_ref_expr
+from .typecheck_trial import typecheck_trial_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
     ProofScope,
@@ -161,6 +163,10 @@ def typecheck_expression(
     compiler_session = compiler_session or CompilerSession()
     session_state = compiler_session.typecheck
     previous_session_state = snapshot_session_state(session_state)
+    previous_type_refs = dict(type_env._type_refs)
+    previous_compiler_owned_type_names = set(
+        type_env._compiler_owned_type_names
+    )
     session_state.function_catalog = function_catalog
     session_state.proc_ref_value_env = dict(proc_ref_value_env or {})
     session_state.value_expr_env = {}
@@ -201,6 +207,12 @@ def typecheck_expression(
         )
     except BaseException:
         restore_session_state(session_state, previous_session_state)
+        type_env._type_refs.clear()
+        type_env._type_refs.update(previous_type_refs)
+        type_env._compiler_owned_type_names.clear()
+        type_env._compiler_owned_type_names.update(
+            previous_compiler_owned_type_names
+        )
         raise
     restore_session_state(session_state, merged_session_state)
     return result
@@ -889,6 +901,7 @@ def _typecheck(
             raise_run_ref_placement_invalid(
                 typed_condition.expr,
                 reason="is not permitted in an `if` condition",
+                effect_summary=typed_condition.effect_summary,
             )
         if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
             _raise_error(
@@ -998,6 +1011,13 @@ def _typecheck(
         )
     if type(expr) is RunRefExpr:
         return typecheck_run_ref_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
+    if type(expr) is TrialExpr:
+        return typecheck_trial_expr(
             expr,
             context=context,
             recurse=recurse,

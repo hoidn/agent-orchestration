@@ -42,6 +42,7 @@ from orchestrator.workflow_lisp.expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -881,6 +882,7 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,
         RunRefExpr,
+        TrialExpr,
     }
 
     expr_types = set(get_args(expressions.ExprNode))

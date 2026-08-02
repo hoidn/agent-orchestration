@@ -43,6 +43,7 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -150,6 +151,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(binding_expr for _, binding_expr in expr.bindings)
     if isinstance(expr, RunRefExpr):
         return tuple(value_expr for _, value_expr in expr.inputs)
+    if isinstance(expr, TrialExpr):
+        return tuple(arm.run_ref for arm in expr.arms)
     if isinstance(expr, FunctionCallExpr):
         return expr.args
     if isinstance(expr, ProcedureCallExpr):

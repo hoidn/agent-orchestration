@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 
 from .definitions import RecordDef, RecordField
 from .effects import (
+    EffectSummary,
     RunsRefEffect,
     effect_summary_from_direct,
     merge_effect_summaries,
@@ -29,7 +30,11 @@ from .type_env import (
     WorkflowRefTypeRef,
     type_refs_compatible,
 )
-from .typecheck_context import TypecheckSessionStateCollisionError, raise_error
+from .typecheck_context import (
+    TypedExpr,
+    TypecheckSessionStateCollisionError,
+    raise_error,
+)
 
 
 RUN_REF_FIXED_TYPE_NAMES = (
@@ -63,6 +68,14 @@ class RunRefSiteMetadata:
     input_types: tuple[tuple[str, TypeRef], ...]
     type_ref: RecordTypeRef
     compiler_owned_types: tuple[tuple[str, TypeRef], ...]
+
+
+@dataclass(frozen=True)
+class _RunRefTypecheckDetails:
+    """Typed run-ref plus the summaries computed for its input expressions."""
+
+    typed_expr: TypedExpr
+    input_effect_summaries: tuple[EffectSummary, ...]
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -790,8 +803,14 @@ def _typecheck_mode_two(expr, *, context, recurse):
     return value_type, tuple(typed_inputs), tuple(input_effects), tuple(input_types)
 
 
-def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
-    """Type one isolated run-ref without registering it as a live form."""
+def _typecheck_run_ref_expr_with_details(
+    expr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+) -> _RunRefTypecheckDetails:
+    """Type one run-ref and retain its already-computed input summaries."""
 
     if isinstance(expr.program, RunRefBundleProgram):
         value_type, typed_inputs, input_effects, input_types = _typecheck_mode_one(
@@ -820,8 +839,23 @@ def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
         value_type=value_type,
         input_types=input_types,
     )
-    return typed_factory(
+    typed_expr = typed_factory(
         expr=typed_expr,
         type_ref=metadata.type_ref,
         effect=merge_effect_summaries(*input_effects, run_effect),
     )
+    return _RunRefTypecheckDetails(
+        typed_expr=typed_expr,
+        input_effect_summaries=input_effects,
+    )
+
+
+def typecheck_run_ref_expr(expr, *, context, recurse, typed_factory):
+    """Type one isolated run-ref without registering it as a live form."""
+
+    return _typecheck_run_ref_expr_with_details(
+        expr,
+        context=context,
+        recurse=recurse,
+        typed_factory=typed_factory,
+    ).typed_expr

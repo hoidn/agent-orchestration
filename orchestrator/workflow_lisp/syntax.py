@@ -45,6 +45,7 @@ PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION = "2.22"
 PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
 RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
 NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
+TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -214,6 +215,19 @@ def target_dsl_supports_run_ref(target_dsl_version: str) -> bool:
         target = tuple(int(part) for part in target_dsl_version.split("."))
         minimum = tuple(
             int(part) for part in RUN_REF_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_trial(target_dsl_version: str) -> bool:
+    """Return whether a validated target includes bounded static trials."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part) for part in TRIAL_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False

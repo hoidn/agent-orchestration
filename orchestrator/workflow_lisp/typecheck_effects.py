@@ -113,6 +113,7 @@ def typecheck_with_live_providers_expr(
             raise_run_ref_placement_invalid(
                 typed_member.expr,
                 reason="is not permitted in a live-provider evaluation body",
+                effect_summary=typed_member.effect_summary,
             )
 
     directive_type = context.type_env.resolve_type(
@@ -165,6 +166,7 @@ def typecheck_with_live_providers_expr(
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a live-provider settlement body",
+            effect_summary=body_effects,
         )
     if (
         body_effects.direct_effects
@@ -242,6 +244,7 @@ def typecheck_with_live_provider_peers_expr(
             raise_run_ref_placement_invalid(
                 typed_member.expr,
                 reason="is not permitted in a provider-peer evaluation body",
+                effect_summary=typed_member.effect_summary,
             )
 
     from .contracts import is_transportable_result_type
@@ -277,6 +280,7 @@ def typecheck_with_live_provider_peers_expr(
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a provider-peer settlement body",
+            effect_summary=body_effects,
         )
     if (
         body_effects.direct_effects

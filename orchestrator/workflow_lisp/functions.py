@@ -47,6 +47,7 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
+    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -1022,10 +1023,16 @@ def _validate_pure_function_expr(
     function_def: FunctionDef,
     procedure_catalog: "ProcedureCatalog | None" = None,
 ) -> None:
-    from .effects import RunsRefEffect
+    from .effects import RunsRefEffect, RunsTrialEffect, effect_summary
+    from .expressions import TrialExpr
     from .typecheck_context import raise_run_ref_placement_invalid
 
     for candidate in walk_expr(expr):
+        if isinstance(candidate, TrialExpr):
+            raise_run_ref_placement_invalid(
+                candidate,
+                reason="is not permitted in a pure function",
+            )
         if isinstance(candidate, RunRefExpr):
             raise_run_ref_placement_invalid(
                 candidate,
@@ -1034,12 +1041,15 @@ def _validate_pure_function_expr(
         if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
             signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
             if signature is not None and any(
-                isinstance(effect, RunsRefEffect)
+                isinstance(effect, (RunsRefEffect, RunsTrialEffect))
                 for effect in signature.declared_effects
             ):
                 raise_run_ref_placement_invalid(
                     candidate,
                     reason="is not permitted in a pure function",
+                    effect_summary=effect_summary(
+                        direct_effects=signature.declared_effects
+                    ),
                 )
     violation = _find_purity_violation(expr)
     if violation is None:
@@ -1061,6 +1071,8 @@ def _validate_pure_function_expr(
 
 
 def _find_purity_violation(expr: ExprNode) -> str | None:
+    if isinstance(expr, TrialExpr):
+        return "trial"
     if isinstance(expr, CallExpr):
         return "call"
     if isinstance(expr, ProcedureCallExpr):

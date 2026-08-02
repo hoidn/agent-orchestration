@@ -52,6 +52,7 @@ def typecheck_loop_recur_expr(
         raise_run_ref_placement_invalid(
             typed_max.expr,
             reason="is not permitted in `loop/recur` :max",
+            effect_summary=typed_max.effect_summary,
         )
     if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
         raise_error(
@@ -65,6 +66,7 @@ def typecheck_loop_recur_expr(
         raise_run_ref_placement_invalid(
             typed_state.expr,
             reason="is not permitted in `loop/recur` state",
+            effect_summary=typed_state.effect_summary,
         )
     ensure_loop_projectable_type(
         typed_state.type_ref,
@@ -87,6 +89,7 @@ def typecheck_loop_recur_expr(
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a `loop/recur` body",
+            effect_summary=typed_body.effect_summary,
         )
     if not isinstance(typed_body.type_ref, LoopControlTypeRef):
         raise_error(
@@ -130,6 +133,7 @@ def typecheck_loop_recur_expr(
             raise_run_ref_placement_invalid(
                 typed_exhausted.expr,
                 reason="is not permitted in `loop/recur` exhaustion",
+                effect_summary=typed_exhausted.effect_summary,
             )
         if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
             raise_error(

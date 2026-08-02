@@ -305,6 +305,7 @@ def typecheck_structural_value_expr(
             raise_run_ref_placement_invalid(
                 typed_source.expr,
                 reason="is not permitted in a `list/map-effect` source",
+                effect_summary=typed_source.effect_summary,
             )
         if not isinstance(typed_source.type_ref, ListTypeRef):
             raise_error(
@@ -337,13 +338,13 @@ def typecheck_structural_value_expr(
                 expansion_stack=expr.source_expr.expansion_stack,
             )
         from .expression_traversal import walk_expr
-        from .expressions import RunRefExpr
+        from .expressions import RunRefExpr, TrialExpr
 
         direct_run_ref = next(
             (
                 candidate
                 for candidate in walk_expr(expr.body_expr)
-                if isinstance(candidate, RunRefExpr)
+                if isinstance(candidate, (RunRefExpr, TrialExpr))
             ),
             None,
         )
@@ -380,6 +381,7 @@ def typecheck_structural_value_expr(
             raise_run_ref_placement_invalid(
                 typed_body.expr,
                 reason="is not permitted in a `list/map-effect` body",
+                effect_summary=typed_body.effect_summary,
             )
         from .expression_traversal import iter_child_exprs
         from .functions import _find_purity_violation

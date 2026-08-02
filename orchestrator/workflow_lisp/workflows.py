@@ -14,7 +14,7 @@ the planned syntax-neutral workflow representation.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
 from orchestrator.workflow.loaded_bundle import (
@@ -36,7 +36,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .entry_publication import EntryPublicationPolicy, parse_entry_publication_policy, validate_entry_publication_policy
 from .expression_traversal import walk_expr
-from .expressions import CallExpr, elaborate_expression
+from .expressions import CallExpr, TrialExpr, elaborate_expression
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import required_lint_diagnostic
 from .compiler_session import CompilerSession
@@ -2669,6 +2669,29 @@ def typecheck_workflow_definitions(
         finally:
             clear_active_reusable_state_producer_context(compiler_session.typecheck)
             clear_active_workflow_signature(compiler_session.typecheck)
+        if (
+            type_env.target_dsl_version == "2.25"
+            and isinstance(signature.return_type_ref, PrimitiveTypeRef)
+            and signature.return_type_ref.name == "Value"
+            and isinstance(body_expr, TrialExpr)
+            and isinstance(typed_body.type_ref, RecordTypeRef)
+            and typed_body.type_ref.name in type_env._compiler_owned_type_names
+        ):
+            from .trial_result_contract import derive_trial_result_contract
+
+            try:
+                derive_trial_result_contract(
+                    typed_body.type_ref,
+                    type_env=type_env,
+                )
+            except ValueError:
+                pass
+            else:
+                signature = replace(
+                    signature,
+                    return_type_ref=typed_body.type_ref,
+                )
+                workflow_catalog.signatures_by_name[workflow_def.name] = signature
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (

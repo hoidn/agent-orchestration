@@ -8,6 +8,7 @@ the full intended language surface.
 from __future__ import annotations
 
 from dataclasses import InitVar, dataclass, field
+import math
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -55,6 +56,7 @@ from .syntax import (
     LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION,
     MAX_STATIC_LIVE_PROVIDER_PEERS,
     RUN_REF_MIN_TARGET_DSL_VERSION,
+    TRIAL_MIN_TARGET_DSL_VERSION,
     SyntaxBool,
     SyntaxFloat,
     SyntaxIdentifier,
@@ -71,6 +73,7 @@ from .syntax import (
     target_dsl_supports_phased_contract_delivery,
     target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_run_ref,
+    target_dsl_supports_trial,
 )
 
 if TYPE_CHECKING:
@@ -358,6 +361,71 @@ class RunRefExpr:
     form_path: tuple[str, ...]
     returns_type_name: str | None = None
     environment: str | None = None
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class TrialArm:
+    """One statically authored trial arm and its nested E1 form."""
+
+    arm_id: str
+    run_ref: RunRefExpr
+
+
+@dataclass(frozen=True)
+class TrialCheck:
+    """One compile-time deterministic trial check."""
+
+    check_id: str
+    command: tuple[str, ...]
+    authority: str
+    required: bool
+    timeout_ms: int
+
+
+@dataclass(frozen=True)
+class TrialEvaluation:
+    """Closed compile-time evaluation contract for one trial site."""
+
+    checks: tuple[TrialCheck, ...]
+    provider: str
+    rubric_asset: str
+    evidence_confidentiality: str
+    max_item_bytes: int
+    max_packet_bytes: int
+    observation_include: tuple[str, ...]
+    diff_cap_bytes: int
+    reveal_provider_identity: bool
+    aggregation_mode: str
+    rep_combine: str
+    tie: str
+    min_abs_improvement: float
+    max_cost_ratio: float
+    min_cost_reduction: float
+    count_failures_as_outcomes: bool
+
+
+@dataclass(frozen=True)
+class TrialBudget:
+    """Closed compile-time trial budget contract."""
+
+    arm_timeout_ms: int
+    trial_timeout_ms: int
+    max_evaluator_attempts: int
+    max_evaluator_concurrency: int
+
+
+@dataclass(frozen=True)
+class TrialExpr:
+    """One target-2.25 bounded static trial expression."""
+
+    arms: tuple[TrialArm, ...]
+    reps: int
+    max_concurrency: int
+    evaluation: TrialEvaluation
+    budget: TrialBudget
+    span: SourceSpan
+    form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
 
 
@@ -807,6 +875,7 @@ ExprNode = (
     | MatchExpr
     | CallExpr
     | RunRefExpr
+    | TrialExpr
     | FunctionCallExpr
     | ProcedureCallExpr
     | WithPhaseExpr
@@ -867,6 +936,48 @@ def parse_run_ref_expression(
             expansion_stack=datum.expansion_stack,
         )
     return _parse_run_ref_syntax_list(
+        datum,
+        form_path=node.form_path,
+        target_dsl_version=target_dsl_version,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        function_names=function_names,
+        function_name_resolver=function_name_resolver,
+        procedure_name_resolver=procedure_name_resolver,
+        workflow_name_resolver=workflow_name_resolver,
+        guidance_example=guidance_example,
+        prompt_catalog=prompt_catalog,
+        session_state=session_state,
+    )
+
+
+def parse_trial_expression(
+    node: SyntaxNode,
+    *,
+    target_dsl_version: str,
+    bound_names: frozenset[str] = frozenset(),
+    procedure_names: frozenset[str] = frozenset(),
+    function_names: frozenset[str] = frozenset(),
+    function_name_resolver=None,
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
+    guidance_example: bool = False,
+    prompt_catalog: PromptCatalog | None = None,
+    session_state: ElaborationSessionState | None = None,
+) -> TrialExpr:
+    """Parse one closed target-2.25 trial form."""
+
+    datum = syntax_node_datum(node)
+    head = syntax_head(datum) if isinstance(datum, SyntaxList) else None
+    if head is None or head.resolved_name != "trial":
+        _raise_error(
+            "the trial parser requires one `trial` form",
+            code="trial_arms_invalid",
+            span=node.span,
+            form_path=node.form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return _parse_trial_syntax_list(
         datum,
         form_path=node.form_path,
         target_dsl_version=target_dsl_version,
@@ -1099,12 +1210,13 @@ def _elaborate_list(
         form_spec = None
     if (
         form_spec is None
-        and head.resolved_name == "run-ref"
+        and head.resolved_name in {"run-ref", "trial"}
         and head.resolved_name not in session_state.function_names
         and head.resolved_name not in procedure_names
         and head.resolved_name not in bound_names
     ):
-        return _route_run_ref(
+        route = _route_run_ref if head.resolved_name == "run-ref" else _route_trial
+        return route(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -1367,6 +1479,30 @@ def _route_run_ref(
     )
 
 
+def _route_trial(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> ExprNode:
+    return _parse_trial_syntax_list(
+        datum,
+        form_path=form_path,
+        target_dsl_version=session_state.target_dsl_version or "",
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        function_names=session_state.function_names,
+        function_name_resolver=session_state.function_name_resolver,
+        procedure_name_resolver=session_state.procedure_name_resolver,
+        workflow_name_resolver=session_state.workflow_name_resolver,
+        guidance_example=session_state.guidance_example,
+        prompt_catalog=session_state.prompt_catalog,
+        session_state=session_state,
+    )
+
+
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
     return {
         "record": _elaborate_record,
@@ -1399,6 +1535,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
         "run_ref": _route_run_ref,
+        "trial": _route_trial,
         "run_provider_phase": _elaborate_run_provider_phase,
         "produce_one_of": _elaborate_produce_one_of,
         "resume_or_start": _elaborate_resume_or_start,
@@ -1907,6 +2044,832 @@ def _parse_run_ref_syntax_list(
         form_path=form_path,
         returns_type_name=returns_type_name,
         environment=environment,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _trial_fail(
+    node: SyntaxNode | SyntaxList | object,
+    *,
+    code: str,
+    message: str,
+    form_path: tuple[str, ...],
+) -> None:
+    _raise_error(
+        message,
+        code=code,
+        span=node.span,
+        form_path=form_path,
+        expansion_stack=node.expansion_stack,
+    )
+
+
+def _trial_is_compile_time_structural_data(node: object) -> bool:
+    if isinstance(node, SyntaxNode):
+        return _trial_is_compile_time_structural_data(syntax_node_datum(node))
+    if isinstance(
+        node,
+        (SyntaxString, SyntaxInt, SyntaxFloat, SyntaxBool, SyntaxKeyword),
+    ):
+        return True
+    if not isinstance(node, SyntaxList):
+        return False
+    head = syntax_head(node)
+    return (
+        head is not None
+        and head.resolved_name in {"record", "list"}
+        and all(
+            _trial_is_compile_time_structural_data(item)
+            for item in node.items[1:]
+        )
+    )
+
+
+def _trial_record_sections(
+    node: object,
+    *,
+    label: str,
+    code: str,
+    form_path: tuple[str, ...],
+) -> dict[str, object]:
+    if not isinstance(node, SyntaxList):
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} must be a compile-time structural record",
+            form_path=form_path,
+        )
+    head = syntax_head(node)
+    if head is None or head.resolved_name != "record":
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} must be a compile-time pure `(record ...)` value",
+            form_path=form_path,
+        )
+    return _trial_sections(
+        node.items[1:],
+        label=label,
+        code=code,
+        form_path=form_path,
+    )
+
+
+def _trial_sections(
+    items: tuple[object, ...] | list[object],
+    *,
+    label: str,
+    code: str,
+    form_path: tuple[str, ...],
+) -> dict[str, object]:
+    if len(items) % 2 != 0:
+        _trial_fail(
+            items[-1],
+            code=code,
+            message=f"{label} requires keyword/value pairs",
+            form_path=form_path,
+        )
+    sections: dict[str, object] = {}
+    for index in range(0, len(items), 2):
+        key = items[index]
+        value = items[index + 1]
+        if not isinstance(key, SyntaxKeyword):
+            _trial_fail(
+                key,
+                code=code,
+                message=f"{label} keys must be keywords",
+                form_path=form_path,
+            )
+        if key.value in sections:
+            _trial_fail(
+                key,
+                code=code,
+                message=f"{label} contains duplicate key {key.value}",
+                form_path=form_path,
+            )
+        sections[key.value] = value
+    return sections
+
+
+def _trial_require_exact_keys(
+    sections: dict[str, object],
+    expected: frozenset[str],
+    *,
+    node: object,
+    code: str,
+    label: str,
+    form_path: tuple[str, ...],
+) -> None:
+    if set(sections) != expected:
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} has missing, duplicate, or unknown keys",
+            form_path=form_path,
+        )
+
+
+def _trial_list_items(
+    node: object,
+    *,
+    code: str,
+    label: str,
+    form_path: tuple[str, ...],
+) -> tuple[object, ...]:
+    if not isinstance(node, SyntaxList):
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} must be a compile-time `(list ...)` value",
+            form_path=form_path,
+        )
+    head = syntax_head(node)
+    if head is None or head.resolved_name != "list":
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} must be a compile-time `(list ...)` value",
+            form_path=form_path,
+        )
+    return tuple(node.items[1:])
+
+
+def _trial_positive_int(
+    node: object,
+    *,
+    code: str,
+    label: str,
+    form_path: tuple[str, ...],
+) -> int:
+    if (
+        not isinstance(node, SyntaxInt)
+        or isinstance(node.value, bool)
+        or node.value <= 0
+    ):
+        _trial_fail(
+            node,
+            code=code,
+            message=f"{label} must be a positive integer literal",
+            form_path=form_path,
+        )
+    return node.value
+
+
+def _trial_number(
+    node: object,
+    *,
+    positive: bool,
+    label: str,
+    form_path: tuple[str, ...],
+) -> float:
+    if not isinstance(node, (SyntaxInt, SyntaxFloat)) or isinstance(
+        node.value, bool
+    ):
+        _trial_fail(
+            node,
+            code="trial_evaluation_contract_invalid",
+            message=f"{label} must be a finite numeric literal",
+            form_path=form_path,
+        )
+    try:
+        value = float(node.value)
+    except OverflowError:
+        _trial_fail(
+            node,
+            code="trial_evaluation_contract_invalid",
+            message=f"{label} is outside its accepted numeric range",
+            form_path=form_path,
+        )
+    if not math.isfinite(value) or (value <= 0 if positive else value < 0):
+        _trial_fail(
+            node,
+            code="trial_evaluation_contract_invalid",
+            message=f"{label} is outside its accepted numeric range",
+            form_path=form_path,
+        )
+    return value
+
+
+def _parse_trial_evaluation(
+    node: object,
+    *,
+    form_path: tuple[str, ...],
+) -> TrialEvaluation:
+    if not _trial_is_compile_time_structural_data(node):
+        _trial_fail(
+            node,
+            code="trial_evaluation_contract_not_pure",
+            message="`trial :evaluation` must be compile-time structural data",
+            form_path=form_path,
+        )
+    sections = _trial_record_sections(
+        node,
+        label="`trial :evaluation`",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        sections,
+        frozenset(
+            {
+                ":checks",
+                ":judgment",
+                ":observation",
+                ":aggregation",
+                ":success-rule",
+            }
+        ),
+        node=node,
+        code="trial_evaluation_contract_invalid",
+        label="`trial :evaluation`",
+        form_path=form_path,
+    )
+
+    checks: list[TrialCheck] = []
+    seen_check_ids: set[str] = set()
+    for check_node in _trial_list_items(
+        sections[":checks"],
+        code="trial_evaluation_contract_invalid",
+        label="`trial :evaluation :checks`",
+        form_path=form_path,
+    ):
+        check = _trial_record_sections(
+            check_node,
+            label="trial check",
+            code="trial_evaluation_contract_invalid",
+            form_path=form_path,
+        )
+        _trial_require_exact_keys(
+            check,
+            frozenset(
+                {":id", ":command", ":authority", ":required", ":timeout-ms"}
+            ),
+            node=check_node,
+            code="trial_evaluation_contract_invalid",
+            label="trial check",
+            form_path=form_path,
+        )
+        check_id_node = check[":id"]
+        authority_node = check[":authority"]
+        required_node = check[":required"]
+        if not isinstance(check_id_node, SyntaxString) or not check_id_node.value:
+            _trial_fail(
+                check_id_node,
+                code="trial_evaluation_contract_invalid",
+                message="trial check IDs must be non-empty string literals",
+                form_path=form_path,
+            )
+        if check_id_node.value in seen_check_ids:
+            _trial_fail(
+                check_id_node,
+                code="trial_evaluation_contract_invalid",
+                message="trial check IDs must be unique",
+                form_path=form_path,
+            )
+        seen_check_ids.add(check_id_node.value)
+        command_nodes = _trial_list_items(
+            check[":command"],
+            code="trial_evaluation_contract_invalid",
+            label="trial check command",
+            form_path=form_path,
+        )
+        if not command_nodes or any(
+            not isinstance(item, SyntaxString) or not item.value
+            for item in command_nodes
+        ):
+            _trial_fail(
+                check[":command"],
+                code="trial_evaluation_contract_invalid",
+                message="trial check commands require non-empty literal argv",
+                form_path=form_path,
+            )
+        if (
+            not isinstance(authority_node, SyntaxString)
+            or authority_node.value not in {"correctness", "invariant"}
+        ):
+            _trial_fail(
+                authority_node,
+                code="trial_evaluation_contract_invalid",
+                message="trial check authority must be correctness or invariant",
+                form_path=form_path,
+            )
+        if not isinstance(required_node, SyntaxBool):
+            _trial_fail(
+                required_node,
+                code="trial_evaluation_contract_invalid",
+                message="trial check required must be a Boolean literal",
+                form_path=form_path,
+            )
+        checks.append(
+            TrialCheck(
+                check_id=check_id_node.value,
+                command=tuple(item.value for item in command_nodes),
+                authority=authority_node.value,
+                required=required_node.value,
+                timeout_ms=_trial_positive_int(
+                    check[":timeout-ms"],
+                    code="trial_evaluation_contract_invalid",
+                    label="trial check timeout",
+                    form_path=form_path,
+                ),
+            )
+        )
+
+    judgment_node = sections[":judgment"]
+    judgment = _trial_record_sections(
+        judgment_node,
+        label="`trial :evaluation :judgment`",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        judgment,
+        frozenset(
+            {
+                ":provider",
+                ":rubric-asset",
+                ":evidence-confidentiality",
+                ":evidence-limits",
+            }
+        ),
+        node=judgment_node,
+        code="trial_evaluation_contract_invalid",
+        label="trial judgment",
+        form_path=form_path,
+    )
+    provider_node = judgment[":provider"]
+    rubric_node = judgment[":rubric-asset"]
+    confidentiality_node = judgment[":evidence-confidentiality"]
+    if not isinstance(provider_node, SyntaxString) or not provider_node.value:
+        _trial_fail(
+            provider_node,
+            code="trial_evaluation_contract_invalid",
+            message="trial judgment provider must be a non-empty string literal",
+            form_path=form_path,
+        )
+    if not isinstance(rubric_node, SyntaxString) or not rubric_node.value:
+        _trial_fail(
+            rubric_node,
+            code="trial_evaluation_contract_invalid",
+            message="trial judgment rubric asset must be a non-empty string literal",
+            form_path=form_path,
+        )
+    rubric_path = PurePosixPath(rubric_node.value)
+    if (
+        rubric_path.is_absolute()
+        or rubric_node.value != rubric_path.as_posix()
+        or any(part in {"", ".", ".."} for part in rubric_path.parts)
+    ):
+        _trial_fail(
+            rubric_node,
+            code="trial_evaluation_rubric_unresolved",
+            message="trial rubric asset must be one normalized relative path",
+            form_path=form_path,
+        )
+    if (
+        not isinstance(confidentiality_node, SyntaxString)
+        or confidentiality_node.value != "same_trust_boundary"
+    ):
+        _trial_fail(
+            confidentiality_node,
+            code="trial_blinding_policy_invalid",
+            message="trial evidence confidentiality must be same_trust_boundary",
+            form_path=form_path,
+        )
+    limits_node = judgment[":evidence-limits"]
+    limits = _trial_record_sections(
+        limits_node,
+        label="trial evidence limits",
+        code="trial_packet_limit_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        limits,
+        frozenset({":max-item-bytes", ":max-packet-bytes"}),
+        node=limits_node,
+        code="trial_packet_limit_invalid",
+        label="trial evidence limits",
+        form_path=form_path,
+    )
+    max_item_bytes = _trial_positive_int(
+        limits[":max-item-bytes"],
+        code="trial_packet_limit_invalid",
+        label="max item bytes",
+        form_path=form_path,
+    )
+    max_packet_bytes = _trial_positive_int(
+        limits[":max-packet-bytes"],
+        code="trial_packet_limit_invalid",
+        label="max packet bytes",
+        form_path=form_path,
+    )
+    if max_packet_bytes < max_item_bytes:
+        _trial_fail(
+            limits_node,
+            code="trial_packet_limit_invalid",
+            message="max packet bytes must be at least max item bytes",
+            form_path=form_path,
+        )
+
+    observation_node = sections[":observation"]
+    observation = _trial_record_sections(
+        observation_node,
+        label="trial observation",
+        code="trial_packet_policy_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        observation,
+        frozenset(
+            {":include", ":diff-cap-bytes", ":reveal-provider-identity"}
+        ),
+        node=observation_node,
+        code="trial_packet_policy_invalid",
+        label="trial observation",
+        form_path=form_path,
+    )
+    include_nodes = _trial_list_items(
+        observation[":include"],
+        code="trial_packet_policy_invalid",
+        label="trial observation include",
+        form_path=form_path,
+    )
+    allowed_includes = {
+        "task_spec",
+        "validated_result",
+        "workspace_delta",
+        "check_results",
+        "declared_artifacts",
+        "failure_evidence",
+    }
+    if (
+        any(
+            not isinstance(item, SyntaxString)
+            or item.value not in allowed_includes
+            for item in include_nodes
+        )
+        or len({item.value for item in include_nodes}) != len(include_nodes)
+    ):
+        _trial_fail(
+            observation[":include"],
+            code="trial_packet_policy_invalid",
+            message="trial observation include names must be unique and closed",
+            form_path=form_path,
+        )
+    reveal_node = observation[":reveal-provider-identity"]
+    if not isinstance(reveal_node, SyntaxBool) or reveal_node.value:
+        _trial_fail(
+            reveal_node,
+            code="trial_blinding_policy_invalid",
+            message="trial provider identity reveal must be false",
+            form_path=form_path,
+        )
+
+    aggregation_node = sections[":aggregation"]
+    aggregation = _trial_record_sections(
+        aggregation_node,
+        label="trial aggregation",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        aggregation,
+        frozenset({":mode", ":rep-combine", ":tie"}),
+        node=aggregation_node,
+        code="trial_evaluation_contract_invalid",
+        label="trial aggregation",
+        form_path=form_path,
+    )
+    aggregation_expected = {
+        ":mode": "independent_rubric",
+        ":rep-combine": "median",
+        ":tie": "authored_order",
+    }
+    for key, expected in aggregation_expected.items():
+        value = aggregation[key]
+        if not isinstance(value, SyntaxString) or value.value != expected:
+            _trial_fail(
+                value,
+                code="trial_evaluation_contract_invalid",
+                message=f"trial aggregation {key} must be {expected}",
+                form_path=form_path,
+            )
+
+    success_node = sections[":success-rule"]
+    success = _trial_record_sections(
+        success_node,
+        label="trial success rule",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        success,
+        frozenset(
+            {":superior", ":non-inferior", ":count-failures-as-outcomes"}
+        ),
+        node=success_node,
+        code="trial_evaluation_contract_invalid",
+        label="trial success rule",
+        form_path=form_path,
+    )
+    superior_node = success[":superior"]
+    superior = _trial_record_sections(
+        superior_node,
+        label="trial superior rule",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        superior,
+        frozenset({":min-abs-improvement", ":max-cost-ratio"}),
+        node=superior_node,
+        code="trial_evaluation_contract_invalid",
+        label="trial superior rule",
+        form_path=form_path,
+    )
+    noninferior_node = success[":non-inferior"]
+    noninferior = _trial_record_sections(
+        noninferior_node,
+        label="trial non-inferior rule",
+        code="trial_evaluation_contract_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        noninferior,
+        frozenset({":min-cost-reduction"}),
+        node=noninferior_node,
+        code="trial_evaluation_contract_invalid",
+        label="trial non-inferior rule",
+        form_path=form_path,
+    )
+    failures_node = success[":count-failures-as-outcomes"]
+    if not isinstance(failures_node, SyntaxBool) or not failures_node.value:
+        _trial_fail(
+            failures_node,
+            code="trial_evaluation_contract_invalid",
+            message="trial failures must count as outcomes",
+            form_path=form_path,
+        )
+
+    return TrialEvaluation(
+        checks=tuple(checks),
+        provider=provider_node.value,
+        rubric_asset=rubric_node.value,
+        evidence_confidentiality=confidentiality_node.value,
+        max_item_bytes=max_item_bytes,
+        max_packet_bytes=max_packet_bytes,
+        observation_include=tuple(item.value for item in include_nodes),
+        diff_cap_bytes=_trial_positive_int(
+            observation[":diff-cap-bytes"],
+            code="trial_packet_limit_invalid",
+            label="trial diff cap",
+            form_path=form_path,
+        ),
+        reveal_provider_identity=False,
+        aggregation_mode="independent_rubric",
+        rep_combine="median",
+        tie="authored_order",
+        min_abs_improvement=_trial_number(
+            superior[":min-abs-improvement"],
+            positive=False,
+            label="minimum absolute improvement",
+            form_path=form_path,
+        ),
+        max_cost_ratio=_trial_number(
+            superior[":max-cost-ratio"],
+            positive=True,
+            label="maximum cost ratio",
+            form_path=form_path,
+        ),
+        min_cost_reduction=_trial_number(
+            noninferior[":min-cost-reduction"],
+            positive=False,
+            label="minimum cost reduction",
+            form_path=form_path,
+        ),
+        count_failures_as_outcomes=True,
+    )
+
+
+def _parse_trial_budget(
+    node: object,
+    *,
+    form_path: tuple[str, ...],
+) -> TrialBudget:
+    if not _trial_is_compile_time_structural_data(node):
+        _trial_fail(
+            node,
+            code="trial_evaluation_contract_not_pure",
+            message="`trial :budget` must be compile-time structural data",
+            form_path=form_path,
+        )
+    sections = _trial_record_sections(
+        node,
+        label="`trial :budget`",
+        code="trial_budget_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        sections,
+        frozenset(
+            {
+                ":arm-timeout-ms",
+                ":trial-timeout-ms",
+                ":max-evaluator-attempts",
+                ":max-evaluator-concurrency",
+            }
+        ),
+        node=node,
+        code="trial_budget_invalid",
+        label="trial budget",
+        form_path=form_path,
+    )
+    values = {
+        key: _trial_positive_int(
+            sections[key],
+            code="trial_budget_invalid",
+            label=key,
+            form_path=form_path,
+        )
+        for key in sections
+    }
+    if values[":max-evaluator-concurrency"] > values[":max-evaluator-attempts"]:
+        _trial_fail(
+            node,
+            code="trial_budget_invalid",
+            message="evaluator concurrency cannot exceed evaluator attempts",
+            form_path=form_path,
+        )
+    return TrialBudget(
+        arm_timeout_ms=values[":arm-timeout-ms"],
+        trial_timeout_ms=values[":trial-timeout-ms"],
+        max_evaluator_attempts=values[":max-evaluator-attempts"],
+        max_evaluator_concurrency=values[":max-evaluator-concurrency"],
+    )
+
+
+def _parse_trial_syntax_list(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    target_dsl_version: str,
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    function_names: frozenset[str],
+    function_name_resolver,
+    procedure_name_resolver,
+    workflow_name_resolver,
+    guidance_example: bool,
+    prompt_catalog: PromptCatalog | None,
+    session_state: ElaborationSessionState | None,
+) -> TrialExpr:
+    if not target_dsl_supports_trial(target_dsl_version):
+        _raise_error(
+            f"`trial` requires target DSL {TRIAL_MIN_TARGET_DSL_VERSION} or newer",
+            code="trial_target_dsl_unsupported",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    sections = _trial_sections(
+        datum.items[1:],
+        label="`trial`",
+        code="trial_arms_invalid",
+        form_path=form_path,
+    )
+    _trial_require_exact_keys(
+        sections,
+        frozenset(
+            {":arms", ":reps", ":max-concurrency", ":evaluation", ":budget"}
+        ),
+        node=datum,
+        code="trial_arms_invalid",
+        label="`trial`",
+        form_path=form_path,
+    )
+    arms_node = sections[":arms"]
+    if not isinstance(arms_node, SyntaxList):
+        _trial_fail(
+            arms_node,
+            code="trial_arms_invalid",
+            message="trial arms must be one static list",
+            form_path=form_path,
+        )
+    arms: list[TrialArm] = []
+    seen_ids: set[str] = set()
+    for index, arm_node in enumerate(arms_node.items):
+        if not isinstance(arm_node, SyntaxList):
+            _trial_fail(
+                arm_node,
+                code="trial_arms_invalid",
+                message="each trial arm must contain :id and :run-ref",
+                form_path=form_path,
+            )
+        arm_sections = _trial_sections(
+            arm_node.items,
+            label="trial arm",
+            code="trial_arms_invalid",
+            form_path=form_path,
+        )
+        _trial_require_exact_keys(
+            arm_sections,
+            frozenset({":id", ":run-ref"}),
+            node=arm_node,
+            code="trial_arms_invalid",
+            label="trial arm",
+            form_path=form_path,
+        )
+        arm_id_node = arm_sections[":id"]
+        if not isinstance(arm_id_node, SyntaxString) or not arm_id_node.value:
+            _trial_fail(
+                arm_id_node,
+                code="trial_arms_invalid",
+                message="trial arm IDs must be non-empty string literals",
+                form_path=form_path,
+            )
+        if arm_id_node.value in seen_ids:
+            _trial_fail(
+                arm_id_node,
+                code="trial_arms_invalid",
+                message="trial arm IDs must be unique",
+                form_path=form_path,
+            )
+        seen_ids.add(arm_id_node.value)
+        run_ref_node = arm_sections[":run-ref"]
+        run_ref_head = (
+            syntax_head(run_ref_node)
+            if isinstance(run_ref_node, SyntaxList)
+            else None
+        )
+        if run_ref_head is None or run_ref_head.resolved_name != "run-ref":
+            _trial_fail(
+                run_ref_node,
+                code="trial_arms_invalid",
+                message="trial arms require nested `run-ref` syntax",
+                form_path=form_path,
+            )
+        arms.append(
+            TrialArm(
+                arm_id=arm_id_node.value,
+                run_ref=_parse_run_ref_syntax_list(
+                    run_ref_node,
+                    form_path=(*form_path, "arms", str(index), "run-ref"),
+                    target_dsl_version=target_dsl_version,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                    function_names=function_names,
+                    function_name_resolver=function_name_resolver,
+                    procedure_name_resolver=procedure_name_resolver,
+                    workflow_name_resolver=workflow_name_resolver,
+                    guidance_example=guidance_example,
+                    prompt_catalog=prompt_catalog,
+                    session_state=session_state,
+                ),
+            )
+        )
+    if not 2 <= len(arms) <= 16:
+        _trial_fail(
+            arms_node,
+            code="trial_arms_invalid",
+            message="trial requires between 2 and 16 static arms",
+            form_path=form_path,
+        )
+    reps = _trial_positive_int(
+        sections[":reps"],
+        code="trial_reps_invalid",
+        label="trial repetitions",
+        form_path=form_path,
+    )
+    if reps > 64 or len(arms) * reps > 256:
+        _trial_fail(
+            sections[":reps"],
+            code="trial_reps_invalid",
+            message="trial repetitions or total cells exceed their bounds",
+            form_path=form_path,
+        )
+    max_concurrency = _trial_positive_int(
+        sections[":max-concurrency"],
+        code="trial_concurrency_invalid",
+        label="trial arm concurrency",
+        form_path=form_path,
+    )
+    if max_concurrency > 32 or max_concurrency > len(arms) * reps:
+        _trial_fail(
+            sections[":max-concurrency"],
+            code="trial_concurrency_invalid",
+            message="trial arm concurrency exceeds its bound or cell count",
+            form_path=form_path,
+        )
+    return TrialExpr(
+        arms=tuple(arms),
+        reps=reps,
+        max_concurrency=max_concurrency,
+        evaluation=_parse_trial_evaluation(
+            sections[":evaluation"], form_path=form_path
+        ),
+        budget=_parse_trial_budget(sections[":budget"], form_path=form_path),
+        span=datum.span,
+        form_path=form_path,
         expansion_stack=datum.expansion_stack,
     )
 

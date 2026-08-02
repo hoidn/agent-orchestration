@@ -185,6 +185,7 @@ def typecheck_match_expr(
         raise_run_ref_placement_invalid(
             typed_subject.expr,
             reason="is not permitted in a `match` discriminant",
+            effect_summary=typed_subject.effect_summary,
         )
     if isinstance(typed_subject.type_ref, TypeParamRef):
         raise_error(
