@@ -83,11 +83,16 @@ proof only, with no effectiveness, security, isolation, or sandbox claim. The
 [final review](../../artifacts/review/e2-trial-final-review.md)
 (`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`)
 records `PASS_E2` within the exact target-2.25 component contract. No production
-`.orc` registry row was added and route-readiness remains unchanged. The first
-effectiveness study (ES) is now the next on-spine plan- and review-gated stage;
-Phase ME may proceed in parallel and never blocks an E exit. E3 remains gated
-on review of the fixed study, ES results, and a separate reviewed component
-plan. E3 adds no language target.
+`.orc` registry row was added and route-readiness remains unchanged. The
+[first effectiveness study (ES) component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
+is accepted at reviewed candidate `27be07e2`, tree `e669471a`, after ordered
+`ES_PLAN_SPEC_APPROVED` then `ES_PLAN_QUALITY_APPROVED`; see the
+[plan review](../../artifacts/review/es-first-effectiveness-study-plan-review.md).
+Task 1 is selected for provider-free execution. Live ES allocation remains
+gated on the Task-6 exact scientific-lock adoption. Phase ME may proceed in
+parallel and never blocks an E exit. E3 remains gated on review of the fixed
+study, ES results, and a separate reviewed component plan. E3 adds no language
+target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that
 first-fixed-study review live in the
 [2026-08-01 forensics report](../reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md).
@@ -99,9 +104,10 @@ The [2026-08-01 post-E2 stage sequencing record](2026-08-01-workflow-lisp-post-e
 applies the owner-delegated stage picks at the `PASS_E2` joint: the first
 preregistered effectiveness study (ES) runs on-spine and its results are a
 required additional input to the E3 continue/narrow/stop review, while
-Phase ME runs off-spine in parallel; ES and ME each remain plan- and
-review-gated. C1, C2, C3, E2O, the historical execution-registry substrate,
-and security work remain unselected.
+Phase ME runs off-spine in parallel. ES's component-plan gate is satisfied;
+implementation, results, and final review remain pending. Phase ME remains
+plan- and review-gated. C1, C2, C3, E2O, the historical execution-registry
+substrate, and security work remain unselected.
 Selection does not waive any feasibility,
 spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
 gate.

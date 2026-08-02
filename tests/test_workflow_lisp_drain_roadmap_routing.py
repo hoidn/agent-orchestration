@@ -192,6 +192,12 @@ E2_TRIAL_PLAN_PATH = (
 )
 E2_TRIAL_PLAN_REVIEW_PATH = "artifacts/review/e2-trial-plan-review.md"
 E2_TRIAL_FINAL_REVIEW_PATH = "artifacts/review/e2-trial-final-review.md"
+ES_COMPONENT_PLAN_PATH = (
+    "docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md"
+)
+ES_COMPONENT_PLAN_REVIEW_PATH = (
+    "artifacts/review/es-first-effectiveness-study-plan-review.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1389,6 +1395,10 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     e2_final_review = (REPO_ROOT / E2_TRIAL_FINAL_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
+    es_plan = (REPO_ROOT / ES_COMPONENT_PLAN_PATH).read_text(encoding="utf-8")
+    es_plan_review = (REPO_ROOT / ES_COMPONENT_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1479,9 +1489,15 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "no production .orc registry row was added" in normalized_roadmap
     assert "route readiness remains unchanged" in normalized_roadmap
-    assert "first effectiveness study (es) is now the next on spine" in (
-        normalized_roadmap
+    assert "first effectiveness study (es) component plan" in normalized_roadmap
+    assert "accepted at reviewed candidate 27be07e2" in normalized_roadmap
+    assert "es_plan_spec_approved" in normalized_roadmap
+    assert "es_plan_quality_approved" in normalized_roadmap
+    assert roadmap.index("ES_PLAN_SPEC_APPROVED") < roadmap.index(
+        "ES_PLAN_QUALITY_APPROVED"
     )
+    assert "task 1 is selected for provider free execution" in normalized_roadmap
+    assert "live es allocation remains gated" in normalized_roadmap
     assert "phase me may proceed in parallel and never blocks an e exit" in (
         normalized_roadmap
     )
@@ -1551,7 +1567,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         normalized_trial_capability
     )
     assert "route readiness remains unchanged" in normalized_trial_capability
-    assert "es is the next on spine plan and review gated stage" in (
+    assert "es's component plan gate is satisfied" in normalized_trial_capability
+    assert "provider free task 1 is selected" in normalized_trial_capability
+    assert "live allocation remains task 6 owner adoption gated" in (
         normalized_trial_capability
     )
     assert "phase me is parallel and nonblocking" in normalized_trial_capability
@@ -1579,6 +1597,42 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E2_TRIAL_PLAN_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
         assert Path(E2_TRIAL_FINAL_REVIEW_PATH).name in surface
+    for surface in (roadmap, design_index, index, trial_capability):
+        assert Path(ES_COMPONENT_PLAN_PATH).name in surface
+        assert Path(ES_COMPONENT_PLAN_REVIEW_PATH).name in surface
+
+    normalized_es_plan = _normalized_routing_text(es_plan)
+    normalized_es_plan_review = _normalized_routing_text(es_plan_review)
+    assert (
+        "status: accepted for provider free es execution; task 0 review is closed "
+        "and task 1 is selected; live allocation remains task 6 owner adoption gated"
+        in normalized_es_plan
+    )
+    assert "27be07e27825c161145671a70219143a3b8aa624" in es_plan
+    assert "e669471ac908be3b1a937336a6e7b337b046b143" in es_plan
+    assert "b34a05f748a9dbc471251b5b59a4927a9d1ccf6675fd19112172565562b756a4" in (
+        es_plan
+    )
+    assert es_plan.index("ES_PLAN_SPEC_APPROVED") < es_plan.index(
+        "ES_PLAN_QUALITY_APPROVED"
+    )
+    assert "status: approved for provider free es execution" in (
+        normalized_es_plan_review
+    )
+    assert es_plan_review.index("ES_PLAN_SPEC_APPROVED") < es_plan_review.index(
+        "ES_PLAN_QUALITY_APPROVED"
+    )
+    es_plan_review_digest = hashlib.sha256(
+        (REPO_ROOT / ES_COMPONENT_PLAN_REVIEW_PATH).read_bytes()
+    ).hexdigest()
+    assert es_plan_review_digest == (
+        "5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba"
+    )
+    assert es_plan_review_digest in es_plan
+    for task_number in range(10):
+        assert f"## Task {task_number}:" in es_plan
+    assert "this gate authorizes no live es call" in normalized_es_plan
+
     normalized_e2_plan = _normalized_routing_text(e2_plan)
     assert "status: pass_e2; tasks 0 10 and the canonical e2 exit gate are closed" in (
         normalized_e2_plan
@@ -2520,7 +2574,15 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "records pass_e2 within the exact target 2.25 component contract" in (
         normalized_evolution_status
     )
-    assert "first effectiveness study (es) is now the next on spine" in (
+    assert "first effectiveness study (es) component plan" in (
+        normalized_evolution_status
+    )
+    assert "accepted at reviewed candidate 27be07e2" in (
+        normalized_evolution_status
+    )
+    assert "es_plan_spec_approved" in normalized_evolution_status
+    assert "es_plan_quality_approved" in normalized_evolution_status
+    assert "task 1 is selected for provider free execution" in (
         normalized_evolution_status
     )
     assert "e3 remains gated on review of the fixed study, es results" in (

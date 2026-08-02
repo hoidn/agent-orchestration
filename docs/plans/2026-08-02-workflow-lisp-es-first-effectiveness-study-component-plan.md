@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** proposed; ordered plan review pending; no live ES allocation is
-  authorized by these bytes
+- **Status:** accepted for provider-free ES execution; Task 0 review is closed
+  and Task 1 is selected; live allocation remains Task-6 owner-adoption gated
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -18,6 +18,14 @@
   `ES_PLAN_QUALITY_APPROVED`
 - **Required ordered final verdicts:** `ES_FINAL_SPEC_APPROVED`, then
   `ES_FINAL_QUALITY_APPROVED`
+- **Reviewed plan candidate:** commit
+  `27be07e27825c161145671a70219143a3b8aa624`, tree
+  `e669471ac908be3b1a937336a6e7b337b046b143`, plan SHA-256
+  `b34a05f748a9dbc471251b5b59a4927a9d1ccf6675fd19112172565562b756a4`
+- **Plan review:**
+  `artifacts/review/es-first-effectiveness-study-plan-review.md`
+  (`sha256:5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba`);
+  `ES_PLAN_SPEC_APPROVED`, then `ES_PLAN_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -461,13 +469,23 @@ as evidence.
 `artifacts/review/es-first-effectiveness-study-plan-review.md`; update only the
 current E roadmap/index/routing assertions needed to show plan status.
 
-- [ ] Commit the proposed, implementation-free plan candidate.
-- [ ] Obtain `ES_PLAN_SPEC_APPROVED` against exact bytes and governing
+- [x] Commit the proposed, implementation-free plan candidate.
+- [x] Obtain `ES_PLAN_SPEC_APPROVED` against exact bytes and governing
       digests.
-- [ ] Obtain distinct `ES_PLAN_QUALITY_APPROVED` against the same candidate.
-- [ ] Correct material findings, replay the pair only if bytes change, bind
+- [x] Obtain distinct `ES_PLAN_QUALITY_APPROVED` against the same candidate.
+- [x] Correct material findings, replay the pair only if bytes change, bind
       the accepted digest/commit/tree, and commit the plan-status transition.
 - [ ] Run routing/readiness controls postcommit.
+
+Task 0 review closed against corrected commit `27be07e2`, tree `e669471a`,
+after ordered `ES_PLAN_SPEC_APPROVED` then distinct
+`ES_PLAN_QUALITY_APPROVED`. The correction bound every terminal-route call
+count, the reproducible source-projection commit bytes, one authoritative
+typed primary outcome with deterministic overrides, and the complete imported
+F1 hard contract. The exact review and candidate bindings are recorded in
+`artifacts/review/es-first-effectiveness-study-plan-review.md`. Task 1 may
+begin after the routing transition; this gate authorizes no live ES call and
+does not adopt the proposed scientific lock.
 
 ## Task 1: Build and prove the history-free F1 projection
 
