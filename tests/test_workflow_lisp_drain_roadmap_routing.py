@@ -1436,11 +1436,13 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "accepted at c6046d38" in normalized_roadmap
     assert "e2_plan_spec_approved" in normalized_roadmap
     assert "e2_plan_quality_approved" in normalized_roadmap
-    assert "tasks 1 3 are complete" in normalized_roadmap
+    assert "tasks 1 4 are complete" in normalized_roadmap
     assert "target 2.25 normative contracts at 6b431087" in normalized_roadmap
     assert "nested structural transport at 43ae8d5c" in normalized_roadmap
-    assert "task 4 typed trial syntax and generated contracts is selected" in normalized_roadmap
-    assert "no production e2 trial behavior exists" in normalized_roadmap
+    assert "typed trial syntax/generated contracts at ba430ed2" in normalized_roadmap
+    assert "tree dd649f39" in normalized_roadmap
+    assert "task 5 ir, lowering, persistence, and checkpoint carriage is selected" in normalized_roadmap
+    assert "no e2 trial runtime producer exists yet" in normalized_roadmap
     assert (
         "e3 remains selected pending the canonical e2 exit gate and review of the first fixed study"
         in normalized_roadmap
@@ -1494,13 +1496,14 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "e2 component plan is accepted" in (
         normalized_trial_capability
     )
-    assert "tasks 1 3 are complete" in normalized_trial_capability
-    for task_commit in ("456acc7a", "6b431087", "43ae8d5c"):
+    assert "tasks 1 4 are complete" in normalized_trial_capability
+    for task_commit in ("456acc7a", "6b431087", "43ae8d5c", "ba430ed2"):
         assert task_commit in normalized_trial_capability
-    assert "task 4 typed trial syntax and generated contracts is selected" in (
+    assert "tree dd649f39" in normalized_trial_capability
+    assert "task 5" in (
         normalized_trial_capability
     )
-    assert "no production e2 trial behavior exists" in normalized_trial_capability
+    assert "no e2 trial runtime producer exists yet" in normalized_trial_capability
     assert "e3 remains selected pending pass_e2" in normalized_trial_capability
     assert "c1 c3 remain designed and unselected" in normalized_trial_capability
     assert "| Designed |" in gates_capability
@@ -1522,8 +1525,14 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         assert Path(E2_TRIAL_PLAN_PATH).name in surface
         assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
     normalized_e2_plan = _normalized_routing_text(e2_plan)
-    assert "status: accepted for e2 execution; tasks 0 3 complete and task 4 selected" in (
+    assert "status: accepted for e2 execution; tasks 0 4 complete and task 5 selected" in (
         normalized_e2_plan
+    )
+    assert "task 4 closed at exact reviewed commit ba430ed2" in normalized_e2_plan
+    assert "tree dd649f39" in normalized_e2_plan
+    assert "caa496695fabb213c83bfe580b2bd11ee423ab199c1b06af16d5f3b385491bf6" in e2_plan
+    assert e2_plan.index("E2_TASK4_SPEC_TYPE_APPROVED") < e2_plan.index(
+        "E2_TASK4_QUALITY_PARSER_CONTRACT_APPROVED"
     )
     assert "target dsl: 2.25" in normalized_e2_plan
     assert "authority reconciliation" in normalized_e2_plan
@@ -1642,7 +1651,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "task 4 and final e0 gates pending" not in normalized_trial_capability
     assert "e0 and e1 complete" in normalized_design_index
-    assert "e2 tasks 1 3 complete and task 4 selected" in (
+    assert "e2 tasks 1 4 complete and task 5 selected" in (
         normalized_design_index
     )
     assert "target 2.24 run ref has pass_e1" in normalized_index
@@ -2244,7 +2253,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "accepted at c6046d38" in normalized_evolution_status
     assert "e2_plan_spec_approved" in normalized_evolution_status
     assert "e2_plan_quality_approved" in normalized_evolution_status
-    assert "tasks 1 3 are complete" in (
+    assert "tasks 1 4 are complete" in (
         normalized_evolution_status
     )
     assert "target 2.25 normative contracts at 6b431087" in (
@@ -2253,10 +2262,14 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "nested structural transport at 43ae8d5c" in (
         normalized_evolution_status
     )
-    assert "task 4 typed trial syntax and generated contracts is selected" in (
+    assert "typed trial syntax/generated contracts at ba430ed2" in (
         normalized_evolution_status
     )
-    assert "no production e2 trial behavior exists" in normalized_evolution_status
+    assert "tree dd649f39" in normalized_evolution_status
+    assert "task 5 ir, lowering, persistence, and checkpoint carriage is selected" in (
+        normalized_evolution_status
+    )
+    assert "no e2 trial runtime producer exists yet" in normalized_evolution_status
     assert "c1, c2, and c3 remain designed and unselected" in (
         normalized_evolution_status
     )

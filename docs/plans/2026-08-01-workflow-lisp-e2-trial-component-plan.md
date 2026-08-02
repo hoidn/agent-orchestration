@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** accepted for E2 execution; Tasks 0–3 complete and Task 4 selected
+- **Status:** accepted for E2 execution; Tasks 0–4 complete and Task 5 selected
 - **Owner:** agent-orchestration maintainers
 - **Selected tranche:** E2 only — concurrent pinned child trials, evidence
   freezing, blinding, and adjudication
@@ -521,16 +521,27 @@ form or production E2 trial behavior landed in this task.
 `orchestrator/workflow_lisp/trial_result_contract.py`; create
 `tests/test_workflow_lisp_trial.py`.
 
-- [ ] RED exact form parsing, closed keys, cardinality/budget/evaluation
+- [x] RED exact form parsing, closed keys, cardinality/budget/evaluation
       validation, same-value-type arms, every transportable `T`, and all
       malformed/refusal cases.
-- [ ] RED placement in ordinary bodies/branches/procedures and rejection in
+- [x] RED placement in ordinary bodies/branches/procedures and rejection in
       pure/loop/generated/nested-trial contexts.
-- [ ] Elaborate nested run-ref syntax into static configs without evaluating a
+- [x] Elaborate nested run-ref syntax into static configs without evaluating a
       first-class effect value; derive the exact monomorphic result/union/path
       contracts and `RunsTrialEffect`.
-- [ ] Run collect-only plus type/effect/form selectors, ordered Task-4 reviews,
+- [x] Run collect-only plus type/effect/form selectors, ordered Task-4 reviews,
       commit, and postcommit controls.
+
+Task 4 closed at exact reviewed commit `ba430ed2`, tree `dd649f39`, from
+staged candidate SHA-256
+`caa496695fabb213c83bfe580b2bd11ee423ab199c1b06af16d5f3b385491bf6`.
+The ordered specification stage passed
+`E2_TASK4_SPEC_CONTRACT_APPROVED` and `E2_TASK4_SPEC_TYPE_APPROVED`; the
+subsequent quality stage passed `E2_TASK4_QUALITY_PARSER_CONTRACT_APPROVED`
+and `E2_TASK4_QUALITY_TYPE_INTEGRATION_APPROVED` on those exact bytes. The
+fresh broad non-security Workflow Lisp gate passed 4,921 tests with one skip,
+and the postcommit frontend control passed 518 tests. Task 5 may begin; Task 4
+landed no `TRIAL` IR, lowering, persistence, checkpoint, or runtime producer.
 
 ## Task 5: Carry `TRIAL` through IR, lowering, persistence, and checkpoints
 
