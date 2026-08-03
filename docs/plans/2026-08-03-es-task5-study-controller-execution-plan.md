@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free implementation; Task 1 is complete and
-  Tasks 2–5 are selected, but no live provider allocation is authorized
+- **Status:** Tasks 1–5 are complete and Task 6 deterministic synthesis is
+  selected; no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
   `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
@@ -233,6 +233,19 @@ only the next locked attempt ID and enforce the absolute call ceiling.
 pytest --collect-only -q tests/experiments/test_es_attempts.py
 pytest -q tests/experiments/test_es_attempts.py
 ```
+
+Tasks 2–5 are complete at commit `467f92f4`, tree `c3c79853`, against
+reviewed staged binary-diff SHA-256
+`b466a2fe3ed54fc297b33c7795b8b8d15a09715988a36974d85ca7b2531a3172`.
+The final candidate passed 166 focused tests and public-module Pyright with no
+errors before and after commit. The ordered final-byte reviews recorded
+`ES_TASK5_T2_T5_SPEC_APPROVED` then distinct
+`ES_TASK5_T2_T5_QUALITY_APPROVED`. Review corrections preserved fixed E2 cell
+order while keying randomized package assignment, bound non-product proofs to
+one frozen controller authority, rebuilt the complete decision lock and
+randomization manifest against external expected bindings, and distinguished
+an absent ledger from a supplied invalid ledger. Task 6 is selected for
+provider-free implementation; this transition authorizes no live study call.
 
 ## Task 6: Implement deterministic synthesis
 
