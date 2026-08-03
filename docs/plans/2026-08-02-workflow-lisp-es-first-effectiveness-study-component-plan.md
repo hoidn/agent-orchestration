@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free ES execution; Tasks 0–3 are complete
-  and Task 4 is selected; live allocation remains Task-6 owner-adoption gated
+- **Status:** accepted for provider-free ES execution; Tasks 0–4 are complete
+  and Task 5 is selected; live allocation remains Task-6 owner-adoption gated
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -47,6 +47,14 @@
   `3826adaa36d91313705f2b60ddd5cddbfa02b8fc15a9352c90fbd4a39a5dfaf9`;
   review `artifacts/review/es-first-effectiveness-study-task3-review.md`
   records `ES_TASK3_SPEC_APPROVED`, then `ES_TASK3_QUALITY_APPROVED`
+- **Task-4 implementation and review:** commit
+  `d72c6085a3d3fdda23ec3ce48d1dd96a3585529d`, tree
+  `4e576d09b92dd5877f8326ba057127923de8f77e`, over base
+  `4998e7509af0b1f05840e3fa50dfdae99f28de5c`, tree
+  `b20769c5fcbb3e548a5146b6de204a1c18435671`; binary-diff SHA-256
+  `52802bc7567384288a610f66885383ed14292e445268c8ebd9f26f5f3ac4a2d8`;
+  review `artifacts/review/es-first-effectiveness-study-task4-review.md`
+  records `ES_TASK4_SPEC_APPROVED`, then `ES_TASK4_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -512,7 +520,7 @@ The acceptance transition committed at `2e4e39ea`. Its fresh postcommit
 routing and route-readiness control passed all 112 tests in 6.31 seconds.
 That transition selected Task 1; Tasks 1 and 2 have since closed at
 `62a5c72d` and `d24c1818`, respectively. Task 3 has since closed at
-`0d16ca36`, and Task 4 is selected.
+`0d16ca36`; Task 4 has since closed at `d72c6085`, and Task 5 is selected.
 
 ## Task 1: Build and prove the history-free F1 projection
 
@@ -554,7 +562,8 @@ see `artifacts/review/es-first-effectiveness-study-task1-review.md`. The fresh
 postcommit Task-1 module passed 25 tests in 81.44 seconds, and the postcommit
 routing/readiness control passed 112 tests in 5.99 seconds. This closed only
 the history-free F1 projection and selected Task 2. Task 2 has since closed at
-`d24c1818`; Task 3 has since closed at `0d16ca36`, and Task 4 is selected.
+`d24c1818`; Task 3 has since closed at `0d16ca36`, Task 4 at `d72c6085`,
+and Task 5 is selected.
 Live allocation remains gated on the
 Task-6 exact scientific-lock owner adoption.
 
@@ -625,8 +634,8 @@ final focused evaluator replay passed 61, the quality replay passed 40,
 Pyright was clean, and deterministic task-seed closure passed. The fresh
 postcommit Task-2 control passed 211 tests in 282.83 seconds (`0:04:42`). This
 closes only the provider-free task/evaluator package. Task 3 has since closed
-at `0d16ca36`, and Task 4 is selected, while live allocation remains gated on
-the Task-6 exact scientific-lock owner adoption.
+at `0d16ca36`, Task 4 at `d72c6085`, and Task 5 is selected, while live
+allocation remains gated on the Task-6 exact scientific-lock owner adoption.
 
 ## Task 3: Land exact metering and decision-lock validation
 
@@ -675,9 +684,9 @@ received ordered `ES_TASK3_SPEC_APPROVED` then distinct
 `artifacts/review/es-first-effectiveness-study-task3-review.md`. The final
 candidate collected and passed 92 tests in 7.97 seconds, Pyright was clean,
 and the fresh postcommit control passed 92 tests in 8.03 seconds. This closes
-only provider-free metering and decision-lock validation. Task 4 is selected;
-no provider-bearing attempt is authorized before the Task-6 exact scientific-
-lock owner adoption.
+only provider-free metering and decision-lock validation. Task 4 has since
+closed at `d72c6085`, and Task 5 is selected; no provider-bearing attempt is
+authorized before the Task-6 exact scientific-lock owner adoption.
 
 ## Task 4: Implement the four treatment workflows
 
@@ -686,26 +695,247 @@ lock owner adoption.
 `qa_placement_trial.orc`, role prompt assets/config, and focused compiler/
 runtime tests.
 
-- [ ] RED the exact four-cell domain, common `Bool` result, role/correction
+- [x] RED the exact four-cell domain, common `Bool` result, role/correction
       paths, and 1/3–4/2–3/4–6 treatment bounds.
-- [ ] Implement DIRECT, DESIGN_QA, PRODUCT_QA, and compositional RICH with
+- [x] Implement DIRECT, DESIGN_QA, PRODUCT_QA, and compositional RICH with
       fresh calls, one bounded correction per placement, and no ceremonial
       revision.
-- [ ] Prove shared role prompts, provider policy, effort, timeouts, task bytes,
+- [x] Prove shared role prompts, provider policy, effort, timeouts, task bytes,
       check contract, and output responsibilities match wherever roles are
       intended to match.
-- [ ] Prove design and product reviewers return typed decisions; downstream
+- [x] Prove design and product reviewers return typed decisions; downstream
       calls consume typed values and compiler-owned artifact paths rather than
       reparsing prose.
-- [ ] Compile through ordinary target-2.25 WCC and run every route with
+- [x] Compile through ordinary target-2.25 WCC and run every route with
       scripted providers, including approve, revise, blocked, typed-output
       failure, and one sibling-preserving arm failure.
-- [ ] Obtain ordered Task-4 reviews, commit, and rerun postcommit controls.
+- [x] Obtain ordered Task-4 reviews, commit, and rerun postcommit controls.
+
+Task 4 is complete at commit
+`d72c6085a3d3fdda23ec3ce48d1dd96a3585529d`, tree
+`4e576d09b92dd5877f8326ba057127923de8f77e`, over base
+`4998e7509af0b1f05840e3fa50dfdae99f28de5c`, tree
+`b20769c5fcbb3e548a5146b6de204a1c18435671`. The reviewed binary-diff
+SHA-256 is
+`52802bc7567384288a610f66885383ed14292e445268c8ebd9f26f5f3ac4a2d8`.
+
+The four ordinary target-2.25 arms return `Bool`, reuse the canonical DIRECT
+implementation, keep all provider output paths compiler-owned, and implement
+the exact 1/3–4/2–3/4–6 completed call bounds with one nonceremonial correction
+per QA placement. Design and product reviews return a typed enum-bearing
+record; every locked route has a scripted runtime outcome, including valid
+action `false`, `BLOCKED`, malformed typed review output, and a failed sibling
+that does not cancel the other trial cells.
+
+The first specification review rejected duplicated DIRECT behavior,
+provider-authored output paths, and incomplete runtime-route coverage. The
+corrected candidate then exposed two further real gaps: the E2 scorer had no
+defaulted provider policy, and trial typechecking validated but discarded its
+provider extern resolution. The final generic correction adds one pinned
+`gpt-5.5`/`high` unrestricted profile and carries the resolved provider ID
+only in the typed/static contract while preserving the authored alias for
+source provenance and unresolved-extern diagnostics. A full-suite gate then
+found stale test harnesses that still expected the authored alias; those
+harnesses now require only the resolved ID, with no dual acceptance.
+
+The final exact bytes received ordered `ES_TASK4_SPEC_APPROVED` then distinct
+`ES_TASK4_QUALITY_APPROVED`; see
+`artifacts/review/es-first-effectiveness-study-task4-review.md`. The focused
+candidate gate passed 222 tests, the affected integration cluster passed 56,
+the adjacent E2/ES gate passed 89, Pyright was clean on the changed public
+surfaces, and the full repository gate passed 12,916 tests with 23 skips. The
+fresh postcommit controls passed 222 and 56 tests. This closes only the
+provider-free treatment workflow package. Task 5 is selected; live provider
+allocation remains prohibited before the Task-6 owner adoption.
+
+### Task-5 deterministic controller contract clarification
+
+The following contracts close the pre-implementation semantic gaps found in
+the Task-5 seam audit. They are owned by the ES study controller and do not
+extend target 2.25, the E2 ledger/state contract, or the retired
+`orchestrator.experiments` package. The one generic exception is an
+artifact-only projection at E2's existing packet-freeze boundary, specified
+below; it changes no execution, settlement, verdict, or public-result shape.
+
+#### Hard-contract criticality and comparability
+
+The exact frozen `HARD_CLAUSE_IDS` domain is the critical product-contract
+domain; there is no second severity field or taxonomy. For candidate `C`:
+
+- `product_blockers(C)` is the set of clause IDs whose complete frozen
+  observation is false and whose frozen disposition is `PRODUCT_DEFECT`;
+- `unresolved_blockers(C)` is the set of clause IDs whose frozen disposition
+  is `UNRESOLVED`; and
+- `comparable_product_blockers(A, B)` is the exact intersection of the two
+  candidates' `product_blockers` sets. Similar prose, symptoms, or reviewer
+  judgment cannot establish comparability.
+
+A finding is confirmed only when all ten observations, evaluator/evidence
+bindings, and the controller-derived disposition record validate and freeze.
+The existing override order remains authoritative: missing trusted freeze is
+first; a raw winner naming a candidate with either blocker set becomes
+`INDETERMINATE`; if both candidates have a same-clause confirmed product
+blocker, raw `RICH` or `DIRECT` becomes `INDETERMINATE`, while raw `TIE`
+remains `TIE`; otherwise the raw typed outcome is retained. Comparability is
+a report diagnostic and never weakens the one-sided blocker rule.
+
+#### Packet byte authority and access
+
+The E2 `packets_frozen` row remains digest authority; the existing public
+`run_trial_entry` result is intentionally only a terminal summary and cannot
+reconstruct every original packet after return. At the existing generic E2
+packet-freeze boundary, while the exact in-memory packet values still exist
+and before any scorer call, the runtime must therefore:
+
+1. validate every packet again with
+   `validate_trial_cell_evaluation_packet`;
+2. require its canonical digest to equal the corresponding
+   `packets_frozen.cell_packets` row;
+3. publish the canonical bytes once at
+   `artifacts/trials/<trial-request-hex>/packets/<packet-digest-hex>.json`;
+   and
+4. publish
+   `artifacts/trials/<trial-request-hex>/packets/index.json`, a closed generic
+   index binding the request, ledger header, evidence/check/packet freeze
+   rows, sealed-map digest, E2 packet-set digest, and each cell's opaque label,
+   packet digest, and relative path.
+
+The existing verdict artifact already carries `trial_request_digest`, so a
+caller can derive this index from `TrialRunResult.verdict_path` without a
+verdict-schema or public-result change. This generic projection is evidence,
+not trial state or a derived-value cache. It neither changes the packet bytes
+delivered to the scorer nor adds a new ledger event.
+
+An existing destination is accepted only when it is a regular file with the
+exact bytes. A symlink, overwrite, missing or extra row, digest disagreement,
+or non-bijective label fails closed. The ES controller must consume this
+index; it must not recompile retained source, reconstruct a terminal execution,
+invoke `execute_trial_cells`, or rebuild historical packet bytes. Review
+bundles contain only the ordered opaque labels and immutable packet files;
+they disclose no arm, cell, package ID, workflow/source identity, sealed map,
+or private join. Report regeneration rereads and revalidates the same bytes.
+
+#### Exact review and adjudication contract
+
+Let the four reviewer-visible labels in precommitted presentation order be
+`L = (l0, l1, l2, l3)`. Every pairwise vector has exactly six rows in this
+order: `(l0,l1)`, `(l0,l2)`, `(l0,l3)`, `(l1,l2)`, `(l1,l3)`, `(l2,l3)`.
+Each row has exactly `candidate_a_label`, `candidate_b_label`, an `outcome` in
+`A | B | TIE | INDETERMINATE`, a nonempty bounded rationale, and nonempty
+packet-local citations of exact `{opaque_label, citable_item_id}` values.
+
+Each initial-review payload also has exactly four candidate rows in
+presentation order. Its dimension rows equal that perspective's frozen
+`owned_dimensions` in exact order; each uses
+`PASS | CONCERN | FAIL | INDETERMINATE`, a nonempty rationale, and
+packet-local citations. No treatment guess is collected. The controller-owned
+wrapper binds review kind, attempt, perspective when applicable, fresh session
+and provider-attempt identities, receipt, packet set, presentation order, and
+canonical payload digest.
+
+Material disagreement exists exactly when two valid initial vectors differ on
+at least one normalized pair outcome. Rationale differences are not material.
+One fresh block-level adjudicator receives the same blinded packets and both
+immutable initial records, reproduces agreed outcomes unchanged, and decides
+only disputed pairs. Launch with no disputed pair fails before a provider
+call. A missing, failed, or invalid initial review is a terminal review
+failure, not disagreement. Adjudicator failure leaves disputed pairs
+`INDETERMINATE`; original records are never edited.
+
+The blinded integrated reviewer runs after initial records, optional
+adjudication, and hard evidence freeze, and returns the same six-pair shape. A
+failed or invalid integrated settlement yields a sealed `INDETERMINATE`
+vector; no scorer value, prose, or controller sentiment substitutes for it.
+Only after sealing does the controller orient the opaque `RICH`/`DIRECT` pair
+and publish `integrated_review.product_quality_outcome.rich_vs_direct`, bound
+to its source pair row and unblinding-map digest.
+
+#### Arm, package, cell, and opaque-label join
+
+For one attempt, private package assignment is exactly
+`zip((PACKAGE-01, PACKAGE-02, PACKAGE-03, PACKAGE-04), attempt.arm_order)`.
+Each assigned arm must join to `TrialCellKey(arm_id, rep=1)`, its exact sealed
+E2 label binding, and its exact `packets_frozen` row. Applying
+`attempt.opaque_package_order` to the private package IDs yields reviewer
+presentation order.
+
+The join proves exact four-element coverage and bijection, repetition one,
+and matching request/cell domain, sealed-map digest, packet-set digest,
+randomization row, and decision-lock binding. Missing, duplicate, extra,
+cross-cell, or digest-mismatched data is `BLINDING_JOIN_INVALID`. Package IDs,
+arms, cells, and the sealed map remain controller-private. The join is
+recomputed from the lock, schedule, and E2 ledger; any stored projection is
+evidence, not mapping authority. Unblinding occurs only after review and hard
+evidence records freeze. Hard findings use the E2 opaque label as
+`candidate_id`.
+
+#### Hard-finding disposition authority
+
+Candidates, providers, scorers, reviewers, and free-form prose cannot author
+hard-finding dispositions. Before `evaluate_observations`, the controller
+derives the exact map with this frozen classifier:
+
+- a complete digest-bound false observation defaults to `PRODUCT_DEFECT`;
+- one exact controller-owned oracle-contradiction proof may replace the
+  default with `ORACLE_DEFECT`;
+- one exact proof naming conflicting frozen requirements may replace it with
+  `SPEC_AMBIGUITY`;
+- one exact treatment-local infrastructure proof may replace it with
+  `INFRASTRUCTURE`; and
+- missing causal authority, contradictory proofs, multiple applicable
+  non-product proofs, or any non-unique classification yields `UNRESOLVED`.
+
+Every non-default proof binds clause ID, candidate label, observation/evidence
+digest, applicable control or requirement digests, and frozen evaluator/task/
+fixture identities. Provider text cannot satisfy a proof predicate. An
+incomplete or malformed ten-observation set never enters
+`evaluate_observations`; it is classified by the invalidity contract. Reports
+recompute every disposition from frozen observations and proof rows.
+
+#### Common-invalidity classifier
+
+An opened attempt may be invalid only under one exact code:
+
+- `SOURCE_OR_TASK_BINDING_INVALID`;
+- `CONTROLLER_LAUNCH_PREALLOCATION_FAILED`;
+- `COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT`;
+- `COMMON_EVALUATION_BYTES_INVALID`;
+- `BLINDING_JOIN_INVALID`; or
+- `APPARATUS_ACCOUNTING_INCOMPLETE`.
+
+Coherent allocation begins when the validated E2 ledger header binds the
+locked request, exact four-cell domain, sealed label map, and budget window.
+Treatment begins with the first durable `cell_allocation_started` row.
+`COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT` requires controller-owned proof that
+the shared provider cannot start any treatment and that no treatment began.
+After any treatment begins, provider, compiler, runtime, typed-output, check,
+timeout, and product failures remain treatment outcomes even if all arms show
+the same symptom.
+
+Scorer, initial-reviewer, adjudicator, or integrated-review failures with
+valid terminal settlements and receipts are evaluation outcomes, not common
+invalidity. Missing/inconsistent receipts, ledger disagreement, an impossible
+join, or interruption leaving required settlements or accounting absent is
+`APPARATUS_ACCOUNTING_INCOMPLETE`. Exact accounting requires four arm and four
+E2-scorer settlements, two initial-review settlements, one adjudicator
+settlement exactly when disagreement launched it, one integrated-review
+settlement, and every incurred receipt. An interruption after all terminal
+authority exists remains reportable; otherwise the attempt freezes invalid.
+Attempts are never resumed, and replacement consumes the next precommitted ID.
+
+Except for the generic artifact-only packet projection above, Task-5
+implementation stays ES-local: role-specific review schemas/parsers, private
+join and unblinding projection, hard-disposition and invalidity classifiers,
+immutable attempt records, synthesis/report regeneration, and both-direction
+tests. It must use the existing E2 packet builders, validators, sealed map, and
+digest-bearing ledger rows and must not extend or import
+`orchestrator.experiments`.
 
 ## Task 5: Assemble the study controller and provider-free end to end
 
-**Files:** create `scripts/experiments/es/controller.py`, review packaging and
-synthesis modules, fixtures, and E2 integration tests.
+**Files:** create the generic E2 packet-artifact projector and tests; create
+`scripts/experiments/es/controller.py`, review packaging and synthesis modules,
+fixtures, and E2 integration tests.
 
 - [ ] RED every source/task/arm/prompt/provider/check/evaluator/environment/
       randomization/lock mismatch before launch.
@@ -713,6 +943,10 @@ synthesis modules, fixtures, and E2 integration tests.
       coherent concurrent launch, freeze, one scorer per cell, opaque packets,
       initial reviews, hard evidence, integrated review, receipt join, and
       deterministic report.
+- [ ] RED/GREEN the generic artifact-only packet projection: exact bytes and
+      index publish before scoring; exact-existing replay is idempotent;
+      symlink, nonregular, overwrite, missing/extra row, digest drift, and
+      post-run packet reconstruction all fail closed.
 - [ ] RED every primary-outcome mapping: exact `RICH`, `DIRECT`, `TIE`, and
       `INDETERMINATE`; no-trusted-freeze and nonviability behavior; one-sided
       and comparable critical defects; unresolved findings; and attempted
