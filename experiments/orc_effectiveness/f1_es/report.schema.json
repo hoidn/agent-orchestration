@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ES deterministic study synthesis report",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "attempt_id": {"type": "string", "pattern": "^ES-ATTEMPT-0[1-4]$"},
+    "arm": {"type": "string", "enum": ["DIRECT", "DESIGN_QA", "PRODUCT_QA", "RICH"]},
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numerator": {"type": "integer"},
+        "denominator": {"type": "integer", "minimum": 1}
+      },
+      "required": ["numerator", "denominator"]
+    },
+    "nullable_sha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "indexed_attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "status": {"type": "string", "enum": ["VALID", "INVALID"]},
+        "invalidity_code": {
+          "oneOf": [
+            {"type": "string", "enum": ["SOURCE_OR_TASK_BINDING_INVALID", "CONTROLLER_LAUNCH_PREALLOCATION_FAILED", "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT", "COMMON_EVALUATION_BYTES_INVALID", "BLINDING_JOIN_INVALID", "APPARATUS_ACCOUNTING_INCOMPLETE"]},
+            {"type": "null"}
+          ]
+        },
+        "index_sha256": {"$ref": "#/$defs/sha256"},
+        "attempt_record_sha256": {"$ref": "#/$defs/sha256"},
+        "packet_set_digest": {"$ref": "#/$defs/nullable_sha256"},
+        "private_join_sha256": {"$ref": "#/$defs/nullable_sha256"},
+        "review_sha256s": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+        "hard_evaluation_sha256s": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+        "call_allocation_sha256s": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+        "hard_primary_sha256": {"$ref": "#/$defs/nullable_sha256"},
+        "receipt_sha256s": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true},
+        "elapsed_row_sha256s": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true}
+      },
+      "required": ["attempt_id", "status", "invalidity_code", "index_sha256", "attempt_record_sha256", "packet_set_digest", "private_join_sha256", "review_sha256s", "hard_evaluation_sha256s", "call_allocation_sha256s", "hard_primary_sha256", "receipt_sha256s", "elapsed_row_sha256s"]
+    },
+    "arm_vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arm_id": {"$ref": "#/$defs/arm"},
+        "opaque_label": {"type": "string", "pattern": "^opaque-[0-9a-f]{64}$"},
+        "settlement": {"type": "string", "enum": ["COMPLETED", "METHOD_FAILED"]},
+        "route_id": {"type": "string", "minLength": 1},
+        "treatment_call_count": {"type": "integer", "minimum": 0},
+        "reported_total_tokens": {"type": "integer", "minimum": 0},
+        "elapsed_ms": {"type": "integer", "minimum": 0},
+        "hard_evidence_status": {"type": "string", "enum": ["PRESENT", "MISSING"]},
+        "hard_evaluation_freeze_sha256": {"$ref": "#/$defs/nullable_sha256"}
+      },
+      "required": ["arm_id", "opaque_label", "settlement", "route_id", "treatment_call_count", "reported_total_tokens", "elapsed_ms", "hard_evidence_status", "hard_evaluation_freeze_sha256"]
+    },
+    "four_arm_vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "arms": {"type": "array", "items": {"$ref": "#/$defs/arm_vector"}, "minItems": 4, "maxItems": 4}
+      },
+      "required": ["attempt_id", "arms"]
+    },
+    "primary_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "raw_outcome": {"type": "string", "enum": ["RICH", "DIRECT", "TIE", "INDETERMINATE"]},
+        "derived_outcome": {"type": "string", "enum": ["RICH", "DIRECT", "TIE", "INDETERMINATE"]},
+        "hard_primary_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["attempt_id", "raw_outcome", "derived_outcome", "hard_primary_sha256"]
+    },
+    "coefficient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"arm_id": {"$ref": "#/$defs/arm"}, "coefficient": {"$ref": "#/$defs/rational"}},
+      "required": ["arm_id", "coefficient"]
+    },
+    "categorical_relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first_arm": {"$ref": "#/$defs/arm"},
+        "second_arm": {"$ref": "#/$defs/arm"},
+        "outcome": {"type": "string", "enum": ["FIRST", "SECOND", "TIE", "INDETERMINATE"]}
+      },
+      "required": ["first_arm", "second_arm", "outcome"]
+    },
+    "categorical_relation_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "relations": {"type": "array", "items": {"$ref": "#/$defs/categorical_relation"}, "minItems": 1}
+      },
+      "required": ["attempt_id", "relations"]
+    },
+    "relation_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first": {"type": "integer", "minimum": 0},
+        "second": {"type": "integer", "minimum": 0},
+        "tie": {"type": "integer", "minimum": 0},
+        "indeterminate": {"type": "integer", "minimum": 0}
+      },
+      "required": ["first", "second", "tie", "indeterminate"]
+    },
+    "factorial_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contrast_id": {"type": "string", "enum": ["TOTAL_RICH_VS_DIRECT", "DESIGN_QA_COMPONENT", "PRODUCT_QA_COMPONENT", "INTERACTION_COMPONENT", "DESIGN_QA_VS_PRODUCT_QA_DESCRIPTIVE"]},
+        "coefficients": {"type": "array", "items": {"$ref": "#/$defs/coefficient"}, "minItems": 4, "maxItems": 4},
+        "per_attempt": {"type": "array", "items": {"$ref": "#/$defs/categorical_relation_block"}},
+        "aggregate_relation_counts": {"$ref": "#/$defs/relation_counts"},
+        "scalar_effect": {"type": "null"}
+      },
+      "required": ["contrast_id", "coefficients", "per_attempt", "aggregate_relation_counts", "scalar_effect"]
+    },
+    "hard_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "arm_id": {"$ref": "#/$defs/arm"},
+        "freeze_sha256": {"$ref": "#/$defs/sha256"},
+        "finding_sha256": {"$ref": "#/$defs/sha256"},
+        "clause_id": {"type": "string", "minLength": 1},
+        "disposition": {"type": "string", "enum": ["PRODUCT_DEFECT", "ORACLE_DEFECT", "SPEC_AMBIGUITY", "INFRASTRUCTURE", "UNRESOLVED"]}
+      },
+      "required": ["attempt_id", "arm_id", "freeze_sha256", "finding_sha256", "clause_id", "disposition"]
+    },
+    "viability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rule": {"const": "RICH_TREATMENT_FAILURES_LTE_DIRECT"},
+        "rich_treatment_failures": {"type": "integer", "minimum": 0},
+        "direct_treatment_failures": {"type": "integer", "minimum": 0},
+        "passes": {"type": "boolean"}
+      },
+      "required": ["rule", "rich_treatment_failures", "direct_treatment_failures", "passes"]
+    },
+    "count_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"attempt_id": {"$ref": "#/$defs/attempt_id"}, "status": {"type": "string", "enum": ["VALID", "INVALID"]}, "value": {"type": "integer", "minimum": 0}},
+      "required": ["attempt_id", "status", "value"]
+    },
+    "arm_count_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "arm_id": {"$ref": "#/$defs/arm"},
+        "value": {"type": "integer", "minimum": 0}
+      },
+      "required": ["attempt_id", "arm_id", "value"]
+    },
+    "call_accounting_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "call_slot_id": {"type": "string", "minLength": 1},
+        "role_id": {"type": "string", "minLength": 1},
+        "category": {"type": "string", "enum": ["TREATMENT", "EVALUATION"]},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "elapsed_row_sha256": {"$ref": "#/$defs/sha256"},
+        "timing_source": {"const": "MONOTONIC_INVOCATION_SETTLEMENT_MS"},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_input_tokens": {"type": "integer", "minimum": 0},
+        "cache_write_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_output_tokens": {"type": "integer", "minimum": 0},
+        "reported_total_tokens": {"type": "integer", "minimum": 0},
+        "elapsed_ms": {"type": "integer", "minimum": 0}
+      },
+      "required": ["attempt_id", "call_slot_id", "role_id", "category", "receipt_sha256", "elapsed_row_sha256", "timing_source", "input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "reported_total_tokens", "elapsed_ms"]
+    },
+    "allocation_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": "es.controller_call_allocation.v1"},
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "previous_allocation_sha256": {"$ref": "#/$defs/nullable_sha256"},
+        "call_slot_id": {"type": "string", "minLength": 1},
+        "decision_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "static_call_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["schema_version", "attempt_id", "sequence", "previous_allocation_sha256", "call_slot_id", "decision_lock_sha256", "static_call_sha256"]
+    },
+    "call_allocation_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "schema_version": {"const": "es.call_allocation.v2"},
+        "call_slot_id": {"type": "string", "minLength": 1},
+        "allocation_authority": {"$ref": "#/$defs/allocation_authority"},
+        "allocation_sha256": {"$ref": "#/$defs/sha256"},
+        "settlement": {"type": "string", "enum": ["RECEIPT_FROZEN", "INTERRUPTED_IN_FLIGHT"]},
+        "receipt_sha256": {"$ref": "#/$defs/nullable_sha256"}
+      },
+      "required": ["attempt_id", "schema_version", "call_slot_id", "allocation_authority", "allocation_sha256", "settlement", "receipt_sha256"]
+    },
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {"type": "string", "enum": ["PROVIDER_INVOCATIONS", "CODEX_REPORTED_TOTAL_TOKENS", "MILLISECONDS"]},
+        "per_attempt": {"type": "array", "items": {"$ref": "#/$defs/count_row"}},
+        "values": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "total": {"type": "integer", "minimum": 0}
+      },
+      "required": ["unit", "per_attempt", "values", "total"]
+    },
+    "ratio_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "ratio_status": {"type": "string", "enum": ["DEFINED", "UNDEFINED_ZERO_REFERENCE"]},
+        "ratio": {"oneOf": [{"$ref": "#/$defs/rational"}, {"type": "null"}]}
+      },
+      "required": ["attempt_id", "ratio_status", "ratio"]
+    },
+    "token_distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {"const": "CODEX_REPORTED_TOTAL_TOKENS"},
+        "per_attempt": {"type": "array", "items": {"$ref": "#/$defs/count_row"}},
+        "values": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "total": {"type": "integer", "minimum": 0},
+        "arm_treatment_totals": {"type": "array", "items": {"$ref": "#/$defs/arm_count_row"}},
+        "evaluation_totals": {"type": "array", "items": {"$ref": "#/$defs/count_row"}},
+        "rich_direct_ratios": {"type": "array", "items": {"$ref": "#/$defs/ratio_row"}},
+        "median_rich_direct_ratio": {"oneOf": [{"$ref": "#/$defs/rational"}, {"type": "null"}]}
+      },
+      "required": ["unit", "per_attempt", "values", "total", "arm_treatment_totals", "evaluation_totals", "rich_direct_ratios", "median_rich_direct_ratio"]
+    },
+    "distributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"calls": {"$ref": "#/$defs/distribution"}, "tokens": {"$ref": "#/$defs/token_distribution"}, "elapsed_time": {"$ref": "#/$defs/distribution"}},
+      "required": ["calls", "tokens", "elapsed_time"]
+    },
+    "failure_class": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {"$ref": "#/$defs/attempt_id"},
+        "arm_id": {"oneOf": [{"$ref": "#/$defs/arm"}, {"type": "null"}]},
+        "failure_class": {"type": "string", "enum": ["APPARATUS_INVALID", "TREATMENT_METHOD_FAILURE", "EVALUATION_FAILURE"]},
+        "failure_code": {"type": "string", "minLength": 1}
+      },
+      "required": ["attempt_id", "arm_id", "failure_class", "failure_code"]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_non_tied_comparisons": {"const": 2},
+        "maximum_valid_blocks": {"const": 3},
+        "critical_rich_wins": {"const": 2},
+        "valid_block_count": {"type": "integer", "minimum": 0, "maximum": 3},
+        "invalid_attempt_count": {"type": "integer", "minimum": 0},
+        "non_tied_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "rich_win_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "non_tied_target_reached": {"type": "boolean"},
+        "all_non_tied_favor_rich": {"type": "boolean"},
+        "viability_passes": {"type": "boolean"},
+        "all_cost_cells_known": {"type": "boolean"},
+        "median_rich_direct_token_ratio_at_most_cap": {"type": "boolean"},
+        "no_unresolved_rich_blocker": {"type": "boolean"}
+      },
+      "required": ["required_non_tied_comparisons", "maximum_valid_blocks", "critical_rich_wins", "valid_block_count", "invalid_attempt_count", "non_tied_count", "rich_win_count", "non_tied_target_reached", "all_non_tied_favor_rich", "viability_passes", "all_cost_cells_known", "median_rich_direct_token_ratio_at_most_cap", "no_unresolved_rich_blocker"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "es_study_report.v1"},
+    "decision_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "randomization_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "report_schema_sha256": {"$ref": "#/$defs/sha256"},
+    "indexed_attempts": {"type": "array", "items": {"$ref": "#/$defs/indexed_attempt"}, "minItems": 1, "maxItems": 4},
+    "four_arm_vectors": {"type": "array", "items": {"$ref": "#/$defs/four_arm_vector"}, "maxItems": 3},
+    "primary_sequence": {"type": "array", "items": {"$ref": "#/$defs/primary_row"}, "maxItems": 3},
+    "factorial_mechanism_contrasts": {"type": "array", "items": {"$ref": "#/$defs/factorial_component"}, "minItems": 5, "maxItems": 5},
+    "hard_findings": {"type": "array", "items": {"$ref": "#/$defs/hard_finding"}},
+    "viability": {"$ref": "#/$defs/viability"},
+    "call_allocations": {"type": "array", "items": {"$ref": "#/$defs/call_allocation_row"}},
+    "call_accounting": {"type": "array", "items": {"$ref": "#/$defs/call_accounting_row"}},
+    "distributions": {"$ref": "#/$defs/distributions"},
+    "failure_classes": {"type": "array", "items": {"$ref": "#/$defs/failure_class"}},
+    "decision": {"$ref": "#/$defs/decision"},
+    "claim_limits": {"type": "array", "items": {"type": "string", "enum": ["TASK_SPECIFIC_INTERNAL_SCREEN_ONLY", "NO_GENERAL_OR_CONFIRMATORY_SUPERIORITY_CLAIM", "NO_USD_BILLING_OR_MARGINAL_SUBSCRIPTION_COST_CLAIM", "NO_PROMOTION_OR_CANONICAL_PRODUCT_MERGE_AUTHORITY", "NO_E3_IMPLEMENTATION_AUTHORITY"]}, "minItems": 5, "maxItems": 5, "uniqueItems": true},
+    "screen_result": {"type": "string", "enum": ["SCREEN_PASSED", "SCREEN_NOT_PASSED", "INSUFFICIENT_EVIDENCE", "STOP_ES_INVALID"]},
+    "e3_readiness_input": {"type": "string", "enum": ["BLACK_BOX_SUFFICIENT", "OBSERVATION_EXTENSION_REQUIRED", "STOP_E3_HYPOTHESIS"]}
+  },
+  "required": ["schema_version", "decision_lock_sha256", "randomization_manifest_sha256", "report_schema_sha256", "indexed_attempts", "four_arm_vectors", "primary_sequence", "factorial_mechanism_contrasts", "hard_findings", "viability", "call_allocations", "call_accounting", "distributions", "failure_classes", "decision", "claim_limits", "screen_result", "e3_readiness_input"]
+}
