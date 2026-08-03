@@ -88,7 +88,7 @@ records `PASS_E2` within the exact target-2.25 component contract. No production
 is accepted at reviewed candidate `27be07e2`, tree `e669471a`, after ordered
 `ES_PLAN_SPEC_APPROVED` then `ES_PLAN_QUALITY_APPROVED`; see the
 [plan review](../../artifacts/review/es-first-effectiveness-study-plan-review.md).
-ES Tasks 0–2 are complete and Task 3 is selected. Task 1's history-free F1
+ES Tasks 0–3 are complete and Task 4 is selected. Task 1's history-free F1
 projection closed at `62a5c72d`, tree `5eb5ca32`, under verification-record
 SHA-256 `fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527`
 after ordered `ES_TASK1_SPEC_APPROVED` then `ES_TASK1_QUALITY_APPROVED`; see
@@ -97,9 +97,15 @@ Task 2's provider-free task/evaluator package closed at `d24c1818`, tree
 `5e8f84cb`, after ordered `ES_TASK2_SPEC_APPROVED` then
 `ES_TASK2_QUALITY_APPROVED`; see the
 [Task-2 review](../../artifacts/review/es-first-effectiveness-study-task2-review.md).
-Its precommit and postcommit gates each passed all 211 Task-2 tests. Live ES
-allocation remains gated on the Task-6 exact scientific-lock adoption. Phase
-ME may proceed in parallel and never blocks an E exit. E3 remains gated on
+Its precommit and postcommit gates each passed all 211 Task-2 tests. Task 3's
+exact metering and decision-lock validation closed at `0d16ca36`, tree
+`ee6d60eb`, after ordered `ES_TASK3_SPEC_APPROVED` then
+`ES_TASK3_QUALITY_APPROVED`; see the
+[Task-3 review](../../artifacts/review/es-first-effectiveness-study-task3-review.md).
+Its final candidate and fresh postcommit control each passed all 92 Task-3
+tests. Live ES allocation remains gated on the Task-6 exact scientific-lock
+adoption. Phase ME may proceed in parallel and never blocks an E exit. E3
+remains gated on
 review of the fixed study, ES results, and a separate reviewed component plan.
 E3 adds no language target.
 Recorded pilot forensics and post-`PASS_E2` study inputs for that
@@ -114,7 +120,7 @@ applies the owner-delegated stage picks at the `PASS_E2` joint: the first
 preregistered effectiveness study (ES) runs on-spine and its results are a
 required additional input to the E3 continue/narrow/stop review, while
 Phase ME runs off-spine in parallel. ES's component-plan gate is satisfied;
-Tasks 0–2 are complete, Task 3 is selected, and Tasks 3–8, live results, and
+Tasks 0–3 are complete, Task 4 is selected, and Tasks 4–8, live results, and
 final review remain pending. Phase ME remains plan- and review-gated. C1, C2,
 C3, E2O, the historical execution-registry substrate, and security work remain
 unselected.

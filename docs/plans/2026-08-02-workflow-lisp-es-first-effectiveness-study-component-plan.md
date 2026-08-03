@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free ES execution; Tasks 0–2 are complete
-  and Task 3 is selected; live allocation remains Task-6 owner-adoption gated
+- **Status:** accepted for provider-free ES execution; Tasks 0–3 are complete
+  and Task 4 is selected; live allocation remains Task-6 owner-adoption gated
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -39,6 +39,14 @@
   `40f646230cb730c707edb56a9fdfcc0a82975ae1c5023d9e0cbe299f8df368bb`;
   review `artifacts/review/es-first-effectiveness-study-task2-review.md`
   records `ES_TASK2_SPEC_APPROVED`, then `ES_TASK2_QUALITY_APPROVED`
+- **Task-3 implementation and review:** commit
+  `0d16ca364c0aeff641232dc0c0c33e445d443623`, tree
+  `ee6d60eb18ce03721898d163ad214b12f2c4098f`, over base
+  `01ca930c329cb24a1555c9427a2fd86428a429ca`, tree
+  `c806995cce4c549eda7d63ff1ccb1e840467bcf0`; binary-diff SHA-256
+  `3826adaa36d91313705f2b60ddd5cddbfa02b8fc15a9352c90fbd4a39a5dfaf9`;
+  review `artifacts/review/es-first-effectiveness-study-task3-review.md`
+  records `ES_TASK3_SPEC_APPROVED`, then `ES_TASK3_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -503,7 +511,8 @@ does not adopt the proposed scientific lock.
 The acceptance transition committed at `2e4e39ea`. Its fresh postcommit
 routing and route-readiness control passed all 112 tests in 6.31 seconds.
 That transition selected Task 1; Tasks 1 and 2 have since closed at
-`62a5c72d` and `d24c1818`, respectively, and Task 3 is selected.
+`62a5c72d` and `d24c1818`, respectively. Task 3 has since closed at
+`0d16ca36`, and Task 4 is selected.
 
 ## Task 1: Build and prove the history-free F1 projection
 
@@ -545,7 +554,8 @@ see `artifacts/review/es-first-effectiveness-study-task1-review.md`. The fresh
 postcommit Task-1 module passed 25 tests in 81.44 seconds, and the postcommit
 routing/readiness control passed 112 tests in 5.99 seconds. This closed only
 the history-free F1 projection and selected Task 2. Task 2 has since closed at
-`d24c1818`, and Task 3 is selected; live allocation remains gated on the
+`d24c1818`; Task 3 has since closed at `0d16ca36`, and Task 4 is selected.
+Live allocation remains gated on the
 Task-6 exact scientific-lock owner adoption.
 
 ## Task 2: Freeze and calibrate the F1 task/evaluator package
@@ -614,9 +624,9 @@ collected 211 tests; its precommit gate passed 211 tests in 322.73 seconds, the
 final focused evaluator replay passed 61, the quality replay passed 40,
 Pyright was clean, and deterministic task-seed closure passed. The fresh
 postcommit Task-2 control passed 211 tests in 282.83 seconds (`0:04:42`). This
-closes only the provider-free task/evaluator package: Task 3 is selected, while
-live allocation remains gated on the Task-6 exact scientific-lock owner
-adoption.
+closes only the provider-free task/evaluator package. Task 3 has since closed
+at `0d16ca36`, and Task 4 is selected, while live allocation remains gated on
+the Task-6 exact scientific-lock owner adoption.
 
 ## Task 3: Land exact metering and decision-lock validation
 
@@ -624,22 +634,50 @@ adoption.
 `scripts/experiments/es/decision_lock.py`, their CLI façade, schemas/fixtures,
 and focused tests. Do not import `orchestrator.experiments`.
 
-- [ ] RED valid, missing, duplicate, malformed, conflicting, and
+- [x] RED valid, missing, duplicate, malformed, conflicting, and
       cross-attempt Codex terminal-usage events; prove exact raw-event and
       receipt bindings.
-- [ ] RED noncanonical decimals, floats, booleans-as-integers, open fields,
+- [x] RED noncanonical decimals, floats, booleans-as-integers, open fields,
       bad domains, duplicate/unknown arms, reused sessions, adaptive selection,
       digest drift, call-bound drift, and every derived-field tamper.
-- [ ] Derive the `N=2`, `k=2`, `M=3`, `1/4`, `81/100`, and `27/32`
+- [x] Derive the `N=2`, `k=2`, `M=3`, `1/4`, `81/100`, and `27/32`
       vector mechanically with exact reduced rationals and minimality
       witnesses; retain the alpha-`0.05` known vector as a test.
-- [ ] Prove every exact terminal-route call row, complete per-role receipt
+- [x] Prove every exact terminal-route call row, complete per-role receipt
       joins, 7–22 calls across valid-block terminal routes, 21–66 calls at
       `M`, the 17–22/51–66 completed-treatment subranges, and 88 absolute calls
       with one invalid attempt.
-- [ ] Generate the four-attempt randomization manifest and require exact
+- [x] Generate the four-attempt randomization manifest and require exact
       cardinality/permutation bindings.
-- [ ] Obtain ordered Task-3 reviews, commit, and rerun controls.
+- [x] Obtain ordered Task-3 reviews, commit, and rerun controls.
+
+Task 3 is complete at commit
+`0d16ca364c0aeff641232dc0c0c33e445d443623`, tree
+`ee6d60eb18ce03721898d163ad214b12f2c4098f`, over base
+`01ca930c329cb24a1555c9427a2fd86428a429ca`, tree
+`c806995cce4c549eda7d63ff1ccb1e840467bcf0`. The reviewed binary-diff
+SHA-256 is
+`3826adaa36d91313705f2b60ddd5cddbfa02b8fc15a9352c90fbd4a39a5dfaf9`.
+The frozen implementation derives the exact rational decision vector, all 22
+terminal-route and receipt-slot rows, the 7–22 valid-block, 21–66 maximum-
+valid, 17–22/51–66 completed-treatment, and 88 absolute call bounds, and the
+four-attempt permutation-bound randomization manifest. Metering byte-tees the
+pinned provider stream, requires one exact terminal usage event, binds each
+canonical receipt back to immutable raw bytes and its expected call row, and
+rejects duplicate or reused call, attempt, and session identities.
+
+The initial quality review correctly rejected uncaught missing-root and
+missing-bound-raw `FileNotFoundError` paths. The final candidate normalizes
+both paths into stable fail-closed diagnostics, with library and CLI valid
+controls plus exit-2/no-traceback regressions. Those corrected exact bytes
+received ordered `ES_TASK3_SPEC_APPROVED` then distinct
+`ES_TASK3_QUALITY_APPROVED`; see
+`artifacts/review/es-first-effectiveness-study-task3-review.md`. The final
+candidate collected and passed 92 tests in 7.97 seconds, Pyright was clean,
+and the fresh postcommit control passed 92 tests in 8.03 seconds. This closes
+only provider-free metering and decision-lock validation. Task 4 is selected;
+no provider-bearing attempt is authorized before the Task-6 exact scientific-
+lock owner adoption.
 
 ## Task 4: Implement the four treatment workflows
 
