@@ -1853,7 +1853,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
     assert (
-        "status: tasks 1 5 are complete and task 6 deterministic synthesis is selected"
+        "status: tasks 1 6 are complete and task 7 controller/cli assembly is selected"
         in normalized_es_task5_plan
     )
     assert "task 1 is complete at commit 9b1ba3df" in normalized_es_task5_plan
@@ -1868,6 +1868,12 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert es_task5_plan.index("ES_TASK5_T2_T5_SPEC_APPROVED") < (
         es_task5_plan.index("ES_TASK5_T2_T5_QUALITY_APPROVED")
+    )
+    assert "task 6 is complete at commit" in normalized_es_task5_plan
+    assert "32e4dc83ad287607e0faf00deef2637d26f8b4b6" in es_task5_plan
+    assert "c843f06f0eed82c08ac4692001ee63849d95a334" in es_task5_plan
+    assert es_task5_plan.index("ES_TASK5_T6_SPEC_APPROVED") < (
+        es_task5_plan.index("ES_TASK5_T6_QUALITY_APPROVED")
     )
     assert "task 6 must freeze the complete package" in normalized_es_task5_plan
     assert "do not call a real provider in task 5" in normalized_es_task5_plan

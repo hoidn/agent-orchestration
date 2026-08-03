@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- **Status:** Tasks 1–5 are complete and Task 6 deterministic synthesis is
+- **Status:** Tasks 1–6 are complete and Task 7 controller/CLI assembly is
   selected; no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
@@ -20,8 +20,9 @@
 - **Plan review:**
   `artifacts/review/es-task5-study-controller-plan-review.md` records
   `ES_TASK5_PLAN_SPEC_APPROVED`, then `ES_TASK5_PLAN_QUALITY_APPROVED`
-- **Live boundary:** Task 6 must freeze the complete package and receive the
-  exact owner adoption before any provider-bearing ES attempt
+- **Live boundary:** The governing component-plan Task 6 must freeze the
+  complete package and receive the exact owner adoption before any
+  provider-bearing ES attempt
 
 ## Objective
 
@@ -268,6 +269,21 @@ packet/review/finding/receipt record, or schema drift.
 pytest --collect-only -q tests/experiments/test_es_synthesis.py
 pytest -q tests/experiments/test_es_synthesis.py
 ```
+
+Task 6 is complete at commit
+`32e4dc83ad287607e0faf00deef2637d26f8b4b6`, tree
+`c843f06f0eed82c08ac4692001ee63849d95a334`. The exact reviewed source,
+schema, and test SHA-256 values are respectively
+`180b159881bd535701ccc4f1c10e47885575933df70216ab0f98045f4e5ad703`,
+`19f197e1763709cd4d227876faf2bf68a61eeea2636029168a9c6d5b4048633b`,
+and `2f5e4ad32cf2b8e53fa4acbe34a8744c1cd497ffc1802c1fa61abd842f4e4d5e`.
+The final candidate passed 94 focused tests, the exact 410-test combined
+public-artifact/ES gate, public-module Pyright, schema closure, compilation,
+and whitespace checks; the postcommit focused control passed the same 94
+tests. Ordered review recorded `ES_TASK5_T6_SPEC_APPROVED` then distinct
+`ES_TASK5_T6_QUALITY_APPROVED`. Task 7 is selected for provider-free
+implementation. No live provider call or scientific-lock adoption is
+authorized by this transition.
 
 ## Task 7: Assemble the controller and provider-free CLI
 
