@@ -1852,8 +1852,15 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         in normalized_task5_contract
     )
     normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
-    assert "status: accepted for provider free implementation; task 1 is selected" in (
-        normalized_es_task5_plan
+    assert (
+        "status: accepted for provider free implementation; task 1 is complete "
+        "and tasks 2 5 are selected"
+        in normalized_es_task5_plan
+    )
+    assert "task 1 is complete at commit 9b1ba3df" in normalized_es_task5_plan
+    assert "tree cd7e25ce" in normalized_es_task5_plan
+    assert es_task5_plan.index("ES_TASK5_T1_SPEC_APPROVED") < (
+        es_task5_plan.index("ES_TASK5_T1_QUALITY_APPROVED")
     )
     assert "task 6 must freeze the complete package" in normalized_es_task5_plan
     assert "do not call a real provider in task 5" in normalized_es_task5_plan

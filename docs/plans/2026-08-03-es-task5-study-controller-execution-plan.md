@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free implementation; Task 1 is selected,
-  but no live provider allocation is authorized
+- **Status:** accepted for provider-free implementation; Task 1 is complete and
+  Tasks 2–5 are selected, but no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
   `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
@@ -95,9 +95,8 @@ minimum index/routing assertion needed for discoverability.
 
 Task 0 is complete against candidate `d6fb50bc`, tree `77a53ff9`, after
 ordered `ES_TASK5_PLAN_SPEC_APPROVED` then distinct
-`ES_TASK5_PLAN_QUALITY_APPROVED`. Task 1 is selected. The gate authorizes only
-provider-free implementation and does not adopt or execute the scientific
-lock.
+`ES_TASK5_PLAN_QUALITY_APPROVED`. That gate selected Task 1 and authorized only
+provider-free implementation; it did not adopt or execute the scientific lock.
 
 ## Task 1: Preserve the generic E2 packet bytes at freeze time
 
@@ -136,6 +135,13 @@ pytest -q tests/test_workflow_trial_packet_artifacts.py \
   tests/test_workflow_trial_adjudication.py \
   tests/test_workflow_trial_packet_projection.py
 ```
+
+Task 1 is complete at commit `9b1ba3df`, tree `cd7e25ce`, after 16 tests
+collected, the 67-test focused gate passed, and ordered
+`ES_TASK5_T1_SPEC_APPROVED` then distinct
+`ES_TASK5_T1_QUALITY_APPROVED`. Tasks 2–5 are selected for their disjoint
+provider-free implementations. This transition does not authorize live
+provider allocation.
 
 ## Task 2: Implement the private package/arm/cell/label join
 
