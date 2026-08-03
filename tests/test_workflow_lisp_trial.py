@@ -515,6 +515,11 @@ def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> N
 
     assert isinstance(typed.type_ref, RecordTypeRef)
     assert typed.type_ref.name.startswith("TrialResult$")
+    assert expr.evaluation.provider == "scorer"
+    assert isinstance(typed.expr, TrialExpr)
+    assert typed.expr.evaluation.provider == "codex"
+    assert typed.expr.span == expr.span
+    assert typed.expr.form_path == expr.form_path
     assert {type(effect).__name__ for effect in typed.effect_summary.direct_effects} == {
         "RunsTrialEffect"
     }

@@ -28,10 +28,10 @@ from tests.test_workflow_trial_check_authority import _fixture_with_checks
 
 class _Registry:
     def exists(self, name: str) -> bool:
-        return name == "scorer"
+        return name == "test-provider"
 
     def merge_params(self, name: str, params: dict[str, object]):
-        assert name == "scorer"
+        assert name == "test-provider"
         assert params == {}
         return {"model": "fixed", "temperature": 0}
 
@@ -51,7 +51,7 @@ class _Executor:
     def prepare_invocation(self, provider, params, context, **kwargs):
         if self.forbidden:
             raise AssertionError("validated resume must not prepare a provider")
-        assert provider == "scorer"
+        assert provider == "test-provider"
         assert params.params == {"model": "fixed", "temperature": 0}
         assert context == {}
         prompt = kwargs["prompt_content"]

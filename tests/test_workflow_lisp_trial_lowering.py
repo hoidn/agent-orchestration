@@ -395,6 +395,7 @@ def test_public_compiler_carries_one_trial_across_all_compiler_views(
     assert len(trial_nodes) == 1
     [node] = trial_nodes
     assert result.run_ref_bundle_capsule is not None
+    assert node.execution_config.trial.evaluation["provider"] == "test-provider"
     assert node.execution_config.trial.digest.startswith("sha256:")
     assert [arm.arm_id for arm in node.execution_config.trial.arms] == [
         "direct",

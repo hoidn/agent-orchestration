@@ -171,6 +171,25 @@ class ProviderRegistry:
                     "effort": CallPolicyBinding(target_param="reasoning_effort"),
                 },
             ),
+            "codex_gpt55_unrestricted_workspace": ProviderTemplate(
+                name="codex_gpt55_unrestricted_workspace",
+                command=[
+                    "codex",
+                    "exec",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--skip-git-repo-check",
+                    "--model",
+                    "${model}",
+                    "--config",
+                    "reasoning_effort=${reasoning_effort}",
+                ],
+                defaults={"model": "gpt-5.5", "reasoning_effort": "high"},
+                input_mode=InputMode.STDIN,
+                call_policy_bindings={
+                    "model": CallPolicyBinding(target_param="model"),
+                    "effort": CallPolicyBinding(target_param="reasoning_effort"),
+                },
+            ),
             "claude_unrestricted_workspace": ProviderTemplate(
                 name="claude_unrestricted_workspace",
                 command=[

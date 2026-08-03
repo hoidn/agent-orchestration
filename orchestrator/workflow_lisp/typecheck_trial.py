@@ -65,7 +65,7 @@ def _raise_nested(expr, *, message: str) -> None:
     )
 
 
-def _validate_evaluation_bindings(expr: TrialExpr, *, context) -> None:
+def _validate_evaluation_bindings(expr: TrialExpr, *, context) -> str:
     from .workflows import PromptExtern, ProviderExtern
 
     externs = context.extern_environment
@@ -82,6 +82,7 @@ def _validate_evaluation_bindings(expr: TrialExpr, *, context) -> None:
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    assert isinstance(provider, ProviderExtern)
     rubric_matches = tuple(
         binding
         for binding in externs.bindings_by_name.values()
@@ -96,12 +97,13 @@ def _validate_evaluation_bindings(expr: TrialExpr, *, context) -> None:
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    return provider.provider_id
 
 
 def typecheck_trial_expr(expr, *, context, recurse, typed_factory):
     """Type one bounded static trial and derive its monomorphic result."""
 
-    _validate_evaluation_bindings(expr, context=context)
+    evaluator_provider_id = _validate_evaluation_bindings(expr, context=context)
     typed_arms: list[TrialArm] = []
     value_types = []
     value_descriptors = []
@@ -216,6 +218,10 @@ def typecheck_trial_expr(expr, *, context, recurse, typed_factory):
         expr=replace(
             expr,
             arms=tuple(typed_arms),
+            evaluation=replace(
+                expr.evaluation,
+                provider=evaluator_provider_id,
+            ),
             site_digest=site_digest,
         ),
         type_ref=generated.result_type,

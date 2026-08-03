@@ -429,6 +429,63 @@ def test_builtin_codex_unrestricted_workspace_is_no_default_direct_profile() -> 
     assert provider.validate() == []
 
 
+def test_builtin_codex_gpt55_unrestricted_workspace_is_defaulted_profile(
+    tmp_path,
+) -> None:
+    registry = ProviderRegistry()
+    provider = registry.get("codex_gpt55_unrestricted_workspace")
+    unrestricted = registry.get("codex_unrestricted_workspace")
+
+    assert provider is not None
+    assert unrestricted is not None
+    assert provider.defaults == {
+        "model": "gpt-5.5",
+        "reasoning_effort": "high",
+    }
+    assert provider.input_mode == InputMode.STDIN
+    assert provider.command == unrestricted.command == [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--model",
+        "${model}",
+        "--config",
+        "reasoning_effort=${reasoning_effort}",
+    ]
+    assert provider.call_policy_bindings == unrestricted.call_policy_bindings == {
+        "model": CallPolicyBinding(target_param="model"),
+        "effort": CallPolicyBinding(target_param="reasoning_effort"),
+    }
+    assert provider.validate() == []
+
+    executor = ProviderExecutor(tmp_path, registry)
+    default_invocation, default_error = executor.prepare_invocation(
+        provider.name,
+        ProviderParams(),
+        {},
+    )
+    locked_override_invocation, locked_override_error = executor.prepare_invocation(
+        provider.name,
+        ProviderParams(),
+        {},
+        provider_call_policy={"model": "gpt-5.5", "effort": "high"},
+    )
+    assert default_error is locked_override_error is None
+    assert default_invocation is not None
+    assert locked_override_invocation is not None
+    assert default_invocation.command == locked_override_invocation.command == [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--model",
+        "gpt-5.5",
+        "--config",
+        "reasoning_effort=high",
+    ]
+
+
 def test_builtin_claude_unrestricted_workspace_is_no_default_direct_profile() -> None:
     provider = ProviderRegistry().get("claude_unrestricted_workspace")
     assert provider is not None

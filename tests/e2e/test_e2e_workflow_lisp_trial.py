@@ -569,7 +569,7 @@ class _PacketCapturingExecutor:
         self.executed: list[tuple[str, str]] = []
 
     def prepare_invocation(self, provider, params, context, **kwargs):
-        assert provider == "scorer"
+        assert provider == "test-provider"
         assert context == {}
         packet, packet_bytes = _decode_trailing_trial_packet(
             kwargs["prompt_content"]

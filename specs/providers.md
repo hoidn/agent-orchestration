@@ -153,6 +153,10 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     `["codex", "exec", "--dangerously-bypass-approvals-and-sandbox",
     "--skip-git-repo-check", "--model", "${model}", "--config",
     "reasoning_effort=${reasoning_effort}"]`.
+  - `codex_gpt55_unrestricted_workspace` uses the same stdin command and
+    call-policy bindings as `codex_unrestricted_workspace`, with defaults
+    `model: gpt-5.5` and `reasoning_effort: high`. Call-policy values retain
+    ordinary override precedence.
   - `claude_unrestricted_workspace` has no defaults, uses stdin, binds
     `model -> model` and `effort -> effort`, and has exact command
     `["claude", "-p", "--model", "${model}", "--effort", "${effort}",

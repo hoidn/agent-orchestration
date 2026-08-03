@@ -1,0 +1,10 @@
+{
+  "providers.direct": "codex_gpt55_unrestricted_workspace",
+  "providers.design": "codex_gpt55_unrestricted_workspace",
+  "providers.design-review": "codex_gpt55_unrestricted_workspace",
+  "providers.design-revision": "codex_gpt55_unrestricted_workspace",
+  "providers.implementation": "codex_gpt55_unrestricted_workspace",
+  "providers.product-review": "codex_gpt55_unrestricted_workspace",
+  "providers.product-fix": "codex_gpt55_unrestricted_workspace",
+  "scorer": "codex_gpt55_unrestricted_workspace"
+}
