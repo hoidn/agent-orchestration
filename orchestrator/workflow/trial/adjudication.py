@@ -38,6 +38,7 @@ from .packets import (
     build_trial_cell_evaluation_packet,
     validate_trial_cell_evaluation_packet,
 )
+from .packet_artifacts import publish_trial_packet_artifacts
 from .runtime import TrialCellOutcome, TrialRuntimeExecution
 from .verdict import (
     TrialVerdictArtifact,
@@ -687,6 +688,13 @@ def evaluate_trial_execution(
         request=request,
         sealed=sealed,
         packets=packets,
+    )
+    publish_trial_packet_artifacts(
+        parent_workspace=workspace,
+        request=request,
+        sealed_opaque_labels=sealed,
+        packets=packets,
+        trial_event_ledger_path=execution.ledger_path,
     )
     ledger = load_trial_event_ledger(execution.ledger_path)
     deadline = ledger.rows[0].payload["runtime_budget_window"][
