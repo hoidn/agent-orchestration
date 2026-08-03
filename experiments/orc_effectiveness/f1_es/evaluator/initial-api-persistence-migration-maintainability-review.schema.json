@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "initial-api-persistence-migration-maintainability-review.schema.json",
+  "title": "ES F1 initial API, persistence, migration, and maintainability review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidates",
+    "pairwise_results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "es-f1-initial-api-persistence-migration-maintainability-review.v1"
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "pairwise_results": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/pairwiseResult"
+      }
+    }
+  },
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opaque_label",
+        "citable_item_id"
+      ],
+      "properties": {
+        "opaque_label": {
+          "type": "string",
+          "pattern": "^opaque-[0-9a-f]{64}$"
+        },
+        "citable_item_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/citation"
+      }
+    },
+    "dimensionRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension",
+        "assessment",
+        "rationale",
+        "citations"
+      ],
+      "properties": {
+        "dimension": {
+          "type": "string"
+        },
+        "assessment": {
+          "enum": [
+            "PASS",
+            "CONCERN",
+            "FAIL",
+            "INDETERMINATE"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "citations": {
+          "$ref": "#/$defs/citations"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opaque_label",
+        "dimensions"
+      ],
+      "properties": {
+        "opaque_label": {
+          "type": "string",
+          "pattern": "^opaque-[0-9a-f]{64}$"
+        },
+        "dimensions": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "ARTIFACT_RELOAD_AND_MIGRATION_REASONING"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "MAINTAINABILITY_AND_SIMPLICITY"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "EXTENSION_EDIT_LOCALITY"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "TEST_AND_EVIDENCE_QUALITY"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "SCOPE_DISCIPLINE"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "FAILURE_DIAGNOSTICS"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "DOCUMENTATION_SUFFICIENCY"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/dimensionRow"
+                },
+                {
+                  "properties": {
+                    "dimension": {
+                      "const": "LIKELY_LATENT_DEFECTS"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "pairwiseResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_a_label",
+        "candidate_b_label",
+        "outcome",
+        "rationale",
+        "citations"
+      ],
+      "properties": {
+        "candidate_a_label": {
+          "type": "string",
+          "pattern": "^opaque-[0-9a-f]{64}$"
+        },
+        "candidate_b_label": {
+          "type": "string",
+          "pattern": "^opaque-[0-9a-f]{64}$"
+        },
+        "outcome": {
+          "enum": [
+            "A",
+            "B",
+            "TIE",
+            "INDETERMINATE"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "citations": {
+          "$ref": "#/$defs/citations"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ES immutable study-attempt record",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "arm": {
+      "type": "string",
+      "enum": ["DIRECT", "DESIGN_QA", "PRODUCT_QA", "RICH"]
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arm_id": {"$ref": "#/$defs/arm"},
+        "rep": {"const": 1}
+      },
+      "required": ["arm_id", "rep"]
+    },
+    "arm_settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cell": {"$ref": "#/$defs/cell"},
+        "status": {
+          "type": "string",
+          "enum": ["completed", "failed"]
+        },
+        "terminal_row_digest": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["cell", "status", "terminal_row_digest"]
+    },
+    "scorer_settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opaque_label": {
+          "type": "string",
+          "pattern": "^opaque-[0-9a-f]{64}$"
+        },
+        "settlement_row_digest": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["opaque_label", "settlement_row_digest"]
+    },
+    "arm_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arm": {"$ref": "#/$defs/arm"},
+        "route_id": {"type": "string", "minLength": 1}
+      },
+      "required": ["arm", "route_id"]
+    },
+    "review_settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "call_slot_id": {"type": "string", "minLength": 1},
+        "status": {
+          "type": "string",
+          "enum": ["SUCCEEDED", "FAILED"]
+        },
+        "record_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": [
+        "call_slot_id",
+        "status",
+        "record_sha256",
+        "receipt_sha256"
+      ]
+    },
+    "receipt_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "call_slot_id": {"type": "string", "minLength": 1},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["call_slot_id", "receipt_sha256"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "es_attempt_record.v1"},
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^ES-ATTEMPT-0[1-4]$"
+    },
+    "decision_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "randomization_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "randomization_row_sha256": {"$ref": "#/$defs/sha256"},
+    "trial_request_digest": {"$ref": "#/$defs/sha256"},
+    "resume_policy": {"const": "FORBIDDEN"},
+    "interrupted": {"type": "boolean"},
+    "classifier_inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_task_binding_valid": {"type": "boolean"},
+        "controller_launch_preallocation_failed": {"type": "boolean"},
+        "common_provider_outage_proven": {"type": "boolean"},
+        "evaluation_bytes_valid": {"type": "boolean"},
+        "blinding_join_valid": {"type": "boolean"}
+      },
+      "required": [
+        "source_task_binding_valid",
+        "controller_launch_preallocation_failed",
+        "common_provider_outage_proven",
+        "evaluation_bytes_valid",
+        "blinding_join_valid"
+      ]
+    },
+    "e2_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ledger_input_status": {
+          "type": "string",
+          "enum": ["NOT_SUPPLIED", "INVALID_SUPPLIED", "VALIDATED"]
+        },
+        "ledger_valid": {"type": "boolean"},
+        "coherent_allocation": {"type": "boolean"},
+        "header_row_digest": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "ledger_head_digest": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "trial_request_digest": {"$ref": "#/$defs/sha256"},
+        "treatment_started": {"type": "boolean"},
+        "arm_settlements": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/arm_settlement"},
+          "maxItems": 4
+        },
+        "scorer_settlements": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/scorer_settlement"},
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "ledger_input_status",
+        "ledger_valid",
+        "coherent_allocation",
+        "header_row_digest",
+        "ledger_head_digest",
+        "trial_request_digest",
+        "treatment_started",
+        "arm_settlements",
+        "scorer_settlements"
+      ]
+    },
+    "accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "arm_routes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/arm_route"},
+          "maxItems": 4
+        },
+        "evaluation_route_id": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        },
+        "material_disagreement": {"type": "boolean"},
+        "review_settlements": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/review_settlement"},
+          "maxItems": 4
+        },
+        "receipt_bindings": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/receipt_binding"},
+          "maxItems": 22
+        },
+        "call_count": {"type": "integer", "minimum": 0, "maximum": 22},
+        "terminal_authority_complete": {"type": "boolean"}
+      },
+      "required": [
+        "arm_routes",
+        "evaluation_route_id",
+        "material_disagreement",
+        "review_settlements",
+        "receipt_bindings",
+        "call_count",
+        "terminal_authority_complete"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["VALID", "INVALID"]
+    },
+    "invalidity_code": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "SOURCE_OR_TASK_BINDING_INVALID",
+            "CONTROLLER_LAUNCH_PREALLOCATION_FAILED",
+            "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT",
+            "COMMON_EVALUATION_BYTES_INVALID",
+            "BLINDING_JOIN_INVALID",
+            "APPARATUS_ACCOUNTING_INCOMPLETE"
+          ]
+        },
+        {"type": "null"}
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "attempt_id",
+    "decision_lock_sha256",
+    "randomization_manifest_sha256",
+    "randomization_row_sha256",
+    "trial_request_digest",
+    "resume_policy",
+    "interrupted",
+    "classifier_inputs",
+    "e2_authority",
+    "accounting",
+    "status",
+    "invalidity_code"
+  ]
+}
