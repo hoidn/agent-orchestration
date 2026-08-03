@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free ES execution; Tasks 0–1 are complete
-  and Task 2 is selected; live allocation remains Task-6 owner-adoption gated
+- **Status:** accepted for provider-free ES execution; Tasks 0–2 are complete
+  and Task 3 is selected; live allocation remains Task-6 owner-adoption gated
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -31,6 +31,14 @@
   `5eb5ca32743e7e261c23a282217e859d348f5c30`; review
   `artifacts/review/es-first-effectiveness-study-task1-review.md` records
   `ES_TASK1_SPEC_APPROVED`, then `ES_TASK1_QUALITY_APPROVED`
+- **Task-2 implementation and review:** commit
+  `d24c1818d586ee5e082a117f4cf46d85a4fc208e`, tree
+  `5e8f84cbc688a6f56090c546bb177ed4496afc17`, over base
+  `f0c8739a3c9e8844245419a866a4c669f954072c`, tree
+  `ac5deee2a25583de007581bf38da6e2607153194`; binary-diff SHA-256
+  `40f646230cb730c707edb56a9fdfcc0a82975ae1c5023d9e0cbe299f8df368bb`;
+  review `artifacts/review/es-first-effectiveness-study-task2-review.md`
+  records `ES_TASK2_SPEC_APPROVED`, then `ES_TASK2_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -296,7 +304,7 @@ adoption.
 The pinned executable is Codex CLI `0.145.0`, currently resolved through
 `/home/ollie/.nvm/versions/node/v20.19.4/bin/codex`; its resolved launcher
 digest is
-`sha256:134063e133f0b4244fa3b251acf973d4fe4aeeacbdc135211bf480f59f1477`.
+`sha256:134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477`.
 The environment lock must re-resolve and bind the executable chain, version,
 Node interpreter, config/profile inputs, and authenticated provider identity
 before any live attempt.
@@ -494,8 +502,8 @@ does not adopt the proposed scientific lock.
 
 The acceptance transition committed at `2e4e39ea`. Its fresh postcommit
 routing and route-readiness control passed all 112 tests in 6.31 seconds.
-That transition selected Task 1; Task 1 has since closed at `62a5c72d`, and
-Task 2 is selected.
+That transition selected Task 1; Tasks 1 and 2 have since closed at
+`62a5c72d` and `d24c1818`, respectively, and Task 3 is selected.
 
 ## Task 1: Build and prove the history-free F1 projection
 
@@ -535,9 +543,10 @@ reachable loose-blob corruption regression. The corrected bytes received
 ordered `ES_TASK1_SPEC_APPROVED` then distinct `ES_TASK1_QUALITY_APPROVED`;
 see `artifacts/review/es-first-effectiveness-study-task1-review.md`. The fresh
 postcommit Task-1 module passed 25 tests in 81.44 seconds, and the postcommit
-routing/readiness control passed 112 tests in 5.99 seconds. This closes only
-the history-free F1 projection: Task 2 is selected, while live allocation
-remains gated on the Task-6 exact scientific-lock owner adoption.
+routing/readiness control passed 112 tests in 5.99 seconds. This closed only
+the history-free F1 projection and selected Task 2. Task 2 has since closed at
+`d24c1818`, and Task 3 is selected; live allocation remains gated on the
+Task-6 exact scientific-lock owner adoption.
 
 ## Task 2: Freeze and calibrate the F1 task/evaluator package
 
@@ -545,26 +554,69 @@ remains gated on the Task-6 exact scientific-lock owner adoption.
 `experiments/orc_effectiveness/f1_es/task/`; add the hidden evaluator and
 tests under `scripts/experiments/es/` and `tests/experiments/`.
 
-- [ ] Freeze the neutral task, one lifecycle-adapter path, versioned request,
+- [x] Freeze the neutral task, one lifecycle-adapter path, versioned request,
       result, and candidate-evidence schemas, artifact-era fixtures, focused
       selectors, environment identity, claim limits, the complete ten-clause
       F1 hard contract, all five hard-finding dispositions, and the two
       distinct reviewer perspectives.
-- [ ] Add the visible assets to one deterministic task-seed commit atop the
+- [x] Add the visible assets to one deterministic task-seed commit atop the
       projection and bind both identities.
-- [ ] RED missing/extra/unknown structural identity, schema/version drift,
+- [x] RED missing/extra/unknown structural identity, schema/version drift,
       public/Torch disagreement, fresh-run-only construction, non-fresh
       reload, unpreserved witness fields, unchanged artifact identity after a
       structural change, and any excluded import/path access.
-- [ ] Calibrate the evaluator on controlled conforming and defective fixtures;
+- [x] Calibrate the evaluator on controlled conforming and defective fixtures;
       evaluator copies must remain byte-identical.
-- [ ] Prove configure, construct, forward/backward, optimizer step, save, and
+- [x] Prove configure, construct, forward/backward, optimizer step, save, and
       fresh-process reload/inference in the projected baseline closure,
       including unchanged built-in construction/state signatures, supported
       artifact-era decode plus strict load, public-construction/persisted-
       rebuild implementation equality, and preserved physics/loss/scaling/data
       ownership.
-- [ ] Obtain ordered Task-2 reviews, commit, and rerun postcommit controls.
+- [x] Obtain ordered Task-2 reviews, commit, and rerun postcommit controls.
+
+Task 2 is complete at commit
+`d24c1818d586ee5e082a117f4cf46d85a4fc208e`, tree
+`5e8f84cbc688a6f56090c546bb177ed4496afc17`, over base
+`f0c8739a3c9e8844245419a866a4c669f954072c`, tree
+`ac5deee2a25583de007581bf38da6e2607153194`. The reviewed binary-diff
+SHA-256 is
+`40f646230cb730c707edb56a9fdfcc0a82975ae1c5023d9e0cbe299f8df368bb`.
+The frozen bindings are task profile
+`sha256:22981a717e1d9593f962afab2c783ce95e4a8ed049655d7641ce10e00492a2ec`,
+task-seed manifest
+`sha256:c110edbb79665d48953ce4f107976aa13b90c3084984c823c397cb342226ca51`,
+fixture manifest
+`sha256:bc2917db0aa41c72dc52f31a609e4a009628c304a7b1c8ea584c40abf34b6f3a`,
+reviewer perspectives
+`sha256:2f5419f430568b3dc83ea2b4541d027d29b33d6b66760121910a8441a3d9f997`,
+visible task contract
+`sha256:f4cbdd147018b9ab91ed493d8ee8ea58fec2f15c9c34b77860216303b05323fc`,
+visible-check manifest
+`sha256:ee2f4e9e4c3795543043cb5599cfa8df0f40ca73a26b670e464aae5d4bfb9edb`,
+calibration cases
+`sha256:de322e15caa1b73566846592579c7e2f30128946a8dc030fc0254dc76974c3cc`,
+evaluator
+`sha256:a2068233ce05909c75a760e3d6520cf2d731e233a2c89a0e0f839e0f16332028`,
+and evaluator tests
+`sha256:43149cd99ef38046a9bb73cc829ea541dc24c75b390e2ad48d1543c9f9c81a3f`.
+
+Before the final-byte approvals, the candidate was corrected to audit
+protected-root mutation continuously across visible checks and every fresh
+child, including mutation-then-restore paths, and to bootstrap that audit
+before candidate-resolvable imports. The lifecycle proof was made
+representation-neutral over public construction and persisted rebuild,
+including witness-only and architecture-local structural payloads. The exact
+corrected bytes received ordered `ES_TASK2_SPEC_APPROVED` then distinct
+`ES_TASK2_QUALITY_APPROVED`; see
+`artifacts/review/es-first-effectiveness-study-task2-review.md`. The suite
+collected 211 tests; its precommit gate passed 211 tests in 322.73 seconds, the
+final focused evaluator replay passed 61, the quality replay passed 40,
+Pyright was clean, and deterministic task-seed closure passed. The fresh
+postcommit Task-2 control passed 211 tests in 282.83 seconds (`0:04:42`). This
+closes only the provider-free task/evaluator package: Task 3 is selected, while
+live allocation remains gated on the Task-6 exact scientific-lock owner
+adoption.
 
 ## Task 3: Land exact metering and decision-lock validation
 
