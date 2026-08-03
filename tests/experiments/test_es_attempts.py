@@ -19,7 +19,7 @@ from orchestrator.workflow.executable_ir import TrialStepConfig
 from orchestrator.workflow.run_ref.bundle_transport import (
     write_bundle_capsule_directory,
 )
-from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
 from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
 from orchestrator.workflow.run_ref.runtime import (
     RunRefChildLaunch,
@@ -40,6 +40,7 @@ from orchestrator.workflow.trial.runtime import (
     TrialRuntimeDependencies,
     execute_trial_cells,
 )
+from orchestrator.workflow.trial.sdk import TrialRunResult
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ATTEMPTS_PATH = REPOSITORY_ROOT / "scripts/experiments/es/attempts.py"
 ATTEMPT_SCHEMA_PATH = (
@@ -67,8 +68,9 @@ qa_workflows = _load(
 )
 sys.path.insert(0, str(ATTEMPTS_PATH.parent))
 try:
-    attempts = (
-        _load(ATTEMPTS_PATH, "es_attempts") if ATTEMPTS_PATH.is_file() else None
+    attempts = cast(
+        ModuleType,
+        _load(ATTEMPTS_PATH, "es_attempts") if ATTEMPTS_PATH.is_file() else None,
     )
 finally:
     sys.path.remove(str(ATTEMPTS_PATH.parent))
@@ -136,7 +138,7 @@ def _sha(fill: str) -> str:
     return "sha256:" + fill * 64
 
 
-def _lock_and_schedule() -> tuple[dict[str, Any], dict[str, object]]:
+def _lock_and_schedule() -> tuple[dict[str, Any], dict[str, Any]]:
     schedule = decision_lock.generate_randomization_manifest(_sha("a"))
     bindings = {
         "arm_workflow_sha256": _sha("1"),
@@ -352,13 +354,13 @@ def _accounting(
 
 
 def _build(
-    trial: Mapping[str, object],
+    trial: Mapping[str, Any],
     *,
     failed_arm: str | None = None,
     adjudication: bool = False,
     failed_review_slot: str | None = None,
-    **overrides: object,
-) -> dict[str, object]:
+    **overrides: Any,
+) -> dict[str, Any]:
     assert attempts is not None
     lock, schedule = _lock_and_schedule()
     routes, evaluation_route, reviews, receipts = _accounting(
@@ -367,7 +369,7 @@ def _build(
         failed_arm=failed_arm,
         failed_review_slot=failed_review_slot,
     )
-    arguments: dict[str, object] = {
+    arguments: dict[str, Any] = {
         "attempt_id": "ES-ATTEMPT-01",
         "decision_lock": lock,
         "randomization_manifest": schedule,
@@ -391,9 +393,144 @@ def _build(
     return attempts.build_attempt_record(**arguments)
 
 
+def _packet_artifact_index(trial: Mapping[str, Any]) -> dict[str, Any]:
+    request = trial["request"]
+    path = (
+        trial["parent_workspace"]
+        / "artifacts"
+        / "trials"
+        / request.digest.removeprefix("sha256:")
+        / "packets"
+        / "index.json"
+    )
+    value = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
+
+
+def _frozen_trial_authority(trial: Mapping[str, Any]) -> bytes:
+    frozen = attempts.freeze_trial_artifact_authority(
+        trial["request"],
+        trial["sealed"],
+    )
+    return frozen.canonical_bytes
+
+
+def _trial_result(trial: Mapping[str, Any]) -> TrialRunResult:
+    return TrialRunResult.failed(
+        run_id=trial["request"].visit.parent_run_id,
+        code="fixture_terminal_failure",
+        message="public result supplies the exact parent run identity",
+    )
+
+
+def _build_from_artifacts(
+    trial: Mapping[str, Any],
+    *,
+    failed_arm: str | None = None,
+    adjudication: bool = False,
+    failed_review_slot: str | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
+    assert attempts is not None
+    lock, schedule = _lock_and_schedule()
+    routes, evaluation_route, reviews, receipts = _accounting(
+        lock,
+        adjudication=adjudication,
+        failed_arm=failed_arm,
+        failed_review_slot=failed_review_slot,
+    )
+    request = trial["request"]
+    sealed = trial["sealed"]
+    packet_index = _packet_artifact_index(trial)
+    header = json.loads(
+        trial["execution"].ledger_path.read_bytes().splitlines()[0]
+    )
+    arguments: dict[str, Any] = {
+        "attempt_id": "ES-ATTEMPT-01",
+        "decision_lock": lock,
+        "randomization_manifest": schedule,
+        "expected_bindings": deepcopy(lock["bindings"]),
+        "frozen_trial_artifact_authority": _frozen_trial_authority(trial),
+        "trial_result": _trial_result(trial),
+        "observed_header_row_digest": header["row_digest"],
+        "observed_sealed_opaque_labels": sealed,
+        "trial_event_ledger_path": trial["execution"].ledger_path,
+        "packet_artifact_index": packet_index,
+        "arm_route_ids": routes,
+        "evaluation_route_id": evaluation_route,
+        "material_disagreement": adjudication,
+        "review_settlements": reviews,
+        "receipt_bindings": receipts,
+        "source_task_binding_valid": True,
+        "controller_launch_preallocation_failed": False,
+        "common_provider_outage_proven": False,
+        "evaluation_bytes_valid": True,
+        "blinding_join_valid": True,
+        "interrupted": False,
+    }
+    arguments.update(overrides)
+    return attempts.build_attempt_record_from_artifacts(**arguments)
+
+
 def test_attempt_module_and_closed_schema_exist() -> None:
     assert attempts is not None, "Task-5 attempt-accounting module is missing"
     assert ATTEMPT_SCHEMA_PATH.is_file()
+
+
+def test_frozen_trial_artifact_authority_round_trips_canonical_package_bytes(
+    complete_trial,
+) -> None:
+    request = complete_trial["request"]
+    frozen = attempts.freeze_trial_artifact_authority(
+        request,
+        complete_trial["sealed"],
+    )
+
+    loaded = attempts.load_frozen_trial_artifact_authority(
+        frozen.canonical_bytes
+    )
+
+    assert loaded == frozen
+    assert loaded.digest == canonical_sha256(loaded.record)
+    assert loaded.record["parent_run_id_binding"] == "trial_run_result.run_id"
+    assert "parent_run_id" not in loaded.record["visit_template"]
+    assert loaded.record["request_template"]["resolved_inputs_by_arm"] == (
+        request.record["resolved_inputs_by_arm"]
+    )
+    assert loaded.record["runtime_budget"] == request.static_config.budget
+    assert loaded.record["trial_schedule"] == {
+        "reps": request.static_config.reps,
+        "max_concurrency": request.static_config.max_concurrency,
+    }
+    assert loaded.record["evaluation"] == request.static_config.evaluation
+    assert loaded.record["sealed_opaque_label_policy"] == {
+        "schema_version": "trial_opaque_label_map.v1",
+        "cell_domain": [cell.record for cell in request.cell_domain],
+        "opaque_label_pattern": "^opaque-[0-9a-f]{64}$",
+        "labels_unique": True,
+        "digest_contract": "canonical_sha256(record)",
+    }
+    assert "sealed_opaque_label_map" not in loaded.record
+
+
+def test_frozen_trial_authority_is_independent_of_fresh_randomized_labels(
+    complete_trial,
+) -> None:
+    request = complete_trial["request"]
+    first = attempts.freeze_trial_artifact_authority(
+        request,
+        complete_trial["sealed"],
+    )
+    second = attempts.freeze_trial_artifact_authority(
+        request,
+        build_sealed_opaque_label_map(
+            request.cell_domain,
+            salt=b"different-fresh-run-random-label-salt",
+        ),
+    )
+
+    assert first.canonical_bytes == second.canonical_bytes
 
 
 def test_valid_attempt_derives_exact_e2_and_evaluation_accounting(
@@ -412,6 +549,479 @@ def test_valid_attempt_derives_exact_e2_and_evaluation_accounting(
     assert record["accounting"]["call_count"] == len(
         record["accounting"]["receipt_bindings"]
     )
+
+
+def test_artifact_backed_attempt_equals_request_backed_attempt(
+    complete_trial,
+) -> None:
+    assert _build_from_artifacts(complete_trial) == _build(complete_trial)
+
+
+def _rewrite_row_digest(record: dict[str, Any]) -> None:
+    preimage = {key: value for key, value in record.items() if key != "row_digest"}
+    record["row_digest"] = canonical_sha256(preimage)
+
+
+def _write_header_drift(
+    source: Path,
+    destination: Path,
+    mutation: str,
+) -> None:
+    [header, *_] = [json.loads(line) for line in source.read_bytes().splitlines()]
+    payload = header["payload"]
+    if mutation == "static":
+        payload["trial_static_config_digest"] = _sha("f")
+    elif mutation == "step":
+        payload["trial_step_config_digest"] = _sha("f")
+    elif mutation == "arm":
+        payload["arm_run_ref_authorities"][0][
+            "run_ref_step_config_digest"
+        ] = _sha("f")
+    elif mutation == "evaluation":
+        payload["evaluation_digest"] = _sha("f")
+    elif mutation == "budget":
+        payload["budget_digest"] = _sha("f")
+    elif mutation == "result":
+        payload["result_contract_digest"] = _sha("f")
+    elif mutation == "compiler":
+        payload["compiler_runtime_identity_digest"] = _sha("f")
+    elif mutation == "visit":
+        payload["visit"]["step_id"] += "-drifted"
+    elif mutation == "request":
+        payload["trial_request_digest"] = _sha("f")
+    elif mutation == "window":
+        payload["runtime_budget_window"]["arm_deadlines"][0][
+            "deadline_unix_ns"
+        ] += 1
+        payload["runtime_budget_window_digest"] = canonical_sha256(
+            payload["runtime_budget_window"]
+        )
+    else:  # pragma: no cover - closed test helper
+        raise AssertionError(mutation)
+    _rewrite_row_digest(header)
+    destination.write_bytes(
+        json.dumps(
+            header,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
+def _write_check_drift(source: Path, destination: Path) -> None:
+    records = [json.loads(line) for line in source.read_bytes().splitlines()]
+    check_index = next(
+        index for index, record in enumerate(records) if record["kind"] == "check_settled"
+    )
+    prefix = records[: check_index + 1]
+    prefix[-1]["payload"]["check_id"] += "-drifted"
+    prefix[-1]["payload"]["check_result"]["check_id"] += "-drifted"
+    _rewrite_row_digest(prefix[-1])
+    destination.write_bytes(
+        b"".join(
+            json.dumps(
+                record,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+            for record in prefix
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "static",
+        "step",
+        "arm",
+        "evaluation",
+        "budget",
+        "result",
+        "compiler",
+        "visit",
+        "request",
+        "window",
+    ],
+)
+def test_artifact_backed_attempt_classifies_self_consistent_header_drift(
+    complete_trial,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    source = complete_trial["execution"].ledger_path
+    drifted = tmp_path / f"{mutation}-drift.jsonl"
+    _write_header_drift(source, drifted, mutation)
+
+    record = _build_from_artifacts(
+        complete_trial,
+        trial_event_ledger_path=drifted,
+        packet_artifact_index=None,
+        arm_route_ids={},
+        evaluation_route_id=None,
+        material_disagreement=False,
+        review_settlements=[],
+        receipt_bindings=[],
+        interrupted=True,
+    )
+
+    assert record["status"] == "INVALID"
+    assert record["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
+    assert record["e2_authority"]["ledger_input_status"] == "INVALID_SUPPLIED"
+
+
+def test_artifact_backed_attempt_classifies_authored_check_drift(
+    complete_trial,
+    tmp_path: Path,
+) -> None:
+    drifted = tmp_path / "check-drift.jsonl"
+    _write_check_drift(complete_trial["execution"].ledger_path, drifted)
+
+    record = _build_from_artifacts(
+        complete_trial,
+        trial_event_ledger_path=drifted,
+        packet_artifact_index=None,
+        arm_route_ids={},
+        evaluation_route_id=None,
+        material_disagreement=False,
+        review_settlements=[],
+        receipt_bindings=[],
+        interrupted=True,
+    )
+
+    assert record["e2_authority"]["ledger_input_status"] == "INVALID_SUPPLIED"
+    assert record["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
+
+
+@pytest.mark.parametrize("mutation", ["freeze_digest", "packet_row", "packet_label", "missing"])
+def test_artifact_backed_attempt_preserves_packet_index_crosschecks(
+    complete_trial,
+    mutation: str,
+) -> None:
+    changed = deepcopy(_packet_artifact_index(complete_trial))
+    if mutation == "freeze_digest":
+        changed["evidence_frozen_row_digest"] = _sha("f")
+    elif mutation == "packet_row":
+        changed["packets"][0]["packet_digest"] = _sha("f")
+    elif mutation == "packet_label":
+        changed["packets"][0]["opaque_label"] = "opaque-" + "f" * 64
+    else:
+        changed = None
+
+    record = _build_from_artifacts(
+        complete_trial,
+        packet_artifact_index=changed,
+        arm_route_ids={},
+        evaluation_route_id=None,
+        material_disagreement=False,
+        review_settlements=[],
+        receipt_bindings=[],
+        interrupted=True,
+    )
+
+    assert record["e2_authority"]["ledger_input_status"] == "INVALID_SUPPLIED"
+    assert record["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
+
+
+def test_supplied_ledger_without_valid_durable_trial_prefix_stays_invalid(
+    complete_trial,
+) -> None:
+    record = _build_from_artifacts(
+        complete_trial,
+        observed_header_row_digest=None,
+        observed_sealed_opaque_labels=None,
+        packet_artifact_index=None,
+        arm_route_ids={},
+        evaluation_route_id=None,
+        material_disagreement=False,
+        review_settlements=[],
+        receipt_bindings=[],
+        interrupted=True,
+    )
+
+    assert record["e2_authority"]["ledger_input_status"] == "INVALID_SUPPLIED"
+    assert record["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
+
+
+@pytest.mark.parametrize("ledger_kind", ["missing", "corrupt"])
+def test_artifact_backed_missing_or_corrupt_ledger_matches_request_classification(
+    complete_trial,
+    tmp_path: Path,
+    ledger_kind: str,
+) -> None:
+    path: Path | None
+    if ledger_kind == "missing":
+        path = None
+        expected_status = "NOT_SUPPLIED"
+    else:
+        path = tmp_path / "corrupt-trial-events.jsonl"
+        path.write_bytes(b"not-json\n")
+        expected_status = "INVALID_SUPPLIED"
+    overrides: dict[str, Any] = {
+        "trial_event_ledger_path": path,
+        "observed_header_row_digest": None,
+        "observed_sealed_opaque_labels": None,
+        "packet_artifact_index": None,
+        "arm_route_ids": {},
+        "evaluation_route_id": None,
+        "material_disagreement": False,
+        "review_settlements": [],
+        "receipt_bindings": [],
+        "interrupted": True,
+    }
+
+    artifact_backed = _build_from_artifacts(complete_trial, **overrides)
+    request_backed = _build(
+        complete_trial,
+        **{
+            key: value
+            for key, value in overrides.items()
+            if key
+            not in {
+                "packet_artifact_index",
+                "observed_header_row_digest",
+                "observed_sealed_opaque_labels",
+            }
+        },
+    )
+
+    assert artifact_backed == request_backed
+    assert artifact_backed["status"] == "INVALID"
+    assert artifact_backed["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
+    assert artifact_backed["e2_authority"]["ledger_input_status"] == expected_status
+
+
+def test_frozen_trial_artifact_authority_rejects_internal_identity_drift(
+    complete_trial,
+) -> None:
+    record = json.loads(_frozen_trial_authority(complete_trial))
+    record["runtime_budget"]["arm_timeout_ms"] += 1
+    tampered = json.dumps(
+        record,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+    with pytest.raises(
+        attempts.AttemptAccountingError,
+        match="frozen_trial_artifact_authority_invalid",
+    ):
+        attempts.load_frozen_trial_artifact_authority(tampered)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "check_missing_field",
+        "check_duplicate_id",
+        "evaluation_missing_field",
+        "evaluation_wrong_type",
+    ],
+)
+def test_frozen_trial_artifact_authority_rejects_malformed_public_evaluation(
+    complete_trial,
+    mutation: str,
+) -> None:
+    record = json.loads(_frozen_trial_authority(complete_trial))
+    evaluation = record["evaluation"]
+    if mutation == "check_missing_field":
+        evaluation["checks"][0].pop("command")
+    elif mutation == "check_duplicate_id":
+        duplicate = deepcopy(evaluation["checks"][0])
+        duplicate["authority"] = "invariant"
+        evaluation["checks"].append(duplicate)
+    elif mutation == "evaluation_missing_field":
+        evaluation.pop("provider")
+    else:
+        evaluation["observation_include"] = "task_spec"
+    record["request_template"]["evaluation_digest"] = canonical_sha256(evaluation)
+    record["ordered_check_specs"] = sorted(
+        evaluation["checks"],
+        key=lambda row: {"correctness": 0, "invariant": 1}[row["authority"]],
+    )
+
+    with pytest.raises(
+        attempts.AttemptAccountingError,
+        match="frozen_trial_artifact_authority_invalid",
+    ):
+        attempts.load_frozen_trial_artifact_authority(canonical_json_bytes(record))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "incomplete_cartesian",
+        "one_arm",
+        "seventeen_arms",
+        "sixty_five_reps",
+        "too_many_cells",
+        "concurrency_above_public_limit",
+    ],
+)
+def test_frozen_trial_artifact_authority_rejects_incomplete_or_unbounded_domain(
+    complete_trial,
+    mutation: str,
+) -> None:
+    record = json.loads(_frozen_trial_authority(complete_trial))
+    template = record["request_template"]
+    original_arms = [row["arm_id"] for row in template["arm_run_ref_authorities"]]
+    arms = original_arms
+    reps = 1
+    concurrency = min(4, len(arms))
+    if mutation == "one_arm":
+        arms = ["ONLY"]
+        concurrency = 1
+    elif mutation == "seventeen_arms":
+        arms = [f"ARM-{index:02d}" for index in range(17)]
+    elif mutation == "sixty_five_reps":
+        reps = 65
+    elif mutation == "too_many_cells":
+        arms = [f"ARM-{index:02d}" for index in range(16)]
+        reps = 17
+    elif mutation == "concurrency_above_public_limit":
+        reps = 9
+        concurrency = 33
+    elif mutation == "incomplete_cartesian":
+        reps = 2
+
+    authority_template = template["arm_run_ref_authorities"][0]
+    resolved_template = template["resolved_inputs_by_arm"][0]
+    template["arm_run_ref_authorities"] = [
+        {**authority_template, "arm_id": arm} for arm in arms
+    ]
+    template["resolved_inputs_by_arm"] = [
+        {**resolved_template, "arm_id": arm} for arm in arms
+    ]
+    domain = [
+        {"arm_id": arm, "rep": rep}
+        for arm in arms
+        for rep in range(1, reps + 1)
+    ]
+    if mutation == "incomplete_cartesian":
+        domain = [cell for cell in domain if cell["rep"] == 1]
+    template["cell_domain"] = domain
+    template["cell_domain_digest"] = canonical_sha256(domain)
+    record["sealed_opaque_label_policy"]["cell_domain"] = domain
+    record["trial_schedule"] = {
+        "reps": reps,
+        "max_concurrency": concurrency,
+    }
+    record["request_template"]["budget_digest"] = canonical_sha256(
+        {
+            "reps": reps,
+            "max_concurrency": concurrency,
+            "budget": record["runtime_budget"],
+        }
+    )
+
+    with pytest.raises(
+        attempts.AttemptAccountingError,
+        match="frozen_trial_artifact_authority_invalid",
+    ):
+        attempts.load_frozen_trial_artifact_authority(canonical_json_bytes(record))
+
+
+def test_artifact_backed_partial_interruption_matches_request_backed_classification(
+    complete_trial,
+    tmp_path: Path,
+) -> None:
+    source = complete_trial["execution"].ledger_path
+    lines = source.read_bytes().splitlines(keepends=True)
+    records = [json.loads(line) for line in lines]
+    started_index = next(
+        index
+        for index, record in enumerate(records)
+        if record["kind"] == "cell_allocation_started"
+    )
+    partial = tmp_path / "partial-trial-events.jsonl"
+    partial.write_bytes(b"".join(lines[: started_index + 1]))
+    overrides: dict[str, Any] = {
+        "trial_event_ledger_path": partial,
+        "packet_artifact_index": None,
+        "arm_route_ids": {},
+        "evaluation_route_id": None,
+        "material_disagreement": False,
+        "review_settlements": [],
+        "receipt_bindings": [],
+        "interrupted": True,
+    }
+
+    artifact_backed = _build_from_artifacts(complete_trial, **overrides)
+    request_backed = _build(
+        complete_trial,
+        **{
+            key: value
+            for key, value in overrides.items()
+            if key != "packet_artifact_index"
+        },
+    )
+
+    assert artifact_backed == request_backed
+    assert artifact_backed["status"] == "INVALID"
+    assert artifact_backed["invalidity_code"] == (
+        "APPARATUS_ACCOUNTING_INCOMPLETE"
+    )
+    assert artifact_backed["e2_authority"]["treatment_started"] is True
+
+
+def test_artifact_backed_header_only_outage_matches_request_backed_classification(
+    complete_trial,
+    tmp_path: Path,
+) -> None:
+    source = complete_trial["execution"].ledger_path
+    header_only = tmp_path / "header-only-trial-events.jsonl"
+    header_only.write_bytes(source.read_bytes().splitlines(keepends=True)[0])
+    overrides: dict[str, Any] = {
+        "trial_event_ledger_path": header_only,
+        "packet_artifact_index": None,
+        "arm_route_ids": {},
+        "evaluation_route_id": None,
+        "material_disagreement": False,
+        "review_settlements": [],
+        "receipt_bindings": [],
+        "common_provider_outage_proven": True,
+    }
+
+    artifact_backed = _build_from_artifacts(complete_trial, **overrides)
+    request_backed = _build(
+        complete_trial,
+        **{
+            key: value
+            for key, value in overrides.items()
+            if key != "packet_artifact_index"
+        },
+    )
+
+    assert artifact_backed == request_backed
+    assert artifact_backed["invalidity_code"] == (
+        "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT"
+    )
+
+
+def test_artifact_backed_treatment_failure_matches_request_backed_outcome(
+    treatment_failure_trial,
+) -> None:
+    artifact_backed = _build_from_artifacts(
+        treatment_failure_trial,
+        failed_arm="DESIGN_QA",
+        failed_review_slot="EVAL.INTEGRATED_REVIEW",
+    )
+    request_backed = _build(
+        treatment_failure_trial,
+        failed_arm="DESIGN_QA",
+        failed_review_slot="EVAL.INTEGRATED_REVIEW",
+    )
+
+    assert artifact_backed == request_backed
+    assert artifact_backed["status"] == "VALID"
 
 
 def test_treatment_failure_and_terminal_review_failure_remain_valid_outcomes(
@@ -474,7 +1084,7 @@ def test_attempt_invalidity_is_derived_from_only_the_six_frozen_codes(
         lock,
         adjudication=False,
     )
-    overrides: dict[str, object] = {
+    overrides: dict[str, Any] = {
         "arm_route_ids": routes,
         "evaluation_route_id": evaluation_route,
         "review_settlements": reviews,
@@ -558,7 +1168,7 @@ def test_interruption_before_complete_accounting_freezes_apparatus_invalid(
 )
 def test_preallocation_invalidities_are_exact_and_need_no_invented_ledger(
     complete_trial,
-    overrides: dict[str, object],
+    overrides: dict[str, Any],
     expected_code: str,
 ) -> None:
     record = _build(complete_trial, **overrides)
@@ -567,6 +1177,67 @@ def test_preallocation_invalidities_are_exact_and_need_no_invented_ledger(
     assert record["invalidity_code"] == expected_code
     assert record["e2_authority"]["coherent_allocation"] is False
     assert record["e2_authority"]["ledger_input_status"] == "NOT_SUPPLIED"
+
+
+@pytest.mark.parametrize(
+    ("classifier_override", "expected_code"),
+    [
+        ({"source_task_binding_valid": False}, "SOURCE_OR_TASK_BINDING_INVALID"),
+        (
+            {"controller_launch_preallocation_failed": True},
+            "CONTROLLER_LAUNCH_PREALLOCATION_FAILED",
+        ),
+    ],
+)
+def test_unlaunched_artifact_attempt_uses_null_request_identity_only_for_early_fault(
+    complete_trial,
+    classifier_override: dict[str, Any],
+    expected_code: str,
+) -> None:
+    record = _build_from_artifacts(
+        complete_trial,
+        trial_result=None,
+        observed_header_row_digest=None,
+        observed_sealed_opaque_labels=None,
+        trial_event_ledger_path=None,
+        packet_artifact_index=None,
+        arm_route_ids={},
+        evaluation_route_id=None,
+        material_disagreement=False,
+        review_settlements=[],
+        receipt_bindings=[],
+        interrupted=True,
+        **classifier_override,
+    )
+
+    assert record["schema_version"] == "es_attempt_record.v2"
+    assert record["trial_request_digest"] is None
+    assert record["e2_authority"]["trial_request_digest"] is None
+    assert record["e2_authority"]["ledger_input_status"] == "NOT_SUPPLIED"
+    assert record["invalidity_code"] == expected_code
+
+
+def test_unlaunched_null_request_identity_is_rejected_outside_exact_early_fault(
+    complete_trial,
+) -> None:
+    with pytest.raises(
+        attempts.AttemptAccountingError,
+        match="attempt_unlaunched_authority_invalid",
+    ):
+        _build_from_artifacts(
+            complete_trial,
+            trial_result=None,
+            observed_header_row_digest=None,
+            observed_sealed_opaque_labels=None,
+            trial_event_ledger_path=None,
+            packet_artifact_index=None,
+            arm_route_ids={},
+            evaluation_route_id=None,
+            material_disagreement=False,
+            review_settlements=[],
+            receipt_bindings=[],
+            interrupted=True,
+        )
 
 
 @pytest.mark.parametrize(
@@ -579,7 +1250,7 @@ def test_preallocation_invalidities_are_exact_and_need_no_invented_ledger(
 def test_supplied_invalid_ledger_cannot_be_reclassified_as_preallocation(
     complete_trial,
     tmp_path: Path,
-    classifier_override: dict[str, object],
+    classifier_override: dict[str, Any],
 ) -> None:
     corrupt = tmp_path / (
         "corrupt-source.jsonl"
@@ -702,7 +1373,14 @@ def test_record_validation_rejects_schema_drift_and_post_lock_mutation(
         randomization_manifest=schedule,
         expected_bindings=lock["bindings"],
     )
-    for mutation in ("extra", "digest", "invalidity", "ledger_input_status"):
+    for mutation in (
+        "extra",
+        "digest",
+        "invalidity",
+        "ledger_input_status",
+        "v1",
+        "null_request",
+    ):
         changed = deepcopy(record)
         if mutation == "extra":
             changed["unexpected"] = True
@@ -710,6 +1388,11 @@ def test_record_validation_rejects_schema_drift_and_post_lock_mutation(
             changed["decision_lock_sha256"] = _sha("f")
         elif mutation == "ledger_input_status":
             changed["e2_authority"]["ledger_input_status"] = "NOT_SUPPLIED"
+        elif mutation == "v1":
+            changed["schema_version"] = "es_attempt_record.v1"
+        elif mutation == "null_request":
+            changed["trial_request_digest"] = None
+            changed["e2_authority"]["trial_request_digest"] = None
         else:
             changed["invalidity_code"] = "NOT_A_CODE"
         with pytest.raises(attempts.AttemptAccountingError):

@@ -9,12 +9,15 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from jsonschema import Draft202012Validator
+import pytest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLI = REPOSITORY_ROOT / "scripts/experiments/es/cli.py"
+sys.path.insert(0, str(REPOSITORY_ROOT))
 
 
 def _load_module(name: str) -> ModuleType:
@@ -28,6 +31,9 @@ def _load_module(name: str) -> ModuleType:
 
 decision_lock = _load_module("decision_lock")
 metering = _load_module("metering")
+
+from scripts.experiments.es import synthesis  # noqa: E402
+from tests.experiments import test_es_synthesis as synthesis_fixtures  # noqa: E402
 
 
 def _sha(fill: str) -> str:
@@ -65,8 +71,248 @@ def _bindings(schedule: dict[str, object]) -> dict[str, str]:
     return result
 
 
+def _synthesis_inputs(
+    tmp_path: Path,
+) -> tuple[Path, Path, Path, list[Path], list[dict[str, Any]]]:
+    lock, schedule, bindings = synthesis_fixtures._lock_and_schedule()
+    indexes = [
+        synthesis_fixtures._attempt_index(
+            synthesis,
+            lock,
+            schedule,
+            bindings,
+            ordinal=ordinal,
+            outcome="RICH",
+        )
+        for ordinal in (1, 2)
+    ]
+    lock_path = tmp_path / "lock.json"
+    randomization_path = tmp_path / "randomization.json"
+    bindings_path = tmp_path / "bindings.json"
+    index_paths = [tmp_path / f"attempt-{ordinal}.json" for ordinal in (1, 2)]
+    lock_path.write_bytes(_canonical(lock))
+    randomization_path.write_bytes(_canonical(schedule))
+    bindings_path.write_bytes(_canonical(bindings))
+    for path, index in zip(index_paths, indexes, strict=True):
+        path.write_bytes(synthesis.canonical_report_bytes(index))
+    return lock_path, randomization_path, bindings_path, index_paths, indexes
+
+
 def test_es_cli_module_is_present() -> None:
     assert (REPOSITORY_ROOT / "scripts/experiments/es/cli.py").is_file()
+
+
+def test_validate_attempt_index_replays_public_validation_and_publishes_canonical_copy(
+    tmp_path: Path,
+) -> None:
+    lock, randomization, bindings, index_paths, indexes = _synthesis_inputs(tmp_path)
+    output = tmp_path / "validated-index.json"
+
+    completed = _run(
+        "validate-attempt-index",
+        "--lock",
+        str(lock),
+        "--randomization",
+        str(randomization),
+        "--bindings",
+        str(bindings),
+        "--input",
+        str(index_paths[0]),
+        "--expected-index-sha256",
+        indexes[0]["index_sha256"],
+        "--output",
+        str(output),
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode()
+    assert completed.stderr == b""
+    assert json.loads(completed.stdout) == {
+        "attempt_id": "ES-ATTEMPT-01",
+        "index_sha256": indexes[0]["index_sha256"],
+        "status": "valid",
+    }
+    assert output.read_bytes() == synthesis.canonical_report_bytes(indexes[0])
+
+
+def test_synthesize_report_replays_ordered_immutable_indexes_and_publishes_canonical_report(
+    tmp_path: Path,
+) -> None:
+    lock_path, randomization_path, bindings_path, index_paths, indexes = (
+        _synthesis_inputs(tmp_path)
+    )
+    output = tmp_path / "report.json"
+    arguments = [
+        "synthesize-report",
+        "--lock",
+        str(lock_path),
+        "--randomization",
+        str(randomization_path),
+        "--bindings",
+        str(bindings_path),
+    ]
+    for path, index in zip(index_paths, indexes, strict=True):
+        arguments.extend(
+            [
+                "--input",
+                str(path),
+                "--expected-index-sha256",
+                index["index_sha256"],
+            ]
+        )
+    arguments.extend(["--output", str(output)])
+
+    completed = _run(*arguments)
+
+    assert completed.returncode == 0, completed.stderr.decode()
+    assert completed.stderr == b""
+    expected = synthesis.synthesize_report(
+        indexed_attempts=indexes,
+        expected_index_digests=[index["index_sha256"] for index in indexes],
+        decision_lock=json.loads(lock_path.read_text()),
+        randomization_manifest=json.loads(randomization_path.read_text()),
+        expected_bindings=json.loads(bindings_path.read_text()),
+    )
+    expected_bytes = synthesis.canonical_report_bytes(expected)
+    assert output.read_bytes() == expected_bytes
+    assert json.loads(completed.stdout) == {
+        "report_sha256": "sha256:" + hashlib.sha256(expected_bytes).hexdigest(),
+        "screen_result": "SCREEN_PASSED",
+        "status": "synthesized",
+    }
+
+
+def _validate_attempt_arguments(
+    *,
+    lock: Path,
+    randomization: Path,
+    bindings: Path,
+    input_path: Path,
+    expected_digest: str,
+    output: Path,
+) -> list[str]:
+    return [
+        "validate-attempt-index",
+        "--lock",
+        str(lock),
+        "--randomization",
+        str(randomization),
+        "--bindings",
+        str(bindings),
+        "--input",
+        str(input_path),
+        "--expected-index-sha256",
+        expected_digest,
+        "--output",
+        str(output),
+    ]
+
+
+def test_attempt_index_cli_rejects_noncanonical_input_and_external_digest_drift(
+    tmp_path: Path,
+) -> None:
+    lock, randomization, bindings, index_paths, indexes = _synthesis_inputs(tmp_path)
+    output = tmp_path / "validated.json"
+    arguments = _validate_attempt_arguments(
+        lock=lock,
+        randomization=randomization,
+        bindings=bindings,
+        input_path=index_paths[0],
+        expected_digest=indexes[0]["index_sha256"],
+        output=output,
+    )
+    index_paths[0].write_text(json.dumps(indexes[0], indent=2))
+
+    noncanonical = _run(*arguments)
+
+    assert noncanonical.returncode == 2
+    assert noncanonical.stdout == b""
+    assert noncanonical.stderr == (
+        f"synthesis_json_noncanonical: {index_paths[0]}\n".encode()
+    )
+    assert not output.exists()
+
+    index_paths[0].write_bytes(synthesis.canonical_report_bytes(indexes[0]))
+    drifted = list(arguments)
+    drifted[drifted.index("--expected-index-sha256") + 1] = _sha("0")
+    digest_failure = _run(*drifted)
+    assert digest_failure.returncode == 2
+    assert digest_failure.stdout == b""
+    assert digest_failure.stderr == b"synthesis_index_digest_mismatch\n"
+    assert not output.exists()
+
+
+def test_new_provider_free_cli_publications_are_exclusive(tmp_path: Path) -> None:
+    lock, randomization, bindings, index_paths, indexes = _synthesis_inputs(tmp_path)
+    output = tmp_path / "occupied.json"
+    output.write_bytes(b"owner bytes\n")
+
+    completed = _run(
+        *_validate_attempt_arguments(
+            lock=lock,
+            randomization=randomization,
+            bindings=bindings,
+            input_path=index_paths[0],
+            expected_digest=indexes[0]["index_sha256"],
+            output=output,
+        )
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    assert completed.stderr == f"output_not_exclusive: {output}\n".encode()
+    assert output.read_bytes() == b"owner bytes\n"
+
+
+@pytest.mark.parametrize("forbidden_flag", ["--launch", "--run", "--resume", "--provider"])
+def test_new_provider_free_cli_rejects_live_operation_flags(
+    tmp_path: Path,
+    forbidden_flag: str,
+) -> None:
+    output = tmp_path / "not-published.json"
+    arguments = _validate_attempt_arguments(
+        lock=tmp_path / "lock.json",
+        randomization=tmp_path / "randomization.json",
+        bindings=tmp_path / "bindings.json",
+        input_path=tmp_path / "attempt.json",
+        expected_digest=_sha("0"),
+        output=output,
+    )
+
+    completed = _run(*arguments, forbidden_flag)
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    assert b"unrecognized arguments" in completed.stderr
+    assert forbidden_flag.encode() in completed.stderr
+    assert not output.exists()
+
+
+def test_task7_cli_does_not_import_controller_or_private_runtime() -> None:
+    tree = ast.parse(CLI.read_text())
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imported.update(
+        (
+            f"{node.module}.{alias.name}"
+            if node.module
+            else alias.name
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    )
+    assert "controller" not in imported
+    assert not any(
+        name == "orchestrator.experiments"
+        or name.startswith("orchestrator.experiments.")
+        or name == "orchestrator.workflow.trial.runtime"
+        or name.startswith("orchestrator.workflow.trial.runtime.")
+        for name in imported
+    )
 
 
 def test_task3_modules_do_not_import_the_retired_experiment_package() -> None:

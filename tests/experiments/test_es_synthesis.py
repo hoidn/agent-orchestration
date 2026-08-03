@@ -838,7 +838,7 @@ def _attempt_index(
         failed_arm=failed_scorer_arm,
     )
     attempt_record: dict[str, Any] = {
-        "schema_version": "es_attempt_record.v1",
+        "schema_version": "es_attempt_record.v2",
         "attempt_id": attempt_id,
         "decision_lock_sha256": decision_lock.decision_lock_digest(lock),
         "randomization_manifest_sha256": decision_lock.decision_lock_digest(schedule),
@@ -1214,8 +1214,28 @@ def _sparse_invalid_index(
     }
     if invalidity_code == "COMMON_EVALUATION_BYTES_INVALID":
         record["classifier_inputs"]["evaluation_bytes_valid"] = False
+    elif invalidity_code == "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT":
+        record["classifier_inputs"]["common_provider_outage_proven"] = True
+        record["e2_authority"]["treatment_started"] = False
     record["status"] = "INVALID"
     record["invalidity_code"] = invalidity_code
+    invalidity_authority = (
+        {
+            "schema_version": "es.controller_invalidity_authority.v1",
+            "attempt_id": record["attempt_id"],
+            "invalidity_code": invalidity_code,
+            "evidence": {
+                "authority_kind": "controller-owned-fixture",
+                "cause_digest": _sha("c"),
+            },
+        }
+        if invalidity_code
+        in {
+            "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT",
+            "COMMON_EVALUATION_BYTES_INVALID",
+        }
+        else None
+    )
     return synthesis.build_invalid_attempt_evidence_index(
         attempt_record=record,
         decision_lock=lock,
@@ -1248,6 +1268,7 @@ def _sparse_invalid_index(
             )
             for row in retained_receipts
         },
+        invalidity_authority=invalidity_authority,
     )
 
 
@@ -1376,6 +1397,112 @@ def _partial_invalid_index(
         frozen_call_authority=_call_authority(),
         call_allocations=allocations,
         partial_evidence=partial_evidence,
+    )
+
+
+def _evaluation_bytes_invalid_index(
+    synthesis,
+    lock: Mapping[str, Any],
+    schedule: Mapping[str, Any],
+    bindings: Mapping[str, str],
+    *,
+    ordinal: int,
+) -> dict[str, Any]:
+    complete = _attempt_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=ordinal,
+        outcome="RICH",
+    )
+    record = deepcopy(complete["attempt_record"])
+    record["classifier_inputs"]["evaluation_bytes_valid"] = False
+    record["accounting"]["material_disagreement"] = False
+    record["accounting"]["review_settlements"] = []
+    retained = [
+        row
+        for row in complete["receipts"]
+        if not row["call_slot_id"].startswith("EVAL.")
+        or row["call_slot_id"].startswith("EVAL.SCORER_")
+    ]
+    record["accounting"]["receipt_bindings"] = [
+        {
+            "call_slot_id": row["call_slot_id"],
+            "receipt_sha256": row["record_sha256"],
+        }
+        for row in retained
+    ]
+    record["accounting"]["call_count"] = len(retained)
+    record["accounting"]["terminal_authority_complete"] = False
+    record["status"] = "INVALID"
+    record["invalidity_code"] = "COMMON_EVALUATION_BYTES_INVALID"
+    partial_evidence = {
+        "public_packet_replay_inputs": complete["public_packet_replay_inputs"],
+        "private_blinding_replay_inputs": complete[
+            "private_blinding_replay_inputs"
+        ],
+        "private_blinding_join": complete["private_blinding_join"],
+        "private_blinding_join_sha256": complete[
+            "private_blinding_join_sha256"
+        ],
+        "packets": complete["packets"],
+        "scorer_settlements": complete["scorer_settlements"],
+        "reviews": [],
+        "integrated_prior_record_sha256s": [],
+        "adjudication_payload": None,
+        "adjudication_payload_sha256": None,
+        "integrated_payload": None,
+        "integrated_payload_sha256": None,
+        "hard_evaluations": [],
+        "oriented_primary": None,
+        "oriented_primary_sha256": None,
+        "hard_primary_outcome": None,
+        "hard_primary_outcome_sha256": None,
+    }
+    authority = {
+        "schema_version": "es.controller_invalidity_authority.v1",
+        "attempt_id": record["attempt_id"],
+        "invalidity_code": "COMMON_EVALUATION_BYTES_INVALID",
+        "evidence": {
+            "authority_kind": "controller-owned-fixture",
+            "cause_digest": _sha("c"),
+        },
+    }
+    return synthesis.build_invalid_attempt_evidence_index(
+        attempt_record=record,
+        decision_lock=lock,
+        randomization_manifest=schedule,
+        expected_bindings=bindings,
+        receipts_by_slot={row["call_slot_id"]: row["record"] for row in retained},
+        raw_jsonl_by_slot={
+            row["call_slot_id"]: row["raw_jsonl"].encode("utf-8")
+            for row in retained
+        },
+        elapsed_ms_by_slot={
+            row["call_slot_id"]: next(
+                elapsed["elapsed_ms"]
+                for elapsed in complete["elapsed_ms"]
+                if elapsed["call_slot_id"] == row["call_slot_id"]
+            )
+            for row in retained
+        },
+        frozen_call_authority=_call_authority(),
+        call_allocations=_call_allocations(
+            synthesis,
+            lock,
+            attempt_id=record["attempt_id"],
+            rows=[
+                (
+                    row["call_slot_id"],
+                    "RECEIPT_FROZEN",
+                    row["record_sha256"],
+                )
+                for row in retained
+            ],
+        ),
+        partial_evidence=partial_evidence,
+        invalidity_authority=authority,
     )
 
 
@@ -1948,6 +2075,158 @@ def test_one_permitted_invalid_is_disclosed_but_replaced_outside_m_n_accrual(
             "failure_code": "COMMON_EVALUATION_BYTES_INVALID",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "invalidity_code",
+    [
+        "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT",
+        "COMMON_EVALUATION_BYTES_INVALID",
+    ],
+)
+def test_common_invalidity_carries_exact_controller_authority(
+    synthesis,
+    invalidity_code: str,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+
+    index = (
+        _evaluation_bytes_invalid_index(
+            synthesis,
+            lock,
+            schedule,
+            bindings,
+            ordinal=1,
+        )
+        if invalidity_code == "COMMON_EVALUATION_BYTES_INVALID"
+        else _sparse_invalid_index(
+            synthesis,
+            lock,
+            schedule,
+            bindings,
+            ordinal=1,
+            invalidity_code=invalidity_code,
+        )
+    )
+
+    authority = index["invalidity_authority"]
+    assert authority == {
+        "schema_version": "es.controller_invalidity_authority.v1",
+        "attempt_id": "ES-ATTEMPT-01",
+        "invalidity_code": invalidity_code,
+        "evidence": {
+            "authority_kind": "controller-owned-fixture",
+            "cause_digest": _sha("c"),
+        },
+    }
+    assert index["invalidity_authority_sha256"] == _study_digest(authority)
+    if invalidity_code == "COMMON_EVALUATION_BYTES_INVALID":
+        assert index["public_packet_replay_inputs"] is not None
+        assert len(index["packets"]) == 4
+        assert len(index["scorer_settlements"]) == 4
+        assert index["private_blinding_join"] is not None
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    [
+        ("missing", "synthesis_invalidity_authority_missing"),
+        ("wrong_attempt", "synthesis_invalidity_authority_binding_mismatch"),
+        ("wrong_code", "synthesis_invalidity_authority_binding_mismatch"),
+        ("extra_key", "synthesis_invalidity_authority_shape_invalid"),
+        ("evidence_not_mapping", "synthesis_invalidity_authority_shape_invalid"),
+        ("tampered_digest", "synthesis_invalidity_authority_binding_mismatch"),
+    ],
+)
+def test_common_invalidity_authority_fails_closed_on_tamper(
+    synthesis,
+    mutation: str,
+    expected_error: str,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+    index = _sparse_invalid_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        invalidity_code="COMMON_EVALUATION_BYTES_INVALID",
+    )
+
+    if mutation == "missing":
+        index["invalidity_authority"] = None
+        index["invalidity_authority_sha256"] = None
+    elif mutation == "wrong_attempt":
+        index["invalidity_authority"]["attempt_id"] = "ES-ATTEMPT-02"
+        index["invalidity_authority_sha256"] = _study_digest(
+            index["invalidity_authority"]
+        )
+    elif mutation == "wrong_code":
+        index["invalidity_authority"][
+            "invalidity_code"
+        ] = "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT"
+        index["invalidity_authority_sha256"] = _study_digest(
+            index["invalidity_authority"]
+        )
+    elif mutation == "extra_key":
+        index["invalidity_authority"]["detail"] = "prose is not authority"
+        index["invalidity_authority_sha256"] = _study_digest(
+            index["invalidity_authority"]
+        )
+    elif mutation == "evidence_not_mapping":
+        index["invalidity_authority"]["evidence"] = ["not", "a", "mapping"]
+        index["invalidity_authority_sha256"] = _study_digest(
+            index["invalidity_authority"]
+        )
+    else:
+        index["invalidity_authority_sha256"] = _sha("f")
+    _rehash_index(index)
+
+    with pytest.raises(synthesis.SynthesisError, match=expected_error):
+        synthesis.validate_attempt_evidence_index(
+            index,
+            expected_index_sha256=index["index_sha256"],
+            decision_lock=lock,
+            randomization_manifest=schedule,
+            expected_bindings=bindings,
+        )
+
+
+def test_other_invalidity_requires_null_controller_authority(synthesis) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+    index = _sparse_invalid_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        invalidity_code="APPARATUS_ACCOUNTING_INCOMPLETE",
+    )
+
+    assert index["invalidity_authority"] is None
+    assert index["invalidity_authority_sha256"] is None
+
+    authority = {
+        "schema_version": "es.controller_invalidity_authority.v1",
+        "attempt_id": "ES-ATTEMPT-01",
+        "invalidity_code": "APPARATUS_ACCOUNTING_INCOMPLETE",
+        "evidence": {},
+    }
+    index["invalidity_authority"] = authority
+    index["invalidity_authority_sha256"] = _study_digest(authority)
+    _rehash_index(index)
+
+    with pytest.raises(
+        synthesis.SynthesisError,
+        match="synthesis_invalidity_authority_forbidden",
+    ):
+        synthesis.validate_attempt_evidence_index(
+            index,
+            expected_index_sha256=index["index_sha256"],
+            decision_lock=lock,
+            randomization_manifest=schedule,
+            expected_bindings=bindings,
+        )
 
 
 def test_sparse_invalid_is_not_forced_to_fabricate_downstream_evidence(

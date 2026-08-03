@@ -85,7 +85,7 @@
     }
   },
   "properties": {
-    "schema_version": {"const": "es_attempt_record.v1"},
+    "schema_version": {"const": "es_attempt_record.v2"},
     "attempt_id": {
       "type": "string",
       "pattern": "^ES-ATTEMPT-0[1-4]$"
@@ -93,7 +93,12 @@
     "decision_lock_sha256": {"$ref": "#/$defs/sha256"},
     "randomization_manifest_sha256": {"$ref": "#/$defs/sha256"},
     "randomization_row_sha256": {"$ref": "#/$defs/sha256"},
-    "trial_request_digest": {"$ref": "#/$defs/sha256"},
+    "trial_request_digest": {
+      "oneOf": [
+        {"$ref": "#/$defs/sha256"},
+        {"type": "null"}
+      ]
+    },
     "resume_policy": {"const": "FORBIDDEN"},
     "interrupted": {"type": "boolean"},
     "classifier_inputs": {
@@ -136,7 +141,12 @@
             {"type": "null"}
           ]
         },
-        "trial_request_digest": {"$ref": "#/$defs/sha256"},
+        "trial_request_digest": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
         "treatment_started": {"type": "boolean"},
         "arm_settlements": {
           "type": "array",

@@ -1,8 +1,9 @@
-"""Command-line façade for ES metering and decision-lock records."""
+"""Command-line façade for deterministic ES evidence operations."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -10,10 +11,14 @@ from pathlib import Path
 from typing import Any, NoReturn, Sequence
 
 try:  # Direct script execution places this directory, not the repo, on sys.path.
-    from . import decision_lock, metering
+    from . import decision_lock, metering, synthesis
 except ImportError:  # pragma: no cover - exercised by subprocess CLI tests
-    import decision_lock  # type: ignore[no-redef]
-    import metering  # type: ignore[no-redef]
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from scripts.experiments.es import (  # type: ignore[no-redef]
+        decision_lock,
+        metering,
+        synthesis,
+    )
 
 
 def _reject_constant(value: str) -> NoReturn:
@@ -52,6 +57,26 @@ def _load_canonical_value(path: Path) -> object:
     if decision_lock.canonical_json_bytes(value) != raw:
         raise decision_lock.DecisionLockError(
             "json_record_noncanonical", str(candidate)
+        )
+    return value
+
+
+def _load_canonical_synthesis_value(path: Path) -> object:
+    candidate = Path(path)
+    try:
+        raw = candidate.read_bytes()
+        value = json.loads(
+            raw.decode("utf-8", "strict"),
+            object_pairs_hook=_strict_object,
+            parse_constant=_reject_constant,
+        )
+    except decision_lock.DecisionLockError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise synthesis.SynthesisError("synthesis_json_invalid", str(candidate)) from exc
+    if synthesis.canonical_report_bytes(value) != raw:
+        raise synthesis.SynthesisError(
+            "synthesis_json_noncanonical", str(candidate)
         )
     return value
 
@@ -117,6 +142,29 @@ def _build_parser() -> argparse.ArgumentParser:
     receipts.add_argument("--evidence-root", type=Path, required=True)
     receipts.add_argument("--expected-calls", type=Path, required=True)
     receipts.add_argument("receipt_paths", type=Path, nargs="+")
+
+    validate_index = commands.add_parser("validate-attempt-index")
+    validate_index.add_argument("--lock", type=Path, required=True)
+    validate_index.add_argument("--randomization", type=Path, required=True)
+    validate_index.add_argument("--bindings", type=Path, required=True)
+    validate_index.add_argument("--input", type=Path, required=True)
+    validate_index.add_argument("--expected-index-sha256", required=True)
+    validate_index.add_argument("--output", type=Path, required=True)
+
+    synthesize = commands.add_parser("synthesize-report")
+    synthesize.add_argument("--lock", type=Path, required=True)
+    synthesize.add_argument("--randomization", type=Path, required=True)
+    synthesize.add_argument("--bindings", type=Path, required=True)
+    synthesize.add_argument(
+        "--input", dest="input_paths", action="append", type=Path, required=True
+    )
+    synthesize.add_argument(
+        "--expected-index-sha256",
+        dest="expected_index_digests",
+        action="append",
+        required=True,
+    )
+    synthesize.add_argument("--output", type=Path, required=True)
 
     meter = commands.add_parser("meter-exec")
     meter.add_argument("--evidence-root", type=Path, required=True)
@@ -184,6 +232,58 @@ def _run(args: argparse.Namespace) -> int:
         )
         _print_json({"receipt_count": len(records), "status": "valid"})
         return 0
+    if args.command_name == "validate-attempt-index":
+        lock = _object(_load_canonical_value(args.lock), field="lock")
+        randomization = _object(
+            _load_canonical_value(args.randomization), field="randomization"
+        )
+        bindings = _object(_load_canonical_value(args.bindings), field="bindings")
+        attempt_index = _object(
+            _load_canonical_synthesis_value(args.input), field="input"
+        )
+        validated = synthesis.validate_attempt_evidence_index(
+            attempt_index,
+            expected_index_sha256=args.expected_index_sha256,
+            decision_lock=lock,
+            randomization_manifest=randomization,
+            expected_bindings=bindings,
+        )
+        _publish_exclusive(args.output, synthesis.canonical_report_bytes(validated))
+        _print_json(
+            {
+                "attempt_id": validated["attempt_record"]["attempt_id"],
+                "index_sha256": validated["index_sha256"],
+                "status": "valid",
+            }
+        )
+        return 0
+    if args.command_name == "synthesize-report":
+        lock = _object(_load_canonical_value(args.lock), field="lock")
+        randomization = _object(
+            _load_canonical_value(args.randomization), field="randomization"
+        )
+        bindings = _object(_load_canonical_value(args.bindings), field="bindings")
+        indexed_attempts = [
+            _object(_load_canonical_synthesis_value(path), field="input")
+            for path in args.input_paths
+        ]
+        report = synthesis.synthesize_report(
+            indexed_attempts=indexed_attempts,
+            expected_index_digests=args.expected_index_digests,
+            decision_lock=lock,
+            randomization_manifest=randomization,
+            expected_bindings=bindings,
+        )
+        report_bytes = synthesis.canonical_report_bytes(report)
+        _publish_exclusive(args.output, report_bytes)
+        _print_json(
+            {
+                "report_sha256": "sha256:" + hashlib.sha256(report_bytes).hexdigest(),
+                "screen_result": report["screen_result"],
+                "status": "synthesized",
+            }
+        )
+        return 0
     if args.command_name == "meter-exec":
         provider_argv = list(args.provider_argv)
         if provider_argv and provider_argv[0] == "--":
@@ -210,7 +310,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
         return _run(parser.parse_args(argv))
-    except (decision_lock.DecisionLockError, metering.MeteringError) as exc:
+    except (
+        decision_lock.DecisionLockError,
+        metering.MeteringError,
+        synthesis.SynthesisError,
+    ) as exc:
         print(str(exc), file=sys.stderr)
         return 2
 

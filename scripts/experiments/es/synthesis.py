@@ -75,6 +75,10 @@ _INDEX_KEYS = frozenset(
         "elapsed_ms",
     }
 )
+_PARTIAL_INDEX_KEYS = _INDEX_KEYS | {
+    "invalidity_authority",
+    "invalidity_authority_sha256",
+}
 _CALL_AUTHORITY_KEYS = frozenset(
     {"schema_version", "prompt_manifest", "environment_lock"}
 )
@@ -223,6 +227,15 @@ _PARTIAL_EVIDENCE_KEYS = frozenset(
         "oriented_primary_sha256",
         "hard_primary_outcome",
         "hard_primary_outcome_sha256",
+    }
+)
+_INVALIDITY_AUTHORITY_KEYS = frozenset(
+    {"schema_version", "attempt_id", "invalidity_code", "evidence"}
+)
+_CONTROLLER_AUTHORITY_INVALIDITY_CODES = frozenset(
+    {
+        "COMMON_PROVIDER_OUTAGE_BEFORE_TREATMENT",
+        "COMMON_EVALUATION_BYTES_INVALID",
     }
 )
 _PRIMARY_KEYS = frozenset(
@@ -2186,6 +2199,7 @@ def build_invalid_attempt_evidence_index(
     frozen_call_authority: Mapping[str, object],
     call_allocations: Sequence[Mapping[str, object]],
     partial_evidence: Mapping[str, object] | None = None,
+    invalidity_authority: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     """Freeze the closed partial-evidence shape for an INVALID attempt."""
 
@@ -2287,6 +2301,12 @@ def build_invalid_attempt_evidence_index(
         ):
             _fail("synthesis_partial_evidence_shape_invalid")
         evidence = checked_partial
+    checked_invalidity_authority: dict[str, Any] | None = None
+    if invalidity_authority is not None:
+        normalized_authority = _canonical_copy(invalidity_authority)
+        if not isinstance(normalized_authority, dict):
+            _fail("synthesis_invalidity_authority_shape_invalid")
+        checked_invalidity_authority = normalized_authority
     body: dict[str, Any] = {
         "schema_version": ATTEMPT_INDEX_SCHEMA_VERSION,
         "evidence_variant": "PARTIAL",
@@ -2294,6 +2314,12 @@ def build_invalid_attempt_evidence_index(
         "attempt_record": checked_attempt,
         "attempt_record_sha256": _study_digest(checked_attempt),
         **evidence,
+        "invalidity_authority": checked_invalidity_authority,
+        "invalidity_authority_sha256": (
+            None
+            if checked_invalidity_authority is None
+            else _study_digest(checked_invalidity_authority)
+        ),
         "call_allocations": allocation_rows,
         "receipts": receipt_rows,
         "elapsed_ms": elapsed_rows,
@@ -2399,6 +2425,39 @@ def _validate_index_receipt_evidence(
     return normalized_receipts
 
 
+def _validate_invalidity_authority(
+    index: Mapping[str, Any],
+    *,
+    attempt_record: Mapping[str, object],
+) -> None:
+    authority = index.get("invalidity_authority")
+    authority_digest = index.get("invalidity_authority_sha256")
+    invalidity_code = attempt_record.get("invalidity_code")
+    requires_authority = invalidity_code in _CONTROLLER_AUTHORITY_INVALIDITY_CODES
+    if authority is None:
+        if authority_digest is not None:
+            _fail("synthesis_invalidity_authority_shape_invalid")
+        if requires_authority:
+            _fail("synthesis_invalidity_authority_missing")
+        return
+    if not requires_authority:
+        _fail("synthesis_invalidity_authority_forbidden")
+    if (
+        not isinstance(authority, Mapping)
+        or set(authority) != _INVALIDITY_AUTHORITY_KEYS
+        or authority.get("schema_version")
+        != "es.controller_invalidity_authority.v1"
+        or not isinstance(authority.get("evidence"), Mapping)
+    ):
+        _fail("synthesis_invalidity_authority_shape_invalid")
+    if (
+        authority.get("attempt_id") != attempt_record.get("attempt_id")
+        or authority.get("invalidity_code") != invalidity_code
+        or authority_digest != _study_digest(authority)
+    ):
+        _fail("synthesis_invalidity_authority_binding_mismatch")
+
+
 def _validate_partial_attempt_index(
     index: dict[str, Any],
     *,
@@ -2413,6 +2472,7 @@ def _validate_partial_attempt_index(
     """Validate a closed prefix of evidence incurred by one invalid attempt."""
 
     attempt_id = str(attempt_record["attempt_id"])
+    _validate_invalidity_authority(index, attempt_record=attempt_record)
     empty_after_join = {
         "public_packet_replay_inputs": None,
         "private_blinding_replay_inputs": None,
@@ -2539,10 +2599,10 @@ def _validate_partial_attempt_index(
             call_authority_by_slot=call_authority_by_slot,
         )
         return index
-    if not interrupted_valid and (
-        attempt_record.get("invalidity_code")
-        != "APPARATUS_ACCOUNTING_INCOMPLETE"
-    ):
+    if not interrupted_valid and attempt_record.get("invalidity_code") not in {
+        "APPARATUS_ACCOUNTING_INCOMPLETE",
+        "COMMON_EVALUATION_BYTES_INVALID",
+    }:
         _fail("synthesis_partial_evidence_invalidity_mismatch")
     if index["private_blinding_join"] is None:
         _fail("synthesis_private_join_missing")
@@ -2868,9 +2928,14 @@ def validate_attempt_evidence_index(
         expected_bindings,
     )
     index = _canonical_copy(value)
+    expected_keys = (
+        _PARTIAL_INDEX_KEYS
+        if isinstance(index, dict) and index.get("evidence_variant") == "PARTIAL"
+        else _INDEX_KEYS
+    )
     if (
         not isinstance(index, dict)
-        or set(index) != _INDEX_KEYS
+        or set(index) != expected_keys
         or index.get("schema_version") != ATTEMPT_INDEX_SCHEMA_VERSION
     ):
         _fail("synthesis_index_schema_invalid")
