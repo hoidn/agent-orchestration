@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** Tasks 1–6 are complete and Task 7 controller/CLI assembly is
-  selected; no live provider allocation is authorized
+- **Status:** Tasks 1–7 are complete and Task 8 provider-free public-entry
+  integration is selected; no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
   `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
@@ -313,6 +313,20 @@ pytest -q \
   tests/experiments/test_es_controller.py \
   tests/experiments/test_es_cli.py
 ```
+
+Task 7 is complete at commit
+`6410c101ca03f920eb1937b5c63bb22bfff48515`, tree
+`27ce0e352d247f2a9569f3bb9c8b8f3fc3b4ad88`. The exact reviewed
+controller and controller-test SHA-256 values are respectively
+`4eba80a3bb398a170a246a222dc31b2ee65122728461a1fc9f6864c747e1b394`
+and
+`57ccf9ddae2f1e6318fa401340fb112ac9e921ad56a8ad42979f65f1aaa32447`.
+The final candidate passed 522 sequential combined tests, changed-file
+Pyright, compilation, and whitespace checks; the postcommit focused control
+passed 130 tests. Ordered review recorded `ES_TASK5_TASK7_SPEC_APPROVED`, then
+distinct `ES_TASK5_TASK7_QUALITY_APPROVED`. Task 8 is selected for the
+provider-free public-entry integration and final Task-5 review. No live
+provider call or scientific-lock adoption is authorized by this transition.
 
 ## Task 8: Prove provider-free public-entry end to end and close Task 5
 

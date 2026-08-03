@@ -1853,7 +1853,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
     assert (
-        "status: tasks 1 6 are complete and task 7 controller/cli assembly is selected"
+        "status: tasks 1 7 are complete and task 8 provider free public entry integration is selected"
         in normalized_es_task5_plan
     )
     assert "task 1 is complete at commit 9b1ba3df" in normalized_es_task5_plan
@@ -1874,6 +1874,12 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert "c843f06f0eed82c08ac4692001ee63849d95a334" in es_task5_plan
     assert es_task5_plan.index("ES_TASK5_T6_SPEC_APPROVED") < (
         es_task5_plan.index("ES_TASK5_T6_QUALITY_APPROVED")
+    )
+    assert "task 7 is complete at commit" in normalized_es_task5_plan
+    assert "6410c101ca03f920eb1937b5c63bb22bfff48515" in es_task5_plan
+    assert "27ce0e352d247f2a9569f3bb9c8b8f3fc3b4ad88" in es_task5_plan
+    assert es_task5_plan.index("ES_TASK5_TASK7_SPEC_APPROVED") < (
+        es_task5_plan.index("ES_TASK5_TASK7_QUALITY_APPROVED")
     )
     assert "task 6 must freeze the complete package" in normalized_es_task5_plan
     assert "do not call a real provider in task 5" in normalized_es_task5_plan
