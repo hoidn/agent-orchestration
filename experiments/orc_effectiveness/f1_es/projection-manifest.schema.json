@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-source-projection-v1.json",
+  "title": "ES history-free source projection manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "exclusions",
+    "retained",
+    "recipe",
+    "policies",
+    "locator"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_source_projection.v1"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^/"},
+        "commit": {"$ref": "#/$defs/sha1"},
+        "tree": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "exclusions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows", "serialization", "sha256"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mode", "object_type", "oid", "path"],
+            "properties": {
+              "mode": {"type": "string", "pattern": "^[0-7]{6}$"},
+              "object_type": {"enum": ["blob", "commit"]},
+              "oid": {"$ref": "#/$defs/sha1"},
+              "path": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "serialization": {"const": "canonical-json-lf.v1"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "retained": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inventory_serialization",
+        "inventory_sha256",
+        "leaf_count",
+        "mode_counts",
+        "tree"
+      ],
+      "properties": {
+        "inventory_serialization": {"const": "git-ls-tree-r-z.v1"},
+        "inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "leaf_count": {"type": "integer", "minimum": 0},
+        "mode_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["regular", "executable", "symlink"],
+          "properties": {
+            "regular": {"type": "integer", "minimum": 0},
+            "executable": {"type": "integer", "minimum": 0},
+            "symlink": {"type": "integer", "minimum": 0}
+          }
+        },
+        "tree": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "author",
+        "message",
+        "message_bytes",
+        "message_sha256",
+        "commit_content_bytes",
+        "commit_content_sha256",
+        "commit"
+      ],
+      "properties": {
+        "policy": {"const": "e-series-source-projection.v1"},
+        "author": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "email", "timestamp", "timezone"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "email": {"type": "string", "minLength": 1},
+            "timestamp": {"type": "integer"},
+            "timezone": {"type": "string", "pattern": "^[+-][0-9]{4}$"}
+          }
+        },
+        "message": {"type": "string"},
+        "message_bytes": {"type": "integer", "minimum": 0},
+        "message_sha256": {"$ref": "#/$defs/sha256"},
+        "commit_content_bytes": {"type": "integer", "minimum": 0},
+        "commit_content_sha256": {"$ref": "#/$defs/sha256"},
+        "commit": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lfs", "object_closure", "symlinks"],
+      "properties": {
+        "lfs": {"const": "reject-pointers-and-filter-attributes.v1"},
+        "object_closure": {"const": "reachable-only.v1"},
+        "symlinks": {"const": "lexically-contained-relative-utf8.v1"}
+      }
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "object_format", "relative_path", "storage_root"],
+      "properties": {
+        "namespace": {"const": "es-source-projections.v1"},
+        "object_format": {"const": "sha1"},
+        "relative_path": {"type": "string", "pattern": "^git-sha1/[0-9a-f]{40}$"},
+        "storage_root": {"type": "string", "pattern": "^/"}
+      }
+    }
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
