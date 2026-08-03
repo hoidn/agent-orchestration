@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** proposed implementation plan; Task 5 is selected, but no live
-  provider allocation is authorized
+- **Status:** accepted for provider-free implementation; Task 1 is selected,
+  but no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
   `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
@@ -13,6 +13,13 @@
   `ES_TASK5_PLAN_QUALITY_APPROVED`
 - **Required implementation verdicts:** `ES_TASK5_SPEC_APPROVED`, then
   `ES_TASK5_QUALITY_APPROVED`
+- **Reviewed plan candidate:** commit
+  `d6fb50bc9b7279416d4998706382e5737b025508`, tree
+  `77a53ff95b3dca5942e569073c6cd255a81f3650`, plan SHA-256
+  `bdef93f3c47d53881514b3a42aba2b16f8d183fb2b9b3937af76088c533d223d`
+- **Plan review:**
+  `artifacts/review/es-task5-study-controller-plan-review.md` records
+  `ES_TASK5_PLAN_SPEC_APPROVED`, then `ES_TASK5_PLAN_QUALITY_APPROVED`
 - **Live boundary:** Task 6 must freeze the complete package and receive the
   exact owner adoption before any provider-bearing ES attempt
 
@@ -85,6 +92,12 @@ minimum index/routing assertion needed for discoverability.
 3. Obtain distinct `ES_TASK5_PLAN_QUALITY_APPROVED` against the same bytes.
 4. Correct material findings and replay the ordered pair once.
 5. Commit the accepted-plan transition and run the routing control.
+
+Task 0 is complete against candidate `d6fb50bc`, tree `77a53ff9`, after
+ordered `ES_TASK5_PLAN_SPEC_APPROVED` then distinct
+`ES_TASK5_PLAN_QUALITY_APPROVED`. Task 1 is selected. The gate authorizes only
+provider-free implementation and does not adopt or execute the scientific
+lock.
 
 ## Task 1: Preserve the generic E2 packet bytes at freeze time
 

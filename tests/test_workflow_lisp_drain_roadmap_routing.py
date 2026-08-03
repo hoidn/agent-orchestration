@@ -213,6 +213,9 @@ ES_TASK4_REVIEW_PATH = (
 ES_TASK5_EXECUTION_PLAN_PATH = (
     "docs/plans/2026-08-03-es-task5-study-controller-execution-plan.md"
 )
+ES_TASK5_PLAN_REVIEW_PATH = (
+    "artifacts/review/es-task5-study-controller-plan-review.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1429,6 +1432,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     es_task5_plan = (REPO_ROOT / ES_TASK5_EXECUTION_PLAN_PATH).read_text(
         encoding="utf-8"
     )
+    es_task5_plan_review = (REPO_ROOT / ES_TASK5_PLAN_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1668,6 +1674,8 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert Path(ES_TASK4_REVIEW_PATH).name in sequence
     assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
     assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in index
+    assert Path(ES_TASK5_PLAN_REVIEW_PATH).name in es_task5_plan
+    assert Path(ES_TASK5_PLAN_REVIEW_PATH).name in index
 
     normalized_es_plan = _normalized_routing_text(es_plan)
     normalized_es_plan_review = _normalized_routing_text(es_plan_review)
@@ -1844,7 +1852,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         in normalized_task5_contract
     )
     normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
-    assert "status: proposed implementation plan; task 5 is selected" in (
+    assert "status: accepted for provider free implementation; task 1 is selected" in (
         normalized_es_task5_plan
     )
     assert "task 6 must freeze the complete package" in normalized_es_task5_plan
@@ -1854,6 +1862,14 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert es_task5_plan.index("ES_TASK5_PLAN_SPEC_APPROVED") < (
         es_task5_plan.index("ES_TASK5_PLAN_QUALITY_APPROVED")
+    )
+    assert "d6fb50bc9b7279416d4998706382e5737b025508" in es_task5_plan
+    assert "77a53ff95b3dca5942e569073c6cd255a81f3650" in es_task5_plan
+    assert "bdef93f3c47d53881514b3a42aba2b16f8d183fb2b9b3937af76088c533d223d" in (
+        es_task5_plan
+    )
+    assert es_task5_plan_review.index("ES_TASK5_PLAN_SPEC_APPROVED") < (
+        es_task5_plan_review.index("ES_TASK5_PLAN_QUALITY_APPROVED")
     )
     for task_number in range(10):
         assert f"## Task {task_number}:" in es_plan
