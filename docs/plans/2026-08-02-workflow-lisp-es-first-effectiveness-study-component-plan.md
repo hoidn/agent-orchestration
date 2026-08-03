@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free ES execution; Task 0 review is closed
-  and Task 1 is selected; live allocation remains Task-6 owner-adoption gated
+- **Status:** accepted for provider-free ES execution; Tasks 0–1 are complete
+  and Task 2 is selected; live allocation remains Task-6 owner-adoption gated
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -26,6 +26,11 @@
   `artifacts/review/es-first-effectiveness-study-plan-review.md`
   (`sha256:5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba`);
   `ES_PLAN_SPEC_APPROVED`, then `ES_PLAN_QUALITY_APPROVED`
+- **Task-1 implementation and review:** commit
+  `62a5c72db7a9d02814db42b275fe4de24d8abece`, tree
+  `5eb5ca32743e7e261c23a282217e859d348f5c30`; review
+  `artifacts/review/es-first-effectiveness-study-task1-review.md` records
+  `ES_TASK1_SPEC_APPROVED`, then `ES_TASK1_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -489,7 +494,8 @@ does not adopt the proposed scientific lock.
 
 The acceptance transition committed at `2e4e39ea`. Its fresh postcommit
 routing and route-readiness control passed all 112 tests in 6.31 seconds.
-Task 0 is complete and Task 1 is active.
+That transition selected Task 1; Task 1 has since closed at `62a5c72d`, and
+Task 2 is selected.
 
 ## Task 1: Build and prove the history-free F1 projection
 
@@ -497,22 +503,41 @@ Task 0 is complete and Task 1 is active.
 manifest assets under `experiments/orc_effectiveness/f1_es/`, and
 `tests/experiments/test_es_f1_projection.py`.
 
-- [ ] RED original-source identity mismatch, any exclusion-set drift,
+- [x] RED original-source identity mismatch, any exclusion-set drift,
       retained-row drift, parent/history leakage, extra/unreachable object,
       unsafe symlink, LFS marker, and noncanonical manifest.
-- [ ] Generate the exact single-root projection from the literal 204-byte
+- [x] Generate the exact single-root projection from the literal 204-byte
       message and 430-byte commit-content vector above; independently verify
       its message SHA-256, content SHA-256, framed Git object ID, retained
       blobs/modes/symlinks, and expected tree/commit.
-- [ ] Prove original F1 fails E1's existing submodule guard and the projection
+- [x] Prove original F1 fails E1's existing submodule guard and the projection
       passes actual E1 materialization.
-- [ ] Bind a content-addressed absolute projection locator outside the mutable
+- [x] Bind a content-addressed absolute projection locator outside the mutable
       checkout.
-- [ ] Run static closure and import-origin proofs under `ptycho311`; no import
+- [x] Run static closure and import-origin proofs under `ptycho311`; no import
       may resolve to the live checkout or an excluded path.
-- [ ] Run the ten-module projected focused baseline with cache/bytecode writes
+- [x] Run the ten-module projected focused baseline with cache/bytecode writes
       disabled and record exact totals/digests.
-- [ ] Obtain ordered Task-1 reviews, commit, and rerun the postcommit controls.
+- [x] Obtain ordered Task-1 reviews, commit, and rerun the postcommit controls.
+
+Task 1 is complete at commit
+`62a5c72db7a9d02814db42b275fe4de24d8abece`, tree
+`5eb5ca32743e7e261c23a282217e859d348f5c30`, over base `6ab6dae9`, tree
+`7d2daef2d1ad6941fc1aae186276956a5fbdb66c`. The reviewed staged binary-diff
+SHA-256 is
+`f5af2e69125e4bc8b0adebb90ee1c556d97b6df14255e2acf9668e39ec061c63`.
+The exact verification record is
+`experiments/orc_effectiveness/f1_es/projection-verification.json`
+(`sha256:fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527`).
+Before the final-byte approvals, strict integer `message_bytes` and exact
+recipe-policy validation were added, and strict `git fsck` was locked with a
+reachable loose-blob corruption regression. The corrected bytes received
+ordered `ES_TASK1_SPEC_APPROVED` then distinct `ES_TASK1_QUALITY_APPROVED`;
+see `artifacts/review/es-first-effectiveness-study-task1-review.md`. The fresh
+postcommit Task-1 module passed 25 tests in 81.44 seconds, and the postcommit
+routing/readiness control passed 112 tests in 5.99 seconds. This closes only
+the history-free F1 projection: Task 2 is selected, while live allocation
+remains gated on the Task-6 exact scientific-lock owner adoption.
 
 ## Task 2: Freeze and calibrate the F1 task/evaluator package
 

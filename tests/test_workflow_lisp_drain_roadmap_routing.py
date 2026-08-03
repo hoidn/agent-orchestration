@@ -198,6 +198,9 @@ ES_COMPONENT_PLAN_PATH = (
 ES_COMPONENT_PLAN_REVIEW_PATH = (
     "artifacts/review/es-first-effectiveness-study-plan-review.md"
 )
+ES_TASK1_REVIEW_PATH = (
+    "artifacts/review/es-first-effectiveness-study-task1-review.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1399,6 +1402,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     es_plan_review = (REPO_ROOT / ES_COMPONENT_PLAN_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
+    es_task1_review = (REPO_ROOT / ES_TASK1_REVIEW_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1496,7 +1502,12 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert roadmap.index("ES_PLAN_SPEC_APPROVED") < roadmap.index(
         "ES_PLAN_QUALITY_APPROVED"
     )
-    assert "task 1 is selected for provider free execution" in normalized_roadmap
+    assert "tasks 0 1 are complete and task 2 is selected" in normalized_roadmap
+    assert "es_task1_spec_approved" in normalized_roadmap
+    assert "es_task1_quality_approved" in normalized_roadmap
+    assert roadmap.index("ES_TASK1_SPEC_APPROVED") < roadmap.index(
+        "ES_TASK1_QUALITY_APPROVED"
+    )
     assert "live es allocation remains gated" in normalized_roadmap
     assert "phase me may proceed in parallel and never blocks an e exit" in (
         normalized_roadmap
@@ -1568,7 +1579,11 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     )
     assert "route readiness remains unchanged" in normalized_trial_capability
     assert "es's component plan gate is satisfied" in normalized_trial_capability
-    assert "provider free task 1 is selected" in normalized_trial_capability
+    assert "tasks 0 1 are complete and task 2 is selected" in (
+        normalized_trial_capability
+    )
+    assert "62a5c72d" in normalized_trial_capability
+    assert "5eb5ca32" in normalized_trial_capability
     assert "live allocation remains task 6 owner adoption gated" in (
         normalized_trial_capability
     )
@@ -1600,12 +1615,15 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     for surface in (roadmap, design_index, index, trial_capability):
         assert Path(ES_COMPONENT_PLAN_PATH).name in surface
         assert Path(ES_COMPONENT_PLAN_REVIEW_PATH).name in surface
+        assert Path(ES_TASK1_REVIEW_PATH).name in surface
+    assert Path(ES_TASK1_REVIEW_PATH).name in sequence
 
     normalized_es_plan = _normalized_routing_text(es_plan)
     normalized_es_plan_review = _normalized_routing_text(es_plan_review)
+    normalized_es_task1_review = _normalized_routing_text(es_task1_review)
     assert (
-        "status: accepted for provider free es execution; task 0 review is closed "
-        "and task 1 is selected; live allocation remains task 6 owner adoption gated"
+        "status: accepted for provider free es execution; tasks 0 1 are complete "
+        "and task 2 is selected; live allocation remains task 6 owner adoption gated"
         in normalized_es_plan
     )
     assert "27be07e27825c161145671a70219143a3b8aa624" in es_plan
@@ -1629,6 +1647,37 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         "5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba"
     )
     assert es_plan_review_digest in es_plan
+    assert "62a5c72db7a9d02814db42b275fe4de24d8abece" in es_plan
+    assert "5eb5ca32743e7e261c23a282217e859d348f5c30" in es_plan
+    assert "f5af2e69125e4bc8b0adebb90ee1c556d97b6df14255e2acf9668e39ec061c63" in (
+        es_plan
+    )
+    assert "fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527" in (
+        es_plan
+    )
+    assert es_plan.index("ES_TASK1_SPEC_APPROVED") < es_plan.index(
+        "ES_TASK1_QUALITY_APPROVED"
+    )
+    assert "status: approved; es tasks 0 1 are complete and task 2 is selected" in (
+        normalized_es_task1_review
+    )
+    assert "62a5c72db7a9d02814db42b275fe4de24d8abece" in es_task1_review
+    assert "5eb5ca32743e7e261c23a282217e859d348f5c30" in es_task1_review
+    assert "f5af2e69125e4bc8b0adebb90ee1c556d97b6df14255e2acf9668e39ec061c63" in (
+        es_task1_review
+    )
+    assert "fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527" in (
+        es_task1_review
+    )
+    assert es_task1_review.index("ES_TASK1_SPEC_APPROVED") < (
+        es_task1_review.index("ES_TASK1_QUALITY_APPROVED")
+    )
+    assert "postcommit module passed 25 tests in 81.44 seconds" in (
+        normalized_es_task1_review
+    )
+    assert "routing/readiness control passed 112 tests in 5.99 seconds" in (
+        normalized_es_task1_review
+    )
     for task_number in range(10):
         assert f"## Task {task_number}:" in es_plan
     assert "this gate authorizes no live es call" in normalized_es_plan
@@ -2582,7 +2631,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     assert "es_plan_spec_approved" in normalized_evolution_status
     assert "es_plan_quality_approved" in normalized_evolution_status
-    assert "task 1 is selected for provider free execution" in (
+    assert "tasks 0 1 are complete and task 2 is selected" in (
         normalized_evolution_status
     )
     assert "e3 remains gated on review of the fixed study, es results" in (
