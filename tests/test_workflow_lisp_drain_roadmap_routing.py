@@ -210,6 +210,9 @@ ES_TASK3_REVIEW_PATH = (
 ES_TASK4_REVIEW_PATH = (
     "artifacts/review/es-first-effectiveness-study-task4-review.md"
 )
+ES_TASK5_EXECUTION_PLAN_PATH = (
+    "docs/plans/2026-08-03-es-task5-study-controller-execution-plan.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1423,6 +1426,9 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     es_task4_review = (REPO_ROOT / ES_TASK4_REVIEW_PATH).read_text(
         encoding="utf-8"
     )
+    es_task5_plan = (REPO_ROOT / ES_TASK5_EXECUTION_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
     sequence = (
         REPO_ROOT
         / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
@@ -1660,6 +1666,8 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
     assert Path(ES_TASK2_REVIEW_PATH).name in sequence
     assert Path(ES_TASK3_REVIEW_PATH).name in sequence
     assert Path(ES_TASK4_REVIEW_PATH).name in sequence
+    assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
+    assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in index
 
     normalized_es_plan = _normalized_routing_text(es_plan)
     normalized_es_plan_review = _normalized_routing_text(es_plan_review)
@@ -1834,6 +1842,18 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         "must not recompile retained source, reconstruct a terminal execution, "
         "invoke execute_trial_cells, or rebuild historical packet bytes"
         in normalized_task5_contract
+    )
+    normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
+    assert "status: proposed implementation plan; task 5 is selected" in (
+        normalized_es_task5_plan
+    )
+    assert "task 6 must freeze the complete package" in normalized_es_task5_plan
+    assert "do not call a real provider in task 5" in normalized_es_task5_plan
+    assert "do not change the dsl target, trial ledger/state schema" in (
+        normalized_es_task5_plan
+    )
+    assert es_task5_plan.index("ES_TASK5_PLAN_SPEC_APPROVED") < (
+        es_task5_plan.index("ES_TASK5_PLAN_QUALITY_APPROVED")
     )
     for task_number in range(10):
         assert f"## Task {task_number}:" in es_plan

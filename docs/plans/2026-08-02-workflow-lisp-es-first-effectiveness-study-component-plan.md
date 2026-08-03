@@ -937,6 +937,10 @@ digest-bearing ledger rows and must not extend or import
 `scripts/experiments/es/controller.py`, review packaging and synthesis modules,
 fixtures, and E2 integration tests.
 
+Detailed TDD sequencing is owned by
+`docs/plans/2026-08-03-es-task5-study-controller-execution-plan.md` after its
+ordered plan review; that plan cannot weaken this component contract.
+
 - [ ] RED every source/task/arm/prompt/provider/check/evaluator/environment/
       randomization/lock mismatch before launch.
 - [ ] Exercise an entire four-arm E2 trial over deterministic providers:
