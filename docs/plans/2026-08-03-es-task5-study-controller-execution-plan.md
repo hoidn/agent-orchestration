@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- **Status:** Tasks 1–7 are complete and Task 8 provider-free public-entry
-  integration is selected; no live provider allocation is authorized
+- **Status:** complete at `e5ec552d`, tree `1b0f0e67`; the owner-directed
+  large-scope F1 refreeze is next and no live provider allocation is authorized
 - **Owner:** agent-orchestration maintainers
 - **Governing component plan:**
   `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
@@ -20,6 +20,12 @@
 - **Plan review:**
   `artifacts/review/es-task5-study-controller-plan-review.md` records
   `ES_TASK5_PLAN_SPEC_APPROVED`, then `ES_TASK5_PLAN_QUALITY_APPROVED`
+- **Final implementation and review:** commit
+  `e5ec552d3c0b06c949f8d2186b692fa4a4b77f9a`, tree
+  `1b0f0e67cdc7e3676d892fdd2245f1306f7057b7`, reviewed binary-diff SHA-256
+  `6bda9528a2bc97858d6208957a515b3832d8d380e0a466c5e673547e4a49b91e`;
+  `artifacts/review/es-first-effectiveness-study-task5-review.md` records
+  `ES_TASK5_SPEC_APPROVED`, then `ES_TASK5_QUALITY_APPROVED`
 - **Live boundary:** The governing component-plan Task 6 must freeze the
   complete package and receive the exact owner adoption before any
   provider-bearing ES attempt
@@ -376,12 +382,31 @@ scope, obtain ordered `ES_TASK5_SPEC_APPROVED` then distinct
 `ES_TASK5_QUALITY_APPROVED` against exact bytes, commit, and rerun the focused
 and routing controls postcommit.
 
+Task 8 and Task 5 are complete at commit
+`e5ec552d3c0b06c949f8d2186b692fa4a4b77f9a`, tree
+`1b0f0e67cdc7e3676d892fdd2245f1306f7057b7`, over base
+`55754da4043dc7eaef8ac385aaf6e2c528eb7e5b`, tree
+`d456188e6d5beb44708ef04b2dce179bcb114f70`. The exact reviewed staged
+binary-diff SHA-256 is
+`6bda9528a2bc97858d6208957a515b3832d8d380e0a466c5e673547e4a49b91e`.
+Fresh focused verification passed 1,048 tests, the final treatment-parity
+control passed 42 tests, and the final broad non-security gate passed 12,332
+tests with 19 skips. Ordered review recorded `ES_TASK5_SPEC_APPROVED`, then
+distinct `ES_TASK5_QUALITY_APPROVED`; see
+`artifacts/review/es-first-effectiveness-study-task5-review.md`.
+
+This closure does not make the predecessor small F1 task launchable. The
+owner-directed large-scope F1 refreeze is the next provider-free ES unit and
+must close before Task 6 can freeze an adoptable launch package. No live
+provider allocation is authorized by Task-5 completion.
+
 ## Completion criteria
 
-Task 5 is complete only when the generic packet artifact projection is
+Task 5 is complete: the generic packet artifact projection is
 byte-authoritative and idempotent, the full ES controller works through the
 public E2 entry without live providers, every locked failure/override/
 accounting route is covered, deterministic report regeneration succeeds from
 immutable records, ordered final reviews approve the exact implementation,
-and postcommit controls pass. Completion selects Task 6; it does not adopt the
-scientific lock or authorize a live provider call.
+and postcommit controls pass. The owner-directed large-scope F1 refreeze now
+precedes Task 6; completion does not adopt the scientific lock or authorize a
+live provider call.

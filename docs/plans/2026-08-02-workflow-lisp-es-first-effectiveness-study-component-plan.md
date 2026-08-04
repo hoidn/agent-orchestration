@@ -2,8 +2,9 @@
 
 ## Metadata
 
-- **Status:** accepted for provider-free ES execution; Tasks 0–4 are complete
-  and Task 5 is selected; live allocation remains Task-6 owner-adoption gated
+- **Status:** accepted for provider-free ES execution; Tasks 0–5 are complete;
+  the owner-directed large-scope F1 refreeze is next; live allocation remains
+  prohibited
 - **Owner:** agent-orchestration maintainers; the scientific decision-lock
   choices require a separate personal adoption by Ollie before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
@@ -55,6 +56,14 @@
   `52802bc7567384288a610f66885383ed14292e445268c8ebd9f26f5f3ac4a2d8`;
   review `artifacts/review/es-first-effectiveness-study-task4-review.md`
   records `ES_TASK4_SPEC_APPROVED`, then `ES_TASK4_QUALITY_APPROVED`
+- **Task-5 implementation and review:** commit
+  `e5ec552d3c0b06c949f8d2186b692fa4a4b77f9a`, tree
+  `1b0f0e67cdc7e3676d892fdd2245f1306f7057b7`, over base
+  `55754da4043dc7eaef8ac385aaf6e2c528eb7e5b`, tree
+  `d456188e6d5beb44708ef04b2dce179bcb114f70`; binary-diff SHA-256
+  `6bda9528a2bc97858d6208957a515b3832d8d380e0a466c5e673547e4a49b91e`;
+  review `artifacts/review/es-first-effectiveness-study-task5-review.md`
+  records `ES_TASK5_SPEC_APPROVED`, then `ES_TASK5_QUALITY_APPROVED`
 - **Selection authority:**
   `docs/plans/2026-08-01-workflow-lisp-post-e2-stage-sequencing.md`
   (`sha256:cf374698d66475fee17095808be01039a5c873f75d347dcdb828dfd068d93011`)
@@ -941,33 +950,47 @@ Detailed TDD sequencing is owned by
 `docs/plans/2026-08-03-es-task5-study-controller-execution-plan.md` after its
 ordered plan review; that plan cannot weaken this component contract.
 
-- [ ] RED every source/task/arm/prompt/provider/check/evaluator/environment/
+- [x] RED every source/task/arm/prompt/provider/check/evaluator/environment/
       randomization/lock mismatch before launch.
-- [ ] Exercise an entire four-arm E2 trial over deterministic providers:
+- [x] Exercise an entire four-arm E2 trial over deterministic providers:
       coherent concurrent launch, freeze, one scorer per cell, opaque packets,
       initial reviews, hard evidence, integrated review, receipt join, and
       deterministic report.
-- [ ] RED/GREEN the generic artifact-only packet projection: exact bytes and
+- [x] RED/GREEN the generic artifact-only packet projection: exact bytes and
       index publish before scoring; exact-existing replay is idempotent;
       symlink, nonregular, overwrite, missing/extra row, digest drift, and
       post-run packet reconstruction all fail closed.
-- [ ] RED every primary-outcome mapping: exact `RICH`, `DIRECT`, `TIE`, and
+- [x] RED every primary-outcome mapping: exact `RICH`, `DIRECT`, `TIE`, and
       `INDETERMINATE`; no-trusted-freeze and nonviability behavior; one-sided
       and comparable critical defects; unresolved findings; and attempted
       substitution from scorer values or reviewer prose.
-- [ ] Prove required-check failure, scorer/reviewer failure, arm timeout,
+- [x] Prove required-check failure, scorer/reviewer failure, arm timeout,
       common invalidity, interruption, fresh next-attempt replacement, and the
       absolute call ceiling. Never resume an attempt.
-- [ ] Prove report regeneration from immutable records and reject any
+- [x] Prove report regeneration from immutable records and reject any
       denominator extension, missing attempt, post-lock mutation, or identity
       disclosure in blinded packets.
-- [ ] Obtain ordered Task-5 reviews, commit, and rerun postcommit controls.
+- [x] Obtain ordered Task-5 reviews, commit, and rerun postcommit controls.
+
+Task 5 closed at `e5ec552d`, tree `1b0f0e67`, after ordered
+`ES_TASK5_SPEC_APPROVED` then `ES_TASK5_QUALITY_APPROVED`; see
+`artifacts/review/es-first-effectiveness-study-task5-review.md`. The final
+focused gate passed 1,048 tests, treatment parity passed 42, and the broad
+non-security gate passed 12,332 with 19 skips. This closure authorizes no live
+provider call.
 
 ## Task 6: Freeze the prelaunch package and obtain owner adoption
 
 **Files:** canonical manifests/lock and an exact pending adoption form under
 `experiments/orc_effectiveness/f1_es/`; create
 `artifacts/review/es-first-effectiveness-study-prelaunch-review.md`.
+
+Task 6 is not yet eligible. The owner-directed large-scope F1 refreeze must
+first replace the superseded small task with a reviewed 5,000–10,000
+implementation-LOC reference-calibrated package, with tests and docs metered
+separately. Until that provider-free amendment and its exact owner adoption
+close, no arm, attempt ID, invalid-attempt allowance, or denominator row may be
+consumed.
 
 - [ ] Freeze all task-seed, environment, apparatus, workflow, prompt,
       evaluator, fixture, schedule, report, hard-contract/disposition, and
