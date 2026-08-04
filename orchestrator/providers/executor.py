@@ -675,6 +675,7 @@ class ProviderExecutor:
         control: Optional[ProviderExecutionControl] = None,
         *,
         observation_handle: Optional[ProviderObservationHandle] = None,
+        execution_env_overlay: Optional[Dict[str, str]] = None,
     ) -> ProviderExecutionResult:
         """Execute while keeping optional observation outside result semantics."""
         pre_execution_failure = (
@@ -697,6 +698,7 @@ class ProviderExecutor:
                 session_runtime=session_runtime,
                 control=control,
                 observation_handle=active_observation,
+                execution_env_overlay=execution_env_overlay,
             )
         finally:
             self._finalize_observation(
@@ -754,6 +756,7 @@ class ProviderExecutor:
         control: Optional[ProviderExecutionControl] = None,
         *,
         observation_handle: Optional[ProviderObservationHandle] = None,
+        execution_env_overlay: Optional[Dict[str, str]] = None,
     ) -> ProviderExecutionResult:
         """
         Execute a prepared provider invocation.
@@ -768,6 +771,10 @@ class ProviderExecutor:
         """
         working_dir = cwd or self.workspace
         start_time = time.time()
+        process_env = self._build_process_environment(
+            invocation,
+            execution_env_overlay,
+        )
 
         if control is not None:
             return self._execute_controlled_invocation(
@@ -778,12 +785,8 @@ class ProviderExecutor:
                 session_runtime=session_runtime,
                 control=control,
                 observation_handle=observation_handle,
+                process_env=process_env,
             )
-
-        # Setup environment
-        process_env = os.environ.copy()
-        if invocation.env:
-            process_env.update(invocation.env)
 
         try:
             # Prepare stdin if needed
@@ -978,6 +981,50 @@ class ProviderExecutor:
                 }
             )
 
+    @staticmethod
+    def _build_process_environment(
+        invocation: ProviderInvocation,
+        execution_env_overlay: Optional[Dict[str, str]],
+    ) -> Dict[str, str]:
+        """Build process env without mutating the prepared invocation."""
+
+        if (
+            execution_env_overlay is not None
+            and type(execution_env_overlay) is not dict
+        ):
+            raise TypeError(
+                "execution_env_overlay must be an exact dict or None"
+            )
+        if execution_env_overlay is not None:
+            if any(type(key) is not str for key in execution_env_overlay):
+                raise TypeError(
+                    "execution_env_overlay keys must be strings"
+                )
+            if any(
+                type(value) is not str
+                for value in execution_env_overlay.values()
+            ):
+                raise TypeError(
+                    "execution_env_overlay values must be strings"
+                )
+            if any(
+                not key or "=" in key or "\0" in key
+                for key in execution_env_overlay
+            ):
+                raise ValueError("execution_env_overlay key is invalid")
+            if any(
+                "\0" in value
+                for value in execution_env_overlay.values()
+            ):
+                raise ValueError("execution_env_overlay value is invalid")
+
+        process_env = os.environ.copy()
+        if invocation.env:
+            process_env.update(invocation.env)
+        if execution_env_overlay:
+            process_env.update(execution_env_overlay)
+        return process_env
+
     def _execute_observed_nonstream_invocation(
         self,
         *,
@@ -1096,6 +1143,7 @@ class ProviderExecutor:
         session_runtime: Optional[Dict[str, Any]],
         control: ProviderExecutionControl,
         observation_handle: Optional[ProviderObservationHandle],
+        process_env: Dict[str, str],
     ) -> ProviderExecutionResult:
         """Execute one opt-in invocation inside a runtime-owned process group."""
         expected_session_id: Optional[str] = None
@@ -1126,9 +1174,6 @@ class ProviderExecutor:
             )
 
         try:
-            process_env = os.environ.copy()
-            if invocation.env:
-                process_env.update(invocation.env)
             stdin_input = None
             if invocation.input_mode == InputMode.STDIN and invocation.prompt:
                 stdin_input = invocation.prompt.encode("utf-8")

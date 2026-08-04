@@ -344,23 +344,33 @@ _COMPLETED_SEQUENCES = {
 
 
 def derive_terminal_routes() -> list[dict[str, object]]:
-    """Return every unique terminal prefix in the frozen four-arm graph."""
+    """Return every terminal prefix/outcome in the frozen four-arm graph."""
 
     rows: list[dict[str, object]] = []
     for arm, prefixes in _TERMINAL_PREFIXES:
         for roles in prefixes:
             suffix = "_".join(roles) if roles else "EMPTY"
             call_slots = [f"{arm}.{role}" for role in roles]
-            rows.append(
-                {
-                    "arm": arm,
-                    "route_id": f"{arm}.{suffix}",
-                    "role_sequence": list(roles),
-                    "call_slots": call_slots,
-                    "call_count": len(call_slots),
-                    "completed": roles in _COMPLETED_SEQUENCES[arm],
-                }
-            )
+            completed = roles in _COMPLETED_SEQUENCES[arm]
+            route = {
+                "arm": arm,
+                "route_id": f"{arm}.{suffix}",
+                "role_sequence": list(roles),
+                "call_slots": call_slots,
+                "call_count": len(call_slots),
+                "completed": completed,
+            }
+            rows.append(route)
+            if completed:
+                rows.append(
+                    {
+                        **route,
+                        "route_id": (
+                            f"{arm}.{suffix}.FAILED_AT_FINAL_CALL"
+                        ),
+                        "completed": False,
+                    }
+                )
     return rows
 
 
@@ -733,7 +743,7 @@ def build_decision_lock(
         maximum_invalid_attempts=authored["maximum_invalid_attempts"],
     )
     lock: dict[str, Any] = {
-        "schema_version": "decision_lock.v1",
+        "schema_version": "decision_lock.v2",
         "authored_choices": authored,
         "provider_contract": {
             "provider_family": "codex-cli",

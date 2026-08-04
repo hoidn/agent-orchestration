@@ -245,17 +245,36 @@ class _CallFrameStateManager:
         """Persist the nested call-frame state through the parent manager."""
         self._persist()
 
+    def _aggregate_state_mutation(
+        self,
+        *,
+        allow_missing_leaf_resume_scope_path: bool = False,
+    ) -> Any:
+        """Return the validated aggregate-root mutation context."""
+
+        from .provider_attempts import _aggregate_run_state_mutation
+
+        return _aggregate_run_state_mutation(
+            self,
+            allow_missing_leaf_resume_scope_path=(
+                allow_missing_leaf_resume_scope_path
+            ),
+        )
+
     def update_bound_input_resume_validation(
         self,
         *,
         status: str,
         diagnostics: Optional[list[str]] = None,
     ) -> None:
-        self.bound_input_resume_validation = {
-            "status": status,
-            "diagnostics": list(diagnostics or []),
-        }
-        self._persist()
+        with self._aggregate_state_mutation(
+            allow_missing_leaf_resume_scope_path=True,
+        ):
+            self.bound_input_resume_validation = {
+                "status": status,
+                "diagnostics": list(diagnostics or []),
+            }
+            self._persist()
 
     def load(self) -> RunState:
         return self.state
@@ -296,13 +315,14 @@ class _CallFrameStateManager:
         del step_name
 
     def update_step(self, step_name: str, result: StepResult) -> None:
-        self.state.steps[step_name] = result
-        if (
-            self.state.current_step is not None
-            and self.state.current_step.get("name") == step_name
-        ):
-            self.state.current_step = None
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.steps[step_name] = result
+            if (
+                self.state.current_step is not None
+                and self.state.current_step.get("name") == step_name
+            ):
+                self.state.current_step = None
+            self._persist()
 
     def _refresh_state_chain_from_root(self) -> None:
         """Refresh every live call-frame manager after one root-owned commit."""
@@ -344,10 +364,6 @@ class _CallFrameStateManager:
         expected_step_status: Optional[str],
         commit_guard: Optional[Callable[[], bool]],
     ) -> None:
-        from .provider_attempts import resolve_aggregate_run_owner
-
-        owner = resolve_aggregate_run_owner(self)
-
         def authoritative_guard(leaf: RunState) -> bool:
             current = leaf.current_step
             matches = (
@@ -381,12 +397,15 @@ class _CallFrameStateManager:
             if clear_current_step:
                 leaf.current_step = None
 
-        owner.root_manager._mutate_scoped_state(
-            owner.resume_scope_path,
-            commit_guard=authoritative_guard,
-            mutation=mutation,
-        )
-        self._refresh_state_chain_from_root()
+        with self._aggregate_state_mutation() as owner:
+            try:
+                owner.root_manager._mutate_scoped_state(
+                    owner.resume_scope_path,
+                    commit_guard=authoritative_guard,
+                    mutation=mutation,
+                )
+            finally:
+                self._refresh_state_chain_from_root()
 
     def finalize_step_with_dataflow(
         self,
@@ -463,20 +482,24 @@ class _CallFrameStateManager:
         )
 
     def update_loop_step(self, loop_name: str, index: int, step_name: str, result: StepResult) -> None:
-        self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
+            self._persist()
 
     def clear_loop_step(self, loop_name: str, index: int, step_name: str) -> None:
-        self.state.steps.pop(f"{loop_name}[{index}].{step_name}", None)
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.steps.pop(f"{loop_name}[{index}].{step_name}", None)
+            self._persist()
 
     def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]) -> None:
-        self.state.steps[loop_name] = loop_results
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.steps[loop_name] = loop_results
+            self._persist()
 
     def update_for_each(self, loop_name: str, state: ForEachState) -> None:
-        self.state.for_each[loop_name] = state
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.for_each[loop_name] = state
+            self._persist()
 
     def update_repeat_until_state(
         self,
@@ -484,10 +507,11 @@ class _CallFrameStateManager:
         progress: Dict[str, Any],
         frame_result: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.state.repeat_until[loop_name] = progress
-        if frame_result is not None:
-            self.state.steps[loop_name] = frame_result
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.repeat_until[loop_name] = progress
+            if frame_result is not None:
+                self.state.steps[loop_name] = frame_result
+            self._persist()
 
     def update_dataflow_state(
         self,
@@ -496,65 +520,84 @@ class _CallFrameStateManager:
         private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
         private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> None:
-        self.state.artifact_versions = artifact_versions
-        self.state.artifact_consumes = artifact_consumes
-        if private_artifact_versions is not None:
-            self.state.private_artifact_versions = private_artifact_versions
-        if private_artifact_consumes is not None:
-            self.state.private_artifact_consumes = private_artifact_consumes
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.artifact_versions = deepcopy(artifact_versions)
+            self.state.artifact_consumes = deepcopy(artifact_consumes)
+            if private_artifact_versions is not None:
+                self.state.private_artifact_versions = deepcopy(
+                    private_artifact_versions
+                )
+            if private_artifact_consumes is not None:
+                self.state.private_artifact_consumes = deepcopy(
+                    private_artifact_consumes
+                )
+            self._persist()
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]) -> None:
-        self.state.call_frames[frame_id] = frame_state
-        self._persist()
+        """Commit one descendant frame in one aggregate-root transaction."""
+
+        def apply(state: RunState) -> None:
+            state.call_frames[frame_id] = deepcopy(frame_state)
+
+        with self._aggregate_state_mutation() as owner:
+            try:
+                owner.root_manager._mutate_scoped_state(
+                    owner.resume_scope_path,
+                    commit_guard=lambda _leaf: True,
+                    mutation=apply,
+                )
+            finally:
+                self._refresh_state_chain_from_root()
 
     def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]) -> None:
-        self.state.workflow_outputs = workflow_outputs
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.workflow_outputs = workflow_outputs
+            self._persist()
 
     def update_bound_inputs(self, bound_inputs: Dict[str, Any]) -> None:
-        self.state.bound_inputs = dict(bound_inputs)
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.bound_inputs = dict(bound_inputs)
+            self._persist()
 
     def update_finalization_state(self, finalization: Dict[str, Any]) -> None:
-        self.state.finalization = finalization
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.finalization = deepcopy(finalization)
+            self._persist()
 
     def update_run_error(self, error: Optional[Dict[str, Any]]) -> None:
-        self.state.error = error
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.error = error
+            self._persist()
 
     def update_control_flow_counters(
         self,
         transition_count: int,
         step_visits: Dict[str, int],
     ) -> None:
-        self.state.transition_count = transition_count
-        self.state.step_visits = step_visits
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.transition_count = transition_count
+            self.state.step_visits = dict(step_visits)
+            self._persist()
 
     def _mutate_eligible_pure_state(
         self,
         mutation: Callable[[RunState], Any],
     ) -> Any:
         """Commit one eligible-pure frame mutation through the aggregate root."""
-
-        from .provider_attempts import resolve_aggregate_run_owner
-
-        owner = resolve_aggregate_run_owner(self)
         result: list[Any] = []
 
         def apply(leaf: RunState) -> None:
             result.append(mutation(leaf))
 
-        try:
-            owner.root_manager._mutate_scoped_state(
-                owner.resume_scope_path,
-                commit_guard=lambda _leaf: True,
-                mutation=apply,
-            )
-        finally:
-            self._refresh_state_chain_from_root()
+        with self._aggregate_state_mutation() as owner:
+            try:
+                owner.root_manager._mutate_scoped_state(
+                    owner.resume_scope_path,
+                    commit_guard=lambda _leaf: True,
+                    mutation=apply,
+                )
+            finally:
+                self._refresh_state_chain_from_root()
         return result[0] if result else None
 
     def begin_eligible_pure_visit(
@@ -583,12 +626,7 @@ class _CallFrameStateManager:
         witness: Any,
     ) -> int:
         """Validate and reuse one nested interrupted visit read-only."""
-
-        from .provider_attempts import resolve_aggregate_run_owner
-
-        owner = resolve_aggregate_run_owner(self)
-        with owner.root_manager._state_mutation():
-            self._refresh_state_chain_from_root()
+        with self._aggregate_state_mutation():
             _require_interrupted_eligible_pure_visit(self.state, witness)
             return witness.visit_count
 
@@ -624,8 +662,9 @@ class _CallFrameStateManager:
         )
 
     def update_status(self, status: str) -> None:
-        self.state.status = status
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.status = status
+            self._persist()
 
     def fail_run(
         self,
@@ -635,24 +674,30 @@ class _CallFrameStateManager:
         expected_step_id: Optional[str] = None,
         expected_visit_count: Optional[int] = None,
     ) -> None:
-        self.state.status = "failed"
-        self.state.error = error
-        if clear_current_step and isinstance(self.state.current_step, dict):
-            current_step = self.state.current_step
-            if expected_step_id is not None and current_step.get("step_id") != expected_step_id:
-                self._persist()
-                return
-            if (
-                expected_visit_count is not None
-                and current_step.get("visit_count") != expected_visit_count
-            ):
-                self._persist()
-                return
-            self.state.current_step = None
-        elif isinstance(self.state.current_step, dict):
-            self.state.current_step["status"] = "failed"
-            self.state.current_step["failed_at"] = datetime.now(timezone.utc).isoformat()
-        self._persist()
+        with self._aggregate_state_mutation():
+            self.state.status = "failed"
+            self.state.error = error
+            if clear_current_step and isinstance(self.state.current_step, dict):
+                current_step = self.state.current_step
+                if (
+                    expected_step_id is not None
+                    and current_step.get("step_id") != expected_step_id
+                ):
+                    self._persist()
+                    return
+                if (
+                    expected_visit_count is not None
+                    and current_step.get("visit_count") != expected_visit_count
+                ):
+                    self._persist()
+                    return
+                self.state.current_step = None
+            elif isinstance(self.state.current_step, dict):
+                self.state.current_step["status"] = "failed"
+                self.state.current_step["failed_at"] = (
+                    datetime.now(timezone.utc).isoformat()
+                )
+            self._persist()
 
     def recover_interrupted_provider_visit(
         self,
@@ -664,10 +709,6 @@ class _CallFrameStateManager:
         legacy_error_type: Optional[str] = None,
     ) -> None:
         """Atomically clear one exact nested interrupted cursor at the root."""
-
-        from .provider_attempts import resolve_aggregate_run_owner
-
-        owner = resolve_aggregate_run_owner(self)
         expected = {
             "name": expected_step_name,
             "step_id": expected_step_id,
@@ -708,12 +749,15 @@ class _CallFrameStateManager:
             leaf.error = None
             leaf.status = "running"
 
-        owner.root_manager._mutate_scoped_state(
-            owner.resume_scope_path,
-            commit_guard=exact_cursor,
-            mutation=recover,
-        )
-        self._refresh_state_chain_from_root()
+        with self._aggregate_state_mutation() as owner:
+            try:
+                owner.root_manager._mutate_scoped_state(
+                    owner.resume_scope_path,
+                    commit_guard=exact_cursor,
+                    mutation=recover,
+                )
+            finally:
+                self._refresh_state_chain_from_root()
 
     def start_step(
         self,
@@ -723,28 +767,50 @@ class _CallFrameStateManager:
         step_id: Optional[str] = None,
         visit_count: Optional[int] = None,
     ) -> None:
-        now = datetime.now(timezone.utc).isoformat()
-        self.state.current_step = {
-            "name": step_name,
-            "index": step_index,
-            "type": step_type,
-            "status": "running",
-            "started_at": now,
-            "last_heartbeat_at": now,
-        }
-        if step_id:
-            self.state.current_step["step_id"] = step_id
-        if visit_count is not None:
-            self.state.current_step["visit_count"] = visit_count
-        self._persist()
+        with self._aggregate_state_mutation():
+            now = datetime.now(timezone.utc).isoformat()
+            self.state.current_step = {
+                "name": step_name,
+                "index": step_index,
+                "type": step_type,
+                "status": "running",
+                "started_at": now,
+                "last_heartbeat_at": now,
+            }
+            if step_id:
+                self.state.current_step["step_id"] = step_id
+            if visit_count is not None:
+                self.state.current_step["visit_count"] = visit_count
+            self._persist()
 
     def heartbeat_step(self, step_name: Optional[str] = None) -> None:
-        if self.state.current_step is None:
-            return
-        if step_name and self.state.current_step.get("name") != step_name:
-            return
-        self.state.current_step["last_heartbeat_at"] = datetime.now(timezone.utc).isoformat()
-        self._persist()
+        with self._aggregate_state_mutation() as owner:
+            current = owner.leaf_state.current_step
+            if not isinstance(current, dict):
+                return
+            if step_name and current.get("name") != step_name:
+                return
+            expected_current = deepcopy(current)
+
+            def exact_cursor(leaf: RunState) -> bool:
+                return leaf.current_step == expected_current
+
+            def heartbeat(leaf: RunState) -> None:
+                current_step = leaf.current_step
+                if not isinstance(current_step, dict):
+                    raise RuntimeError("heartbeat cursor disappeared during commit")
+                current_step["last_heartbeat_at"] = (
+                    datetime.now(timezone.utc).isoformat()
+                )
+
+            try:
+                owner.root_manager._mutate_scoped_state(
+                    owner.resume_scope_path,
+                    commit_guard=exact_cursor,
+                    mutation=heartbeat,
+                )
+            finally:
+                self._refresh_state_chain_from_root()
 
     def clear_current_step(
         self,
@@ -752,16 +818,17 @@ class _CallFrameStateManager:
         *,
         preserve_managed_recovery: bool = False,
     ) -> None:
-        if self.state.current_step is None:
-            return
-        if step_name and self.state.current_step.get("name") != step_name:
-            return
-        managed_jobs = self.state.current_step.get("managed_jobs")
-        if (
-            preserve_managed_recovery
-            and isinstance(managed_jobs, dict)
-            and managed_jobs.get("phase") == "recovery"
-        ):
-            return
-        self.state.current_step = None
-        self._persist()
+        with self._aggregate_state_mutation():
+            if self.state.current_step is None:
+                return
+            if step_name and self.state.current_step.get("name") != step_name:
+                return
+            managed_jobs = self.state.current_step.get("managed_jobs")
+            if (
+                preserve_managed_recovery
+                and isinstance(managed_jobs, dict)
+                and managed_jobs.get("phase") == "recovery"
+            ):
+                return
+            self.state.current_step = None
+            self._persist()

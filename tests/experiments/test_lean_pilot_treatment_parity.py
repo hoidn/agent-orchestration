@@ -697,6 +697,7 @@ def _run_orc(
     controller_script: Path = COORDINATOR_SCRIPT,
     prompt_externs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding] | None = None,
+    step_heartbeat_interval_sec: float = 30.0,
 ) -> dict[str, Any]:
     compiled = compile_stage3_entrypoint(
         workflow_path,
@@ -753,6 +754,7 @@ def _run_orc(
         state_manager,
         max_retries=0,
         retry_delay_ms=0,
+        step_heartbeat_interval_sec=step_heartbeat_interval_sec,
         provider_observation_enabled=False,
     )
     for provider_name in provider_names.values():
@@ -1796,6 +1798,9 @@ def test_coordinator_and_orc_have_full_route_parity(
         request_log=orc_request_log,
         event_log=orc_event_log,
         boundary_trace=public_boundary_trace,
+        step_heartbeat_interval_sec=(
+            0.2 if route.name == "both_corrections" else 30.0
+        ),
     )
 
     assert_full_treatment_parity(

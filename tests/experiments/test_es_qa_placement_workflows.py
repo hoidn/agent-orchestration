@@ -251,6 +251,7 @@ class ScriptedReply:
     output: object
     artifact_path: str | None = None
     malformed: bool = False
+    provider_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -350,6 +351,27 @@ def _route_scenarios() -> tuple[RouteScenario, ...]:
                     completed=True,
                     terminal_cause="COMPLETED_TRUE",
                     replies=_replies_for_completed_route(roles),
+                )
+            )
+            continue
+        if route_id.endswith(".FAILED_AT_FINAL_CALL"):
+            replies = list(_replies_for_completed_route(roles))
+            last_reply = replies[-1]
+            replies[-1] = ScriptedReply(
+                role=last_reply.role,
+                output=last_reply.output,
+                artifact_path=last_reply.artifact_path,
+                provider_failure=True,
+            )
+            scenarios.append(
+                RouteScenario(
+                    arm=arm,
+                    entry_workflow=ARM_ENTRYPOINTS[arm],
+                    route_id=route_id,
+                    roles=roles,
+                    completed=False,
+                    terminal_cause="FAILED_AT_FINAL_CALL",
+                    replies=tuple(replies),
                 )
             )
             continue
@@ -495,6 +517,13 @@ def _scripted_runtime(
         )
         calls.append(call)
         assert call.role == reply.role
+        if reply.provider_failure:
+            return ProviderExecutionResult(
+                exit_code=1,
+                stdout=b"",
+                stderr=b"scripted final provider-call failure",
+                duration_ms=1,
+            )
         artifact_path = reply.artifact_path
         if artifact_path is not None:
             artifact = workspace / artifact_path
@@ -542,7 +571,7 @@ def _scripted_runtime(
     ROUTE_SCENARIOS,
     ids=lambda scenario: scenario.route_id,
 )
-def test_all_22_locked_terminal_routes_have_concrete_runtime_outcomes(
+def test_all_locked_terminal_routes_have_concrete_runtime_outcomes(
     tmp_path: Path,
     scenario: RouteScenario,
 ) -> None:
@@ -568,6 +597,10 @@ def test_all_22_locked_terminal_routes_have_concrete_runtime_outcomes(
         assert result.state["status"] == "completed"
         assert result.state["workflow_outputs"] == {"__result__": False}
     else:
+        assert scenario.terminal_cause in {
+            "FAILED_AT_FINAL_CALL",
+            "PRE_EXECUTION_FAILURE",
+        }
         assert result.state["status"] == "failed"
         outputs = result.state.get("workflow_outputs")
         assert not isinstance(outputs, Mapping) or "__result__" not in outputs

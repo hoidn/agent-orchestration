@@ -1017,12 +1017,16 @@ class StateManager:
             if not self.state:
                 raise RuntimeError("State not initialized")
 
-            self.state.artifact_versions = artifact_versions
-            self.state.artifact_consumes = artifact_consumes
+            self.state.artifact_versions = deepcopy(artifact_versions)
+            self.state.artifact_consumes = deepcopy(artifact_consumes)
             if private_artifact_versions is not None:
-                self.state.private_artifact_versions = private_artifact_versions
+                self.state.private_artifact_versions = deepcopy(
+                    private_artifact_versions
+                )
             if private_artifact_consumes is not None:
-                self.state.private_artifact_consumes = private_artifact_consumes
+                self.state.private_artifact_consumes = deepcopy(
+                    private_artifact_consumes
+                )
             self._write_state()
 
     def finalize_step_with_dataflow(
@@ -1247,7 +1251,7 @@ class StateManager:
             if not self.state:
                 raise RuntimeError("State not initialized")
 
-            self.state.call_frames[frame_id] = frame_state
+            self.state.call_frames[frame_id] = deepcopy(frame_state)
             self._write_state()
 
     def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]):
@@ -1274,7 +1278,7 @@ class StateManager:
             if not self.state:
                 raise RuntimeError("State not initialized")
 
-            self.state.finalization = finalization
+            self.state.finalization = deepcopy(finalization)
             self._write_state()
 
     def update_run_error(self, error: Optional[Dict[str, Any]]):
@@ -1297,7 +1301,7 @@ class StateManager:
                 raise RuntimeError("State not initialized")
 
             self.state.transition_count = transition_count
-            self.state.step_visits = step_visits
+            self.state.step_visits = dict(step_visits)
             self._write_state()
 
     def begin_eligible_pure_visit(

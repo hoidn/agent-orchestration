@@ -163,20 +163,29 @@ def _lock_and_schedule() -> tuple[dict[str, Any], dict[str, Any]]:
     )
 
 
-def _trial_fixture(tmp_path: Path, *, failed_arm: str | None = None):
-    built = qa_workflows._build_trial()
+def _trial_fixture(
+    tmp_path: Path,
+    *,
+    failed_arm: str | None = None,
+    built: Any | None = None,
+    common_inputs: Mapping[str, object] | None = None,
+):
+    if built is None:
+        built = qa_workflows._build_trial()
     [trial_node] = [
         node
         for node in built.validated_bundle.ir.nodes.values()
         if isinstance(node.execution_config, TrialStepConfig)
     ]
     step_config = cast(TrialStepConfig, trial_node.execution_config)
-    common_inputs: dict[str, object] = {
-        "task": "Implement the frozen F1 extension-boundary task.",
-        "check_contract": "Run the frozen visible F1 check manifest.",
-        "model": "gpt-5.5",
-        "effort": "high",
-    }
+    if common_inputs is None:
+        common_inputs = {
+            "task": "Implement the frozen F1 extension-boundary task.",
+            "check_contract": "Run the frozen visible F1 check manifest.",
+            "model": "gpt-5.5",
+            "effort": "high",
+        }
+    common_inputs = dict(common_inputs)
     request = build_trial_runtime_request(
         step_config=step_config,
         visit=RunRefVisitKey(
@@ -1040,6 +1049,91 @@ def test_treatment_failure_and_terminal_review_failure_remain_valid_outcomes(
         "failed",
     }
     assert record["accounting"]["review_settlements"][-1]["status"] == "FAILED"
+
+
+def _receipt_bindings_for_selected_routes(
+    lock: Mapping[str, Any],
+    arm_route_ids: Mapping[str, str],
+    evaluation_route_id: str,
+) -> list[dict[str, str]]:
+    route_by_id = {
+        row["route_id"]: row
+        for row in lock["route_contract"]["terminal_routes"]
+    }
+    evaluation_by_id = {
+        row["route_id"]: row
+        for row in lock["route_contract"]["evaluation_routes"]
+    }
+    slots = [
+        slot
+        for arm in lock["route_contract"]["arms"]
+        for slot in route_by_id[arm_route_ids[arm]]["call_slots"]
+    ] + list(evaluation_by_id[evaluation_route_id]["call_slots"])
+    return [
+        {
+            "call_slot_id": slot,
+            "receipt_sha256": canonical_sha256({"slot": slot, "receipt": True}),
+        }
+        for slot in slots
+    ]
+
+
+def test_terminal_provider_failure_at_success_completing_prefix_is_valid(
+    treatment_failure_trial,
+) -> None:
+    lock, _schedule = _lock_and_schedule()
+    routes, evaluation_route, reviews, _receipts = _accounting(
+        lock,
+        adjudication=False,
+        failed_arm="DESIGN_QA",
+    )
+    routes["DESIGN_QA"] = (
+        "DESIGN_QA.D_DR_DREV_I.FAILED_AT_FINAL_CALL"
+    )
+
+    record = _build(
+        treatment_failure_trial,
+        failed_arm="DESIGN_QA",
+        arm_route_ids=routes,
+        evaluation_route_id=evaluation_route,
+        review_settlements=reviews,
+        receipt_bindings=_receipt_bindings_for_selected_routes(
+            lock,
+            routes,
+            evaluation_route,
+        ),
+    )
+
+    assert record["status"] == "VALID"
+    assert record["invalidity_code"] is None
+
+
+def test_completed_arm_cannot_select_final_call_failure_route(
+    complete_trial,
+) -> None:
+    lock, _schedule = _lock_and_schedule()
+    routes, evaluation_route, reviews, _receipts = _accounting(
+        lock,
+        adjudication=False,
+    )
+    routes["DESIGN_QA"] = (
+        "DESIGN_QA.D_DR_DREV_I.FAILED_AT_FINAL_CALL"
+    )
+
+    record = _build(
+        complete_trial,
+        arm_route_ids=routes,
+        evaluation_route_id=evaluation_route,
+        review_settlements=reviews,
+        receipt_bindings=_receipt_bindings_for_selected_routes(
+            lock,
+            routes,
+            evaluation_route,
+        ),
+    )
+
+    assert record["status"] == "INVALID"
+    assert record["invalidity_code"] == "APPARATUS_ACCOUNTING_INCOMPLETE"
 
 
 def test_exact_optional_adjudicator_settlement_and_receipt_route_is_valid(

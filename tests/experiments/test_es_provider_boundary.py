@@ -59,6 +59,7 @@ session = "session-" + hashlib.sha256(prompt).hexdigest()[:16]
 events = [
     {"type": "thread.started", "thread_id": session},
     {"type": "turn.started"},
+    {"type": "item.completed", "item": {"id": "answer", "type": "agent_message", "text": "assistant-" + prompt.decode("ascii")}},
     {"type": "turn.completed", "usage": {"input_tokens": 3, "cached_input_tokens": 1, "cache_write_input_tokens": 0, "output_tokens": 2, "reasoning_output_tokens": 1}},
 ]
 for event in events:
@@ -105,12 +106,18 @@ def _call(
     prompt: bytes,
     cwd: Path,
     real_codex: Path,
+    output_bundle_path: str | None = "output.json",
+    provider_attempt_site_key: str | None = None,
+    prompt_variants: tuple[bytes, ...] | None = None,
 ) -> provider_boundary.BoundaryCall:
+    variants = (prompt,) if prompt_variants is None else prompt_variants
     return provider_boundary.BoundaryCall(
         call_slot_id=slot,
         role_id=slot,
         cwd_selector=provider_boundary.CwdSelector.exact(cwd.resolve()),
-        prompt_sha256=_sha(prompt),
+        output_bundle_path=output_bundle_path,
+        provider_attempt_site_key=provider_attempt_site_key,
+        prompt_sha256s=tuple(sorted(_sha(value) for value in variants)),
         contract_sha256=SHA_B,
         outer_argv=_outer(),
         metered_argv=_metered(real_codex),
@@ -161,6 +168,11 @@ def _invoke(
     prompt: bytes,
     environment: dict[str, str],
 ) -> subprocess.CompletedProcess[bytes]:
+    selected_environment = dict(environment)
+    selected_environment.setdefault(
+        "ORCHESTRATOR_OUTPUT_BUNDLE_PATH",
+        "output.json",
+    )
     return subprocess.run(
         [
             str(shim),
@@ -173,7 +185,7 @@ def _invoke(
             "reasoning_effort=high",
         ],
         cwd=cwd,
-        env=environment,
+        env=selected_environment,
         input=prompt,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -187,8 +199,25 @@ def test_manifest_is_closed_immutable_and_content_addressed(tmp_path: Path) -> N
     real = _write_fake_codex((tmp_path / "real-codex").resolve())
     manifest = _manifest(
         tmp_path,
-        (_call(slot="DIRECT.I", prompt=b"alpha", cwd=cwd, real_codex=real),),
+        (
+            _call(
+                slot="DIRECT.I",
+                prompt=b"alpha",
+                prompt_variants=(b"alpha", b"beta"),
+                cwd=cwd,
+                real_codex=real,
+            ),
+        ),
     )
+    assert manifest.schema_version == "es.provider_boundary_manifest.v4"
+
+    legacy = manifest.record
+    legacy["schema_version"] = "es.provider_boundary_manifest.v3"
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="manifest_schema_invalid",
+    ):
+        provider_boundary.BoundaryManifest.from_record(legacy)
 
     with pytest.raises(FrozenInstanceError):
         manifest.attempt_id = "changed"  # type: ignore[misc]
@@ -225,6 +254,7 @@ def test_resolution_fails_closed_on_absent_or_ambiguous_slot(tmp_path: Path) -> 
             cwd=cwd,
             prompt=b"different",
             argv=one.outer_argv,
+            output_bundle_path=one.output_bundle_path,
         )
 
     ambiguous = _manifest(
@@ -246,7 +276,252 @@ def test_resolution_fails_closed_on_absent_or_ambiguous_slot(tmp_path: Path) -> 
             cwd=cwd,
             prompt=b"alpha",
             argv=one.outer_argv,
+            output_bundle_path=one.output_bundle_path,
         )
+
+
+def test_resolution_accepts_only_frozen_canonical_prompt_variants(
+    tmp_path: Path,
+) -> None:
+    cwd = (tmp_path / "candidate").resolve()
+    cwd.mkdir()
+    real = _write_fake_codex((tmp_path / "real-codex").resolve())
+    call = _call(
+        slot="EVAL.SCORER_DESIGN_QA",
+        prompt=b"completed packet",
+        prompt_variants=(b"completed packet", b"failed packet"),
+        cwd=cwd,
+        real_codex=real,
+        output_bundle_path=None,
+    )
+    manifest = _manifest(tmp_path, (call,))
+
+    assert provider_boundary.resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=b"failed packet",
+        argv=call.outer_argv,
+        output_bundle_path=None,
+    ) == call
+    with pytest.raises(provider_boundary.ProviderBoundaryError, match="call_absent"):
+        provider_boundary.resolve_call(
+            manifest,
+            cwd=cwd,
+            prompt=b"unlisted packet",
+            argv=call.outer_argv,
+            output_bundle_path=None,
+        )
+    for invalid in ((), (SHA_A, SHA_A), (SHA_B, SHA_A)):
+        with pytest.raises(
+            provider_boundary.ProviderBoundaryError,
+            match="prompt_sha256s_invalid",
+        ):
+            replace(call, prompt_sha256s=invalid)
+
+def test_output_bundle_path_disambiguates_equal_prompt_cwd_and_argv(
+    tmp_path: Path,
+) -> None:
+    cwd = (tmp_path / "candidate").resolve()
+    cwd.mkdir()
+    real = _write_fake_codex((tmp_path / "real-codex").resolve())
+    direct = _call(
+        slot="DIRECT.I",
+        prompt=b"alpha",
+        cwd=cwd,
+        real_codex=real,
+        output_bundle_path="typed/direct.json",
+    )
+    rich = replace(
+        direct,
+        call_slot_id="RICH.I",
+        output_bundle_path="typed/rich.json",
+        provider_attempt_id="provider-rich",
+        raw_jsonl_path="raw/rich-i.jsonl",
+        receipt_path="receipts/rich-i.json",
+    )
+    manifest = _manifest(tmp_path, (direct, rich))
+
+    assert provider_boundary.resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=b"alpha",
+        argv=direct.outer_argv,
+        output_bundle_path="typed/direct.json",
+    ) == direct
+    assert provider_boundary.resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=b"alpha",
+        argv=direct.outer_argv,
+        output_bundle_path="typed/rich.json",
+    ) == rich
+
+
+def test_output_bundle_path_missing_tamper_and_ambiguity_fail_closed(
+    tmp_path: Path,
+) -> None:
+    cwd = (tmp_path / "candidate").resolve()
+    cwd.mkdir()
+    real = _write_fake_codex((tmp_path / "real-codex").resolve())
+    call = _call(
+        slot="DIRECT.I",
+        prompt=b"alpha",
+        cwd=cwd,
+        real_codex=real,
+        output_bundle_path="typed/result.json",
+    )
+    manifest = _manifest(tmp_path, (call,))
+
+    for observed in (None, "typed/tampered.json"):
+        with pytest.raises(
+            provider_boundary.ProviderBoundaryError,
+            match="call_absent",
+        ):
+            provider_boundary.resolve_call(
+                manifest,
+                cwd=cwd,
+                prompt=b"alpha",
+                argv=call.outer_argv,
+                output_bundle_path=observed,
+            )
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="relative_path_invalid",
+    ):
+        provider_boundary.resolve_call(
+            manifest,
+            cwd=cwd,
+            prompt=b"alpha",
+            argv=call.outer_argv,
+            output_bundle_path="../escape.json",
+        )
+
+    duplicate = replace(
+        call,
+        call_slot_id="RICH.I",
+        provider_attempt_id="provider-rich",
+        raw_jsonl_path="raw/rich-i.jsonl",
+        receipt_path="receipts/rich-i.json",
+    )
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="call_ambiguous",
+    ):
+        provider_boundary.resolve_call(
+            _manifest(tmp_path, (call, duplicate)),
+            cwd=cwd,
+            prompt=b"alpha",
+            argv=call.outer_argv,
+            output_bundle_path="typed/result.json",
+        )
+
+    record = call.record
+    del record["output_bundle_path"]
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="call_invalid",
+    ):
+        provider_boundary.BoundaryCall.from_record(record)
+
+
+def test_runtime_scope_site_disambiguates_identical_visible_call_facts(
+    tmp_path: Path,
+) -> None:
+    cwd = (tmp_path / "candidate").resolve()
+    cwd.mkdir()
+    real = _write_fake_codex((tmp_path / "real-codex").resolve())
+    product = _call(
+        slot="PRODUCT_QA.PR",
+        prompt=b"same",
+        cwd=cwd,
+        real_codex=real,
+        output_bundle_path="typed/shared.json",
+        provider_attempt_site_key=SHA_A,
+    )
+    rich = replace(
+        product,
+        call_slot_id="RICH.PR",
+        provider_attempt_site_key=SHA_B,
+        provider_attempt_id="provider-rich-pr",
+        raw_jsonl_path="raw/rich-pr.jsonl",
+        receipt_path="receipts/rich-pr.json",
+    )
+    manifest = _manifest(tmp_path, (product, rich))
+
+    assert provider_boundary.resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=b"same",
+        argv=product.outer_argv,
+        output_bundle_path="typed/shared.json",
+        provider_attempt_site_key=SHA_A,
+    ) == product
+    assert provider_boundary.resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=b"same",
+        argv=product.outer_argv,
+        output_bundle_path="typed/shared.json",
+        provider_attempt_site_key=SHA_B,
+    ) == rich
+
+
+def test_runtime_scope_site_missing_tamper_and_collision_fail_closed(
+    tmp_path: Path,
+) -> None:
+    cwd = (tmp_path / "candidate").resolve()
+    cwd.mkdir()
+    real = _write_fake_codex((tmp_path / "real-codex").resolve())
+    call = _call(
+        slot="PRODUCT_QA.PR",
+        prompt=b"same",
+        cwd=cwd,
+        real_codex=real,
+        provider_attempt_site_key=SHA_A,
+    )
+    manifest = _manifest(tmp_path, (call,))
+
+    for observed in (None, SHA_B):
+        with pytest.raises(
+            provider_boundary.ProviderBoundaryError,
+            match="call_absent",
+        ):
+            provider_boundary.resolve_call(
+                manifest,
+                cwd=cwd,
+                prompt=b"same",
+                argv=call.outer_argv,
+                output_bundle_path=call.output_bundle_path,
+                provider_attempt_site_key=observed,
+            )
+
+    duplicate = replace(
+        call,
+        call_slot_id="RICH.PR",
+        provider_attempt_id="provider-rich-pr",
+        raw_jsonl_path="raw/rich-pr.jsonl",
+        receipt_path="receipts/rich-pr.json",
+    )
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="call_ambiguous",
+    ):
+        provider_boundary.resolve_call(
+            _manifest(tmp_path, (call, duplicate)),
+            cwd=cwd,
+            prompt=b"same",
+            argv=call.outer_argv,
+            output_bundle_path=call.output_bundle_path,
+            provider_attempt_site_key=SHA_A,
+        )
+
+    record = call.record
+    del record["provider_attempt_site_key"]
+    with pytest.raises(
+        provider_boundary.ProviderBoundaryError,
+        match="call_invalid",
+    ):
+        provider_boundary.BoundaryCall.from_record(record)
 
 
 def test_settlement_publication_is_canonical_chained_and_allocation_bound(
@@ -434,6 +709,7 @@ def test_outer_and_inner_argv_drift_fail_independently(tmp_path: Path) -> None:
             cwd=cwd,
             prompt=b"alpha",
             argv=(*call.outer_argv[:-1], "model_reasoning_effort=high"),
+            output_bundle_path=call.output_bundle_path,
         )
 
     with pytest.raises(provider_boundary.ProviderBoundaryError, match="metered_argv"):
@@ -480,6 +756,7 @@ def test_wrapper_publishes_before_child_and_delegates_to_metering(tmp_path: Path
     )
 
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert completed.stdout == b"assistant-alpha"
     rows = provider_boundary.load_allocation_journal(
         manifest.journal_path,
         attempt_id=manifest.attempt_id,
@@ -501,7 +778,15 @@ def test_boundary_settles_after_receipt_with_monotonic_elapsed_time(
     real = _write_fake_codex((tmp_path / "real-codex").resolve())
     manifest = _manifest(
         tmp_path,
-        (_call(slot="DIRECT.I", prompt=b"alpha", cwd=cwd, real_codex=real),),
+        (
+            _call(
+                slot="DIRECT.I",
+                prompt=b"alpha",
+                prompt_variants=(b"alpha", b"beta"),
+                cwd=cwd,
+                real_codex=real,
+            ),
+        ),
     )
     publication = provider_boundary.write_manifest_exclusive(
         (tmp_path / "boundary.json").resolve(), manifest
@@ -509,7 +794,7 @@ def test_boundary_settles_after_receipt_with_monotonic_elapsed_time(
     monkeypatch.setenv("ES_TEST_CHILD_MARKER", str(tmp_path / "child-started"))
     monkeypatch.setenv("ES_TEST_JOURNAL", str(manifest.journal_path))
     monkeypatch.setenv("ES_TEST_OBSERVATIONS", str(tmp_path / "observations"))
-    monkeypatch.setenv("ES_TEST_PROMPT_TO_SLOT_ALPHA", "DIRECT.I")
+    monkeypatch.setenv("ES_TEST_PROMPT_TO_SLOT_BETA", "DIRECT.I")
 
     actual_publish = provider_boundary.publish_settlement
     publication_observations: list[tuple[bool, bool]] = []
@@ -532,11 +817,12 @@ def test_boundary_settles_after_receipt_with_monotonic_elapsed_time(
 
     execution = provider_boundary.execute_boundary(
         argv=_outer(),
-        prompt=b"alpha",
+        prompt=b"beta",
         cwd=cwd,
         environ={
             provider_boundary.MANIFEST_PATH_ENV: str(publication.path),
             provider_boundary.MANIFEST_SHA256_ENV: publication.sha256,
+            provider_boundary.OUTPUT_BUNDLE_PATH_ENV: "output.json",
         },
     )
 
@@ -544,6 +830,7 @@ def test_boundary_settles_after_receipt_with_monotonic_elapsed_time(
     assert execution.settlement.elapsed_ms == 237
     assert execution.settlement.exit_status == execution.exit_status == 0
     assert execution.settlement.receipt_sha256 == _sha(execution.receipt_bytes)
+    assert json.loads(execution.receipt_bytes)["prompt_sha256"] == _sha(b"beta")
     assert provider_boundary.load_settlement_journal(
         manifest.settlement_journal_path,
         allocation_journal_path=manifest.journal_path,

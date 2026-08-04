@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -26,6 +27,7 @@ PROMPT_FRAGMENT_IDENTITY_SCHEMA_VERSIONS = frozenset(
         "compiled_prompt_fragment_identity.v2",
     }
 )
+PROVIDER_ATTEMPT_SITE_KEY_ENV = "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"
 
 
 @dataclass(frozen=True)
@@ -292,6 +294,36 @@ class ProviderAttemptScope:
     def key(self) -> str:
         return "sha256:" + hashlib.sha256(self.canonical_bytes()).hexdigest()
 
+    @property
+    def run_independent_site_record(self) -> dict[str, Any]:
+        """Return the closed execution-site projection shared by fresh runs."""
+
+        value = self.to_dict()
+        value.pop("run_id")
+        return {
+            "schema_version": "provider_attempt_run_independent_site.v1",
+            **value,
+        }
+
+    def run_independent_site_bytes(self) -> bytes:
+        """Encode the run-independent execution site canonically."""
+
+        return json.dumps(
+            self.run_independent_site_record,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+
+    @property
+    def run_independent_site_key(self) -> str:
+        """Identify a provider call site without binding one parent run ID."""
+
+        return (
+            "sha256:"
+            + hashlib.sha256(self.run_independent_site_bytes()).hexdigest()
+        )
+
 
 def derive_provider_attempt_member_turn_scope(
     base_scope: ProviderAttemptScope,
@@ -344,10 +376,18 @@ def _ordinary_absolute(path: Any) -> Path:
 def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
     """Resolve and validate the terminal root owner for ``manager``."""
 
+    with _aggregate_run_state_mutation(manager) as owner:
+        return owner
+
+
+def _discover_aggregate_run_chain(
+    manager: Any,
+) -> tuple[StateManager, list[Any]]:
+    """Discover one aggregate root and nested chain without reading snapshots."""
+
     seen: set[int] = set()
     cursor = manager
     nested_from_leaf: list[Any] = []
-    frame_ids_from_leaf: list[str] = []
     while not isinstance(cursor, StateManager):
         identity = id(cursor)
         if identity in seen:
@@ -362,12 +402,40 @@ def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
         if not isinstance(nested_state, RunState):
             raise ValueError("nested state must be a RunState")
         nested_from_leaf.append(cursor)
-        frame_ids_from_leaf.append(frame_id)
         cursor = cursor.parent_manager
         if id(cursor) in seen:
             raise ValueError("parent_manager cycle detected")
 
-    root = cursor
+    return cursor, nested_from_leaf
+
+
+@contextmanager
+def _aggregate_run_state_mutation(
+    manager: Any,
+    *,
+    allow_missing_leaf_resume_scope_path: bool = False,
+):
+    """Validate and hold one aggregate root's in-process mutation lock."""
+
+    root, nested_from_leaf = _discover_aggregate_run_chain(manager)
+    with root._state_mutation():
+        yield _resolve_aggregate_run_owner_locked(
+            root,
+            nested_from_leaf=nested_from_leaf,
+            allow_missing_leaf_resume_scope_path=(
+                allow_missing_leaf_resume_scope_path
+            ),
+        )
+
+
+def _resolve_aggregate_run_owner_locked(
+    root: StateManager,
+    *,
+    nested_from_leaf: list[Any],
+    allow_missing_leaf_resume_scope_path: bool = False,
+) -> AggregateRunOwner:
+    """Validate one aggregate owner while its root state lock is held."""
+
     if not isinstance(root.state, RunState):
         raise ValueError("aggregate root state is not initialized")
     root_state = root.state
@@ -378,7 +446,7 @@ def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
         raise ValueError("root run_root contradicts persisted state")
 
     nested_from_root = list(reversed(nested_from_leaf))
-    frame_ids = tuple(reversed(frame_ids_from_leaf))
+    frame_ids = tuple(child.frame_id for child in nested_from_root)
     scope_path = ResumeScopePath(root_state.workflow_file, frame_ids)
     current_state = root_state
     parent_manager: Any = root
@@ -389,7 +457,16 @@ def resolve_aggregate_run_owner(manager: Any) -> AggregateRunOwner:
             root_state.workflow_file,
             tuple(prefix_frame_ids),
         )
-        if getattr(child, "resume_scope_path", None) != expected_scope_prefix:
+        actual_scope_prefix = getattr(child, "resume_scope_path", None)
+        missing_leaf_scope_is_allowed = (
+            allow_missing_leaf_resume_scope_path
+            and child is nested_from_root[-1]
+            and actual_scope_prefix is None
+        )
+        if (
+            actual_scope_prefix != expected_scope_prefix
+            and not missing_leaf_scope_is_allowed
+        ):
             raise ValueError("nested manager scope path prefix contradicts parent chain")
         if child.run_id != root.run_id or child.state.run_id != root.run_id:
             raise ValueError("nested run_id contradicts aggregate root")

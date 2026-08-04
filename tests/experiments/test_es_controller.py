@@ -37,6 +37,7 @@ NEW_ES_MODULES = (
     REPOSITORY_ROOT / "scripts/experiments/es/provider_boundary.py",
 )
 ARMS = ("DIRECT", "DESIGN_QA", "PRODUCT_QA", "RICH")
+SCORER_SLOTS = tuple(f"EVAL.SCORER_{arm}" for arm in ARMS)
 
 
 def _sha(value: bytes) -> str:
@@ -185,13 +186,25 @@ def _package(tmp_path: Path) -> controller.ControllerPackage:
         "-",
     ]
     prompt_manifest_record = {
-        "schema_version": "es.prompt_manifest.v1",
+        "schema_version": "es.prompt_manifest.v2",
         "calls": [
             {
                 "call_slot_id": slot,
                 "role_id": slot,
-                "prompt_sha256": "sha256:" + "3" * 64,
+                "prompt_sha256s": ["sha256:" + "3" * 64],
                 "contract_sha256": "sha256:" + "4" * 64,
+                "output_bundle_path": (
+                    None
+                    if slot.startswith("EVAL.")
+                    else "typed/" + slot.lower().replace(".", "-") + ".json"
+                ),
+                "provider_attempt_site_key": (
+                    None
+                    if slot.startswith("EVAL.")
+                    else "sha256:" + hashlib.sha256(
+                        ("site:" + slot).encode("utf-8")
+                    ).hexdigest()
+                ),
                 "normalized_argv": argv,
             }
             for slot in call_slots
@@ -639,6 +652,7 @@ def _dependencies(
     hard_failure: str | None = None,
     runner_error: bool = False,
     runner_allocation_slots: tuple[str, ...] = (),
+    settled_runner_allocation_slots: tuple[str, ...] = (),
     invalid_payload_slots: frozenset[str] = frozenset(),
     trial_terminal: str = "completed",
     interrupted_provider_slots: frozenset[str] = frozenset(),
@@ -701,6 +715,50 @@ def _dependencies(
                 call_slot_id=slot,
                 static_call_sha256="sha256:" + f"{index:x}" * 64,
             )
+        if settled_runner_allocation_slots:
+            manifest_path = Path(
+                os.environ[provider_boundary.MANIFEST_PATH_ENV]
+            )
+            boundary = provider_boundary.load_manifest(
+                manifest_path,
+                expected_sha256=os.environ[
+                    provider_boundary.MANIFEST_SHA256_ENV
+                ],
+            )
+            calls_by_slot = {row.call_slot_id: row for row in boundary.calls}
+            for slot in settled_runner_allocation_slots:
+                call_authority = calls_by_slot[slot]
+                allocation = provider_boundary.publish_allocation(
+                    journal,
+                    attempt_id="ES-ATTEMPT-01",
+                    decision_lock_sha256=decision_lock.decision_lock_digest(lock),
+                    call_slot_id=slot,
+                    static_call_sha256=call_authority.static_call_sha256,
+                )
+                receipt = _record(
+                    {
+                        "block_id": "ES-ATTEMPT-01",
+                        "call_slot_id": slot,
+                        "exit_status": 0,
+                    }
+                ) + b"\n"
+                receipt_path = (
+                    package.paths.evidence_root / call_authority.receipt_path
+                )
+                raw_path = (
+                    package.paths.evidence_root / call_authority.raw_jsonl_path
+                )
+                receipt_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                receipt_path.write_bytes(receipt)
+                raw_path.write_bytes(b"{}\n")
+                provider_boundary.publish_settlement(
+                    boundary.settlement_journal_path,
+                    allocation_journal_path=journal,
+                    allocation=allocation,
+                    receipt_bytes=receipt,
+                    elapsed_ms=1,
+                )
         if trial_terminal == "failed":
             return TrialRunResult.failed(
                 run_id="run-1",
@@ -976,6 +1034,7 @@ def test_package_manifest_derives_history_from_bound_immutable_attempt_index(
     attempt_id = "ES-ATTEMPT-01"
     index = {
         "index_sha256": "sha256:" + "d" * 64,
+        "scorer_settlements": [{"score": 0.75}],
         "attempt_record": {
             "attempt_id": attempt_id,
             "status": "INVALID",
@@ -1227,6 +1286,62 @@ def test_route_selection_accepts_permuted_concurrent_scorer_tranche(
     )
 
     assert evaluation_route == "EVALUATION.NO_ADJUDICATION"
+
+
+def test_route_selection_uses_terminal_status_to_disambiguate_final_call(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path)
+    preflight = controller._preflight(  # pyright: ignore[reportPrivateUsage]
+        package,
+        allow_untrusted_package=True,
+    )
+    lock_digest = decision_lock.decision_lock_digest(preflight.decision_lock)
+    allocations: list[provider_boundary.AllocationEvent] = []
+    previous: str | None = None
+    for sequence, role in enumerate(("D", "DR", "DREV", "I"), start=1):
+        row = provider_boundary.AllocationEvent(
+            attempt_id="ES-ATTEMPT-01",
+            sequence=sequence,
+            previous_allocation_sha256=previous,
+            call_slot_id=f"DESIGN_QA.{role}",
+            decision_lock_sha256=lock_digest,
+            static_call_sha256="sha256:" + f"{sequence:x}" * 64,
+        )
+        allocations.append(row)
+        previous = row.sha256
+
+    completed, _evaluation = controller._selected_routes(  # pyright: ignore[reportPrivateUsage]
+        preflight=preflight,
+        allocations=allocations,
+        arm_terminal_status_by_arm={
+            "DIRECT": "failed",
+            "DESIGN_QA": "completed",
+            "PRODUCT_QA": "failed",
+            "RICH": "failed",
+        },
+    )
+    failed, _evaluation = controller._selected_routes(  # pyright: ignore[reportPrivateUsage]
+        preflight=preflight,
+        allocations=allocations,
+        arm_terminal_status_by_arm={
+            "DIRECT": "failed",
+            "DESIGN_QA": "failed",
+            "PRODUCT_QA": "failed",
+            "RICH": "failed",
+        },
+    )
+
+    assert dict(completed)["DESIGN_QA"] == "DESIGN_QA.D_DR_DREV_I"
+    assert dict(failed)["DESIGN_QA"] == (
+        "DESIGN_QA.D_DR_DREV_I.FAILED_AT_FINAL_CALL"
+    )
+    with pytest.raises(controller.ControllerError, match="route_ambiguous"):
+        controller._selected_routes(  # pyright: ignore[reportPrivateUsage]
+            preflight=preflight,
+            allocations=allocations,
+            arm_terminal_status_by_arm={},
+        )
 
 
 def test_canonical_finalizer_closes_preallocation_failure_from_frozen_package(
@@ -1908,6 +2023,96 @@ def test_evaluator_fixture_drift_after_reviews_finalizes_before_hard_collector(
         ).read_bytes()
     )
     assert authority["evidence"]["target_call_slot"] == "HARD.DIRECT"
+    assert result.next_attempt_id == "ES-ATTEMPT-02"
+
+
+def _capture_canonical_finalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[controller.controller_artifacts.FinalizationAssembly]:
+    captured: list[controller.controller_artifacts.FinalizationAssembly] = []
+
+    def finalize(
+        assembly: controller.controller_artifacts.FinalizationAssembly,
+    ) -> controller.controller_artifacts.FinalizedArtifacts:
+        captured.append(assembly)
+        return controller.controller_artifacts.FinalizedArtifacts(
+            attempt_record=_record(
+                {
+                    "attempt_id": assembly.attempt.attempt_id,
+                    "status": "INVALID",
+                }
+            ),
+            attempt_index=_record({"attempt_id": assembly.attempt.attempt_id}),
+            attempt_index_sha256="sha256:" + "7" * 64,
+            index_binding=controller.AttemptIndexBinding(
+                assembly.attempt.attempt_id,
+                f"attempts/{assembly.attempt.attempt_id}/index.json",
+                "sha256:" + "7" * 64,
+            ),
+            report=None,
+            stopped=False,
+            next_attempt_id="ES-ATTEMPT-02",
+        )
+
+    monkeypatch.setattr(
+        controller.controller_artifacts,
+        "finalize_attempt_artifacts",
+        finalize,
+    )
+    return captured
+
+
+@pytest.mark.parametrize("failure_point", ["evaluator_drift", "hard_collector"])
+@pytest.mark.parametrize("disagreement", [False, True], ids=["agree", "disagree"])
+def test_canonical_finalizer_selects_settled_route_for_post_initial_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
+    disagreement: bool,
+) -> None:
+    package = _package(tmp_path)
+    manifest, digest = _publish_package_manifest(
+        package,
+        tmp_path / "controller.json",
+    )
+    loaded = controller.load_controller_package(manifest, expected_sha256=digest)
+    calls: list[str] = []
+    captured = _capture_canonical_finalization(monkeypatch)
+    drift = failure_point == "evaluator_drift"
+    dependencies = replace(
+        _dependencies(
+            loaded,
+            calls=calls,
+            disagreement=disagreement,
+            settled_runner_allocation_slots=SCORER_SLOTS,
+            evaluator_fixture_after_review_slot=(
+                "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY"
+                if drift
+                else None
+            ),
+            hard_failure=None if drift else "DIRECT",
+        ),
+        finalize_attempt=controller.canonical_finalize_attempt,
+        allow_untrusted_package_for_tests=False,
+    )
+
+    result = controller.execute_attempt(loaded, dependencies)
+
+    assert len(captured) == 1
+    attempt = captured[0].attempt
+    assert attempt.material_disagreement is disagreement
+    assert attempt.evaluation_route_id == (
+        "EVALUATION.WITH_ADJUDICATION"
+        if disagreement
+        else "EVALUATION.NO_ADJUDICATION"
+    )
+    assert attempt.evaluation_bytes_valid is not drift
+    assert calls[-1] == (
+        "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY"
+        if drift
+        else "HARD.DIRECT"
+    )
+    assert "EVAL.INTEGRATED_REVIEW" not in calls
     assert result.next_attempt_id == "ES-ATTEMPT-02"
 
 

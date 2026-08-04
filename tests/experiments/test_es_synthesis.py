@@ -61,6 +61,10 @@ def _sha(fill: str) -> str:
     return "sha256:" + fill * 64
 
 
+def _site_key(slot: str) -> str:
+    return _study_digest({"provider_attempt_site": slot})
+
+
 def _closed_schemas(value: object) -> None:
     if isinstance(value, dict):
         if value.get("type") == "object":
@@ -101,13 +105,23 @@ def _call_authority() -> dict[str, Any]:
     return {
         "schema_version": "es.frozen_call_authority.v1",
         "prompt_manifest": {
-            "schema_version": "es.prompt_manifest.v1",
+            "schema_version": "es.prompt_manifest.v2",
             "calls": [
                 {
                     "call_slot_id": slot,
                     "role_id": slot,
-                    "prompt_sha256": _sha("3"),
+                    "prompt_sha256s": [_sha("3")],
                     "contract_sha256": _sha("4"),
+                    "output_bundle_path": (
+                        None
+                        if slot.startswith("EVAL.")
+                        else "typed/" + slot.lower().replace(".", "-") + ".json"
+                    ),
+                    "provider_attempt_site_key": (
+                        None
+                        if slot.startswith("EVAL.")
+                        else _site_key(slot)
+                    ),
                     "normalized_argv": argv,
                 }
                 for slot in slots
@@ -208,6 +222,229 @@ def _lock_and_schedule() -> tuple[dict[str, Any], dict[str, Any], dict[str, str]
         schedule,
         bindings,
     )
+
+
+def test_frozen_call_authority_requires_closed_relative_output_bundle_paths(
+    synthesis,
+) -> None:
+    lock, _schedule, bindings = _lock_and_schedule()
+    authority = _call_authority()
+    authority["prompt_manifest"]["calls"][0]["output_bundle_path"] = (
+        "typed/direct.json"
+    )
+    bindings = {
+        **bindings,
+        "prompt_manifest_sha256": canonical_sha256(
+            authority["prompt_manifest"]
+        ),
+    }
+    lock = decision_lock.build_decision_lock(
+        bindings=bindings,
+        randomization_manifest=_schedule,
+    )
+    _frozen, by_slot = synthesis._validated_call_authority(
+        authority,
+        decision_lock=lock,
+        expected_bindings=bindings,
+    )
+    assert by_slot["DIRECT.I"]["output_bundle_path"] == "typed/direct.json"
+    assert by_slot["DIRECT.I"]["provider_attempt_site_key"] == _site_key(
+        "DIRECT.I"
+    )
+
+    for invalid in ("/absolute.json", "../escape.json"):
+        tampered = deepcopy(authority)
+        tampered["prompt_manifest"]["calls"][0]["output_bundle_path"] = invalid
+        tampered_bindings = {
+            **bindings,
+            "prompt_manifest_sha256": canonical_sha256(
+                tampered["prompt_manifest"]
+            ),
+        }
+        with pytest.raises(synthesis.SynthesisError, match="call_authority"):
+            synthesis._validated_call_authority(
+                tampered,
+                decision_lock=decision_lock.build_decision_lock(
+                    bindings=tampered_bindings,
+                    randomization_manifest=_schedule,
+                ),
+                expected_bindings=tampered_bindings,
+            )
+
+    missing = deepcopy(authority)
+    del missing["prompt_manifest"]["calls"][0]["output_bundle_path"]
+    missing_bindings = {
+        **bindings,
+        "prompt_manifest_sha256": canonical_sha256(missing["prompt_manifest"]),
+    }
+    with pytest.raises(synthesis.SynthesisError, match="call_authority"):
+        synthesis._validated_call_authority(
+            missing,
+            decision_lock=decision_lock.build_decision_lock(
+                bindings=missing_bindings,
+                randomization_manifest=_schedule,
+            ),
+            expected_bindings=missing_bindings,
+        )
+
+    for invalid in (None, "sha256:" + "g" * 64):
+        tampered_site = deepcopy(authority)
+        tampered_site["prompt_manifest"]["calls"][0][
+            "provider_attempt_site_key"
+        ] = invalid
+        tampered_bindings = {
+            **bindings,
+            "prompt_manifest_sha256": canonical_sha256(
+                tampered_site["prompt_manifest"]
+            ),
+        }
+        with pytest.raises(
+            synthesis.SynthesisError,
+            match="synthesis_digest_invalid",
+        ):
+            synthesis._validated_call_authority(
+                tampered_site,
+                decision_lock=decision_lock.build_decision_lock(
+                    bindings=tampered_bindings,
+                    randomization_manifest=_schedule,
+                ),
+                expected_bindings=tampered_bindings,
+            )
+
+    drifted_site = deepcopy(authority)
+    drifted_site["prompt_manifest"]["calls"][0][
+        "provider_attempt_site_key"
+    ] = _site_key("drifted:DIRECT.I")
+    with pytest.raises(
+        synthesis.SynthesisError,
+        match="synthesis_call_authority_binding_mismatch",
+    ):
+        synthesis._validated_call_authority(
+            drifted_site,
+            decision_lock=lock,
+            expected_bindings=bindings,
+        )
+
+    missing_site = deepcopy(authority)
+    del missing_site["prompt_manifest"]["calls"][0][
+        "provider_attempt_site_key"
+    ]
+    missing_bindings = {
+        **bindings,
+        "prompt_manifest_sha256": canonical_sha256(
+            missing_site["prompt_manifest"]
+        ),
+    }
+    with pytest.raises(synthesis.SynthesisError, match="call_authority"):
+        synthesis._validated_call_authority(
+            missing_site,
+            decision_lock=decision_lock.build_decision_lock(
+                bindings=missing_bindings,
+                randomization_manifest=_schedule,
+            ),
+            expected_bindings=missing_bindings,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        [],
+        [_sha("3"), _sha("3")],
+        [_sha("4"), _sha("3")],
+        ["sha256:" + "g" * 64],
+    ],
+)
+def test_frozen_call_authority_rejects_noncanonical_prompt_digest_sets(
+    synthesis,
+    invalid: list[str],
+) -> None:
+    _lock, schedule, bindings = _lock_and_schedule()
+    authority = _call_authority()
+    authority["prompt_manifest"]["calls"][0]["prompt_sha256s"] = invalid
+    selected_bindings = {
+        **bindings,
+        "prompt_manifest_sha256": canonical_sha256(
+            authority["prompt_manifest"]
+        ),
+    }
+
+    with pytest.raises(
+        synthesis.SynthesisError,
+        match="call_authority|digest_invalid",
+    ):
+        synthesis._validated_call_authority(
+            authority,
+            decision_lock=decision_lock.build_decision_lock(
+                bindings=selected_bindings,
+                randomization_manifest=schedule,
+            ),
+            expected_bindings=selected_bindings,
+        )
+
+
+def test_prompt_manifest_v1_is_not_reinterpreted_as_v2(
+    synthesis,
+) -> None:
+    _lock, schedule, bindings = _lock_and_schedule()
+    authority = _call_authority()
+    authority["prompt_manifest"]["schema_version"] = "es.prompt_manifest.v1"
+    selected_bindings = {
+        **bindings,
+        "prompt_manifest_sha256": canonical_sha256(
+            authority["prompt_manifest"]
+        ),
+    }
+
+    with pytest.raises(
+        synthesis.SynthesisError,
+        match="call_authority_binding_mismatch",
+    ):
+        synthesis._validated_call_authority(
+            authority,
+            decision_lock=decision_lock.build_decision_lock(
+                bindings=selected_bindings,
+                randomization_manifest=schedule,
+            ),
+            expected_bindings=selected_bindings,
+        )
+
+
+def test_evaluation_route_prefixes_preserve_common_interruption_authority(
+    synthesis,
+) -> None:
+    routes = decision_lock.derive_evaluation_routes()
+    scorer_prefix = (
+        "EVAL.SCORER_RICH",
+        "EVAL.SCORER_DIRECT",
+        "EVAL.SCORER_PRODUCT_QA",
+        "EVAL.SCORER_DESIGN_QA",
+    )
+    first = "EVAL.INITIAL_SCIENTIFIC_APPLICATION_SEMANTICS"
+    second = "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY"
+
+    settled_common = synthesis._evaluation_route_prefix_candidates(  # pyright: ignore[reportPrivateUsage]
+        routes,
+        (*scorer_prefix, first),
+    )
+    in_flight_common = synthesis._evaluation_route_prefix_candidates(  # pyright: ignore[reportPrivateUsage]
+        routes,
+        (*scorer_prefix, first, second),
+    )
+    non_prefix = synthesis._evaluation_route_prefix_candidates(  # pyright: ignore[reportPrivateUsage]
+        routes,
+        (*scorer_prefix, second),
+    )
+
+    assert {row["route_id"] for row in settled_common} == {
+        "EVALUATION.NO_ADJUDICATION",
+        "EVALUATION.WITH_ADJUDICATION",
+    }
+    assert {row["route_id"] for row in in_flight_common} == {
+        "EVALUATION.NO_ADJUDICATION",
+        "EVALUATION.WITH_ADJUDICATION",
+    }
+    assert non_prefix == ()
 
 
 def _hard_replay_inputs(
@@ -483,7 +720,7 @@ def _receipt(
         role_id=slot,
         call_slot_id=slot,
         provider_attempt_id=f"{attempt_id}-provider-{ordinal:02d}",
-        prompt_sha256=call["prompt_sha256"],
+        prompt_sha256=call["prompt_sha256s"][0],
         contract_sha256=call["contract_sha256"],
         raw_jsonl_path=f"receipts/{attempt_id.lower()}-{ordinal:02d}.jsonl",
         executable_chain=authority["environment_lock"]["executable_chain"],
@@ -560,7 +797,9 @@ def _score_evidence(
             "payload": {
                 "opaque_label": label,
                 "score_row_content_digest": score_row["row_content_digest"],
-                "terminal_attempt_settlement_row_digest": _sha(f"{ordinal:x}"),
+                "terminal_attempt_settlement_row_digest": _sha(
+                    f"{ordinal + len(ARMS):x}"
+                ),
             },
         }
         settlement = {
@@ -1326,8 +1565,15 @@ def _partial_invalid_index(
         in_flight_slot = review_receipts[1]["call_slot_id"]
         partial_scorers = complete["scorer_settlements"]
         partial_reviews = complete["reviews"][:1]
+    elif phase == "REVIEW_ALLOCATION":
+        record["accounting"]["review_settlements"] = []
+        retained = treatment_receipts + scorer_receipts
+        in_flight_slot = review_receipts[0]["call_slot_id"]
+        partial_scorers = complete["scorer_settlements"]
+        partial_reviews = []
     else:
         raise AssertionError(phase)
+    record["accounting"]["evaluation_route_id"] = None
     record["accounting"]["material_disagreement"] = False
     record["accounting"]["receipt_bindings"] = [
         {
@@ -1418,6 +1664,7 @@ def _evaluation_bytes_invalid_index(
     )
     record = deepcopy(complete["attempt_record"])
     record["classifier_inputs"]["evaluation_bytes_valid"] = False
+    record["accounting"]["evaluation_route_id"] = None
     record["accounting"]["material_disagreement"] = False
     record["accounting"]["review_settlements"] = []
     retained = [
@@ -1539,6 +1786,8 @@ def _partial_stage_index(
     record["accounting"]["material_disagreement"] = (
         disagreement and review_count >= 2
     )
+    if review_count < 2:
+        record["accounting"]["evaluation_route_id"] = None
     if evaluation_route_override is not None:
         record["accounting"]["evaluation_route_id"] = evaluation_route_override
     selected_review_rows = complete["reviews"][:review_count]
@@ -2296,6 +2545,63 @@ def test_partial_invalid_retains_exact_incurred_prefix_and_in_flight_allocation(
     assert len(index["call_allocations"]) == len(index["receipts"]) + 1
 
 
+def test_partial_review_allocation_without_settlement_preserves_common_route_prefix(
+    synthesis,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+
+    index = _partial_invalid_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        phase="REVIEW_ALLOCATION",
+    )
+
+    assert index["attempt_record"]["accounting"]["evaluation_route_id"] is None
+    assert index["reviews"] == []
+    assert index["call_allocations"][-1]["call_slot_id"] == (
+        "EVAL.INITIAL_SCIENTIFIC_APPLICATION_SEMANTICS"
+    )
+    assert index["call_allocations"][-1]["settlement"] == (
+        "INTERRUPTED_IN_FLIGHT"
+    )
+
+
+def test_partial_review_allocation_rejects_non_prefix_route_slot(
+    synthesis,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+    index = _partial_invalid_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        phase="REVIEW_ALLOCATION",
+    )
+    index["call_allocations"][-1]["call_slot_id"] = (
+        "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY"
+    )
+    index["call_allocations"] = _rechain_allocations(
+        synthesis,
+        lock,
+        attempt_id="ES-ATTEMPT-01",
+        rows=index["call_allocations"],
+    )
+    _rehash_index(index)
+
+    with pytest.raises(synthesis.SynthesisError, match="route|review_domain"):
+        synthesis.validate_attempt_evidence_index(
+            index,
+            expected_index_sha256=index["index_sha256"],
+            decision_lock=lock,
+            randomization_manifest=schedule,
+            expected_bindings=bindings,
+        )
+
+
 @pytest.mark.parametrize("phase", ["SCORER", "REVIEW"])
 def test_partial_invalid_rejects_tampered_incurred_evidence(
     synthesis,
@@ -2417,6 +2723,74 @@ def test_partial_hard_prefix_follows_resolved_initial_reviews_before_integrated(
     assert len(index["hard_evaluations"]) == 2
     assert index["integrated_payload"] is None
     assert index["hard_primary_outcome"] is None
+
+
+def test_complete_hard_snapshot_may_precede_initial_review_interruption(
+    synthesis,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+
+    index = _partial_stage_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        scorer_count=4,
+        review_count=1,
+        hard_count=4,
+    )
+
+    assert index["attempt_record"]["accounting"]["evaluation_route_id"] is None
+    assert len(index["reviews"]) == 1
+    assert len(index["hard_evaluations"]) == 4
+    assert index["integrated_payload"] is None
+    assert index["oriented_primary"] is None
+
+
+def test_incomplete_hard_snapshot_cannot_precede_initial_review_resolution(
+    synthesis,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+
+    with pytest.raises(synthesis.SynthesisError, match="hard|partial"):
+        _partial_stage_index(
+            synthesis,
+            lock,
+            schedule,
+            bindings,
+            ordinal=1,
+            scorer_count=4,
+            review_count=1,
+            hard_count=3,
+        )
+
+
+def test_malformed_complete_hard_snapshot_before_review_resolution_fails_closed(
+    synthesis,
+) -> None:
+    lock, schedule, bindings = _lock_and_schedule()
+    index = _partial_stage_index(
+        synthesis,
+        lock,
+        schedule,
+        bindings,
+        ordinal=1,
+        scorer_count=4,
+        review_count=1,
+        hard_count=4,
+    )
+    index["hard_evaluations"][0]["freeze_sha256"] = _sha("0")
+    _rehash_index(index)
+
+    with pytest.raises(synthesis.SynthesisError, match="hard"):
+        synthesis.validate_attempt_evidence_index(
+            index,
+            expected_index_sha256=index["index_sha256"],
+            decision_lock=lock,
+            randomization_manifest=schedule,
+            expected_bindings=bindings,
+        )
 
 
 def test_partial_integrated_review_requires_all_four_hard_rows(synthesis) -> None:
@@ -3479,7 +3853,28 @@ def test_scorer_status_tamper_is_rejected_after_coherent_digest_rehash(
         )
 
 
-def test_scorer_terminal_settlement_must_join_mapped_e2_arm(
+def test_scorer_terminal_reference_is_distinct_from_arm_terminal_authority(
+    synthesis,
+) -> None:
+    _report_value, indexes = _report(synthesis, ("RICH", "RICH"))
+
+    for index in indexes:
+        arm_terminals = {
+            row["terminal_row_digest"]
+            for row in index["attempt_record"]["e2_authority"][
+                "arm_settlements"
+            ]
+        }
+        scorer_terminals = {
+            row["settlement_row"]["payload"][
+                "terminal_attempt_settlement_row_digest"
+            ]
+            for row in index["scorer_settlements"]
+        }
+        assert arm_terminals.isdisjoint(scorer_terminals)
+
+
+def test_scorer_terminal_reference_tamper_fails_frozen_e2_digest_binding(
     synthesis,
 ) -> None:
     lock, schedule, bindings = _lock_and_schedule()
@@ -3494,7 +3889,11 @@ def test_scorer_terminal_settlement_must_join_mapped_e2_arm(
     index["scorer_settlements"][0]["settlement_row"]["payload"][
         "terminal_attempt_settlement_row_digest"
     ] = _sha("f")
-    _rehash_scorer_projection(index, 0)
+    settlement = index["scorer_settlements"][0]["settlement_row"]
+    settlement["row_digest"] = canonical_sha256(
+        {key: value for key, value in settlement.items() if key != "row_digest"}
+    )
+    _rehash_index(index)
 
     with pytest.raises(synthesis.SynthesisError, match="scorer"):
         synthesis.validate_attempt_evidence_index(

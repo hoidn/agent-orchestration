@@ -164,6 +164,7 @@ from .prompt_fragment_contract import (
     validate_compiler_prompt_fragment_pair,
 )
 from .provider_attempts import (
+    PROVIDER_ATTEMPT_SITE_KEY_ENV,
     ProviderAttemptScope,
     resolve_aggregate_run_owner,
     validate_provider_attempt_allocations,
@@ -4211,7 +4212,9 @@ class WorkflowExecutor:
                 root_guard_result = self._revalidate_root_resume(run_state)
                 if root_guard_result is not None:
                     return root_guard_result
-            state = run_state.to_dict()
+            # Keep the execution projection independent from live aggregate
+            # snapshots; all durable mutations flow through the state manager.
+            state = deepcopy(run_state.to_dict())
             if resume:
                 try:
                     self._reconcile_completed_run_refs_before_resume(state)
@@ -9518,7 +9521,10 @@ class WorkflowExecutor:
                 context=provider_context,
                 prompt_content=attempt_prompt,
                 session_request=session_request,
-                env=self._provider_env_with_runtime_output_bundle_path(step, resolved_output_bundle),
+                env=self._provider_env_with_runtime_output_bundle_path(
+                    step,
+                    resolved_output_bundle,
+                ),
                 secrets=step.get('secrets'),
                 timeout_sec=step.get('timeout_sec'),
                 provider_call_policy={
@@ -9792,6 +9798,9 @@ class WorkflowExecutor:
                 exec_result = self._execute_provider_invocation(
                     invocation,
                     session_runtime=session_runtime,
+                    execution_env_overlay=(
+                        self._provider_attempt_execution_env_overlay(scope)
+                    ),
                 )
 
             # Capture output according to specified mode
@@ -10347,18 +10356,37 @@ class WorkflowExecutor:
         *,
         cwd: Optional[Path] = None,
         session_runtime: Optional[Dict[str, Any]] = None,
+        execution_env_overlay: Optional[Dict[str, str]] = None,
     ) -> Any:
         """Execute provider invocation with backward-compatible call shape."""
         execute_fn = self.provider_executor.execute
         try:
+            if execution_env_overlay is None:
+                return execute_fn(
+                    invocation,
+                    cwd=cwd,
+                    stream_output=(self.debug or self.stream_output),
+                    session_runtime=session_runtime,
+                )
             return execute_fn(
                 invocation,
                 cwd=cwd,
                 stream_output=(self.debug or self.stream_output),
                 session_runtime=session_runtime,
+                execution_env_overlay=execution_env_overlay,
             )
         except TypeError as exc:
             message = str(exc)
+            if (
+                execution_env_overlay is not None
+                and "unexpected keyword argument 'execution_env_overlay'"
+                in message
+            ):
+                return self._execute_provider_invocation(
+                    invocation,
+                    cwd=cwd,
+                    session_runtime=session_runtime,
+                )
             if "unexpected keyword argument 'cwd'" in message:
                 try:
                     return execute_fn(
@@ -10648,8 +10676,33 @@ class WorkflowExecutor:
         step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]:
-        """Return provider env with runtime-owned structured bundle path binding."""
-        return self._env_with_runtime_output_bundle_path(step.get('env'), resolved_output_bundle)
+        """Return prepared env without execution-only runtime bindings."""
+
+        selected = self._env_with_runtime_output_bundle_path(
+            step.get('env'),
+            resolved_output_bundle,
+        )
+        env = dict(selected or {})
+        env.pop(PROVIDER_ATTEMPT_SITE_KEY_ENV, None)
+        return env or None
+
+    @staticmethod
+    def _provider_attempt_execution_env_overlay(
+        provider_attempt_scope: ProviderAttemptScope | None,
+    ) -> Optional[Dict[str, str]]:
+        """Project one attempt site into the execution-only environment."""
+
+        if provider_attempt_scope is None:
+            return None
+        if type(provider_attempt_scope) is not ProviderAttemptScope:
+            raise TypeError(
+                "provider_attempt_scope must be exact ProviderAttemptScope"
+            )
+        return {
+            PROVIDER_ATTEMPT_SITE_KEY_ENV: (
+                provider_attempt_scope.run_independent_site_key
+            )
+        }
 
     def _apply_expected_outputs_contract(
         self,

@@ -697,8 +697,12 @@ def run_metered_command(
     prompt_sha256: str,
     contract_sha256: str,
     expected_session_id: str | None,
+    forward_raw_stdout: bool = True,
 ) -> tuple[int, dict[str, object]]:
     """Execute one fresh call, preserve exact output, and publish one receipt."""
+
+    if type(forward_raw_stdout) is not bool:
+        raise MeteringError("metering_stdout_forwarding_invalid")
 
     normalized = normalize_codex_argv(argv)
     root = Path(evidence_root).resolve(strict=True)
@@ -723,8 +727,9 @@ def run_metered_command(
         os.fsync(raw_descriptor)
     finally:
         os.close(raw_descriptor)
-    sys.stdout.buffer.write(stdout)
-    sys.stdout.buffer.flush()
+    if forward_raw_stdout:
+        sys.stdout.buffer.write(stdout)
+        sys.stdout.buffer.flush()
     sys.stderr.buffer.write(stderr)
     sys.stderr.buffer.flush()
     usage = parse_codex_jsonl(stdout, expected_session_id=expected_session_id)

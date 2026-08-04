@@ -23,13 +23,16 @@ import time
 from typing import Any, Iterator, Mapping, NoReturn, Sequence
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow.provider_attempts import PROVIDER_ATTEMPT_SITE_KEY_ENV
+from orchestrator.providers.session_transport import CodexExecJsonlAccumulator
 
 from . import metering
 
 
 MANIFEST_PATH_ENV = "ORC_ES_PROVIDER_BOUNDARY_MANIFEST_PATH"
 MANIFEST_SHA256_ENV = "ORC_ES_PROVIDER_BOUNDARY_MANIFEST_SHA256"
-MANIFEST_SCHEMA_VERSION = "es.provider_boundary_manifest.v1"
+OUTPUT_BUNDLE_PATH_ENV = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
+MANIFEST_SCHEMA_VERSION = "es.provider_boundary_manifest.v4"
 ALLOCATION_SCHEMA_VERSION = "es.controller_call_allocation.v1"
 SETTLEMENT_SCHEMA_VERSION = "es.controller_call_settlement.v1"
 
@@ -51,7 +54,9 @@ _CALL_KEYS = frozenset(
         "call_slot_id",
         "role_id",
         "cwd_selector",
-        "prompt_sha256",
+        "output_bundle_path",
+        "provider_attempt_site_key",
+        "prompt_sha256s",
         "contract_sha256",
         "outer_argv",
         "metered_argv",
@@ -254,7 +259,9 @@ class BoundaryCall:
     call_slot_id: str
     role_id: str
     cwd_selector: CwdSelector
-    prompt_sha256: str
+    output_bundle_path: str | None
+    provider_attempt_site_key: str | None
+    prompt_sha256s: tuple[str, ...]
     contract_sha256: str
     outer_argv: tuple[str, ...]
     metered_argv: tuple[str, ...]
@@ -273,7 +280,28 @@ class BoundaryCall:
             )
         if type(self.cwd_selector) is not CwdSelector:
             _fail("provider_boundary_cwd_selector_invalid")
-        _digest(self.prompt_sha256, field="prompt_sha256")
+        if self.output_bundle_path is not None:
+            object.__setattr__(
+                self,
+                "output_bundle_path",
+                _relative_path(
+                    self.output_bundle_path,
+                    field="output_bundle_path",
+                ),
+            )
+        if self.provider_attempt_site_key is not None:
+            _digest(
+                self.provider_attempt_site_key,
+                field="provider_attempt_site_key",
+            )
+        if (
+            type(self.prompt_sha256s) is not tuple
+            or not self.prompt_sha256s
+            or tuple(sorted(set(self.prompt_sha256s))) != self.prompt_sha256s
+        ):
+            _fail("provider_boundary_prompt_sha256s_invalid")
+        for digest in self.prompt_sha256s:
+            _digest(digest, field="prompt_sha256s")
         _digest(self.contract_sha256, field="contract_sha256")
         _digest(self.static_call_sha256, field="static_call_sha256")
         if (
@@ -325,7 +353,9 @@ class BoundaryCall:
             "call_slot_id": self.call_slot_id,
             "role_id": self.role_id,
             "cwd_selector": self.cwd_selector.record,
-            "prompt_sha256": self.prompt_sha256,
+            "output_bundle_path": self.output_bundle_path,
+            "provider_attempt_site_key": self.provider_attempt_site_key,
+            "prompt_sha256s": list(self.prompt_sha256s),
             "contract_sha256": self.contract_sha256,
             "outer_argv": list(self.outer_argv),
             "metered_argv": list(self.metered_argv),
@@ -342,13 +372,20 @@ class BoundaryCall:
             _fail("provider_boundary_call_invalid")
         outer = value["outer_argv"]
         inner = value["metered_argv"]
-        if not isinstance(outer, list) or not isinstance(inner, list):
+        prompt_sha256s = value["prompt_sha256s"]
+        if (
+            not isinstance(outer, list)
+            or not isinstance(inner, list)
+            or not isinstance(prompt_sha256s, list)
+        ):
             _fail("provider_boundary_call_invalid", "argv")
         return cls(
             call_slot_id=value["call_slot_id"],  # type: ignore[arg-type]
             role_id=value["role_id"],  # type: ignore[arg-type]
             cwd_selector=CwdSelector.from_record(value["cwd_selector"]),
-            prompt_sha256=value["prompt_sha256"],  # type: ignore[arg-type]
+            output_bundle_path=value["output_bundle_path"],  # type: ignore[arg-type]
+            provider_attempt_site_key=value["provider_attempt_site_key"],  # type: ignore[arg-type]
+            prompt_sha256s=tuple(prompt_sha256s),  # type: ignore[arg-type]
             contract_sha256=value["contract_sha256"],  # type: ignore[arg-type]
             outer_argv=tuple(outer),
             metered_argv=tuple(inner),
@@ -709,6 +746,8 @@ def resolve_call(
     cwd: Path,
     prompt: bytes,
     argv: Sequence[str],
+    output_bundle_path: str | None,
+    provider_attempt_site_key: str | None = None,
 ) -> BoundaryCall:
     """Resolve exactly one slot from only wrapper-visible invocation facts."""
 
@@ -723,13 +762,28 @@ def resolve_call(
     ):
         _fail("provider_boundary_outer_argv_invalid")
     outer = tuple(argv)
+    observed_output = (
+        None
+        if output_bundle_path is None
+        else _relative_path(output_bundle_path, field="output_bundle_path")
+    )
+    observed_site = (
+        None
+        if provider_attempt_site_key is None
+        else _digest(
+            provider_attempt_site_key,
+            field="provider_attempt_site_key",
+        )
+    )
     prompt_sha256 = "sha256:" + hashlib.sha256(prompt).hexdigest()
     matches = tuple(
         call
         for call in manifest.calls
-        if call.prompt_sha256 == prompt_sha256
+        if prompt_sha256 in call.prompt_sha256s
         and call.outer_argv == outer
         and call.cwd_selector.matches(cwd)
+        and call.output_bundle_path == observed_output
+        and call.provider_attempt_site_key == observed_site
     )
     if not matches:
         _fail("provider_boundary_call_absent")
@@ -1245,7 +1299,14 @@ def execute_boundary(
         _canonical_absolute(manifest_path, field="manifest.path"),
         expected_sha256=manifest_sha256,
     )
-    call = resolve_call(manifest, cwd=cwd, prompt=prompt, argv=argv)
+    call = resolve_call(
+        manifest,
+        cwd=cwd,
+        prompt=prompt,
+        argv=argv,
+        output_bundle_path=environ.get(OUTPUT_BUNDLE_PATH_ENV),
+        provider_attempt_site_key=environ.get(PROVIDER_ATTEMPT_SITE_KEY_ENV),
+    )
     allocation = publish_allocation(
         manifest.journal_path,
         attempt_id=manifest.attempt_id,
@@ -1253,6 +1314,7 @@ def execute_boundary(
         call_slot_id=call.call_slot_id,
         static_call_sha256=call.static_call_sha256,
     )
+    forwards_jsonl = "--json" in call.outer_argv
     try:
         with _replay_stdin(prompt):
             started_ns = time.monotonic_ns()
@@ -1266,13 +1328,41 @@ def execute_boundary(
                 role_id=call.role_id,
                 call_slot_id=call.call_slot_id,
                 provider_attempt_id=call.provider_attempt_id,
-                prompt_sha256=call.prompt_sha256,
+                prompt_sha256=(
+                    "sha256:" + hashlib.sha256(prompt).hexdigest()
+                ),
                 contract_sha256=call.contract_sha256,
                 expected_session_id=call.expected_session_id,
+                forward_raw_stdout=forwards_jsonl,
             )
             finished_ns = time.monotonic_ns()
     except metering.MeteringError as exc:
         raise ProviderBoundaryError("provider_boundary_metering_failed", exc.code) from exc
+    if not forwards_jsonl:
+        raw_path = manifest.evidence_root.joinpath(
+            *PurePosixPath(call.raw_jsonl_path).parts
+        )
+        try:
+            raw_jsonl = raw_path.read_bytes()
+        except OSError as exc:
+            raise ProviderBoundaryError(
+                "provider_boundary_normalized_output_invalid",
+                "raw_jsonl_unreadable",
+            ) from exc
+        accumulator = CodexExecJsonlAccumulator()
+        accumulator.feed(raw_jsonl)
+        metadata, transport_error = accumulator.finalize(
+            expected_session_id=call.expected_session_id,
+            require_terminal=True,
+        )
+        if (
+            transport_error is not None
+            or not isinstance(metadata, Mapping)
+            or not isinstance(metadata.get("normalized_stdout"), str)
+        ):
+            _fail("provider_boundary_normalized_output_invalid")
+        sys.stdout.buffer.write(metadata["normalized_stdout"].encode("utf-8"))
+        sys.stdout.buffer.flush()
     receipt_bytes = metering.canonical_json_bytes(receipt)
     settlement = publish_settlement(
         manifest.settlement_journal_path,
@@ -1313,6 +1403,7 @@ __all__ = [
     "MANIFEST_PATH_ENV",
     "MANIFEST_SCHEMA_VERSION",
     "MANIFEST_SHA256_ENV",
+    "OUTPUT_BUNDLE_PATH_ENV",
     "SETTLEMENT_SCHEMA_VERSION",
     "AllocationEvent",
     "BoundaryCall",

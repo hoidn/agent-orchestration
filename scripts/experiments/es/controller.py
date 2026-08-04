@@ -158,14 +158,21 @@ def _reject_number(value: str) -> NoReturn:
     _fail("controller_json_number_invalid", value)
 
 
-def _json_value(raw: bytes, *, field: str, line: bool = False) -> Any:
+def _json_value(
+    raw: bytes,
+    *,
+    field: str,
+    line: bool = False,
+    allow_finite_float: bool = False,
+) -> Any:
     try:
-        value = json.loads(
-            raw.decode("utf-8", "strict"),
-            object_pairs_hook=_strict_object,
-            parse_float=_reject_number,
-            parse_constant=_reject_number,
-        )
+        options: dict[str, Any] = {
+            "object_pairs_hook": _strict_object,
+            "parse_constant": _reject_number,
+        }
+        if not allow_finite_float:
+            options["parse_float"] = _reject_number
+        value = json.loads(raw.decode("utf-8", "strict"), **options)
     except ControllerError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -176,8 +183,19 @@ def _json_value(raw: bytes, *, field: str, line: bool = False) -> Any:
     return value
 
 
-def _closed_object(raw: bytes, *, field: str, line: bool = False) -> dict[str, Any]:
-    value = _json_value(raw, field=field, line=line)
+def _closed_object(
+    raw: bytes,
+    *,
+    field: str,
+    line: bool = False,
+    allow_finite_float: bool = False,
+) -> dict[str, Any]:
+    value = _json_value(
+        raw,
+        field=field,
+        line=line,
+        allow_finite_float=allow_finite_float,
+    )
     if not isinstance(value, dict):
         _fail("controller_json_object_required", field)
     return value
@@ -503,6 +521,7 @@ def _load_attempt_history(
             raw,
             field=f"attempt_index.{binding.attempt_id}",
             line=True,
+            allow_finite_float=True,
         )
         internal_digest = index.get("index_sha256")
         if not isinstance(internal_digest, str):
@@ -2297,10 +2316,14 @@ def canonical_finalize_attempt(assembly: AttemptAssembly) -> FinalizedAttempt:
     return _canonical_finalize_attempt_impl(assembly)
 
 
+_INITIAL_REVIEW_SLOTS = (
+    "EVAL.INITIAL_SCIENTIFIC_APPLICATION_SEMANTICS",
+    "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY",
+)
+
 _CONTROLLER_REVIEW_SLOTS = frozenset(
     {
-        "EVAL.INITIAL_SCIENTIFIC_APPLICATION_SEMANTICS",
-        "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY",
+        *_INITIAL_REVIEW_SLOTS,
         "EVAL.ADJUDICATOR",
         "EVAL.INTEGRATED_REVIEW",
     }
@@ -2580,12 +2603,23 @@ def _build_provider_boundary_manifest(
             continue
         static = by_slot[slot]
         normalized_argv = static.get("normalized_argv")
+        output_bundle_path = static.get("output_bundle_path")
+        provider_attempt_site_key = static.get("provider_attempt_site_key")
+        scorer = slot.startswith("EVAL.SCORER_")
         if (
-            not isinstance(normalized_argv, list)
+            "output_bundle_path" not in static
+            or "provider_attempt_site_key" not in static
+            or not isinstance(normalized_argv, list)
             or any(not isinstance(value, str) for value in normalized_argv)
+            or (scorer and output_bundle_path is not None)
+            or (not scorer and not isinstance(output_bundle_path, str))
+            or (scorer and provider_attempt_site_key is not None)
+            or (
+                not scorer
+                and not isinstance(provider_attempt_site_key, str)
+            )
         ):
             _fail("controller_call_authority_invalid", slot)
-        scorer = slot.startswith("EVAL.SCORER_")
         slug = slot.lower().replace(".", "-").replace("_", "-")
         prefix = f"attempts/{attempt_id}"
         try:
@@ -2595,7 +2629,9 @@ def _build_provider_boundary_manifest(
                 cwd_selector=provider_boundary.CwdSelector.under(
                     package.paths.state_dir if scorer else package.paths.run_ref_root
                 ),
-                prompt_sha256=str(static["prompt_sha256"]),
+                output_bundle_path=output_bundle_path,
+                provider_attempt_site_key=provider_attempt_site_key,
+                prompt_sha256s=tuple(static["prompt_sha256s"]),
                 contract_sha256=str(static["contract_sha256"]),
                 outer_argv=outer_argv,
                 metered_argv=tuple(normalized_argv),
@@ -2884,10 +2920,60 @@ class _FinalizerEvidence:
     call_allocations: tuple[bytes, ...]
 
 
+def _arm_terminal_status_by_arm(
+    authority: PersistedTrialAuthority,
+) -> dict[str, str]:
+    """Project the validated immutable evidence freeze into arm outcomes."""
+
+    if type(authority) is not PersistedTrialAuthority:
+        raise TypeError("authority must be exact PersistedTrialAuthority")
+    records = tuple(
+        _closed_object(
+            line,
+            field="trial_event_ledger_row",
+            line=True,
+        )
+        for line in authority.trial_event_ledger.canonical_bytes.splitlines(
+            keepends=True
+        )
+    )
+    freezes = tuple(row for row in records if row.get("kind") == "evidence_frozen")
+    if not freezes:
+        return {}
+    if len(freezes) != 1:
+        _fail("controller_terminal_status_authority_invalid")
+    payload = freezes[0].get("payload")
+    if not isinstance(payload, Mapping):
+        _fail("controller_terminal_status_authority_invalid")
+    evidence = payload.get("cell_evidence")
+    if not isinstance(evidence, list):
+        _fail("controller_terminal_status_authority_invalid")
+    statuses: dict[str, str] = {}
+    for row in evidence:
+        if not isinstance(row, Mapping):
+            _fail("controller_terminal_status_authority_invalid")
+        cell = row.get("cell")
+        status = row.get("status")
+        if (
+            not isinstance(cell, Mapping)
+            or cell.get("arm_id") not in ARMS
+            or cell.get("rep") != 1
+            or status not in {"completed", "failed"}
+            or cell["arm_id"] in statuses
+        ):
+            _fail("controller_terminal_status_authority_invalid")
+        statuses[str(cell["arm_id"])] = str(status)
+    if set(statuses) != set(ARMS):
+        _fail("controller_terminal_status_authority_invalid")
+    return statuses
+
+
 def _selected_routes(
     *,
     preflight: _Preflight,
     allocations: Sequence[provider_boundary.AllocationEvent],
+    arm_terminal_status_by_arm: Mapping[str, object] | None = None,
+    evaluation_adjudication: bool | None = None,
 ) -> tuple[tuple[tuple[str, str], ...], str | None]:
     contract = preflight.decision_lock.get("route_contract")
     if not isinstance(contract, Mapping):
@@ -2901,6 +2987,22 @@ def _selected_routes(
         or not isinstance(evaluations, list)
     ):
         _fail("controller_route_contract_invalid")
+    statuses = (
+        {}
+        if arm_terminal_status_by_arm is None
+        else arm_terminal_status_by_arm
+    )
+    if (
+        not isinstance(statuses, Mapping)
+        or any(arm not in ARMS for arm in statuses)
+        or any(status not in {"completed", "failed"} for status in statuses.values())
+    ):
+        _fail("controller_terminal_status_authority_invalid")
+    if (
+        evaluation_adjudication is not None
+        and type(evaluation_adjudication) is not bool
+    ):
+        _fail("controller_evaluation_route_adjudication_invalid")
     observed_slots = tuple(row.call_slot_id for row in allocations)
     routes: list[tuple[str, str]] = []
     for arm in ARMS:
@@ -2916,12 +3018,19 @@ def _selected_routes(
             if isinstance(slot, str)
         }
         observed = tuple(slot for slot in observed_slots if slot in legal)
-        matching = tuple(
+        sequence_matching = tuple(
             row
             for row in candidates
             if isinstance(row.get("call_slots"), list)
             and tuple(row["call_slots"]) == observed
             and isinstance(row.get("route_id"), str)
+        )
+        status = statuses.get(arm)
+        matching = tuple(
+            row
+            for row in sequence_matching
+            if status is None
+            or row.get("completed") is (status == "completed")
         )
         if not any(
             isinstance(row.get("call_slots"), list)
@@ -2929,6 +3038,8 @@ def _selected_routes(
             for row in candidates
         ):
             _fail("controller_terminal_route_sequence_invalid", arm)
+        if sequence_matching and status is not None and not matching:
+            _fail("controller_terminal_route_outcome_invalid", arm)
         if len(matching) > 1:
             _fail("controller_terminal_route_ambiguous", arm)
         if matching:
@@ -2977,23 +3088,41 @@ def _selected_routes(
         row
         for row in evaluations
         if isinstance(row, Mapping)
+        and (
+            evaluation_adjudication is None
+            or row.get("adjudication") is evaluation_adjudication
+        )
         and evaluation_sequence_matches(row, exact=True)
         and isinstance(row.get("route_id"), str)
     )
-    if not any(
-        isinstance(row, Mapping)
-        and evaluation_sequence_matches(row, exact=False)
+    prefix_evaluations = tuple(
+        row
         for row in evaluations
-    ):
+        if isinstance(row, Mapping)
+        and (
+            evaluation_adjudication is None
+            or row.get("adjudication") is evaluation_adjudication
+        )
+        and evaluation_sequence_matches(row, exact=False)
+        and isinstance(row.get("route_id"), str)
+    )
+    if not prefix_evaluations:
         _fail("controller_evaluation_route_sequence_invalid")
     if len(matching_evaluations) > 1:
         _fail("controller_evaluation_route_ambiguous")
+    selected_evaluation = (
+        matching_evaluations[0]
+        if matching_evaluations
+        else prefix_evaluations[0]
+        if len(prefix_evaluations) == 1
+        else None
+    )
     return (
         tuple(routes),
         (
             None
-            if not matching_evaluations
-            else str(matching_evaluations[0]["route_id"])
+            if selected_evaluation is None
+            else str(selected_evaluation["route_id"])
         ),
     )
 
@@ -3423,9 +3552,21 @@ def _canonical_finalize_attempt_impl(assembly: AttemptAssembly) -> FinalizedAtte
         arm_routes: tuple[tuple[str, str], ...] = ()
         evaluation_route_id: str | None = None
     else:
+        settled_review_slots = tuple(
+            row.call_slot_id for row in evidence.reviews
+        )
         arm_routes, evaluation_route_id = _selected_routes(
             preflight=preflight,
             allocations=evidence.allocations,
+            arm_terminal_status_by_arm=_arm_terminal_status_by_arm(
+                assembly.authority
+            ),
+            evaluation_adjudication=(
+                assembly.material_disagreement
+                if settled_review_slots[: len(_INITIAL_REVIEW_SLOTS)]
+                == _INITIAL_REVIEW_SLOTS
+                else None
+            ),
         )
     receipt_bindings = _contract_ordered_receipt_bindings(
         evidence,

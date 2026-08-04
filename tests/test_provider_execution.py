@@ -30,6 +30,9 @@ from orchestrator.providers import (
 )
 from orchestrator.providers.types import PreparedProviderPolicy, ProviderInvocation
 from orchestrator.providers.control import ProviderExecutionControl
+from orchestrator.workflow.provider_attempts import (
+    PROVIDER_ATTEMPT_SITE_KEY_ENV,
+)
 
 
 class _TimeoutIntSubclass(int):
@@ -598,6 +601,84 @@ class TestProviderExecutor:
         command_str = " ".join(invocation.command)
         assert "${PROMPT}" not in command_str
         assert "test-model" in command_str
+
+    @pytest.mark.parametrize("controlled", (False, True))
+    def test_execution_env_overlay_reaches_only_the_subprocess_and_wins(
+        self,
+        controlled: bool,
+    ) -> None:
+        authored = "sha256:" + "a" * 64
+        runtime_owned = "sha256:" + "b" * 64
+        invocation = ProviderInvocation(
+            command=[
+                sys.executable,
+                "-c",
+                (
+                    "import os,sys;sys.stdout.write("
+                    f"os.environ[{PROVIDER_ATTEMPT_SITE_KEY_ENV!r}]"
+                    ")"
+                ),
+            ],
+            input_mode=InputMode.ARGV,
+            env={PROVIDER_ATTEMPT_SITE_KEY_ENV: authored},
+        )
+
+        result = self.executor.execute(
+            invocation,
+            control=ProviderExecutionControl() if controlled else None,
+            execution_env_overlay={
+                PROVIDER_ATTEMPT_SITE_KEY_ENV: runtime_owned,
+            },
+        )
+
+        assert result.exit_code == 0
+        assert result.stdout.decode("ascii") == runtime_owned
+        assert invocation.env == {PROVIDER_ATTEMPT_SITE_KEY_ENV: authored}
+
+    def test_absent_execution_env_overlay_preserves_ordinary_environment(
+        self,
+    ) -> None:
+        invocation = ProviderInvocation(
+            command=[
+                sys.executable,
+                "-c",
+                "import os,sys;sys.stdout.write(os.environ['ORDINARY_ENV'])",
+            ],
+            input_mode=InputMode.ARGV,
+            env={"ORDINARY_ENV": "ordinary"},
+        )
+
+        result = self.executor.execute(invocation)
+
+        assert result.exit_code == 0
+        assert result.stdout == b"ordinary"
+
+    @pytest.mark.parametrize(
+        ("overlay", "message"),
+        (
+            ([], "execution_env_overlay must be an exact dict or None"),
+            ({1: "value"}, "execution_env_overlay keys must be strings"),
+            ({"KEY": 1}, "execution_env_overlay values must be strings"),
+            ({"": "value"}, "execution_env_overlay key is invalid"),
+            ({"BAD=KEY": "value"}, "execution_env_overlay key is invalid"),
+            ({"KEY": "bad\0value"}, "execution_env_overlay value is invalid"),
+        ),
+    )
+    def test_execution_env_overlay_fails_closed_on_invalid_shape(
+        self,
+        overlay: object,
+        message: str,
+    ) -> None:
+        invocation = ProviderInvocation(
+            command=[sys.executable, "-c", "raise SystemExit(99)"],
+            input_mode=InputMode.ARGV,
+        )
+
+        with pytest.raises((TypeError, ValueError), match=f"^{message}$"):
+            self.executor.execute(  # pyright: ignore[reportArgumentType]
+                invocation,
+                execution_env_overlay=overlay,  # pyright: ignore[reportArgumentType]
+            )
 
     def test_policy_absence_preserves_native_codex_and_keyword_free_claude_argv(self):
         default_codex, default_error = self.executor.prepare_invocation(

@@ -46,6 +46,19 @@ from .models import PhasedRuntimePolicy, ProviderBoundPolicy
 if TYPE_CHECKING:
     from ..executor import WorkflowExecutor
 
+
+def _aggregate_state_commit_context(manager: Any) -> Any:
+    """Return the root-owned mutation context for one runtime manager."""
+
+    nested_context = getattr(manager, "_aggregate_state_mutation", None)
+    if callable(nested_context):
+        return nested_context()
+    root_context = getattr(manager, "_state_mutation", None)
+    if callable(root_context):
+        return root_context()
+    raise TypeError("runtime state manager lacks a mutation context")
+
+
 class _WorkflowPhasedAdapter:
     """Remember only the exact active handle around the public adapter API."""
 
@@ -1441,37 +1454,38 @@ class _WorkflowPhasedProviderAttemptBindings:
     def atomic_success_commit(self, prepared, *, deadline: float):
         from .bindings import PhasedOperationFailure
 
-        state_snapshots = []
         manager = self.executor.state_manager
-        cursor = manager
-        while cursor is not None:
-            manager_state = getattr(cursor, "state", None)
-            if manager_state is not None and hasattr(
-                manager_state,
-                "to_dict",
-            ):
-                state_snapshots.append(
-                    (cursor, deepcopy(manager_state.to_dict()))
+        with _aggregate_state_commit_context(manager):
+            state_snapshots = []
+            cursor = manager
+            while cursor is not None:
+                manager_state = getattr(cursor, "state", None)
+                if manager_state is not None and hasattr(
+                    manager_state,
+                    "to_dict",
+                ):
+                    state_snapshots.append(
+                        (cursor, deepcopy(manager_state.to_dict()))
+                    )
+                cursor = getattr(cursor, "parent_manager", None)
+            live_state_before = deepcopy(self.state)
+            try:
+                return self._atomic_success_commit(
+                    prepared,
+                    deadline=deadline,
                 )
-            cursor = getattr(cursor, "parent_manager", None)
-        live_state_before = deepcopy(self.state)
-        try:
-            return self._atomic_success_commit(
-                prepared,
-                deadline=deadline,
-            )
-        except PhasedOperationFailure:
-            raise
-        except (OSError, RuntimeError, TypeError, ValueError) as exc:
-            for state_manager, snapshot in reversed(state_snapshots):
-                current = getattr(state_manager, "state", None)
-                if current is not None:
-                    state_manager.state = type(current).from_dict(snapshot)
-            self.state.clear()
-            self.state.update(live_state_before)
-            raise PhasedOperationFailure(
-                self._diagnostic("workflow_state_commit_failed")
-            ) from exc
+            except PhasedOperationFailure:
+                raise
+            except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                for state_manager, snapshot in reversed(state_snapshots):
+                    current = getattr(state_manager, "state", None)
+                    if current is not None:
+                        state_manager.state = type(current).from_dict(snapshot)
+                self.state.clear()
+                self.state.update(live_state_before)
+                raise PhasedOperationFailure(
+                    self._diagnostic("workflow_state_commit_failed")
+                ) from exc
 
     def _atomic_success_commit(self, prepared, *, deadline: float):
         from .bindings import (

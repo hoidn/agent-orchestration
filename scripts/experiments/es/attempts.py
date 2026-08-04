@@ -686,7 +686,7 @@ def _contract(
     except KeyError as exc:
         raise AttemptAccountingError("attempt_contract_invalid") from exc
     if (
-        checked_lock.get("schema_version") != "decision_lock.v1"
+        checked_lock.get("schema_version") != "decision_lock.v2"
         or checked_manifest.get("schema_version")
         != "es_randomization_manifest.v1"
         or not isinstance(provider, Mapping)

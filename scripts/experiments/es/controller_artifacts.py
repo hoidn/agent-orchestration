@@ -1454,6 +1454,23 @@ def _ordered_partial_call_evidence(
     )
 
 
+def _integrated_prior_record_sha256s(
+    review_rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """Project prior-review bindings only once an integrated record exists."""
+
+    if not any(
+        row.get("call_slot_id") == "EVAL.INTEGRATED_REVIEW"
+        for row in review_rows
+    ):
+        return []
+    return [
+        row["record_sha256"]
+        for row in review_rows
+        if row.get("call_slot_id") != "EVAL.INTEGRATED_REVIEW"
+    ]
+
+
 def _partial_evidence_projection(
     *,
     replay: PersistedTrialReplay | None,
@@ -1602,11 +1619,9 @@ def _partial_evidence_projection(
         "packets": packet_rows,
         "scorer_settlements": scorer_rows,
         "reviews": review_rows,
-        "integrated_prior_record_sha256s": [
-            row["record_sha256"]
-            for row in review_rows
-            if row["call_slot_id"] != "EVAL.INTEGRATED_REVIEW"
-        ],
+        "integrated_prior_record_sha256s": (
+            _integrated_prior_record_sha256s(review_rows)
+        ),
         "adjudication_payload": adjudication,
         "adjudication_payload_sha256": (
             None

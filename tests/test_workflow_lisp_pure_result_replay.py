@@ -17,7 +17,10 @@ from orchestrator.cli.commands.run import run_workflow
 from orchestrator.state import StateManager, StepResult
 from orchestrator.workflow import pure_result_replay
 from orchestrator.workflow.executable_ir import (
+    CallBoundaryNode,
+    CallStepConfig,
     NodeResultAddress,
+    PureProjectionStepConfig,
     WorkflowInputAddress,
     workflow_executable_ir_to_json,
 )
@@ -161,6 +164,68 @@ _ROUTED_CONSUMER_SOURCE = """\
       selected)))
 """
 
+_IMPORTED_SCALAR_CALL_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.25")
+  (defmodule pure_replay_imported_scalar)
+  (export identity)
+  (defworkflow identity
+    ((value Bool))
+    -> Bool
+    value))
+"""
+
+_IMPORTED_SCALAR_CONSUMER_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.25")
+  (defmodule pure_replay_imported_scalar_consumer)
+  (import pure_replay_imported_scalar :only (identity))
+  (export orchestrate)
+  (defworkflow orchestrate
+    ((value Bool))
+    -> Bool
+    (let* ((called
+             (call identity :value value))
+           (derived
+             (if called true false)))
+      derived)))
+"""
+
+_IMPORTED_RECORD_CALL_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.25")
+  (defmodule pure_replay_imported_record)
+  (export ReplayPair identity)
+  (defrecord ReplayPair
+    (flag Bool)
+    (count Int)
+    (weights List[Float]))
+  (defworkflow identity
+    ((value ReplayPair))
+    -> ReplayPair
+    value))
+"""
+
+_IMPORTED_RECORD_CONSUMER_SOURCE = """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.25")
+  (defmodule pure_replay_imported_record_consumer)
+  (import pure_replay_imported_record :only (ReplayPair identity))
+  (export orchestrate)
+  (defworkflow orchestrate
+    ((value ReplayPair))
+    -> Bool
+    (let* ((called
+             (call identity :value value))
+           (derived
+             (if called.flag true false)))
+      derived)))
+"""
+
 
 class _PostPersistInterruption(BaseException):
     pass
@@ -253,6 +318,50 @@ def _compile_replay_consumer_fixture(
         module_path,
         result.validated_bundles_by_name[f"{module_name}::orchestrate"],
     )
+
+
+def _compile_imported_scalar_replay_fixture(workspace: Path):
+    imported_path = workspace / "pure_replay_imported_scalar.orc"
+    imported_path.write_text(_IMPORTED_SCALAR_CALL_SOURCE, encoding="utf-8")
+    consumer_path = workspace / "pure_replay_imported_scalar_consumer.orc"
+    consumer_path.write_text(
+        _IMPORTED_SCALAR_CONSUMER_SOURCE,
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        consumer_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    return result.validated_bundles_by_name[
+        "pure_replay_imported_scalar_consumer::orchestrate"
+    ]
+
+
+def _compile_imported_record_replay_fixture(workspace: Path):
+    imported_path = workspace / "pure_replay_imported_record.orc"
+    imported_path.write_text(_IMPORTED_RECORD_CALL_SOURCE, encoding="utf-8")
+    consumer_path = workspace / "pure_replay_imported_record_consumer.orc"
+    consumer_path.write_text(
+        _IMPORTED_RECORD_CONSUMER_SOURCE,
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        consumer_path,
+        source_roots=(workspace,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    return result.validated_bundles_by_name[
+        "pure_replay_imported_record_consumer::orchestrate"
+    ]
 
 
 def _initialize_replay_consumer_fixture(
@@ -2699,6 +2808,810 @@ def _replace_binding_refs(
             }
         ),
     )
+
+
+def _replace_payload_binding_type(
+    bundle: Any,
+    *,
+    node_id: str,
+    binding_name: str,
+    descriptor: Mapping[str, Any],
+):
+    node = bundle.ir.nodes[node_id]
+    config = node.execution_config
+    assert isinstance(config, PureProjectionStepConfig)
+    pure_projection = dict(config.pure_projection)
+    payload = dict(pure_projection["payload"])
+    bindings = dict(payload["bindings"])
+    binding = dict(bindings[binding_name])
+    binding["type"] = MappingProxyType(dict(descriptor))
+    bindings[binding_name] = MappingProxyType(binding)
+    payload["bindings"] = MappingProxyType(bindings)
+    pure_projection["payload"] = MappingProxyType(payload)
+    replacement = replace(
+        node,
+        execution_config=replace(
+            config,
+            pure_projection=MappingProxyType(pure_projection),
+        ),
+    )
+    return replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {**dict(bundle.ir.nodes), node_id: replacement}
+            ),
+        ),
+    )
+
+
+def test_pure_replay_imported_scalar_call_contract_is_shared_by_index_and_runtime(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    derived_id = _node_id_ending(bundle, "__derived")
+
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(
+            str(tmp_path / "pure_replay_imported_scalar_consumer.orc")
+        ),
+    )
+    replay_node = runtime.index.nodes[derived_id]
+    witness = runtime.witness(derived_id)
+    call_name = bundle.projection.presentation_key_by_node_id[call_id]
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            call_name: {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {"__result__": True},
+            },
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            ),
+        },
+        "bound_inputs": {"value": True},
+    }
+
+    assert replay_node.durable_dependency_node_ids == (call_id,)
+    evaluated_states: list[Mapping[str, Any]] = []
+
+    def evaluate(
+        node_id: str,
+        active_state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        assert node_id == derived_id
+        called = active_state["steps"][call_name]["artifacts"]["__result__"]
+        assert called is True
+        evaluated_states.append(active_state)
+        return {
+            "name": witness.presentation_key,
+            "step_id": witness.step_id,
+            "visit_count": 1,
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {"__result__": called},
+        }
+
+    runtime.replay_node(
+        derived_id,
+        state=state,
+        evaluate_node=evaluate,
+    )
+
+    assert len(evaluated_states) == 1
+    assert runtime.value_for_state_address(
+        NodeResultAddress(derived_id, "artifacts", "__result__"),
+        state,
+    ) is True
+
+
+def test_pure_replay_import_alias_is_bound_separately_from_workflow_identity(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_id, call_node = next(
+        (node_id, node)
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    original_alias = call_node.call_alias
+    local_alias = "local-identity"
+    config = call_node.execution_config
+    assert isinstance(config, CallStepConfig)
+    metadata = bundle.surface.imports[original_alias]
+    imported = bundle.imports[original_alias]
+    aliased_node = replace(
+        call_node,
+        call_alias=local_alias,
+        execution_config=replace(config, call=local_alias),
+    )
+    aliased_bundle = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            imports=MappingProxyType(
+                {local_alias: replace(metadata, alias=local_alias)}
+            ),
+        ),
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {**dict(bundle.ir.nodes), call_id: aliased_node}
+            ),
+        ),
+        imports=MappingProxyType({local_alias: imported}),
+    )
+
+    contract = pure_result_replay._compiled_node_result_contract(
+        aliased_bundle,
+        NodeResultAddress(call_id, "artifacts", "__result__"),
+    )
+
+    assert contract == imported.surface.outputs["__result__"].definition
+
+
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "caller-import-alias",
+        "caller-import-workflow",
+        "caller-import-output-domain",
+        "imported-surface-identity",
+        "imported-executable-identity",
+    ),
+)
+def test_pure_replay_imported_call_identity_catalog_tamper_fails_closed(
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    )
+    alias = call_node.call_alias
+    if fault.startswith("caller-import-"):
+        metadata = bundle.surface.imports[alias]
+        if fault == "caller-import-alias":
+            metadata = replace(metadata, alias="wrong::identity")
+        elif fault == "caller-import-workflow":
+            metadata = replace(metadata, workflow_name="wrong::identity")
+        else:
+            metadata = replace(metadata, output_names=("not_declared",))
+        bundle = replace(
+            bundle,
+            surface=replace(
+                bundle.surface,
+                imports=MappingProxyType(
+                    {**dict(bundle.surface.imports), alias: metadata}
+                ),
+            ),
+        )
+    else:
+        imported = bundle.imports[alias]
+        if fault == "imported-surface-identity":
+            imported = replace(
+                imported,
+                surface=replace(imported.surface, name="wrong::identity"),
+            )
+        else:
+            imported = replace(
+                imported,
+                ir=replace(imported.ir, name="wrong::identity"),
+            )
+        bundle = replace(
+            bundle,
+            imports=MappingProxyType({**dict(bundle.imports), alias: imported}),
+        )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_imported_call_unknown_output_member_fails_closed(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    derived_id = _node_id_ending(bundle, "__derived")
+    config = bundle.ir.nodes[derived_id].execution_config
+    assert isinstance(config, PureProjectionStepConfig)
+    binding_refs = dict(config.pure_projection["binding_refs"])
+    call_ref = binding_refs["called"]["ref"]
+    binding_refs["called"] = {
+        "ref": call_ref.rsplit(".", 1)[0] + ".not_declared",
+    }
+    tampered_ir = _replace_binding_refs(
+        bundle,
+        node_id=derived_id,
+        binding_refs=binding_refs,
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(replace(bundle, ir=tampered_ir))
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+    assert excinfo.value.context["member"] == "not_declared"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ("available-output-removed", "surface-contract-removed", "catalog-mismatch"),
+)
+def test_pure_replay_imported_call_contract_catalog_tamper_fails_closed(
+    tmp_path: Path,
+    fault: str,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_id, call_node = next(
+        (node_id, node)
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    if fault == "available-output-removed":
+        bundle = replace(
+            bundle,
+            ir=replace(
+                bundle.ir,
+                nodes=MappingProxyType(
+                    {
+                        **dict(bundle.ir.nodes),
+                        call_id: replace(call_node, available_outputs=()),
+                    }
+                ),
+            ),
+        )
+    else:
+        imported = bundle.imports[call_node.call_alias]
+        if fault == "surface-contract-removed":
+            imported = replace(
+                imported,
+                surface=replace(
+                    imported.surface,
+                    outputs=MappingProxyType({}),
+                ),
+            )
+        else:
+            executable_contract = imported.ir.outputs["__result__"]
+            imported = replace(
+                imported,
+                ir=replace(
+                    imported.ir,
+                    outputs=MappingProxyType(
+                        {
+                            **dict(imported.ir.outputs),
+                            "__result__": replace(
+                                executable_contract,
+                                definition=MappingProxyType(
+                                    {"type": "string", "kind": "scalar"}
+                                ),
+                            ),
+                        }
+                    ),
+                ),
+            )
+        bundle = replace(
+            bundle,
+            imports=MappingProxyType(
+                {**dict(bundle.imports), call_node.call_alias: imported}
+            ),
+        )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+    assert excinfo.value.context["member"] == "__result__"
+
+
+def test_pure_replay_imported_call_contract_definitions_compare_exact_json_types(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    )
+    imported = bundle.imports[call_node.call_alias]
+    surface_contract = imported.surface.outputs["__result__"]
+    executable_contract = imported.ir.outputs["__result__"]
+    imported = replace(
+        imported,
+        surface=replace(
+            imported.surface,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        surface_contract,
+                        definition=MappingProxyType(
+                            {
+                                **dict(surface_contract.definition),
+                                "integrity_probe": (
+                                    MappingProxyType({"value": True}),
+                                ),
+                            }
+                        ),
+                    )
+                }
+            ),
+        ),
+        ir=replace(
+            imported.ir,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        executable_contract,
+                        definition=MappingProxyType(
+                            {
+                                **dict(executable_contract.definition),
+                                "integrity_probe": (
+                                    MappingProxyType({"value": 1}),
+                                ),
+                            }
+                        ),
+                    )
+                }
+            ),
+        ),
+    )
+    bundle = replace(
+        bundle,
+        imports=MappingProxyType(
+            {**dict(bundle.imports), call_node.call_alias: imported}
+        ),
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_imported_call_contract_must_match_consumer_binding_type(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    )
+    imported = bundle.imports[call_node.call_alias]
+    surface_contract = imported.surface.outputs["__result__"]
+    executable_contract = imported.ir.outputs["__result__"]
+    string_definition = MappingProxyType(
+        {
+            **dict(surface_contract.definition),
+            "type": "string",
+        }
+    )
+    imported = replace(
+        imported,
+        surface=replace(
+            imported.surface,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        surface_contract,
+                        value_type="string",
+                        definition=string_definition,
+                    )
+                }
+            ),
+        ),
+        ir=replace(
+            imported.ir,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        executable_contract,
+                        value_type="string",
+                        definition=string_definition,
+                    )
+                }
+            ),
+        ),
+    )
+    bundle = replace(
+        bundle,
+        imports=MappingProxyType(
+            {**dict(bundle.imports), call_node.call_alias: imported}
+        ),
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_concrete_call_result_is_admissible_to_json_consumer(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    derived_id = _node_id_ending(bundle, "__derived")
+    bundle = _replace_payload_binding_type(
+        bundle,
+        node_id=derived_id,
+        binding_name="called",
+        descriptor={"kind": "primitive", "name": "Json"},
+    )
+
+    index = derive_pure_result_replay_index(bundle)
+
+    assert derived_id in index.nodes
+
+
+def _replace_imported_scalar_output_with_value_contract(bundle: Any):
+    call_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if isinstance(node, CallBoundaryNode)
+    )
+    imported = bundle.imports[call_node.call_alias]
+    surface_contract = imported.surface.outputs["__result__"]
+    executable_contract = imported.ir.outputs["__result__"]
+    value_definition = MappingProxyType(
+        {
+            **dict(surface_contract.definition),
+            "kind": "value",
+            "type": "value",
+        }
+    )
+    imported = replace(
+        imported,
+        surface=replace(
+            imported.surface,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        surface_contract,
+                        kind="value",
+                        value_type="value",
+                        definition=value_definition,
+                    )
+                }
+            ),
+        ),
+        ir=replace(
+            imported.ir,
+            outputs=MappingProxyType(
+                {
+                    "__result__": replace(
+                        executable_contract,
+                        kind="value",
+                        value_type="value",
+                        definition=value_definition,
+                    )
+                }
+            ),
+        ),
+    )
+    bundle = replace(
+        bundle,
+        imports=MappingProxyType(
+            {**dict(bundle.imports), call_node.call_alias: imported}
+        ),
+    )
+    return bundle
+
+
+def test_pure_replay_concrete_call_result_is_not_admissible_to_value_consumer(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    derived_id = _node_id_ending(bundle, "__derived")
+    bundle = _replace_payload_binding_type(
+        bundle,
+        node_id=derived_id,
+        binding_name="called",
+        descriptor={"kind": "primitive", "name": "Value"},
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_value_call_result_is_admissible_to_value_consumer(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    derived_id = _node_id_ending(bundle, "__derived")
+    bundle = _replace_imported_scalar_output_with_value_contract(bundle)
+    bundle = _replace_payload_binding_type(
+        bundle,
+        node_id=derived_id,
+        binding_name="called",
+        descriptor={"kind": "primitive", "name": "Value"},
+    )
+
+    index = derive_pure_result_replay_index(bundle)
+
+    assert derived_id in index.nodes
+
+
+def test_pure_replay_value_call_result_is_not_admissible_to_concrete_consumer(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    bundle = _replace_imported_scalar_output_with_value_contract(bundle)
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+
+
+def test_pure_replay_imported_scalar_call_rejects_wrong_durable_value_type(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_scalar_replay_fixture(tmp_path)
+    call_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    derived_id = _node_id_ending(bundle, "__derived")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(
+            str(tmp_path / "pure_replay_imported_scalar_consumer.orc")
+        ),
+    )
+    witness = runtime.witness(derived_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            bundle.projection.presentation_key_by_node_id[call_id]: {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {"__result__": "true"},
+            },
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            ),
+        },
+        "bound_inputs": {"value": True},
+    }
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.replay_node(
+            derived_id,
+            state=state,
+            evaluate_node=lambda _node_id, _state: pytest.fail(
+                "wrong durable type must reject before pure evaluation"
+            ),
+        )
+
+    assert excinfo.value.reason == pure_result_replay.DURABLE_INPUT_INVALID
+
+
+def test_pure_replay_imported_record_call_uses_exact_flattened_contracts(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_record_replay_fixture(tmp_path)
+    call_id, call_node = next(
+        (node_id, node)
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    derived_id = _node_id_ending(bundle, "__derived")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(
+            str(tmp_path / "pure_replay_imported_record_consumer.orc")
+        ),
+    )
+    witness = runtime.witness(derived_id)
+    call_name = bundle.projection.presentation_key_by_node_id[call_id]
+    artifacts = {
+        "return__flag": True,
+        "return__count": 7,
+        "return__weights": [1.5, 2.5],
+    }
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            call_name: {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": artifacts,
+            },
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            ),
+        },
+        "bound_inputs": {
+            "value": {
+                "flag": True,
+                "count": 7,
+                "weights": [1.5, 2.5],
+            }
+        },
+    }
+    evaluated: list[str] = []
+
+    def evaluate(
+        node_id: str,
+        active_state: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        called = active_state["steps"][call_name]["artifacts"]
+        assert called == artifacts
+        evaluated.append(node_id)
+        return {
+            "name": witness.presentation_key,
+            "step_id": witness.step_id,
+            "visit_count": 1,
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {"__result__": called["return__flag"]},
+        }
+
+    assert call_node.available_outputs == (
+        "return__flag",
+        "return__count",
+        "return__weights",
+    )
+    assert runtime.index.nodes[derived_id].durable_dependency_node_ids == (
+        call_id,
+    )
+    runtime.replay_node(
+        derived_id,
+        state=state,
+        evaluate_node=evaluate,
+    )
+
+    assert evaluated == [derived_id]
+    assert runtime.value_for_state_address(
+        NodeResultAddress(derived_id, "artifacts", "__result__"),
+        state,
+    ) is True
+
+
+def test_pure_replay_imported_record_call_catalog_tamper_fails_closed(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_record_replay_fixture(tmp_path)
+    call_id, call_node = next(
+        (node_id, node)
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    call_id: replace(
+                        call_node,
+                        available_outputs=("return__flag",),
+                    ),
+                }
+            ),
+        ),
+    )
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        derive_pure_result_replay_index(bundle)
+
+    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
+    assert excinfo.value.context["member"] == "return__flag"
+
+
+def test_pure_replay_imported_record_call_rejects_coercible_durable_member(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_record_replay_fixture(tmp_path)
+    call_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    derived_id = _node_id_ending(bundle, "__derived")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(
+            str(tmp_path / "pure_replay_imported_record_consumer.orc")
+        ),
+    )
+    witness = runtime.witness(derived_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            bundle.projection.presentation_key_by_node_id[call_id]: {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {
+                    "return__flag": True,
+                    "return__count": "7",
+                    "return__weights": [1.5],
+                },
+            },
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            ),
+        },
+        "bound_inputs": {
+            "value": {"flag": True, "count": 7, "weights": [1.5]}
+        },
+    }
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.replay_node(
+            derived_id,
+            state=state,
+            evaluate_node=lambda _node_id, _state: pytest.fail(
+                "coercible record member must reject before pure evaluation"
+            ),
+        )
+
+    assert excinfo.value.reason == pure_result_replay.DURABLE_INPUT_INVALID
+
+
+def test_pure_replay_imported_record_call_rejects_nested_numeric_coercion(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_imported_record_replay_fixture(tmp_path)
+    call_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if isinstance(node, CallBoundaryNode)
+    )
+    derived_id = _node_id_ending(bundle, "__derived")
+    runtime = pure_result_replay.PureReplayRuntime(
+        bundle=bundle,
+        scope_path=ResumeScopePath.root(
+            str(tmp_path / "pure_replay_imported_record_consumer.orc")
+        ),
+    )
+    witness = runtime.witness(derived_id)
+    state = {
+        "step_visits": {witness.presentation_key: 1},
+        "steps": {
+            bundle.projection.presentation_key_by_node_id[call_id]: {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {
+                    "return__flag": True,
+                    "return__count": 7,
+                    "return__weights": [1],
+                },
+            },
+            witness.presentation_key: (
+                pure_result_replay.build_pure_completion_shell(witness)
+            ),
+        },
+        "bound_inputs": {
+            "value": {"flag": True, "count": 7, "weights": [1.0]}
+        },
+    }
+
+    with pytest.raises(PureResultReplayIndexError) as excinfo:
+        runtime.replay_node(
+            derived_id,
+            state=state,
+            evaluate_node=lambda _node_id, _state: pytest.fail(
+                "nested numeric coercion must reject before pure evaluation"
+            ),
+        )
+
+    assert excinfo.value.reason == pure_result_replay.DURABLE_INPUT_INVALID
 
 
 def _replace_output_contracts(

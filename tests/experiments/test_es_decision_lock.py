@@ -212,7 +212,7 @@ def test_alpha_005_known_vector_stays_regression_locked() -> None:
     }
 
 
-def test_terminal_route_table_is_the_exact_22_row_prefix_closure() -> None:
+def test_terminal_route_table_preserves_the_exact_22_prefix_closure() -> None:
     routes = decision_lock.derive_terminal_routes()
 
     actual = [
@@ -225,6 +225,7 @@ def test_terminal_route_table_is_the_exact_22_row_prefix_closure() -> None:
             row["completed"],
         )
         for row in routes
+        if not str(row["route_id"]).endswith(".FAILED_AT_FINAL_CALL")
     ]
     assert actual == [
         ("DIRECT", "DIRECT.EMPTY", (), (), 0, False),
@@ -359,6 +360,37 @@ def test_terminal_route_table_is_the_exact_22_row_prefix_closure() -> None:
             6,
             True,
         ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("arm", "roles"),
+    [
+        ("DIRECT", ("I",)),
+        ("DESIGN_QA", ("D", "DR", "I")),
+        ("DESIGN_QA", ("D", "DR", "DREV", "I")),
+        ("PRODUCT_QA", ("I", "PR")),
+        ("PRODUCT_QA", ("I", "PR", "FIX")),
+        ("RICH", ("D", "DR", "I", "PR")),
+        ("RICH", ("D", "DR", "I", "PR", "FIX")),
+        ("RICH", ("D", "DR", "DREV", "I", "PR")),
+        ("RICH", ("D", "DR", "DREV", "I", "PR", "FIX")),
+    ],
+)
+def test_success_completing_prefix_has_distinct_final_call_failure_route(
+    arm: str,
+    roles: tuple[str, ...],
+) -> None:
+    suffix = "_".join(roles)
+    matching = [
+        row
+        for row in decision_lock.derive_terminal_routes()
+        if row["arm"] == arm and tuple(row["role_sequence"]) == roles
+    ]
+
+    assert [(row["route_id"], row["completed"]) for row in matching] == [
+        (f"{arm}.{suffix}", True),
+        (f"{arm}.{suffix}.FAILED_AT_FINAL_CALL", False),
     ]
 
 
@@ -521,14 +553,14 @@ def test_build_and_validate_lock_has_no_self_hash_and_exact_selected_vectors() -
     Draft202012Validator(schema).validate(lock)
 
     assert "lock_digest" not in lock
-    assert lock["schema_version"] == "decision_lock.v1"
+    assert lock["schema_version"] == "decision_lock.v2"
     assert lock["authored_choices"] == decision_lock.default_authored_choices()
     assert lock["derived"]["operating_characteristics"]["null_tail"] == {
         "denominator": 4,
         "numerator": 1,
     }
     assert lock["derived"]["call_bounds"]["absolute_with_invalid_attempt_capacity"] == 88
-    assert len(lock["route_contract"]["terminal_routes"]) == 22
+    assert len(lock["route_contract"]["terminal_routes"]) == 31
     assert len(lock["route_contract"]["receipt_call_slots"]) == 22
     assert lock["bindings"] == bindings
     assert lock["schedule"] == {
@@ -547,6 +579,18 @@ def test_build_and_validate_lock_has_no_self_hash_and_exact_selected_vectors() -
         expected_bindings=bindings,
     ) == lock
     assert decision_lock.decision_lock_digest(lock).startswith("sha256:")
+
+
+def test_decision_lock_v1_is_not_reinterpreted_as_v2() -> None:
+    lock, schedule, bindings = _lock_and_inputs()
+    lock["schema_version"] = "decision_lock.v1"
+
+    with pytest.raises(decision_lock.DecisionLockError):
+        decision_lock.validate_decision_lock(
+            lock,
+            randomization_manifest=schedule,
+            expected_bindings=bindings,
+        )
 
 
 def _leaf_paths(value: object, prefix: tuple[object, ...] = ()) -> list[tuple[object, ...]]:

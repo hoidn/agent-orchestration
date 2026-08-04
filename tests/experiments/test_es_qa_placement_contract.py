@@ -687,7 +687,7 @@ def test_output_artifacts_are_compiler_owned_and_review_result_is_typed() -> Non
     assert len(corrected_design_consumers) == 2
 
 
-def test_authored_arm_prefixes_equal_the_exact_22_decision_lock_rows() -> None:
+def test_authored_arm_outcomes_equal_the_exact_31_decision_lock_rows() -> None:
     _, _, workflows = _module_forms_and_workflows()
     completed, prefixes, terminal_outcomes = _derived_contract(workflows)
     assert completed == COMPLETED_SEQUENCES
@@ -699,13 +699,16 @@ def test_authored_arm_prefixes_equal_the_exact_22_decision_lock_rows() -> None:
         for arm, sequences in completed.items()
     } == COMPLETED_CALL_BOUNDS
     locked_rows = decision_lock.derive_terminal_routes()
-    assert len(locked_rows) == 22
-    locked = {(row["arm"], tuple(row["role_sequence"])): row for row in locked_rows}
+    assert len(locked_rows) == 31
+    locked: dict[tuple[str, tuple[str, ...]], list[dict[str, object]]] = {}
+    for row in locked_rows:
+        key = (str(row["arm"]), tuple(row["role_sequence"]))
+        locked.setdefault(key, []).append(row)
     assert set(locked) == set(prefixes)
-    for key, row in locked.items():
+    for key, rows in locked.items():
         arm, roles = key
         suffix = "_".join(roles) if roles else "EMPTY"
-        assert row == {
+        expected = {
             "arm": arm,
             "route_id": f"{arm}.{suffix}",
             "role_sequence": list(roles),
@@ -713,7 +716,19 @@ def test_authored_arm_prefixes_equal_the_exact_22_decision_lock_rows() -> None:
             "call_count": len(roles),
             "completed": prefixes[key],
         }
+        assert rows[0] == expected
+        assert rows[1:] == (
+            [
+                {
+                    **expected,
+                    "route_id": f"{arm}.{suffix}.FAILED_AT_FINAL_CALL",
+                    "completed": False,
+                }
+            ]
+            if prefixes[key]
+            else []
+        )
         if roles:
-            assert terminal_outcomes[key] == (
-                {False, True} if row["completed"] else {False}
-            )
+            assert terminal_outcomes[key] == {
+                bool(row["completed"]) for row in rows
+            }

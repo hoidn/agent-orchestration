@@ -16,6 +16,8 @@ from orchestrator.contracts.output_contract import (
 )
 
 from .executable_ir import (
+    CallBoundaryNode,
+    CallStepConfig,
     ExecutableNodeKind,
     ExecutableWorkflow,
     ForEachNode,
@@ -46,6 +48,11 @@ from .runtime_plan import (
     WorkflowRuntimePlan,
     validate_workflow_runtime_plan,
 )
+from .surface_ast import ImportedWorkflowMetadata
+from .type_descriptor import (
+    transport_descriptor_for_schema,
+    transport_schema_for_descriptor,
+)
 
 
 PURE_RESULT_REPLAY_DIAGNOSTIC = "pure_result_replay_unavailable"
@@ -64,7 +71,9 @@ DURABLE_ROUTED_SKIP = "durable_routed_skip"
 _OVERLAY_VALUE_MISSING = object()
 _DURABLE_VALUE_MISSING = object()
 
-_INTRINSIC_DURABLE_RESULT_CONTRACTS = MappingProxyType(
+_INTRINSIC_DURABLE_RESULT_CONTRACTS: Mapping[
+    tuple[str, str | None], Mapping[str, Any]
+] = MappingProxyType(
     {
         ("exit_code", None): MappingProxyType(
             {"type": "integer"}
@@ -83,7 +92,9 @@ _INTRINSIC_DURABLE_RESULT_CONTRACTS = MappingProxyType(
         ),
     }
 )
-_INTRINSIC_DURABLE_RESULT_TYPES = MappingProxyType(
+_INTRINSIC_DURABLE_RESULT_TYPES: Mapping[
+    tuple[str, str | None], type[Any]
+] = MappingProxyType(
     {
         ("exit_code", None): int,
         ("outcome", "status"): str,
@@ -262,7 +273,7 @@ def _same_json_shape_and_value(left: Any, right: Any) -> bool:
                 for key in left
             )
         )
-    if isinstance(left, list):
+    if isinstance(left, (list, tuple)):
         return len(left) == len(right) and all(
             _same_json_shape_and_value(left_item, right_item)
             for left_item, right_item in zip(left, right)
@@ -729,7 +740,7 @@ class PureReplayRuntime:
         ):
             return None
         node_id = self._selector_to_node_id.get(parsed.step_name)
-        if node_id not in self.index.nodes:
+        if not isinstance(node_id, str) or node_id not in self.index.nodes:
             return None
         address = NodeResultAddress(
             node_id=node_id,
@@ -822,7 +833,7 @@ class PureReplayRuntime:
                 ):
                     address = _resolve_replay_ref(
                         ref,
-                        executable=self.bundle.ir,
+                        bundle=self.bundle,
                         selector_to_node_id=self._selector_to_node_id,
                         catalog=self._reference_catalog,
                         scope_kind=self.index.scope_kind,
@@ -1114,12 +1125,21 @@ class PureReplayRuntime:
                     message="pure replay durable result value is invalid",
                 )
             try:
-                validate_contract_value(
+                validated_value = validate_contract_value(
                     durable_value,
                     dict(contract),
                     workspace=self.bundle.provenance.source_root,
                 )
             except OutputContractError:
+                self._raise_replay_result_failure(
+                    replay_node.node_id,
+                    reason=DURABLE_INPUT_INVALID,
+                    message="pure replay durable result value is invalid",
+                )
+            if not _same_json_shape_and_value(
+                validated_value,
+                durable_value,
+            ):
                 self._raise_replay_result_failure(
                     replay_node.node_id,
                     reason=DURABLE_INPUT_INVALID,
@@ -1133,7 +1153,7 @@ class PureReplayRuntime:
         reason: str,
         message: str,
         cause_type: str | None = None,
-    ) -> None:
+    ) -> NoReturn:
         context: dict[str, Any] = {"node_id": node_id}
         if isinstance(cause_type, str) and cause_type:
             context["cause"] = {"type": cause_type}
@@ -1225,7 +1245,7 @@ class PureReplayRuntime:
                 addresses = tuple(
                     _resolve_replay_ref(
                         ref,
-                        executable=self.bundle.ir,
+                        bundle=self.bundle,
                         selector_to_node_id=self._selector_to_node_id,
                         catalog=self._reference_catalog,
                         scope_kind=self.index.scope_kind,
@@ -1456,7 +1476,7 @@ class PureReplayRuntime:
         self,
         node_id: str | None,
         surface: str,
-    ) -> None:
+    ) -> NoReturn:
         raise PureResultReplayIndexError(
             PROFILE_CONFLICT,
             "replay-profile persistence surfaces conflict",
@@ -1767,17 +1787,37 @@ def derive_pure_result_replay_index(
 
         resolved: list[PureReplayBinding] = []
         node_dependencies: list[NodeResultAddress] = []
-        for path, ref in _walk_typed_binding_ref_documents(
+        for (
+            path,
+            ref,
+            binding_descriptor,
+        ) in _walk_typed_binding_ref_documents_with_types(
             binding_refs,
             payload_bindings=payload_bindings,
         ):
             address = _resolve_replay_ref(
                 ref,
-                executable=executable,
+                bundle=bundle,
                 selector_to_node_id=selector_to_node_id,
                 catalog=catalog,
                 scope_kind=scope_kind,
             )
+            if (
+                isinstance(address, NodeResultAddress)
+                and not _result_contract_matches_binding_descriptor(
+                    bundle,
+                    address=address,
+                    binding_descriptor=binding_descriptor,
+                )
+            ):
+                raise PureResultReplayIndexError(
+                    DEPENDENCY_INDEX_INVALID,
+                    "pure replay source contract disagrees with its binding type",
+                    context={
+                        "node_id": node_id,
+                        "binding_path": list(path),
+                    },
+                )
             resolved.append(PureReplayBinding(path=path, address=address))
             if isinstance(address, NodeResultAddress):
                 node_dependencies.append(address)
@@ -2182,7 +2222,13 @@ def _walk_typed_binding_value(
     descriptor: Mapping[str, Any],
     *,
     path: tuple[BindingPathPart, ...],
-    resolved: list[tuple[tuple[BindingPathPart, ...], str]],
+    resolved: list[
+        tuple[
+            tuple[BindingPathPart, ...],
+            str,
+            Mapping[str, Any],
+        ]
+    ],
 ) -> None:
     if isinstance(value, Mapping) and "ref" in value:
         if (
@@ -2194,13 +2240,13 @@ def _walk_typed_binding_value(
                 "binding ref document must contain only one non-empty string ref",
                 path=path,
             )
-        resolved.append((path, value["ref"]))
+        resolved.append((path, value["ref"], descriptor))
         return
 
     kind = descriptor.get("kind")
     if kind == "primitive" and descriptor.get("name") == "Json":
         for nested_path, ref in _walk_value_document_refs(value):
-            resolved.append(((*path, *nested_path), ref))
+            resolved.append(((*path, *nested_path), ref, descriptor))
         return
     if (
         not _typed_descriptor_contains_union(descriptor)
@@ -2428,12 +2474,25 @@ def _walk_typed_binding_value(
     )
 
 
-def _walk_typed_binding_ref_documents(
+def _walk_typed_binding_ref_documents_with_types(
     binding_refs: Mapping[str, Any],
     *,
     payload_bindings: Mapping[str, Any],
-) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
-    resolved: list[tuple[tuple[BindingPathPart, ...], str]] = []
+) -> tuple[
+    tuple[
+        tuple[BindingPathPart, ...],
+        str,
+        Mapping[str, Any],
+    ],
+    ...,
+]:
+    resolved: list[
+        tuple[
+            tuple[BindingPathPart, ...],
+            str,
+            Mapping[str, Any],
+        ]
+    ] = []
     for binding_name in sorted(binding_refs):
         if not isinstance(binding_name, str) or not binding_name:
             raise PureResultReplayIndexError(
@@ -2461,14 +2520,33 @@ def _walk_typed_binding_ref_documents(
     return tuple(resolved)
 
 
+def _walk_typed_binding_ref_documents(
+    binding_refs: Mapping[str, Any],
+    *,
+    payload_bindings: Mapping[str, Any],
+) -> tuple[tuple[tuple[BindingPathPart, ...], str], ...]:
+    """Return the stable path/ref projection of typed binding holes."""
+
+    return tuple(
+        (path, ref)
+        for path, ref, _descriptor in (
+            _walk_typed_binding_ref_documents_with_types(
+                binding_refs,
+                payload_bindings=payload_bindings,
+            )
+        )
+    )
+
+
 def _resolve_replay_ref(
     ref: str,
     *,
-    executable: ExecutableWorkflow,
+    bundle: LoadedWorkflowBundle,
     selector_to_node_id: Mapping[str, str],
     catalog: SurfaceRefScopeCatalog,
     scope_kind: str,
 ) -> ReplayAddress:
+    executable = bundle.ir
     try:
         parsed = parse_surface_ref(ref, catalog)
     except ReferenceResolutionError as exc:
@@ -2516,7 +2594,8 @@ def _resolve_replay_ref(
             context={"ref": ref, "step_name": parsed.step_name},
         )
     _validate_result_member(
-        executable.nodes[node_id].execution_config,
+        bundle,
+        node_id=node_id,
         field=parsed.field,
         member=parsed.member,
         ref=ref,
@@ -2529,8 +2608,9 @@ def _resolve_replay_ref(
 
 
 def _validate_result_member(
-    config: Any,
+    bundle: LoadedWorkflowBundle,
     *,
+    node_id: str,
     field: str,
     member: str | None,
     ref: str,
@@ -2550,20 +2630,14 @@ def _validate_result_member(
             "pure replay binding field is not a supported result address",
             context={"ref": ref, "field": field, "member": member},
         )
-    common = getattr(config, "common", None)
-    output_bundle = getattr(common, "output_bundle", None)
-    fields = (
-        output_bundle.get("fields")
-        if isinstance(output_bundle, Mapping)
-        else None
-    )
-    members = {
-        field_record.get("name")
-        for field_record in fields
-        if isinstance(field_record, Mapping)
-        and isinstance(field_record.get("name"), str)
-    } if isinstance(fields, (list, tuple)) else set()
-    if member not in members:
+    if _compiled_node_result_contract(
+        bundle,
+        NodeResultAddress(
+            node_id=node_id,
+            field=field,
+            member=member,
+        ),
+    ) is None:
         raise PureResultReplayIndexError(
             DEPENDENCY_INDEX_INVALID,
             "pure replay binding references an unknown result member",
@@ -2580,6 +2654,55 @@ def _compiled_node_result_contract(
     if address.field != "artifacts" or not isinstance(address.member, str):
         return None
     node = bundle.ir.nodes.get(address.node_id)
+    if isinstance(node, CallBoundaryNode):
+        config = node.execution_config
+        import_metadata = bundle.surface.imports.get(node.call_alias)
+        if (
+            address.member not in node.available_outputs
+            or not isinstance(config, CallStepConfig)
+            or not node.call_alias
+            or config.call != node.call_alias
+            or not isinstance(import_metadata, ImportedWorkflowMetadata)
+            or import_metadata.alias != node.call_alias
+            or not isinstance(import_metadata.workflow_name, str)
+            or not import_metadata.workflow_name
+            or import_metadata.output_names != node.available_outputs
+        ):
+            return None
+        imported = bundle.imports.get(node.call_alias)
+        if (
+            not isinstance(imported, LoadedWorkflowBundle)
+            or imported.surface.name != import_metadata.workflow_name
+            or imported.ir.name != import_metadata.workflow_name
+        ):
+            return None
+        surface_outputs = imported.surface.outputs
+        executable_outputs = imported.ir.outputs
+        if (
+            tuple(surface_outputs) != node.available_outputs
+            or tuple(executable_outputs) != node.available_outputs
+        ):
+            return None
+        surface_contract = surface_outputs.get(address.member)
+        executable_contract = executable_outputs.get(address.member)
+        surface_definition = getattr(surface_contract, "definition", None)
+        executable_definition = getattr(executable_contract, "definition", None)
+        if (
+            getattr(surface_contract, "name", None) != address.member
+            or getattr(executable_contract, "name", None) != address.member
+            or getattr(surface_contract, "kind", None)
+            != getattr(executable_contract, "kind", None)
+            or getattr(surface_contract, "value_type", None)
+            != getattr(executable_contract, "value_type", None)
+            or not isinstance(surface_definition, Mapping)
+            or not isinstance(executable_definition, Mapping)
+            or not _same_json_shape_and_value(
+                surface_definition,
+                executable_definition,
+            )
+        ):
+            return None
+        return surface_definition
     common = getattr(
         getattr(node, "execution_config", None),
         "common",
@@ -2602,6 +2725,44 @@ def _compiled_node_result_contract(
     if len(matches) != 1:
         return None
     return matches[0]
+
+
+def _result_contract_matches_binding_descriptor(
+    bundle: LoadedWorkflowBundle,
+    *,
+    address: NodeResultAddress,
+    binding_descriptor: Mapping[str, Any],
+) -> bool:
+    """Return whether one durable address has the consumer's exact type."""
+
+    contract = _INTRINSIC_DURABLE_RESULT_CONTRACTS.get(
+        (address.field, address.member)
+    )
+    if contract is None:
+        contract = _compiled_node_result_contract(bundle, address)
+    if contract is None:
+        return False
+    try:
+        observed_descriptor = transport_descriptor_for_schema(contract)
+    except (RecursionError, TypeError, ValueError):
+        return False
+    if (
+        binding_descriptor.get("kind") == "primitive"
+        and binding_descriptor.get("name") == "Json"
+    ):
+        return True
+    try:
+        observed_schema = transport_schema_for_descriptor(
+            observed_descriptor,
+            allow_nested_structures=True,
+        )
+        binding_schema = transport_schema_for_descriptor(
+            binding_descriptor,
+            allow_nested_structures=True,
+        )
+    except (RecursionError, TypeError, ValueError):
+        return False
+    return _same_json_shape_and_value(observed_schema, binding_schema)
 
 
 def _durable_node_result_value(

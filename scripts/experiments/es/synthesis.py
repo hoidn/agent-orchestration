@@ -87,8 +87,10 @@ _CALL_ROW_KEYS = frozenset(
     {
         "call_slot_id",
         "role_id",
-        "prompt_sha256",
+        "prompt_sha256s",
         "contract_sha256",
+        "output_bundle_path",
+        "provider_attempt_site_key",
         "normalized_argv",
     }
 )
@@ -417,7 +419,7 @@ def _validated_call_authority(
     if (
         not isinstance(prompt_manifest, dict)
         or set(prompt_manifest) != _PROMPT_MANIFEST_KEYS
-        or prompt_manifest.get("schema_version") != "es.prompt_manifest.v1"
+        or prompt_manifest.get("schema_version") != "es.prompt_manifest.v2"
         or not isinstance(environment_lock, dict)
         or set(environment_lock) != _ENVIRONMENT_LOCK_KEYS
         or environment_lock.get("schema_version") != "es.environment_lock.v1"
@@ -485,7 +487,42 @@ def _validated_call_authority(
         ):
             _fail("synthesis_call_authority_invalid")
         slot = row["call_slot_id"]
-        _digest(row.get("prompt_sha256"), field=f"{slot}.prompt_sha256")
+        output_bundle_path = row["output_bundle_path"]
+        provider_attempt_site_key = row["provider_attempt_site_key"]
+        if output_bundle_path is not None:
+            if (
+                not isinstance(output_bundle_path, str)
+                or not output_bundle_path
+                or "\\" in output_bundle_path
+            ):
+                _fail("synthesis_call_authority_invalid", f"{slot}.output_bundle_path")
+            output_path = PurePosixPath(output_bundle_path)
+            if (
+                output_path.is_absolute()
+                or output_path.as_posix() != output_bundle_path
+                or any(part in {"", ".", ".."} for part in output_path.parts)
+            ):
+                _fail("synthesis_call_authority_invalid", f"{slot}.output_bundle_path")
+        if slot.startswith("EVAL."):
+            if provider_attempt_site_key is not None:
+                _fail(
+                    "synthesis_call_authority_invalid",
+                    f"{slot}.provider_attempt_site_key",
+                )
+        else:
+            _digest(
+                provider_attempt_site_key,
+                field=f"{slot}.provider_attempt_site_key",
+            )
+        prompt_sha256s = row.get("prompt_sha256s")
+        if (
+            not isinstance(prompt_sha256s, list)
+            or not prompt_sha256s
+            or prompt_sha256s != sorted(set(prompt_sha256s))
+        ):
+            _fail("synthesis_call_authority_invalid", f"{slot}.prompt_sha256s")
+        for digest in prompt_sha256s:
+            _digest(digest, field=f"{slot}.prompt_sha256s")
         _digest(row.get("contract_sha256"), field=f"{slot}.contract_sha256")
         argv = row["normalized_argv"]
         try:
@@ -617,12 +654,20 @@ def _validated_receipt_rows(
             receipt_paths.append(receipt_path)
             static_call = call_authority_by_slot.get(slot)
             process = receipt.get("process")
+            static_prompt_sha256s = (
+                cast(
+                    Sequence[object],
+                    static_call.get("prompt_sha256s", []),
+                )
+                if isinstance(static_call, Mapping)
+                else ()
+            )
             if (
                 not isinstance(static_call, Mapping)
                 or not isinstance(process, Mapping)
                 or process.get("argv") != static_call.get("normalized_argv")
                 or receipt.get("role_id") != static_call.get("role_id")
-                or receipt.get("prompt_sha256") != static_call.get("prompt_sha256")
+                or receipt.get("prompt_sha256") not in static_prompt_sha256s
                 or receipt.get("contract_sha256")
                 != static_call.get("contract_sha256")
                 or receipt.get("executable_chain")
@@ -637,7 +682,7 @@ def _validated_receipt_rows(
                     "role_id": static_call["role_id"],
                     "call_slot_id": slot,
                     "provider_attempt_id": receipt["provider_attempt_id"],
-                    "prompt_sha256": static_call["prompt_sha256"],
+                    "prompt_sha256": receipt["prompt_sha256"],
                     "contract_sha256": static_call["contract_sha256"],
                     "executable_chain": deepcopy(static_call["executable_chain"]),
                 }
@@ -691,6 +736,50 @@ def _allocation_row(
     }
 
 
+def _evaluation_route_prefix_candidates(
+    evaluation_routes: Sequence[Mapping[str, object]],
+    observed_evaluation: Sequence[str],
+) -> tuple[Mapping[str, object], ...]:
+    """Return locked routes whose allocation order admits this closed prefix.
+
+    Scorers form one unordered tranche; every subsequent evaluator call is an
+    ordered route prefix.  Keeping the candidate set preserves ambiguity until
+    the first route-specific call is actually allocated.
+    """
+
+    observed = tuple(observed_evaluation)
+    scorer_count = len(_ARMS)
+    candidates: list[Mapping[str, object]] = []
+    for row in evaluation_routes:
+        raw_slots = row.get("call_slots")
+        if (
+            not isinstance(raw_slots, list)
+            or len(raw_slots) < scorer_count
+            or any(not isinstance(slot, str) for slot in raw_slots)
+            or not isinstance(row.get("route_id"), str)
+            or type(row.get("adjudication")) is not bool
+        ):
+            continue
+        locked = tuple(cast(list[str], raw_slots))
+        if len(observed) <= scorer_count:
+            matches = (
+                len(set(observed)) == len(observed)
+                and set(observed).issubset(set(locked[:scorer_count]))
+            )
+        else:
+            observed_scorers = observed[:scorer_count]
+            observed_suffix = observed[scorer_count:]
+            matches = (
+                len(set(observed_scorers)) == scorer_count
+                and set(observed_scorers) == set(locked[:scorer_count])
+                and observed_suffix
+                == locked[scorer_count : scorer_count + len(observed_suffix)]
+            )
+        if matches:
+            candidates.append(row)
+    return tuple(candidates)
+
+
 def _selected_call_routes(
     accounting: Mapping[str, object],
     decision_lock: Mapping[str, object],
@@ -730,15 +819,34 @@ def _selected_call_routes(
             _fail("synthesis_call_allocation_route_invalid")
         selected_by_arm[arm] = tuple(cast(list[str], slots))
 
+    validated_evaluation_routes: list[Mapping[str, object]] = []
+    for row in evaluation_routes:
+        slots = row.get("call_slots") if isinstance(row, Mapping) else None
+        if (
+            not isinstance(row, Mapping)
+            or not isinstance(row.get("route_id"), str)
+            or not isinstance(slots, list)
+            or any(not isinstance(slot, str) for slot in slots)
+            or type(row.get("adjudication")) is not bool
+        ):
+            _fail("synthesis_call_allocation_route_invalid")
+        validated_evaluation_routes.append(row)
+
     evaluation_route_id = accounting.get("evaluation_route_id")
     if evaluation_route_id is None:
-        return selected_by_arm, (), None
+        legal_slots = tuple(
+            dict.fromkeys(
+                cast(str, slot)
+                for row in validated_evaluation_routes
+                for slot in cast(list[str], row["call_slots"])
+            )
+        )
+        return selected_by_arm, legal_slots, None
     evaluation_route = next(
         (
             row
-            for row in evaluation_routes
-            if isinstance(row, Mapping)
-            and row.get("route_id") == evaluation_route_id
+            for row in validated_evaluation_routes
+            if row.get("route_id") == evaluation_route_id
         ),
         None,
     )
@@ -746,7 +854,7 @@ def _selected_call_routes(
         evaluation_route.get("call_slots"), list
     ):
         _fail("synthesis_call_allocation_route_invalid")
-    slots = evaluation_route["call_slots"]
+    slots = cast(list[object], evaluation_route["call_slots"])
     if any(not isinstance(slot, str) for slot in slots) or type(
         evaluation_route.get("adjudication")
     ) is not bool:
@@ -947,6 +1055,36 @@ def _validated_call_allocations(
     if set(by_receipt_slot) - seen_slots:
         _fail("synthesis_call_allocation_receipt_mismatch")
 
+    evaluation_routes = (
+        route_contract.get("evaluation_routes")
+        if isinstance(route_contract, Mapping)
+        else None
+    )
+    if not isinstance(evaluation_routes, list) or any(
+        not isinstance(row, Mapping) for row in evaluation_routes
+    ):
+        _fail("synthesis_call_allocation_route_invalid")
+    observed_evaluation = tuple(
+        str(row["call_slot_id"])
+        for row in normalized
+        if str(row["call_slot_id"]).startswith("EVAL.")
+    )
+    evaluation_candidates = _evaluation_route_prefix_candidates(
+        cast(list[Mapping[str, object]], evaluation_routes),
+        observed_evaluation,
+    )
+    selected_evaluation_route_id = accounting.get("evaluation_route_id")
+    if not evaluation_candidates:
+        _fail("synthesis_call_allocation_route_invalid")
+    if selected_evaluation_route_id is None:
+        if len(evaluation_candidates) < 2:
+            _fail("synthesis_call_allocation_route_invalid")
+    elif not any(
+        row.get("route_id") == selected_evaluation_route_id
+        for row in evaluation_candidates
+    ):
+        _fail("synthesis_call_allocation_route_invalid")
+
     allocated_by_slot = {str(row["call_slot_id"]): row for row in normalized}
     positions = {
         str(row["call_slot_id"]): sequence
@@ -1051,7 +1189,7 @@ def _validated_call_allocations(
             )
         ):
             _fail("synthesis_call_allocation_scorer_barrier_invalid")
-    if adjudicator_allocated or integrated_allocated or hard_evidence:
+    if adjudicator_allocated or integrated_allocated:
         if (
             review_evidence & initial_slots != initial_slots
             or allocated_initials != initial_slots
@@ -1622,10 +1760,8 @@ def _validated_scorer_settlements(
     if not isinstance(e2, Mapping):
         _fail("synthesis_scorer_domain_invalid")
     authority_rows = e2.get("scorer_settlements")
-    arm_settlements = e2.get("arm_settlements")
     if (
         not isinstance(authority_rows, list)
-        or not isinstance(arm_settlements, list)
         or len(authority_rows) != len(values)
         or (require_complete and len(authority_rows) != 4)
     ):
@@ -1644,11 +1780,6 @@ def _validated_scorer_settlements(
     ):
         _fail("synthesis_scorer_domain_invalid")
     arm_by_label = {label: arm for arm, label in labels_by_arm.items()}
-    terminal_by_arm = {
-        row.get("cell", {}).get("arm_id"): row.get("terminal_row_digest")
-        for row in arm_settlements
-        if isinstance(row, Mapping) and isinstance(row.get("cell"), Mapping)
-    }
 
     if not values:
         return []
@@ -1712,7 +1843,6 @@ def _validated_scorer_settlements(
             or settlement["row_digest"] != authority.get("settlement_row_digest")
             or settlement["payload"]["score_row_content_digest"]
             != score.get("row_content_digest")
-            or terminal != terminal_by_arm.get(arm)
         ):
             _fail("synthesis_scorer_binding_mismatch", arm)
         score_values.append(score)
@@ -2640,23 +2770,56 @@ def _validate_partial_attempt_index(
     )
     if not isinstance(evaluation_routes, list):
         _fail("synthesis_review_domain_invalid")
-    evaluation_route = next(
-        (
-            row
-            for row in evaluation_routes
-            if isinstance(row, Mapping)
-            and row.get("route_id") == accounting.get("evaluation_route_id")
-        ),
-        None,
-    )
-    if not isinstance(evaluation_route, Mapping) or not isinstance(
-        evaluation_route.get("call_slots"), list
+    allocation_rows = index.get("call_allocations")
+    if not isinstance(allocation_rows, list) or any(
+        not isinstance(row, Mapping)
+        or not isinstance(row.get("call_slot_id"), str)
+        for row in allocation_rows
     ):
         _fail("synthesis_review_domain_invalid")
-    expected_review_slots = list(evaluation_route["call_slots"])[4:]
-    if [row.get("call_slot_id") for row in settlements] != expected_review_slots[
-        : len(settlements)
-    ]:
+    observed_evaluation = tuple(
+        str(row["call_slot_id"])
+        for row in allocation_rows
+        if str(row["call_slot_id"]).startswith("EVAL.")
+    )
+    route_candidates = _evaluation_route_prefix_candidates(
+        tuple(
+            cast(Mapping[str, object], row)
+            for row in evaluation_routes
+            if isinstance(row, Mapping)
+        ),
+        observed_evaluation,
+    )
+    selected_route_id = accounting.get("evaluation_route_id")
+    if not route_candidates:
+        _fail("synthesis_review_domain_invalid")
+    evaluation_route = (
+        None
+        if selected_route_id is None
+        else next(
+            (
+                row
+                for row in route_candidates
+                if row.get("route_id") == selected_route_id
+            ),
+            None,
+        )
+    )
+    if selected_route_id is None:
+        if len(route_candidates) < 2:
+            _fail("synthesis_review_domain_invalid")
+    elif not isinstance(evaluation_route, Mapping):
+        _fail("synthesis_review_domain_invalid")
+    observed_settlement_slots = [
+        row.get("call_slot_id") for row in settlements
+    ]
+    if any(
+        observed_settlement_slots
+        != list(cast(list[str], route["call_slots"]))[len(_ARMS) :][
+            : len(settlements)
+        ]
+        for route in route_candidates
+    ):
         _fail("synthesis_review_domain_invalid")
     prior_records: list[dict[str, Any]] = []
     checked_rows: list[dict[str, Any]] = []
@@ -2711,7 +2874,8 @@ def _validate_partial_attempt_index(
     review_resolution_complete = False
     if first_initial is None or second_initial is None:
         if (
-            accounting.get("material_disagreement") is not False
+            selected_route_id is not None
+            or accounting.get("material_disagreement") is not False
             or second_initial is not None
             or adjudicator_row is not None
             or integrated_row is not None
@@ -2734,7 +2898,10 @@ def _validate_partial_attempt_index(
             )
         if accounting.get("material_disagreement") is not disagreement:
             _fail("synthesis_material_disagreement_mismatch")
-        if evaluation_route.get("adjudication") is not disagreement:
+        if (
+            not isinstance(evaluation_route, Mapping)
+            or evaluation_route.get("adjudication") is not disagreement
+        ):
             _fail("synthesis_evaluation_route_adjudication_mismatch")
         if initial_failed or not disagreement:
             if adjudicator_row is not None:
@@ -2786,9 +2953,13 @@ def _validate_partial_attempt_index(
         "hard_primary_outcome": None,
         "hard_primary_outcome_sha256": None,
     }
+    complete_hard_snapshot_before_initial_resolution = (
+        (first_initial is None or second_initial is None)
+        and len(hard_rows) == len(_ARMS)
+    )
     if not review_resolution_complete:
         if (
-            hard_rows
+            (hard_rows and not complete_hard_snapshot_before_initial_resolution)
             or integrated_row is not None
             or any(index[field] != expected for field, expected in no_integrated.items())
             or any(index[field] != expected for field, expected in no_primary.items())

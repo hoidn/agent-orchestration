@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import threading
 from types import MappingProxyType, MethodType, SimpleNamespace
 from typing import Any, cast
 
@@ -1543,6 +1545,10 @@ def test_atomic_commit_guard_rejection_leaks_no_live_success_projection() -> Non
             }
         )
 
+        @contextmanager
+        def _state_mutation(self):
+            yield
+
         def finalize_step_with_dataflow(self, *args, commit_guard, **kwargs):
             assert commit_guard() is True
             raise TimeoutError("rejected")
@@ -1784,6 +1790,117 @@ def test_call_frame_phased_commit_is_one_guarded_root_state_write(
         "child.review"
     )
     assert child.state.to_dict() == persisted
+
+
+def test_call_frame_phased_commit_holds_root_lock_through_rollback(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    root, child = _call_frame_manager(tmp_path)
+    executor = _executor()
+    executor.state_manager = child
+    binding = object.__new__(_WorkflowPhasedProviderAttemptBindings)
+    binding.executor = executor
+    binding.step_name = "Review"
+    binding.state = child.state.to_dict()
+
+    fake_commit_entered = threading.Event()
+    allow_commit_failure = threading.Event()
+    commit_lock_acquired = threading.Event()
+    heartbeat_lock_attempted = threading.Event()
+    event_lock = threading.Lock()
+    events: list[str] = []
+    commit_errors: list[BaseException] = []
+    heartbeat_errors: list[BaseException] = []
+    original_state_mutation = root._state_mutation
+
+    def record(event: str) -> None:
+        with event_lock:
+            events.append(event)
+
+    @contextmanager
+    def observed_state_mutation():
+        thread_name = threading.current_thread().name
+        if thread_name == "phased-heartbeat":
+            record("heartbeat_lock_attempted")
+            heartbeat_lock_attempted.set()
+        acquired = False
+        try:
+            with original_state_mutation():
+                acquired = True
+                if thread_name == "phased-commit":
+                    record("commit_lock_acquired")
+                    commit_lock_acquired.set()
+                elif thread_name == "phased-heartbeat":
+                    record("heartbeat_lock_acquired")
+                yield
+        finally:
+            if thread_name == "phased-commit" and acquired:
+                record("commit_lock_released")
+
+    monkeypatch.setattr(root, "_state_mutation", observed_state_mutation)
+
+    def fail_commit(
+        self,
+        prepared,
+        *,
+        deadline: float,
+    ):
+        del self, prepared, deadline
+        fake_commit_entered.set()
+        if not allow_commit_failure.wait(timeout=5.0):
+            raise TimeoutError("test did not release phased commit failure")
+        raise OSError("injected phased commit failure")
+
+    binding._atomic_success_commit = MethodType(fail_commit, binding)
+
+    def commit() -> None:
+        try:
+            binding.atomic_success_commit(object(), deadline=10**18)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            commit_errors.append(exc)
+
+    def heartbeat() -> None:
+        try:
+            child.heartbeat_step("Review")
+        except BaseException as exc:  # pragma: no cover - asserted below
+            heartbeat_errors.append(exc)
+
+    commit_thread = threading.Thread(
+        target=commit,
+        name="phased-commit",
+        daemon=True,
+    )
+    commit_thread.start()
+    assert fake_commit_entered.wait(timeout=5.0)
+    assert commit_lock_acquired.is_set() is True
+
+    heartbeat_thread = threading.Thread(
+        target=heartbeat,
+        name="phased-heartbeat",
+        daemon=True,
+    )
+    heartbeat_thread.start()
+    assert heartbeat_lock_attempted.wait(timeout=5.0)
+
+    allow_commit_failure.set()
+    commit_thread.join(timeout=5.0)
+    heartbeat_thread.join(timeout=5.0)
+
+    assert commit_thread.is_alive() is False
+    assert heartbeat_thread.is_alive() is False
+    assert len(commit_errors) == 1
+    assert isinstance(commit_errors[0], PhasedOperationFailure)
+    assert heartbeat_errors == []
+    assert events.index("commit_lock_acquired") < events.index(
+        "heartbeat_lock_attempted"
+    )
+    assert events.index("heartbeat_lock_attempted") < events.index(
+        "commit_lock_released"
+    )
+    assert events.index("commit_lock_released") < events.index(
+        "heartbeat_lock_acquired"
+    )
 
 
 def test_call_frame_phased_guard_rejection_leaks_no_disk_or_lineage(

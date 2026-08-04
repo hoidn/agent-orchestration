@@ -613,14 +613,19 @@ steps:
         manager = StateManager(temp_workspace)
         manager.initialize(workflow_file)
 
+        step_visits = {"LoopStart": 2, "GuardLoop": 2}
         manager.update_control_flow_counters(
             transition_count=4,
-            step_visits={"LoopStart": 2, "GuardLoop": 2},
+            step_visits=step_visits,
         )
+        step_visits["LoopStart"] = 99
 
         manager2 = StateManager(temp_workspace, run_id=manager.run_id)
         loaded_state = manager2.load()
 
+        assert manager.state is not None
+        assert manager.state.step_visits == {"LoopStart": 2, "GuardLoop": 2}
+        assert manager.state.step_visits is not step_visits
         assert loaded_state.transition_count == 4
         assert loaded_state.step_visits == {"LoopStart": 2, "GuardLoop": 2}
 
@@ -687,6 +692,26 @@ steps:
         frame = loaded_state.call_frames["root.run_review_loop::visit::1"]
         assert frame["import_alias"] == "review_loop"
         assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
+
+    def test_call_frame_update_detaches_caller_snapshot(
+        self,
+        temp_workspace,
+        workflow_file,
+    ):
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+        frame = {
+            "call_frame_id": "frame",
+            "state": {"step_visits": {"NestedStep": 1}},
+        }
+
+        manager.update_call_frame("frame", frame)
+        frame["state"]["step_visits"]["NestedStep"] = 2
+
+        assert manager.state is not None
+        assert manager.state.call_frames["frame"]["state"]["step_visits"] == {
+            "NestedStep": 1
+        }
 
     def test_finalize_step_with_dataflow_persists_atomically_for_matching_visit(self, temp_workspace, workflow_file):
         """Session-style finalization writes step result, lineage, and current_step clearance together."""

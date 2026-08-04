@@ -502,6 +502,33 @@ def test_partial_index_adapter_preserves_settled_and_inflight_call_prefix() -> N
     assert result.partial_evidence is None
 
 
+def test_partial_integrated_prior_projection_stays_empty_until_integrated_record(
+) -> None:
+    initial_rows = [
+        {
+            "call_slot_id": "EVAL.INITIAL_SCIENTIFIC_APPLICATION_SEMANTICS",
+            "record_sha256": "sha256:" + "1" * 64,
+        },
+        {
+            "call_slot_id": (
+                "EVAL.INITIAL_API_PERSISTENCE_MIGRATION_MAINTAINABILITY"
+            ),
+            "record_sha256": "sha256:" + "2" * 64,
+        },
+    ]
+    integrated = {
+        "call_slot_id": "EVAL.INTEGRATED_REVIEW",
+        "record_sha256": "sha256:" + "3" * 64,
+    }
+
+    assert controller_artifacts._integrated_prior_record_sha256s(  # pyright: ignore[reportPrivateUsage]
+        initial_rows[:1]
+    ) == []
+    assert controller_artifacts._integrated_prior_record_sha256s(  # pyright: ignore[reportPrivateUsage]
+        [*initial_rows, integrated]
+    ) == [row["record_sha256"] for row in initial_rows]
+
+
 def test_partial_index_adapter_allows_truthful_zero_evidence_early_fault() -> None:
     result = controller_artifacts.build_partial_index_inputs(
         replay=None,

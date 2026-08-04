@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
@@ -1275,7 +1276,7 @@ class CallExecutor:
             ),
         )
         child_state = child_executor.execute(resume=child_resume)
-        call_frames[frame_id] = child_state_manager._snapshot()
+        call_frames[frame_id] = deepcopy(child_state_manager._snapshot())
 
         if (
             classify_terminal_result(child_state)
