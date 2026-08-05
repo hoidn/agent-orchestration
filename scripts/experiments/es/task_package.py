@@ -1096,12 +1096,7 @@ def load_execution_ready_task_profile(
     *,
     task_seed_manifest_path: Path | None,
 ) -> TaskProfile:
-    """Gate visible execution until Task 3 supplies the exact successor seed.
-
-    Task 1 deliberately validates its visible assets independently while the
-    checked-in seed remains historical v1 provenance.  A schema-version
-    requirement is not a loaded seed identity.
-    """
+    """Gate visible execution on the fully loaded and verified successor seed."""
 
     profile = load_task_profile(path)
     if task_seed_manifest_path is None:
@@ -1137,11 +1132,31 @@ def load_execution_ready_task_profile(
             observed_version,
             "the task seed is missing, predecessor-versioned, or unknown",
         )
-    raise TaskPackageError(
-        "task_package_seed_not_ready",
-        str(seed_path),
-        "Task 3 has not yet validated the successor seed identity",
+    seed_binding = cast(dict[str, object], profile.raw["task_seed"])
+    bound_manifest_path = _repository_path(
+        seed_binding["manifest_path"], label="task seed manifest path"
     )
+    bound_schema_path = _repository_path(
+        seed_binding["schema_path"], label="task seed schema path"
+    )
+    if (
+        seed_path != bound_manifest_path
+        or seed_path.with_name("task-seed-manifest.schema.json")
+        != bound_schema_path
+    ):
+        raise TaskPackageError(
+            "task_package_seed_not_ready",
+            str(seed_path),
+            "the task seed is not at the task-profile-bound manifest and schema path",
+        )
+    manifest = load_task_seed_manifest(seed_path)
+    if manifest.raw["schema_version"] != profile.required_task_seed_schema_version:
+        raise TaskPackageError(
+            "task_package_seed_not_ready",
+            manifest.raw["schema_version"],
+            "the loaded task seed disagrees with the task profile",
+        )
+    return profile
 
 
 def render_task_seed_commit_content(manifest: TaskSeedManifest) -> bytes:
@@ -1192,9 +1207,59 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
             "parent projection manifest digest changed",
         )
 
+    storage_root = Path(str(repository["storage_root"]))
+    relative_path = Path(str(repository["relative_path"]))
+    locator = storage_root / relative_path
+    if (
+        not storage_root.is_absolute()
+        or storage_root.resolve(strict=False) != storage_root
+        or relative_path.is_absolute()
+        or locator.resolve(strict=False) != locator
+        or str(locator) != repository["locator"]
+        or relative_path.as_posix() != f"git-sha1/{recipe['commit']}"
+    ):
+        raise TaskPackageError(
+            "task_seed_locator_invalid",
+            repository["locator"],
+            "task-seed locator is not the bound absolute content address",
+        )
+    parent_locator = Path(str(parent["repository_locator"]))
+    if (
+        not parent_locator.is_absolute()
+        or parent_locator.resolve(strict=False) != parent_locator
+    ):
+        raise TaskPackageError(
+            "task_seed_parent_mismatch",
+            str(parent_locator),
+            "parent projection locator is not canonical and absolute",
+        )
+    from scripts.experiments.es.projection import load_projection_manifest
+
+    projection_manifest = load_projection_manifest(projection_manifest_path)
+    projection_locator = (
+        projection_manifest.canonical_storage_root
+        / projection_manifest.locator_relative_path
+    )
+    parent_snapshot_digest = directory_snapshot_digest(parent_locator)
+    if (
+        projection_manifest.projection_commit != parent["commit"]
+        or projection_manifest.retained_tree != parent["tree"]
+        or projection_locator != parent_locator
+        or parent_snapshot_digest != parent["repository_snapshot_sha256"]
+    ):
+        raise TaskPackageError(
+            "task_seed_parent_mismatch",
+            {
+                "commit": projection_manifest.projection_commit,
+                "locator": str(projection_locator),
+                "snapshot": parent_snapshot_digest,
+                "tree": projection_manifest.retained_tree,
+            },
+            "parent projection fields are not fully cross-bound",
+        )
+
     rows: list[VisibleAsset] = []
     canonical_rows: list[dict[str, object]] = []
-    historical_seed_repository = Path(str(repository["locator"]))
     raw_asset_pairs = tuple(
         (str(row["source_path"]), str(row["target_path"]))
         for row in assets_payload["rows"]  # type: ignore[union-attr]
@@ -1209,12 +1274,17 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
         assert isinstance(raw_row, dict)
         source_path = str(raw_row["source_path"])
         target_path = str(raw_row["target_path"])
-        _repository_path(source_path, label="visible asset source path")
-        # Task 1 replaces the checked-in visible bytes while preserving the v1
-        # seed as immutable provenance. Verify historical rows against their
-        # bound seed commit; Task 3 will replace this staging path for v2.
-        asset_bytes = _run_git(
-            historical_seed_repository,
+        source = _repository_path(source_path, label="visible asset source path")
+        try:
+            asset_bytes = source.read_bytes()
+        except OSError as exc:
+            raise TaskPackageError(
+                "task_seed_asset_mismatch",
+                source_path,
+                "visible asset source is unreadable",
+            ) from exc
+        repository_asset_bytes = _run_git(
+            locator,
             "show",
             f"{recipe['commit']}:{target_path}",
         )
@@ -1224,6 +1294,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
             len(asset_bytes) != raw_row["bytes"]
             or digest != raw_row["sha256"]
             or oid != raw_row["oid"]
+            or repository_asset_bytes != asset_bytes
         ):
             raise TaskPackageError(
                 "task_seed_asset_mismatch",
@@ -1283,7 +1354,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
         "E-series F1 deterministic task seed\n\n"
         f"Projection-Commit: {parent['commit']}\n"
         f"Visible-Assets-SHA256: {rows_digest.removeprefix('sha256:')}\n"
-        "Task-Seed-Policy: es-f1-task-seed.v1\n"
+        "Task-Seed-Policy: es-f1-task-seed.v2\n"
     ).encode("utf-8")
     if message != expected_message:
         raise TaskPackageError(
@@ -1302,29 +1373,6 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
             "task-seed message byte binding changed",
         )
 
-    storage_root = Path(str(repository["storage_root"]))
-    relative_path = Path(str(repository["relative_path"]))
-    locator = storage_root / relative_path
-    if (
-        not storage_root.is_absolute()
-        or storage_root.resolve(strict=False) != storage_root
-        or relative_path.is_absolute()
-        or locator.resolve(strict=False) != locator
-        or str(locator) != repository["locator"]
-        or relative_path.as_posix() != f"git-sha1/{recipe['commit']}"
-    ):
-        raise TaskPackageError(
-            "task_seed_locator_invalid",
-            repository["locator"],
-            "task-seed locator is not the bound absolute content address",
-        )
-    parent_locator = Path(str(parent["repository_locator"]))
-    if not parent_locator.is_absolute() or parent_locator.resolve(strict=False) != parent_locator:
-        raise TaskPackageError(
-            "task_seed_parent_mismatch",
-            str(parent_locator),
-            "parent projection locator is not canonical and absolute",
-        )
     result = TaskSeedManifest(
         parent_commit=str(parent["commit"]),
         parent_tree=str(parent["tree"]),
@@ -1368,6 +1416,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
             actual_e1,
             "actual E1 bindings disagree with the task-seed identity",
         )
+    verify_task_seed(result.locator, result)
     return result
 
 
@@ -2003,19 +2052,35 @@ def materialize_task_seed(
             environment=index_env,
         )
         for row in manifest.visible_assets:
-            _repository_path(row.source_path, label="visible asset source path")
-            historical_asset_bytes = _run_git(
-                manifest.locator,
-                "show",
-                f"{manifest.commit}:{row.target_path}",
+            source = _repository_path(
+                row.source_path, label="visible asset source path"
             )
+            try:
+                asset_bytes = source.read_bytes()
+            except OSError as exc:
+                raise TaskPackageError(
+                    "task_seed_asset_mismatch",
+                    row.source_path,
+                    "visible asset source is unreadable during seed creation",
+                ) from exc
+            if (
+                len(asset_bytes) != row.byte_count
+                or "sha256:" + hashlib.sha256(asset_bytes).hexdigest()
+                != row.digest
+                or _git_object_id("blob", asset_bytes) != row.oid
+            ):
+                raise TaskPackageError(
+                    "task_seed_asset_mismatch",
+                    row.source_path,
+                    "visible asset source changed after manifest binding",
+                )
             oid = (
                 _run_git(
                     repository,
                     "hash-object",
                     "-w",
                     "--stdin",
-                    input_bytes=historical_asset_bytes,
+                    input_bytes=asset_bytes,
                 )
                 .decode("ascii")
                 .strip()

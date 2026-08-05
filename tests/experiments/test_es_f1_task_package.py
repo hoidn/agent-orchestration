@@ -18,6 +18,22 @@ F1_ROOT = ROOT / "experiments" / "orc_effectiveness" / "f1_es"
 TASK_PROFILE_PATH = F1_ROOT / "task-profile.json"
 TASK_SEED_MANIFEST_PATH = F1_ROOT / "task-seed-manifest.json"
 VISIBLE_CHECK_PATH = F1_ROOT / "task" / "visible-check-manifest.json"
+PREDECESSOR_TASK_SEED_COMMIT = "93e0eb08e092fed177316517328b7effc2893399"
+PREDECESSOR_TASK_SEED_LOCATOR = Path(
+    "/home/ollie/.local/state/orchestrator/es-task-seeds/"
+    f"git-sha1/{PREDECESSOR_TASK_SEED_COMMIT}"
+)
+PREDECESSOR_VISIBLE_BLOB_OIDS = (
+    "bd9fd43cbc75d7a7a72373be8ed23accc912df6e",
+    "ca57f665e2fb1d53f058ee3ff4feca1bac40137b",
+    "25e6f6da1523efd6f72f4143d500dd141f54ac62",
+    "ad53c7e9ebc003278a18ba9bdeeeacf40dffaffa",
+    "e4b369e9edfaf26dea178a4892090e0badc91269",
+    "1c6b0fee21297d4f950a94f601e4ac639c9ce3c3",
+    "905ffa83475a13bf07e0de4df55583a52d2b3f20",
+    "8327b8f51d341188cdcf96e20798dc4fef22bfae",
+)
+LIVE_PTYCHOPINN_ROOT = Path("/home/ollie/Documents/PtychoPINN")
 
 BUILTIN_ARCHITECTURES = (
     "cnn",
@@ -305,28 +321,63 @@ def test_checked_in_seed_manifest_binds_sorted_visible_assets_and_exact_git_vect
 
     manifest = task_package.load_task_seed_manifest(TASK_SEED_MANIFEST_PATH)
 
+    assert manifest.raw["schema_version"] == "es_f1_task_seed.v2"
     assert manifest.parent_commit == "8f191031f233d50a4d020d8a988036e99487f570"
     assert manifest.parent_tree == "e64f3c05f5a0894f41c047d128a9040a2cda6764"
+    assert len(manifest.visible_assets) == 8
     assert manifest.visible_assets_digest == (
-        "sha256:e0a1749b712bf6f7326889c04863e2224f70a60c748d60794f483dd47efebced"
+        "sha256:729ac34fe6dc00e4d2a3b2886709df8648560f851ed36e487268fbc90765bed3"
     )
     assert tuple((row.source_path, row.target_path) for row in manifest.visible_assets) == tuple(
         sorted((row.source_path, row.target_path) for row in manifest.visible_assets)
     )
     assert all(row.target_path.startswith("benchmark/es_f1/") for row in manifest.visible_assets)
-    assert manifest.tree == "6bc1aff56b7273fcf02e81b7c37cd63efa8250eb"
-    assert manifest.commit == "93e0eb08e092fed177316517328b7effc2893399"
+    assert all(
+        (ROOT / row.source_path).read_bytes()
+        == _git(manifest.locator, "show", f"{manifest.commit}:{row.target_path}")
+        for row in manifest.visible_assets
+    )
+    assert manifest.commit != PREDECESSOR_TASK_SEED_COMMIT
+    assert manifest.commit not in {manifest.parent_commit, manifest.tree}
+    assert manifest.tree == "5361d4fbcc5cd2c365ebfd645d9e6cb5a72c0eb8"
+    assert manifest.commit == "4b5abddacacbf71eb508be94220dfd350ed5a5fb"
     assert len(manifest.commit_message) == 222
     assert manifest.commit_content_bytes == 496
     assert manifest.object_count == 2_216
     assert manifest.locator == Path(
         "/home/ollie/.local/state/orchestrator/es-task-seeds/"
-        "git-sha1/93e0eb08e092fed177316517328b7effc2893399"
+        f"git-sha1/{manifest.commit}"
+    )
+    assert manifest.repository_snapshot_digest == (
+        "sha256:4ad352b2949d7cae180eb2a969f3639206bd6a37f4828edf3d834bab71fffda4"
     )
     assert manifest.e1_source_manifest_digest == (
-        "sha256:13ebfe2226072e750be6311ec7d6eb67d6796b5538736e84a69560eb75375c39"
+        "sha256:e59546831b5007c2cc35067193c1cdb0d2b01044debaa7857cc42445ac99e6e1"
     )
     assert manifest.e1_post_setup_manifest_digest == manifest.e1_source_manifest_digest
+
+
+def test_task_seed_mechanism_policy_mapping_remains_v1_under_v2_recipe() -> None:
+    expected_policies = {
+        "asset_overlay": "add-only-under-benchmark-es-f1.v1",
+        "history": "exact-parent-and-child.v1",
+        "object_closure": "reachable-only.v1",
+        "source_projection_mutation": "forbidden.v1",
+    }
+    payload = json.loads(TASK_SEED_MANIFEST_PATH.read_bytes())
+    schema = json.loads(
+        (F1_ROOT / "task-seed-manifest.schema.json").read_bytes()
+    )
+
+    assert payload["schema_version"] == "es_f1_task_seed.v2"
+    assert payload["recipe"]["policy"] == "es-f1-task-seed.v2"
+    assert payload["policies"] == expected_policies
+    assert {
+        name: definition["const"]
+        for name, definition in schema["properties"]["policies"][
+            "properties"
+        ].items()
+    } == expected_policies
 
 
 def test_every_checked_in_task_schema_is_valid_and_closes_nested_records() -> None:
@@ -1168,23 +1219,61 @@ def test_candidate_visible_records_cannot_author_evaluator_identity_or_verdicts(
     assert caught.value.code == "task_package_schema_invalid"
 
 
-@pytest.mark.parametrize(
-    "seed_path",
-    [None, TASK_SEED_MANIFEST_PATH],
-    ids=["missing", "predecessor-v1"],
-)
-def test_execution_ready_loader_rejects_missing_or_predecessor_seed_before_checks(
-    seed_path: Path | None,
-) -> None:
+def test_execution_ready_loader_rejects_missing_seed_before_checks() -> None:
     task_package = _task_package_module()
 
     with pytest.raises(task_package.TaskPackageError) as caught:
         task_package.load_execution_ready_task_profile(
             TASK_PROFILE_PATH,
-            task_seed_manifest_path=seed_path,
+            task_seed_manifest_path=None,
         )
 
     assert caught.value.code == "task_package_seed_not_ready"
+
+
+def test_execution_ready_loader_rejects_predecessor_and_accepts_fully_bound_successor(
+    tmp_path: Path,
+) -> None:
+    task_package = _task_package_module()
+    predecessor = tmp_path / "task-seed-manifest.json"
+    predecessor.write_bytes(
+        task_package.canonical_json_bytes(
+            {"schema_version": "es_f1_task_seed.v1"}
+        )
+    )
+
+    with pytest.raises(task_package.TaskPackageError) as caught:
+        task_package.load_execution_ready_task_profile(
+            TASK_PROFILE_PATH,
+            task_seed_manifest_path=predecessor,
+        )
+
+    assert caught.value.code == "task_package_seed_not_ready"
+    assert "predecessor-versioned" in caught.value.detail
+    profile = task_package.load_execution_ready_task_profile(
+        TASK_PROFILE_PATH,
+        task_seed_manifest_path=TASK_SEED_MANIFEST_PATH,
+    )
+    assert profile.required_task_seed_schema_version == "es_f1_task_seed.v2"
+
+    relocated = tmp_path / "relocated"
+    relocated.mkdir()
+    relocated_manifest = relocated / "task-seed-manifest.json"
+    relocated_manifest.write_bytes(TASK_SEED_MANIFEST_PATH.read_bytes())
+    relocated_manifest.with_name("task-seed-manifest.schema.json").write_bytes(
+        TASK_SEED_MANIFEST_PATH.with_name(
+            "task-seed-manifest.schema.json"
+        ).read_bytes()
+    )
+
+    with pytest.raises(task_package.TaskPackageError) as caught:
+        task_package.load_execution_ready_task_profile(
+            TASK_PROFILE_PATH,
+            task_seed_manifest_path=relocated_manifest,
+        )
+
+    assert caught.value.code == "task_package_seed_not_ready"
+    assert "task-profile-bound" in caught.value.detail
 
 
 @pytest.mark.parametrize(
@@ -1291,6 +1380,7 @@ def test_execution_ready_loader_rejects_unknown_seed_version_before_checks(
         )
 
     assert caught.value.code == "task_package_seed_not_ready"
+    assert "predecessor-versioned" in caught.value.detail
 
 
 def test_successor_request_rejects_predecessor_candidate_evidence_as_mixed_package(
@@ -1355,7 +1445,7 @@ def test_seed_loader_rejects_noncanonical_drift_before_git_materialization(
     elif mutation == "asset-order":
         payload["visible_assets"]["rows"].reverse()
     elif mutation == "recipe-version":
-        payload["recipe"]["policy"] = "es-f1-task-seed.v2"
+        payload["recipe"]["policy"] = "es-f1-task-seed.v1"
     elif mutation == "recipe-message":
         payload["recipe"]["message"] = payload["recipe"]["message"].replace(
             "deterministic", "changed"
@@ -1367,7 +1457,7 @@ def test_seed_loader_rejects_noncanonical_drift_before_git_materialization(
     if mutation == "duplicate":
         raw = TASK_SEED_MANIFEST_PATH.read_bytes().replace(
             b'{"actual_e1":',
-            b'{"schema_version":"es_f1_task_seed.v1","schema_version":"es_f1_task_seed.v1","actual_e1":',
+            b'{"schema_version":"es_f1_task_seed.v2","schema_version":"es_f1_task_seed.v2","actual_e1":',
             1,
         )
     elif mutation == "pretty":
@@ -1376,6 +1466,34 @@ def test_seed_loader_rejects_noncanonical_drift_before_git_materialization(
         raw = task_package.canonical_json_bytes(payload)
     candidate = tmp_path / "task-seed-manifest.json"
     candidate.write_bytes(raw)
+    candidate.with_name("task-seed-manifest.schema.json").write_bytes(
+        (F1_ROOT / "task-seed-manifest.schema.json").read_bytes()
+    )
+
+    with pytest.raises(task_package.TaskPackageError):
+        task_package.load_task_seed_manifest(candidate)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["object-count", "repository-snapshot", "e1-digests"]
+)
+def test_seed_loader_cross_binds_repository_and_e1_facts(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    task_package = _task_package_module()
+    payload = json.loads(TASK_SEED_MANIFEST_PATH.read_bytes())
+    if mutation == "object-count":
+        payload["repository"]["object_count"] += 1
+    elif mutation == "repository-snapshot":
+        payload["repository"]["repository_snapshot_sha256"] = "sha256:" + "0" * 64
+    else:
+        payload["actual_e1"]["source_tree_manifest_sha256"] = "sha256:" + "0" * 64
+        payload["actual_e1"]["post_setup_tree_manifest_sha256"] = (
+            "sha256:" + "0" * 64
+        )
+    candidate = tmp_path / "task-seed-manifest.json"
+    candidate.write_bytes(task_package.canonical_json_bytes(payload))
     candidate.with_name("task-seed-manifest.schema.json").write_bytes(
         (F1_ROOT / "task-seed-manifest.schema.json").read_bytes()
     )
@@ -1397,21 +1515,19 @@ def test_seed_loader_rejects_self_consistent_controller_only_overlay_rows(
     )
     assert all(path.is_file() for path in controller_sources)
     rows = list(payload["visible_assets"]["rows"])
-    for source in controller_sources:
+    for index, source in enumerate(controller_sources):
         asset_bytes = source.read_bytes()
-        rows.append(
-            {
-                "bytes": len(asset_bytes),
-                "mode": "100644",
-                "object_type": "blob",
-                "oid": hashlib.sha1(
-                    f"blob {len(asset_bytes)}".encode() + b"\0" + asset_bytes
-                ).hexdigest(),
-                "sha256": "sha256:" + hashlib.sha256(asset_bytes).hexdigest(),
-                "source_path": source.relative_to(ROOT).as_posix(),
-                "target_path": f"benchmark/es_f1/{source.name}",
-            }
-        )
+        rows[-len(controller_sources) + index] = {
+            "bytes": len(asset_bytes),
+            "mode": "100644",
+            "object_type": "blob",
+            "oid": hashlib.sha1(
+                f"blob {len(asset_bytes)}".encode() + b"\0" + asset_bytes
+            ).hexdigest(),
+            "sha256": "sha256:" + hashlib.sha256(asset_bytes).hexdigest(),
+            "source_path": source.relative_to(ROOT).as_posix(),
+            "target_path": f"benchmark/es_f1/{source.name}",
+        }
     rows.sort(key=lambda row: (row["source_path"], row["target_path"]))
     rows_digest = "sha256:" + hashlib.sha256(
         task_package.canonical_json_bytes(rows)
@@ -1456,7 +1572,7 @@ def test_seed_loader_rejects_self_consistent_controller_only_overlay_rows(
         "E-series F1 deterministic task seed\n\n"
         f"Projection-Commit: {manifest.parent_commit}\n"
         f"Visible-Assets-SHA256: {rows_digest.removeprefix('sha256:')}\n"
-        "Task-Seed-Policy: es-f1-task-seed.v1\n"
+        "Task-Seed-Policy: es-f1-task-seed.v2\n"
     ).encode()
     recipe = payload["recipe"]
     author = recipe["author"]
@@ -1500,9 +1616,7 @@ def test_seed_loader_rejects_self_consistent_controller_only_overlay_rows(
     )
     payload["actual_e1"].update(
         {
-            "post_setup_tree_manifest_sha256": "sha256:" + "0" * 64,
             "resolved_commit": commit,
-            "source_tree_manifest_sha256": "sha256:" + "0" * 64,
             "verified_git_tree": "git-tree:" + tree,
         }
     )
@@ -1530,49 +1644,131 @@ def _git(repository: Path, *args: str, input_bytes: bytes | None = None) -> byte
 
 def test_task_seed_creation_is_parent_preserving_and_actual_e1_materializes_child(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task_package = _task_package_module()
     manifest = task_package.load_task_seed_manifest(TASK_SEED_MANIFEST_PATH)
     parent_before = task_package.directory_snapshot_digest(manifest.parent_locator)
-
-    created = task_package.materialize_task_seed(
-        manifest,
-        storage_root=(tmp_path / "task-seeds").resolve(),
+    predecessor_before = task_package.directory_snapshot_digest(
+        PREDECESSOR_TASK_SEED_LOCATOR
     )
-    verified = task_package.verify_task_seed(created.locator, manifest)
 
-    assert created.reused is False
-    assert verified.commit == manifest.commit
-    assert verified.tree == manifest.tree
-    assert verified.parent_commit == manifest.parent_commit
-    assert verified.commit_count == 2
-    assert verified.object_count == manifest.object_count
-    assert verified.unreachable_object_count == 0
+    original_read_bytes = Path.read_bytes
+    original_run = subprocess.run
+    original_popen = subprocess.Popen
+
+    def reject_live_path(path: object) -> None:
+        if isinstance(path, (str, os.PathLike)):
+            candidate = Path(path).resolve(strict=False)
+            assert not candidate.is_relative_to(LIVE_PTYCHOPINN_ROOT)
+
+    def guarded_read_bytes(path: Path) -> bytes:
+        reject_live_path(path)
+        return original_read_bytes(path)
+
+    def guarded_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        command = args[0] if args else kwargs.get("args")
+        if isinstance(command, (tuple, list)):
+            for value in command:
+                reject_live_path(value)
+        reject_live_path(kwargs.get("cwd"))
+        return original_run(*args, **kwargs)  # type: ignore[return-value]
+
+    def guarded_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        command = args[0] if args else kwargs.get("args")
+        if isinstance(command, (tuple, list)):
+            for value in command:
+                reject_live_path(value)
+        reject_live_path(kwargs.get("cwd"))
+        return original_popen(*args, **kwargs)  # type: ignore[return-value]
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+    monkeypatch.setattr(subprocess, "run", guarded_run)
+    monkeypatch.setattr(subprocess, "Popen", guarded_popen)
+
+    storage_roots = tuple(
+        (tmp_path / name).resolve() for name in ("task-seeds-a", "task-seeds-b")
+    )
+    assert all(not root.exists() for root in storage_roots)
+    created = tuple(
+        task_package.materialize_task_seed(manifest, storage_root=root)
+        for root in storage_roots
+    )
+    verified = tuple(
+        task_package.verify_task_seed(result.locator, manifest) for result in created
+    )
+
+    assert all(result.reused is False for result in created)
+    assert {result.commit for result in verified} == {manifest.commit}
+    assert {result.tree for result in verified} == {manifest.tree}
+    assert {result.parent_commit for result in verified} == {manifest.parent_commit}
+    assert {result.commit_count for result in verified} == {2}
+    assert {result.object_count for result in verified} == {manifest.object_count}
+    assert {result.unreachable_object_count for result in verified} == {0}
+    inventories = tuple(
+        tuple(
+            sorted(
+                _git(
+                    result.locator,
+                    "cat-file",
+                    "--batch-all-objects",
+                    "--batch-check=%(objectname) %(objecttype)",
+                ).splitlines()
+            )
+        )
+        for result in created
+    )
+    assert inventories[0] == inventories[1]
+    assert {
+        task_package.directory_snapshot_digest(result.locator)
+        for result in created
+    } == {manifest.repository_snapshot_digest}
     assert task_package.directory_snapshot_digest(manifest.parent_locator) == parent_before
     assert parent_before == manifest.parent_snapshot_digest
-    assert task_package.materialize_task_seed(
-        manifest,
-        storage_root=(tmp_path / "task-seeds").resolve(),
-    ).reused is True
+    assert task_package.directory_snapshot_digest(PREDECESSOR_TASK_SEED_LOCATOR) == (
+        predecessor_before
+    )
 
     from orchestrator.workflow.run_ref.source import SourceRequest, materialize_source
 
-    materialized = materialize_source(
-        SourceRequest(locator=str(created.locator), commit=manifest.commit),
-        run_ref_root=(tmp_path / "run-ref").resolve(),
-        workspace=(tmp_path / "workspace").resolve(),
-    )
-    assert materialized.resolved_commit_sha == manifest.commit
-    assert materialized.verified_git_tree.value == f"git-tree:{manifest.tree}"
-    assert materialized.source_tree_manifest.digest == manifest.e1_source_manifest_digest
-    assert (
-        materialized.post_setup_tree_manifest.digest
-        == manifest.e1_post_setup_manifest_digest
-    )
-    for row in manifest.visible_assets:
-        assert (materialized.workspace_path / row.target_path).read_bytes() == (
-            _git(manifest.locator, "show", f"{manifest.commit}:{row.target_path}")
+    materialized = tuple(
+        materialize_source(
+            SourceRequest(locator=str(result.locator), commit=manifest.commit),
+            run_ref_root=(tmp_path / f"run-ref-{index}").resolve(),
+            workspace=(tmp_path / f"workspace-{index}").resolve(),
         )
+        for index, result in enumerate(created)
+    )
+    assert {result.resolved_commit_sha for result in materialized} == {manifest.commit}
+    assert {result.verified_git_tree.value for result in materialized} == {
+        f"git-tree:{manifest.tree}"
+    }
+    assert {result.source_tree_manifest.digest for result in materialized} == {
+        manifest.e1_source_manifest_digest
+    }
+    assert {result.post_setup_tree_manifest.digest for result in materialized} == {
+        manifest.e1_post_setup_manifest_digest
+    }
+    for result in materialized:
+        for row in manifest.visible_assets:
+            assert (result.workspace_path / row.target_path).read_bytes() == (
+                _git(manifest.locator, "show", f"{manifest.commit}:{row.target_path}")
+            )
+
+    for result in created:
+        assert subprocess.run(
+            ("git", "-C", str(result.locator), "cat-file", "-e", PREDECESSOR_TASK_SEED_COMMIT),
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0
+        for oid in PREDECESSOR_VISIBLE_BLOB_OIDS:
+            assert subprocess.run(
+                ("git", "-C", str(result.locator), "cat-file", "-e", oid),
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode != 0
 
 
 def test_checked_in_seed_repository_has_closed_history_and_object_storage() -> None:
@@ -1674,7 +1870,18 @@ def test_inherited_alternate_cannot_supply_missing_seed_objects(
         assert caught.value.code == "task_seed_git_failed"
 
 
-@pytest.mark.parametrize("mutation", ["extra-ref", "unreachable-object", "alternates"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "extra-ref",
+        "unreachable-object",
+        "alternates",
+        "grafts",
+        "shallow",
+        "replace",
+        "remote",
+    ],
+)
 def test_seed_verifier_rejects_extra_identity_and_object_sources(
     tmp_path: Path,
     mutation: str,
@@ -1691,9 +1898,19 @@ def test_seed_verifier_rejects_extra_identity_and_object_sources(
             _git(candidate, "update-ref", "refs/heads/extra", manifest.parent_commit)
         elif mutation == "unreachable-object":
             _git(candidate, "hash-object", "-w", "--stdin", input_bytes=b"unreachable\n")
-        else:
+        elif mutation == "alternates":
             alternates = candidate / "objects" / "info" / "alternates"
             alternates.write_text(str(manifest.parent_locator / "objects") + "\n")
+        elif mutation == "grafts":
+            (candidate / "info" / "grafts").write_text(
+                f"{manifest.commit} {PREDECESSOR_TASK_SEED_COMMIT}\n"
+            )
+        elif mutation == "shallow":
+            (candidate / "shallow").write_text(manifest.parent_commit + "\n")
+        elif mutation == "replace":
+            (candidate / "refs" / "replace").mkdir()
+        else:
+            _git(candidate, "remote", "add", "origin", str(manifest.parent_locator))
 
         with pytest.raises(task_package.TaskPackageError):
             task_package.verify_task_seed(candidate, manifest)
