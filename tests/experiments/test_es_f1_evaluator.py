@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import hashlib
 import importlib
+import inspect
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,6 +16,10 @@ from typing import Any
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO))
+
+from scripts.experiments.es import task_package
+
 EVALUATOR_ASSETS = REPO / "experiments/orc_effectiveness/f1_es/evaluator"
 CALIBRATION_FIXTURES = REPO / "tests/experiments/fixtures/es_f1"
 TASK_ASSETS = REPO / "experiments/orc_effectiveness/f1_es/task"
@@ -25,6 +32,26 @@ def _evaluator():
     return importlib.import_module("scripts.experiments.es.f1_evaluator")
 
 
+def test_calibration_bundle_workflow_forwards_validated_override_mapping() -> None:
+    tree = ast.parse(
+        (CALIBRATION_FIXTURES / "conforming_lifecycle_adapter.py").read_text()
+    )
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "run_cdi_example_torch"
+    ]
+    assert len(calls) == 1
+    overrides = [
+        keyword.value for keyword in calls[0].keywords if keyword.arg == "overrides"
+    ]
+    assert len(overrides) == 1
+    assert isinstance(overrides[0], ast.Name)
+    assert overrides[0].id == "bundle_overrides"
+
+
 def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
     evaluator = _evaluator()
     assert evaluator.HARD_CLAUSE_IDS == (
@@ -32,8 +59,8 @@ def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
         "F1-H02-SCHEMA-CONFORMANCE",
         "F1-H03-BUILTIN-SIGNATURES",
         "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-        "F1-H05-NOMINATED-LIFECYCLE",
-        "F1-H06-WITNESS-STRUCTURAL-ROUNDTRIP",
+        "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+        "F1-H06-STRUCTURAL-ROUNDTRIP",
         "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
         "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
         "F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
@@ -66,7 +93,7 @@ def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
 
     fixture_manifest = evaluator.load_controller_asset(
         EVALUATOR_ASSETS / "fixture-manifest.json",
-        expected_schema_version="es-f1-fixture-manifest.v1",
+        expected_schema_version="es-f1-fixture-manifest.v2",
     )
     assert fixture_manifest["hard_clause_ids"] == list(evaluator.HARD_CLAUSE_IDS)
     assert fixture_manifest["artifact_fixture_origin"] == {
@@ -77,7 +104,7 @@ def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
     calibration_binding = fixture_manifest["calibration_cases"]
     assert calibration_binding == {
         "path": "tests/experiments/fixtures/es_f1/calibration-cases.json",
-        "schema_version": "es-f1-calibration-cases.v2",
+        "schema_version": "es-f1-calibration-cases.v3",
         "sha256": "sha256:"
         + hashlib.sha256(
             (CALIBRATION_FIXTURES / "calibration-cases.json").read_bytes()
@@ -109,6 +136,34 @@ def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
         for row in fixture_manifest["registry_baseline"]
         if row["architecture"] != "neuralop_uno"
     )
+    applicability_domain = [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "$candidate_witness",
+    ]
+    ffno_eras = {
+        "torch-model-spec-v1",
+        "torch-model-spec-v2",
+        "torch-artifact-v1",
+        "torch-artifact-v2",
+        "legacy-config-only-checkpoint",
+        "current-model-spec-v2-checkpoint",
+        "transitional-ci-entrypoints-v1-bundle",
+        "torch-artifact-v1-bundle",
+        "torch-artifact-v2-bundle",
+    }
+    for row in fixture_manifest["artifact_eras"]:
+        applicable = [
+            "cnn" if row["era_id"] == "metadata-free-legacy-bundle" else "ffno"
+        ]
+        assert row["applicable_architecture_ids"] == applicable
+        assert row["rejected_architecture_ids"] == [
+            architecture_id
+            for architecture_id in applicability_domain
+            if architecture_id not in applicable
+        ]
+        assert (
+            row["era_id"] in ffno_eras
+        ) == (applicable == ["ffno"])
 
     perspectives = evaluator.load_controller_asset(
         EVALUATOR_ASSETS / "reviewer-perspectives.json",
@@ -151,6 +206,478 @@ def test_frozen_controller_vocabularies_and_assets_are_closed() -> None:
     assert package["visible_checks"]["invocations"][1]["selectors"] == [
         "tests/torch/test_es_f1_extension_boundary.py"
     ]
+    assert evaluator.F1_BUILTIN_ARCHITECTURES is task_package.F1_BUILTIN_ARCHITECTURES
+    assert evaluator.HARD_CLAUSE_IDS is task_package.F1_HARD_CLAUSE_IDS
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "incomplete-partition",
+        "overlapping-partition",
+        "legacy-non-cnn-positive",
+        "missing-historical-rejection",
+    ),
+)
+def test_fixture_manifest_artifact_applicability_partitions_fail_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    evaluator = _evaluator()
+    fixture = json.loads((EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes())
+    first = fixture["artifact_eras"][0]
+    legacy = next(
+        row for row in fixture["artifact_eras"]
+        if row["era_id"] == "metadata-free-legacy-bundle"
+    )
+    if mutation == "incomplete-partition":
+        first["rejected_architecture_ids"].pop()
+    elif mutation == "overlapping-partition":
+        first["rejected_architecture_ids"].insert(1, "ffno")
+    elif mutation == "legacy-non-cnn-positive":
+        legacy["applicable_architecture_ids"] = ["cnn", "ffno"]
+        legacy["rejected_architecture_ids"].remove("ffno")
+    else:
+        first["rejected_architecture_ids"].remove("cnn")
+    fixture_path = tmp_path / "fixture-manifest.json"
+    fixture_path.write_bytes(evaluator.canonical_json_bytes(fixture))
+
+    with pytest.raises(evaluator.EvaluatorError, match="artifact applicability"):
+        evaluator.load_frozen_evaluator_package(
+            visible_contract_path=TASK_ASSETS / "visible-task-contract.json",
+            visible_contract_schema_path=(
+                TASK_ASSETS / "visible-task-contract.schema.json"
+            ),
+            visible_check_path=TASK_ASSETS / "visible-check-manifest.json",
+            visible_check_schema_path=TASK_ASSETS / "visible-check-manifest.schema.json",
+            fixture_manifest_path=fixture_path,
+            reviewer_perspectives_path=(
+                EVALUATOR_ASSETS / "reviewer-perspectives.json"
+            ),
+        )
+
+
+def test_artifact_applicability_resolves_to_exact_10_by_15_preflight_matrix(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    fixture = json.loads((EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes())
+    evidence_path = tmp_path / "es_f1_candidate_evidence.json"
+    evidence_path.write_bytes(evaluator.canonical_json_bytes(_candidate_claims()))
+
+    resolved = evaluator.resolve_artifact_applicability(
+        fixture_manifest=fixture,
+        candidate_evidence_path=evidence_path,
+    )
+
+    domain = [*task_package.F1_BUILTIN_ARCHITECTURES, "es_f1_witness"]
+    assert len(resolved) == 10
+    assert all("$candidate_witness" not in row["rejected_architecture_ids"] for row in resolved)
+    outcomes = []
+    for row in resolved:
+        assert set(row["applicable_architecture_ids"]) | set(
+            row["rejected_architecture_ids"]
+        ) == set(domain)
+        assert not set(row["applicable_architecture_ids"]) & set(
+            row["rejected_architecture_ids"]
+        )
+        for architecture_id in domain:
+            preflight = evaluator.preflight_artifact_architecture(
+                artifact_row=row,
+                architecture_id=architecture_id,
+            )
+            outcomes.append((row["era_id"], architecture_id, preflight))
+            if architecture_id in row["applicable_architecture_ids"]:
+                assert preflight is None
+            else:
+                assert preflight == {
+                    "diagnostic": "UNSUPPORTED_ARTIFACT_ARCHITECTURE",
+                    "implementation_identity": None,
+                    "module_returned": False,
+                    "strict_load": False,
+                }
+    assert len(outcomes) == 150
+    assert sum(preflight is None for _, _, preflight in outcomes) == 10
+    assert sum(preflight is not None for _, _, preflight in outcomes) == 140
+
+    invalid_evidence = _candidate_claims()
+    invalid_evidence["artifact_applicability"] = []
+    evidence_path.write_bytes(evaluator.canonical_json_bytes(invalid_evidence))
+    with pytest.raises(evaluator.EvaluatorError, match="candidate evidence"):
+        evaluator.resolve_artifact_applicability(
+            fixture_manifest=fixture,
+            candidate_evidence_path=evidence_path,
+        )
+
+
+@pytest.mark.parametrize(
+    ("fixture_version", "calibration_version"),
+    [
+        ("es-f1-fixture-manifest.v1", "es-f1-calibration-cases.v3"),
+        ("es-f1-fixture-manifest.v999", "es-f1-calibration-cases.v3"),
+        ("es-f1-fixture-manifest.v2", "es-f1-calibration-cases.v2"),
+        ("es-f1-fixture-manifest.v2", "es-f1-calibration-cases.v999"),
+    ],
+)
+def test_evaluator_package_rejects_predecessor_unknown_and_mixed_versions_before_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture_version: str,
+    calibration_version: str,
+) -> None:
+    evaluator = _evaluator()
+    fixture = json.loads((EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes())
+    fixture["schema_version"] = fixture_version
+    fixture["calibration_cases"]["schema_version"] = calibration_version
+    fixture_path = tmp_path / "fixture-manifest.json"
+    fixture_path.write_bytes(evaluator.canonical_json_bytes(fixture))
+
+    def forbidden_execution(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("package preflight reached candidate execution")
+
+    monkeypatch.setattr(evaluator.subprocess, "run", forbidden_execution)
+    with pytest.raises(evaluator.EvaluatorError):
+        evaluator.load_frozen_evaluator_package(
+            visible_contract_path=TASK_ASSETS / "visible-task-contract.json",
+            visible_contract_schema_path=(
+                TASK_ASSETS / "visible-task-contract.schema.json"
+            ),
+            visible_check_path=TASK_ASSETS / "visible-check-manifest.json",
+            visible_check_schema_path=(
+                TASK_ASSETS / "visible-check-manifest.schema.json"
+            ),
+            fixture_manifest_path=fixture_path,
+            reviewer_perspectives_path=(
+                EVALUATOR_ASSETS / "reviewer-perspectives.json"
+            ),
+        )
+
+
+@pytest.mark.parametrize("mutation", ("missing-row", "reordered-row"))
+def test_evaluator_package_rejects_incomplete_or_reordered_calibration_matrix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    evaluator = _evaluator()
+    calibration = json.loads(
+        (CALIBRATION_FIXTURES / "calibration-cases.json").read_bytes()
+    )
+    if mutation == "missing-row":
+        calibration["cases"].pop()
+    else:
+        calibration["cases"][0], calibration["cases"][1] = (
+            calibration["cases"][1],
+            calibration["cases"][0],
+        )
+    calibration_path = (
+        tmp_path / "tests/experiments/fixtures/es_f1/calibration-cases.json"
+    )
+    calibration_path.parent.mkdir(parents=True)
+    calibration_path.write_bytes(evaluator.canonical_json_bytes(calibration))
+
+    fixture = json.loads((EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes())
+    fixture["calibration_cases"]["sha256"] = (
+        "sha256:" + hashlib.sha256(calibration_path.read_bytes()).hexdigest()
+    )
+    fixture_path = tmp_path / "fixture-manifest.json"
+    fixture_path.write_bytes(evaluator.canonical_json_bytes(fixture))
+    monkeypatch.setattr(evaluator, "_REPOSITORY_ROOT", tmp_path)
+
+    with pytest.raises(evaluator.EvaluatorError, match="calibration fixture"):
+        evaluator.load_frozen_evaluator_package(
+            visible_contract_path=TASK_ASSETS / "visible-task-contract.json",
+            visible_contract_schema_path=(
+                TASK_ASSETS / "visible-task-contract.schema.json"
+            ),
+            visible_check_path=TASK_ASSETS / "visible-check-manifest.json",
+            visible_check_schema_path=(
+                TASK_ASSETS / "visible-check-manifest.schema.json"
+            ),
+            fixture_manifest_path=fixture_path,
+            reviewer_perspectives_path=(
+                EVALUATOR_ASSETS / "reviewer-perspectives.json"
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("record_type", "predecessor", "successor"),
+    (
+        (
+            "visible-check-result",
+            "es-f1-visible-check-result.v1",
+            "es-f1-visible-check-result.v2",
+        ),
+        (
+            "preedit-lifecycle-probe",
+            "es-f1-preedit-lifecycle-probe.v1",
+            "es-f1-preedit-lifecycle-probe.v2",
+        ),
+        (
+            "semantic-lifecycle",
+            "es-f1-semantic-lifecycle.v1",
+            "es-f1-semantic-lifecycle.v2",
+        ),
+        (
+            "semantic-lifecycle-failure",
+            "es-f1-semantic-lifecycle-failure.v1",
+            "es-f1-semantic-lifecycle-failure.v2",
+        ),
+        (
+            "artifact-fixture-input",
+            "es-f1-artifact-fixture-input.v1",
+            "es-f1-artifact-fixture-input.v2",
+        ),
+        (
+            "artifact-fixture-build",
+            "es-f1-artifact-fixture-build.v1",
+            "es-f1-artifact-fixture-build.v2",
+        ),
+        (
+            "artifact-fixture-verification",
+            "es-f1-artifact-fixture-verification.v1",
+            "es-f1-artifact-fixture-verification.v2",
+        ),
+    ),
+)
+def test_remaining_evaluator_successor_record_versions_fail_closed(
+    record_type: str,
+    predecessor: str,
+    successor: str,
+) -> None:
+    evaluator = _evaluator()
+    assert evaluator.EVALUATOR_SUCCESSOR_SCHEMA_VERSIONS[record_type] == (
+        predecessor,
+        successor,
+    )
+    record = {"schema_version": successor}
+    assert (
+        evaluator.require_evaluator_successor_schema(
+            record,
+            record_type=record_type,
+        )
+        is record
+    )
+    for rejected in (predecessor, f"{successor}.unknown"):
+        with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+            evaluator.require_evaluator_successor_schema(
+                {"schema_version": rejected},
+                record_type=record_type,
+            )
+
+
+@pytest.mark.parametrize(
+    ("result_key", "predecessor"),
+    (
+        ("visible_check_result", "es-f1-visible-check-result.v1"),
+        ("artifact_report", "es-f1-artifact-fixture-verification.v1"),
+    ),
+)
+def test_complete_observation_consumers_reject_predecessor_result_versions(
+    tmp_path: Path,
+    result_key: str,
+    predecessor: str,
+) -> None:
+    evaluator = _evaluator()
+    inputs = _synthetic_complete_observation_inputs(tmp_path)
+    inputs[result_key]["schema_version"] = predecessor
+    with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+        evaluator.derive_complete_observations(**inputs)
+
+
+def test_lifecycle_observation_consumer_rejects_predecessor_semantic_version() -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+    report["schema_version"] = "es-f1-semantic-lifecycle.v1"
+    with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+        evaluator.derive_lifecycle_observations(
+            semantic_report=report,
+            adapter_process_id=98,
+        )
+
+
+def test_semantic_failure_parser_rejects_predecessor_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+
+    def emit_predecessor_report(**kwargs: Any) -> None:
+        Path(kwargs["environment"]["ES_F1_REPORT"]).write_bytes(
+            evaluator.canonical_json_bytes(
+                {
+                    "schema_version": "es-f1-semantic-lifecycle-failure.v1",
+                    "stage": "PUBLIC_BUILD",
+                    "exception_type": "RuntimeError",
+                    "exception_detail_sha256": f"sha256:{1:064x}",
+                }
+            )
+        )
+
+    monkeypatch.setattr(evaluator, "_run_projection_probe", emit_predecessor_report)
+    with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+        evaluator._run_semantic_lifecycle_probe(
+            workspace=workspace,
+            python_executable=Path(sys.executable),
+            candidate_evidence=workspace / "unused-evidence.json",
+            request_path=workspace / "unused-request.json",
+            architecture_cases=[],
+            adapter_observations={},
+            output_root=tmp_path / "semantic-output",
+            seed=1,
+            timeout_seconds=5,
+        )
+
+
+def test_preedit_lifecycle_binds_fresh_reload_child_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    workspace = (tmp_path / "candidate").resolve()
+    workspace.mkdir()
+    output_root = (tmp_path / "preedit-output").resolve()
+    captured: dict[str, Any] = {}
+
+    class ProductExecutionBlocked(Exception):
+        pass
+
+    def capture_callsite(**kwargs: Any) -> None:
+        captured.update(kwargs)
+        raise ProductExecutionBlocked
+
+    monkeypatch.setattr(evaluator, "_run_projection_probe", capture_callsite)
+    with pytest.raises(ProductExecutionBlocked):
+        evaluator.run_preedit_representative_lifecycle_probe(
+            workspace=workspace,
+            python_executable=Path(sys.executable),
+            output_root=output_root,
+            timeout_seconds=5,
+        )
+
+    checkpoint_pair = (
+        "checkpoint-reload-program.py",
+        "checkpoint-reload-audit.json",
+    )
+    bundle_pair = ("bundle-reload-program.py", "bundle-reload-audit.json")
+    assert captured["controlled_child_pairs"] == (checkpoint_pair, bundle_pair)
+    assert captured["controlled_child_environment_updates"] == {
+        checkpoint_pair: {
+            "ES_F1_CHILD_REPORT": str(output_root / "checkpoint-reload.json"),
+            "ES_F1_RELOAD_MODE": "checkpoint",
+            "ES_F1_RELOAD_ARTIFACT": str(output_root / "representative.ckpt"),
+            "ES_F1_FRESH_RELOAD": "1",
+            "ES_F1_IMAGE_SIZE": "64",
+            "ES_F1_SEED": "20260802",
+        },
+        bundle_pair: {
+            "ES_F1_CHILD_REPORT": str(output_root / "bundle-reload.json"),
+            "ES_F1_RELOAD_MODE": "bundle",
+            "ES_F1_RELOAD_ARTIFACT": str(output_root / "training"),
+            "ES_F1_FRESH_RELOAD": "1",
+            "ES_F1_IMAGE_SIZE": "64",
+            "ES_F1_SEED": "20260802",
+        },
+    }
+
+
+def test_preedit_lifecycle_parser_rejects_predecessor_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+
+    def emit_predecessor_report(**kwargs: Any) -> None:
+        Path(kwargs["environment"]["ES_F1_REPORT"]).write_bytes(
+            evaluator.canonical_json_bytes(
+                {"schema_version": "es-f1-preedit-lifecycle-probe.v1"}
+            )
+        )
+
+    monkeypatch.setattr(evaluator, "_run_projection_probe", emit_predecessor_report)
+    with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+        evaluator.run_preedit_representative_lifecycle_probe(
+            workspace=workspace,
+            python_executable=Path(sys.executable),
+            output_root=tmp_path / "preedit-output",
+            timeout_seconds=5,
+        )
+
+
+def test_artifact_build_parser_rejects_predecessor_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+
+    def emit_predecessor_report(**kwargs: Any) -> None:
+        Path(kwargs["environment"]["ES_F1_REPORT"]).write_bytes(
+            evaluator.canonical_json_bytes(
+                {
+                    "schema_version": "es-f1-artifact-fixture-build.v1",
+                    "artifact_eras": [],
+                }
+            )
+        )
+
+    monkeypatch.setattr(evaluator, "_run_projection_probe", emit_predecessor_report)
+    with pytest.raises(evaluator.EvaluatorError, match="schema version"):
+        evaluator.build_artifact_fixture_pack(
+            workspace=workspace,
+            python_executable=Path(sys.executable),
+            store_root=tmp_path / "fixture-store",
+            timeout_seconds=5,
+        )
+
+
+@pytest.mark.parametrize(
+    "rejected_version",
+    ("es-f1-artifact-fixture-input.v1", "es-f1-artifact-fixture-input.v999"),
+)
+def test_artifact_probe_rejects_input_version_before_candidate_import(
+    tmp_path: Path,
+    rejected_version: str,
+) -> None:
+    evaluator = _evaluator()
+    workspace = tmp_path / "candidate"
+    marker = tmp_path / "candidate-imported"
+    package = workspace / "ptycho"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('imported', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    rows_path = tmp_path / "rows.json"
+    rows_path.write_bytes(
+        evaluator.canonical_json_bytes(
+            {"schema_version": rejected_version, "artifact_eras": []}
+        )
+    )
+    process = subprocess.run(
+        (sys.executable, "-c", evaluator._ARTIFACT_FIXTURE_VERIFY_PROBE),
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "ES_F1_FIXTURE_ROWS": str(rows_path),
+            "ES_F1_REPORT": str(tmp_path / "report.json"),
+            "ES_F1_WORKSPACE": str(workspace),
+        },
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert process.returncode != 0
+    assert "artifact fixture input schema version/shape mismatch" in process.stderr
+    assert not marker.exists()
 
 
 def test_controller_asset_loader_rejects_noncanonical_and_open_records(tmp_path: Path) -> None:
@@ -394,20 +921,61 @@ def test_visible_check_runner_rejects_direct_write_to_source_candidate(
     assert not source_mutation.exists()
 
 
-def _candidate_claims() -> dict[str, object]:
+def _architecture_declaration(
+    public_id: str, *, witness: bool = False
+) -> dict[str, object]:
     return {
-        "schema_version": "candidate-extension-evidence.v1",
-        "candidate_id": "calibration-control",
-        "nominated_architectures": {
-            "representative": "ffno",
-            "witness": "es_f1_witness",
-        },
+        "construction_route": "ptycho_torch.generators.registry.resolve_generator",
+        "persisted_rebuild_route": (
+            "ptycho_torch.application_factory.build_ptychopinn_application"
+        ),
+        "public_id": public_id,
         "structural_fields": [
-            {"name": "width", "baseline": 4, "alternate": 8},
+            {
+                "alternate_value": 3 if witness else f"{public_id}-alternate",
+                "baseline_value": 2 if witness else public_id,
+                "name": "es_f1_depth" if witness else "architecture",
+            }
         ],
+    }
+
+
+def _candidate_claims(
+    *, candidate_id: str = "calibration-control"
+) -> dict[str, object]:
+    return {
+        "architecture_decision_path": "docs/architecture.md",
+        "builtin_architectures": [
+            _architecture_declaration(architecture_id)
+            for architecture_id in task_package.F1_BUILTIN_ARCHITECTURES
+        ],
+        "candidate_id": candidate_id,
+        "candidate_witness": _architecture_declaration(
+            "es_f1_witness", witness=True
+        ),
         "claims": [
-            {"claim_id": "PUBLIC_CONSTRUCTION", "evidence_path": "tests/control.json"},
+            {
+                "clause_id": clause_id,
+                "evidence_paths": ["product.txt"],
+                "scope": "IMPLEMENTED",
+            }
+            for clause_id in task_package.F1_HARD_CLAUSE_IDS
         ],
+        "extension_author_guide_path": "docs/extension-guide.md",
+        "fixed_outputs": {
+            "candidate_test_path": "tests/torch/test_es_f1_extension_boundary.py",
+            "lifecycle_adapter_path": "scripts/es_f1_lifecycle_adapter.py",
+        },
+        "ownership": {
+            "excludes": ["PHYSICS", "LOSS", "SCALING", "DATA_OWNERSHIP"],
+            "owns": [
+                "ARCHITECTURE_IDENTITY",
+                "STRUCTURAL_CONFIGURATION",
+                "CONSTRUCTION",
+                "PERSISTENCE_MIGRATION",
+            ],
+        },
+        "schema_version": "candidate_extension_evidence.v2",
     }
 
 
@@ -437,7 +1005,7 @@ def test_candidate_claims_are_not_evaluator_authority() -> None:
             row["architecture"]
             for row in evaluator.load_controller_asset(
                 EVALUATOR_ASSETS / "fixture-manifest.json",
-                expected_schema_version="es-f1-fixture-manifest.v1",
+                expected_schema_version="es-f1-fixture-manifest.v2",
             )["registry_baseline"]
         },
     )
@@ -446,7 +1014,7 @@ def test_candidate_claims_are_not_evaluator_authority() -> None:
     assert result["candidate_claims_digest"].startswith("sha256:")
     by_id = {row["clause_id"]: row for row in result["evaluator_observations"]}
     assert by_id["F1-H09-CONSTRUCTION-REBUILD-EQUALITY"]["satisfied"] is False
-    assert by_id["F1-H05-NOMINATED-LIFECYCLE"]["satisfied"] is True
+    assert by_id["F1-H05-FULL-ARCHITECTURE-LIFECYCLE"]["satisfied"] is True
     assert result["hard_findings"] == [
         {
             "candidate_id": "calibration-control",
@@ -459,7 +1027,7 @@ def test_candidate_claims_are_not_evaluator_authority() -> None:
                 ],
                 "satisfied": False,
             },
-            "schema_version": "es-f1-hard-finding.v1",
+            "schema_version": "es-f1-hard-finding.v2",
         }
     ]
 
@@ -475,31 +1043,452 @@ def test_candidate_claims_are_not_evaluator_authority() -> None:
 
 
 @pytest.mark.parametrize(
-    ("representative", "witness", "message"),
+    "mutation",
     [
-        ("not-frozen", "es_f1_witness", "representative"),
-        ("ffno", "cnn", "witness"),
-        ("ffno", "ffno", "witness"),
+        "missing-built-in",
+        "duplicate-built-in",
+        "built-in-witness",
     ],
 )
-def test_architecture_roles_fail_closed(
-    representative: str,
-    witness: str,
-    message: str,
-) -> None:
+def test_architecture_matrix_claims_fail_closed(mutation: str) -> None:
     evaluator = _evaluator()
     claims = _candidate_claims()
-    claims["nominated_architectures"] = {
-        "representative": representative,
-        "witness": witness,
-    }
-    with pytest.raises(ValueError, match=message):
+    if mutation == "missing-built-in":
+        claims["builtin_architectures"].pop()
+    elif mutation == "duplicate-built-in":
+        claims["builtin_architectures"][1] = copy.deepcopy(
+            claims["builtin_architectures"][0]
+        )
+    else:
+        claims["candidate_witness"]["public_id"] = "ffno"
+    with pytest.raises(ValueError, match="candidate architecture matrix"):
         evaluator.evaluate_observations(
             candidate_claims=claims,
             evaluator_observations=_observations(),
             dispositions={},
-            frozen_registry={"cnn", "ffno"},
+            frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         )
+
+
+def _synthetic_full_matrix_semantic_report() -> dict[str, Any]:
+    evaluator = _evaluator()
+    evidence = _candidate_claims()
+    declarations = [
+        *evidence["builtin_architectures"],
+        evidence["candidate_witness"],
+    ]
+    owner_contract = copy.deepcopy(evaluator._PUBLIC_SCIENTIFIC_BOUNDARY_CONTRACT)
+    owners = copy.deepcopy(evaluator._PUBLIC_SCIENTIFIC_BOUNDARY_OWNERS)
+
+    def digest(number: int) -> str:
+        return f"sha256:{number:064x}"
+
+    def rejection(number: int) -> dict[str, object]:
+        return {
+            "exception_detail_sha256": digest(number),
+            "exception_type": "ValueError",
+            "module_returned": False,
+            "rejected": True,
+        }
+
+    rows: list[dict[str, Any]] = []
+    next_pid = 1000
+    for ordinal, declaration in enumerate(declarations, start=1):
+        architecture_id = declaration["public_id"]
+        N = 128 if architecture_id == "neuralop_uno" else 64
+        implementation = f"product.{architecture_id}.Implementation"
+        structural_values = {
+            field["name"]: field["baseline_value"]
+            for field in declaration["structural_fields"]
+        }
+        state_signature = digest(10_000 + ordinal)
+        observable_digest = digest(20_000 + ordinal)
+
+        def reload(*, bundle: bool) -> dict[str, object]:
+            nonlocal next_pid
+            next_pid += 1
+            return {
+                "artifact_bytes": 1_000 + ordinal,
+                "artifact_sha256": digest(25_000 + ordinal),
+                "architecture_id": architecture_id,
+                "boundary_contract": owner_contract,
+                "boundary_input_digest_after": digest(30_000 + ordinal),
+                "boundary_input_digest_before": digest(30_000 + ordinal),
+                "boundary_owners": owners,
+                "fresh_pid": next_pid,
+                "implementation_identity": implementation,
+                "inference_deterministic": True,
+                "inference_dtype": "complex64",
+                "inference_finite": True,
+                "inference_max_abs_delta": 0.0,
+                "inference_shape": [1, 1, N, N],
+                "inference_tolerance": 0.0,
+                "loaded_forbidden_modules": [],
+                "observable_digest": observable_digest,
+                "outside_project_origin_rows": [],
+                "roles": ["autoencoder", "diffraction_to_obj"] if bundle else [],
+                "state_signature": state_signature,
+                "structural_values": structural_values,
+            }
+
+        sensitivities = {
+            field["name"]: {
+                "alternate_identity_digest": digest(40_000 + ordinal),
+                "alternate_observable_digest": digest(50_000 + ordinal),
+                "alternate_state_signature": digest(60_000 + ordinal),
+                "baseline_identity_digest": digest(70_000 + ordinal),
+                "baseline_observable_digest": observable_digest,
+                "baseline_state_signature": state_signature,
+                "deterministic": True,
+            }
+            for field in declaration["structural_fields"]
+        }
+        rows.append(
+            {
+                "N": N,
+                "architecture_id": architecture_id,
+                "boundary_contract": owner_contract,
+                "boundary_input_digest_after": digest(30_000 + ordinal),
+                "boundary_input_digest_before": digest(30_000 + ordinal),
+                "bundle_implementation": implementation,
+                "completed_stages": list(task_package.F1_LIFECYCLE_STAGES),
+                "config_digest": digest(5_000 + ordinal),
+                "construction_route": declaration["construction_route"],
+                "registry_constructor_identity": (
+                    f"product.{architecture_id}.RegistryConstructor"
+                ),
+                "evaluator_bundle_reload": reload(bundle=True),
+                "evaluator_checkpoint_reload": reload(bundle=False),
+                "adapter_bundle_reload": reload(bundle=True),
+                "adapter_checkpoint_reload": reload(bundle=False),
+                "forward_shape": [1, 1, N, N],
+                "forward_deterministic": True,
+                "forward_dtype": "complex64",
+                "forward_finite": True,
+                "forward_max_abs_delta": 0.0,
+                "forward_tolerance": 0.0,
+                "gradients_finite": True,
+                "identity_rejections": {
+                    "extra": rejection(80_000 + ordinal),
+                    "missing": {
+                        field["name"]: rejection(90_000 + ordinal)
+                        for field in declaration["structural_fields"]
+                    },
+                    "unsupported_value": rejection(100_000 + ordinal),
+                },
+                "identity_sensitivity": sensitivities,
+                "inference_digest": observable_digest,
+                "input_digest": digest(6_000 + ordinal),
+                "loss_finite": True,
+                "loss_scalar": True,
+                "optimizer_state_after": digest(110_000 + ordinal),
+                "optimizer_state_before": digest(120_000 + ordinal),
+                "optimizer_step_bound": evaluator.F1_MAX_OPTIMIZER_STEP_ABS_DELTA,
+                "optimizer_step_max_abs_delta": 0.25,
+                "optimizer_transition_bounded": True,
+                "persisted_boundary_owners": owners,
+                "persisted_implementation": implementation,
+                "persisted_rebuild_implementation": implementation,
+                "persisted_rebuild_route": declaration["persisted_rebuild_route"],
+                "persisted_state_signature": state_signature,
+                "public_boundary_owners": owners,
+                "public_implementation": implementation,
+                "public_state_signature": state_signature,
+                "seed": 20_260_802,
+                "structural_fields": copy.deepcopy(declaration["structural_fields"]),
+                "structural_values": structural_values,
+            }
+        )
+    return {
+        "architecture_results": rows,
+        "cache_artifacts": [],
+        "construction_pid": 99,
+        "loaded_forbidden_modules": [],
+        "outside_project_origin_rows": [],
+        "schema_version": "es-f1-semantic-lifecycle.v2",
+        "unknown_architecture_rejection": rejection(130_000),
+    }
+
+
+def test_full_matrix_lifecycle_observations_cover_all_architectures_in_order() -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+
+    observations = evaluator.derive_lifecycle_observations(
+        semantic_report=report,
+        adapter_process_id=98,
+    )
+
+    assert [row["architecture_id"] for row in report["architecture_results"]] == [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "es_f1_witness",
+    ]
+    assert "roles" not in report
+    assert "identity_rejections" not in report
+    assert all(
+        "identity_rejections" in row for row in report["architecture_results"]
+    )
+    assert [row["clause_id"] for row in observations] == list(
+        task_package.F1_HARD_CLAUSE_IDS[4:]
+    )
+    assert all(row["satisfied"] for row in observations)
+    assert evaluator.F1_MAX_OPTIMIZER_STEP_ABS_DELTA == 1.0
+    assert all(
+        row["optimizer_step_bound"] == 1.0
+        for row in report["architecture_results"]
+    )
+    assert {
+        row["forward_dtype"] for row in report["architecture_results"]
+    } == {"complex64"}
+    assert {
+        row[reload_name]["inference_dtype"]
+        for row in report["architecture_results"]
+        for reload_name in (
+            "evaluator_checkpoint_reload",
+            "evaluator_bundle_reload",
+            "adapter_checkpoint_reload",
+            "adapter_bundle_reload",
+        )
+    } == {"complex64"}
+
+
+def test_identity_sensitivity_requires_state_and_observable_change_only_for_witness_fields() -> None:
+    evaluator = _evaluator()
+    builtin_report = _synthetic_full_matrix_semantic_report()
+    builtin_sensitivity = builtin_report["architecture_results"][0][
+        "identity_sensitivity"
+    ]["architecture"]
+    builtin_sensitivity["alternate_state_signature"] = builtin_sensitivity[
+        "baseline_state_signature"
+    ]
+    builtin_sensitivity["alternate_observable_digest"] = builtin_sensitivity[
+        "baseline_observable_digest"
+    ]
+
+    builtin_observations = evaluator.derive_lifecycle_observations(
+        semantic_report=builtin_report,
+        adapter_process_id=98,
+    )
+
+    assert next(
+        row for row in builtin_observations
+        if row["clause_id"] == "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY"
+    )["satisfied"] is True
+
+    witness_report = _synthetic_full_matrix_semantic_report()
+    witness_sensitivity = witness_report["architecture_results"][-1][
+        "identity_sensitivity"
+    ]["es_f1_depth"]
+    witness_sensitivity["alternate_state_signature"] = witness_sensitivity[
+        "baseline_state_signature"
+    ]
+    witness_sensitivity["alternate_observable_digest"] = witness_sensitivity[
+        "baseline_observable_digest"
+    ]
+
+    witness_observations = evaluator.derive_lifecycle_observations(
+        semantic_report=witness_report,
+        adapter_process_id=98,
+    )
+
+    assert next(
+        row for row in witness_observations
+        if row["clause_id"] == "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY"
+    )["satisfied"] is False
+
+
+def test_registry_constructor_preflight_is_bound_to_semantic_phase() -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+    preflight = {
+        row["architecture_id"]: row["registry_constructor_identity"]
+        for row in report["architecture_results"]
+    }
+    report["architecture_results"][-1]["registry_constructor_identity"] = (
+        report["architecture_results"][1]["registry_constructor_identity"]
+    )
+
+    with pytest.raises(evaluator.EvaluatorObservationError) as caught:
+        evaluator._bind_registry_constructor_identities(
+            preflight_identities=preflight,
+            semantic_report=report,
+        )
+
+    assert caught.value.clause_id == "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"
+    assert caught.value.mechanism == "registry-constructor-phase-drift"
+
+
+@pytest.mark.parametrize(
+    ("defect", "failed_clause"),
+    [
+        ("same-process", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("incomplete-stage", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("optimizer-no-transition", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("forward-nondeterministic", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("forward-nonfinite", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("loss-nonscalar", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("gradient-nonfinite", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("optimizer-unbounded", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("reload-artifact-empty", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("reload-inference-nondeterministic", "F1-H05-FULL-ARCHITECTURE-LIFECYCLE"),
+        ("structural-loss", "F1-H06-STRUCTURAL-ROUNDTRIP"),
+        ("missing-rejection", "F1-H07-STRUCTURAL-IDENTITY-REJECTION"),
+        ("unknown-rejection", "F1-H07-STRUCTURAL-IDENTITY-REJECTION"),
+        ("identity-insensitive", "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY"),
+        ("construction-rebuild-disagreement", "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"),
+        ("witness_builtin_alias", "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"),
+        ("ownership-crossing", "F1-H10-OWNERSHIP-BOUNDARY"),
+    ],
+)
+def test_full_matrix_lifecycle_defects_fail_only_the_owning_clause(
+    defect: str,
+    failed_clause: str,
+) -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+    witness = report["architecture_results"][-1]
+    if defect == "same-process":
+        witness["adapter_checkpoint_reload"]["fresh_pid"] = report["construction_pid"]
+    elif defect == "incomplete-stage":
+        witness["completed_stages"].pop()
+    elif defect == "optimizer-no-transition":
+        witness["optimizer_state_after"] = witness["optimizer_state_before"]
+    elif defect == "forward-nondeterministic":
+        witness["forward_deterministic"] = False
+    elif defect == "forward-nonfinite":
+        witness["forward_finite"] = False
+    elif defect == "loss-nonscalar":
+        witness["loss_scalar"] = False
+    elif defect == "gradient-nonfinite":
+        witness["gradients_finite"] = False
+    elif defect == "optimizer-unbounded":
+        witness["optimizer_transition_bounded"] = False
+    elif defect == "reload-artifact-empty":
+        witness["adapter_checkpoint_reload"]["artifact_bytes"] = 0
+    elif defect == "reload-inference-nondeterministic":
+        witness["adapter_bundle_reload"]["inference_deterministic"] = False
+    elif defect == "structural-loss":
+        witness["adapter_bundle_reload"]["structural_values"]["es_f1_depth"] = 3
+        witness["adapter_bundle_reload"]["state_signature"] = (
+            "sha256:" + "f" * 64
+        )
+    elif defect == "missing-rejection":
+        witness["identity_rejections"]["missing"]["es_f1_depth"].update(
+            {
+                "exception_detail_sha256": "sha256:"
+                + hashlib.sha256(b"").hexdigest(),
+                "exception_type": None,
+                "module_returned": True,
+                "rejected": False,
+            }
+        )
+    elif defect == "unknown-rejection":
+        report["unknown_architecture_rejection"].update(
+            {
+                "exception_detail_sha256": "sha256:"
+                + hashlib.sha256(b"").hexdigest(),
+                "exception_type": None,
+                "module_returned": True,
+                "rejected": False,
+            }
+        )
+    elif defect == "identity-insensitive":
+        sensitivity = witness["identity_sensitivity"]["es_f1_depth"]
+        sensitivity["alternate_observable_digest"] = sensitivity[
+            "baseline_observable_digest"
+        ]
+    elif defect == "construction-rebuild-disagreement":
+        witness["persisted_rebuild_implementation"] = "product.OtherImplementation"
+    elif defect == "witness_builtin_alias":
+        witness["registry_constructor_identity"] = report[
+            "architecture_results"
+        ][1]["registry_constructor_identity"]
+    else:
+        witness["public_boundary_owners"]["compute_loss"] = (
+            "candidate.extension.compute_loss"
+        )
+
+    observations = evaluator.derive_lifecycle_observations(
+        semantic_report=report,
+        adapter_process_id=98,
+    )
+
+    assert {
+        row["clause_id"] for row in observations if not row["satisfied"]
+    } == {failed_clause}
+
+
+@pytest.mark.parametrize("location", ("unknown", "missing"))
+@pytest.mark.parametrize(
+    "malformation",
+    ("missing-key", "contradictory-flags", "exception-mismatch"),
+)
+def test_full_matrix_lifecycle_malformed_rejection_record_fails_closed(
+    location: str,
+    malformation: str,
+) -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+    if location == "unknown":
+        rejection = report["unknown_architecture_rejection"]
+    else:
+        rejection = report["architecture_results"][-1]["identity_rejections"][
+            "missing"
+        ]["es_f1_depth"]
+    if malformation == "missing-key":
+        rejection.pop("exception_type")
+    elif malformation == "contradictory-flags":
+        rejection.update(
+            {
+                "exception_type": None,
+                "module_returned": False,
+                "rejected": False,
+            }
+        )
+    else:
+        rejection["exception_type"] = None
+
+    with pytest.raises(evaluator.EvaluatorError, match="rejection.*malformed"):
+        evaluator.derive_lifecycle_observations(
+            semantic_report=report,
+            adapter_process_id=98,
+        )
+
+
+def test_full_matrix_lifecycle_row_and_reload_fact_shapes_are_closed() -> None:
+    evaluator = _evaluator()
+    report = _synthetic_full_matrix_semantic_report()
+    report["architecture_results"][0].pop("forward_dtype")
+    with pytest.raises(evaluator.EvaluatorError, match="record is not exact"):
+        evaluator.derive_lifecycle_observations(
+            semantic_report=report,
+            adapter_process_id=98,
+        )
+
+    report = _synthetic_full_matrix_semantic_report()
+    report["architecture_results"][0]["adapter_checkpoint_reload"].pop(
+        "artifact_sha256"
+    )
+    with pytest.raises(evaluator.EvaluatorError, match="reload record is not exact"):
+        evaluator.derive_lifecycle_observations(
+            semantic_report=report,
+            adapter_process_id=98,
+        )
+
+
+def test_task0_bypass_authority_loads_frozen_pretty_printed_schemas() -> None:
+    evaluator = _evaluator()
+    evaluator._task0_bypass_authority.cache_clear()
+
+    authority = evaluator._task0_bypass_authority()
+
+    assert authority["bindings"]["legacy_bypass_inventory_sha256"] == (
+        "sha256:3701ca66235df5733ceb5bb54fa0c118519a9ae0e3acd5515bef7af9e78c119c"
+    )
+    assert len(authority["partition"]["required_consumer_ids"]) == 5
+    assert len(authority["partition"]["inherited_consumer_ids"]) == 84
+    assert len(authority["partition"]["open_consumer_ids"]) == 626
+    assert len(authority["contract"].desired_specs) == 23
 
 
 def _synthetic_complete_observation_inputs(
@@ -508,6 +1497,10 @@ def _synthetic_complete_observation_inputs(
     evaluator = _evaluator()
     candidate_id = "calibration-control"
     workspace = _candidate_copy(tmp_path, candidate_id=candidate_id)
+    task0_candidate = _task0_discovery_from_bare_commit(
+        tmp_path / "task0-authenticated",
+        source_workspace=workspace,
+    )
     candidate_evidence = json.loads(
         (workspace / "es_f1_candidate_evidence.json").read_bytes()
     )
@@ -517,9 +1510,9 @@ def _synthetic_complete_observation_inputs(
     )
     runner = visible_checks["runner"]
     by_id = {row["id"]: row for row in visible_checks["invocations"]}
-    copy_digest = f"sha256:{1:064x}"
+    copy_digest = evaluator._workspace_digest(workspace)
     visible_result = {
-        "schema_version": "es-f1-visible-check-result.v1",
+        "schema_version": "es-f1-visible-check-result.v2",
         "copy_digest_after": copy_digest,
         "copy_digest_before": copy_digest,
         "invocations": [
@@ -547,13 +1540,61 @@ def _synthetic_complete_observation_inputs(
         "outside_project_origin_rows": [],
         "cache_artifacts": [],
     }
+    artifact_domain = [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "es_f1_witness",
+    ]
     artifact_report = {
-        "schema_version": "es-f1-artifact-fixture-verification.v1",
+        "schema_version": "es-f1-artifact-fixture-verification.v2",
         "artifact_eras": [
             {
+                "architecture_results": [
+                    {
+                        "architecture_id": architecture_id,
+                        "diagnostic": (
+                            None
+                            if architecture_id
+                            in [
+                                "es_f1_witness"
+                                if value == "$candidate_witness"
+                                else value
+                                for value in row["applicable_architecture_ids"]
+                            ]
+                            else "UNSUPPORTED_ARTIFACT_ARCHITECTURE"
+                        ),
+                        "implementation_identity": (
+                            next(
+                                baseline["implementation_identity"]
+                                for baseline in fixture_manifest["registry_baseline"]
+                                if baseline["architecture"] == architecture_id
+                            )
+                            if architecture_id
+                            in [
+                                "es_f1_witness"
+                                if value == "$candidate_witness"
+                                else value
+                                for value in row["applicable_architecture_ids"]
+                            ]
+                            else None
+                        ),
+                        "module_returned": architecture_id
+                        in [
+                            "es_f1_witness"
+                            if value == "$candidate_witness"
+                            else value
+                            for value in row["applicable_architecture_ids"]
+                        ],
+                        "strict_load": architecture_id
+                        in [
+                            "es_f1_witness"
+                            if value == "$candidate_witness"
+                            else value
+                            for value in row["applicable_architecture_ids"]
+                        ],
+                    }
+                    for architecture_id in artifact_domain
+                ],
                 "era_id": row["era_id"],
-                "implementation_identity": "ptycho_torch.model.Control",
-                "strict_load": True,
             }
             for row in fixture_manifest["artifact_eras"]
         ],
@@ -561,175 +1602,62 @@ def _synthetic_complete_observation_inputs(
         "outside_project_origin_rows": [],
         "cache_artifacts": [],
     }
-    owner_contract = {
-        "loss_function": "Poisson",
-        "measurement_domain": "normalized_amplitude",
-        "physics_forward_mode": "amplitude",
-        "scale_contract_version": "legacy_v1",
-        "torch_loss_mode": "poisson",
-    }
-    owners = {
-        "compute_loss": "ptycho_torch.model.PtychoPINN_Lightning.compute_loss",
-        "loss_forward": "ptycho_torch.model.PoissonLoss.forward",
-        "model_forward": "ptycho_torch.model.PtychoPINN.forward",
-        "physics_forward": "ptycho_torch.model.ForwardModel.forward",
-        "scaling": "ptycho_torch.model.IntensityScalerModule.scale",
-    }
-
-    def reload(
-        *, roles: list[str], pid: int, architecture: str
-    ) -> dict[str, object]:
-        return {
-            "architecture_id": architecture,
-            "boundary_contract": owner_contract,
-            "boundary_input_digest_after": f"sha256:{8:064x}",
-            "boundary_input_digest_before": f"sha256:{8:064x}",
-            "boundary_owners": owners,
-            "fresh_pid": pid,
-            "implementation_identity": "ptycho_torch.model.Control",
-            "inference_shape": [1, 1, 64, 64],
-            "loaded_forbidden_modules": [],
-            "outside_project_origin_rows": [],
-            "roles": roles,
-            "state_signature": f"sha256:{9:064x}",
-            "structural_values": (
-                {"fno_width": 4} if architecture == "es_f1_witness" else {}
-            ),
-        }
-
-    def role(*, architecture: str, pid_offset: int) -> dict[str, object]:
-        implementation = "ptycho_torch.model.Control"
-        return {
-            "architecture_id": architecture,
-            "construction_route": (
-                "ptycho_torch.generators.registry.resolve_generator"
-            ),
-            "persisted_rebuild_route": (
-                "ptycho_torch.application_factory.build_ptychopinn_application"
-            ),
-            "boundary_contract": owner_contract,
-            "boundary_input_digest_after": f"sha256:{7:064x}",
-            "boundary_input_digest_before": f"sha256:{7:064x}",
-            "bundle_implementation": implementation,
-            "evaluator_bundle_reload": reload(
-                roles=["autoencoder", "diffraction_to_obj"],
-                pid=310 + pid_offset,
-                architecture=architecture,
-            ),
-            "evaluator_checkpoint_reload": reload(
-                roles=[], pid=320 + pid_offset, architecture=architecture
-            ),
-            "forward_shape": [1, 1, 64, 64],
-            "loss_finite": True,
-            "optimizer_changed_parameter": True,
-            "persisted_boundary_owners": owners,
-            "persisted_implementation": implementation,
-            "persisted_rebuild_implementation": implementation,
-            "persisted_state_signature": f"sha256:{9:064x}",
-            "public_boundary_owners": owners,
-            "public_implementation": implementation,
-            "public_state_signature": f"sha256:{9:064x}",
-            "structural_values": (
-                {"fno_width": 4} if architecture == "es_f1_witness" else {}
-            ),
-            "adapter_bundle_reload": reload(
-                roles=["autoencoder", "diffraction_to_obj"],
-                pid=330 + pid_offset,
-                architecture=architecture,
-            ),
-            "adapter_checkpoint_reload": reload(
-                roles=[], pid=340 + pid_offset, architecture=architecture
-            ),
-        }
-
-    def rejection(detail: str, fragment: str) -> dict[str, object]:
-        return {
-            "exception_detail_sha256": "sha256:"
-            + hashlib.sha256(detail.encode("utf-8")).hexdigest(),
-            "exception_type": "ValueError",
-            "module_returned": False,
-            "rejected": True,
-        }
-
-    semantic_report = {
-        "schema_version": "es-f1-semantic-lifecycle.v1",
-        "construction_pid": 100,
-        "declared_structural_fields": ["fno_width"],
-        "roles": {
-            "representative": role(architecture="ffno", pid_offset=0),
-            "witness": role(architecture="es_f1_witness", pid_offset=10),
-        },
-        "identity_rejections": {
-            "missing": {
-                "fno_width": rejection(
-                    "missing=['fno_width']", "missing=['fno_width']"
-                )
-            },
-            "extra": rejection(
-                "unknown=['es_f1_extra_structural_field']",
-                "unknown=['es_f1_extra_structural_field']",
-            ),
-            "unknown_architecture": rejection(
-                "Unsupported generator architecture 'es_f1_unknown_architecture'",
-                "Unsupported generator architecture 'es_f1_unknown_architecture'",
-            ),
-            "unsupported_value": rejection(
-                "n_blocks must be positive, got 0.",
-                "n_blocks must be positive, got 0.",
-            ),
-        },
-        "identity_sensitivity": {
-            "fno_width": {
-                "alternate_digest": f"sha256:{12:064x}",
-                "baseline_digest": f"sha256:{11:064x}",
-                "changed": True,
-                "deterministic": True,
-            }
-        },
-        "loaded_forbidden_modules": [],
-        "outside_project_origin_rows": [],
-        "cache_artifacts": [],
-    }
+    semantic_report = _synthetic_full_matrix_semantic_report()
+    for semantic_row, request_case in zip(
+        semantic_report["architecture_results"],
+        request["architecture_cases"],
+        strict=True,
+    ):
+        semantic_row["config_digest"] = request_case["config"]["sha256"]
+        semantic_row["input_digest"] = request_case["input"]["sha256"]
+        semantic_row["seed"] = request["seed"]
     lifecycle_observations = evaluator.derive_lifecycle_observations(
         semantic_report=semantic_report,
         adapter_process_id=200,
     )
     adapter_result = {
-        "artifacts": {
-            role_name: {
-                "bundle_path": f"artifacts/{role_name}/wts.h5.zip",
-                "checkpoint_path": f"artifacts/{role_name}/model.ckpt",
+        "architecture_results": [
+            {
+                "architecture_id": row["architecture_id"],
+                "bundle_path": (
+                    f"artifacts/{index:02d}-{row['architecture_id']}/wts.h5.zip"
+                ),
+                "checkpoint_path": (
+                    f"artifacts/{index:02d}-{row['architecture_id']}/model.ckpt"
+                ),
             }
-            for role_name in ("representative", "witness")
-        },
+            for index, row in enumerate(
+                semantic_report["architecture_results"], start=1
+            )
+        ],
         "candidate_id": candidate_id,
         "operation_version": request["operation_version"],
-        "schema_version": "lifecycle_probe_result.v2",
+        "schema_version": "lifecycle_probe_result.v3",
+    }
+    semantic_observations = {
+        row["architecture_id"]: {
+            "checkpoint": row["adapter_checkpoint_reload"],
+            "bundle": row["adapter_bundle_reload"],
+        }
+        for row in semantic_report["architecture_results"]
     }
     lifecycle_result = {
         "adapter_result": adapter_result,
         "audit_digest": f"sha256:{13:064x}",
-        "copy_digest_after": f"sha256:{14:064x}",
-        "copy_digest_before": f"sha256:{14:064x}",
+        "copy_digest_after": copy_digest,
+        "copy_digest_before": copy_digest,
         "adapter_process_id": 200,
-        "semantic_observations": {
-            role_name: {
-                "checkpoint": semantic_report["roles"][role_name][
-                    "adapter_checkpoint_reload"
-                ],
-                "bundle": semantic_report["roles"][role_name][
-                    "adapter_bundle_reload"
-                ],
-            }
-            for role_name in ("representative", "witness")
-        },
+        "semantic_observations": semantic_observations,
         "semantic_report": semantic_report,
         "lifecycle_observations": lifecycle_observations,
     }
     return {
         "artifact_report": artifact_report,
         "candidate_evidence": candidate_evidence,
+        "candidate_tree": task0_candidate["tree"],
+        "candidate_workspace": task0_candidate["workspace"],
         "fixture_manifest": fixture_manifest,
+        "legacy_bypass_discovery_input": task0_candidate["input"],
         "lifecycle_request": request,
         "lifecycle_result": lifecycle_result,
         "registry_report": registry_report,
@@ -738,7 +1666,7 @@ def _synthetic_complete_observation_inputs(
     }
 
 
-def test_complete_observation_derivation_joins_all_ten_controller_facts(
+def test_complete_observation_derivation_keeps_pre_task3a_h05_unresolved(
     tmp_path: Path,
 ) -> None:
     evaluator = _evaluator()
@@ -749,8 +1677,485 @@ def test_complete_observation_derivation_joins_all_ten_controller_facts(
     assert [row["clause_id"] for row in observations] == list(
         evaluator.HARD_CLAUSE_IDS
     )
-    assert all(row["satisfied"] is True for row in observations)
+    assert {
+        row["clause_id"] for row in observations if not row["satisfied"]
+    } == {"F1-H05-FULL-ARCHITECTURE-LIFECYCLE"}
     assert all(row["evidence"] for row in observations)
+
+
+def test_h04_rejects_cross_architecture_historical_implementation_fallback(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    inputs = _synthetic_complete_observation_inputs(tmp_path)
+    identities = {
+        row["architecture"]: row["implementation_identity"]
+        for row in inputs["fixture_manifest"]["registry_baseline"]
+    }
+    first_era = inputs["artifact_report"]["artifact_eras"][0]
+    applicable = next(
+        row
+        for row in first_era["architecture_results"]
+        if row["architecture_id"] == "ffno"
+    )
+    applicable["implementation_identity"] = identities["cnn"]
+
+    observations = evaluator.derive_complete_observations(**inputs)
+
+    assert {
+        row["clause_id"] for row in observations if not row["satisfied"]
+    } == {
+        "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
+        "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+    }
+
+
+def _task0_discovery_from_bare_commit(
+    tmp_path: Path,
+    *,
+    payloads: dict[str, bytes] | None = None,
+    source_workspace: Path | None = None,
+) -> dict[str, Any]:
+    from scripts.experiments.es import source_census
+
+    if (payloads is None) == (source_workspace is None):
+        raise ValueError("provide exactly one Task0 candidate source")
+    worktree = tmp_path / "worktree"
+    repository = tmp_path / "projection.git"
+    git = Path("/usr/bin/git")
+    if source_workspace is not None:
+        source = source_workspace.resolve(strict=True)
+        if not source.is_dir():
+            raise ValueError("Task0 candidate source must be a directory")
+
+        def ignore_root_git(directory: str, names: list[str]) -> set[str]:
+            if Path(directory) == source and ".git" in names:
+                return {".git"}
+            return set()
+
+        shutil.copytree(
+            source,
+            worktree,
+            copy_function=shutil.copy2,
+            ignore=ignore_root_git,
+            symlinks=True,
+        )
+    else:
+        worktree.mkdir(parents=True)
+        assert payloads is not None
+        for relative, payload in payloads.items():
+            path = worktree / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+    subprocess.run([str(git), "init", "-q", str(worktree)], check=True)
+    commit_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "F1 fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_AUTHOR_DATE": "1700000000 +0000",
+        "GIT_COMMITTER_NAME": "F1 fixture",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_DATE": "1700000000 +0000",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "HOME": str(tmp_path),
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+    subprocess.run(
+        [str(git), "-C", str(worktree), "add", "-f", "--all"],
+        check=True,
+        env=commit_env,
+    )
+    subprocess.run(
+        [str(git), "-C", str(worktree), "commit", "-q", "-m", "fixture"],
+        check=True,
+        env=commit_env,
+    )
+    subprocess.run(
+        [str(git), "clone", "--bare", "-q", str(worktree), str(repository)],
+        check=True,
+        env=commit_env,
+    )
+
+    def git_output(*arguments: str) -> bytes:
+        return subprocess.run(
+            [str(git), f"--git-dir={repository}", *arguments],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=commit_env,
+        ).stdout
+
+    commit = git_output("rev-parse", "HEAD").decode().strip()
+    tree = git_output("rev-parse", f"{commit}^{{tree}}").decode().strip()
+    inventory = git_output("ls-tree", "-rz", "-r", "--full-tree", commit)
+    discovery_input = json.loads(
+        (
+            REPO
+            / "docs/plans/evidence/es-f1-large-scope-refreeze/"
+            "preedit-discovery-input.json"
+        ).read_bytes()
+    )
+    discovery_input["projection"] = {
+        "repository": str(repository.resolve()),
+        "commit": commit,
+        "tree": tree,
+        "inventory_sha256": "sha256:" + hashlib.sha256(inventory).hexdigest(),
+        "leaf_count": sum(1 for record in inventory.split(b"\0") if record),
+    }
+    discovery_output = source_census.discover_source(
+        discovery_input,
+        discovery_input_sha256=source_census.raw_sha256(
+            source_census.canonical_json_bytes(discovery_input)
+        ),
+    )
+    return {
+        "input": discovery_input,
+        "output": discovery_output,
+        "tree": tree,
+        "workspace": worktree.resolve(),
+    }
+
+
+def test_task0_discovery_force_adds_complete_payload_inventory(
+    tmp_path: Path,
+) -> None:
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path,
+        payloads={
+            ".gitignore": b"ignored.py\n",
+            "ignored.py": b"raise RuntimeError('must not be committed')\n",
+            "tracked.py": b"VALUE = 1\n",
+        },
+    )
+
+    projection = discovery["input"]["projection"]
+    assert projection["leaf_count"] == 3
+    assert discovery["output"]["projection"] == projection
+    assert {row["path"] for row in discovery["output"]["leaf_rows"]} == {
+        ".gitignore",
+        "ignored.py",
+        "tracked.py",
+    }
+
+
+def test_task0_discovery_exact_copy_preserves_workspace_digest_and_git_kinds(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    source = tmp_path / "candidate-source"
+    (source / "bin").mkdir(parents=True)
+    (source / "empty-directory").mkdir()
+    (source / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (source / "ignored.py").write_text("VALUE = 1\n", encoding="utf-8")
+    executable = source / "bin/run.sh"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o751)
+    (source / "empty-directory").chmod(0o750)
+    (source / "run-link").symlink_to("bin/run.sh")
+
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "authenticated",
+        source_workspace=source,
+    )
+
+    assert evaluator._workspace_digest(source) == evaluator._workspace_digest(
+        discovery["workspace"]
+    )
+    assert (discovery["workspace"] / "bin/run.sh").stat().st_mode & 0o777 == 0o751
+    assert (
+        discovery["workspace"] / "empty-directory"
+    ).stat().st_mode & 0o777 == 0o750
+    assert (discovery["workspace"] / "run-link").is_symlink()
+    assert os.readlink(discovery["workspace"] / "run-link") == "bin/run.sh"
+    leaf_modes = {
+        row["path"]: row["mode"] for row in discovery["output"]["leaf_rows"]
+    }
+    assert leaf_modes == {
+        ".gitignore": "100644",
+        "bin/run.sh": "100755",
+        "ignored.py": "100644",
+        "run-link": "120000",
+    }
+
+
+def test_complete_observation_requires_authenticated_task0_candidate_context() -> None:
+    evaluator = _evaluator()
+
+    parameters = inspect.signature(evaluator.derive_complete_observations).parameters
+
+    assert "legacy_bypass_report" not in parameters
+    assert {
+        "candidate_workspace",
+        "candidate_tree",
+        "legacy_bypass_discovery_input",
+    } <= set(parameters)
+
+
+def test_complete_observation_rejects_authenticated_task0_candidate_digest_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    inputs = _synthetic_complete_observation_inputs(tmp_path)
+    evaluated_digest = evaluator._workspace_digest(inputs["candidate_workspace"])
+    inputs["visible_check_result"]["copy_digest_before"] = evaluated_digest
+    inputs["visible_check_result"]["copy_digest_after"] = evaluated_digest
+    inputs["lifecycle_result"]["copy_digest_before"] = evaluated_digest
+    inputs["lifecycle_result"]["copy_digest_after"] = evaluated_digest
+    candidate_b_root = tmp_path / "candidate-b-source"
+    candidate_b_root.mkdir()
+    candidate_b_workspace = _candidate_copy(
+        candidate_b_root,
+        candidate_id="different-candidate",
+    )
+    candidate_b = _task0_discovery_from_bare_commit(
+        tmp_path / "candidate-b-task0",
+        source_workspace=candidate_b_workspace,
+    )
+    inputs["candidate_workspace"] = candidate_b["workspace"]
+    inputs["candidate_tree"] = candidate_b["tree"]
+    inputs["legacy_bypass_discovery_input"] = candidate_b["input"]
+    task0_called = False
+
+    def observe_task0(**kwargs: Any) -> dict[str, Any]:
+        nonlocal task0_called
+        task0_called = True
+        return {
+            "clause_id": "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+            "details": "stubbed Task-0 result",
+            "evidence": f"sha256:{31:064x}",
+            "satisfied": True,
+        }
+
+    monkeypatch.setattr(
+        evaluator,
+        "derive_authenticated_task0_bypass_observation",
+        observe_task0,
+    )
+
+    with pytest.raises(
+        evaluator.EvaluatorError,
+        match=(
+            "candidate workspace digest does not match visible and lifecycle evidence"
+        ),
+    ):
+        evaluator.derive_complete_observations(**inputs)
+    assert task0_called is False
+
+
+def test_authenticated_task0_observation_runs_fresh_discovery_and_pinned_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    from scripts.experiments.es import boundary_proofs, source_census
+
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "authenticated",
+        payloads={
+            "scripts/new_resolver_consumer.py": (
+                b"from ptycho_torch.generators.registry import resolve_generator\n"
+                b"constructor = resolve_generator('ffno')\n"
+            )
+        },
+    )
+    real_discover = source_census.discover_source
+    discovery_calls: list[dict[str, Any]] = []
+    runner_calls: list[dict[str, Any]] = []
+
+    def observe_fresh_discovery(
+        discovery_input: dict[str, Any],
+        *,
+        discovery_input_sha256: str,
+    ) -> dict[str, Any]:
+        discovery_calls.append(copy.deepcopy(discovery_input))
+        return real_discover(
+            discovery_input,
+            discovery_input_sha256=discovery_input_sha256,
+        )
+
+    def fail_desired_state(
+        selector_manifest: dict[str, Any],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        runner_calls.append(
+            {"selector_manifest": selector_manifest, "kwargs": dict(kwargs)}
+        )
+        raise boundary_proofs.BoundaryProofError(
+            "proof_desired_state_failed",
+            "proof-pre-task3a",
+        )
+
+    monkeypatch.setattr(source_census, "discover_source", observe_fresh_discovery)
+    monkeypatch.setattr(boundary_proofs, "execute_desired_state", fail_desired_state)
+
+    observation = evaluator.derive_authenticated_task0_bypass_observation(
+        candidate_workspace=discovery["workspace"],
+        candidate_tree=discovery["tree"],
+        discovery_input=discovery["input"],
+    )
+
+    assert observation["satisfied"] is False
+    assert observation["proof_error_code"] == "proof_desired_state_failed"
+    assert len(discovery_calls) == 1
+    assert len(runner_calls) == 1
+    runner_kwargs = runner_calls[0]["kwargs"]
+    assert "expected_result_rows" not in runner_kwargs
+    assert runner_kwargs["workspace"] == discovery["workspace"]
+    assert runner_kwargs["expected_tree"] == discovery["tree"]
+    assert runner_kwargs["python"] == boundary_proofs.PINNED_PYTHON
+    assert runner_kwargs["pytest_carrier"] == boundary_proofs.PINNED_PYTEST_CARRIER
+
+
+def test_task0_classifier_restored_reference_absence_fails_h05(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "discovery",
+        payloads={
+            "archive/root_scripts/analysis/extract_reconstructions.py": (
+                b"from ptycho.config.config import ModelConfig\n"
+                b"restored = ModelConfig()\n"
+            )
+        },
+    )
+    classification = evaluator.classify_task0_bypass_discovery(
+        discovery_input=discovery["input"],
+        discovery_output=discovery["output"],
+        verified_construction_route=evaluator.F1_PUBLIC_CONSTRUCTION_ROUTE,
+    )
+    assert classification["restored_required_consumer_ids"] == [
+        "consumer-3d5ba8fb56b5dd7fc5a44edf1a3a1982"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("caller_path", "expected_bucket"),
+    (
+        ("scripts/new_direct.py", "novel_direct_matches"),
+        (
+            "ptycho_torch/generators/es_f1_witness.py",
+            "allowed_boundary_matches",
+        ),
+    ),
+)
+def test_task0_classifier_owns_novel_direct_generator_imports(
+    tmp_path: Path,
+    caller_path: str,
+    expected_bucket: str,
+) -> None:
+    evaluator = _evaluator()
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / expected_bucket,
+        payloads={
+            caller_path: (
+                b"from ptycho_torch.generators.ffno import FfnoGenerator\n"
+                b"implementation = FfnoGenerator\n"
+            )
+        },
+    )
+    classification = evaluator.classify_task0_bypass_discovery(
+        discovery_input=discovery["input"],
+        discovery_output=discovery["output"],
+        verified_construction_route=evaluator.F1_PUBLIC_CONSTRUCTION_ROUTE,
+    )
+
+    assert [
+        row["caller_path"] for row in classification[expected_bucket]
+    ] == [caller_path]
+    assert bool(classification["novel_direct_matches"]) is (
+        expected_bucket == "novel_direct_matches"
+    )
+
+
+def test_task0_classifier_allows_new_verified_resolver_consumer(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "resolver",
+        payloads={
+            "scripts/new_resolver_consumer.py": (
+                b"from ptycho_torch.generators.registry import resolve_generator\n"
+                b"constructor = resolve_generator('ffno')\n"
+            )
+        },
+    )
+
+    classification = evaluator.classify_task0_bypass_discovery(
+        discovery_input=discovery["input"],
+        discovery_output=discovery["output"],
+        verified_construction_route=evaluator.F1_PUBLIC_CONSTRUCTION_ROUTE,
+    )
+
+    assert classification["novel_direct_matches"] == []
+    assert {
+        row["anchor_id"] for row in classification["allowed_boundary_matches"]
+    } == {"GENERATOR_PACKAGE_IMPORT", "GENERATOR_REGISTRY_IMPORT"}
+
+
+def test_task0_public_classifier_rejects_omitted_discovery_row(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "subset",
+        payloads={
+            "scripts/new_direct.py": (
+                b"from ptycho_torch.generators.ffno import FfnoGenerator\n"
+                b"implementation = FfnoGenerator\n"
+            )
+        },
+    )
+    partial = copy.deepcopy(discovery["output"])
+    partial["consumer_candidates"].clear()
+    partial["candidate_set_sha256"] = evaluator._digest([])
+
+    with pytest.raises(evaluator.EvaluatorError, match="incomplete or drifted"):
+        evaluator.classify_task0_bypass_discovery(
+            discovery_input=discovery["input"],
+            discovery_output=partial,
+            verified_construction_route=evaluator.F1_PUBLIC_CONSTRUCTION_ROUTE,
+        )
+
+
+@pytest.mark.parametrize(
+    ("tamper", "diagnostic"),
+    (
+        ("tree", "tree binding"),
+        ("workspace", "workspace is not canonical"),
+        ("discovery-authority", "detector authority"),
+    ),
+)
+def test_authenticated_task0_candidate_context_fails_closed(
+    tmp_path: Path,
+    tamper: str,
+    diagnostic: str,
+) -> None:
+    evaluator = _evaluator()
+    discovery = _task0_discovery_from_bare_commit(
+        tmp_path / "context",
+        payloads={"README.md": b"authenticated candidate\n"},
+    )
+    workspace = discovery["workspace"]
+    tree = discovery["tree"]
+    discovery_input = copy.deepcopy(discovery["input"])
+    if tamper == "tree":
+        tree = "f" * 40
+    elif tamper == "workspace":
+        workspace = workspace / ".."
+    else:
+        discovery_input["caller_authored_authority"] = True
+
+    with pytest.raises(evaluator.EvaluatorError, match=diagnostic):
+        evaluator.derive_authenticated_task0_bypass_observation(
+            candidate_workspace=workspace,
+            candidate_tree=tree,
+            discovery_input=discovery_input,
+        )
 
 
 @pytest.mark.parametrize(
@@ -762,6 +2167,9 @@ def test_complete_observation_derivation_joins_all_ten_controller_facts(
         "request-binding",
         "result-binding",
         "lifecycle-observation",
+        "semantic-config-binding",
+        "semantic-input-binding",
+        "semantic-seed-binding",
         "semantic-shape",
     ],
 )
@@ -785,9 +2193,33 @@ def test_complete_observation_derivation_fails_closed(
         inputs["lifecycle_result"]["lifecycle_observations"][0][
             "satisfied"
         ] = False
+    elif tamper == "semantic-config-binding":
+        inputs["lifecycle_result"]["semantic_report"]["architecture_results"][
+            0
+        ]["config_digest"] = f"sha256:{98:064x}"
+    elif tamper == "semantic-input-binding":
+        inputs["lifecycle_result"]["semantic_report"]["architecture_results"][
+            0
+        ]["input_digest"] = f"sha256:{97:064x}"
+    elif tamper == "semantic-seed-binding":
+        inputs["lifecycle_result"]["semantic_report"]["architecture_results"][
+            0
+        ]["seed"] += 1
     else:
-        inputs["lifecycle_result"]["semantic_report"]["roles"]["witness"].pop(
-            "construction_route"
+        inputs["lifecycle_result"]["semantic_report"]["architecture_results"][
+            -1
+        ].pop("construction_route")
+
+    if tamper in {
+        "semantic-config-binding",
+        "semantic-input-binding",
+        "semantic-seed-binding",
+    }:
+        inputs["lifecycle_result"]["lifecycle_observations"] = (
+            evaluator.derive_lifecycle_observations(
+                semantic_report=inputs["lifecycle_result"]["semantic_report"],
+                adapter_process_id=inputs["lifecycle_result"]["adapter_process_id"],
+            )
         )
 
     with pytest.raises(evaluator.EvaluatorError):
@@ -800,8 +2232,8 @@ def test_complete_observation_derivation_fails_closed(
         "F1-H01-FOCUSED-SUITES",
         "F1-H03-BUILTIN-SIGNATURES",
         "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-        "F1-H05-NOMINATED-LIFECYCLE",
-        "F1-H06-WITNESS-STRUCTURAL-ROUNDTRIP",
+        "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+        "F1-H06-STRUCTURAL-ROUNDTRIP",
         "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
         "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
         "F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
@@ -819,17 +2251,28 @@ def test_complete_observation_derivation_preserves_trusted_product_failures(
     elif failed_clause == "F1-H03-BUILTIN-SIGNATURES":
         inputs["registry_report"]["registry_baseline"][0]["parameter_count"] += 1
     elif failed_clause == "F1-H04-ARTIFACT-ERA-COMPATIBILITY":
-        inputs["artifact_report"]["artifact_eras"][0]["strict_load"] = False
+        false_positive = inputs["artifact_report"]["artifact_eras"][0][
+            "architecture_results"
+        ][0]
+        false_positive.update(
+            {
+                "diagnostic": None,
+                "implementation_identity": "ptycho_torch.model.Control",
+                "module_returned": True,
+                "strict_load": True,
+            }
+        )
     else:
         semantic = inputs["lifecycle_result"]["semantic_report"]
-        if failed_clause == "F1-H05-NOMINATED-LIFECYCLE":
-            semantic["roles"]["witness"]["loss_finite"] = False
-        elif failed_clause == "F1-H06-WITNESS-STRUCTURAL-ROUNDTRIP":
-            semantic["roles"]["witness"]["adapter_checkpoint_reload"][
+        witness = semantic["architecture_results"][-1]
+        if failed_clause == "F1-H05-FULL-ARCHITECTURE-LIFECYCLE":
+            witness["loss_finite"] = False
+        elif failed_clause == "F1-H06-STRUCTURAL-ROUNDTRIP":
+            witness["adapter_checkpoint_reload"][
                 "structural_values"
-            ] = {"fno_width": 8}
+            ] = {"es_f1_depth": 3}
         elif failed_clause == "F1-H07-STRUCTURAL-IDENTITY-REJECTION":
-            rejection = semantic["identity_rejections"]["missing"]["fno_width"]
+            rejection = witness["identity_rejections"]["missing"]["es_f1_depth"]
             rejection.update(
                 {
                     "exception_detail_sha256": "sha256:"
@@ -840,15 +2283,16 @@ def test_complete_observation_derivation_preserves_trusted_product_failures(
                 }
             )
         elif failed_clause == "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY":
-            semantic["identity_sensitivity"]["fno_width"]["changed"] = False
+            sensitivity = witness["identity_sensitivity"]["es_f1_depth"]
+            sensitivity["alternate_observable_digest"] = sensitivity[
+                "baseline_observable_digest"
+            ]
         elif failed_clause == "F1-H09-CONSTRUCTION-REBUILD-EQUALITY":
-            semantic["roles"]["witness"]["public_implementation"] = (
-                "candidate.DifferentImplementation"
-            )
+            witness["public_implementation"] = "candidate.DifferentImplementation"
         else:
-            semantic["roles"]["witness"]["public_boundary_owners"][
-                "compute_loss"
-            ] = "candidate.extension.compute_loss"
+            witness["public_boundary_owners"]["compute_loss"] = (
+                "candidate.extension.compute_loss"
+            )
         inputs["lifecycle_result"]["lifecycle_observations"] = (
             evaluator.derive_lifecycle_observations(
                 semantic_report=semantic,
@@ -860,17 +2304,29 @@ def test_complete_observation_derivation_preserves_trusted_product_failures(
 
     observations = evaluator.derive_complete_observations(**inputs)
 
+    expected_failures = {
+        failed_clause,
+        "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+    }
     assert {
         row["clause_id"] for row in observations if not row["satisfied"]
-    } == {failed_clause}
+    } == expected_failures
+    dispositions = {
+        clause_id: (
+            "PRODUCT_DEFECT" if clause_id == failed_clause else "UNRESOLVED"
+        )
+        for clause_id in expected_failures
+    }
     normalized = evaluator.evaluate_observations(
         candidate_claims=_candidate_claims(),
         evaluator_observations=observations,
-        dispositions={failed_clause: "PRODUCT_DEFECT"},
-        frozen_registry={"cnn", "ffno"},
+        dispositions=dispositions,
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
     )
     assert [row["clause_id"] for row in normalized["hard_findings"]] == [
-        failed_clause
+        clause_id
+        for clause_id in evaluator.HARD_CLAUSE_IDS
+        if clause_id in expected_failures
     ]
 
 
@@ -880,112 +2336,215 @@ def _candidate_copy(tmp_path: Path, *, candidate_id: str) -> Path:
     workspace.mkdir()
     shutil.copy2(CALIBRATION_FIXTURES / "lifecycle_adapter.py", workspace)
     (workspace / "product.txt").write_text("pristine\n", encoding="utf-8")
-    evidence = {
-        "architecture_decision_path": "docs/architecture.md",
-        "candidate_id": candidate_id,
-        "claims": [
-            {
-                "clause_id": clause_id,
-                "evidence_paths": ["product.txt"],
-                "scope": "IMPLEMENTED",
-            }
-            for clause_id in evaluator.HARD_CLAUSE_IDS
-        ],
-        "extension_author_guide_path": "docs/extension-guide.md",
-        "fixed_outputs": {
-            "candidate_test_path": "tests/torch/test_es_f1_extension_boundary.py",
-            "lifecycle_adapter_path": "scripts/es_f1_lifecycle_adapter.py",
-        },
-        "ownership": {
-            "excludes": ["PHYSICS", "LOSS", "SCALING", "DATA_OWNERSHIP"],
-            "owns": [
-                "ARCHITECTURE_IDENTITY",
-                "STRUCTURAL_CONFIGURATION",
-                "CONSTRUCTION",
-                "PERSISTENCE_MIGRATION",
-            ],
-        },
-        "representative_architecture": {
-            "construction_route": "ptycho_torch.generators.registry.resolve_generator",
-            "frozen_registry_member": True,
-            "persisted_rebuild_route": (
-                "ptycho_torch.application_factory.build_ptychopinn_application"
-            ),
-            "public_id": "ffno",
-        },
-        "schema_version": "candidate_extension_evidence.v1",
-        "structural_fields": [
-            {"alternate_value": 8, "baseline_value": 4, "name": "fno_width"}
-        ],
-        "supported_artifact_eras": ["torch-artifact-v1", "torch-artifact-v2"],
-        "witness_architecture": {
-            "construction_route": "ptycho_torch.generators.registry.resolve_generator",
-            "frozen_registry_member": False,
-            "persisted_rebuild_route": (
-                "ptycho_torch.application_factory.build_ptychopinn_application"
-            ),
-            "public_id": "es_f1_witness",
-        },
-    }
+    evidence = _candidate_claims(candidate_id=candidate_id)
     (workspace / "es_f1_candidate_evidence.json").write_bytes(
         evaluator.canonical_json_bytes(evidence)
+    )
+    for package in ("ptycho", "ptycho/config", "ptycho_torch", "ptycho_torch/generators"):
+        package_path = workspace / package
+        package_path.mkdir(parents=True, exist_ok=True)
+        (package_path / "__init__.py").write_text("", encoding="utf-8")
+    (workspace / "ptycho/config/config.py").write_text(
+        "class ModelConfig:\n"
+        "    def __init__(self, *, architecture): self.architecture = architecture\n\n"
+        "class TrainingConfig:\n"
+        "    def __init__(self, *, model): self.model = model\n",
+        encoding="utf-8",
+    )
+    (workspace / "ptycho_torch/generators/registry.py").write_text(
+        "_CONSTRUCTORS = {}\n\n"
+        "def resolve_generator(config):\n"
+        "    architecture = config.model.architecture\n"
+        "    constructor = _CONSTRUCTORS.get(architecture)\n"
+        "    if constructor is None:\n"
+        "        constructor = type('Constructor_' + architecture, (), {})\n"
+        "        _CONSTRUCTORS[architecture] = constructor\n"
+        "    return constructor()\n",
+        encoding="utf-8",
     )
     return workspace
 
 
 def _lifecycle_request(candidate_id: str, workspace: Path) -> dict[str, object]:
     evaluator = _evaluator()
-    bindings, _ = evaluator.build_lifecycle_probe_inputs(seed=20260802)
+    evidence = json.loads(
+        (workspace / "es_f1_candidate_evidence.json").read_bytes()
+    )
+    architecture_rows = [
+        *evidence["builtin_architectures"],
+        evidence["candidate_witness"],
+    ]
+    architecture_cases, _ = evaluator.build_lifecycle_probe_inputs(
+        architecture_rows=architecture_rows,
+        seed=20260802,
+    )
     return {
+        "architecture_cases": architecture_cases,
         "candidate_evidence_path": "es_f1_candidate_evidence.json",
         "candidate_evidence_sha256": "sha256:"
         + hashlib.sha256(
             (workspace / "es_f1_candidate_evidence.json").read_bytes()
         ).hexdigest(),
         "candidate_id": candidate_id,
-        "evaluator_inputs": bindings,
         "lifecycle_output_dir": ".es-f1/lifecycle",
-        "operation_version": "ptychopinn_public_lifecycle.v1",
-        "representative_architecture": "ffno",
-        "schema_version": "lifecycle_probe_request.v2",
+        "operation_version": "ptychopinn_public_lifecycle.v2",
+        "required_lifecycle_stages": list(task_package.F1_LIFECYCLE_STAGES),
+        "schema_version": "lifecycle_probe_request.v3",
         "seed": 20260802,
-        "witness_architecture": "es_f1_witness",
     }
 
 
 def test_lifecycle_probe_inputs_are_deterministic_and_digest_bound() -> None:
     evaluator = _evaluator()
+    evidence = _candidate_claims()
+    architecture_rows = [
+        *evidence["builtin_architectures"],
+        evidence["candidate_witness"],
+    ]
 
-    bindings, payloads = evaluator.build_lifecycle_probe_inputs(seed=20260802)
+    cases, payloads = evaluator.build_lifecycle_probe_inputs(
+        architecture_rows=architecture_rows,
+        seed=20260802,
+    )
 
-    assert bindings == {
-        "base_config": {
-            "path": "evaluator-inputs/base-config.json",
-            "sha256": "sha256:"
-            + hashlib.sha256(payloads["base_config"]).hexdigest(),
-        },
-        "cdi_fixture": {
-            "path": "evaluator-inputs/cdi-fixture.json",
-            "sha256": "sha256:"
-            + hashlib.sha256(payloads["cdi_fixture"]).hexdigest(),
-        },
-    }
-    assert json.loads(payloads["base_config"])["schema_version"] == (
-        "es-f1-base-config.v1"
-    )
-    assert json.loads(payloads["cdi_fixture"])["schema_version"] == (
-        "es-f1-cdi-fixture.v1"
-    )
-    assert evaluator.build_lifecycle_probe_inputs(seed=20260802) == (
-        bindings,
+    assert [row["architecture_id"] for row in cases] == [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "es_f1_witness",
+    ]
+    assert [row["N"] for row in cases] == [
+        *(
+            128 if architecture_id == "neuralop_uno" else 64
+            for architecture_id in task_package.F1_BUILTIN_ARCHITECTURES
+        ),
+        64,
+    ]
+    assert len(payloads) == 30
+    assert len({binding["path"] for row in cases for binding in (row["config"], row["input"])}) == 30
+    for row in cases:
+        config_payload = payloads[row["config"]["path"]]
+        input_payload = payloads[row["input"]["path"]]
+        assert row["config"]["sha256"] == "sha256:" + hashlib.sha256(
+            config_payload
+        ).hexdigest()
+        assert row["input"]["sha256"] == "sha256:" + hashlib.sha256(
+            input_payload
+        ).hexdigest()
+        assert json.loads(config_payload)["schema_version"] == "es-f1-base-config.v1"
+        assert json.loads(input_payload)["schema_version"] == "es-f1-cdi-fixture.v1"
+        assert json.loads(config_payload)["N"] == row["N"]
+        assert json.loads(input_payload)["image_size"] == row["N"]
+    assert evaluator.build_lifecycle_probe_inputs(
+        architecture_rows=architecture_rows,
+        seed=20260802,
+    ) == (
+        cases,
         payloads,
     )
-    alternate_bindings, alternate_payloads = evaluator.build_lifecycle_probe_inputs(
-        seed=20260803
+    alternate_cases, alternate_payloads = evaluator.build_lifecycle_probe_inputs(
+        architecture_rows=architecture_rows,
+        seed=20260803,
     )
-    assert alternate_payloads["base_config"] == payloads["base_config"]
-    assert alternate_payloads["cdi_fixture"] != payloads["cdi_fixture"]
-    assert alternate_bindings["cdi_fixture"] != bindings["cdi_fixture"]
+    for row, alternate in zip(cases, alternate_cases, strict=True):
+        assert alternate_payloads[alternate["config"]["path"]] == payloads[
+            row["config"]["path"]
+        ]
+        assert alternate_payloads[alternate["input"]["path"]] != payloads[
+            row["input"]["path"]
+        ]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "diagnostic"),
+    [
+        ("missing-built-in", "schema violation"),
+        ("duplicate-built-in", "architecture matrix"),
+        ("wrong-neuralop-N", "image size"),
+        ("wrong-nonneuralop-N", "image size"),
+        ("wrong-witness-N", "image size"),
+        ("builtin-field-substitution", "built-in structural"),
+        ("construction-route-substitution", "public route"),
+        ("persisted-route-substitution", "public route"),
+        ("candidate-authored-applicability", "schema"),
+        ("candidate-authored-authority", "schema"),
+    ],
+)
+def test_lifecycle_package_rejects_matrix_and_authority_before_adapter_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    diagnostic: str,
+) -> None:
+    evaluator = _evaluator()
+    candidate_id = f"preflight-{mutation}"
+    workspace = _candidate_copy(tmp_path, candidate_id=candidate_id)
+    request = _lifecycle_request(candidate_id, workspace)
+    cases = request["architecture_cases"]
+    if mutation == "missing-built-in":
+        cases.pop(0)
+    elif mutation == "duplicate-built-in":
+        cases[1] = copy.deepcopy(cases[0])
+    elif mutation == "wrong-neuralop-N":
+        next(row for row in cases if row["architecture_id"] == "neuralop_uno")[
+            "N"
+        ] = 64
+    elif mutation == "wrong-nonneuralop-N":
+        cases[0]["N"] = 128
+    elif mutation == "wrong-witness-N":
+        cases[-1]["N"] = 128
+    elif mutation == "builtin-field-substitution":
+        evidence_path = workspace / "es_f1_candidate_evidence.json"
+        evidence = json.loads(evidence_path.read_bytes())
+        replacement = [
+            {"alternate_value": 2, "baseline_value": 1, "name": "fno_width"}
+        ]
+        evidence["builtin_architectures"][0]["structural_fields"] = replacement
+        evidence_path.write_bytes(evaluator.canonical_json_bytes(evidence))
+        request["candidate_evidence_sha256"] = "sha256:" + hashlib.sha256(
+            evidence_path.read_bytes()
+        ).hexdigest()
+        cases[0]["structural_fields"] = replacement
+    elif mutation in {
+        "construction-route-substitution",
+        "persisted-route-substitution",
+    }:
+        evidence_path = workspace / "es_f1_candidate_evidence.json"
+        evidence = json.loads(evidence_path.read_bytes())
+        route_field = (
+            "construction_route"
+            if mutation == "construction-route-substitution"
+            else "persisted_rebuild_route"
+        )
+        substituted_route = f"candidate.private.{route_field}"
+        evidence["candidate_witness"][route_field] = substituted_route
+        evidence_path.write_bytes(evaluator.canonical_json_bytes(evidence))
+        request["candidate_evidence_sha256"] = "sha256:" + hashlib.sha256(
+            evidence_path.read_bytes()
+        ).hexdigest()
+        cases[-1][route_field] = substituted_route
+    else:
+        evidence_path = workspace / "es_f1_candidate_evidence.json"
+        evidence = json.loads(evidence_path.read_bytes())
+        if mutation == "candidate-authored-applicability":
+            evidence["artifact_applicability"] = []
+        else:
+            evidence["evaluator_observations"] = []
+        evidence_path.write_bytes(evaluator.canonical_json_bytes(evidence))
+        request["candidate_evidence_sha256"] = "sha256:" + hashlib.sha256(
+            evidence_path.read_bytes()
+        ).hexdigest()
+
+    def forbidden_adapter(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("invalid lifecycle package reached candidate code")
+
+    monkeypatch.setattr(evaluator.subprocess, "Popen", forbidden_adapter)
+    with pytest.raises(evaluator.EvaluatorError, match=diagnostic):
+        evaluator.run_lifecycle_adapter(
+            workspace=workspace,
+            adapter_path="lifecycle_adapter.py",
+            request=request,
+            python_executable=Path(sys.executable),
+            timeout_seconds=20,
+        )
 
 
 def test_lifecycle_driver_rejects_placeholder_candidate_artifacts(
@@ -995,6 +2554,133 @@ def test_lifecycle_driver_rejects_placeholder_candidate_artifacts(
     candidate_id = "calibration-control"
     workspace = _candidate_copy(tmp_path, candidate_id=candidate_id)
     with pytest.raises(evaluator.EvaluatorError, match="fresh-artifact-reload"):
+        evaluator.run_lifecycle_adapter(
+            workspace=workspace,
+            adapter_path="lifecycle_adapter.py",
+            request=_lifecycle_request(candidate_id, workspace),
+            python_executable=Path(sys.executable),
+            timeout_seconds=20,
+        )
+
+
+def test_full_matrix_reference_adapter_materializes_only_exact_30_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _evaluator()
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    projection = Path(
+        "/home/ollie/.local/state/orchestrator/es-source-projections/"
+        "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+    )
+    if not python.is_file() or not projection.is_dir():
+        pytest.skip("frozen ptycho311 interpreter or F1 projection unavailable")
+    candidate_id = "reference-adapter-path-control"
+    workspace = _real_product_candidate(
+        tmp_path,
+        candidate_id=candidate_id,
+    )
+    adapter = workspace / "scripts/es_f1_lifecycle_adapter.py"
+    adapter.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        CALIBRATION_FIXTURES / "full_matrix_reference_adapter.py",
+        adapter,
+    )
+    request = _lifecycle_request(candidate_id, workspace)
+    observed: dict[str, Any] = {}
+
+    def stop_after_materialization(**kwargs: Any) -> dict[str, Any]:
+        artifacts = kwargs["artifacts"]
+        assert list(artifacts) == [
+            *task_package.F1_BUILTIN_ARCHITECTURES,
+            "es_f1_witness",
+        ]
+        paths = [
+            path
+            for architecture_artifacts in artifacts.values()
+            for path in architecture_artifacts.values()
+        ]
+        assert len(paths) == 30
+        assert len({path.resolve() for path in paths}) == 30
+        assert all(path.is_file() and path.stat().st_size > 0 for path in paths)
+        observed["content_digests"] = {
+            "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in paths
+        }
+        raise evaluator.EvaluatorError("reference adapter path control complete")
+
+    monkeypatch.setattr(
+        evaluator,
+        "_verify_adapter_artifacts",
+        stop_after_materialization,
+    )
+    with pytest.raises(
+        evaluator.EvaluatorError,
+        match="reference adapter path control complete",
+    ):
+        evaluator.run_lifecycle_adapter(
+            workspace=workspace,
+            adapter_path="scripts/es_f1_lifecycle_adapter.py",
+            request=request,
+            python_executable=python,
+            timeout_seconds=30,
+        )
+    assert len(observed["content_digests"]) == 30
+
+
+def test_full_matrix_reference_adapter_is_absent_from_provider_visible_inputs() -> None:
+    reference_path = (
+        "tests/experiments/fixtures/es_f1/full_matrix_reference_adapter.py"
+    )
+    reference_digest = "sha256:" + hashlib.sha256(
+        (REPO / reference_path).read_bytes()
+    ).hexdigest()
+    profile = json.loads(
+        (REPO / "experiments/orc_effectiveness/f1_es/task-profile.json").read_bytes()
+    )
+    profile_bindings = [
+        profile["neutral_brief"],
+        profile["visible_check"],
+        profile["visible_contract"],
+        *profile["visible_schema_bindings"],
+    ]
+    provider_visible_paths = {
+        value
+        for binding in profile_bindings
+        for key, value in binding.items()
+        if key.endswith("path") and isinstance(value, str)
+    }
+    provider_visible_digests = {
+        value
+        for binding in profile_bindings
+        for key, value in binding.items()
+        if key.endswith("sha256") and isinstance(value, str)
+    }
+
+    seed = json.loads(
+        (REPO / profile["task_seed"]["manifest_path"]).read_bytes()
+    )
+    seed_rows = seed["visible_assets"]["rows"]
+    provider_visible_paths.update(
+        value
+        for row in seed_rows
+        for key, value in row.items()
+        if key in {"source_path", "target_path"}
+    )
+    provider_visible_digests.update(row["sha256"] for row in seed_rows)
+
+    assert reference_path not in provider_visible_paths
+    assert reference_digest not in provider_visible_digests
+
+
+def test_lifecycle_driver_rejects_a_missing_full_matrix_artifact_before_reload(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    candidate_id = "calibration-missing-artifact"
+    workspace = _candidate_copy(tmp_path, candidate_id=candidate_id)
+
+    with pytest.raises(evaluator.EvaluatorError, match="missing lifecycle artifact"):
         evaluator.run_lifecycle_adapter(
             workspace=workspace,
             adapter_path="lifecycle_adapter.py",
@@ -1040,6 +2726,24 @@ def _real_product_candidate(
     tmp_path: Path, *, candidate_id: str, defect_kind: str = "none"
 ) -> Path:
     evaluator = _evaluator()
+    witness_declaration = _architecture_declaration(
+        "es_f1_witness", witness=True
+    )
+    witness_structural_fields = witness_declaration["structural_fields"]
+    assert isinstance(witness_structural_fields, list)
+    assert len(witness_structural_fields) == 1
+    witness_structural_field = witness_structural_fields[0]
+    assert isinstance(witness_structural_field, dict)
+    witness_field_name = witness_structural_field["name"]
+    witness_baseline_value = witness_structural_field["baseline_value"]
+    if type(witness_baseline_value) is bool:
+        witness_unsupported_value: object = None
+    elif isinstance(witness_baseline_value, (int, float)):
+        witness_unsupported_value = 0 if witness_baseline_value != 0 else -1
+    elif isinstance(witness_baseline_value, str):
+        witness_unsupported_value = "es_f1_unsupported_value"
+    else:
+        raise AssertionError("calibration witness field has no unsupported value")
     tmp_path.mkdir(parents=True, exist_ok=True)
     projection = Path(
         "/home/ollie/.local/state/orchestrator/es-source-projections/"
@@ -1052,8 +2756,43 @@ def _real_product_candidate(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    witness_module = workspace / "ptycho_torch/generators/es_f1_witness.py"
+    witness_module.write_text(
+        '''from __future__ import annotations
+
+import torch
+
+from ptycho_torch.generators.ffno import FfnoGenerator, FfnoGeneratorModule
+
+
+class EsF1WitnessGeneratorModule(FfnoGeneratorModule):
+    def __init__(self, *, es_f1_depth: int, **kwargs):
+        if es_f1_depth <= 0:
+            raise ValueError("es_f1_depth must be positive")
+        super().__init__(**kwargs)
+        self.es_f1_depth = int(es_f1_depth)
+        self.es_f1_depth_scale = torch.nn.Parameter(
+            torch.linspace(1.0, 1.0 + 0.1 * (self.es_f1_depth - 1), self.es_f1_depth)
+        )
+
+    def forward(self, value):
+        result = super().forward(value)
+        scale = self.es_f1_depth_scale.mean()
+        if isinstance(result, tuple):
+            return tuple(item * scale for item in result)
+        return result * scale
+
+
+class EsF1WitnessGenerator(FfnoGenerator):
+    name = "es_f1_witness"
+''',
+        encoding="utf-8",
+    )
     registry = workspace / "ptycho_torch/generators/registry.py"
-    registry_extension = '\n_REGISTRY["es_f1_witness"] = FfnoGenerator\n'
+    registry_extension = '''
+from ptycho_torch.generators.es_f1_witness import EsF1WitnessGenerator
+_REGISTRY["es_f1_witness"] = EsF1WitnessGenerator
+'''
     if defect_kind == "route_disagreement":
         registry_extension = '''
 class _EsF1MismatchedWitnessGenerator:
@@ -1068,6 +2807,11 @@ class _EsF1MismatchedWitnessGenerator:
         return build_ptychopinn_from_configs(mismatched)
 
 _REGISTRY["es_f1_witness"] = _EsF1MismatchedWitnessGenerator
+'''
+    elif defect_kind == "witness_registry_constructor_alias":
+        registry_extension = '''
+from ptycho_torch.generators.ffno import FfnoGenerator
+_REGISTRY["es_f1_witness"] = FfnoGenerator
 '''
     elif defect_kind == "architecture_owned_boundary":
         registry_extension += '''
@@ -1106,10 +2850,105 @@ _REGISTRY["es_f1_witness"] = _EsF1CandidateLocalGenerator
         encoding="utf-8",
     )
     model = workspace / "ptycho_torch/model.py"
+    witness_branch = '''if architecture == "es_f1_witness":
+        from ptycho_torch.generators.es_f1_witness import EsF1WitnessGeneratorModule
+
+        return EsF1WitnessGeneratorModule(
+            **common_kwargs,
+            n_blocks=getattr(model_config, "fno_blocks", 4),
+            cnn_blocks=getattr(model_config, "fno_cnn_blocks", 2),
+            es_f1_depth=getattr(model_config, "es_f1_depth", 2),
+        )
+
+    if architecture == "ffno":'''
     model.write_text(
         model.read_text(encoding="utf-8").replace(
             'if architecture == "ffno":',
-            'if architecture in {"ffno", "es_f1_witness"}:',
+            witness_branch,
+            1,
+        ),
+        encoding="utf-8",
+    )
+    config_params = workspace / "ptycho_torch/config_params.py"
+    config_text = config_params.read_text(encoding="utf-8")
+    assert "    fno_width: int = 32\n" in config_text
+    config_params.write_text(
+        config_text.replace(
+            "    fno_width: int = 32\n",
+            "    fno_width: int = 32\n    es_f1_depth: int = 2\n",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    model_spec = workspace / "ptycho_torch/model_spec.py"
+    model_spec_text = model_spec.read_text(encoding="utf-8")
+    assert 'CURRENT_MODEL_SPEC_VERSION = "torch-model-spec-v2"' in model_spec_text
+    model_spec_text = model_spec_text.replace(
+        'CURRENT_MODEL_SPEC_VERSION = "torch-model-spec-v2"',
+        'CURRENT_MODEL_SPEC_VERSION = "torch-model-spec-v3"',
+        1,
+    )
+    current_v2_branch = '''        elif schema_version == CURRENT_MODEL_SPEC_VERSION:
+            values = dict(model_fields)
+'''
+    assert model_spec_text.count(current_v2_branch) == 1
+    model_spec_text = model_spec_text.replace(
+        current_v2_branch,
+        '''        elif schema_version == "torch-model-spec-v2":
+            values = dict(model_fields)
+        elif schema_version == CURRENT_MODEL_SPEC_VERSION:
+            values = dict(model_fields)
+''',
+        1,
+    )
+    return_anchor = '''        return cls(
+            schema_version=CURRENT_MODEL_SPEC_VERSION,
+'''
+    assert model_spec_text.count(return_anchor) == 1
+    model_spec_text = model_spec_text.replace(
+        return_anchor,
+        '''        if schema_version in {MODEL_SPEC_V1_VERSION, "torch-model-spec-v2"}:
+            values.setdefault("es_f1_depth", 2)
+        return cls(
+            schema_version=CURRENT_MODEL_SPEC_VERSION,
+''',
+        1,
+    )
+    model_spec.write_text(model_spec_text, encoding="utf-8")
+    model_text = model.read_text(encoding="utf-8")
+    checkpoint_migration_anchor = '''        # Handle checkpoint loading: convert dict kwargs back to dataclass instances
+        # (Lightning passes saved hyperparameters as dicts during load_from_checkpoint)
+'''
+    assert model_text.count(checkpoint_migration_anchor) == 1
+    model_text = model_text.replace(
+        checkpoint_migration_anchor,
+        '''        if (
+            isinstance(model_spec, dict)
+            and model_spec.get("schema_version") == "torch-model-spec-v2"
+            and isinstance(model_config, dict)
+        ):
+            model_config = dict(model_config)
+            model_config.setdefault("es_f1_depth", 2)
+
+        # Handle checkpoint loading: convert dict kwargs back to dataclass instances
+        # (Lightning passes saved hyperparameters as dicts during load_from_checkpoint)
+''',
+        1,
+    )
+    model.write_text(model_text, encoding="utf-8")
+    artifact_schema = workspace / "ptycho_torch/artifact_schema.py"
+    artifact_schema_text = artifact_schema.read_text(encoding="utf-8")
+    unversioned_model_anchor = '''    raw_model = copy.deepcopy(dict(model_config))
+    received_model_fields = set(raw_model)
+'''
+    assert artifact_schema_text.count(unversioned_model_anchor) == 1
+    artifact_schema.write_text(
+        artifact_schema_text.replace(
+            unversioned_model_anchor,
+            '''    raw_model = copy.deepcopy(dict(model_config))
+    raw_model.setdefault("es_f1_depth", 2)
+    received_model_fields = set(raw_model)
+''',
             1,
         ),
         encoding="utf-8",
@@ -1144,17 +2983,6 @@ _REGISTRY["es_f1_witness"] = _EsF1CandidateLocalGenerator
             encoding="utf-8",
         )
     if defect_kind == "candidate_local_structural_field":
-        config_params = workspace / "ptycho_torch/config_params.py"
-        config_text = config_params.read_text(encoding="utf-8")
-        assert "    fno_width: int = 32\n" in config_text
-        config_params.write_text(
-            config_text.replace(
-                "    fno_width: int = 32\n",
-                "    fno_width: int = 32\n    es_f1_depth: int = 2\n",
-                1,
-            ),
-            encoding="utf-8",
-        )
         model_spec = workspace / "ptycho_torch/model_spec.py"
         model_spec.write_text(
             model_spec.read_text(encoding="utf-8")
@@ -1208,15 +3036,18 @@ def build_ptychopinn_application(model_spec, data_config, training_config, infer
     }:
         repairs = {
             "missing_identity": (
-                'model_fields.setdefault("fno_width", 4)'
+                f"model_fields.setdefault({witness_field_name!r}, "
+                f"{witness_baseline_value!r})"
             ),
             "extra_identity": (
                 'model_fields.pop("es_f1_extra_structural_field", None)'
             ),
             "unsupported_identity": (
-                'model_fields["fno_width"] = 4 '
-                'if model_fields.get("fno_width") == 0 '
-                'else model_fields.get("fno_width")'
+                f"model_fields.update({{{witness_field_name!r}: "
+                f"{witness_baseline_value!r}}}) if "
+                f"{witness_field_name!r} in model_fields and "
+                f"model_fields[{witness_field_name!r}] == "
+                f"{witness_unsupported_value!r} else None"
             ),
         }
         model_spec = workspace / "ptycho_torch/model_spec.py"
@@ -1235,17 +3066,28 @@ ModelSpec.from_payload = _es_f1_model_spec_from_payload
             encoding="utf-8",
         )
     elif defect_kind == "identity_insensitive":
-        model_spec = workspace / "ptycho_torch/model_spec.py"
-        model_spec.write_text(
-            model_spec.read_text(encoding="utf-8")
-            + '''
-_es_f1_original_model_spec_to_payload = ModelSpec.to_payload
-def _es_f1_model_spec_to_payload(self):
-    payload = _es_f1_original_model_spec_to_payload(self)
-    if payload["model_config"].get("architecture") == "es_f1_witness":
-        payload["model_config"]["fno_width"] = 4
+        artifact_schema.write_text(
+            artifact_schema.read_text(encoding="utf-8")
+            + f'''
+_es_f1_original_encode_artifact_identity = encode_artifact_identity
+def encode_artifact_identity(
+    model_spec,
+    data_config,
+    training_config,
+    inference_config,
+    *,
+    ci_statistics=None,
+):
+    payload = _es_f1_original_encode_artifact_identity(
+        model_spec,
+        data_config,
+        training_config,
+        inference_config,
+        ci_statistics=ci_statistics,
+    )
+    if model_spec.architecture == {witness_declaration["public_id"]!r}:
+        payload["model_spec"]["model_config"][{witness_field_name!r}] = {witness_baseline_value!r}
     return payload
-ModelSpec.to_payload = _es_f1_model_spec_to_payload
 ''',
             encoding="utf-8",
         )
@@ -1458,57 +3300,7 @@ ModelSpec.from_payload = _es_f1_model_spec_from_payload
     adapter = workspace / "scripts/es_f1_lifecycle_adapter.py"
     adapter.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(CALIBRATION_FIXTURES / "conforming_lifecycle_adapter.py", adapter)
-    evidence = {
-        "architecture_decision_path": "docs/architecture_torch.md",
-        "candidate_id": candidate_id,
-        "claims": [
-            {
-                "clause_id": clause_id,
-                "evidence_paths": ["README.md"],
-                "scope": "IMPLEMENTED",
-            }
-            for clause_id in evaluator.HARD_CLAUSE_IDS
-        ],
-        "extension_author_guide_path": "docs/architecture_torch.md",
-        "fixed_outputs": {
-            "candidate_test_path": "tests/torch/test_es_f1_extension_boundary.py",
-            "lifecycle_adapter_path": "scripts/es_f1_lifecycle_adapter.py",
-        },
-        "ownership": {
-            "excludes": ["PHYSICS", "LOSS", "SCALING", "DATA_OWNERSHIP"],
-            "owns": [
-                "ARCHITECTURE_IDENTITY",
-                "STRUCTURAL_CONFIGURATION",
-                "CONSTRUCTION",
-                "PERSISTENCE_MIGRATION",
-            ],
-        },
-        "representative_architecture": {
-            "construction_route": "ptycho_torch.generators.registry.resolve_generator",
-            "frozen_registry_member": True,
-            "persisted_rebuild_route": (
-                "ptycho_torch.application_factory.build_ptychopinn_application"
-            ),
-            "public_id": "ffno",
-        },
-        "schema_version": "candidate_extension_evidence.v1",
-        "structural_fields": [
-            {"alternate_value": 8, "baseline_value": 4, "name": "fno_width"}
-        ],
-        "supported_artifact_eras": ["torch-artifact-v1", "torch-artifact-v2"],
-        "witness_architecture": {
-            "construction_route": "ptycho_torch.generators.registry.resolve_generator",
-            "frozen_registry_member": False,
-            "persisted_rebuild_route": (
-                "ptycho_torch.application_factory.build_ptychopinn_application"
-            ),
-            "public_id": "es_f1_witness",
-        },
-    }
-    if defect_kind == "candidate_local_structural_field":
-        evidence["structural_fields"] = [
-            {"alternate_value": 3, "baseline_value": 2, "name": "es_f1_depth"}
-        ]
+    evidence = _candidate_claims(candidate_id=candidate_id)
     if defect_kind in {
         "architecture_local_tagged_union",
         "nested_distributed_identity",
@@ -1517,16 +3309,16 @@ ModelSpec.from_payload = _es_f1_model_spec_from_payload
         "absent_architecture_binding",
         "ambiguous_architecture_binding",
     }:
-        evidence["structural_fields"] = [
+        evidence["candidate_witness"]["structural_fields"] = [
             {"alternate_value": 8, "baseline_value": 4, "name": "fno_width"},
             {"alternate_value": 3, "baseline_value": 2, "name": "fno_modes"},
         ]
     if defect_kind == "baseline_mismatch":
-        evidence["structural_fields"] = [
+        evidence["candidate_witness"]["structural_fields"] = [
             {"alternate_value": 8, "baseline_value": 5, "name": "fno_width"}
         ]
     if defect_kind == "route_tamper":
-        evidence["witness_architecture"]["construction_route"] = (
+        evidence["candidate_witness"]["construction_route"] = (
             "ptycho_torch.generators.registry.missing_route"
         )
     if defect_kind == "schema_version_drift":
@@ -1534,6 +3326,59 @@ ModelSpec.from_payload = _es_f1_model_spec_from_payload
     (workspace / "es_f1_candidate_evidence.json").write_bytes(
         evaluator.canonical_json_bytes(evidence)
     )
+    visible_model_spec_assertion_migrations = {
+        "tests/torch/test_model_spec.py": (
+            (
+                '    assert payload.model_spec.schema_version == "torch-model-spec-v2"\n',
+                '    assert payload.model_spec.schema_version == "torch-model-spec-v3"\n',
+            ),
+        ),
+        "tests/torch/test_model_spec_v2.py": (
+            (
+                '    assert CURRENT_MODEL_SPEC_VERSION == "torch-model-spec-v2"\n',
+                '    assert CURRENT_MODEL_SPEC_VERSION == "torch-model-spec-v3"\n',
+            ),
+            (
+                '    assert payload["schema_version"] == "torch-model-spec-v2"\n',
+                '    assert payload["schema_version"] == "torch-model-spec-v3"\n',
+            ),
+            (
+                '    assert upgraded.schema_version == "torch-model-spec-v2"\n',
+                '    assert upgraded.schema_version == "torch-model-spec-v3"\n',
+            ),
+            (
+                '    assert upgraded.to_payload()["schema_version"] == "torch-model-spec-v2"\n',
+                '    assert upgraded.to_payload()["schema_version"] == "torch-model-spec-v3"\n',
+            ),
+        ),
+        "tests/torch/test_artifact_schema.py": (
+            (
+                '        "torch-model-spec-v2"\n',
+                '        "torch-model-spec-v3"\n',
+            ),
+        ),
+        "tests/torch/test_artifact_schema_v2.py": (
+            (
+                '    assert payload["model_spec"]["schema_version"] == "torch-model-spec-v2"\n',
+                '    assert payload["model_spec"]["schema_version"] == "torch-model-spec-v3"\n',
+            ),
+            (
+                '    assert decoded.model_spec.schema_version == "torch-model-spec-v2"\n',
+                '    assert decoded.model_spec.schema_version == "torch-model-spec-v3"\n',
+            ),
+        ),
+    }
+    for relative_path, replacements in visible_model_spec_assertion_migrations.items():
+        test_path = workspace / relative_path
+        test_text = test_path.read_text(encoding="utf-8")
+        for predecessor, successor in replacements:
+            if test_text.count(predecessor) != 1:
+                raise AssertionError(
+                    f"visible ModelSpec assertion drifted: {relative_path}: "
+                    f"{predecessor!r}"
+                )
+            test_text = test_text.replace(predecessor, successor, 1)
+        test_path.write_text(test_text, encoding="utf-8")
     candidate_test = workspace / "tests/torch/test_es_f1_extension_boundary.py"
     candidate_test.write_text(
         '''from ptycho.config.config import ModelConfig, TrainingConfig
@@ -1547,6 +3392,253 @@ def test_candidate_witness_resolves_through_public_registry():
         encoding="utf-8",
     )
     return workspace
+
+
+def test_real_product_candidate_passes_exact_visible_invocations(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    projection = Path(
+        "/home/ollie/.local/state/orchestrator/es-source-projections/"
+        "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+    )
+    if not python.is_file() or not projection.is_dir():
+        pytest.skip("frozen ptycho311 interpreter or F1 projection unavailable")
+    workspace = _real_product_candidate(
+        tmp_path,
+        candidate_id="visible-invocation-control",
+    )
+    visible_checks = json.loads(
+        (TASK_ASSETS / "visible-check-manifest.json").read_bytes()
+    )
+
+    result = evaluator.run_visible_checks(
+        workspace=workspace,
+        visible_checks=visible_checks,
+    )
+
+    assert [
+        (row["invocation_id"], row["exit_code"])
+        for row in result["invocations"]
+    ] == [
+        ("PRE_EDIT_FOCUSED", 0),
+        ("CANDIDATE_EXTENSION", 0),
+    ]
+
+
+def test_candidate_product_migrates_historical_v2_model_spec_before_strict_validation(
+    tmp_path: Path,
+) -> None:
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    projection = Path(
+        "/home/ollie/.local/state/orchestrator/es-source-projections/"
+        "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+    )
+    if not python.is_file() or not projection.is_dir():
+        pytest.skip("frozen ptycho311 interpreter or F1 projection unavailable")
+    workspace = _real_product_candidate(
+        tmp_path,
+        candidate_id="historical-model-spec-migration",
+    )
+    manifest = json.loads(
+        (EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes()
+    )
+    era = next(
+        row
+        for row in manifest["artifact_eras"]
+        if row["era_id"] == "torch-model-spec-v2"
+    )
+    historical = (
+        Path(manifest["external_fixture_store"]["root"])
+        / era["cas_relative_path"]
+    )
+    code = r'''
+import json,pathlib,sys
+sys.path.insert(0,sys.argv[1])
+from ptycho_torch.artifact_schema import from_json_payload
+from ptycho_torch.model_spec import ModelSpec
+historical=from_json_payload(json.loads(pathlib.Path(sys.argv[2]).read_bytes()))
+migrated=ModelSpec.from_payload(historical).to_payload()
+assert migrated["schema_version"]=="torch-model-spec-v3"
+assert migrated["model_config"]["es_f1_depth"]==2
+migrated["model_config"].pop("es_f1_depth")
+try: ModelSpec.from_payload(migrated)
+except ValueError as exc: assert "es_f1_depth" in str(exc)
+else: raise AssertionError("current candidate ModelSpec accepted a missing witness field")
+'''
+
+    process = subprocess.run(
+        (str(python), "-I", "-B", "-c", code, str(workspace), str(historical)),
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PTYCHO_DISABLE_MEMOIZE": "1",
+        },
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert process.returncode == 0, process.stderr
+
+
+@pytest.mark.parametrize(
+    "defect_kind,scenario",
+    (
+        ("missing_identity", "missing"),
+        ("extra_identity", "extra"),
+        ("unknown_identity", "unknown"),
+        ("unsupported_identity", "unsupported"),
+        ("identity_insensitive", "insensitive"),
+    ),
+)
+def test_structural_identity_calibration_fault_targets_declared_witness_field(
+    tmp_path: Path,
+    defect_kind: str,
+    scenario: str,
+) -> None:
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    projection = Path(
+        "/home/ollie/.local/state/orchestrator/es-source-projections/"
+        "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+    )
+    if not python.is_file() or not projection.is_dir():
+        pytest.skip("frozen ptycho311 interpreter or F1 projection unavailable")
+    workspace = _real_product_candidate(
+        tmp_path / defect_kind,
+        candidate_id=f"calibration-{defect_kind}",
+        defect_kind=defect_kind,
+    )
+    manifest = json.loads(
+        (EVALUATOR_ASSETS / "fixture-manifest.json").read_bytes()
+    )
+    era = next(
+        row
+        for row in manifest["artifact_eras"]
+        if row["era_id"] == "torch-artifact-v2"
+    )
+    historical = (
+        Path(manifest["external_fixture_store"]["root"])
+        / era["cas_relative_path"]
+    )
+    code = r'''
+import copy,json,pathlib,sys
+sys.path.insert(0,sys.argv[1])
+from ptycho_torch.artifact_schema import (
+    decode_artifact_identity,
+    encode_artifact_identity,
+    from_json_payload,
+    to_json_payload,
+)
+from ptycho.config.config import ModelConfig as CanonicalModelConfig
+from ptycho.config.config import TrainingConfig as CanonicalTrainingConfig
+from ptycho_torch.generators.registry import resolve_generator
+from ptycho_torch.model_spec import ModelSpec
+scenario=sys.argv[3]
+historical=from_json_payload(json.loads(pathlib.Path(sys.argv[2]).read_bytes()))
+decoded=decode_artifact_identity(historical)
+baseline=decoded.model_spec.to_payload()
+baseline["model_config"]["architecture"]="es_f1_witness"
+baseline=ModelSpec.from_payload(baseline).to_payload()
+mutated=copy.deepcopy(baseline)
+if scenario=="missing":
+    mutated["model_config"].pop("es_f1_depth")
+    assert ModelSpec.from_payload(mutated).to_payload()==baseline
+elif scenario=="extra":
+    mutated["model_config"]["es_f1_extra_structural_field"]=1
+    assert ModelSpec.from_payload(mutated).to_payload()==baseline
+elif scenario=="unknown":
+    config=CanonicalTrainingConfig(
+        model=CanonicalModelConfig(architecture="es_f1_unknown_architecture")
+    )
+    assert resolve_generator(config).__class__.__name__
+elif scenario=="unsupported":
+    mutated["model_config"]["es_f1_depth"]=0
+    assert ModelSpec.from_payload(mutated).to_payload()==baseline
+elif scenario=="insensitive":
+    mutated["model_config"]["es_f1_depth"]=3
+    assert ModelSpec.from_payload(mutated).to_payload()["model_config"]["es_f1_depth"]==3
+    baseline_identity=to_json_payload(encode_artifact_identity(
+        ModelSpec.from_payload(baseline),
+        decoded.data_config,
+        decoded.training_config,
+        decoded.inference_config,
+    ))
+    alternate_identity=to_json_payload(encode_artifact_identity(
+        ModelSpec.from_payload(mutated),
+        decoded.data_config,
+        decoded.training_config,
+        decoded.inference_config,
+    ))
+    assert alternate_identity==baseline_identity
+else:
+    raise AssertionError(f"unknown scenario: {scenario}")
+'''
+
+    process = subprocess.run(
+        (
+            str(python),
+            "-I",
+            "-B",
+            "-c",
+            code,
+            str(workspace),
+            str(historical),
+            scenario,
+        ),
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PTYCHO_DISABLE_MEMOIZE": "1",
+        },
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert process.returncode == 0, process.stderr
+
+
+def test_real_registry_constructor_alias_fails_h09_before_candidate_adapter(
+    tmp_path: Path,
+) -> None:
+    evaluator = _evaluator()
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    projection = Path(
+        "/home/ollie/.local/state/orchestrator/es-source-projections/"
+        "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+    )
+    if not python.is_file() or not projection.is_dir():
+        pytest.skip("frozen ptycho311 interpreter or F1 projection unavailable")
+    candidate_id = "registry-constructor-alias"
+    workspace = _real_product_candidate(
+        tmp_path,
+        candidate_id=candidate_id,
+        defect_kind="witness_registry_constructor_alias",
+    )
+    (workspace / "scripts/es_f1_lifecycle_adapter.py").write_text(
+        "raise RuntimeError('registry alias must fail before adapter execution')\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(evaluator.EvaluatorObservationError) as caught:
+        evaluator.run_lifecycle_adapter(
+            workspace=workspace,
+            adapter_path="scripts/es_f1_lifecycle_adapter.py",
+            request=_lifecycle_request(candidate_id, workspace),
+            python_executable=python,
+            timeout_seconds=30,
+        )
+
+    assert caught.value.clause_id == "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"
+    assert caught.value.mechanism == "registry-constructor-identity-alias"
+    identities = caught.value.evidence_record["registry_constructor_identities"]
+    assert identities["es_f1_witness"] == identities["ffno"]
 
 
 def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
@@ -1573,26 +3665,46 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
     )
 
     report = result["semantic_report"]
-    assert report["schema_version"] == "es-f1-semantic-lifecycle.v1"
+    assert report["schema_version"] == "es-f1-semantic-lifecycle.v2"
     assert report["construction_pid"] != result["adapter_process_id"]
-    rejections = report["identity_rejections"]
-    assert set(rejections["missing"]) == {"fno_width"}
-    assert all(row["rejected"] for row in rejections["missing"].values())
-    assert rejections["extra"]["rejected"] is True
-    assert rejections["unknown_architecture"]["rejected"] is True
-    assert rejections["unsupported_value"]["rejected"] is True
-    for row in (
-        *rejections["missing"].values(),
-        rejections["extra"],
-        rejections["unknown_architecture"],
-        rejections["unsupported_value"],
+    architecture_rows = report["architecture_results"]
+    assert [row["architecture_id"] for row in architecture_rows] == [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "es_f1_witness",
+    ]
+    assert "roles" not in report
+    assert "identity_rejections" not in report
+    for observed, declaration in zip(
+        architecture_rows,
+        [
+            *_candidate_claims()["builtin_architectures"],
+            _candidate_claims()["candidate_witness"],
+        ],
+        strict=True,
     ):
-        assert row["module_returned"] is False
-        assert isinstance(row["exception_type"], str) and row["exception_type"]
-        assert row["exception_detail_sha256"].startswith("sha256:")
-    assert report["identity_sensitivity"]["fno_width"]["changed"] is True
-    for role in ("representative", "witness"):
-        observed = report["roles"][role]
+        field_names = {
+            field["name"] for field in declaration["structural_fields"]
+        }
+        rejections = observed["identity_rejections"]
+        assert set(rejections["missing"]) == field_names
+        assert all(row["rejected"] for row in rejections["missing"].values())
+        assert rejections["extra"]["rejected"] is True
+        assert rejections["unsupported_value"]["rejected"] is True
+        for row in (
+            *rejections["missing"].values(),
+            rejections["extra"],
+            rejections["unsupported_value"],
+        ):
+            assert row["module_returned"] is False
+            assert isinstance(row["exception_type"], str) and row["exception_type"]
+            assert row["exception_detail_sha256"].startswith("sha256:")
+        assert set(observed["identity_sensitivity"]) == field_names
+        assert all(
+            sensitivity["deterministic"] is True
+            and sensitivity["baseline_identity_digest"]
+            != sensitivity["alternate_identity_digest"]
+            for sensitivity in observed["identity_sensitivity"].values()
+        )
         assert observed["public_implementation"] == (
             observed["persisted_implementation"]
         )
@@ -1600,21 +3712,26 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
             observed["persisted_state_signature"]
         )
         assert observed["loss_finite"] is True
-        assert observed["optimizer_changed_parameter"] is True
-        expected_structural = {"fno_width": 4} if role == "witness" else {}
+        assert observed["optimizer_state_before"] != observed["optimizer_state_after"]
+        expected_structural = {
+            field["name"]: field["baseline_value"]
+            for field in declaration["structural_fields"]
+        }
         assert observed["structural_values"] == expected_structural
-        assert observed["evaluator_checkpoint_reload"]["fresh_pid"] != (
-            report["construction_pid"]
-        )
-        assert observed["evaluator_bundle_reload"]["fresh_pid"] != (
-            report["construction_pid"]
-        )
-        assert observed["adapter_checkpoint_reload"]["structural_values"] == (
-            expected_structural
-        )
-        assert observed["adapter_bundle_reload"]["structural_values"] == (
-            expected_structural
-        )
+        for reload_name in (
+            "evaluator_checkpoint_reload",
+            "evaluator_bundle_reload",
+            "adapter_checkpoint_reload",
+            "adapter_bundle_reload",
+        ):
+            reload = observed[reload_name]
+            assert reload["fresh_pid"] != report["construction_pid"]
+            assert reload["structural_values"] == expected_structural
+    unknown_rejection = report["unknown_architecture_rejection"]
+    assert unknown_rejection["rejected"] is True
+    assert unknown_rejection["module_returned"] is False
+    assert isinstance(unknown_rejection["exception_type"], str)
+    assert unknown_rejection["exception_detail_sha256"].startswith("sha256:")
     observations = {
         row["clause_id"]: row for row in result["lifecycle_observations"]
     }
@@ -1624,11 +3741,11 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
 
     fixture_manifest = evaluator.load_controller_asset(
         EVALUATOR_ASSETS / "fixture-manifest.json",
-        expected_schema_version="es-f1-fixture-manifest.v1",
+        expected_schema_version="es-f1-fixture-manifest.v2",
     )
     visible_checks = evaluator.load_controller_asset(
         TASK_ASSETS / "visible-check-manifest.json",
-        expected_schema_version="es_f1_visible_checks.v1",
+        expected_schema_version="es_f1_visible_checks.v2",
     )
     visible_result = evaluator.run_visible_checks(
         workspace=workspace,
@@ -1644,7 +3761,12 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
         workspace=workspace,
         python_executable=python,
         fixture_manifest=fixture_manifest,
+        candidate_evidence_path=(workspace / "es_f1_candidate_evidence.json"),
         timeout_seconds=180,
+    )
+    task0_candidate = _task0_discovery_from_bare_commit(
+        tmp_path / "task0-real-product",
+        source_workspace=workspace,
     )
     complete = evaluator.derive_complete_observations(
         visible_checks=visible_checks,
@@ -1655,11 +3777,16 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
         lifecycle_request=request,
         lifecycle_result=result,
         fixture_manifest=fixture_manifest,
+        candidate_workspace=task0_candidate["workspace"],
+        candidate_tree=task0_candidate["tree"],
+        legacy_bypass_discovery_input=task0_candidate["input"],
         registry_report=registry_report,
         artifact_report=artifact_report,
     )
     assert [row["clause_id"] for row in complete] == list(evaluator.HARD_CLAUSE_IDS)
-    assert all(row["satisfied"] is True for row in complete)
+    assert {
+        row["clause_id"] for row in complete if not row["satisfied"]
+    } == {"F1-H05-FULL-ARCHITECTURE-LIFECYCLE"}
 
 
 def test_architecture_extension_cannot_own_public_scientific_boundary(
@@ -1695,10 +3822,14 @@ def test_architecture_extension_cannot_own_public_scientific_boundary(
     assert {clause for clause, satisfied in observations.items() if not satisfied} == {
         "F1-H10-OWNERSHIP-BOUNDARY"
     }
-    for role in ("representative", "witness"):
-        assert result["semantic_report"]["roles"][role][
-            "persisted_boundary_owners"
-        ]["compute_loss"].startswith("ptycho_torch.generators.registry.")
+    architecture_rows = result["semantic_report"]["architecture_results"]
+    assert len(architecture_rows) == 15
+    assert all(
+        row["persisted_boundary_owners"]["compute_loss"].startswith(
+            "ptycho_torch.generators.registry."
+        )
+        for row in architecture_rows
+    )
 
 
 @pytest.mark.parametrize(
@@ -2638,7 +4769,7 @@ def test_calibration_declarations_reject_fact_overrides() -> None:
         "case_id": "bad",
         "defect_kind": "same_process_reload",
         "fact_overrides": {"invented_fact": False},
-        "intended_failed_clauses": ["F1-H05-NOMINATED-LIFECYCLE"],
+        "intended_failed_clauses": ["F1-H05-FULL-ARCHITECTURE-LIFECYCLE"],
         "operation_fixture": "public-lifecycle:same_process_reload",
     }
     with pytest.raises(ValueError, match="field set"):
@@ -2696,7 +4827,7 @@ def test_actual_preedit_registry_signatures_match_closed_fixture_manifest(
     )
     manifest = evaluator.load_controller_asset(
         EVALUATOR_ASSETS / "fixture-manifest.json",
-        expected_schema_version="es-f1-fixture-manifest.v1",
+        expected_schema_version="es-f1-fixture-manifest.v2",
     )
     assert report["registry_baseline"] == manifest["registry_baseline"]
     assert report["loaded_forbidden_modules"] == []
@@ -2808,44 +4939,185 @@ def test_declared_routes_and_structural_identity_are_representation_independent(
             timeout_seconds=240,
         )
         assert all(row["satisfied"] for row in result["lifecycle_observations"])
+        architecture_rows = {
+            row["architecture_id"]: row
+            for row in result["semantic_report"]["architecture_results"]
+        }
+        witness = architecture_rows["es_f1_witness"]
         if scenario == "candidate_local_structural_field":
-            assert result["semantic_report"]["declared_structural_fields"] == [
+            assert [field["name"] for field in witness["structural_fields"]] == [
                 "es_f1_depth"
             ]
         if scenario == "nested_distributed_identity":
-            semantic = result["semantic_report"]
-            assert semantic["declared_structural_fields"] == [
+            assert [field["name"] for field in witness["structural_fields"]] == [
                 "fno_width",
                 "fno_modes",
             ]
-            assert set(semantic["identity_rejections"]["missing"]) == {
+            assert set(witness["identity_rejections"]["missing"]) == {
                 "fno_width",
                 "fno_modes",
             }
             assert all(
                 row["rejected"]
-                for row in semantic["identity_rejections"]["missing"].values()
+                for row in witness["identity_rejections"]["missing"].values()
             )
-            assert semantic["identity_rejections"]["unsupported_value"][
+            assert witness["identity_rejections"]["unsupported_value"][
                 "rejected"
             ] is True
             assert all(
-                row["changed"] and row["deterministic"]
-                for row in semantic["identity_sensitivity"].values()
+                row["deterministic"]
+                and row["baseline_identity_digest"]
+                != row["alternate_identity_digest"]
+                and row["baseline_state_signature"]
+                != row["alternate_state_signature"]
+                and row["baseline_observable_digest"]
+                != row["alternate_observable_digest"]
+                for row in witness["identity_sensitivity"].values()
             )
         if scenario == "architecture_local_tagged_union":
-            semantic = result["semantic_report"]
-            assert semantic["roles"]["representative"]["structural_values"] == {}
-            assert semantic["roles"]["witness"]["structural_values"] == {
+            assert witness["structural_values"] == {
                 "fno_modes": 2,
                 "fno_width": 4,
             }
-            assert all(
-                reload["structural_values"] == {}
-                for name, reload in semantic["roles"]["representative"].items()
-                if name.endswith("_reload")
-            )
+            for architecture_id in task_package.F1_BUILTIN_ARCHITECTURES:
+                builtin = architecture_rows[architecture_id]
+                expected = {"architecture": architecture_id}
+                assert builtin["structural_values"] == expected
+                assert all(
+                    builtin[name]["structural_values"] == expected
+                    for name in (
+                        "evaluator_checkpoint_reload",
+                        "evaluator_bundle_reload",
+                        "adapter_checkpoint_reload",
+                        "adapter_bundle_reload",
+                    )
+                )
     assert evaluator._workspace_digest(workspace) == before
+
+
+def _declared_structural_binding_resolver(evaluator: Any) -> Any:
+    namespace: dict[str, Any] = {}
+    exec(evaluator._DECLARED_STRUCTURAL_BINDING_PROBE, namespace)
+    return namespace["declared_structural_binding"]
+
+
+def test_observed_structural_value_reports_consistent_nonbaseline_value() -> None:
+    evaluator = _evaluator()
+    namespace: dict[str, Any] = {}
+    exec(evaluator._DECLARED_STRUCTURAL_BINDING_PROBE, namespace)
+
+    assert namespace["observed_structural_value"](
+        "es_f1_witness",
+        {
+            "primary": {"es_f1_depth": 3},
+            "secondary": [{"es_f1_depth": 3}],
+        },
+        {"alternate_value": 3, "baseline_value": 2, "name": "es_f1_depth"},
+    ) == 3
+
+
+@pytest.mark.parametrize(
+    ("baseline_payload", "alternate_payload", "expected_paths"),
+    [
+        (
+            {
+                "representative_case": {
+                    "representative_kind": "cnn",
+                    "configuration": {},
+                }
+            },
+            {
+                "representative_case": {
+                    "representative_kind": "cnn-alternate",
+                    "configuration": {},
+                }
+            },
+            [("representative_case", "representative_kind")],
+        ),
+        (
+            {
+                "primary": {"architecture_identity": "cnn"},
+                "secondary": [{"architecture_identity": "cnn"}],
+            },
+            {
+                "primary": {"architecture_identity": "cnn-alternate"},
+                "secondary": [{"architecture_identity": "cnn-alternate"}],
+            },
+            [
+                ("primary", "architecture_identity"),
+                ("secondary", 0, "architecture_identity"),
+            ],
+        ),
+        (
+            {
+                "primary": {"architecture": "cnn"},
+                "secondary": [{"architecture": "cnn-shadow"}],
+            },
+            {
+                "primary": {"architecture": "cnn-alternate"},
+                "secondary": [{"architecture": "cnn-alternate-shadow"}],
+            },
+            [
+                ("primary", "architecture"),
+                ("secondary", 0, "architecture"),
+            ],
+        ),
+    ],
+)
+def test_declared_architecture_binding_uses_authoritative_model_spec_value(
+    baseline_payload: dict[str, Any],
+    alternate_payload: dict[str, Any],
+    expected_paths: list[tuple[str | int, ...]],
+) -> None:
+    evaluator = _evaluator()
+    resolve = _declared_structural_binding_resolver(evaluator)
+
+    paths, value = resolve(
+        "cnn",
+        baseline_payload,
+        {
+            "alternate_value": "cnn-alternate",
+            "baseline_value": "cnn",
+            "name": "architecture",
+        },
+        alternate_payload,
+    )
+
+    assert paths == expected_paths
+    assert value == "cnn"
+
+
+@pytest.mark.parametrize(
+    ("payload", "declaration"),
+    [
+        (
+            {"model_config": {"fno_width": 4}},
+            {"alternate_value": 8, "baseline_value": 5, "name": "fno_width"},
+        ),
+        (
+            {"model_config": {"width_identity": 4}},
+            {"alternate_value": 8, "baseline_value": 4, "name": "fno_width"},
+        ),
+        (
+            {
+                "primary": {"fno_width": 4},
+                "secondary": [{"fno_width": 5}],
+            },
+            {"alternate_value": 8, "baseline_value": 4, "name": "fno_width"},
+        ),
+    ],
+)
+def test_declared_named_structural_binding_fails_closed(
+    payload: dict[str, Any], declaration: dict[str, Any]
+) -> None:
+    evaluator = _evaluator()
+    resolve = _declared_structural_binding_resolver(evaluator)
+
+    with pytest.raises(
+        RuntimeError,
+        match="declared structural field location is absent or ambiguous",
+    ):
+        resolve("es_f1_witness", payload, declaration, None)
 
 
 @pytest.mark.parametrize(
@@ -2893,20 +5165,47 @@ def _run_representation_binding_probe(
     python_executable: Path,
     root: Path,
 ) -> dict[str, Any]:
-    bindings, payloads = evaluator.build_lifecycle_probe_inputs(seed=20_260_802)
+    evidence = json.loads(
+        (workspace / "es_f1_candidate_evidence.json").read_bytes()
+    )
+    architecture_rows = [
+        *evidence["builtin_architectures"],
+        evidence["candidate_witness"],
+    ]
+    cases, payloads = evaluator.build_lifecycle_probe_inputs(
+        architecture_rows=architecture_rows,
+        seed=20_260_802,
+    )
     input_root = root / "binding-inputs"
     input_root.mkdir()
-    for name, payload in payloads.items():
-        target = input_root / bindings[name]["path"]
+    for relative, payload in payloads.items():
+        target = input_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
+    request = _lifecycle_request(evidence["candidate_id"], workspace)
+    assert request["architecture_cases"] == cases
+    request_path = input_root / "lifecycle-request.json"
+    request_path.write_bytes(evaluator.canonical_json_bytes(request))
+    synthetic_rows = {
+        row["architecture_id"]: row
+        for row in _synthetic_full_matrix_semantic_report()[
+            "architecture_results"
+        ]
+    }
+    adapter_observations = {
+        architecture_id: {
+            "checkpoint": row["adapter_checkpoint_reload"],
+            "bundle": row["adapter_bundle_reload"],
+        }
+        for architecture_id, row in synthetic_rows.items()
+    }
     return evaluator._run_semantic_lifecycle_probe(
         workspace=workspace,
         python_executable=python_executable,
         candidate_evidence=workspace / "es_f1_candidate_evidence.json",
-        base_config=input_root / bindings["base_config"]["path"],
-        cdi_fixture=input_root / bindings["cdi_fixture"]["path"],
-        adapter_observations={},
+        request_path=request_path,
+        architecture_cases=cases,
+        adapter_observations=adapter_observations,
         output_root=root / "binding-output",
         seed=20_260_802,
         timeout_seconds=240,
@@ -2945,15 +5244,20 @@ def test_public_model_spec_architecture_does_not_require_a_literal_payload_tag(
         timeout_seconds=240,
     )
 
-    report = result["semantic_report"]
-    assert report["roles"]["representative"]["architecture_id"] == "ffno"
-    assert report["roles"]["witness"]["architecture_id"] == "es_f1_witness"
+    architecture_ids = [
+        row["architecture_id"]
+        for row in result["semantic_report"]["architecture_results"]
+    ]
+    assert architecture_ids == [
+        *task_package.F1_BUILTIN_ARCHITECTURES,
+        "es_f1_witness",
+    ]
     observations = {
         row["clause_id"]: row["satisfied"]
         for row in result["lifecycle_observations"]
     }
-    assert observations["F1-H05-NOMINATED-LIFECYCLE"] is True
-    assert observations["F1-H06-WITNESS-STRUCTURAL-ROUNDTRIP"] is True
+    assert observations["F1-H05-FULL-ARCHITECTURE-LIFECYCLE"] is True
+    assert observations["F1-H06-STRUCTURAL-ROUNDTRIP"] is True
     assert observations["F1-H09-CONSTRUCTION-REBUILD-EQUALITY"] is True
 
     assert evaluator._workspace_digest(workspace) == before
@@ -3056,7 +5360,7 @@ def test_frozen_artifact_era_pack_decodes_and_strict_loads_in_projection(
     )
     manifest = evaluator.load_controller_asset(
         EVALUATOR_ASSETS / "fixture-manifest.json",
-        expected_schema_version="es-f1-fixture-manifest.v1",
+        expected_schema_version="es-f1-fixture-manifest.v2",
     )
     assert [row["era_id"] for row in manifest["artifact_eras"]] == [
         "torch-model-spec-v1",
@@ -3070,16 +5374,36 @@ def test_frozen_artifact_era_pack_decodes_and_strict_loads_in_projection(
         "torch-artifact-v1-bundle",
         "torch-artifact-v2-bundle",
     ]
+    candidate_evidence_path = tmp_path / "es_f1_candidate_evidence.json"
+    candidate_evidence_path.write_bytes(
+        evaluator.canonical_json_bytes(_candidate_claims())
+    )
     report = evaluator.verify_artifact_fixture_pack(
         workspace=workspace,
         python_executable=python,
         fixture_manifest=manifest,
+        candidate_evidence_path=candidate_evidence_path,
         timeout_seconds=180,
     )
     assert [row["era_id"] for row in report["artifact_eras"]] == [
         row["era_id"] for row in manifest["artifact_eras"]
     ]
-    assert all(row["strict_load"] is True for row in report["artifact_eras"])
+    assert all(
+        len(row["architecture_results"]) == 15
+        for row in report["artifact_eras"]
+    )
+    assert all(
+        sum(outcome["strict_load"] for outcome in row["architecture_results"])
+        == 1
+        for row in report["artifact_eras"]
+    )
+    assert all(
+        outcome["diagnostic"] == "UNSUPPORTED_ARTIFACT_ARCHITECTURE"
+        and outcome["module_returned"] is False
+        for row in report["artifact_eras"]
+        for outcome in row["architecture_results"]
+        if not outcome["strict_load"]
+    )
     assert report["loaded_forbidden_modules"] == []
     assert report["outside_project_origin_rows"] == []
     assert report["cache_artifacts"] == []

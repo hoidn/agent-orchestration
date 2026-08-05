@@ -5,10 +5,17 @@ from dataclasses import FrozenInstanceError
 import hashlib
 import importlib
 import json
+from pathlib import Path
+import sys
 from types import ModuleType
 from typing import Any
 
 import pytest
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from scripts.experiments.es import task_package
 
 FAILED_CLAUSE = "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"
 OTHER_FAILED_CLAUSE = "F1-H10-OWNERSHIP-BOUNDARY"
@@ -17,8 +24,8 @@ HARD_CLAUSE_IDS = (
     "F1-H02-SCHEMA-CONFORMANCE",
     "F1-H03-BUILTIN-SIGNATURES",
     "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-    "F1-H05-NOMINATED-LIFECYCLE",
-    "F1-H06-WITNESS-STRUCTURAL-ROUNDTRIP",
+    "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+    "F1-H06-STRUCTURAL-ROUNDTRIP",
     "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
     "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
     FAILED_CLAUSE,
@@ -53,21 +60,67 @@ def _digest(value: Any) -> str:
 
 
 def _candidate_claims(candidate_id: str) -> dict[str, Any]:
+    construction_route = "ptycho_torch.generators.registry.resolve_generator"
+    persisted_route = (
+        "ptycho_torch.application_factory.build_ptychopinn_application"
+    )
+
+    def builtin(architecture_id: str) -> dict[str, Any]:
+        return {
+            "construction_route": construction_route,
+            "persisted_rebuild_route": persisted_route,
+            "public_id": architecture_id,
+            "structural_fields": [
+                {
+                    "alternate_value": f"{architecture_id}-alternate",
+                    "baseline_value": architecture_id,
+                    "name": "architecture",
+                }
+            ],
+        }
+
     return {
-        "candidate_id": candidate_id,
-        "nominated_architectures": {
-            "representative": "ffno",
-            "witness": "es_f1_witness",
-        },
-        "structural_fields": [
-            {"name": "width", "baseline": 4, "alternate": 8},
+        "architecture_decision_path": "docs/architecture.md",
+        "builtin_architectures": [
+            builtin(architecture_id)
+            for architecture_id in task_package.F1_BUILTIN_ARCHITECTURES
         ],
+        "candidate_id": candidate_id,
+        "candidate_witness": {
+            "construction_route": construction_route,
+            "persisted_rebuild_route": persisted_route,
+            "public_id": "es_f1_witness",
+            "structural_fields": [
+                {
+                    "alternate_value": 3,
+                    "baseline_value": 2,
+                    "name": "es_f1_depth",
+                }
+            ],
+        },
         "claims": [
             {
-                "claim_id": "PUBLIC_CONSTRUCTION",
-                "evidence_path": "tests/control.json",
-            },
+                "clause_id": clause_id,
+                "evidence_paths": ["tests/control.json"],
+                "scope": "IMPLEMENTED",
+            }
+            for clause_id in task_package.F1_HARD_CLAUSE_IDS
         ],
+        "extension_author_guide_path": "docs/extension-guide.md",
+        "fixed_outputs": {
+            "candidate_test_path": "tests/torch/test_es_f1_extension_boundary.py",
+            "lifecycle_adapter_path": "scripts/es_f1_lifecycle_adapter.py",
+        },
+        "ownership": {
+            "excludes": ["PHYSICS", "LOSS", "SCALING", "DATA_OWNERSHIP"],
+            "owns": [
+                "ARCHITECTURE_IDENTITY",
+                "STRUCTURAL_CONFIGURATION",
+                "CONSTRUCTION",
+                "PERSISTENCE_MIGRATION",
+            ],
+        },
+        "schema_version": "candidate_extension_evidence.v2",
     }
 
 
@@ -164,7 +217,7 @@ def _derive(
         candidate_claims=_candidate_claims(candidate_id),
         evaluator_observations=_observations(*failed_clauses),
         proof_rows=proof_rows or [],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -173,6 +226,47 @@ def _derive(
     )
 
 
+@pytest.mark.parametrize("mutation", ["evaluation-predecessor", "finding-predecessor"])
+def test_hard_freeze_rejects_predecessor_and_mixed_inner_versions(
+    hard_contract: ModuleType,
+    mutation: str,
+) -> None:
+    freeze = _derive(
+        hard_contract,
+        RICH_LABEL,
+        failed_clauses=(FAILED_CLAUSE,),
+    )
+    assert freeze.evaluation["schema_version"] == "es-f1-hard-evaluation.v2"
+    assert {
+        finding["schema_version"] for finding in freeze.evaluation["hard_findings"]
+    } == {"es-f1-hard-finding.v2"}
+    evaluation = deepcopy(freeze.evaluation)
+    if mutation == "evaluation-predecessor":
+        evaluation["schema_version"] = "es-f1-hard-evaluation.v1"
+    else:
+        evaluation["hard_findings"][0]["schema_version"] = "es-f1-hard-finding.v1"
+    evaluation_digest = _digest(evaluation)
+    digest_record = {
+        **freeze.record,
+        "evaluation_digest": evaluation_digest,
+    }
+    digest_record.pop("freeze_digest")
+    with pytest.raises(hard_contract.HardContractError, match="schema"):
+        hard_contract.HardEvaluationFreeze(
+            candidate_id=freeze.candidate_id,
+            trusted_product_freeze_digest=freeze.trusted_product_freeze_digest,
+            evaluator_identity_digest=freeze.evaluator_identity_digest,
+            task_identity_digest=freeze.task_identity_digest,
+            fixture_identity_digest=freeze.fixture_identity_digest,
+            observation_set_digest=freeze.observation_set_digest,
+            proof_set_digest=freeze.proof_set_digest,
+            proof_authority_digest=freeze.proof_authority_digest,
+            evaluation_digest=evaluation_digest,
+            digest=_digest(digest_record),
+            product_blockers=freeze.product_blockers,
+            unresolved_blockers=freeze.unresolved_blockers,
+            _evaluation_json=hard_contract._canonical_bytes(evaluation),
+        )
 @pytest.mark.parametrize(
     ("proof_kind", "expected_disposition"),
     [
@@ -206,7 +300,7 @@ def test_controller_derives_default_and_exact_non_product_dispositions(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=rows,
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -257,7 +351,7 @@ def test_fabricated_well_formed_proof_digests_become_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -301,7 +395,7 @@ def test_tampered_proof_authority_key_becomes_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -333,7 +427,7 @@ def test_proof_authority_identity_must_match_current_controller_identity(
             candidate_claims=_candidate_claims(RICH_LABEL),
             evaluator_observations=observations,
             proof_rows=[proof],
-            frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -361,7 +455,7 @@ def test_hard_evaluation_binds_canonical_proof_authority_digest(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -416,7 +510,7 @@ def test_missing_or_inexact_non_product_authority_becomes_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -450,7 +544,7 @@ def test_multiple_or_conflicting_non_product_proofs_become_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=rows,
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -488,7 +582,7 @@ def test_candidate_or_provider_authored_disposition_is_rejected(
             candidate_claims=claims,
             evaluator_observations=observations,
             proof_rows=proof_rows,
-            frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -526,7 +620,7 @@ def test_incomplete_or_malformed_clause_coverage_never_reaches_evaluator(
             candidate_claims=_candidate_claims(RICH_LABEL),
             evaluator_observations=observations,
             proof_rows=[],
-            frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -544,7 +638,7 @@ def test_hard_evaluation_freezes_canonical_input_bytes(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -653,7 +747,7 @@ def test_one_sided_product_or_unresolved_blocker_only_blocks_that_winner(
         candidate_claims=_candidate_claims(candidate_id),
         evaluator_observations=observations,
         proof_rows=proof_rows,
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -751,7 +845,7 @@ def test_exact_non_product_findings_do_not_become_primary_blockers(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -806,7 +900,7 @@ def test_primary_override_rejects_cross_authority_freeze_pair(
         candidate_claims=_candidate_claims(DIRECT_LABEL),
         evaluator_observations=_observations(),
         proof_rows=[],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest="sha256:" + "c" * 64,
@@ -836,7 +930,7 @@ def test_primary_override_rejects_cross_proof_authority_catalog(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry={"ffno"},
+        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,

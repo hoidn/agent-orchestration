@@ -388,9 +388,17 @@ class HardEvaluationFreeze:
             self.candidate_id
         ):
             _fail("ES hard evaluation candidate binding disagrees")
+        if evaluation.get("schema_version") != "es-f1-hard-evaluation.v2":
+            _fail("ES hard evaluation schema is unsupported")
         findings = evaluation.get("hard_findings")
         if not isinstance(findings, list):
             _fail("ES hard evaluation findings are invalid")
+        if any(
+            not isinstance(row, dict)
+            or row.get("schema_version") != "es-f1-hard-finding.v2"
+            for row in findings
+        ):
+            _fail("ES hard finding schema is unsupported")
         disposition_by_clause = {
             row.get("clause_id"): row.get("disposition")
             for row in findings

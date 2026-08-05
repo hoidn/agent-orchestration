@@ -43,38 +43,12 @@ if scenario == "copy_mutation":
 elif scenario == "forbidden_import":
     __import__("ptycho.evaluation")
 input_root = request_path.parent
-base = json.loads(
-    (input_root / request["evaluator_inputs"]["base_config"]["path"]).read_bytes()
-)
-fixture = json.loads(
-    (input_root / request["evaluator_inputs"]["cdi_fixture"]["path"]).read_bytes()
-)
 evidence = json.loads(
     (input_root / request["candidate_evidence_path"]).read_bytes()
 )
 
 output = result_path.parent / request["lifecycle_output_dir"]
 output.mkdir(parents=True)
-rng = np.random.default_rng(fixture["seed"])
-diffraction = rng.random(
-    (fixture["sample_count"], fixture["image_size"], fixture["image_size"]),
-    dtype=np.float32,
-)
-probe_guess = np.ones(
-    (fixture["image_size"], fixture["image_size"]), dtype=np.complex64
-)
-data_path = output / "train.npz"
-np.savez(data_path, diffraction=diffraction, probeGuess=probe_guess)
-coords = np.arange(fixture["sample_count"], dtype=np.float64)
-raw_data = RawData(
-    xcoords=coords,
-    ycoords=coords,
-    xcoords_start=coords,
-    ycoords_start=coords,
-    diff3d=diffraction,
-    probeGuess=probe_guess,
-    scan_index=np.arange(fixture["sample_count"], dtype=int),
-)
 execution = PyTorchExecutionConfig(
     accelerator="cpu",
     deterministic=True,
@@ -83,32 +57,67 @@ execution = PyTorchExecutionConfig(
     enable_checkpointing=False,
     logger_backend=None,
 )
-structural = {
-    row["name"]: row["baseline_value"] for row in evidence["structural_fields"]
-}
-common = {name: value for name, value in base.items() if name != "schema_version"}
-artifacts: dict[str, dict[str, str]] = {}
-for role, architecture in (
-    ("representative", request["representative_architecture"]),
-    ("witness", request["witness_architecture"]),
+declarations = [
+    *evidence["builtin_architectures"],
+    evidence["candidate_witness"],
+]
+architecture_results: list[dict[str, str]] = []
+for ordinal, (declaration, architecture_case) in enumerate(
+    zip(declarations, request["architecture_cases"], strict=True),
+    start=1,
 ):
-    role_output = output / role
+    architecture = architecture_case["architecture_id"]
+    if declaration["public_id"] != architecture:
+        raise RuntimeError("candidate evidence/request architecture join drifted")
+    base = json.loads(
+        (input_root / architecture_case["config"]["path"]).read_bytes()
+    )
+    fixture = json.loads(
+        (input_root / architecture_case["input"]["path"]).read_bytes()
+    )
+    architecture_output = output / f"{ordinal:02d}-{architecture}"
+    rng = np.random.default_rng(fixture["seed"])
+    diffraction = rng.random(
+        (fixture["sample_count"], fixture["image_size"], fixture["image_size"]),
+        dtype=np.float32,
+    )
+    probe_guess = np.ones(
+        (fixture["image_size"], fixture["image_size"]), dtype=np.complex64
+    )
+    data_path = architecture_output / "train.npz"
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(data_path, diffraction=diffraction, probeGuess=probe_guess)
+    coords = np.arange(fixture["sample_count"], dtype=np.float64)
+    raw_data = RawData(
+        xcoords=coords,
+        ycoords=coords,
+        xcoords_start=coords,
+        ycoords_start=coords,
+        diff3d=diffraction,
+        probeGuess=probe_guess,
+        scan_index=np.arange(fixture["sample_count"], dtype=int),
+    )
+    structural = {
+        row["name"]: row["baseline_value"]
+        for row in architecture_case["structural_fields"]
+    }
+    common = {name: value for name, value in base.items() if name != "schema_version"}
     adapter_architecture = (
         "ffno"
-        if role == "witness" and scenario == "missing_persisted_builder"
+        if ordinal == 15 and scenario == "missing_persisted_builder"
         else architecture
     )
     checkpoint_structural = dict(structural)
     bundle_structural = dict(structural)
-    if role == "witness" and scenario == "checkpoint_field_loss":
+    if ordinal == 15 and scenario == "checkpoint_field_loss":
         checkpoint_structural = {
             row["name"]: row["alternate_value"]
-            for row in evidence["structural_fields"]
+            for row in architecture_case["structural_fields"]
         }
-    if role == "witness" and scenario == "bundle_field_loss":
+    if ordinal == 15 and scenario == "bundle_field_loss":
         bundle_structural = {
             row["name"]: row["alternate_value"]
-            for row in evidence["structural_fields"]
+            for row in architecture_case["structural_fields"]
         }
     checkpoint_overrides = {
         **common,
@@ -117,7 +126,7 @@ for role, architecture in (
     }
     checkpoint_payload = create_training_payload(
         data_path,
-        role_output / "checkpoint-configuration",
+        architecture_output / "checkpoint-configuration",
         overrides=checkpoint_overrides,
         execution_config=execution,
     )
@@ -127,7 +136,7 @@ for role, architecture in (
         checkpoint_payload.pt_training_config,
         checkpoint_payload.pt_inference_config,
     )
-    checkpoint = role_output / "model.ckpt"
+    checkpoint = architecture_output / "model.ckpt"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     trainer = Trainer(
         max_epochs=0,
@@ -135,7 +144,7 @@ for role, architecture in (
         logger=False,
         enable_progress_bar=False,
         accelerator="cpu",
-        default_root_dir=role_output,
+        default_root_dir=architecture_output,
     )
     trainer.strategy._lightning_module = model
     trainer.save_checkpoint(checkpoint)
@@ -146,7 +155,7 @@ for role, architecture in (
     }
     bundle_payload = create_training_payload(
         data_path,
-        role_output / "training",
+        architecture_output / "training",
         overrides=bundle_overrides,
         execution_config=execution,
     )
@@ -157,24 +166,22 @@ for role, architecture in (
         bundle_payload.tf_training_config,
         do_stitching=False,
         execution_config=execution,
-        overrides={
-            "scale_contract_version": base["scale_contract_version"],
-            "measurement_domain": base["measurement_domain"],
-        },
+        overrides=bundle_overrides,
     )
     bundle = Path(bundle_payload.tf_training_config.output_dir) / "wts.h5.zip"
-    artifacts[role] = {
+    architecture_results.append({
+        "architecture_id": architecture,
         "bundle_path": bundle.relative_to(result_path.parent).as_posix(),
         "checkpoint_path": checkpoint.relative_to(result_path.parent).as_posix(),
-    }
+    })
 
 result_path.write_bytes(
     canonical_json_bytes(
         {
-            "artifacts": artifacts,
+            "architecture_results": architecture_results,
             "candidate_id": request["candidate_id"],
             "operation_version": request["operation_version"],
-            "schema_version": "lifecycle_probe_result.v2",
+            "schema_version": "lifecycle_probe_result.v3",
         }
     )
 )

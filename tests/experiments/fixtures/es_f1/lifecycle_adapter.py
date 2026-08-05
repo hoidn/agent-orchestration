@@ -45,24 +45,32 @@ elif scenario == "forbidden-path":
 result_root = Path(args.result).parent
 output = result_root / request["lifecycle_output_dir"]
 output.mkdir(parents=True)
-artifacts: dict[str, dict[str, str]] = {}
-for role in ("representative", "witness"):
-    checkpoint = output / f"{role}.ckpt"
-    bundle = output / f"{role}.zip"
+architecture_results: list[dict[str, str]] = []
+for ordinal, architecture_case in enumerate(request["architecture_cases"], start=1):
+    architecture_id = architecture_case["architecture_id"]
+    architecture_output = output / f"{ordinal:02d}-{architecture_id}"
+    checkpoint = architecture_output / "model.ckpt"
+    bundle = architecture_output / "wts.h5.zip"
+    architecture_output.mkdir(parents=True)
     checkpoint.write_bytes(b"calibration checkpoint\n")
-    bundle.write_bytes(b"calibration bundle\n")
-    artifacts[role] = {
+    if not (
+        scenario == "missing-artifact"
+        and ordinal == len(request["architecture_cases"])
+    ):
+        bundle.write_bytes(b"calibration bundle\n")
+    architecture_results.append({
+        "architecture_id": architecture_id,
         "bundle_path": bundle.relative_to(result_root).as_posix(),
         "checkpoint_path": checkpoint.relative_to(result_root).as_posix(),
-    }
+    })
 
 result = {
-    "artifacts": artifacts,
+    "architecture_results": architecture_results,
     "candidate_id": candidate_id,
     "operation_version": "wrong.v1"
     if scenario == "operation-drift"
     else request["operation_version"],
-    "schema_version": "lifecycle_probe_result.v2",
+    "schema_version": "lifecycle_probe_result.v3",
 }
 if scenario == "pass-bit":
     result["passed"] = True
