@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, cast
 
@@ -20,6 +21,70 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _TASK_ASSET_ROOT = REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es/task"
 _TASK_PROFILE = REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es/task-profile.json"
 _TASK_PROFILE_SCHEMA = _TASK_PROFILE.with_name("task-profile.schema.json")
+
+F1_BUILTIN_ARCHITECTURES = (
+    "cnn",
+    "ffno",
+    "fno",
+    "fno_vanilla",
+    "hybrid",
+    "hybrid_resnet",
+    "hybrid_resnet_convnext_bottleneck",
+    "hybrid_resnet_ffno_bottleneck",
+    "hybrid_resnet_ffno_ptychoblock_encoder",
+    "hybrid_resnet_ptychoblock_ffno_encoder",
+    "neuralop_uno",
+    "spectral_resnet_bottleneck_linear_decoder",
+    "spectral_resnet_bottleneck_net",
+    "stable_hybrid",
+)
+F1_PROVIDER_VISIBLE_SELECTORS = (
+    "tests/torch/test_generator_registry.py",
+    "tests/torch/test_construction_consolidation.py",
+    "tests/torch/test_generator_adapter.py",
+    "tests/torch/test_config_bridge.py",
+    "tests/torch/test_model_spec.py",
+    "tests/torch/test_model_spec_v2.py",
+    "tests/torch/test_lightning_checkpoint.py",
+    "tests/torch/test_artifact_schema.py",
+    "tests/torch/test_artifact_schema_v2.py",
+    "tests/torch/test_workflows_components.py",
+    "tests/torch/test_fno_generators.py",
+    "tests/torch/test_fno_lightning_integration.py",
+    "tests/torch/test_neuralop_uno_generator.py",
+    "tests/torch/test_model_output_modes.py",
+    "tests/torch/test_model_manager.py",
+    "tests/torch/test_model_training.py",
+    "tests/torch/test_train_lightning_execution_contract.py",
+    "tests/torch/test_object_big_generator_contract.py",
+    "tests/torch/test_structural_config_ownership.py",
+)
+F1_LIFECYCLE_STAGES = (
+    "CONFIGURATION",
+    "CONSTRUCTION",
+    "FORWARD",
+    "BACKWARD",
+    "OPTIMIZER_STEP",
+    "CHECKPOINT_PERSISTENCE",
+    "CHECKPOINT_FRESH_RELOAD",
+    "BUNDLE_PERSISTENCE",
+    "BUNDLE_FRESH_RELOAD",
+    "POST_RELOAD_INFERENCE",
+    "STRUCTURAL_IDENTITY",
+    "ROUND_TRIP_RECONSTRUCTION",
+)
+F1_HARD_CLAUSE_IDS = (
+    "F1-H01-FOCUSED-SUITES",
+    "F1-H02-SCHEMA-CONFORMANCE",
+    "F1-H03-BUILTIN-SIGNATURES",
+    "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
+    "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
+    "F1-H06-STRUCTURAL-ROUNDTRIP",
+    "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
+    "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
+    "F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
+    "F1-H10-OWNERSHIP-BOUNDARY",
+)
 
 _CONTROLLED_GIT_ENVIRONMENT_NAMES = frozenset(
     {
@@ -54,6 +119,9 @@ class TaskProfile:
     reviewer_perspective_ids: tuple[str, ...]
     review_dimension_ids: tuple[str, ...]
     focused_selectors: tuple[str, ...]
+    builtin_architectures: tuple[str, ...]
+    required_task_seed_schema_version: str
+    selector_manifest_record_digest: str
     environment_name: str
     claim_limit_ids: tuple[str, ...]
     raw: dict[str, object]
@@ -202,6 +270,81 @@ def _digest(path: Path) -> str:
         raise TaskPackageError(
             "task_package_unreadable", str(path), "bound asset is unreadable"
         ) from exc
+
+
+@lru_cache(maxsize=2)
+def _validate_preedit_selector_authority_bytes(
+    path: Path,
+    schema_path: Path,
+    raw: bytes,
+    schema_raw: bytes,
+) -> None:
+    try:
+        value = json.loads(
+            raw,
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_nonfinite_constant,
+        )
+        schema = json.loads(
+            schema_raw,
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_nonfinite_constant,
+        )
+    except TaskPackageError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(path),
+            "Task-0 selector authority or schema is unreadable",
+        ) from exc
+    if not isinstance(value, dict) or raw != canonical_json_bytes(value):
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(path),
+            "Task-0 selector authority is not canonical JSON",
+        )
+    if not isinstance(schema, dict):
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(schema_path),
+            "Task-0 selector schema is not a JSON object",
+        )
+    errors = sorted(Draft202012Validator(schema).iter_errors(value), key=str)
+    if errors:
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(path),
+            errors[0].message,
+        )
+
+
+def _load_preedit_selector_authority(
+    path: Path,
+    schema_path: Path,
+) -> dict[str, object]:
+    try:
+        raw = path.read_bytes()
+        schema_raw = schema_path.read_bytes()
+    except OSError as exc:
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(path),
+            "Task-0 selector authority or schema is unreadable",
+        ) from exc
+    _validate_preedit_selector_authority_bytes(
+        path,
+        schema_path,
+        raw,
+        schema_raw,
+    )
+    value = json.loads(
+        raw,
+        object_pairs_hook=_reject_duplicate_pairs,
+        parse_constant=_reject_nonfinite_constant,
+    )
+    assert isinstance(value, dict)
+    return value
 
 
 def _git_object_id(object_type: str, payload: bytes) -> str:
@@ -534,9 +677,7 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
         )
     pre_edit = cast(list[str], invocations[0]["selectors"])
     candidate = cast(list[str], invocations[1]["selectors"])
-    from scripts.experiments.es.projection import FOCUSED_TEST_PATHS
-
-    if tuple(pre_edit) != FOCUSED_TEST_PATHS or candidate != [
+    if tuple(pre_edit) != F1_PROVIDER_VISIBLE_SELECTORS or candidate != [
         "tests/torch/test_es_f1_extension_boundary.py"
     ]:
         raise TaskPackageError(
@@ -579,8 +720,46 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
     )
 
 
+def load_visible_task_contract(path: Path) -> dict[str, object]:
+    """Load the exact v2 matrix contract without requiring a Task-3 seed."""
+
+    contract_path = Path(path)
+    payload = _load_canonical_json(
+        contract_path,
+        schema_path=contract_path.with_name("visible-task-contract.schema.json"),
+    )
+    hard_ids = tuple(
+        str(row["id"]) for row in cast(list[dict[str, object]], payload["hard_contract"])
+    )
+    if tuple(cast(list[str], payload["builtin_architectures"])) != F1_BUILTIN_ARCHITECTURES:
+        raise TaskPackageError(
+            "task_package_architecture_mismatch",
+            payload["builtin_architectures"],
+            "built-in architectures changed from the exact frozen order",
+        )
+    if tuple(cast(list[str], payload["focused_selectors"])) != F1_PROVIDER_VISIBLE_SELECTORS:
+        raise TaskPackageError(
+            "task_package_selector_mismatch",
+            payload["focused_selectors"],
+            "provider-visible selectors changed from the exact frozen order",
+        )
+    if tuple(cast(list[str], payload["required_lifecycle_stages"])) != F1_LIFECYCLE_STAGES:
+        raise TaskPackageError(
+            "task_package_lifecycle_mismatch",
+            payload["required_lifecycle_stages"],
+            "required lifecycle stages changed from the exact frozen order",
+        )
+    if hard_ids != F1_HARD_CLAUSE_IDS:
+        raise TaskPackageError(
+            "task_package_hard_clause_mismatch",
+            hard_ids,
+            "hard clauses changed from the exact frozen order",
+        )
+    return payload
+
+
 def load_task_profile(path: Path) -> TaskProfile:
-    """Load and cross-check the closed Task-2 F1 profile."""
+    """Load and cross-check the closed Task-1 successor profile assets."""
 
     profile_path = Path(path)
     payload = _load_canonical_json(
@@ -607,10 +786,7 @@ def load_task_profile(path: Path) -> TaskProfile:
             str(contract_schema_path),
             "visible contract schema digest changed",
         )
-    contract = _load_canonical_json(
-        contract_path,
-        schema_path=contract_schema_path,
-    )
+    contract = load_visible_task_contract(contract_path)
     payload_fixed_outputs = cast(list[str], payload["fixed_output_paths"])
     payload_declared_outputs = cast(
         list[str], payload["candidate_declared_output_ids"]
@@ -619,10 +795,12 @@ def load_task_profile(path: Path) -> TaskProfile:
     payload_dispositions = cast(list[str], payload["finding_dispositions"])
     payload_perspectives = cast(list[str], payload["reviewer_perspective_ids"])
     payload_selectors = cast(list[str], payload["focused_selectors"])
+    payload_builtins = cast(list[str], payload["builtin_architectures"])
     payload_claim_ids = cast(list[str], payload["claim_limit_ids"])
     payload_review_dimensions = cast(list[str], payload["review_dimension_ids"])
     contract_dispositions = cast(list[str], contract["finding_dispositions"])
     contract_selectors = cast(list[str], contract["focused_selectors"])
+    contract_builtins = cast(list[str], contract["builtin_architectures"])
     fixed_outputs = tuple(
         row["path"] for row in contract["candidate_outputs"]["fixed"]  # type: ignore[index,union-attr]
     )
@@ -662,6 +840,11 @@ def load_task_profile(path: Path) -> TaskProfile:
             tuple(payload_selectors),
             tuple(contract_selectors),
         ),
+        (
+            "builtin_architectures",
+            tuple(payload_builtins),
+            tuple(contract_builtins),
+        ),
         ("claim_limit_ids", tuple(payload_claim_ids), claim_ids),
         (
             "review_dimension_ids",
@@ -676,6 +859,24 @@ def load_task_profile(path: Path) -> TaskProfile:
                 recorded,
                 f"{label} disagrees with the visible contract",
             )
+    if tuple(payload_builtins) != F1_BUILTIN_ARCHITECTURES:
+        raise TaskPackageError(
+            "task_package_architecture_mismatch",
+            payload_builtins,
+            "built-in architectures changed from the exact frozen order",
+        )
+    if tuple(payload_hard_ids) != F1_HARD_CLAUSE_IDS:
+        raise TaskPackageError(
+            "task_package_hard_clause_mismatch",
+            payload_hard_ids,
+            "hard clauses changed from the exact frozen order",
+        )
+    if tuple(payload_selectors) != F1_PROVIDER_VISIBLE_SELECTORS:
+        raise TaskPackageError(
+            "task_package_selector_mismatch",
+            payload_selectors,
+            "provider-visible selectors changed from the exact frozen order",
+        )
     profile_environment = payload["environment"]
     contract_environment = contract["environment"]
     assert isinstance(profile_environment, dict)
@@ -698,34 +899,68 @@ def load_task_profile(path: Path) -> TaskProfile:
     brief_binding = payload["neutral_brief"]
     schema_bindings = payload["visible_schema_bindings"]
     check_binding = payload["visible_check"]
+    selector_binding = payload["selector_authority"]
     assert isinstance(seed_binding, dict)
     assert isinstance(brief_binding, dict)
     assert isinstance(schema_bindings, list)
     assert isinstance(check_binding, dict)
-    seed_path = _repository_path(
-        seed_binding["manifest_path"], label="task-seed manifest path"
-    )
-    seed_schema_path = _repository_path(
-        seed_binding["schema_path"], label="task-seed schema path"
-    )
-    if _digest(seed_path) != seed_binding["manifest_sha256"]:
-        raise TaskPackageError(
-            "task_package_digest_mismatch",
-            str(seed_path),
-            "task-seed manifest digest changed",
-        )
-    if _digest(seed_schema_path) != seed_binding["schema_sha256"]:
-        raise TaskPackageError(
-            "task_package_digest_mismatch",
-            str(seed_schema_path),
-            "task-seed schema digest changed",
-        )
-    seed = load_task_seed_manifest(seed_path)
-    if seed.commit != seed_binding["commit"] or seed.tree != seed_binding["tree"]:
+    assert isinstance(selector_binding, dict)
+    expected_seed_binding = {
+        "manifest_path": "experiments/orc_effectiveness/f1_es/task-seed-manifest.json",
+        "required_schema_version": "es_f1_task_seed.v2",
+        "schema_path": "experiments/orc_effectiveness/f1_es/task-seed-manifest.schema.json",
+    }
+    if seed_binding != expected_seed_binding:
         raise TaskPackageError(
             "task_package_binding_mismatch",
-            (seed.commit, seed.tree),
-            "task profile disagrees with the task-seed identity",
+            seed_binding,
+            "Task 1 may declare only the exact Task-3 successor seed requirement",
+        )
+    selector_manifest_path = _repository_path(
+        selector_binding["manifest_path"], label="pre-edit selector manifest path"
+    )
+    selector_schema_path = _repository_path(
+        selector_binding["schema_path"], label="pre-edit selector schema path"
+    )
+    selector_manifest = _load_preedit_selector_authority(
+        selector_manifest_path,
+        selector_schema_path,
+    )
+    record_without_digest = {
+        key: value
+        for key, value in selector_manifest.items()
+        if key != "record_sha256"
+    }
+    computed_selector_record_digest = "sha256:" + hashlib.sha256(
+        canonical_json_bytes(record_without_digest)
+    ).hexdigest()
+    provider_selector_rows = cast(
+        list[dict[str, object]],
+        selector_manifest["provider_visible_pytest_selectors"],
+    )
+    controller_selector_rows = cast(
+        list[dict[str, object]],
+        selector_manifest["controller_only_proof_selectors"],
+    )
+    selector_paths = tuple(
+        str(row["pytest_module_path"]) for row in provider_selector_rows
+    )
+    selector_paths_digest = "sha256:" + hashlib.sha256(
+        canonical_json_bytes(list(selector_paths))
+    ).hexdigest()
+    if (
+        selector_manifest["record_sha256"]
+        != selector_binding["record_sha256"]
+        or computed_selector_record_digest != selector_binding["record_sha256"]
+        or selector_paths != F1_PROVIDER_VISIBLE_SELECTORS
+        or selector_paths_digest
+        != selector_binding["provider_visible_pytest_selectors_sha256"]
+        or not controller_selector_rows
+    ):
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            selector_binding,
+            "task profile must bind the complete two-lane Task-0 selector authority",
         )
 
     brief_path = _repository_path(
@@ -845,9 +1080,67 @@ def load_task_profile(path: Path) -> TaskProfile:
         reviewer_perspective_ids=perspective_ids,
         review_dimension_ids=contract_review_dimensions,
         focused_selectors=tuple(payload_selectors),
+        builtin_architectures=tuple(payload_builtins),
+        required_task_seed_schema_version=str(
+            seed_binding["required_schema_version"]
+        ),
+        selector_manifest_record_digest=str(selector_binding["record_sha256"]),
         environment_name=str(profile_environment["conda_environment"]),
         claim_limit_ids=claim_ids,
         raw=payload,
+    )
+
+
+def load_execution_ready_task_profile(
+    path: Path,
+    *,
+    task_seed_manifest_path: Path | None,
+) -> TaskProfile:
+    """Gate visible execution until Task 3 supplies the exact successor seed.
+
+    Task 1 deliberately validates its visible assets independently while the
+    checked-in seed remains historical v1 provenance.  A schema-version
+    requirement is not a loaded seed identity.
+    """
+
+    profile = load_task_profile(path)
+    if task_seed_manifest_path is None:
+        raise TaskPackageError(
+            "task_package_seed_not_ready",
+            None,
+            "the required Task-3 successor seed is missing",
+        )
+    seed_path = Path(task_seed_manifest_path)
+    try:
+        raw = seed_path.read_bytes()
+        value = json.loads(
+            raw,
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_nonfinite_constant,
+        )
+    except TaskPackageError:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TaskPackageError(
+            "task_package_seed_not_ready",
+            str(seed_path),
+            "the required Task-3 successor seed is unreadable",
+        ) from exc
+    observed_version = value.get("schema_version") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or raw != canonical_json_bytes(value)
+        or observed_version != profile.required_task_seed_schema_version
+    ):
+        raise TaskPackageError(
+            "task_package_seed_not_ready",
+            observed_version,
+            "the task seed is missing, predecessor-versioned, or unknown",
+        )
+    raise TaskPackageError(
+        "task_package_seed_not_ready",
+        str(seed_path),
+        "Task 3 has not yet validated the successor seed identity",
     )
 
 
@@ -901,17 +1194,30 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
 
     rows: list[VisibleAsset] = []
     canonical_rows: list[dict[str, object]] = []
+    historical_seed_repository = Path(str(repository["locator"]))
+    raw_asset_pairs = tuple(
+        (str(row["source_path"]), str(row["target_path"]))
+        for row in assets_payload["rows"]  # type: ignore[union-attr]
+    )
+    if raw_asset_pairs != _expected_visible_asset_pairs():
+        raise TaskPackageError(
+            "task_seed_asset_allowlist_mismatch",
+            raw_asset_pairs,
+            "task seed assets differ from the checked-in candidate-visible bindings",
+        )
     for raw_row in assets_payload["rows"]:  # type: ignore[union-attr]
         assert isinstance(raw_row, dict)
         source_path = str(raw_row["source_path"])
         target_path = str(raw_row["target_path"])
-        source = _repository_path(source_path, label="visible asset source path")
-        try:
-            asset_bytes = source.read_bytes()
-        except OSError as exc:
-            raise TaskPackageError(
-                "task_seed_asset_unreadable", source_path, "visible asset is unreadable"
-            ) from exc
+        _repository_path(source_path, label="visible asset source path")
+        # Task 1 replaces the checked-in visible bytes while preserving the v1
+        # seed as immutable provenance. Verify historical rows against their
+        # bound seed commit; Task 3 will replace this staging path for v2.
+        asset_bytes = _run_git(
+            historical_seed_repository,
+            "show",
+            f"{recipe['commit']}:{target_path}",
+        )
         digest = "sha256:" + hashlib.sha256(asset_bytes).hexdigest()
         oid = _git_object_id("blob", asset_bytes)
         if (
@@ -1074,13 +1380,11 @@ def load_candidate_extension_evidence(path: Path) -> dict[str, object]:
     )
     profile = load_task_profile(_TASK_PROFILE)
     claims = payload["claims"]
-    representative = payload["representative_architecture"]
-    witness = payload["witness_architecture"]
-    structural_fields = payload["structural_fields"]
+    builtins = payload["builtin_architectures"]
+    witness = payload["candidate_witness"]
     assert isinstance(claims, list)
-    assert isinstance(representative, dict)
+    assert isinstance(builtins, list)
     assert isinstance(witness, dict)
-    assert isinstance(structural_fields, list)
     claim_ids = tuple(row["clause_id"] for row in claims)
     if claim_ids != profile.hard_clause_ids:
         raise TaskPackageError(
@@ -1088,24 +1392,47 @@ def load_candidate_extension_evidence(path: Path) -> dict[str, object]:
             claim_ids,
             "candidate claims must enumerate every hard clause exactly once in order",
         )
-    if (
-        representative["frozen_registry_member"] is not True
-        or witness["frozen_registry_member"] is not False
-        or representative["public_id"] == witness["public_id"]
-    ):
+    builtin_ids = tuple(str(row["public_id"]) for row in builtins)
+    if builtin_ids != profile.builtin_architectures:
         raise TaskPackageError(
-            "candidate_evidence_architecture_invalid",
-            (representative, witness),
-            "representative and witness roles are inconsistent or ambiguous",
+            "candidate_evidence_builtin_matrix_mismatch",
+            builtin_ids,
+            "built-in architecture rows must be exact, unique, and ordered",
         )
-    field_names = tuple(row["name"] for row in structural_fields)
-    if len(set(field_names)) != len(field_names) or any(
-        row["baseline_value"] == row["alternate_value"] for row in structural_fields
-    ):
+    witness_id = str(witness["public_id"])
+    if witness_id in set(profile.builtin_architectures):
         raise TaskPackageError(
-            "candidate_evidence_structural_field_invalid",
-            structural_fields,
-            "structural fields must be unique and have distinct alternate values",
+            "candidate_evidence_witness_identity_invalid",
+            witness_id,
+            "candidate witness must be distinct from every frozen public ID",
+        )
+    for architecture in (*builtins, witness):
+        assert isinstance(architecture, dict)
+        structural_fields = architecture["structural_fields"]
+        assert isinstance(structural_fields, list)
+        field_names = tuple(str(row["name"]) for row in structural_fields)
+        if len(set(field_names)) != len(field_names) or any(
+            row["baseline_value"] == row["alternate_value"]
+            for row in structural_fields
+        ):
+            raise TaskPackageError(
+                "candidate_evidence_structural_field_invalid",
+                structural_fields,
+                "each architecture needs unique fields with distinct alternate values",
+            )
+    builtin_field_names = {
+        str(field["name"])
+        for architecture in builtins
+        for field in architecture["structural_fields"]
+    }
+    witness_field_names = {
+        str(field["name"]) for field in witness["structural_fields"]
+    }
+    if not witness_field_names - builtin_field_names:
+        raise TaskPackageError(
+            "candidate_evidence_witness_structural_field_invalid",
+            tuple(sorted(witness_field_names)),
+            "candidate witness needs at least one witness-only structural field name",
         )
     declared_paths = (
         str(payload["architecture_decision_path"]),
@@ -1128,17 +1455,81 @@ def load_candidate_extension_evidence(path: Path) -> dict[str, object]:
 
 
 def load_lifecycle_probe_request(path: Path) -> dict[str, object]:
-    """Load one evaluator-owned lifecycle request with distinct architecture roles."""
+    """Load one evaluator-owned full-matrix lifecycle request."""
 
+    request_path = Path(path)
     payload = _load_canonical_json(
-        Path(path),
+        request_path,
         schema_path=_TASK_ASSET_ROOT / "lifecycle-probe-request.schema.json",
     )
-    if payload["representative_architecture"] == payload["witness_architecture"]:
+    evidence_path = request_path.parent / str(payload["candidate_evidence_path"])
+    if _digest(evidence_path) != payload["candidate_evidence_sha256"]:
         raise TaskPackageError(
-            "lifecycle_probe_architecture_ambiguous",
-            payload["representative_architecture"],
-            "representative and witness architecture IDs must differ",
+            "lifecycle_probe_evidence_mismatch",
+            str(evidence_path),
+            "candidate evidence bytes disagree with the request binding",
+        )
+    evidence = load_candidate_extension_evidence(evidence_path)
+    if payload["candidate_id"] != evidence["candidate_id"]:
+        raise TaskPackageError(
+            "lifecycle_probe_evidence_mismatch",
+            payload["candidate_id"],
+            "candidate ID disagrees with the bound evidence",
+        )
+    evidence_builtins = cast(list[dict[str, object]], evidence["builtin_architectures"])
+    evidence_witness = cast(dict[str, object], evidence["candidate_witness"])
+    evidence_rows = (*evidence_builtins, evidence_witness)
+    cases = cast(list[dict[str, object]], payload["architecture_cases"])
+    architecture_ids = tuple(str(row["architecture_id"]) for row in cases)
+    expected_ids = tuple(str(row["public_id"]) for row in evidence_rows)
+    if architecture_ids != expected_ids:
+        raise TaskPackageError(
+            "lifecycle_probe_architecture_matrix_mismatch",
+            architecture_ids,
+            "lifecycle cases must match the exact built-in-plus-witness order",
+        )
+    if tuple(cast(list[str], payload["required_lifecycle_stages"])) != F1_LIFECYCLE_STAGES:
+        raise TaskPackageError(
+            "lifecycle_probe_stage_mismatch",
+            payload["required_lifecycle_stages"],
+            "the complete boundary lifecycle must be requested exactly once",
+        )
+    bound_paths: list[str] = []
+    for case, declared in zip(cases, evidence_rows, strict=True):
+        architecture_id = str(case["architecture_id"])
+        if architecture_id in F1_BUILTIN_ARCHITECTURES:
+            expected_n = 128 if architecture_id == "neuralop_uno" else 64
+            if case["N"] != expected_n:
+                raise TaskPackageError(
+                    "lifecycle_probe_image_size_mismatch",
+                    {"architecture_id": architecture_id, "N": case["N"]},
+                    "neuralop_uno requires N=128 and every other built-in "
+                    "requires N=64",
+                )
+        expected_case_bindings = (
+            declared["construction_route"],
+            declared["persisted_rebuild_route"],
+            declared["structural_fields"],
+        )
+        observed_case_bindings = (
+            case["construction_route"],
+            case["persisted_rebuild_route"],
+            case["structural_fields"],
+        )
+        if observed_case_bindings != expected_case_bindings:
+            raise TaskPackageError(
+                "lifecycle_probe_case_binding_mismatch",
+                architecture_id,
+                "request routes and structural fields disagree with candidate evidence",
+            )
+        for binding_name in ("config", "input"):
+            binding = cast(dict[str, str], case[binding_name])
+            bound_paths.append(binding["path"])
+    if len(bound_paths) != len(set(bound_paths)):
+        raise TaskPackageError(
+            "lifecycle_probe_case_binding_mismatch",
+            bound_paths,
+            "per-case config and input paths must be unique",
         )
     output_dir = str(payload["lifecycle_output_dir"])
     if output_dir == "benchmark/es_f1" or output_dir.startswith("benchmark/es_f1/"):
@@ -1150,13 +1541,60 @@ def load_lifecycle_probe_request(path: Path) -> dict[str, object]:
     return payload
 
 
-def load_lifecycle_probe_result(path: Path) -> dict[str, object]:
+def load_lifecycle_probe_result(
+    path: Path,
+    *,
+    expected_architecture_ids: tuple[str, ...] | None = None,
+    expected_candidate_id: str | None = None,
+) -> dict[str, object]:
     """Load candidate artifact paths; evaluator-owned behavior stays out of the record."""
 
-    return _load_canonical_json(
+    payload = _load_canonical_json(
         Path(path),
         schema_path=_TASK_ASSET_ROOT / "lifecycle-probe-result.schema.json",
     )
+    if expected_architecture_ids is None or expected_candidate_id is None:
+        raise TaskPackageError(
+            "lifecycle_probe_result_context_missing",
+            None,
+            "the evaluator must supply the request-derived architecture order "
+            "and candidate ID",
+        )
+    rows = cast(list[dict[str, str]], payload["architecture_results"])
+    observed_ids = tuple(row["architecture_id"] for row in rows)
+    if (
+        len(expected_architecture_ids) != 15
+        or expected_architecture_ids[:14] != F1_BUILTIN_ARCHITECTURES
+        or expected_architecture_ids[-1] in set(F1_BUILTIN_ARCHITECTURES)
+        or observed_ids != expected_architecture_ids
+    ):
+        raise TaskPackageError(
+            "lifecycle_probe_result_matrix_mismatch",
+            observed_ids,
+            "result rows must match the request-derived fifteen-row order",
+        )
+    if payload["candidate_id"] != expected_candidate_id:
+        raise TaskPackageError(
+            "lifecycle_probe_result_candidate_mismatch",
+            payload["candidate_id"],
+            "result candidate ID must match the request-derived candidate ID",
+        )
+    artifact_paths = tuple(
+        artifact_path
+        for row in rows
+        for artifact_path in (row["checkpoint_path"], row["bundle_path"])
+    )
+    if len(artifact_paths) != len(set(artifact_paths)) or any(
+        artifact_path == "benchmark/es_f1"
+        or artifact_path.startswith("benchmark/es_f1/")
+        for artifact_path in artifact_paths
+    ):
+        raise TaskPackageError(
+            "lifecycle_probe_artifact_path_invalid",
+            artifact_paths,
+            "every checkpoint and bundle path must be unique",
+        )
+    return payload
 
 
 def _all_git_objects(repository: Path) -> tuple[tuple[str, str], ...]:
@@ -1565,14 +2003,19 @@ def materialize_task_seed(
             environment=index_env,
         )
         for row in manifest.visible_assets:
-            asset = _repository_path(row.source_path, label="visible asset source path")
+            _repository_path(row.source_path, label="visible asset source path")
+            historical_asset_bytes = _run_git(
+                manifest.locator,
+                "show",
+                f"{manifest.commit}:{row.target_path}",
+            )
             oid = (
                 _run_git(
                     repository,
                     "hash-object",
                     "-w",
                     "--stdin",
-                    input_bytes=asset.read_bytes(),
+                    input_bytes=historical_asset_bytes,
                 )
                 .decode("ascii")
                 .strip()
