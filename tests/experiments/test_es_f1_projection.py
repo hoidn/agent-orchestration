@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib
 import json
@@ -541,6 +542,74 @@ def test_ptycho311_collect_probe_removes_editable_hooks_and_audits_all_origins(
     assert result.cache_artifacts == ()
     assert result.plugin_autoload_disabled is True
     assert result.outside_project_origin_rows == ()
+
+
+def test_concurrent_import_origin_probes_isolate_shared_tmp_fixtures(
+    tmp_path: Path,
+) -> None:
+    projection = _projection_module()
+    python = Path("/home/ollie/miniconda3/envs/ptycho311/bin/python")
+    if not python.is_file():
+        pytest.skip("frozen ptycho311 environment is unavailable")
+
+    token = hashlib.sha256(str(tmp_path).encode("utf-8")).hexdigest()
+    shared_path = Path("/tmp") / f"es-f1-projection-shared-{token}"
+    barrier = (tmp_path / "barrier").resolve()
+    barrier.mkdir()
+    shared_path.unlink(missing_ok=True)
+
+    def run_one(ordinal: int):
+        workspace = (tmp_path / f"workspace-{ordinal}").resolve()
+        workspace.mkdir()
+        test_module = workspace / "test_shared_tmp_probe.py"
+        test_module.write_text(
+            "\n".join(
+                (
+                    "from pathlib import Path",
+                    "import time",
+                    "",
+                    f"BARRIER = Path({str(barrier)!r})",
+                    f"SHARED = Path({str(shared_path)!r})",
+                    f"TOKEN = {f'token-{ordinal}'!r}",
+                    "",
+                    "def wait_for(pattern):",
+                    "    deadline = time.monotonic() + 10.0",
+                    "    while len(tuple(BARRIER.glob(pattern))) != 2:",
+                    "        assert time.monotonic() < deadline",
+                    "        time.sleep(0.01)",
+                    "",
+                    "def test_shared_tmp_fixture():",
+                    "    (BARRIER / ('ready-' + TOKEN)).write_text(TOKEN)",
+                    "    wait_for('ready-*')",
+                    "    SHARED.write_text(TOKEN)",
+                    "    (BARRIER / ('written-' + TOKEN)).write_text(TOKEN)",
+                    "    wait_for('written-*')",
+                    "    assert SHARED.read_text() == TOKEN",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        return projection.run_import_origin_probe(
+            python=python,
+            workspace=workspace,
+            selectors=(test_module.name,),
+            report_path=(tmp_path / f"origin-report-{ordinal}.json").resolve(),
+            collect_only=False,
+        )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = tuple(pool.map(run_one, (1, 2)))
+    finally:
+        shared_path.unlink(missing_ok=True)
+
+    assert [result.exit_code for result in results] == [0, 0]
+    assert [result.collected for result in results] == [1, 1]
+    assert [dict(result.outcomes) for result in results] == [
+        {"passed": 1, "failed": 0, "skipped": 0, "errors": 0},
+        {"passed": 1, "failed": 0, "skipped": 0, "errors": 0},
+    ]
 
 
 def test_project_owned_origin_classification_accepts_projection_and_rejects_external(

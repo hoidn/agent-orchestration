@@ -1,0 +1,105 @@
+{
+  "schema_version": "es_f1_preedit_discovery_input.v1",
+  "authority_status": "non_authoritative_discovery_input",
+  "git": {
+    "executable": "/usr/bin/git",
+    "version": "git version 2.43.0",
+    "sha256": "sha256:2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668",
+    "object_controls": [
+      "rev-parse --verify <commit>^{commit}",
+      "rev-parse --verify <commit>^{tree}",
+      "ls-tree -rz -r --full-tree <commit>",
+      "cat-file --batch"
+    ]
+  },
+  "projection": {
+    "repository": "/home/ollie/.local/state/orchestrator/es-source-projections/git-sha1/8f191031f233d50a4d020d8a988036e99487f570",
+    "commit": "8f191031f233d50a4d020d8a988036e99487f570",
+    "tree": "e64f3c05f5a0894f41c047d128a9040a2cda6764",
+    "inventory_sha256": "sha256:6fc936c54977d9adc7bdbae02bfa69592c55722e5cf5eddbd1b958ee1bc71404",
+    "leaf_count": 1948
+  },
+  "detectors": [
+    {
+      "detector_id": "PYTHON_BOUNDARY_AST",
+      "version": "v1",
+      "language": "python_ast",
+      "path_globs": ["*.py", "**/*.py"],
+      "anchors": [
+        {"anchor_id": "GENERATOR_REGISTRY_IMPORT", "form": "import", "pattern": "ptycho_torch.generators.registry", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "GENERATOR_PACKAGE_IMPORT", "form": "import", "pattern": "ptycho_torch.generators", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "MODEL_SPEC_IMPORT", "form": "import", "pattern": "ptycho_torch.model_spec", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "ARTIFACT_SCHEMA_IMPORT", "form": "import", "pattern": "ptycho_torch.artifact_schema", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "APPLICATION_FACTORY_IMPORT", "form": "import", "pattern": "ptycho_torch.application_factory", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "CONFIG_BRIDGE_IMPORT", "form": "import", "pattern": "ptycho_torch.config_bridge", "responsibility_ids": ["PUBLIC_CONFIGURATION", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "CONFIG_FACTORY_IMPORT", "form": "import", "pattern": "ptycho_torch.config_factory", "responsibility_ids": ["PUBLIC_CONFIGURATION", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "MODEL_MANAGER_IMPORT", "form": "import", "pattern": "ptycho_torch.model_manager", "responsibility_ids": ["CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "INFERENCE_IMPORT", "form": "import", "pattern": "ptycho_torch.inference", "responsibility_ids": ["FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "WORKFLOW_COMPONENTS_IMPORT", "form": "import", "pattern": "ptycho_torch.workflows.components", "responsibility_ids": ["FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "RESOLVE_GENERATOR_CALL", "form": "call", "pattern": "resolve_generator", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "BUILD_FROM_CONFIGS_CALL", "form": "call", "pattern": "build_ptychopinn_from_configs", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "BUILD_APPLICATION_CALL", "form": "call", "pattern": "build_ptychopinn_application", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "DERIVE_MODEL_SPEC_CALL", "form": "call", "pattern": "derive_model_spec", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "ENCODE_ARTIFACT_IDENTITY_CALL", "form": "call", "pattern": "encode_artifact_identity", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "DECODE_ARTIFACT_IDENTITY_CALL", "form": "call", "pattern": "decode_artifact_identity", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "SAVE_TORCH_BUNDLE_CALL", "form": "call", "pattern": "save_torch_bundle", "responsibility_ids": ["CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "LOAD_TORCH_BUNDLE_CALL", "form": "call", "pattern": "load_torch_bundle", "responsibility_ids": ["CHECKPOINT_BUNDLE_PERSISTENCE", "FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "CREATE_TORCH_MODEL_CALL", "form": "call", "pattern": "create_torch_model_with_gridsize", "responsibility_ids": ["CHECKPOINT_BUNDLE_PERSISTENCE", "FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "LOAD_AND_PREDICT_CALL", "form": "call", "pattern": "load_and_predict", "responsibility_ids": ["FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "TRAINING_PAYLOAD_CALL", "form": "call", "pattern": "create_training_payload", "responsibility_ids": ["PUBLIC_CONFIGURATION", "TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "INFERENCE_PAYLOAD_CALL", "form": "call", "pattern": "create_inference_payload", "responsibility_ids": ["PUBLIC_CONFIGURATION", "FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "TO_MODEL_CONFIG_CALL", "form": "call", "pattern": "to_model_config", "responsibility_ids": ["PUBLIC_CONFIGURATION", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "SETUP_LIGHTNING_TRAINER_CALL", "form": "call", "pattern": "setup_lightning_trainer", "responsibility_ids": ["TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "RUN_GRID_LINES_TORCH_CALL", "form": "call", "pattern": "run_grid_lines_torch", "responsibility_ids": ["TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "MODEL_SPEC_NAME", "form": "name", "pattern": "ModelSpec", "responsibility_ids": ["STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "MODEL_CONFIG_NAME", "form": "name", "pattern": "ModelConfig", "responsibility_ids": ["PUBLIC_CONFIGURATION", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "TORCH_RUNNER_CONFIG_NAME", "form": "name", "pattern": "TorchRunnerConfig", "responsibility_ids": ["TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "PTYCHOPINN_NAME", "form": "name", "pattern": "PtychoPINN", "responsibility_ids": ["TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "PTYCHOPINN_LIGHTNING_NAME", "form": "name", "pattern": "PtychoPINN_Lightning", "responsibility_ids": ["TRAINING_OPTIMIZER_LIFECYCLE", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "GENERATOR_TYPE_NAME", "form": "name", "pattern": "generator_type", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]},
+        {"anchor_id": "ARCHITECTURE_NAME", "form": "name", "pattern": "architecture", "responsibility_ids": ["CONSTRUCTION_ARCHITECTURES", "PROJECTION_DOWNSTREAM_CONSUMERS", "LEGACY_BYPASS_RETIREMENT"]}
+      ]
+    },
+    {
+      "detector_id": "PLANNED_OMISSION_TEXT",
+      "version": "v1",
+      "language": "text_regex",
+      "path_globs": ["ptycho_torch/api/mlflow_utils.py", "ptycho_torch/notebooks/analysis.py"],
+      "anchors": [
+        {"anchor_id": "MLFLOW_REGISTRATION_OMISSION", "form": "regex", "pattern": "def register_lightning_model_to_mlflow\\(", "responsibility_ids": ["CHECKPOINT_BUNDLE_PERSISTENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]},
+        {"anchor_id": "NOTEBOOK_RELOAD_OMISSION", "form": "regex", "pattern": "def load_model_and_reconstruct\\(", "responsibility_ids": ["FRESH_RELOAD_INFERENCE", "PROJECTION_DOWNSTREAM_CONSUMERS"]}
+      ]
+    }
+  ],
+  "responsibilities": [
+    {"responsibility_id": "STRUCTURAL_BOUNDARY_PERSISTED_IDENTITY", "anchors": ["MODEL_SPEC_IMPORT", "ARTIFACT_SCHEMA_IMPORT", "DERIVE_MODEL_SPEC_CALL", "ENCODE_ARTIFACT_IDENTITY_CALL", "DECODE_ARTIFACT_IDENTITY_CALL", "MODEL_SPEC_NAME"]},
+    {"responsibility_id": "PUBLIC_CONFIGURATION", "anchors": ["CONFIG_BRIDGE_IMPORT", "CONFIG_FACTORY_IMPORT", "TRAINING_PAYLOAD_CALL", "INFERENCE_PAYLOAD_CALL", "TO_MODEL_CONFIG_CALL", "MODEL_CONFIG_NAME"]},
+    {"responsibility_id": "CONSTRUCTION_ARCHITECTURES", "anchors": ["GENERATOR_REGISTRY_IMPORT", "GENERATOR_PACKAGE_IMPORT", "APPLICATION_FACTORY_IMPORT", "RESOLVE_GENERATOR_CALL", "BUILD_FROM_CONFIGS_CALL", "BUILD_APPLICATION_CALL", "GENERATOR_TYPE_NAME", "ARCHITECTURE_NAME"]},
+    {"responsibility_id": "TRAINING_OPTIMIZER_LIFECYCLE", "anchors": ["TRAINING_PAYLOAD_CALL", "SETUP_LIGHTNING_TRAINER_CALL", "RUN_GRID_LINES_TORCH_CALL", "TORCH_RUNNER_CONFIG_NAME", "PTYCHOPINN_NAME", "PTYCHOPINN_LIGHTNING_NAME"]},
+    {"responsibility_id": "CHECKPOINT_BUNDLE_PERSISTENCE", "anchors": ["ARTIFACT_SCHEMA_IMPORT", "MODEL_MANAGER_IMPORT", "ENCODE_ARTIFACT_IDENTITY_CALL", "DECODE_ARTIFACT_IDENTITY_CALL", "SAVE_TORCH_BUNDLE_CALL", "LOAD_TORCH_BUNDLE_CALL", "CREATE_TORCH_MODEL_CALL", "MLFLOW_REGISTRATION_OMISSION"]},
+    {"responsibility_id": "FRESH_RELOAD_INFERENCE", "anchors": ["INFERENCE_IMPORT", "WORKFLOW_COMPONENTS_IMPORT", "LOAD_TORCH_BUNDLE_CALL", "CREATE_TORCH_MODEL_CALL", "LOAD_AND_PREDICT_CALL", "INFERENCE_PAYLOAD_CALL", "NOTEBOOK_RELOAD_OMISSION"]},
+    {"responsibility_id": "PROJECTION_DOWNSTREAM_CONSUMERS", "anchors": ["GENERATOR_REGISTRY_IMPORT", "GENERATOR_PACKAGE_IMPORT", "MODEL_SPEC_IMPORT", "ARTIFACT_SCHEMA_IMPORT", "APPLICATION_FACTORY_IMPORT", "CONFIG_BRIDGE_IMPORT", "CONFIG_FACTORY_IMPORT", "MODEL_MANAGER_IMPORT", "INFERENCE_IMPORT", "WORKFLOW_COMPONENTS_IMPORT", "RESOLVE_GENERATOR_CALL", "BUILD_FROM_CONFIGS_CALL", "BUILD_APPLICATION_CALL", "DERIVE_MODEL_SPEC_CALL", "ENCODE_ARTIFACT_IDENTITY_CALL", "DECODE_ARTIFACT_IDENTITY_CALL", "SAVE_TORCH_BUNDLE_CALL", "LOAD_TORCH_BUNDLE_CALL", "CREATE_TORCH_MODEL_CALL", "LOAD_AND_PREDICT_CALL", "TRAINING_PAYLOAD_CALL", "INFERENCE_PAYLOAD_CALL", "TO_MODEL_CONFIG_CALL", "SETUP_LIGHTNING_TRAINER_CALL", "RUN_GRID_LINES_TORCH_CALL", "MODEL_SPEC_NAME", "MODEL_CONFIG_NAME", "TORCH_RUNNER_CONFIG_NAME", "PTYCHOPINN_NAME", "PTYCHOPINN_LIGHTNING_NAME", "GENERATOR_TYPE_NAME", "ARCHITECTURE_NAME", "MLFLOW_REGISTRATION_OMISSION", "NOTEBOOK_RELOAD_OMISSION"]},
+    {"responsibility_id": "LEGACY_BYPASS_RETIREMENT", "anchors": ["GENERATOR_REGISTRY_IMPORT", "GENERATOR_PACKAGE_IMPORT", "RESOLVE_GENERATOR_CALL", "RUN_GRID_LINES_TORCH_CALL", "TORCH_RUNNER_CONFIG_NAME", "PTYCHOPINN_NAME", "PTYCHOPINN_LIGHTNING_NAME", "GENERATOR_TYPE_NAME", "ARCHITECTURE_NAME"]}
+  ],
+  "provider_visible_pytest_selectors": [
+    {"selector_id": "PV-01", "ordinal": 1, "pytest_module_path": "tests/torch/test_generator_registry.py"},
+    {"selector_id": "PV-02", "ordinal": 2, "pytest_module_path": "tests/torch/test_construction_consolidation.py"},
+    {"selector_id": "PV-03", "ordinal": 3, "pytest_module_path": "tests/torch/test_generator_adapter.py"},
+    {"selector_id": "PV-04", "ordinal": 4, "pytest_module_path": "tests/torch/test_config_bridge.py"},
+    {"selector_id": "PV-05", "ordinal": 5, "pytest_module_path": "tests/torch/test_model_spec.py"},
+    {"selector_id": "PV-06", "ordinal": 6, "pytest_module_path": "tests/torch/test_model_spec_v2.py"},
+    {"selector_id": "PV-07", "ordinal": 7, "pytest_module_path": "tests/torch/test_lightning_checkpoint.py"},
+    {"selector_id": "PV-08", "ordinal": 8, "pytest_module_path": "tests/torch/test_artifact_schema.py"},
+    {"selector_id": "PV-09", "ordinal": 9, "pytest_module_path": "tests/torch/test_artifact_schema_v2.py"},
+    {"selector_id": "PV-10", "ordinal": 10, "pytest_module_path": "tests/torch/test_workflows_components.py"},
+    {"selector_id": "PV-11", "ordinal": 11, "pytest_module_path": "tests/torch/test_fno_generators.py"},
+    {"selector_id": "PV-12", "ordinal": 12, "pytest_module_path": "tests/torch/test_fno_lightning_integration.py"},
+    {"selector_id": "PV-13", "ordinal": 13, "pytest_module_path": "tests/torch/test_neuralop_uno_generator.py"},
+    {"selector_id": "PV-14", "ordinal": 14, "pytest_module_path": "tests/torch/test_model_output_modes.py"},
+    {"selector_id": "PV-15", "ordinal": 15, "pytest_module_path": "tests/torch/test_model_manager.py"},
+    {"selector_id": "PV-16", "ordinal": 16, "pytest_module_path": "tests/torch/test_model_training.py"},
+    {"selector_id": "PV-17", "ordinal": 17, "pytest_module_path": "tests/torch/test_train_lightning_execution_contract.py"},
+    {"selector_id": "PV-18", "ordinal": 18, "pytest_module_path": "tests/torch/test_object_big_generator_contract.py"},
+    {"selector_id": "PV-19", "ordinal": 19, "pytest_module_path": "tests/torch/test_structural_config_ownership.py"}
+  ]
+}

@@ -1,0 +1,395 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-source-census-v1.json",
+  "title": "ES F1 frozen source census",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "preedit_policy_sha256",
+    "discovery_candidate_set_sha256",
+    "producer",
+    "git",
+    "projection",
+    "schema_bindings",
+    "lineage",
+    "leaf_rows",
+    "consumer_rows",
+    "group_subtotals",
+    "responsibility_total",
+    "legacy_bypass_inventory",
+    "no_consumption",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_source_census.v1"},
+    "preedit_policy_sha256": {"$ref": "#/$defs/sha256"},
+    "discovery_candidate_set_sha256": {"$ref": "#/$defs/sha256"},
+    "producer": {"$ref": "#/$defs/producer"},
+    "git": {"$ref": "#/$defs/git"},
+    "projection": {"$ref": "#/$defs/projection"},
+    "schema_bindings": {"$ref": "#/$defs/schema_bindings"},
+    "lineage": {"$ref": "#/$defs/lineage"},
+    "leaf_rows": {
+      "type": "array",
+      "minItems": 1948,
+      "maxItems": 1948,
+      "items": {"$ref": "#/$defs/leaf_row"}
+    },
+    "consumer_rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/consumer_row"}
+    },
+    "group_subtotals": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "GENERATOR_PYTHON_PLUS_IDENTITY_CORE"}, "physical_line_count": {"const": 6776}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "ORIGINAL_TEN_PREEDIT_SELECTORS"}, "physical_line_count": {"const": 6833}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "MANDATORY_NINETEEN_PREEDIT_SELECTORS"}, "physical_line_count": {"const": 11800}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "OLD_NAMED_PRODUCTION_CORE"}, "physical_line_count": {"const": 16052}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "SPECIFICATION_REVIEW_OMISSIONS"}, "physical_line_count": {"const": 5645}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_OMISSIONS"}, "physical_line_count": {"const": 21697}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_SOURCE_DOCUMENTED_CONSUMERS"}, "physical_line_count": {"const": 29886}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_DIRECT_CDI_STUDY_CONSUMERS"}, "physical_line_count": {"const": 47515}}}]},
+        {"allOf": [{"$ref": "#/$defs/group_subtotal"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_ALL_STUDY_DETECTOR_ROWS"}, "physical_line_count": {"const": 50318}}}]}
+      ],
+      "items": false
+    },
+    "responsibility_total": {"$ref": "#/$defs/responsibility_total"},
+    "legacy_bypass_inventory": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "no_consumption": {"$ref": "#/$defs/no_consumption"},
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "mode": {"type": "string", "pattern": "^[0-7]{6}$"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"const": "scripts/experiments/es/source_census.py"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "version", "sha256", "object_controls"],
+      "properties": {
+        "executable": {"const": "/usr/bin/git"},
+        "version": {"const": "git version 2.43.0"},
+        "sha256": {"const": "sha256:2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668"},
+        "object_controls": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "inventory_sha256", "leaf_count"],
+      "properties": {
+        "repository": {"const": "/home/ollie/.local/state/orchestrator/es-source-projections/git-sha1/8f191031f233d50a4d020d8a988036e99487f570"},
+        "commit": {"const": "8f191031f233d50a4d020d8a988036e99487f570"},
+        "tree": {"const": "e64f3c05f5a0894f41c047d128a9040a2cda6764"},
+        "inventory_sha256": {"const": "sha256:6fc936c54977d9adc7bdbae02bfa69592c55722e5cf5eddbd1b958ee1bc71404"},
+        "leaf_count": {"const": 1948}
+      }
+    },
+    "file_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "byte_count", "sha256"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "byte_count": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "schema_bindings": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "discovery_input"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-discovery-input.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "preedit_policy"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-policy-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "source_census"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/source-census.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "selector_manifest"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-selector-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "feasibility_capture"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "post_purge_tombstone"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-post-purge-tombstone.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "a1_anchor"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "review_adoption"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.schema.json"}}}]}
+      ],
+      "items": false
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upstream_source", "completed_closure", "task_inputs"],
+      "properties": {
+        "upstream_source": {"const": {"commit": "c081b7b6cd160b3da7031ee325bbf0ade1025d7a", "tree": "9193ae2f81116d1bac4cf3cb74395613c1220dbe"}},
+        "completed_closure": {"const": [
+          {"task": "Task 2", "commit": "d24c1818d586ee5e082a117f4cf46d85a4fc208e", "tree": "5e8f84cbc688a6f56090c546bb177ed4496afc17"},
+          {"task": "Task 3", "commit": "0d16ca364c0aeff641232dc0c0c33e445d443623", "tree": "ee6d60eb18ce03721898d163ad214b12f2c4098f"},
+          {"task": "Task 4", "commit": "d72c6085a3d3fdda23ec3ce48d1dd96a3585529d", "tree": "4e576d09b92dd5877f8326ba057127923de8f77e"}
+        ]},
+        "task_inputs": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "task_profile"}, "path": {"const": "experiments/orc_effectiveness/f1_es/task-profile.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "task_seed_manifest"}, "path": {"const": "experiments/orc_effectiveness/f1_es/task-seed-manifest.json"}}}]}
+          ],
+          "items": false
+        }
+      }
+    },
+    "text_facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_strict_utf8", "physical_line_count", "lf_octet_count"],
+      "properties": {
+        "is_strict_utf8": {"type": "boolean"},
+        "physical_line_count": {"type": ["integer", "null"], "minimum": 0},
+        "lf_octet_count": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "detector_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detector_id", "version", "match_ids"],
+      "properties": {
+        "detector_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "match_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "leaf_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "mode",
+        "object_type",
+        "object_id",
+        "byte_count",
+        "text",
+        "detector_outcomes",
+        "responsibility_ids",
+        "classification"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "mode": {"$ref": "#/$defs/mode"},
+        "object_type": {"const": "blob"},
+        "object_id": {"$ref": "#/$defs/sha1"},
+        "byte_count": {"type": "integer", "minimum": 0},
+        "text": {"$ref": "#/$defs/text_facts"},
+        "detector_outcomes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/detector_outcome"}
+        },
+        "responsibility_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "classification": {"enum": ["matched", "nonmatch"]},
+        "match_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "nonmatch_reason": {"type": "string", "minLength": 1}
+      },
+      "oneOf": [
+        {
+          "required": ["match_ids"],
+          "properties": {"classification": {"const": "matched"}},
+          "not": {"required": ["nonmatch_reason"]}
+        },
+        {
+          "required": ["nonmatch_reason"],
+          "properties": {"classification": {"const": "nonmatch"}},
+          "not": {"required": ["match_ids"]}
+        }
+      ]
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_start", "column_start", "line_end", "column_end"],
+      "properties": {
+        "line_start": {"type": "integer", "minimum": 1},
+        "column_start": {"type": "integer", "minimum": 0},
+        "line_end": {"type": "integer", "minimum": 1},
+        "column_end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "consumer_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consumer_id",
+        "match_id",
+        "caller_path",
+        "caller_object_id",
+        "span",
+        "detector_id",
+        "detector_version",
+        "anchor_id",
+        "callee_or_dispatch_form",
+        "responsibility_ids",
+        "proposed_disposition",
+        "required_proof_kind",
+        "selector_id",
+        "witness_kind",
+        "coverage_status",
+        "coverage_witness_ids"
+      ],
+      "properties": {
+        "consumer_id": {"type": "string", "minLength": 1},
+        "match_id": {"type": "string", "minLength": 1},
+        "caller_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "caller_object_id": {"$ref": "#/$defs/sha1"},
+        "span": {"$ref": "#/$defs/span"},
+        "detector_id": {"type": "string", "minLength": 1},
+        "detector_version": {"type": "string", "minLength": 1},
+        "anchor_id": {"type": "string", "minLength": 1},
+        "callee_or_dispatch_form": {"type": "string", "minLength": 1},
+        "responsibility_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "proposed_disposition": {
+          "enum": ["route_through_boundary", "compatibility_adapter", "remove"]
+        },
+        "required_proof_kind": {
+          "enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]
+        },
+        "selector_id": {"type": "string", "minLength": 1},
+        "witness_kind": {
+          "enum": ["pytest_runtime", "controller_pytest_runtime", "static_ast", "runtime_probe"]
+        },
+        "coverage_status": {"enum": ["required", "inherited", "open"]},
+        "coverage_witness_ids": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"coverage_status": {"const": "required"}}, "required": ["coverage_status"]},
+          "then": {"properties": {"coverage_witness_ids": {"minItems": 1, "maxItems": 1}}}
+        },
+        {
+          "if": {"properties": {"coverage_status": {"enum": ["inherited", "open"]}}, "required": ["coverage_status"]},
+          "then": {"properties": {"coverage_witness_ids": {"maxItems": 0}}}
+        }
+      ]
+    },
+    "group_subtotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "paths", "physical_line_count"],
+      "properties": {
+        "group_id": {"type": "string", "minLength": 1},
+        "paths": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "physical_line_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "responsibility_total": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "physical_line_count"],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "physical_line_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "external_root_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "immediate_entries"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/"},
+        "status": {"enum": ["ABSENT", "PRESENT_EMPTY_DIRECTORY"]},
+        "immediate_entries": {
+          "type": "array",
+          "maxItems": 0,
+          "items": false
+        }
+      }
+    },
+    "repository_path_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "status": {"const": "ABSENT"}
+      }
+    },
+    "no_consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["captured_at", "external_roots", "repository_paths", "observation_sha256"],
+      "properties": {
+        "captured_at": {"type": "string", "format": "date-time"},
+        "external_roots": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/state/orchestrator/es-f1-full/runs"}}}]},
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/state/orchestrator/es-f1-full/run-refs"}}}]},
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/share/agent-orchestration/es-f1-full/evidence"}}}]}
+          ],
+          "items": false
+        },
+        "repository_paths": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/decision-lock.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/controller-package.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/prelaunch-owner-adoption.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/launch-manifest.json"}}}]}
+          ],
+          "items": false
+        },
+        "observation_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

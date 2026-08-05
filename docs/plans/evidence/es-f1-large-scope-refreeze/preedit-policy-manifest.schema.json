@@ -1,0 +1,697 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-preedit-policy-v1.json",
+  "title": "ES F1 reviewed pre-edit policy proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "discovery",
+    "git",
+    "projection",
+    "schema_bindings",
+    "lineage",
+    "detectors",
+    "responsibilities",
+    "consumer_policies",
+    "selector_policy",
+    "audit_groups",
+    "legacy_bypass_consumer_ids",
+    "no_consumption",
+    "a1",
+    "witness_observability_reviews",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_preedit_policy.v1"},
+    "discovery": {"$ref": "#/$defs/discovery"},
+    "git": {"$ref": "#/$defs/git"},
+    "projection": {"$ref": "#/$defs/projection"},
+    "schema_bindings": {"$ref": "#/$defs/schema_bindings"},
+    "lineage": {"$ref": "#/$defs/lineage"},
+    "detectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/detector"},
+      "uniqueItems": true
+    },
+    "responsibilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/responsibility"},
+      "uniqueItems": true
+    },
+    "consumer_policies": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/consumer_policy"}
+    },
+    "selector_policy": {"$ref": "#/$defs/selector_policy"},
+    "audit_groups": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "GENERATOR_PYTHON_PLUS_IDENTITY_CORE"}, "expected_physical_line_count": {"const": 6776}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "ORIGINAL_TEN_PREEDIT_SELECTORS"}, "expected_physical_line_count": {"const": 6833}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "MANDATORY_NINETEEN_PREEDIT_SELECTORS"}, "expected_physical_line_count": {"const": 11800}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "OLD_NAMED_PRODUCTION_CORE"}, "expected_physical_line_count": {"const": 16052}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "SPECIFICATION_REVIEW_OMISSIONS"}, "expected_physical_line_count": {"const": 5645}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_OMISSIONS"}, "expected_physical_line_count": {"const": 21697}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_SOURCE_DOCUMENTED_CONSUMERS"}, "expected_physical_line_count": {"const": 29886}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_DIRECT_CDI_STUDY_CONSUMERS"}, "expected_physical_line_count": {"const": 47515}}}]},
+        {"allOf": [{"$ref": "#/$defs/audit_group"}, {"properties": {"group_id": {"const": "OLD_CORE_PLUS_ALL_STUDY_DETECTOR_ROWS"}, "expected_physical_line_count": {"const": 50318}}}]}
+      ],
+      "items": false
+    },
+    "legacy_bypass_consumer_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "no_consumption": {"$ref": "#/$defs/no_consumption"},
+    "a1": {"$ref": "#/$defs/a1"},
+    "witness_observability_reviews": {"$ref": "#/$defs/witness_observability_reviews"},
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "pytest_carrier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "sha256", "version", "tmp_isolation"],
+      "properties": {
+        "executable": {"const": "/usr/bin/bwrap"},
+        "sha256": {"const": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712"},
+        "version": {"const": "bubblewrap 0.9.0"},
+        "tmp_isolation": {"const": "private_tmpfs"}
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_sha256", "output_sha256", "candidate_set_sha256"],
+      "properties": {
+        "input_sha256": {"$ref": "#/$defs/sha256"},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_set_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "version", "sha256", "object_controls"],
+      "properties": {
+        "executable": {"const": "/usr/bin/git"},
+        "version": {"const": "git version 2.43.0"},
+        "sha256": {"const": "sha256:2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668"},
+        "object_controls": {
+          "const": [
+            "rev-parse --verify <commit>^{commit}",
+            "rev-parse --verify <commit>^{tree}",
+            "ls-tree -rz -r --full-tree <commit>",
+            "cat-file --batch"
+          ]
+        }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "inventory_sha256", "leaf_count"],
+      "properties": {
+        "repository": {"const": "/home/ollie/.local/state/orchestrator/es-source-projections/git-sha1/8f191031f233d50a4d020d8a988036e99487f570"},
+        "commit": {"const": "8f191031f233d50a4d020d8a988036e99487f570"},
+        "tree": {"const": "e64f3c05f5a0894f41c047d128a9040a2cda6764"},
+        "inventory_sha256": {"const": "sha256:6fc936c54977d9adc7bdbae02bfa69592c55722e5cf5eddbd1b958ee1bc71404"},
+        "leaf_count": {"const": 1948}
+      }
+    },
+    "file_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "path", "byte_count", "sha256"],
+      "properties": {
+        "role": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "byte_count": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "schema_bindings": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "discovery_input"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-discovery-input.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "preedit_policy"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-policy-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "source_census"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/source-census.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "selector_manifest"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/preedit-selector-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "feasibility_capture"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture-manifest.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "post_purge_tombstone"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-post-purge-tombstone.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "a1_anchor"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.schema.json"}}}]},
+        {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "review_adoption"}, "path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.schema.json"}}}]}
+      ],
+      "items": false
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upstream_source", "completed_closure", "task_inputs"],
+      "properties": {
+        "upstream_source": {"const": {"commit": "c081b7b6cd160b3da7031ee325bbf0ade1025d7a", "tree": "9193ae2f81116d1bac4cf3cb74395613c1220dbe"}},
+        "completed_closure": {"const": [
+          {"task": "Task 2", "commit": "d24c1818d586ee5e082a117f4cf46d85a4fc208e", "tree": "5e8f84cbc688a6f56090c546bb177ed4496afc17"},
+          {"task": "Task 3", "commit": "0d16ca364c0aeff641232dc0c0c33e445d443623", "tree": "ee6d60eb18ce03721898d163ad214b12f2c4098f"},
+          {"task": "Task 4", "commit": "d72c6085a3d3fdda23ec3ce48d1dd96a3585529d", "tree": "4e576d09b92dd5877f8326ba057127923de8f77e"}
+        ]},
+        "task_inputs": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "task_profile"}, "path": {"const": "experiments/orc_effectiveness/f1_es/task-profile.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/file_binding"}, {"properties": {"role": {"const": "task_seed_manifest"}, "path": {"const": "experiments/orc_effectiveness/f1_es/task-seed-manifest.json"}}}]}
+          ],
+          "items": false
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "form", "pattern", "responsibility_ids"],
+      "properties": {
+        "anchor_id": {"type": "string", "minLength": 1},
+        "form": {"enum": ["import", "call", "name", "attribute", "string", "regex"]},
+        "pattern": {"type": "string", "minLength": 1},
+        "responsibility_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detector_id", "version", "language", "path_globs", "anchors"],
+      "properties": {
+        "detector_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "language": {"enum": ["python_ast", "text_regex"]},
+        "path_globs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "anchors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/anchor"}, "uniqueItems": true}
+      }
+    },
+    "responsibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responsibility_id", "anchors"],
+      "properties": {
+        "responsibility_id": {"type": "string", "minLength": 1},
+        "anchors": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "consumer_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumer_id", "match_id", "proposed_disposition", "required_proof_kind", "selector_id", "witness_kind", "coverage_status", "coverage_witness_ids"],
+      "properties": {
+        "consumer_id": {"type": "string", "minLength": 1},
+        "match_id": {"type": "string", "minLength": 1},
+        "proposed_disposition": {"enum": ["route_through_boundary", "compatibility_adapter", "remove"]},
+        "required_proof_kind": {"enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]},
+        "selector_id": {"type": "string", "minLength": 1},
+        "witness_kind": {"enum": ["pytest_runtime", "controller_pytest_runtime", "static_ast", "runtime_probe"]},
+        "coverage_status": {"enum": ["required", "inherited", "open"]},
+        "coverage_witness_ids": {"type": "array", "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"coverage_status": {"const": "required"}}, "required": ["coverage_status"]},
+          "then": {"properties": {"coverage_witness_ids": {"minItems": 1, "maxItems": 1}}}
+        },
+        {
+          "if": {"properties": {"coverage_status": {"enum": ["inherited", "open"]}}, "required": ["coverage_status"]},
+          "then": {"properties": {"coverage_witness_ids": {"maxItems": 0}}}
+        }
+      ]
+    },
+    "discovery_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "ordinal", "pytest_module_path"],
+      "properties": {
+        "selector_id": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 1},
+        "pytest_module_path": {"type": "string", "minLength": 1}
+      }
+    },
+    "input_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "controller_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "ordinal", "proof_kind", "execution_kind", "runner_path", "runner_sha256", "argv", "input_bindings", "coverage_witness_ids"],
+      "properties": {
+        "selector_id": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 1},
+        "proof_kind": {"enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]},
+        "execution_kind": {"enum": ["pytest_aggregate", "isolated_probe", "static_ast"]},
+        "runner_path": {"const": "scripts/experiments/es/boundary_proofs.py"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "input_bindings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/input_binding"}},
+        "coverage_witness_ids": {"type": "array", "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"execution_kind": {"const": "pytest_aggregate"}}, "required": ["execution_kind"]},
+          "then": {
+            "properties": {
+              "proof_kind": {"const": "boundary_runtime"},
+              "argv": {
+                "type": "array",
+                "minItems": 7,
+                "prefixItems": [
+                  {"const": "/home/ollie/miniconda3/envs/ptycho311/bin/python"},
+                  {"const": "-m"},
+                  {"const": "pytest"},
+                  {"const": "-q"},
+                  {"const": "-p"},
+                  {"const": "no:cacheprovider"}
+                ],
+                "items": {"type": "string"}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"execution_kind": {"const": "isolated_probe"}}, "required": ["execution_kind"]},
+          "then": {"properties": {"proof_kind": {"const": "boundary_runtime"}}}
+        },
+        {
+          "if": {"properties": {"execution_kind": {"const": "static_ast"}}, "required": ["execution_kind"]},
+          "then": {"properties": {"proof_kind": {"enum": ["non_cdi_static", "reference_absence"]}}}
+        }
+      ]
+    },
+    "pytest_node_attribution_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "pytest_node_pattern"],
+      "properties": {
+        "attribution_kind": {"const": "pytest_node"},
+        "pytest_node_pattern": {"type": "string", "minLength": 1}
+      }
+    },
+    "selector_module_attribution_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "pytest_module_path"],
+      "properties": {
+        "attribution_kind": {"const": "selector_module"},
+        "pytest_module_path": {"type": "string", "minLength": 1}
+      }
+    },
+    "residual_action_attribution_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "action_sha256"],
+      "properties": {
+        "attribution_kind": {"const": "residual_action"},
+        "action_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "pytest_runtime_spec_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "event_kind", "phase", "attribution", "expected_event"],
+      "properties": {
+        "anchor_id": {"type": "string", "minLength": 1},
+        "event_kind": {"enum": ["opcode_exact_span", "import_alias_opcode", "callable_entry"]},
+        "phase": {"enum": ["bootstrap", "collection", "setup", "call", "teardown"]},
+        "attribution": {
+          "oneOf": [
+            {"$ref": "#/$defs/pytest_node_attribution_spec"},
+            {"$ref": "#/$defs/selector_module_attribution_spec"}
+          ]
+        },
+        "expected_event": {"$ref": "#/$defs/json_value"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"phase": {"enum": ["setup", "call", "teardown"]}}, "required": ["phase"]},
+          "then": {"properties": {"attribution": {"$ref": "#/$defs/pytest_node_attribution_spec"}}}
+        },
+        {
+          "if": {"properties": {"phase": {"enum": ["bootstrap", "collection"]}}, "required": ["phase"]},
+          "then": {"properties": {"attribution": {"$ref": "#/$defs/selector_module_attribution_spec"}}}
+        }
+      ]
+    },
+    "runtime_probe_spec_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "event_kind", "phase", "attribution", "probe", "expected_event"],
+      "properties": {
+        "anchor_id": {"type": "string", "minLength": 1},
+        "event_kind": {"enum": ["opcode_exact_span", "import_alias_opcode", "callable_entry"]},
+        "phase": {"const": "residual"},
+        "attribution": {"$ref": "#/$defs/residual_action_attribution_spec"},
+        "probe": {"$ref": "#/$defs/runtime_probe"},
+        "expected_event": {"$ref": "#/$defs/json_value"}
+      }
+    },
+    "static_witness_spec_payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "query", "expected_event"],
+      "properties": {
+        "anchor_id": {"type": "string", "minLength": 1},
+        "query": {"$ref": "#/$defs/proof_query"},
+        "expected_event": {"$ref": "#/$defs/json_value"}
+      }
+    },
+    "witness_spec_payload": {
+      "oneOf": [
+        {"$ref": "#/$defs/pytest_runtime_spec_payload"},
+        {"$ref": "#/$defs/runtime_probe_spec_payload"},
+        {"$ref": "#/$defs/static_witness_spec_payload"}
+      ]
+    },
+    "witness_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witness_id", "witness_kind", "selector_id", "consumer_id", "required_proof_kind", "spec"],
+      "properties": {
+        "witness_id": {"type": "string", "minLength": 1},
+        "witness_kind": {"enum": ["pytest_runtime", "controller_pytest_runtime", "static_ast", "runtime_probe"]},
+        "selector_id": {"type": "string", "minLength": 1},
+        "consumer_id": {"type": "string", "minLength": 1},
+        "required_proof_kind": {"enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]},
+        "spec": {"$ref": "#/$defs/witness_spec_payload"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "witness_kind": {"const": "pytest_runtime"},
+            "selector_id": {"pattern": "^(?!CO-)"},
+            "required_proof_kind": {"const": "boundary_runtime"},
+            "spec": {"$ref": "#/$defs/pytest_runtime_spec_payload"}
+          }
+        },
+        {
+          "properties": {
+            "witness_kind": {"const": "controller_pytest_runtime"},
+            "selector_id": {"pattern": "^CO-"},
+            "required_proof_kind": {"const": "boundary_runtime"},
+            "spec": {"$ref": "#/$defs/pytest_runtime_spec_payload"}
+          }
+        },
+        {
+          "properties": {
+            "witness_kind": {"const": "static_ast"},
+            "required_proof_kind": {"enum": ["non_cdi_static", "reference_absence"]},
+            "spec": {"$ref": "#/$defs/static_witness_spec_payload"}
+          }
+        },
+        {
+          "properties": {
+            "witness_kind": {"const": "runtime_probe"},
+            "required_proof_kind": {"const": "boundary_runtime"},
+            "spec": {"$ref": "#/$defs/runtime_probe_spec_payload"}
+          }
+        }
+      ]
+    },
+    "desired_proof_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proof_spec_id", "witness_id", "proof_kind", "expected_result"],
+      "properties": {
+        "proof_spec_id": {"type": "string", "minLength": 1},
+        "witness_id": {"type": "string", "minLength": 1},
+        "proof_kind": {"enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]},
+        "expected_result": {"$ref": "#/$defs/json_value"}
+      }
+    },
+    "selector_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sampling_rule", "pytest_carrier", "provider_visible_pytest_selectors", "controller_only_proof_selectors", "coverage_witness_specs", "desired_state_proof_specs"],
+      "properties": {
+        "sampling_rule": {"const": "first_observable_per_provider_and_disposition_witness_class_in_discovery_order.v1"},
+        "pytest_carrier": {"$ref": "#/$defs/pytest_carrier"},
+        "provider_visible_pytest_selectors": {"type": "array", "minItems": 19, "maxItems": 19, "items": {"$ref": "#/$defs/discovery_selector"}},
+        "controller_only_proof_selectors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/controller_selector"}},
+        "coverage_witness_specs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/witness_spec"}},
+        "desired_state_proof_specs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/desired_proof_spec"}}
+      }
+    },
+    "audit_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "paths", "expected_physical_line_count"],
+      "properties": {
+        "group_id": {"type": "string", "minLength": 1},
+        "paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "expected_physical_line_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "external_root_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "immediate_entries"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/"},
+        "status": {"enum": ["ABSENT", "PRESENT_EMPTY_DIRECTORY"]},
+        "immediate_entries": {"type": "array", "maxItems": 0, "items": false}
+      }
+    },
+    "repository_path_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "status": {"const": "ABSENT"}
+      }
+    },
+    "no_consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["captured_at", "external_roots", "repository_paths", "observation_sha256"],
+      "properties": {
+        "captured_at": {"type": "string", "format": "date-time"},
+        "external_roots": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/state/orchestrator/es-f1-full/runs"}}}]},
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/state/orchestrator/es-f1-full/run-refs"}}}]},
+            {"allOf": [{"$ref": "#/$defs/external_root_observation"}, {"properties": {"path": {"const": "/home/ollie/.local/share/agent-orchestration/es-f1-full/evidence"}}}]}
+          ],
+          "items": false
+        },
+        "repository_paths": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/decision-lock.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/controller-package.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/prelaunch-owner-adoption.json"}}}]},
+            {"allOf": [{"$ref": "#/$defs/repository_path_observation"}, {"properties": {"path": {"const": "experiments/orc_effectiveness/f1_es/launch-manifest.json"}}}]}
+          ],
+          "items": false
+        },
+        "observation_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "a1_member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_id", "path", "byte_count", "sha256"],
+      "properties": {
+        "member_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "byte_count": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "a1_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric_version", "git_executable", "git_version", "git_sha256", "diff_controls", "implementation_additions", "implementation_deletions", "candidate_postimage_physical_lines"],
+      "properties": {
+        "metric_version": {"const": "implementation_delta_physical_lines.v1"},
+        "git_executable": {"const": "/usr/bin/git"},
+        "git_version": {"const": "git version 2.43.0"},
+        "git_sha256": {"const": "sha256:2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668"},
+        "diff_controls": {"const": ["--no-ext-diff", "--no-textconv", "--diff-algorithm=histogram", "--find-renames=100%", "--find-copies=100%", "--find-copies-harder"]},
+        "implementation_additions": {"const": 667},
+        "implementation_deletions": {"const": 2},
+        "candidate_postimage_physical_lines": {"const": 690}
+      }
+    },
+    "a1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_root", "members", "metric"],
+      "properties": {
+        "evidence_root": {"const": "/home/ollie/.local/share/agent-orchestration/lean-pilot-evidence/pilot-2026-07-27/a1-v7"},
+        "members": {"type": "array", "minItems": 13, "maxItems": 13, "items": {"$ref": "#/$defs/a1_member"}},
+        "metric": {"$ref": "#/$defs/a1_metric"}
+      }
+    },
+    "witness_observability_reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan", "plan_specification_review", "plan_quality_review", "implementation_review"],
+      "properties": {
+        "plan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": {"const": "docs/plans/2026-08-04-es-f1-witness-observability-correction-plan.md"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "plan_specification_review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "verdict"],
+          "properties": {
+            "path": {"const": "artifacts/review/es-f1-witness-observability-plan-spec-review.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "verdict": {"const": "ES_F1_WITNESS_PLAN_SPEC_APPROVED"}
+          }
+        },
+        "plan_quality_review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "verdict"],
+          "properties": {
+            "path": {"const": "artifacts/review/es-f1-witness-observability-plan-quality-review.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "verdict": {"const": "ES_F1_WITNESS_PLAN_QUALITY_APPROVED"}
+          }
+        },
+        "implementation_review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "verdict", "candidate_set_sha256"],
+          "properties": {
+            "path": {"const": "artifacts/review/es-f1-witness-observability-implementation-review.json"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "verdict": {"const": "ES_F1_WITNESS_IMPLEMENTATION_APPROVED"},
+            "candidate_set_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "proof_query": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["query_kind", "forbidden_names", "forbidden_attributes", "forbidden_string_literals"],
+          "properties": {
+            "query_kind": {"const": "forbidden_syntax_absent"},
+            "forbidden_names": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "forbidden_attributes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "forbidden_string_literals": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["query_kind"],
+          "properties": {"query_kind": {"const": "path_absent"}}
+        }
+      ]
+    },
+    "runtime_probe": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "module", "expected_outcome"],
+          "properties": {
+            "action": {"const": "import_module"},
+            "module": {"$ref": "#/$defs/dotted_identifier"},
+            "expected_outcome": {"$ref": "#/$defs/expected_outcome"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "module", "callable", "args", "kwargs", "return_value", "expected_outcome"],
+          "properties": {
+            "action": {"const": "call"},
+            "module": {"$ref": "#/$defs/dotted_identifier"},
+            "callable": {"$ref": "#/$defs/dotted_identifier"},
+            "args": {"type": "array", "items": {"$ref": "#/$defs/transport_json_value"}},
+            "kwargs": {"type": "object", "additionalProperties": {"$ref": "#/$defs/transport_json_value"}},
+            "return_value": {"const": "ignore"},
+            "expected_outcome": {"$ref": "#/$defs/expected_outcome"}
+          }
+        }
+      ]
+    },
+    "dotted_identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "expected_outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {"status": {"const": "returned"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "exception_type"],
+          "properties": {
+            "status": {"const": "raised"},
+            "exception_type": {"$ref": "#/$defs/dotted_identifier"}
+          }
+        }
+      ]
+    },
+    "transport_json_value": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "integer"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/transport_json_value"}},
+        {"type": "object", "additionalProperties": {"$ref": "#/$defs/transport_json_value"}}
+      ]
+    },
+    "json_value": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "number"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/json_value"}},
+        {"type": "object", "additionalProperties": {"$ref": "#/$defs/json_value"}}
+      ]
+    }
+  }
+}

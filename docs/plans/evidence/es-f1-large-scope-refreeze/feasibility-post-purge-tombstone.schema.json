@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-feasibility-post-purge-tombstone-v1.json",
+  "title": "ES F1 feasibility capture post-purge tombstone",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_status",
+    "purged_at",
+    "capture_manifest",
+    "reviews",
+    "absent_roots",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_feasibility_post_purge_tombstone.v1"},
+    "evidence_status": {"const": "purged_after_ordered_reviews"},
+    "purged_at": {"type": "string", "format": "date-time"},
+    "capture_manifest": {"$ref": "#/$defs/file_binding"},
+    "reviews": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/review_binding"},
+            {"properties": {"review_kind": {"const": "specification"}, "path": {"const": "artifacts/review/es-f1-large-scope-amendment-plan-specification-review.md"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/review_binding"},
+            {"properties": {"review_kind": {"const": "quality"}, "path": {"const": "artifacts/review/es-f1-large-scope-amendment-plan-quality-review.md"}}}
+          ]
+        }
+      ],
+      "items": false
+    },
+    "absent_roots": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {"$ref": "#/$defs/absent_root"}
+    },
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "file_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "review_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_kind", "path", "sha256"],
+      "properties": {
+        "review_kind": {"enum": ["specification", "quality"]},
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "absent_root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root_id", "canonical_path", "lstat"],
+      "properties": {
+        "root_id": {"type": "string", "pattern": "^root-[0-9a-f]{32}$"},
+        "canonical_path": {"type": "string", "pattern": "^/"},
+        "lstat": {"const": "absent"}
+      }
+    }
+  }
+}

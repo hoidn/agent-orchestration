@@ -5,8 +5,9 @@
 - **Status:** accepted for provider-free ES execution; Tasks 0–5 are complete;
   the owner-directed large-scope F1 refreeze is next; live allocation remains
   prohibited
-- **Owner:** agent-orchestration maintainers; the scientific decision-lock
-  choices require a separate personal adoption by Ollie before live work
+- **Owner:** agent-orchestration maintainers; the prospective
+  `decision_lock.v3` choices require the one personal adoption by Ollie in the
+  refreeze plan's Task 8 before live work
 - **Selected stage:** ES only — the post-`PASS_E2` first effectiveness study
   that is a mandatory input to the E3 continue/narrow/stop review
 - **Implementation baseline:** commit
@@ -83,6 +84,9 @@
     (`sha256:a42a1db72b887eb94cfa7c3fe93fe6e7269e99daa2867ccd484d16bbe0f0d41b`)
   - the digest-bound E2 final review
     (`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`)
+  - `docs/plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md`,
+    the selected provider-free replacement sequence for the superseded
+    prelaunch F1 task bytes
 
 ## Authority reconciliation
 
@@ -146,8 +150,11 @@ The candidate task must produce working product code/tests, an ADR, a concise
 extension-author guide, a versioned candidate-evidence manifest, and the fixed
 solution-neutral lifecycle adapter. The hard evaluator exercises configure,
 construct, forward, loss/backward, a bounded optimizer step, save, and
-fresh-process reload/inference for one migrated representative architecture
-and one small witness architecture. It independently verifies facts instead
+fresh-process reload/inference for the exact fourteen frozen built-ins plus one
+candidate-declared witness architecture. The controller-only conforming
+reference product must measure 5,000–10,000 physical implementation delta
+lines; tests and documentation are additional, and candidate products are never
+measured or judged by LOC. The evaluator independently verifies facts instead
 of trusting the candidate manifest.
 
 ## Direct architecture and deliberate limits
@@ -155,9 +162,10 @@ of trusting the candidate manifest.
 Use the smallest study-owned layer over target 2.25:
 
 1. a deterministic, history-free source projector and verifier;
-2. one four-arm Workflow Lisp trial plus role-specific prompt assets;
+2. one exact full-matrix four-arm Workflow Lisp trial plus role-specific
+   prompt assets;
 3. a PATH-front metering shim around the pinned noninteractive Codex CLI;
-4. a strict `decision_lock.v1` exact-rational validator and deterministic
+4. a strict prospective `decision_lock.v3` exact-rational validator and deterministic
    synthesis command; and
 5. F1 task, lifecycle, hidden-evaluator, review, and report assets.
 
@@ -165,6 +173,10 @@ The study is rooted under `experiments/orc_effectiveness/f1_es/`, its thin
 commands under `scripts/experiments/es/`, and its `.orc` programs under
 `workflows/experiments/qa_placement_effectiveness/`. It uses the public E2
 trial entry rather than a second runner or trial service.
+
+The completed Task-3 `decision_lock.v1` bytes remain explicitly historical
+provenance for the superseded prelaunch package; they are not a prospective
+lock and are never launch authority for the refrozen study.
 
 This narrow choice makes multi-task generalization, F2 consumer consequences,
 native E2 monetary accounting, adaptive denominators, and arbitrary future
@@ -233,7 +245,9 @@ history or unreachable objects.
 `ptycho/FRC` is not globally dispensable: packaging, FRC metrics, and broader
 evaluation use it. ES therefore runs in place under `ptycho311`, performs no
 install/build, excludes `ptycho.evaluation` and FRC claims, and proves the
-smaller F1 closure dynamically. The focused baseline is exactly:
+then-bounded F1 closure dynamically. That closure is superseded historical
+scope. The superseded prelaunch task's historical
+focused baseline was exactly:
 
 - `tests/torch/test_generator_registry.py`;
 - `tests/torch/test_construction_consolidation.py`;
@@ -246,8 +260,15 @@ smaller F1 closure dynamically. The focused baseline is exactly:
 - `tests/torch/test_artifact_schema_v2.py`; and
 - `tests/torch/test_workflows_components.py`.
 
-The final task profile binds each path and digest. Full-repo equivalence is not
-claimed.
+The replacement refreeze retains those ten in order and adds exactly
+`test_fno_generators.py`, `test_fno_lightning_integration.py`,
+`test_neuralop_uno_generator.py`, `test_model_output_modes.py`,
+`test_model_manager.py`, `test_model_training.py`,
+`test_train_lightning_execution_contract.py`,
+`test_object_big_generator_contract.py`, and
+`test_structural_config_ownership.py`. Its final task profile binds the exact
+nineteen paths and digests; the separate candidate-owned selector remains
+outside that pre-edit lane. Full-repo equivalence is not claimed.
 
 ## Arm and evaluation contract
 
@@ -298,10 +319,12 @@ following before launch:
 - unchanged construction and state signatures for existing built-ins;
 - supported artifact-era model, checkpoint, and bundle fixtures continuing to
   decode and strict-load;
-- both nominated architectures completing evaluator-owned construct, forward,
-  backward, optimizer-step, save, fresh-process reload, and inference;
-- the witness architecture preserving every structural value across save and
-  fresh-process reload;
+- all fourteen frozen built-ins plus the candidate-declared witness completing
+  evaluator-owned construct, forward, backward, optimizer-step, checkpoint and
+  bundle save, both fresh-process reload routes, and inference;
+- every architecture preserving its structural values across both persistence
+  routes, with the witness owning at least one distinct identity-sensitive
+  structural field and implementation identity;
 - missing, extra, unknown, or unsupported structural identity failing before
   a module is returned;
 - declared structural fields changing frozen artifact/content identity
@@ -570,11 +593,11 @@ ordered `ES_TASK1_SPEC_APPROVED` then distinct `ES_TASK1_QUALITY_APPROVED`;
 see `artifacts/review/es-first-effectiveness-study-task1-review.md`. The fresh
 postcommit Task-1 module passed 25 tests in 81.44 seconds, and the postcommit
 routing/readiness control passed 112 tests in 5.99 seconds. This closed only
-the history-free F1 projection and selected Task 2. Task 2 has since closed at
-`d24c1818`; Task 3 has since closed at `0d16ca36`, Task 4 at `d72c6085`,
-and Task 5 is selected.
-Live allocation remains gated on the
-Task-6 exact scientific-lock owner adoption.
+the history-free F1 projection and selected Task 2. Tasks 2–5 have since
+closed at `d24c1818`, `0d16ca36`, `d72c6085`, and `e5ec552d`. The
+owner-directed large-scope refreeze Task 0 is now the current provider-free
+unit; live allocation remains prohibited until the refreeze's one Task-8
+`decision_lock.v3` owner adoption.
 
 ## Task 2: Freeze and calibrate the F1 task/evaluator package
 
@@ -642,9 +665,11 @@ collected 211 tests; its precommit gate passed 211 tests in 322.73 seconds, the
 final focused evaluator replay passed 61, the quality replay passed 40,
 Pyright was clean, and deterministic task-seed closure passed. The fresh
 postcommit Task-2 control passed 211 tests in 282.83 seconds (`0:04:42`). This
-closes only the provider-free task/evaluator package. Task 3 has since closed
-at `0d16ca36`, Task 4 at `d72c6085`, and Task 5 is selected, while live
-allocation remains gated on the Task-6 exact scientific-lock owner adoption.
+closes only the provider-free task/evaluator package. Tasks 3–5 have since
+closed at `0d16ca36`, `d72c6085`, and `e5ec552d`. The owner-directed
+large-scope refreeze Task 0 is now the current provider-free unit; live
+allocation remains prohibited until the refreeze's one Task-8
+`decision_lock.v3` owner adoption.
 
 ## Task 3: Land exact metering and decision-lock validation
 
@@ -693,9 +718,11 @@ received ordered `ES_TASK3_SPEC_APPROVED` then distinct
 `artifacts/review/es-first-effectiveness-study-task3-review.md`. The final
 candidate collected and passed 92 tests in 7.97 seconds, Pyright was clean,
 and the fresh postcommit control passed 92 tests in 8.03 seconds. This closes
-only provider-free metering and decision-lock validation. Task 4 has since
-closed at `d72c6085`, and Task 5 is selected; no provider-bearing attempt is
-authorized before the Task-6 exact scientific-lock owner adoption.
+only provider-free metering and decision-lock validation. Tasks 4 and 5 have
+since closed at `d72c6085` and `e5ec552d`. The owner-directed large-scope
+refreeze Task 0 is now the current provider-free unit; no provider-bearing
+attempt is authorized before the refreeze's one Task-8 `decision_lock.v3`
+owner adoption.
 
 ## Task 4: Implement the four treatment workflows
 
@@ -754,8 +781,10 @@ candidate gate passed 222 tests, the affected integration cluster passed 56,
 the adjacent E2/ES gate passed 89, Pyright was clean on the changed public
 surfaces, and the full repository gate passed 12,916 tests with 23 skips. The
 fresh postcommit controls passed 222 and 56 tests. This closes only the
-provider-free treatment workflow package. Task 5 is selected; live provider
-allocation remains prohibited before the Task-6 owner adoption.
+provider-free treatment workflow package. Task 5 has since closed at
+`e5ec552d`. The owner-directed large-scope refreeze Task 0 is now the current
+provider-free unit; live provider allocation remains prohibited until the
+refreeze's one Task-8 `decision_lock.v3` owner adoption.
 
 ### Task-5 deterministic controller contract clarification
 
@@ -979,33 +1008,56 @@ focused gate passed 1,048 tests, treatment parity passed 42, and the broad
 non-security gate passed 12,332 with 19 skips. This closure authorizes no live
 provider call.
 
-## Task 6: Freeze the prelaunch package and obtain owner adoption
+## Selected large-scope F1 pre-run refreeze
 
-**Files:** canonical manifests/lock and an exact pending adoption form under
-`experiments/orc_effectiveness/f1_es/`; create
-`artifacts/review/es-first-effectiveness-study-prelaunch-review.md`.
+The implementation-grade sequence is
+`docs/plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md`. It
+preserves Tasks 0–5 above as historical-complete apparatus provenance while
+classifying the original two-architecture task package as
+`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`. The replacement binds all fourteen
+frozen built-ins plus one candidate-declared witness, the exact nineteen-module
+pre-edit lane, projection-wide consumer/proof authority, and a genuine
+controller-only conforming product of 5,000–10,000 physical implementation
+delta lines; tests and documentation are additional. Candidate products are
+never measured or judged by LOC. It does not change the
+four treatment arms, allocate a provider, consume an attempt identity, or
+alter a denominator.
 
-Task 6 is not yet eligible. The owner-directed large-scope F1 refreeze must
-first replace the superseded small task with a reviewed 5,000–10,000
-implementation-LOC reference-calibrated package, with tests and docs metered
-separately. Until that provider-free amendment and its exact owner adoption
-close, no arm, attempt ID, invalid-attempt allowance, or denominator row may be
-consumed.
+The owner-selected operational multi-context criterion combines that strict
+5,000–10,000 reference-size gate with four independently unmet clusters, three
+authenticated cross-blob edges, remove-one failures for every implemented
+cluster slice, and the non-collapse requirement. It is not a universal
+mathematical impossibility theorem about provider contexts and creates no
+tokenizer or context-capacity gate.
 
-- [ ] Freeze all task-seed, environment, apparatus, workflow, prompt,
-      evaluator, fixture, schedule, report, hard-contract/disposition, and
-      reviewer-perspective bytes.
-- [ ] Generate the complete canonical decision lock and verify every derived
-      field from scratch.
-- [ ] Run the projected baseline, provider-free end to end, metering
-      round-trip, tamper matrix, and dedicated-root emptiness/isolation checks.
-- [ ] Obtain ordered prelaunch specification then quality reviews against the
-      exact package.
-- [ ] Publish the exact owner-adoption form containing the lock digest and all
-      authored scientific choices. Stop before provider execution unless Ollie
-      personally adopts it or explicitly delegates this specific decision.
-- [ ] Verify the resulting closed adoption record and bind it into the launch
-      manifest without changing any study choice.
+Task 0 of that sequence is the current provider-free unit. Its ordered reviews
+must adopt the exact plan, policy, census, selector manifest, A1 anchor, and
+immutable proof runner before any task-package edit. Refreeze Tasks 1–8
+satisfy, replace, and subsume this component plan's old Task 6 package-freeze,
+review, and owner-adoption work. There is no second Task-6 gate: after the one
+owner adoption closes in refreeze Task 8, existing ES Task 7 is next. No F1
+arm, provider session, study attempt,
+invalid-attempt allowance, or denominator row may be consumed during the
+refreeze.
+
+## Task 6: Routing-only gate subsumed by the F1 refreeze
+
+**Files:** none; routing only. The refreeze plan owns every prospective
+manifest, lock, adoption, and review byte formerly assigned here.
+
+This future gate is not complete today. Refreeze Tasks 1–8 satisfy, replace,
+and subsume all work formerly listed here: exact package freeze, provider-free
+checks, ordered specification then quality review, prospective
+`decision_lock.v3`, launch-manifest binding, and one owner adoption. Do not run
+a duplicate review or adoption gate under this heading. Existing ES Task 7 is
+next only after refreeze Task 8 closes; live allocation remains prohibited
+until then.
+
+- [ ] Treat this routing gate as satisfied only when refreeze Tasks 1–8 close
+      their exact package, reviews, `decision_lock.v3`, and owner-adoption
+      records.
+- [ ] Hand directly to existing ES Task 7 without another freeze, review, or
+      owner-adoption action.
 
 ## Task 7: Run the locked live series
 

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-task0-review-adoption-v1.json",
+  "title": "ES F1 Task 0 ordered review adoption",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_status",
+    "bindings",
+    "reviews",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_task0_review_adoption.v1"},
+    "evidence_status": {"const": "approved"},
+    "bindings": {"$ref": "#/$defs/adoption_bindings"},
+    "reviews": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"$ref": "#/$defs/specification_review"},
+        {"$ref": "#/$defs/quality_review"}
+      ],
+      "items": false
+    },
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_sha256",
+        "preedit_policy_sha256",
+        "source_census_sha256",
+        "selector_manifest_sha256",
+        "a1_anchor_sha256"
+      ],
+      "properties": {
+        "plan_sha256": {"$ref": "#/$defs/sha256"},
+        "preedit_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "source_census_sha256": {"$ref": "#/$defs/sha256"},
+        "selector_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "a1_anchor_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "adoption_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_sha256",
+        "preedit_policy_sha256",
+        "source_census_sha256",
+        "selector_manifest_sha256",
+        "a1_anchor_sha256",
+        "post_purge_tombstone_sha256"
+      ],
+      "properties": {
+        "plan_sha256": {"$ref": "#/$defs/sha256"},
+        "preedit_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "source_census_sha256": {"$ref": "#/$defs/sha256"},
+        "selector_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "a1_anchor_sha256": {"$ref": "#/$defs/sha256"},
+        "post_purge_tombstone_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "review_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_kind",
+        "reviewer",
+        "verdict",
+        "reviewed_at",
+        "review_view_path",
+        "review_view_sha256",
+        "bindings"
+      ],
+      "properties": {
+        "review_kind": {"enum": ["specification", "quality"]},
+        "reviewer": {"type": "string", "minLength": 1},
+        "verdict": {
+          "enum": [
+            "ES_F1_SCOPE_AMENDMENT_PLAN_SPEC_APPROVED",
+            "ES_F1_SCOPE_AMENDMENT_PLAN_QUALITY_APPROVED"
+          ]
+        },
+        "reviewed_at": {"$ref": "#/$defs/timestamp"},
+        "review_view_path": {"type": "string", "minLength": 1},
+        "review_view_sha256": {"$ref": "#/$defs/sha256"},
+        "bindings": {"$ref": "#/$defs/bindings"}
+      }
+    },
+    "specification_review": {
+      "allOf": [
+        {"$ref": "#/$defs/review_base"},
+        {
+          "properties": {
+            "review_kind": {"const": "specification"},
+            "verdict": {"const": "ES_F1_SCOPE_AMENDMENT_PLAN_SPEC_APPROVED"},
+            "review_view_path": {
+              "const": "artifacts/review/es-f1-large-scope-amendment-plan-specification-review.md"
+            }
+          }
+        }
+      ]
+    },
+    "quality_review": {
+      "allOf": [
+        {"$ref": "#/$defs/review_base"},
+        {
+          "properties": {
+            "review_kind": {"const": "quality"},
+            "verdict": {"const": "ES_F1_SCOPE_AMENDMENT_PLAN_QUALITY_APPROVED"},
+            "review_view_path": {
+              "const": "artifacts/review/es-f1-large-scope-amendment-plan-quality-review.md"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

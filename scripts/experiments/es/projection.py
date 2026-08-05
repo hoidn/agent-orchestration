@@ -1638,13 +1638,18 @@ def run_import_origin_probe(
             "ES_PROBE_EDITABLE_PREFIX": _PTYCHOPINN_EDITABLE_PREFIX,
         }
     )
-    completed = subprocess.run(
+    from scripts.experiments.es import boundary_proofs as boundary
+
+    carrier = boundary._verify_pytest_carrier(
+        boundary.PINNED_PYTEST_CARRIER,
+        expected_sha256=boundary.PINNED_PYTEST_CARRIER_SHA256,
+    )
+    completed = boundary._run_private_tmp_child(
+        carrier,
         (str(interpreter), "-c", _IMPORT_ORIGIN_BOOTSTRAP),
         cwd=root,
         env=env,
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        preserved_paths=(root, report.parent),
     )
     try:
         raw = report.read_bytes()

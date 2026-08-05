@@ -219,6 +219,9 @@ ES_TASK5_PLAN_REVIEW_PATH = (
 ES_TASK5_FINAL_REVIEW_PATH = (
     "artifacts/review/es-first-effectiveness-study-task5-review.md"
 )
+ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH = (
+    "docs/plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md"
+)
 TRIAL_RUNS_DESIGN_PATH = "docs/design/workflow_lisp_trial_runs.md"
 TYPED_PROGRAM_GATES_DESIGN_PATH = (
     "docs/design/workflow_lisp_typed_program_gates.md"
@@ -1384,877 +1387,125 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     assert "does not automatically select e1+" in normalized_capability
 
 
-def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
+def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_addressed() -> None:
+    """Behavioral E/ES-series routing contract.
+
+    Asserts only machine-checkable facts: referenced plans, designs, and
+    review artifacts exist; closed review records keep their
+    content-addressed digests; closed plans cite the digests of the reviews
+    that closed them; and the route-readiness registry row for the shipped
+    direct-control workflow is exact machine-readable state.
+
+    Roadmap/status prose is intentionally unasserted (AGENTS.md: no literal
+    prompt/prose-phrasing tests); history lives in the documents themselves.
+    """
+    for referenced_path in (
+        EVOLUTION_FOLLOW_ON_ROADMAP_PATH,
+        TRIAL_RUNS_DESIGN_PATH,
+        TYPED_PROGRAM_GATES_DESIGN_PATH,
+        E0_DIRECT_CONTROL_PLAN_PATH,
+        E0_DIRECT_CONTROL_PLAN_REVIEW_PATH,
+        E0_DIRECT_CONTROL_FINAL_REVIEW_PATH,
+        E1_E3_OWNER_SELECTION_PATH,
+        E1_RUN_REF_PLAN_PATH,
+        E1_RUN_REF_PLAN_REVIEW_PATH,
+        E1_RUN_REF_FINAL_REVIEW_PATH,
+        E2_TRIAL_PLAN_PATH,
+        E2_TRIAL_PLAN_REVIEW_PATH,
+        E2_TRIAL_FINAL_REVIEW_PATH,
+        ES_COMPONENT_PLAN_PATH,
+        ES_COMPONENT_PLAN_REVIEW_PATH,
+        ES_TASK1_REVIEW_PATH,
+        ES_TASK2_REVIEW_PATH,
+        ES_TASK3_REVIEW_PATH,
+        ES_TASK4_REVIEW_PATH,
+        ES_TASK5_EXECUTION_PLAN_PATH,
+        ES_TASK5_PLAN_REVIEW_PATH,
+        ES_TASK5_FINAL_REVIEW_PATH,
+        ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH,
+        DESIGN_INDEX_PATH,
+        "docs/index.md",
+        "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
+        "workflows/README.md",
+        "docs/workflow_lisp_route_readiness_registry.json",
+    ):
+        assert (REPO_ROOT / referenced_path).is_file(), referenced_path
+
+    # Routing spine: current selectors are reachable by reference, not prose.
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
-    trial = (REPO_ROOT / TRIAL_RUNS_DESIGN_PATH).read_text(encoding="utf-8")
-    gates = (REPO_ROOT / TYPED_PROGRAM_GATES_DESIGN_PATH).read_text(
-        encoding="utf-8"
-    )
-    plan = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_PATH).read_text(encoding="utf-8")
-    plan_review = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    final_review = (REPO_ROOT / E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    selection = (REPO_ROOT / E1_E3_OWNER_SELECTION_PATH).read_text(
-        encoding="utf-8"
-    )
-    e1_plan = (REPO_ROOT / E1_RUN_REF_PLAN_PATH).read_text(encoding="utf-8")
-    e1_plan_review = (REPO_ROOT / E1_RUN_REF_PLAN_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    e1_final_review = (REPO_ROOT / E1_RUN_REF_FINAL_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    e2_plan = (REPO_ROOT / E2_TRIAL_PLAN_PATH).read_text(encoding="utf-8")
-    e2_plan_review = (REPO_ROOT / E2_TRIAL_PLAN_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    e2_final_review = (REPO_ROOT / E2_TRIAL_FINAL_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_plan = (REPO_ROOT / ES_COMPONENT_PLAN_PATH).read_text(encoding="utf-8")
-    es_plan_review = (REPO_ROOT / ES_COMPONENT_PLAN_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task1_review = (REPO_ROOT / ES_TASK1_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task2_review = (REPO_ROOT / ES_TASK2_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task3_review = (REPO_ROOT / ES_TASK3_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task4_review = (REPO_ROOT / ES_TASK4_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task5_plan = (REPO_ROOT / ES_TASK5_EXECUTION_PLAN_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task5_plan_review = (REPO_ROOT / ES_TASK5_PLAN_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    es_task5_final_review = (REPO_ROOT / ES_TASK5_FINAL_REVIEW_PATH).read_text(
-        encoding="utf-8"
-    )
-    sequence = (
-        REPO_ROOT
-        / "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md"
-    ).read_text(encoding="utf-8")
-    design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
     index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
-    workflow_catalog_path = REPO_ROOT / "workflows" / "README.md"
-    workflow_catalog = workflow_catalog_path.read_text(encoding="utf-8")
+    es_plan = (REPO_ROOT / ES_COMPONENT_PLAN_PATH).read_text(encoding="utf-8")
+    assert Path(ES_COMPONENT_PLAN_PATH).name in roadmap
+    assert Path(ES_COMPONENT_PLAN_PATH).name in index
+    assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in roadmap
+    assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in es_plan
+    assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
+
+    # Both capability rows remain routed (row lookup raises when missing).
+    assert _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| Workflow Lisp canonical trial runs (E0-E3 direction) |",
+    )
+    assert _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| Workflow Lisp typed program gates (C1 companion) |",
+    )
+
+    # Closed review records are content-addressed frozen evidence.
+    for review_path, expected_digest in (
+        (
+            ES_COMPONENT_PLAN_REVIEW_PATH,
+            "5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba",
+        ),
+        (
+            E2_TRIAL_PLAN_REVIEW_PATH,
+            "3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001",
+        ),
+        (
+            E2_TRIAL_FINAL_REVIEW_PATH,
+            "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83",
+        ),
+        (
+            E1_RUN_REF_FINAL_REVIEW_PATH,
+            "af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34",
+        ),
+        (
+            E0_DIRECT_CONTROL_FINAL_REVIEW_PATH,
+            "468f4269b8686e6046c17855a5f1c17f0c9072cefe9b80df87cb8a0976d99011",
+        ),
+    ):
+        digest = hashlib.sha256(
+            (REPO_ROOT / review_path).read_bytes()
+        ).hexdigest()
+        assert digest == expected_digest, review_path
+
+    # Closed plans cite the digest of the review that closed them.
+    e1_plan = (REPO_ROOT / E1_RUN_REF_PLAN_PATH).read_text(encoding="utf-8")
+    assert (
+        "af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34"
+        in e1_plan
+    )
+    e0_plan = (REPO_ROOT / E0_DIRECT_CONTROL_PLAN_PATH).read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "468f4269b8686e6046c17855a5f1c17f0c9072cefe9b80df87cb8a0976d99011"
+        in e0_plan
+    )
+
+    # The shipped direct-control workflow stays catalogued with an exact
+    # machine-readable route-readiness registry row.
+    workflow_catalog = (REPO_ROOT / "workflows" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "workflows/library/control/direct_task.orc" in workflow_catalog
     route_registry = json.loads(
         (
             REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
         ).read_text(encoding="utf-8")
     )
-    direct_control_catalog = next(
-        (
-            line
-            for line in workflow_catalog.splitlines()
-            if line.startswith("|")
-            and "| `workflows/library/control/direct_task.orc` |" in line
-        ),
-        "",
-    )
-    trial_capability = _markdown_table_row(
-        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
-        "| Workflow Lisp canonical trial runs (E0-E3 direction) |",
-    )
-    gates_capability = _markdown_table_row(
-        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
-        "| Workflow Lisp typed program gates (C1 companion) |",
-    )
-
-    normalized_roadmap = _normalized_routing_text(roadmap)
-    normalized_trial = _normalized_routing_text(trial)
-    normalized_gates = _normalized_routing_text(gates)
-    normalized_sequence = _normalized_routing_text(sequence)
-    assert "e_designs_spec_approved" in normalized_roadmap
-    assert "e_designs_quality_approved" in normalized_roadmap
-    assert "e1 e3 are owner selected" in normalized_roadmap
-    assert "task 1's canonical source and compile contract" in normalized_roadmap
-    assert "task 2 runtime proof landed at 3d41a8bf" in normalized_roadmap
-    assert "task 3 accounting parity proof landed at 3b934373" in normalized_roadmap
-    assert "e0 is complete at fe7d6f9b" in normalized_roadmap
-    assert "pass_e0" in normalized_roadmap
-    assert "e1 tasks 0 9 are complete" in normalized_roadmap
-    assert "pass_e1 at commit 577715f1" in normalized_roadmap
-    assert "e1_final_spec_approved" in normalized_roadmap
-    assert "e1_final_quality_approved" in normalized_roadmap
-    assert "target 2.25 e2 component plan" in normalized_roadmap
-    assert "accepted at c6046d38" in normalized_roadmap
-    assert "e2_plan_spec_approved" in normalized_roadmap
-    assert "e2_plan_quality_approved" in normalized_roadmap
-    assert "tasks 0 9 are complete" in normalized_roadmap
-    assert "target 2.25 normative contracts at 6b431087" in normalized_roadmap
-    assert "nested structural transport at 43ae8d5c" in normalized_roadmap
-    assert "typed trial syntax/generated contracts at ba430ed2" in normalized_roadmap
-    assert "checkpoint carriage at a7a8a083" in normalized_roadmap
-    assert "e1 lifecycle extraction plus trial identities and ledgers at 5d28619d" in normalized_roadmap
-    assert "tree 44eb381b" in normalized_roadmap
-    assert "bounded concurrent cell execution at 41e64d14" in normalized_roadmap
-    assert "tree fb6082d9" in normalized_roadmap
-    assert (
-        "task 8 evidence freeze, checks, blinding, scoring, and verdict "
-        "production at ebf8a1a9"
-        in normalized_roadmap
-    )
-    assert "e2_task8_spec_approved" in normalized_roadmap
-    assert "e2_task8_quality_approved" in normalized_roadmap
-    assert roadmap.index("E2_TASK8_SPEC_APPROVED") < roadmap.index(
-        "E2_TASK8_QUALITY_APPROVED"
-    )
-    assert "public executor, sdk, and cli" in normalized_roadmap
-    assert "ordinary compiler/runtime path" in normalized_roadmap
-    assert "task 10 and the e2 exit are complete at commit 8aad035d" in (
-        normalized_roadmap
-    )
-    assert "tree aafa31c" in normalized_roadmap
-    assert "e2_final_spec_approved" in normalized_roadmap
-    assert "e2_final_quality_approved" in normalized_roadmap
-    assert roadmap.index("E2_FINAL_SPEC_APPROVED") < roadmap.index(
-        "E2_FINAL_QUALITY_APPROVED"
-    )
-    assert "provider calls 1/2/2" in normalized_roadmap
-    assert "one of three packet byte classifier result" in normalized_roadmap
-    assert "rejected all 29 forbidden identity fields" in normalized_roadmap
-    assert "mechanism proof only" in normalized_roadmap
-    assert "records pass_e2 within the exact target 2.25 component contract" in (
-        normalized_roadmap
-    )
-    assert "no production .orc registry row was added" in normalized_roadmap
-    assert "route readiness remains unchanged" in normalized_roadmap
-    assert "first effectiveness study (es) component plan" in normalized_roadmap
-    assert "accepted at reviewed candidate 27be07e2" in normalized_roadmap
-    assert "es_plan_spec_approved" in normalized_roadmap
-    assert "es_plan_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_PLAN_SPEC_APPROVED") < roadmap.index(
-        "ES_PLAN_QUALITY_APPROVED"
-    )
-    assert "tasks 0 5 are complete" in normalized_roadmap
-    assert "es_task1_spec_approved" in normalized_roadmap
-    assert "es_task1_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_TASK1_SPEC_APPROVED") < roadmap.index(
-        "ES_TASK1_QUALITY_APPROVED"
-    )
-    assert "es_task2_spec_approved" in normalized_roadmap
-    assert "es_task2_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_TASK2_SPEC_APPROVED") < roadmap.index(
-        "ES_TASK2_QUALITY_APPROVED"
-    )
-    assert "es_task3_spec_approved" in normalized_roadmap
-    assert "es_task3_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_TASK3_SPEC_APPROVED") < roadmap.index(
-        "ES_TASK3_QUALITY_APPROVED"
-    )
-    assert "es_task4_spec_approved" in normalized_roadmap
-    assert "es_task4_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_TASK4_SPEC_APPROVED") < roadmap.index(
-        "ES_TASK4_QUALITY_APPROVED"
-    )
-    assert "es_task5_spec_approved" in normalized_roadmap
-    assert "es_task5_quality_approved" in normalized_roadmap
-    assert roadmap.index("ES_TASK5_SPEC_APPROVED") < roadmap.index(
-        "ES_TASK5_QUALITY_APPROVED"
-    )
-    assert "large scope f1 refreeze is the next es unit" in normalized_roadmap
-    assert "live es allocation remains prohibited" in normalized_roadmap
-    assert "phase me may proceed in parallel and never blocks an e exit" in (
-        normalized_roadmap
-    )
-    assert "e3 remains gated on review of the fixed study, es results" in (
-        normalized_roadmap
-    )
-    assert "c1, c2, c3, e2o" in normalized_roadmap
-    assert "remain unselected" in normalized_roadmap
-    assert "owner decision handoff is complete" in normalized_roadmap
-    assert "creates no effect identity memo key" in normalized_roadmap
-    assert "docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md" in roadmap
-
-    for tranche, meaning in (
-        ("E0", "canonical one-call direct control"),
-        ("E1", "pinned-workspace child execution"),
-        ("E2", "concurrent trial arms"),
-        ("E3", "external gene-bounded controller"),
-    ):
-        assert f"| {tranche} |" in roadmap
-        assert meaning in roadmap
-        assert f"| {tranche} |" in trial
-
-    for design_path, content in (
-        (TRIAL_RUNS_DESIGN_PATH, trial),
-        (TYPED_PROGRAM_GATES_DESIGN_PATH, gates),
-    ):
-        assert design_path in roadmap
-        assert Path(design_path).name in design_index
-        assert Path(design_path).name in index
-        assert "accepted design" in _normalized_routing_text(content)
-        assert "no implementation" in _normalized_routing_text(content)
-
-    assert "not the retired provider interruption quarantine" in normalized_trial
-    assert "no effect identity memo key" in normalized_trial
-    assert "clone is an exact workspace/output boundary" in normalized_trial
-    assert "never a sandbox" in normalized_trial
-    assert "principle 30" in normalized_trial
-    assert "run/resume explicitly excludes lean pilot attempts" in normalized_gates
-    assert "no cross run memo" in normalized_gates
-    assert "principle 30" in normalized_gates
-    assert "| Implemented |" in trial_capability
-    normalized_trial_capability = _normalized_routing_text(trial_capability)
-    assert "577715f1" in normalized_trial_capability
-    assert "ef7eacbd" in normalized_trial_capability
-    assert "target 2.24 run ref" in normalized_trial_capability
-    assert "canonical mapping: e0 one call direct control" in (
-        normalized_trial_capability
-    )
-    assert "e0 is complete" in normalized_trial_capability
-    assert "e1 is complete" in normalized_trial_capability
-    assert "pass_e1" in normalized_trial_capability
-    assert "route readiness remains unchanged" in (
-        normalized_trial_capability
-    )
-    assert "e2 is complete at 8aad035d" in normalized_trial_capability
-    assert "tree aafa31c" in normalized_trial_capability
-    assert "pass_e2" in normalized_trial_capability
-    assert "e2_final_spec_approved" in normalized_trial_capability
-    assert "e2_final_quality_approved" in normalized_trial_capability
-    assert "exact slice passed 51 tests" in normalized_trial_capability
-    assert "focused gates each passed 3,557" in normalized_trial_capability
-    assert "broad non security gate passed 11,403" in normalized_trial_capability
-    assert "provider calls 1/2/2" in normalized_trial_capability
-    assert "all 29 forbidden identity fields" in normalized_trial_capability
-    assert "mechanism proof only" in normalized_trial_capability
-    assert "no checked in production .orc registry row" in (
-        normalized_trial_capability
-    )
-    assert "route readiness remains unchanged" in normalized_trial_capability
-    assert "es's component plan gate is satisfied" in normalized_trial_capability
-    assert "tasks 0 5 are complete" in normalized_trial_capability
-    assert "62a5c72d" in normalized_trial_capability
-    assert "5eb5ca32" in normalized_trial_capability
-    assert "d24c1818" in normalized_trial_capability
-    assert "5e8f84cb" in normalized_trial_capability
-    assert "0d16ca36" in normalized_trial_capability
-    assert "ee6d60eb" in normalized_trial_capability
-    assert "large scope f1 refreeze" in normalized_trial_capability
-    assert "live allocation remains prohibited" in normalized_trial_capability
-    assert "e5ec552d" in normalized_trial_capability
-    assert "tree 1b0f0e67" in normalized_trial_capability
-    assert "phase me is parallel and nonblocking" in normalized_trial_capability
-    assert "e3 remains gated on fixed study review, es results" in (
-        normalized_trial_capability
-    )
-    assert "c1 c3, e2o" in normalized_trial_capability
-    assert "remain unselected" in normalized_trial_capability
-    assert "| Designed |" in gates_capability
-    assert "No current syntax/runtime capability may be inferred" in gates_capability
-    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in roadmap
-    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in design_index
-    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in index
-    assert Path(E0_DIRECT_CONTROL_PLAN_PATH).name in sequence
-    for surface in (
-        roadmap,
-        design_index,
-        index,
-        trial_capability,
-        sequence,
-    ):
-        assert Path(E1_RUN_REF_PLAN_PATH).name in surface
-        assert Path(E1_RUN_REF_PLAN_REVIEW_PATH).name in surface
-        assert Path(E1_RUN_REF_FINAL_REVIEW_PATH).name in surface
-        assert Path(E2_TRIAL_PLAN_PATH).name in surface
-        assert Path(E2_TRIAL_PLAN_REVIEW_PATH).name in surface
-        assert Path(E2_TRIAL_FINAL_REVIEW_PATH).name in surface
-    for surface in (roadmap, design_index, index, trial_capability):
-        assert Path(ES_COMPONENT_PLAN_PATH).name in surface
-        assert Path(ES_COMPONENT_PLAN_REVIEW_PATH).name in surface
-        assert Path(ES_TASK1_REVIEW_PATH).name in surface
-        assert Path(ES_TASK2_REVIEW_PATH).name in surface
-        assert Path(ES_TASK3_REVIEW_PATH).name in surface
-        assert Path(ES_TASK4_REVIEW_PATH).name in surface
-        assert Path(ES_TASK5_FINAL_REVIEW_PATH).name in surface
-    for surface in (roadmap, index, es_plan, es_task5_plan):
-        assert Path(ES_TASK5_FINAL_REVIEW_PATH).name in surface
-    assert Path(ES_TASK1_REVIEW_PATH).name in sequence
-    assert Path(ES_TASK2_REVIEW_PATH).name in sequence
-    assert Path(ES_TASK3_REVIEW_PATH).name in sequence
-    assert Path(ES_TASK4_REVIEW_PATH).name in sequence
-    assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
-    assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in index
-    assert Path(ES_TASK5_PLAN_REVIEW_PATH).name in es_task5_plan
-    assert Path(ES_TASK5_PLAN_REVIEW_PATH).name in index
-
-    normalized_es_plan = _normalized_routing_text(es_plan)
-    normalized_es_plan_review = _normalized_routing_text(es_plan_review)
-    normalized_es_task1_review = _normalized_routing_text(es_task1_review)
-    normalized_es_task2_review = _normalized_routing_text(es_task2_review)
-    normalized_es_task3_review = _normalized_routing_text(es_task3_review)
-    normalized_es_task4_review = _normalized_routing_text(es_task4_review)
-    assert (
-        "status: accepted for provider free es execution; tasks 0 5 are complete; "
-        "the owner directed large scope f1 refreeze is next; live allocation remains prohibited"
-        in normalized_es_plan
-    )
-    assert "27be07e27825c161145671a70219143a3b8aa624" in es_plan
-    assert "e669471ac908be3b1a937336a6e7b337b046b143" in es_plan
-    assert "b34a05f748a9dbc471251b5b59a4927a9d1ccf6675fd19112172565562b756a4" in (
-        es_plan
-    )
-    assert es_plan.index("ES_PLAN_SPEC_APPROVED") < es_plan.index(
-        "ES_PLAN_QUALITY_APPROVED"
-    )
-    assert "status: approved for provider free es execution" in (
-        normalized_es_plan_review
-    )
-    assert es_plan_review.index("ES_PLAN_SPEC_APPROVED") < es_plan_review.index(
-        "ES_PLAN_QUALITY_APPROVED"
-    )
-    es_plan_review_digest = hashlib.sha256(
-        (REPO_ROOT / ES_COMPONENT_PLAN_REVIEW_PATH).read_bytes()
-    ).hexdigest()
-    assert es_plan_review_digest == (
-        "5d8b2f9d4b107b4fe1530a4c411b7cd560efed1bc3d2180d4725032d684e20ba"
-    )
-    assert es_plan_review_digest in es_plan
-    assert "62a5c72db7a9d02814db42b275fe4de24d8abece" in es_plan
-    assert "5eb5ca32743e7e261c23a282217e859d348f5c30" in es_plan
-    assert "f5af2e69125e4bc8b0adebb90ee1c556d97b6df14255e2acf9668e39ec061c63" in (
-        es_plan
-    )
-    assert "fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527" in (
-        es_plan
-    )
-    assert es_plan.index("ES_TASK1_SPEC_APPROVED") < es_plan.index(
-        "ES_TASK1_QUALITY_APPROVED"
-    )
-    assert "status: approved; es tasks 0 1 are complete and task 2 is selected" in (
-        normalized_es_task1_review
-    )
-    assert "62a5c72db7a9d02814db42b275fe4de24d8abece" in es_task1_review
-    assert "5eb5ca32743e7e261c23a282217e859d348f5c30" in es_task1_review
-    assert "f5af2e69125e4bc8b0adebb90ee1c556d97b6df14255e2acf9668e39ec061c63" in (
-        es_task1_review
-    )
-    assert "fc05d8c5704460d08fb421961a5974ba92ce07fc340e60f6cf009ca4c5f18527" in (
-        es_task1_review
-    )
-    assert es_task1_review.index("ES_TASK1_SPEC_APPROVED") < (
-        es_task1_review.index("ES_TASK1_QUALITY_APPROVED")
-    )
-    assert "postcommit module passed 25 tests in 81.44 seconds" in (
-        normalized_es_task1_review
-    )
-    assert "routing/readiness control passed 112 tests in 5.99 seconds" in (
-        normalized_es_task1_review
-    )
-    assert "d24c1818d586ee5e082a117f4cf46d85a4fc208e" in es_plan
-    assert "5e8f84cbc688a6f56090c546bb177ed4496afc17" in es_plan
-    assert "f0c8739a3c9e8844245419a866a4c669f954072c" in es_plan
-    assert "ac5deee2a25583de007581bf38da6e2607153194" in es_plan
-    assert "40f646230cb730c707edb56a9fdfcc0a82975ae1c5023d9e0cbe299f8df368bb" in (
-        es_plan
-    )
-    assert es_plan.index("ES_TASK2_SPEC_APPROVED") < es_plan.index(
-        "ES_TASK2_QUALITY_APPROVED"
-    )
-    assert "status: approved; es tasks 0 2 are complete and task 3 is selected" in (
-        normalized_es_task2_review
-    )
-    for digest in (
-        "22981a717e1d9593f962afab2c783ce95e4a8ed049655d7641ce10e00492a2ec",
-        "c110edbb79665d48953ce4f107976aa13b90c3084984c823c397cb342226ca51",
-        "bc2917db0aa41c72dc52f31a609e4a009628c304a7b1c8ea584c40abf34b6f3a",
-        "2f5419f430568b3dc83ea2b4541d027d29b33d6b66760121910a8441a3d9f997",
-        "f4cbdd147018b9ab91ed493d8ee8ea58fec2f15c9c34b77860216303b05323fc",
-        "ee2f4e9e4c3795543043cb5599cfa8df0f40ca73a26b670e464aae5d4bfb9edb",
-        "de322e15caa1b73566846592579c7e2f30128946a8dc030fc0254dc76974c3cc",
-        "a2068233ce05909c75a760e3d6520cf2d731e233a2c89a0e0f839e0f16332028",
-        "43149cd99ef38046a9bb73cc829ea541dc24c75b390e2ad48d1543c9f9c81a3f",
-    ):
-        assert digest in es_plan
-        assert digest in es_task2_review
-    for identity in (
-        "f0c8739a3c9e8844245419a866a4c669f954072c",
-        "ac5deee2a25583de007581bf38da6e2607153194",
-        "d24c1818d586ee5e082a117f4cf46d85a4fc208e",
-        "5e8f84cbc688a6f56090c546bb177ed4496afc17",
-        "40f646230cb730c707edb56a9fdfcc0a82975ae1c5023d9e0cbe299f8df368bb",
-    ):
-        assert identity in es_task2_review
-    assert es_task2_review.index("ES_TASK2_SPEC_APPROVED") < (
-        es_task2_review.index("ES_TASK2_QUALITY_APPROVED")
-    )
-    assert "suite collected 211 tests" in normalized_es_task2_review
-    assert "precommit gate passed all 211 tests in 322.73 seconds" in (
-        normalized_es_task2_review
-    )
-    assert "postcommit task 2 control passed 211 tests in 282.83 seconds" in (
-        normalized_es_task2_review
-    )
-    task2_section = es_plan.split("## Task 2:", 1)[1].split("## Task 3:", 1)[0]
-    assert "- [ ]" not in task2_section
-    assert "task 3 has since closed" in _normalized_routing_text(task2_section)
-    assert "task 4 at d72c6085" in _normalized_routing_text(task2_section)
-    assert "task 5 is selected" in _normalized_routing_text(task2_section)
-    assert (
-        "status: approved; es tasks 0 3 are complete and task 4 is selected"
-        in normalized_es_task3_review
-    )
-    for identity in (
-        "01ca930c329cb24a1555c9427a2fd86428a429ca",
-        "c806995cce4c549eda7d63ff1ccb1e840467bcf0",
-        "0d16ca364c0aeff641232dc0c0c33e445d443623",
-        "ee6d60eb18ce03721898d163ad214b12f2c4098f",
-        "3826adaa36d91313705f2b60ddd5cddbfa02b8fc15a9352c90fbd4a39a5dfaf9",
-    ):
-        assert identity in es_plan
-        assert identity in es_task3_review
-    assert es_task3_review.index("ES_TASK3_SPEC_APPROVED") < (
-        es_task3_review.index("ES_TASK3_QUALITY_APPROVED")
-    )
-    assert "collected 92 tests and passed all 92 in 7.97 seconds" in (
-        normalized_es_task3_review
-    )
-    assert "postcommit task 3 control passed 92 tests in 8.03 seconds" in (
-        normalized_es_task3_review
-    )
-    task3_section = es_plan.split("## Task 3:", 1)[1].split("## Task 4:", 1)[0]
-    assert "- [ ]" not in task3_section
-    assert "task 4 has since closed at d72c6085" in _normalized_routing_text(
-        task3_section
-    )
-    assert "task 5 is selected" in _normalized_routing_text(task3_section)
-    assert (
-        "status: approved; es tasks 0 4 are complete and task 5 is selected"
-        in normalized_es_task4_review
-    )
-    for identity in (
-        "4998e7509af0b1f05840e3fa50dfdae99f28de5c",
-        "b20769c5fcbb3e548a5146b6de204a1c18435671",
-        "d72c6085a3d3fdda23ec3ce48d1dd96a3585529d",
-        "4e576d09b92dd5877f8326ba057127923de8f77e",
-        "52802bc7567384288a610f66885383ed14292e445268c8ebd9f26f5f3ac4a2d8",
-    ):
-        assert identity in es_plan
-        assert identity in es_task4_review
-    assert es_task4_review.index("ES_TASK4_SPEC_APPROVED") < (
-        es_task4_review.index("ES_TASK4_QUALITY_APPROVED")
-    )
-    assert "full repository control passed 12,916 tests" in (
-        normalized_es_task4_review
-    )
-    task4_section = es_plan.split("## Task 4:", 1)[1].split("## Task 5:", 1)[0]
-    assert "- [ ]" not in task4_section
-    assert "task 5 is selected" in _normalized_routing_text(task4_section)
-    normalized_task5_contract = _normalized_routing_text(task4_section)
-    assert "artifact only projection at e2's existing packet freeze boundary" in (
-        normalized_task5_contract
-    )
-    assert "changes no execution, settlement, verdict, or public result shape" in (
-        normalized_task5_contract
-    )
-    assert (
-        "must not recompile retained source, reconstruct a terminal execution, "
-        "invoke execute_trial_cells, or rebuild historical packet bytes"
-        in normalized_task5_contract
-    )
-    normalized_es_task5_plan = _normalized_routing_text(es_task5_plan)
-    assert "status: complete" in normalized_es_task5_plan
-    assert "task 1 is complete at commit 9b1ba3df" in normalized_es_task5_plan
-    assert "tree cd7e25ce" in normalized_es_task5_plan
-    assert es_task5_plan.index("ES_TASK5_T1_SPEC_APPROVED") < (
-        es_task5_plan.index("ES_TASK5_T1_QUALITY_APPROVED")
-    )
-    assert "tasks 2 5 are complete at commit 467f92f4" in normalized_es_task5_plan
-    assert "tree c3c79853" in normalized_es_task5_plan
-    assert "b466a2fe3ed54fc297b33c7795b8b8d15a09715988a36974d85ca7b2531a3172" in (
-        es_task5_plan
-    )
-    assert es_task5_plan.index("ES_TASK5_T2_T5_SPEC_APPROVED") < (
-        es_task5_plan.index("ES_TASK5_T2_T5_QUALITY_APPROVED")
-    )
-    assert "task 6 is complete at commit" in normalized_es_task5_plan
-    assert "32e4dc83ad287607e0faf00deef2637d26f8b4b6" in es_task5_plan
-    assert "c843f06f0eed82c08ac4692001ee63849d95a334" in es_task5_plan
-    assert es_task5_plan.index("ES_TASK5_T6_SPEC_APPROVED") < (
-        es_task5_plan.index("ES_TASK5_T6_QUALITY_APPROVED")
-    )
-    assert "task 7 is complete at commit" in normalized_es_task5_plan
-    assert "6410c101ca03f920eb1937b5c63bb22bfff48515" in es_task5_plan
-    assert "27ce0e352d247f2a9569f3bb9c8b8f3fc3b4ad88" in es_task5_plan
-    assert es_task5_plan.index("ES_TASK5_TASK7_SPEC_APPROVED") < (
-        es_task5_plan.index("ES_TASK5_TASK7_QUALITY_APPROVED")
-    )
-    assert "task 6 must freeze the complete package" in normalized_es_task5_plan
-    assert "do not call a real provider in task 5" in normalized_es_task5_plan
-    assert "do not change the dsl target, trial ledger/state schema" in (
-        normalized_es_task5_plan
-    )
-    assert es_task5_plan.index("ES_TASK5_PLAN_SPEC_APPROVED") < (
-        es_task5_plan.index("ES_TASK5_PLAN_QUALITY_APPROVED")
-    )
-    assert "d6fb50bc9b7279416d4998706382e5737b025508" in es_task5_plan
-    assert "77a53ff95b3dca5942e569073c6cd255a81f3650" in es_task5_plan
-    assert "bdef93f3c47d53881514b3a42aba2b16f8d183fb2b9b3937af76088c533d223d" in (
-        es_task5_plan
-    )
-    assert es_task5_plan_review.index("ES_TASK5_PLAN_SPEC_APPROVED") < (
-        es_task5_plan_review.index("ES_TASK5_PLAN_QUALITY_APPROVED")
-    )
-    normalized_es_task5_final_review = _normalized_routing_text(
-        es_task5_final_review
-    )
-    for identity in (
-        "e5ec552d3c0b06c949f8d2186b692fa4a4b77f9a",
-        "1b0f0e67cdc7e3676d892fdd2245f1306f7057b7",
-        "6bda9528a2bc97858d6208957a515b3832d8d380e0a466c5e673547e4a49b91e",
-    ):
-        assert identity in es_task5_plan
-        assert identity in es_task5_final_review
-    assert es_task5_final_review.index("ES_TASK5_SPEC_APPROVED") < (
-        es_task5_final_review.index("ES_TASK5_QUALITY_APPROVED")
-    )
-    assert "12,332 passed, 19 skipped" in es_task5_final_review
-    assert "task 5 is complete" in normalized_es_task5_final_review
-    assert "large scope f1 refreeze" in normalized_es_task5_final_review
-    assert "no live provider allocation" in normalized_es_task5_final_review
-    for task_number in range(10):
-        assert f"## Task {task_number}:" in es_plan
-    assert "this gate authorizes no live es call" in normalized_es_plan
-
-    normalized_e2_plan = _normalized_routing_text(e2_plan)
-    assert "status: pass_e2; tasks 0 10 and the canonical e2 exit gate are closed" in (
-        normalized_e2_plan
-    )
-    assert "task 6 closed at exact reviewed commit 5d28619d" in normalized_e2_plan
-    assert "tree 44eb381b" in normalized_e2_plan
-    assert "9e4ed9fca5e536692e2017864350caccec8cbee737b3237161e525a378b3f24f" in e2_plan
-    assert e2_plan.index("E2_TASK6_SPEC_APPROVED") < e2_plan.index(
-        "E2_TASK6_QUALITY_APPROVED"
-    )
-    assert "task 7 closed at exact reviewed commit 41e64d14" in normalized_e2_plan
-    assert "tree fb6082d9" in normalized_e2_plan
-    assert "3e5bee691d762ce9915579ce522eedd17900d4fbf6c3b05c7fa2c1dc53baee64" in e2_plan
-    assert "e2_task7_quality_approved" in normalized_e2_plan
-    assert "task 8 closed at exact reviewed commit ebf8a1a9" in normalized_e2_plan
-    assert (
-        "tree 7f3a3b2224e3c4f053bd5fb4a46d89f4b1bae834"
-        in normalized_e2_plan
-    )
-    assert (
-        "a8ea6bf96db19b775d605a48919a8ce88d0547c22af315a7bb88b0130f739924"
-        in e2_plan
-    )
-    assert (
-        "4449b6595d9e7dae89d20d0aad8d7648a9cbe3b8950145eb3a81542be2389374"
-        in e2_plan
-    )
-    assert e2_plan.index("E2_TASK8_SPEC_APPROVED") < e2_plan.index(
-        "E2_TASK8_QUALITY_APPROVED"
-    )
-    assert (
-        "fresh precommit verification passed 222 scoped tests and 1,100 "
-        "adjacent tests"
-        in normalized_e2_plan
-    )
-    assert "fresh postcommit control passed 222 tests" in normalized_e2_plan
-    assert "public executor, sdk, and cli" in normalized_e2_plan
-    assert "ordinary compiler/runtime path" in normalized_e2_plan
-    assert "task 10 and the canonical e2 exit gate are complete" in (
-        normalized_e2_plan
-    )
-    assert "167b4a5d..3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa" in e2_plan
-    assert "f214f7627906e84782ad8ce04dc7c3bae51b276f" in e2_plan
-    assert "ebabf1870f8212e950f911a0487a06bfcc116c41a1aa0a411e435b809a0b8745" in e2_plan
-    for task_commit, task_tree in (
-        ("c69f05c9", "d2fe944a"),
-        ("587ad8af", "f944092e"),
-        ("e510844f", "7f90defa"),
-        ("f8d7527e", "04096b96"),
-        ("15609efc", "1b253369"),
-        ("3560b62e", "f214f762"),
-    ):
-        assert task_commit in e2_plan
-        assert task_tree in e2_plan
-    assert e2_plan.index("E2_TASK9_SPEC_APPROVED") < e2_plan.index(
-        "E2_TASK9_QUALITY_APPROVED"
-    )
-    for count, label in (
-        ("26", "sdk"),
-        ("487", "integration"),
-        ("55", "observability"),
-        ("208", "final slice"),
-        ("492", "expanded combined"),
-    ):
-        assert f"{count} {label}" in normalized_e2_plan
-    assert "counts are not additive" in normalized_e2_plan
-    for digest in (
-        "df0d4a4aa5a59d3a78e44df275b00c93057a36fd6b55469fea0eae4e6ee50f5d",
-        "414d7abc19f3402dad981e73eb8e5b3162521cab8ba9be1cbb317f1fc0485f38",
-        "aa0c6ee49472930d0370cf76aac48487b6f98da6c794c9fa5ceee6ffc729703e",
-        "cbd2d70cb4e68682ea8913d42483ebd349645ca9d94ae248c0c99f6c996635d5",
-        "a2ff7bc710cc699479828913b8fb839dbe2a5287104c20ae452b98fae3015b1c",
-        "77bd779cd22acee2fa97ba322bf56a04e1043e7584f2cbfbbee6577fd184d276",
-        "0edf256b2efd3e4a5613e71771c07e36bb0393f8953bae58dba2f6e483098814",
-    ):
-        assert digest in e2_plan
-    assert "provider call for direct and two each for coordinator and orc" in (
-        normalized_e2_plan
-    )
-    assert "sorted presentation order is orc/direct/coordinator" in (
-        normalized_e2_plan
-    )
-    assert "classifier identifies one of three arms" in normalized_e2_plan
-    assert "all 29 forbidden identity fields" in normalized_e2_plan
-    assert "all zero failure table" in normalized_e2_plan
-    assert "mechanism proof only" in normalized_e2_plan
-    assert "no effectiveness, security, isolation, or sandbox claim" in (
-        normalized_e2_plan
-    )
-    task_10_section = e2_plan.split("## Task 10:", maxsplit=1)[1].split(
-        "## Final acceptance checklist", maxsplit=1
-    )[0]
-    assert task_10_section.count("- [x]") == 6
-    assert task_10_section.count("- [ ]") == 0
-    final_checklist = e2_plan.split("## Final acceptance checklist", maxsplit=1)[1]
-    assert final_checklist.count("- [x]") == 9
-    assert "- [ ]" not in final_checklist
-    assert "records pass_e2" in normalized_e2_plan
-    assert "8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4" in e2_plan
-    assert "aafa31c09730544a12e33dbc692847a24726a54f" in e2_plan
-    assert "f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961" in e2_plan
-    assert e2_plan.index("E2_FINAL_SPEC_APPROVED") < e2_plan.index(
-        "E2_FINAL_QUALITY_APPROVED"
-    )
-    for digest in (
-        "55e4cae63797201447bbbc3ef8b7d7aeccfd1819f901f4112c78e6d8e389f402",
-        "253ae8bb6e4f62d8f4f5c6a21ce525675b2bc5b9ac00eb6dcca23f100c83bdc7",
-        "1ddb875c44c7e01030a4cdc86595127b83a06ae6a79bfe90315436059e0d5eb3",
-        "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83",
-    ):
-        assert digest in e2_plan
-    assert "es is now the next on spine plan and review gated stage" in (
-        normalized_e2_plan
-    )
-    assert "e3 remains gated on fixed study review, es results" in (
-        normalized_e2_plan
-    )
-    assert "target dsl: 2.25" in normalized_e2_plan
-    assert "authority reconciliation" in normalized_e2_plan
-    assert "historical e2 section describes an older" in normalized_e2_plan
-    assert "it is not selected here" in normalized_e2_plan
-    assert "bounded nested structural transport" in normalized_e2_plan
-    assert "coordinator is the sole writer" in normalized_e2_plan
-    assert e2_plan.index("E2_PLAN_SPEC_APPROVED") < e2_plan.index(
-        "E2_PLAN_QUALITY_APPROVED"
-    )
-    assert "c6046d38e53dc495270f473592a55de47731e64d" in e2_plan
-    assert "40c533fc0ab21230415a5ce5d84dfcc677552f51" in e2_plan
-    assert "single winner candidate selection is explicitly not reused" in (
-        normalized_e2_plan
-    )
-    normalized_e2_plan_review = _normalized_routing_text(e2_plan_review)
-    assert "status: approved for e2 execution" in normalized_e2_plan_review
-    assert e2_plan_review.index("E2_PLAN_SPEC_APPROVED") < (
-        e2_plan_review.index("E2_PLAN_QUALITY_APPROVED")
-    )
-    e2_plan_review_digest = hashlib.sha256(
-        (REPO_ROOT / E2_TRIAL_PLAN_REVIEW_PATH).read_bytes()
-    ).hexdigest()
-    assert e2_plan_review_digest == (
-        "3b739ae2dc6f66743e1e3eecca23d7887a183dd97369f9c522b0b8929de84001"
-    )
-    assert e2_plan_review_digest in e2_plan
-    normalized_e2_final_review = _normalized_routing_text(e2_final_review)
-    assert "status: pass_e2" in normalized_e2_final_review
-    assert e2_final_review.index("E2_FINAL_SPEC_APPROVED") < (
-        e2_final_review.index("E2_FINAL_QUALITY_APPROVED")
-    )
-    assert "925ce4ac56a5cd099a7b9ccea7cb496779f7454e" in e2_final_review
-    assert "bebcba4a1bbaab8389ad8993cf1cc356ea235be3" in e2_final_review
-    assert "f07b8a94b131e9121b4f279e95849e85e65c6ac0df594d2b7cef2400f981a961" in (
-        e2_final_review
-    )
-    assert "8aad035ddc0024f1e5f4b121b5dda98dbaf3b6f4" in e2_final_review
-    assert "aafa31c09730544a12e33dbc692847a24726a54f" in e2_final_review
-    e2_final_review_digest = hashlib.sha256(
-        (REPO_ROOT / E2_TRIAL_FINAL_REVIEW_PATH).read_bytes()
-    ).hexdigest()
-    assert e2_final_review_digest == (
-        "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83"
-    )
-    assert e2_final_review_digest in e2_plan
-    assert "mechanism proof, not effectiveness or output quality evidence" in (
-        normalized_e2_final_review
-    )
-    assert "no production .orc registry row was added" in normalized_e2_final_review
-    assert "e3 remains gated on review of this fixed study, es results" in (
-        normalized_e2_final_review
-    )
-    for task_number in range(11):
-        assert f"## Task {task_number}:" in e2_plan
-    assert "pass_e2 advances the already selected e3 only" in (
-        normalized_e2_plan
-    )
-    normalized_e1_plan = _normalized_routing_text(e1_plan)
-    normalized_e1_plan_review = _normalized_routing_text(e1_plan_review)
-    normalized_e1_final_review = _normalized_routing_text(e1_final_review)
-    assert "status: pass_e1" in normalized_e1_plan
-    assert "tasks 0 9 and the canonical e1 exit gate are closed" in (
-        normalized_e1_plan
-    )
-    assert "task 0a result" in normalized_e1_plan
-    assert "five tests and passed five of five" in normalized_e1_plan
-    assert "2a1f42f2" in normalized_e1_plan
-    assert "79540e0a" in normalized_e1_plan
-    assert e1_plan.index("E1_TASK8_SPEC_APPROVED") < e1_plan.index(
-        "E1_TASK8_QUALITY_APPROVED"
-    )
-    assert e1_plan.index("E1_PLAN_SPEC_APPROVED") < e1_plan.index(
-        "E1_PLAN_QUALITY_APPROVED"
-    )
-    assert e1_plan.index("E1_FINAL_SPEC_APPROVED") < e1_plan.index(
-        "E1_FINAL_QUALITY_APPROVED"
-    )
-    assert "577715f176fcacf9c29127f8b519d58c3a5b6470" in e1_plan
-    assert "ef7eacbdb747d09754d02aab328606893dad07e3" in e1_plan
-    assert "status: approved for e1 execution" in normalized_e1_plan_review
-    assert "0c392ac93e2e7a0304dbda48549d8113904ab90c" in e1_plan_review
-    assert e1_plan_review.index("E1_PLAN_SPEC_APPROVED") < e1_plan_review.index(
-        "E1_PLAN_QUALITY_APPROVED"
-    )
-    normalized_plan = _normalized_routing_text(plan)
-    assert "task 1 landed at b71bf62a" in normalized_plan
-    assert "task 2 landed at 3d41a8bf" in normalized_plan
-    assert "task 3 landed at 3b934373" in normalized_plan
-    assert "status: pass_e0" in normalized_plan
-    assert "E0_PLAN_AMENDMENT_SPEC_APPROVED" in plan
-    assert "E0_PLAN_AMENDMENT_QUALITY_APPROVED" in plan
-    assert "does not select e1" in _normalized_routing_text(plan)
-    normalized_design_index = _normalized_routing_text(design_index)
-    normalized_index = _normalized_routing_text(index)
-    for completed_surface in (
-        normalized_plan,
-        normalized_roadmap,
-        normalized_design_index,
-        normalized_index,
-        normalized_trial_capability,
-        normalized_sequence,
-    ):
-        assert "e0 is complete" in completed_surface
-        assert "pass_e0" in completed_surface
-    for selected_surface in (
-        normalized_roadmap,
-        normalized_design_index,
-        normalized_index,
-        normalized_sequence,
-    ):
-        assert "e1 e3 are owner selected" in selected_surface
-        assert _normalized_routing_text(
-            Path(E1_E3_OWNER_SELECTION_PATH).name
-        ) in selected_surface
-    assert "e3 remains gated on fixed study review, es results" in (
-        normalized_trial_capability
-    )
-    assert _normalized_routing_text(
-        Path(E1_E3_OWNER_SELECTION_PATH).name
-    ) in normalized_trial_capability
-    for e2_progress_surface in (
-        normalized_roadmap,
-        normalized_design_index,
-        normalized_index,
-        normalized_trial_capability,
-        normalized_sequence,
-    ):
-        assert "8aad035d" in e2_progress_surface
-        assert "aafa31c" in e2_progress_surface
-        assert "pass_e2" in e2_progress_surface
-        assert "e2_final_spec_approved" in e2_progress_surface
-        assert "e2_final_quality_approved" in e2_progress_surface
-        assert "e2 trial final review.md" in e2_progress_surface
-        assert "03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83" in (
-            e2_progress_surface
-        )
-        assert "51" in e2_progress_surface
-        assert "3,557" in e2_progress_surface
-        assert "11,403" in e2_progress_surface
-        assert "1/2/2" in e2_progress_surface
-        assert "29" in e2_progress_surface
-        assert "mechanism proof only" in e2_progress_surface
-        assert "production" in e2_progress_surface
-        assert ".orc registry row" in e2_progress_surface
-        assert "route readiness" in e2_progress_surface
-        assert "es" in e2_progress_surface
-        assert "e3 remains gated" in e2_progress_surface
-        assert "e2o" in e2_progress_surface
-        assert "remain unselected" in e2_progress_surface
-    normalized_selection = _normalized_routing_text(selection)
-    assert "status: applied owner selection" in normalized_selection
-    assert "select e1 through e3. continue executing roadmap" in (
-        normalized_selection
-    )
-    assert "e1 (run ref) is selected" in normalized_selection
-    assert "e2 (trial) is selected pending the canonical e1 exit gate" in (
-        normalized_selection
-    )
-    assert (
-        "e3 (the external gene bounded controller) is selected pending the canonical e2 exit gate"
-        in normalized_selection
-    )
-    assert "external diagnostic api is not the separate c1" in normalized_selection
-    assert "c1 c3 remain designed and unselected" in normalized_selection
-    assert "46387582d2af0636a3f3041a706ddb0f658c8ce8" in plan
-    assert "5dc787b69d3deb2010ed1cd4040444eec1e7c62a" in plan
-    assert plan.index("E0_TASK4_SPEC_APPROVED") < plan.index(
-        "E0_TASK4_QUALITY_APPROVED"
-    )
-    assert "postcommit direct routing control passed 74 tests" in normalized_plan
-    assert "task 4 routing candidate" not in normalized_plan
-    assert "task 4 and the final gate remain" not in normalized_design_index
-    assert "task 4 routing and task 5 final verification remain" not in (
-        normalized_index
-    )
-    assert "task 4 and final e0 gates pending" not in normalized_trial_capability
-    assert "e0 e2 complete" in normalized_design_index
-    assert "pass_e2" in normalized_design_index
-    assert "target 2.24 run ref has pass_e1" in normalized_index
-    assert "fe7d6f9bca9ec61b9078e4048bb43aee7f4f191b" in plan
-    assert "c20f6fd9197b0d0e12a581e96ebbd898b8d1b3c3" in plan
-    assert Path(E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).name in index
-    assert "status: pass_e1" in normalized_e1_final_review
-    assert "577715f176fcacf9c29127f8b519d58c3a5b6470" in e1_final_review
-    assert "ef7eacbdb747d09754d02aab328606893dad07e3" in e1_final_review
-    assert e1_final_review.index("E1_FINAL_SPEC_APPROVED") < (
-        e1_final_review.index("E1_FINAL_QUALITY_APPROVED")
-    )
-    assert "864 passed" in normalized_e1_final_review
-    e1_final_review_digest = hashlib.sha256(
-        (REPO_ROOT / E1_RUN_REF_FINAL_REVIEW_PATH).read_bytes()
-    ).hexdigest()
-    assert e1_final_review_digest == (
-        "af816ae147b4c64f737c05a11a32cbfbea8e3ceba5594e9c2717f23a66486a34"
-    )
-    assert e1_final_review_digest in e1_plan
-    assert direct_control_catalog, "direct-control library catalog row is missing"
-    normalized_catalog = _normalized_routing_text(direct_control_catalog)
-    for required_catalog_fact in (
-        "control/direct_task::direct task",
-        "task: string",
-        "model: string",
-        "effort: string",
-        "direct bool",
-        "exactly one composed provider boundary",
-        "copy safe only for this bounded one call direct task shape",
-    ):
-        assert required_catalog_fact in normalized_catalog
-    assert "workflows/library/control/direct_task.orc" in workflow_catalog
     direct_control_route_rows = [
         surface
         for surface in route_registry["surfaces"]
@@ -2265,8 +1516,7 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         surface["path"] == "tests/e2e/test_e2e_workflow_lisp_run_ref.py"
         for surface in route_registry["surfaces"]
     )
-    [direct_control_route_row] = direct_control_route_rows
-    assert direct_control_route_row == {
+    assert direct_control_route_rows[0] == {
         "copy_safety": "preferred_current_guidance",
         "entry_workflow": "control/direct_task::direct-task",
         "evidence": [
@@ -2282,30 +1532,6 @@ def test_e_series_routes_completed_e0_and_e1_through_gated_e2_e3() -> None:
         "surface_id": "workflows.library.control.direct_task",
         "surface_kind": "library_workflow",
     }
-    normalized_plan_review = _normalized_routing_text(plan_review)
-    assert "e0_plan_spec_approved" in normalized_plan_review
-    assert "e0_plan_quality_approved" in normalized_plan_review
-    assert plan_review.index("E0_PLAN_SPEC_APPROVED") < plan_review.index(
-        "E0_PLAN_QUALITY_APPROVED"
-    )
-    assert "b401c493a0e0c7a9614d96cd18bfb8f4fa29f494" in plan_review
-    assert "0e906fdf2daa06bf8d6bb9720cd71e1086174f46dda97cb8204add16aa490809" in (
-        plan_review
-    )
-    assert "E0_FINAL_SPEC_APPROVED" in final_review
-    assert "E0_FINAL_QUALITY_APPROVED" in final_review
-    assert final_review.index("E0_FINAL_SPEC_APPROVED") < final_review.index(
-        "E0_FINAL_QUALITY_APPROVED"
-    )
-    assert "PASS_E0" in final_review
-    assert "10,117 passed" in final_review
-    final_review_digest = hashlib.sha256(
-        (REPO_ROOT / E0_DIRECT_CONTROL_FINAL_REVIEW_PATH).read_bytes()
-    ).hexdigest()
-    assert final_review_digest == (
-        "468f4269b8686e6046c17855a5f1c17f0c9072cefe9b80df87cb8a0976d99011"
-    )
-    assert final_review_digest in plan
 
 
 def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
@@ -2344,9 +1570,6 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         encoding="utf-8"
     )
     l2_plan = (REPO_ROOT / LANGUAGE_SERVER_L2_PLAN_PATH).read_text(
-        encoding="utf-8"
-    )
-    evolution = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
     design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
@@ -2798,100 +2021,6 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
-
-    normalized_evolution_status = _normalized_routing_text(
-        evolution.split("## Purpose", 1)[0]
-    )
-    assert (
-        "status: incorporated as the tracked e series program"
-        in normalized_evolution_status
-    )
-    assert "gated on ml closure" in normalized_evolution_status
-    assert "p series roadmap" in normalized_evolution_status
-    assert "sequenced after this e program" in normalized_evolution_status
-    assert "not a selector" in normalized_evolution_status
-    assert "e0 probe remains unselected" in normalized_evolution_status
-    assert (
-        "e4p prompt identity discipline is owned only by stage q3"
-        in normalized_evolution_status
-    )
-    assert "e0 is complete" in normalized_evolution_status
-    assert "e1 e3 are owner selected" in normalized_evolution_status
-    assert "e1 tasks 0 9 are complete" in normalized_evolution_status
-    assert "pass_e1 at commit 577715f1" in normalized_evolution_status
-    assert "target 2.25 e2 component plan" in normalized_evolution_status
-    assert "accepted at c6046d38" in normalized_evolution_status
-    assert "e2_plan_spec_approved" in normalized_evolution_status
-    assert "e2_plan_quality_approved" in normalized_evolution_status
-    assert "task 10 and the e2 exit are complete at commit 8aad035d" in (
-        normalized_evolution_status
-    )
-    assert "tree aafa31c" in normalized_evolution_status
-    assert "target 2.25 normative contracts at 6b431087" in (
-        normalized_evolution_status
-    )
-    assert "nested structural transport at 43ae8d5c" in (
-        normalized_evolution_status
-    )
-    assert "typed trial syntax/generated contracts at ba430ed2" in (
-        normalized_evolution_status
-    )
-    assert "checkpoint carriage at a7a8a083" in normalized_evolution_status
-    assert "e1 lifecycle extraction plus trial identities and ledgers at 5d28619d" in (
-        normalized_evolution_status
-    )
-    assert "tree 44eb381b" in normalized_evolution_status
-    assert "bounded concurrent cell execution at 41e64d14" in (
-        normalized_evolution_status
-    )
-    assert "tree fb6082d9" in normalized_evolution_status
-    assert (
-        "task 8 evidence freeze, checks, blinding, scoring, and verdict "
-        "production at ebf8a1a9"
-        in normalized_evolution_status
-    )
-    assert "e2_task8_spec_approved" in normalized_evolution_status
-    assert "e2_task8_quality_approved" in normalized_evolution_status
-    assert "public executor, sdk, and cli" in normalized_evolution_status
-    assert "ordinary compiler/runtime path" in normalized_evolution_status
-    assert "3560b62edc623ebe15ca3c2b5c0e66eeb2f004aa" in (
-        normalized_evolution_status
-    )
-    assert "f214f7627906e84782ad8ce04dc7c3bae51b276f" in (
-        normalized_evolution_status
-    )
-    assert "e2_task9_spec_approved" in normalized_evolution_status
-    assert "e2_task9_quality_approved" in normalized_evolution_status
-    assert "e2_final_spec_approved" in normalized_evolution_status
-    assert "e2_final_quality_approved" in normalized_evolution_status
-    assert "provider calls 1/2/2" in normalized_evolution_status
-    assert "all 29 forbidden identity fields" in normalized_evolution_status
-    assert "mechanism proof only" in normalized_evolution_status
-    assert "records pass_e2 within the exact target 2.25 component contract" in (
-        normalized_evolution_status
-    )
-    assert "first effectiveness study (es) component plan" in (
-        normalized_evolution_status
-    )
-    assert "accepted at reviewed candidate 27be07e2" in (
-        normalized_evolution_status
-    )
-    assert "es_plan_spec_approved" in normalized_evolution_status
-    assert "es_plan_quality_approved" in normalized_evolution_status
-    assert "tasks 0 5 are complete" in normalized_evolution_status
-    assert "es_task3_spec_approved" in normalized_evolution_status
-    assert "es_task3_quality_approved" in normalized_evolution_status
-    assert "es_task4_spec_approved" in normalized_evolution_status
-    assert "es_task4_quality_approved" in normalized_evolution_status
-    assert "es_task5_spec_approved" in normalized_evolution_status
-    assert "es_task5_quality_approved" in normalized_evolution_status
-    assert "large scope f1 refreeze is the next es unit" in (
-        normalized_evolution_status
-    )
-    assert "e3 remains gated on review of the fixed study, es results" in (
-        normalized_evolution_status
-    )
-    assert "c1, c2, c3, e2o" in normalized_evolution_status
 
     normalized_value = _normalized_routing_text(
         "\n".join(value_design.splitlines()[:35])

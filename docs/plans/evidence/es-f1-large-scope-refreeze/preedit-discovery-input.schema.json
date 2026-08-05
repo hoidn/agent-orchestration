@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-preedit-discovery-input-v1.json",
+  "title": "ES F1 non-authoritative pre-edit discovery input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authority_status",
+    "git",
+    "projection",
+    "detectors",
+    "responsibilities",
+    "provider_visible_pytest_selectors"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_preedit_discovery_input.v1"},
+    "authority_status": {"const": "non_authoritative_discovery_input"},
+    "git": {"$ref": "#/$defs/git"},
+    "projection": {"$ref": "#/$defs/projection"},
+    "detectors": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/detector"}
+    },
+    "responsibilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/responsibility"}
+    },
+    "provider_visible_pytest_selectors": {
+      "type": "array",
+      "minItems": 19,
+      "maxItems": 19,
+      "items": {"$ref": "#/$defs/discovery_selector"}
+    }
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "safe_id": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9_.-]*$"},
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "version", "sha256", "object_controls"],
+      "properties": {
+        "executable": {"const": "/usr/bin/git"},
+        "version": {"const": "git version 2.43.0"},
+        "sha256": {"const": "sha256:2a8c18fbf43da9f692d75474c72bea9dfd796c260b0f3dfe456376abc3bbd668"},
+        "object_controls": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "inventory_sha256", "leaf_count"],
+      "properties": {
+        "repository": {"const": "/home/ollie/.local/state/orchestrator/es-source-projections/git-sha1/8f191031f233d50a4d020d8a988036e99487f570"},
+        "commit": {"const": "8f191031f233d50a4d020d8a988036e99487f570"},
+        "tree": {"const": "e64f3c05f5a0894f41c047d128a9040a2cda6764"},
+        "inventory_sha256": {"const": "sha256:6fc936c54977d9adc7bdbae02bfa69592c55722e5cf5eddbd1b958ee1bc71404"},
+        "leaf_count": {"const": 1948}
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor_id", "form", "pattern", "responsibility_ids"],
+      "properties": {
+        "anchor_id": {"$ref": "#/$defs/safe_id"},
+        "form": {"enum": ["import", "call", "name", "attribute", "string", "regex"]},
+        "pattern": {"type": "string", "minLength": 1},
+        "responsibility_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safe_id"}
+        }
+      }
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detector_id", "version", "language", "path_globs", "anchors"],
+      "properties": {
+        "detector_id": {"$ref": "#/$defs/safe_id"},
+        "version": {"type": "string", "pattern": "^v[0-9]+$"},
+        "language": {"enum": ["python_ast", "text_regex"]},
+        "path_globs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/anchor"}
+        }
+      }
+    },
+    "responsibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responsibility_id", "anchors"],
+      "properties": {
+        "responsibility_id": {"$ref": "#/$defs/safe_id"},
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safe_id"}
+        }
+      }
+    },
+    "discovery_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "ordinal", "pytest_module_path"],
+      "properties": {
+        "selector_id": {"type": "string", "pattern": "^PV-[0-9]{2}$"},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 19},
+        "pytest_module_path": {
+          "type": "string",
+          "pattern": "^tests/torch/test_[A-Za-z0-9_]+\\.py$"
+        }
+      }
+    }
+  }
+}

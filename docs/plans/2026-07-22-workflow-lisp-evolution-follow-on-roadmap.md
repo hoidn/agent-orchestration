@@ -15,7 +15,7 @@ document is the detailed historical reference.
 
 Created: 2026-07-22
 
-Last materially updated: 2026-08-02
+Last materially updated: 2026-08-04
 
 Current implementation status: the recovered E0/C1 designs passed ordered
 `E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`. ML closure and
@@ -114,9 +114,24 @@ controller closed at `e5ec552d`, tree `1b0f0e67`, after ordered
 [Task-5 review](../../artifacts/review/es-first-effectiveness-study-task5-review.md).
 Its final focused, treatment-parity, and broad gates passed 1,048, 42, and
 12,332 tests respectively, with 19 broad skips. The owner-directed large-scope
-F1 refreeze is the next ES unit: it must replace the superseded small task with
-a reviewed 5,000–10,000 implementation-LOC reference-calibrated package before
-Task 6 can freeze an adoptable lock. Live ES allocation remains prohibited.
+F1 refreeze is the next ES unit: it must replace the superseded prelaunch scope
+with a reviewed `decision_lock.v3` package. Live ES allocation remains
+prohibited throughout the refreeze.
+The selected implementation sequence is the
+[ES F1 large-scope pre-run refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md).
+It requires a controller-only conforming product of 5,000–10,000 physical
+implementation delta lines, with tests and documentation additional, over the
+exact fourteen frozen built-ins plus one candidate-declared witness. Its Task 0
+first closes the projection-wide census, selector/proof authority, A1 anchor,
+and ordered machine-adopted reviews. The owner-selected operational
+multi-context criterion combines the strict reference-size gate, four
+independently unmet clusters, three authenticated cross-blob edges, remove-one
+failures, and the non-collapse requirement. It is not a universal mathematical
+impossibility theorem about provider contexts. Refreeze Tasks 1–8 satisfy,
+replace, and subsume the component plan's old Task 6 freeze/review/adoption
+work; after its one `decision_lock.v3` owner adoption, existing ES Task 7 is
+next. No F1 arm, provider session, study attempt, invalid-attempt allowance, or
+denominator row is consumed by that provider-free refreeze.
 Phase ME may proceed in parallel
 and never blocks an E exit. E3
 remains gated on
@@ -134,14 +149,18 @@ applies the owner-delegated stage picks at the `PASS_E2` joint: the first
 preregistered effectiveness study (ES) runs on-spine and its results are a
 required additional input to the E3 continue/narrow/stop review, while
 Phase ME runs off-spine in parallel. ES's component-plan gate is satisfied;
-Tasks 0–5 are complete, the large-scope F1 refreeze is next, and Tasks 6–8,
-live results, and final review remain pending. Phase ME remains plan- and
+Tasks 0–5 are complete; refreeze Task 0 is the current provider-free unit,
+refreeze Tasks 1–8 remain pending, and component Tasks 7–8, live results, and
+final review remain pending. Phase ME remains plan- and
 review-gated. C1, C2,
 C3, E2O, the historical execution-registry substrate, and security work remain
 unselected.
-Selection does not waive any feasibility,
-spec-first, ordered-review, focused, broad non-security, end-to-end, or exit
-gate.
+Selection does not waive the feasibility, spec-first, ordered-review,
+focused, broad non-security, end-to-end, or exit gates attached to
+roadmap-level units: E exits, ES component tasks, and owner adoptions.
+Nested prerequisite or correction plans do not inherit that stack; each
+carries at most one review pass proportionate to its diff, and its internal
+checklists create no roadmap-level gate.
 
 Copy safety: planning reference only. The canonical direct-control source is
 copy-safe after `PASS_E0` only for its bounded one-call direct-task shape. The

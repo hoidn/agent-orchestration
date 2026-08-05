@@ -1,0 +1,722 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-orchestration.invalid/schemas/es-f1-preedit-selector-manifest-v1.json",
+  "title": "ES F1 pre-edit selector and proof manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "preedit_policy_sha256",
+    "source_census_sha256",
+    "provider_visible_pytest_selectors",
+    "controller_only_proof_selectors",
+    "coverage_witnesses",
+    "baseline_characterization",
+    "desired_state_proof_specs",
+    "feasibility_spike",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "es_f1_preedit_selector_manifest.v1"},
+    "preedit_policy_sha256": {"$ref": "#/$defs/sha256"},
+    "source_census_sha256": {"$ref": "#/$defs/sha256"},
+    "provider_visible_pytest_selectors": {
+      "type": "array",
+      "minItems": 19,
+      "maxItems": 19,
+      "items": {"$ref": "#/$defs/provider_selector"}
+    },
+    "controller_only_proof_selectors": {
+      "type": "array",
+      "minItems": 3,
+      "items": {"$ref": "#/$defs/controller_selector"},
+      "allOf": [
+        {"contains": {"properties": {"proof_kind": {"const": "boundary_runtime"}}}, "minContains": 1},
+        {"contains": {"properties": {"proof_kind": {"const": "non_cdi_static"}}}, "minContains": 1},
+        {"contains": {"properties": {"proof_kind": {"const": "reference_absence"}}}, "minContains": 1}
+      ]
+    },
+    "coverage_witnesses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/coverage_witness"}
+    },
+    "baseline_characterization": {"$ref": "#/$defs/baseline"},
+    "desired_state_proof_specs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/desired_proof_spec"}
+    },
+    "feasibility_spike": {"$ref": "#/$defs/feasibility_spike"},
+    "record_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "pytest_carrier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "sha256", "version", "tmp_isolation"],
+      "properties": {
+        "executable": {"const": "/usr/bin/bwrap"},
+        "sha256": {"const": "sha256:52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712"},
+        "version": {"const": "bubblewrap 0.9.0"},
+        "tmp_isolation": {"const": "private_tmpfs"}
+      }
+    },
+    "proof_kind": {"enum": ["boundary_runtime", "non_cdi_static", "reference_absence"]},
+    "provider_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "ordinal", "pytest_module_path", "projection_blob_id", "mode", "physical_line_count", "pytest_node_ids", "coverage_witness_ids"],
+      "properties": {
+        "selector_id": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 1, "maximum": 19},
+        "pytest_module_path": {"type": "string", "pattern": "^tests/torch/test_[A-Za-z0-9_]+\\.py$"},
+        "projection_blob_id": {"$ref": "#/$defs/sha1"},
+        "mode": {"enum": ["100644", "100755"]},
+        "physical_line_count": {"type": "integer", "minimum": 1},
+        "pytest_node_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "coverage_witness_ids": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "input_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "controller_selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "ordinal", "proof_kind", "execution_kind", "runner_path", "runner_sha256", "argv", "input_bindings", "coverage_witness_ids"],
+      "properties": {
+        "selector_id": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 1},
+        "proof_kind": {"$ref": "#/$defs/proof_kind"},
+        "execution_kind": {"enum": ["pytest_aggregate", "isolated_probe", "static_ast"]},
+        "runner_path": {"const": "scripts/experiments/es/boundary_proofs.py"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "input_bindings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/input_binding"}},
+        "coverage_witness_ids": {"type": "array", "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"execution_kind": {"const": "pytest_aggregate"}}, "required": ["execution_kind"]},
+          "then": {
+            "properties": {
+              "proof_kind": {"const": "boundary_runtime"},
+              "argv": {
+                "type": "array",
+                "minItems": 7,
+                "prefixItems": [
+                  {"const": "/home/ollie/miniconda3/envs/ptycho311/bin/python"},
+                  {"const": "-m"},
+                  {"const": "pytest"},
+                  {"const": "-q"},
+                  {"const": "-p"},
+                  {"const": "no:cacheprovider"}
+                ],
+                "items": {"type": "string"}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"execution_kind": {"const": "isolated_probe"}}, "required": ["execution_kind"]},
+          "then": {"properties": {"proof_kind": {"const": "boundary_runtime"}}}
+        },
+        {
+          "if": {"properties": {"execution_kind": {"const": "static_ast"}}, "required": ["execution_kind"]},
+          "then": {"properties": {"proof_kind": {"enum": ["non_cdi_static", "reference_absence"]}}}
+        }
+      ]
+    },
+    "pytest_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumer_span_hit", "status"],
+      "properties": {
+        "consumer_span_hit": {"type": "boolean"},
+        "status": {"const": "passed"}
+      }
+    },
+    "proof_query": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["query_kind", "forbidden_names", "forbidden_attributes", "forbidden_string_literals"],
+          "properties": {
+            "query_kind": {"const": "forbidden_syntax_absent"},
+            "forbidden_names": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "forbidden_attributes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "forbidden_string_literals": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["query_kind"],
+          "properties": {"query_kind": {"const": "path_absent"}}
+        }
+      ]
+    },
+    "runtime_probe": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "module", "expected_outcome"],
+          "properties": {
+            "action": {"const": "import_module"},
+            "module": {"$ref": "#/$defs/dotted_identifier"},
+            "expected_outcome": {"$ref": "#/$defs/expected_outcome"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "module", "callable", "args", "kwargs", "return_value", "expected_outcome"],
+          "properties": {
+            "action": {"const": "call"},
+            "module": {"$ref": "#/$defs/dotted_identifier"},
+            "callable": {"$ref": "#/$defs/dotted_identifier"},
+            "args": {"type": "array", "items": {"$ref": "#/$defs/transport_json_value"}},
+            "kwargs": {"type": "object", "additionalProperties": {"$ref": "#/$defs/transport_json_value"}},
+            "return_value": {"const": "ignore"},
+            "expected_outcome": {"$ref": "#/$defs/expected_outcome"}
+          }
+        }
+      ]
+    },
+    "dotted_identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "expected_outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {"status": {"const": "returned"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "exception_type"],
+          "properties": {
+            "status": {"const": "raised"},
+            "exception_type": {"$ref": "#/$defs/dotted_identifier"}
+          }
+        }
+      ]
+    },
+    "transport_json_value": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "integer"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/transport_json_value"}},
+        {"type": "object", "additionalProperties": {"$ref": "#/$defs/transport_json_value"}}
+      ]
+    },
+    "source_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line_start", "column_start", "line_end", "column_end"],
+      "properties": {
+        "line_start": {"type": "integer", "minimum": 1},
+        "column_start": {"type": "integer", "minimum": 0},
+        "line_end": {"type": "integer", "minimum": 1},
+        "column_end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "resolved_pytest_node_attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "pytest_node_id"],
+      "properties": {
+        "attribution_kind": {"const": "pytest_node"},
+        "pytest_node_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "resolved_selector_module_attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "pytest_module_path"],
+      "properties": {
+        "attribution_kind": {"const": "selector_module"},
+        "pytest_module_path": {"type": "string", "minLength": 1}
+      }
+    },
+    "resolved_residual_action_attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attribution_kind", "action_sha256"],
+      "properties": {
+        "attribution_kind": {"const": "residual_action"},
+        "action_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "resolved_source_attribution": {
+      "oneOf": [
+        {"$ref": "#/$defs/resolved_pytest_node_attribution"},
+        {"$ref": "#/$defs/resolved_selector_module_attribution"},
+        {"$ref": "#/$defs/resolved_residual_action_attribution"}
+      ]
+    },
+    "phase_attribution": {
+      "oneOf": [
+        {
+          "properties": {
+            "phase": {"enum": ["setup", "call", "teardown"]},
+            "attribution": {"$ref": "#/$defs/resolved_pytest_node_attribution"}
+          },
+          "required": ["phase", "attribution"]
+        },
+        {
+          "properties": {
+            "phase": {"enum": ["bootstrap", "collection"]},
+            "attribution": {"$ref": "#/$defs/resolved_selector_module_attribution"}
+          },
+          "required": ["phase", "attribution"]
+        },
+        {
+          "properties": {
+            "phase": {"const": "residual"},
+            "attribution": {"$ref": "#/$defs/resolved_residual_action_attribution"}
+          },
+          "required": ["phase", "attribution"]
+        }
+      ]
+    },
+    "source_event_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_kind", "phase", "attribution"],
+      "properties": {
+        "event_kind": {"enum": ["opcode_exact_span", "import_alias_opcode", "callable_entry"]},
+        "phase": {"enum": ["bootstrap", "collection", "setup", "call", "teardown", "residual"]},
+        "attribution": {"$ref": "#/$defs/resolved_source_attribution"}
+      },
+      "allOf": [{"$ref": "#/$defs/phase_attribution"}]
+    },
+    "opcode_exact_span_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_qualname", "code_firstlineno", "instruction_offset", "opname", "argrepr_sha256"],
+      "properties": {
+        "code_qualname": {"type": "string", "minLength": 1},
+        "code_firstlineno": {"type": "integer", "minimum": 1},
+        "instruction_offset": {"type": "integer", "minimum": 0},
+        "opname": {"enum": ["CALL", "CALL_FUNCTION_EX", "LOAD_NAME", "LOAD_GLOBAL", "LOAD_FAST", "LOAD_DEREF", "LOAD_CLASSDEREF", "STORE_NAME", "STORE_GLOBAL", "STORE_FAST", "STORE_DEREF", "DELETE_NAME", "DELETE_GLOBAL", "DELETE_FAST", "DELETE_DEREF", "LOAD_ATTR", "LOAD_METHOD", "STORE_ATTR", "DELETE_ATTR", "LOAD_CONST"]},
+        "argrepr_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "import_alias_opcode_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_qualname", "code_firstlineno", "statement_span", "alias_ordinal", "module", "name", "asname", "level", "instruction_offset", "opname", "argval"],
+      "properties": {
+        "code_qualname": {"type": "string", "minLength": 1},
+        "code_firstlineno": {"type": "integer", "minimum": 1},
+        "statement_span": {"$ref": "#/$defs/source_span"},
+        "alias_ordinal": {"type": "integer", "minimum": 0},
+        "module": {"type": ["string", "null"]},
+        "name": {"type": ["string", "null"]},
+        "asname": {"type": ["string", "null"]},
+        "level": {"type": "integer", "minimum": 0},
+        "instruction_offset": {"type": "integer", "minimum": 0},
+        "opname": {"enum": ["IMPORT_NAME", "IMPORT_FROM", "IMPORT_STAR"]},
+        "argval": {"type": "string"}
+      }
+    },
+    "callable_entry_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code_qualname", "code_name", "code_firstlineno", "definition_span"],
+      "properties": {
+        "code_qualname": {"type": "string", "minLength": 1},
+        "code_name": {"type": "string", "minLength": 1},
+        "code_firstlineno": {"type": "integer", "minimum": 1},
+        "definition_span": {"$ref": "#/$defs/source_span"}
+      }
+    },
+    "source_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_kind", "phase", "attribution", "consumer_path", "caller_object_id", "span", "hit_count"],
+      "properties": {
+        "event_kind": {"enum": ["opcode_exact_span", "import_alias_opcode", "callable_entry"]},
+        "phase": {"enum": ["bootstrap", "collection", "setup", "call", "teardown", "residual"]},
+        "attribution": {"$ref": "#/$defs/resolved_source_attribution"},
+        "consumer_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "caller_object_id": {"$ref": "#/$defs/sha1"},
+        "span": {"$ref": "#/$defs/source_span"},
+        "hit_count": {"type": "integer", "minimum": 1},
+        "opcode_exact_span": {"$ref": "#/$defs/opcode_exact_span_event"},
+        "import_alias_opcode": {"$ref": "#/$defs/import_alias_opcode_event"},
+        "callable_entry": {"$ref": "#/$defs/callable_entry_event"}
+      },
+      "allOf": [{"$ref": "#/$defs/phase_attribution"}],
+      "oneOf": [
+        {
+          "required": ["opcode_exact_span"],
+          "properties": {"event_kind": {"const": "opcode_exact_span"}},
+          "not": {"anyOf": [{"required": ["import_alias_opcode"]}, {"required": ["callable_entry"]}]}
+        },
+        {
+          "required": ["import_alias_opcode"],
+          "properties": {"event_kind": {"const": "import_alias_opcode"}},
+          "not": {"anyOf": [{"required": ["opcode_exact_span"]}, {"required": ["callable_entry"]}]}
+        },
+        {
+          "required": ["callable_entry"],
+          "properties": {"event_kind": {"const": "callable_entry"}},
+          "not": {"anyOf": [{"required": ["opcode_exact_span"]}, {"required": ["import_alias_opcode"]}]}
+        }
+      ]
+    },
+    "coverage_witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witness_id", "selector_id", "consumer_id", "proof_kind", "witness_kind", "runner_sha256", "consumer_path", "caller_object_id", "start_line", "column_start", "end_line", "column_end", "match_id"],
+      "properties": {
+        "witness_id": {"type": "string", "minLength": 1},
+        "selector_id": {"type": "string", "minLength": 1},
+        "consumer_id": {"type": "string", "minLength": 1},
+        "proof_kind": {"$ref": "#/$defs/proof_kind"},
+        "witness_kind": {"enum": ["pytest_runtime", "controller_pytest_runtime", "static_ast", "runtime_probe"]},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "consumer_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)"},
+        "caller_object_id": {"$ref": "#/$defs/sha1"},
+        "start_line": {"type": "integer", "minimum": 1},
+        "column_start": {"type": "integer", "minimum": 0},
+        "end_line": {"type": "integer", "minimum": 1},
+        "column_end": {"type": "integer", "minimum": 0},
+        "match_id": {"type": "string", "minLength": 1},
+        "pytest_node_id": {"type": "string", "minLength": 1},
+        "event_id": {"type": "string", "minLength": 1},
+        "source_event_binding": {"$ref": "#/$defs/source_event_binding"},
+        "expected_event": {"$ref": "#/$defs/json_value"},
+        "query": {"$ref": "#/$defs/proof_query"},
+        "expected_result": {"$ref": "#/$defs/json_value"},
+        "probe": {"$ref": "#/$defs/runtime_probe"}
+      },
+      "oneOf": [
+        {
+          "required": ["source_event_binding", "expected_event"],
+          "properties": {
+            "witness_kind": {"const": "pytest_runtime"},
+            "selector_id": {"pattern": "^(?!CO-)"},
+            "proof_kind": {"const": "boundary_runtime"}
+          },
+          "not": {"anyOf": [{"required": ["pytest_node_id"]}, {"required": ["event_id"]}, {"required": ["query"]}, {"required": ["expected_result"]}, {"required": ["probe"]}]}
+        },
+        {
+          "required": ["source_event_binding", "expected_event"],
+          "properties": {
+            "witness_kind": {"const": "controller_pytest_runtime"},
+            "selector_id": {"pattern": "^CO-"},
+            "proof_kind": {"const": "boundary_runtime"}
+          },
+          "not": {"anyOf": [{"required": ["pytest_node_id"]}, {"required": ["event_id"]}, {"required": ["query"]}, {"required": ["expected_result"]}, {"required": ["probe"]}]}
+        },
+        {
+          "required": ["query", "expected_result"],
+          "properties": {"witness_kind": {"const": "static_ast"}, "proof_kind": {"enum": ["non_cdi_static", "reference_absence"]}},
+          "not": {"anyOf": [{"required": ["pytest_node_id"]}, {"required": ["event_id"]}, {"required": ["source_event_binding"]}, {"required": ["expected_event"]}, {"required": ["probe"]}]}
+        },
+        {
+          "required": ["probe", "source_event_binding", "expected_event"],
+          "properties": {"witness_kind": {"const": "runtime_probe"}, "proof_kind": {"const": "boundary_runtime"}},
+          "not": {"anyOf": [{"required": ["pytest_node_id"]}, {"required": ["event_id"]}, {"required": ["query"]}, {"required": ["expected_result"]}]}
+        }
+      ]
+    },
+    "desired_proof_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proof_id", "ordinal", "selector_id", "witness_id", "consumer_id", "proof_kind", "expected_result"],
+      "properties": {
+        "proof_id": {"type": "string", "minLength": 1},
+        "ordinal": {"type": "integer", "minimum": 1},
+        "selector_id": {"type": "string", "minLength": 1},
+        "witness_id": {"type": "string", "minLength": 1},
+        "consumer_id": {"type": "string", "minLength": 1},
+        "proof_kind": {"$ref": "#/$defs/proof_kind"},
+        "expected_result": {"$ref": "#/$defs/json_value"}
+      }
+    },
+    "origin_pair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [{"type": "string"}, {"type": "string", "pattern": "^/"}],
+      "items": false
+    },
+    "normalized_autograph_module_origin_pair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "enum": [
+        ["<normalized-runtime-owned:autograph-generated-module:0001>", "<normalized-runtime-owned:autograph-generated-origin:0001>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0002>", "<normalized-runtime-owned:autograph-generated-origin:0002>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0003>", "<normalized-runtime-owned:autograph-generated-origin:0003>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0004>", "<normalized-runtime-owned:autograph-generated-origin:0004>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0005>", "<normalized-runtime-owned:autograph-generated-origin:0005>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0006>", "<normalized-runtime-owned:autograph-generated-origin:0006>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0007>", "<normalized-runtime-owned:autograph-generated-origin:0007>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0008>", "<normalized-runtime-owned:autograph-generated-origin:0008>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0009>", "<normalized-runtime-owned:autograph-generated-origin:0009>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0010>", "<normalized-runtime-owned:autograph-generated-origin:0010>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0011>", "<normalized-runtime-owned:autograph-generated-origin:0011>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0012>", "<normalized-runtime-owned:autograph-generated-origin:0012>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0013>", "<normalized-runtime-owned:autograph-generated-origin:0013>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0014>", "<normalized-runtime-owned:autograph-generated-origin:0014>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0015>", "<normalized-runtime-owned:autograph-generated-origin:0015>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0016>", "<normalized-runtime-owned:autograph-generated-origin:0016>"],
+        ["<normalized-runtime-owned:autograph-generated-module:0017>", "<normalized-runtime-owned:autograph-generated-origin:0017>"]
+      ]
+    },
+    "module_origin_pair": {
+      "oneOf": [
+        {"$ref": "#/$defs/origin_pair"},
+        {"$ref": "#/$defs/normalized_autograph_module_origin_pair"},
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {"const": "es_boundary_probe_plugin"},
+            {"const": "<runtime-owned:es-boundary-probe-plugin>"}
+          ],
+          "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {"const": "es_exact_source_event_observer"},
+            {"const": "<runtime-owned:es-exact-source-event-observer>"}
+          ],
+          "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {"const": "_remote_module_non_scriptable"},
+            {"const": "<normalized-runtime-owned:torch-remote-module-non-scriptable-origin>"}
+          ],
+          "items": false
+        }
+      ]
+    },
+    "origin_isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_sha256", "python_executable", "pytest_carrier", "plugin_autoload_disabled", "removed_editable_hooks", "forbidden_roots", "forbidden_module_prefixes", "project_owned_module_prefixes", "loaded_forbidden_modules", "forbidden_origin_rows", "outside_project_origin_rows", "projected_origin_rows", "module_origin_rows", "cache_artifacts"],
+      "properties": {
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "python_executable": {"type": "string", "pattern": "^/"},
+        "pytest_carrier": {"$ref": "#/$defs/pytest_carrier"},
+        "plugin_autoload_disabled": {"const": true},
+        "removed_editable_hooks": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "forbidden_roots": {"type": "array", "items": {"type": "string", "pattern": "^/"}, "uniqueItems": true},
+        "forbidden_module_prefixes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "project_owned_module_prefixes": {"type": "array", "minItems": 1, "items": {"type": "string"}, "uniqueItems": true},
+        "loaded_forbidden_modules": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "forbidden_origin_rows": {"type": "array", "items": {"$ref": "#/$defs/origin_pair"}},
+        "outside_project_origin_rows": {"type": "array", "items": {"$ref": "#/$defs/origin_pair"}},
+        "projected_origin_rows": {"type": "array", "items": {"$ref": "#/$defs/origin_pair"}},
+        "module_origin_rows": {"type": "array", "items": {"$ref": "#/$defs/module_origin_pair"}},
+        "cache_artifacts": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    },
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["errors", "failed", "passed", "skipped"],
+      "properties": {
+        "errors": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0}
+      }
+    },
+    "selector_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "pytest_node_ids", "coverage_witness_ids"],
+      "properties": {
+        "selector_id": {"type": "string", "minLength": 1},
+        "pytest_node_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "coverage_witness_ids": {"type": "array", "minItems": 1, "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "controller_selector_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector_id", "execution_kind", "argv", "collected_node_ids", "collected_node_sha256", "collection_total", "outcomes", "origin_isolation", "trace_sha256", "coverage_witness_ids", "coverage_witness_node_outcomes"],
+      "properties": {
+        "selector_id": {"type": "string", "pattern": "^CO-"},
+        "execution_kind": {"const": "pytest_aggregate"},
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "collected_node_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "collected_node_sha256": {"$ref": "#/$defs/sha256"},
+        "collection_total": {"type": "integer", "minimum": 1},
+        "outcomes": {"$ref": "#/$defs/outcomes"},
+        "origin_isolation": {"$ref": "#/$defs/origin_isolation"},
+        "trace_sha256": {"$ref": "#/$defs/sha256"},
+        "coverage_witness_ids": {"type": "array", "maxItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "coverage_witness_node_outcomes": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/coverage_witness_node_outcome"}}
+      }
+    },
+    "coverage_witness_node_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witness_id", "pytest_node_id", "outcome"],
+      "properties": {
+        "witness_id": {"type": "string", "minLength": 1},
+        "pytest_node_id": {"type": "string", "minLength": 1},
+        "outcome": {"const": "passed"}
+      }
+    },
+    "witness_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["witness_id", "selector_id", "consumer_id", "proof_kind", "witness_kind", "target_tree", "target_path", "target_blob_id", "mechanically_observed", "observation", "observation_sha256", "passed"],
+      "properties": {
+        "witness_id": {"type": "string", "minLength": 1},
+        "selector_id": {"type": "string", "minLength": 1},
+        "consumer_id": {"type": "string", "minLength": 1},
+        "proof_kind": {"$ref": "#/$defs/proof_kind"},
+        "witness_kind": {"enum": ["pytest_runtime", "controller_pytest_runtime", "static_ast", "runtime_probe"]},
+        "target_tree": {"$ref": "#/$defs/sha1"},
+        "target_path": {"type": "string", "minLength": 1},
+        "target_blob_id": {"oneOf": [{"$ref": "#/$defs/sha1"}, {"type": "null"}]},
+        "mechanically_observed": {"type": "boolean"},
+        "source_event": {"$ref": "#/$defs/source_event"},
+        "observation": {"$ref": "#/$defs/json_value"},
+        "observation_sha256": {"$ref": "#/$defs/sha256"},
+        "passed": {"type": "boolean"}
+      },
+      "oneOf": [
+        {
+          "required": ["source_event"],
+          "properties": {"witness_kind": {"enum": ["pytest_runtime", "controller_pytest_runtime", "runtime_probe"]}}
+        },
+        {
+          "properties": {"witness_kind": {"const": "static_ast"}},
+          "not": {"required": ["source_event"]}
+        }
+      ]
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "runner_sha256", "pre_tree", "post_tree", "aggregate_pytest_argv", "collected_node_ids", "collected_node_sha256", "collection_total", "outcomes", "origin_isolation", "selector_results", "controller_selector_results", "witness_results"],
+      "properties": {
+        "schema_version": {"const": "es_f1_boundary_baseline.v1"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "pre_tree": {"$ref": "#/$defs/sha1"},
+        "post_tree": {"$ref": "#/$defs/sha1"},
+        "aggregate_pytest_argv": {"type": "array", "minItems": 24, "items": {"type": "string"}},
+        "collected_node_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "collected_node_sha256": {"$ref": "#/$defs/sha256"},
+        "collection_total": {"type": "integer", "minimum": 1},
+        "outcomes": {"$ref": "#/$defs/outcomes"},
+        "origin_isolation": {"$ref": "#/$defs/origin_isolation"},
+        "selector_results": {"type": "array", "minItems": 19, "maxItems": 19, "items": {"$ref": "#/$defs/selector_result"}},
+        "controller_selector_results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/controller_selector_result"}},
+        "witness_results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/witness_result"}}
+      }
+    },
+    "cluster_id": {"enum": ["IDENTITY_CONFIG", "CONSTRUCTION_ADAPTERS", "TRAINING_OPTIMIZER", "PERSISTENCE_REBUILD", "INFERENCE_WORKFLOWS", "CONSUMER_BYPASS"]},
+    "unmet_cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster_id", "baseline_ledger_id", "remove_one_ledger_id", "primary_production_paths", "changed_production_paths", "responsibility_ids"],
+      "properties": {
+        "cluster_id": {"$ref": "#/$defs/cluster_id"},
+        "baseline_ledger_id": {"type": "string", "minLength": 1},
+        "remove_one_ledger_id": {"type": "string", "minLength": 1},
+        "primary_production_paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "changed_production_paths": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "responsibility_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "integration_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "from_cluster", "to_cluster", "producer_blob_oid", "consumer_blob_oid", "ledger_id", "pytest_node_id"],
+      "properties": {
+        "edge_id": {"type": "string", "minLength": 1},
+        "from_cluster": {"$ref": "#/$defs/cluster_id"},
+        "to_cluster": {"$ref": "#/$defs/cluster_id"},
+        "producer_blob_oid": {"$ref": "#/$defs/sha1"},
+        "consumer_blob_oid": {"$ref": "#/$defs/sha1"},
+        "ledger_id": {"type": "string", "minLength": 1},
+        "pytest_node_id": {"type": "string", "minLength": 1}
+      }
+    },
+    "spike_delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation_additions", "implementation_deletions", "physical_line_count", "changed_production_paths"],
+      "properties": {
+        "implementation_additions": {"type": "integer", "minimum": 1},
+        "implementation_deletions": {"type": "integer", "minimum": 0},
+        "physical_line_count": {"type": "integer", "minimum": 1},
+        "changed_production_paths": {"type": "array", "minItems": 4, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    "feasibility_spike": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "capture_manifest_path", "capture_manifest_sha256", "capture_deterministic_sha256", "capture_lifecycle", "source_tree_before", "source_tree_after", "cluster_domain", "unmet_clusters", "integration_edges", "delta", "non_collapse"],
+      "properties": {
+        "schema_version": {"const": "es_f1_structural_multi_context_feasibility.v1"},
+        "capture_manifest_path": {"const": "docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture-manifest.json"},
+        "capture_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "capture_deterministic_sha256": {"$ref": "#/$defs/sha256"},
+        "capture_lifecycle": {"const": "retained_pending_ordered_reviews"},
+        "source_tree_before": {"$ref": "#/$defs/sha1"},
+        "source_tree_after": {"$ref": "#/$defs/sha1"},
+        "cluster_domain": {"const": ["IDENTITY_CONFIG", "CONSTRUCTION_ADAPTERS", "TRAINING_OPTIMIZER", "PERSISTENCE_REBUILD", "INFERENCE_WORKFLOWS", "CONSUMER_BYPASS"]},
+        "unmet_clusters": {"type": "array", "minItems": 4, "items": {"$ref": "#/$defs/unmet_cluster"}},
+        "integration_edges": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/integration_edge"}},
+        "delta": {"$ref": "#/$defs/spike_delta"},
+        "non_collapse": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["distinct_production_blob_count", "distinct_cluster_path_sets"],
+          "properties": {
+            "distinct_production_blob_count": {"type": "integer", "minimum": 4},
+            "distinct_cluster_path_sets": {"type": "integer", "minimum": 4}
+          }
+        }
+      }
+    },
+    "json_value": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "integer"},
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/json_value"}},
+        {"type": "object", "additionalProperties": {"$ref": "#/$defs/json_value"}}
+      ]
+    }
+  }
+}
