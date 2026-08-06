@@ -42,6 +42,62 @@ evidence store, or validation authority for this plan.
 
 ---
 
+## 0. Owner scope amendment (2026-08-05)
+
+This section is owner-directed and outranks every other section of this plan.
+
+**Why a refreeze exists at all.** The ES F1 package was frozen on 2026-08-03 as
+a preregistration: the task bytes, evaluator bytes, seed lineage, metering
+authority, randomization schedule, and decision lock were content-addressed so
+that nobody could tune the task or the oracle after seeing arm results. The
+owner then directed a roughly tenfold enlargement of the task. Changing task
+content necessarily invalidates every digest computed over it. Re-pinning those
+digests is the entire legitimate content of a refreeze.
+
+**What a refreeze is not.** It is not a re-derivation of the apparatus. The
+four-arm topology, provider/model/effort assignment, role sequence, call
+tables, correction bounds, statistical operating rule, cost-ratio rule,
+invalid-attempt cap, metering shim, and no-resume semantics were built,
+reviewed, and closed on 2026-08-03 and are required by Section 1 bound 6 to
+remain **unchanged**. Re-certifying unchanged bytes against new digests is a
+mechanical rebinding, not a program of work. The original Tasks 4–8 spent four
+separate task-level gates on that rebinding; they are consolidated into one
+task by this amendment.
+
+**Ordered edits made by this amendment:**
+
+1. Original Tasks 4, 5, 6, 7, and 8 are replaced by a single consolidated
+   **Task 4** in Section 5. Their load-bearing contract content — successor
+   seed binding, envelope constants, unchanged call-graph proof, decision-lock
+   v3, the provider-free regression gates, and the six owner adoption
+   statements — is preserved verbatim inside that task. Their per-task freeze,
+   ordered-review, and adoption ceremony is not.
+2. The prelaunch gate is **one** review, not an ordered specification/quality
+   pair. The package delta under review is digests over already-reviewed
+   apparatus bytes plus the Task 1–3A task/evaluator/reference content, and one
+   reviewer with the whole package is sufficient authority for that delta.
+3. No new prelaunch CLI, collector, template publication step, or review-form
+   machinery may be created to police this freeze. Existing validators are the
+   freeze mechanism.
+4. Section 7 completion criteria are reduced accordingly.
+
+**Task 0 authority is untouched.** Task 0 is closed and its ordered review pair
+stands. The `plan_sha256` binding inside
+`docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.json`
+records the pre-amendment plan bytes as provenance for the Task-0 decision and
+remains valid and unmodified; it is not a live-file assertion. This amendment
+removes downstream scope only. It does not alter the source identities, the
+projection, the metric, the architecture/lifecycle matrix, the scale band, the
+non-delivery requirement, or any Task-0 output, and therefore requires **no
+re-review of Task 0 and no new amendment review pair**. Do not open one.
+
+**In-flight work is preserved.** Tasks 1, 2, and 3 are committed. Task 3A is in
+progress and is retained in full: it is the viability and oracle-calibration
+proof that directly answers the A1 pilot's forfeit failure, and it is not
+ceremony. Continue Task 3A from its current step.
+
+---
+
 ## 1. Authority, insertion point, and non-negotiable bounds
 
 This plan is subordinate to:
@@ -55,18 +111,18 @@ This plan is subordinate to:
 - `docs/reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md`.
 
 The current E-series authority says E0, E1, and E2 are complete and ES Tasks
-0–5 are complete. Refreeze Task 0 is the current provider-free unit; refreeze
-Tasks 1–8 remain pending. Together Tasks 1–8 will own and subsume the old
-component Task 6 freeze/review/adoption gate and hand directly to existing ES
-Task 7 after Task 8. Live allocation remains prohibited, and this amendment
-does not select or start E3.
+0–5 are complete. Refreeze Tasks 0–3 are closed; Task 3A is in progress and
+Task 4 is pending. Together Tasks 1–4 own and subsume the old component Task 6
+freeze/review/adoption gate and hand directly to existing ES Task 7 after
+Task 4. Live allocation remains prohibited, and this amendment does not select
+or start E3.
 
-This plan now owns that formerly separate gate: refreeze Tasks 1–8 satisfy,
-replace, and subsume the component plan's old Task 6 package-freeze, ordered
-review, and owner-adoption work. There is one prospective `decision_lock.v3`
-and one owner adoption, both closed in this plan's Task 8; no duplicate
-component Task-6 gate follows. After Task 8, existing ES Task 7 is next. Live
-allocation remains prohibited throughout this plan.
+This plan now owns that formerly separate gate: refreeze Tasks 1–4 satisfy,
+replace, and subsume the component plan's old Task 6 package-freeze, review,
+and owner-adoption work. There is one prospective `decision_lock.v3` and one
+owner adoption, both closed in this plan's Task 4; no duplicate component
+Task-6 gate follows. After Task 4, existing ES Task 7 is next. Live allocation
+remains prohibited throughout this plan.
 
 The source authority is unchanged:
 
@@ -1501,8 +1557,8 @@ before any package implementation. Replace its live prospective scope of one
 representative plus one witness with the exact 14-plus-one matrix in this
 plan, retain Tasks 0–4 as historical-complete provenance for the superseded
 prelaunch bytes together with completed provider-free Task 5, and record that
-refreeze Tasks 1–8 own and subsume the component plan's old Task 6 work. After
-Task 8, existing ES Task 7 follows directly. Its status must continue to say no
+refreeze Tasks 1–4 own and subsume the component plan's old Task 6 work. After
+Task 4, existing ES Task 7 follows directly. Its status must continue to say no
 live allocation is authorized. Update the E roadmap/index pointer and routing
 test only enough to make that ownership and gate discoverable; do not mark the
 refreeze implemented, adopted, or live-eligible.
@@ -1964,11 +2020,25 @@ twice from disk, rerun the focused tests, and commit only the calibration
 mechanism, schema, manifest, and tests; the external reference object database
 remains content-addressed evidence rather than repository source.
 
-### Task 4: Bind the successor seed and scale the existing trial envelope
+### Task 4: Bind, freeze, review once, and adopt
 
-**Files:** `qa_placement_trial.orc` and the two QA-placement test modules.
+This task replaces the original Tasks 4, 5, 6, 7, and 8 under the Section-0
+owner amendment. It preserves their contract content and drops their repeated
+per-task freeze/review/adoption ceremony. Section 1 bound 6 still governs: the
+apparatus bytes do not change here, so this task rebinds digests over already
+reviewed and closed apparatus rather than re-deriving it. Create no new
+prelaunch CLI, collector, schema version, review-form template, or evidence
+machinery; the existing validators are the freeze mechanism.
 
-- [ ] **Step 1: Write failing contract assertions**
+**Files:** `qa_placement_trial.orc` and the two QA-placement test modules; the
+resource/lineage records and schemas; the decision/randomization lock records;
+the controller and synthesis package-loading paths; the single prelaunch review
+view; the owner adoption record; `launch-manifest.json`; and the owning ES
+roadmap/status/routing surfaces.
+
+- [ ] **Step 1: Bind the one successor seed and scale only the trial-owned envelope**
+
+Write the failing assertions first, run them RED, then bind.
 
 Load the Task-3 `es_f1_task_seed.v2` manifest and assert that each of the four
 arm run refs resolves to its one exact successor repository locator and commit,
@@ -1976,17 +2046,15 @@ with no predecessor `93e0eb08...` locator/commit and no mixed seed set. Assert
 exactly nineteen provider-visible pre-edit pytest selectors plus the one
 candidate-owned selector; separately assert that every controller-only proof
 selector remains outside the authored workflow and provider-visible manifest,
-14,400,000 ms check timeout, 172,800,000 ms
-arm timeout, 216,000,000 ms trial timeout, 4 MiB item cap, 2 MiB diff cap, and
-8 MiB packet cap. Separately hash `qa_placement_arms.orc`, `providers.json`,
-`prompts.json`, and `trial_rubric.md` and require no amendment diff.
+14,400,000 ms check timeout, 172,800,000 ms arm timeout, 216,000,000 ms trial
+timeout, 4 MiB item cap, 2 MiB diff cap, and 8 MiB packet cap. Separately hash
+`qa_placement_arms.orc`, `providers.json`, `prompts.json`, and
+`trial_rubric.md` and require no amendment diff.
 
 Add both-direction coverage: all four arms bound to the one validated successor
 seed pass; any retained predecessor binding, one-arm old/new mixture, wrong
 repository/commit pair, or workflow/task-profile/seed-manifest disagreement
 fails before allocation.
-
-- [ ] **Step 2: Run RED**
 
 Run:
 
@@ -1996,416 +2064,76 @@ pytest -q \
   tests/experiments/test_es_qa_placement_workflows.py
 ```
 
-Expected: the seed assertions fail against the four predecessor run refs and
-the new envelope assertions fail against the 10+1, 20-minute, 12-hour, and
+Expected RED: the seed assertions fail against the four predecessor run refs
+and the new envelope assertions fail against the 10+1, 20-minute, 12-hour, and
 256 KiB values; route/topology controls remain green.
 
-- [ ] **Step 3: Bind the one successor seed and change only the trial-owned envelope**
-
-Consume the already-validated Task-3 manifest through the controller's single
-successor-seed binding. Replace the repository locator and commit in all four
-authored run refs with that exact pair; the workflow has no predecessor
+Then consume the already-validated Task-3 manifest through the controller's
+single successor-seed binding. Replace the repository locator and commit in all
+four authored run refs with that exact pair; the workflow has no predecessor
 fallback and may not derive four independent seed choices. Update the check
 argv and constants in `qa_placement_trial.orc`. Do not add a provider step,
-review, retry, correction, arm, or evaluator attempt.
-Rebind only fields the existing Task-5/E2 apparatus already owns; do not add a
-new timeout authority, outer supervisor, transport, or public SDK input.
-
-- [ ] **Step 4: Prove the unchanged call graph**
-
-Compile through the public Workflow Lisp path and require the same four arms,
-all four compiled run refs to bind the one Task-3 successor seed, same complete
-terminal-route semantics (including the generic distinct
-final-provider-call failure variants), same two evaluation routes, same 22
-receipt slots, and the same 7–22/17–22/21–66/51–66/88 call bounds. Scaling must
-not add a provider call slot or remove a terminal treatment-failure outcome.
-
-- [ ] **Step 5: Commit the envelope tranche**
-
-Commit the single workflow and its behavioral/contract tests.
-
-### Task 5: Freeze resource, metering, lineage, and decision-lock v3
-
-**Files:** the new resource/lineage records and schemas, decision/randomization
-schemas and code, attempt/controller/synthesis bindings, and their tests.
-
-- [ ] **Step 1: Write failing closed-record tests**
-
-The resource record must encode the exact A1 calibration anchor, the inclusive
-5,000–10,000 measured reference result, non-acceptance flags, role estimates,
-their low-confidence/non-cap classification, actual-only
-`usage-receipt.v1` authority, existing timeout fields, byte limits, observed
-Task-0 nineteen-selector baseline elapsed time, reference evaluator elapsed
-time, item/diff/packet bytes and positive headroom, and the no-token-cap rule.
-The lineage record must bind `amendment_timing=PRE_RUN`, predecessor
-task/evaluator/profile/seed digests, unchanged projection identity,
-`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, the truthful predecessor decision-lock
-state `NOT_GENERATED_OR_OWNER_ADOPTED`, zero arm/provider-session/allocation/
-receipt/adoption/invalid-attempt/denominator consumption, this reviewed plan
-digest, the pre-edit policy, A1 anchor, source/bypass inventory, selector
-manifest, the closed Task-0 review-adoption record, and every successor
-task/evaluator/reference/resource digest except the decision lock itself,
-avoiding a digest cycle.
-
-- [ ] **Step 2: Write decision-lock and attempt-ID RED tests**
-
-Version every changed domain-bearing closed contract together. The exact
-refreeze-owned versions are:
-
-| Closed record | Exact successor version |
-| --- | --- |
-| non-authoritative discovery input | `es_f1_preedit_discovery_input.v1` |
-| pre-edit policy manifest | `es_f1_preedit_policy.v1` |
-| A1 anchor | `es_f1_a1_calibration_anchor.v1` |
-| source census | `es_f1_source_census.v1` |
-| pre-edit selector manifest | `es_f1_preedit_selector_manifest.v1` |
-| Task-0 ordered review adoption | `es_f1_task0_review_adoption.v1` |
-| preregistration lineage | `es_f1_preregistration_lineage.v1` |
-| resource plan | `es_f1_resource_plan.v1` |
-| reference product | `es_f1_reference_product.v1` |
-| decision lock | `decision_lock.v3` |
-| randomization manifest | `es_randomization_manifest.v2` |
-| attempt record | `es_attempt_record.v3` |
-| study report | `es_study_report.v2` |
-| controller package | `es.controller_package.v2` |
-| pending/closed owner adoption | `es_f1_prelaunch_owner_adoption.v1` |
-| launch manifest | `es_f1_launch_manifest.v1` |
-
-The existing Task-5 `es.prompt_manifest.v2` schema/version and
-`es.provider_boundary_manifest.v4` contract are preserved; only their
-content-addressed task/evaluator/seed and execution bindings are regenerated.
-Use exact fresh
-study ID `ES-F1-FULL`, one separately named apparatus-smoke execution, and the
-exact successor execution IDs:
-
-```text
-ES-F1-FULL-SMOKE-01
-ES-F1-FULL-ATTEMPT-01
-ES-F1-FULL-ATTEMPT-02
-ES-F1-FULL-ATTEMPT-03
-ES-F1-FULL-ATTEMPT-04
-```
-
-Require the lock to bind the resource plan, preregistration lineage, revised
-task/evaluator/seed, controller-only reference manifest and its strict passed
-calibration, closed bypass inventory, unchanged source projection, exact
-metering module and `usage-receipt.v1`, prompts/workflow/environment/report,
-and the new schedule.
-Each schedule row must additionally bind one exact, safe, previously unused
-parent run ID and one complete sealed opaque-label map over the four frozen
-cells. The map is private controller authority: it is committed before any
-allocation, never rendered into a treatment prompt, and is not generated or
-replaced by the runtime. Tamper every binding, run ID, label-map row, and
-resource field in both directions. The smoke row is outside `attempt_order`,
-the denominator, valid-block accounting, and the invalid-attempt cap; it may
-be consumed exactly once only by the live apparatus-smoke entry after owner
-adoption. Provider-free tests use disposable fixture-only IDs and authority
-records and must prove that the canonical smoke row remains unconsumed.
-
-- [ ] **Step 3: Preserve scientific and route choices exactly**
-
-The v3 builder must mechanically retain `N=2`, `k=2`, `M=3`, alpha `1/4`,
-power `81/100`, accrual `27/32`, maximum invalid attempts `1`, cost ratio `4`,
-the four-arm route table, and no-resume/fresh-session rules. A changed task
-scale must not silently change the estimand or denominator.
-
-- [ ] **Step 4: Bind metering without changing receipts**
-
-Leave `scripts/experiments/es/metering.py` and
-`usage-receipt.schema.json` behavior unchanged. Add their exact digests to the
-new package/lock authority. Planning ranges live only in `resource-plan.json`;
-actual receipt fields remain actuals and may not carry estimates.
-
-- [ ] **Step 5: Update controller and synthesis package loading**
-
-Make the preregistration lineage, reference-product manifest, and resource plan
-required, digest-bound controller-package inputs. Replace every prospective
-hardcoded `F1-ES`/`ES-ATTEMPT-*` consumer in the decision-lock,
-attempt-record, randomization, report, controller, blinding,
-controller-artifacts, synthesis, CLI, `tests/experiments/test_es_reviews.py`,
-and owning integration tests. Study-shaped review tests use
-`ES-F1-FULL-ATTEMPT-*`; genuinely generic review transport fixtures use a
-neutral non-study identifier and state that classification explicitly. The
-decision lock is the sole source of study ID and exact execution membership;
-generic metering/provider/review mechanisms retain neutral identifiers rather
-than learning this domain. Reject every predecessor domain, mixed-generation
-package (including v1/v2 controller authority combined with v3 F1 authority),
-missing files, symlinks, digest drift, and noncanonical records
-before provider allocation. The controller must pass only the selected
-schedule row's exact run ID and sealed label map into the public E2 entry;
-fresh-run allocation must reject an existing run root, a cell-domain mismatch,
-or any runtime attempt to substitute a different map. The smoke ID is never an
-attempt-record/report/denominator member. Preserve no-resume and next-ID
-behavior.
-
-This is package rebinding, not controller redesign. Preserve Task-5 call,
-prompt-authority, provider-boundary, hard-evidence, trial-SDK, allocation,
-settlement, and receipt behavior byte-for-byte unless an existing
-content-addressed input table must name the successor package. No refreeze task
-may create a generic runtime helper or new public input.
-
-- [ ] **Step 6: Run GREEN**
-
-Run:
-
-```bash
-pytest --collect-only -q \
-  tests/experiments/test_es_decision_lock.py \
-  tests/experiments/test_es_attempts.py \
-  tests/experiments/test_es_blinding.py \
-  tests/experiments/test_es_controller.py \
-  tests/experiments/test_es_controller_artifacts.py \
-  tests/experiments/test_es_reviews.py \
-  tests/experiments/test_es_reference_calibration.py \
-  tests/experiments/test_es_synthesis.py
-pytest -q \
-  tests/experiments/test_es_decision_lock.py \
-  tests/experiments/test_es_attempts.py \
-  tests/experiments/test_es_blinding.py \
-  tests/experiments/test_es_controller.py \
-  tests/experiments/test_es_controller_artifacts.py \
-  tests/experiments/test_es_reviews.py \
-  tests/experiments/test_es_reference_calibration.py \
-  tests/experiments/test_es_synthesis.py \
-  tests/experiments/test_es_metering.py
-```
-
-- [ ] **Step 7: Commit the authority tranche**
-
-Commit the new schemas/records/code/tests. No canonical `decision-lock.json`
-is published until Task 6 freezes every remaining digest.
-
-### Task 6: Build and calibrate the complete provider-free prelaunch package
-
-**Files:** create `prelaunch.py` and its tests; generate the
-environment/prompt/schedule/decision/controller package files and the
-review-independent owner-form template. Reuse the completed Task-5 controller,
-provider boundary, hard-evidence path, trial SDK, prompt authority, allocation,
-settlement, and receipt mechanisms unchanged.
-
-- [ ] **Step 1: Write the provider-free prelaunch CLI tests**
-
-Add `freeze-prelaunch` and `validate-prelaunch` commands. `freeze-prelaunch`
-requires all three exact finite-scope roots to remain absent/empty and all four
-prospective control paths to be absent before its controlled writes.
-`validate-prelaunch` requires the digest-bound decision-lock and
-controller-package bytes created by the freeze, requires owner adoption and
-launch manifest still to be absent, and still requires all three roots empty.
-Both refuse any other phase-inconsistent state, provider allocation/receipt,
-unreviewed plan, unclean or wrong source projection, mixed package version,
-digest mismatch, unbound controller file, missing or out-of-band
-reference-product calibration, bypass-oracle failure, reference no-delivery
-failure, or changed frozen choice. The validate command performs no provider
-execution and cannot add or reinterpret an apparatus contract.
-
-- [ ] **Step 2: Generate the deterministic successor package through Task 5**
-
-Generate canonical `environment-lock.json`, `prompt-manifest.json`,
-`randomization-manifest.json`, `decision-lock.json`, and
-`controller-package.json` only from explicit paths and expected digests.
-Bind the Section-3 paths without aliases: `runs` is the controller
-`state_dir`, `run-refs` is `run_ref_root`, and the dedicated share-path is
-`evidence_root`; no environment or fallback path is accepted.
-Preserve the existing Task-5 prompt-manifest and provider-boundary schema
-versions, call slots, prompt construction, run/label binding surface, and
-append/allocation order. Regenerate only their content-addressed successor
-bindings. Freeze the smoke plus all four attempt run IDs and their exact sealed
-label maps under study ID `ES-F1-FULL` before the lock.
-
-Bind the exact Task-3A reference manifest, strict inclusive scale result,
-structural multi-context cluster/edge result, desired-state proof results,
-artifact-applicability results, distinct-witness proof, bypass-oracle result,
-no-delivery proof, resource plan,
-PRE_RUN lineage, Task-0 policy/census/selector/A1 records and their approving
-JSON review-adoption record, unchanged metering/receipt authority, and existing
-timeout fields. Generate the decision lock last, then independently reload the entire
-package from disk. Exact-existing bytes are idempotent; conflicting existing
-bytes fail. No authority ledger, public SDK input, provider-boundary version,
-outer runtime deadline, or hard-evidence mechanism is introduced by this
-refreeze.
-
-- [ ] **Step 3: Replay baseline characterization and reference conformance in tmux**
-
-Use `ptycho311`, the digest-bound Task-0 selector manifest, and two distinct
-fresh exact extracts. First replay the Task-0 aggregate pytest invocation and
-baseline-witness characterization against the frozen pre-edit projection;
-require exact agreement with its recorded collected-node digest, outcome
-totals, origin report, tree identity, and truthful baseline witness results.
-Baseline desired-state failures remain expected characterization facts.
-
-Then materialize the exact Task-3A reference tree and run exactly the same
-nineteen `provider_visible_pytest_selectors` in their one aggregate invocation:
-
-```bash
-pytest -q -p no:cacheprovider \
-  tests/torch/test_generator_registry.py \
-  tests/torch/test_construction_consolidation.py \
-  tests/torch/test_generator_adapter.py \
-  tests/torch/test_config_bridge.py \
-  tests/torch/test_model_spec.py \
-  tests/torch/test_model_spec_v2.py \
-  tests/torch/test_lightning_checkpoint.py \
-  tests/torch/test_artifact_schema.py \
-  tests/torch/test_artifact_schema_v2.py \
-  tests/torch/test_workflows_components.py \
-  tests/torch/test_fno_generators.py \
-  tests/torch/test_fno_lightning_integration.py \
-  tests/torch/test_neuralop_uno_generator.py \
-  tests/torch/test_model_output_modes.py \
-  tests/torch/test_model_manager.py \
-  tests/torch/test_model_training.py \
-  tests/torch/test_train_lightning_execution_contract.py \
-  tests/torch/test_object_big_generator_contract.py \
-  tests/torch/test_structural_config_ownership.py
-```
-
-Then invoke the digest-bound `boundary_proofs.py` runner against
-`docs/plans/evidence/es-f1-large-scope-refreeze/preedit-selector-manifest.json`
-and the exact reference-product tree/result binding. Before loading any proof
-input, verify that the runner bytes still match the Task-0 selector manifest's
-`runner_sha256`; no refresh, replacement, or later-task digest is permitted.
-Execute every desired-state proof spec, not the baseline result rows. It must
-reject a missing, extra, duplicate, reordered, cross-lane, blob-drifted,
-unobserved, or unmapped selector/witness/result before executing a proof.
-Expected: the
-nineteen-module/11,800-line reference pytest lane passes, every desired-state
-proof passes in canonical order and exactly matches its Task-3A result,
-reference bytes are identical before/after, and project imports resolve only
-from the reference extract. No controller-only selector may appear in
-task-profile, visible-check, workflow, prompt, or provider argv bytes.
-
-- [ ] **Step 4: Run evaluator calibration and resource measurement in tmux**
-
-Reload the Task-3A controller-only reference product from its bound bare
-repository and run the full-matrix conforming control, exact delta
-remeasurement, bypass oracle, no-delivery proof, and every frozen negative
-calibration case. Capture actual elapsed time, reference patch bytes, maximum
-provider-visible item bytes, and maximum frozen packet bytes. Require positive
-headroom below the existing 2-hour visible, 4-hour hidden, 2-MiB diff, 4-MiB
-item, and 8-MiB packet limits.
-
-Require the measured implementation delta to remain inclusively between 5,000
-and 10,000. This exact gate is the owner's selected pre-run calibration, while
-candidate-visible contracts and candidate outcomes remain LOC-free. Any scale,
-time, or byte breach requires a reviewed pre-run amendment; it never permits
-extending a launched attempt or adding a transport mechanism.
-
-- [ ] **Step 5: Regress the existing provider-free Task-5 apparatus**
-
-Use the deterministic fake provider through the public Task-5 controller and
-the successor package. Re-run its existing agreement,
-disagreement/adjudication, treatment/evaluation-failure, sibling-preservation,
-terminal reviewer, receipt, hard-evidence, no-resume, next-ID, and tamper
-coverage without changing those mechanisms. Prove one fixture attempt can
-freeze under `ES-F1-FULL-ATTEMPT-01` and the existing fresh-selection path
-chooses `ES-F1-FULL-ATTEMPT-02`, while no provider-visible byte contains a
-reference-product locator, object, patch, canary, measured line count, or
-controller-only proof selector.
-
-Exercise disposable fixture-only smoke authority and IDs and prove they create
-no attempt, denominator, valid-block, or invalid-cap row. Prove separately that
-this provider-free test does not consume or mutate the canonical
-`ES-F1-FULL-SMOKE-01` row; that row's first permitted consumption is the live
-apparatus smoke in the existing ES component plan's Task 7 after exact owner
-adoption.
-
-- [ ] **Step 6: Publish the review-independent owner-form template**
-
-Create
-`experiments/orc_effectiveness/f1_es/prelaunch-owner-adoption.template.json`
-with schema version `es_f1_prelaunch_owner_adoption.v1`,
-`evidence_status=pending_review`, the exact lock/package digests, and the six
-confirmation statements in Task 8. It contains no review digest, is a template
-rather than an attestation, and grants no launch authority.
-
-- [ ] **Step 7: Verify deterministic replay**
-
-Delete only a disposable generated copy, regenerate into a second empty root,
-and require byte-identical manifests, lock, schedule, seed, evaluator package,
-controller package, frozen run IDs, sealed label maps, resource measurements,
-and owner-form template. The exact canonical evidence, state, and run-ref
-roots from Section 3 remain empty.
-
-- [ ] **Step 8: Commit the exact prelaunch candidate**
-
-Commit all generated successor-package bytes and provider-free regression tests
-together. Do not launch a smoke or arm.
-
-### Task 7: Obtain the one ordered prelaunch review pair
-
-**Files:** `artifacts/review/es-first-effectiveness-study-prelaunch-review.md`;
-publish `prelaunch-owner-adoption.json` from the reviewed template only after
-both verdicts exist.
-
-- [ ] **Step 1: Specification review**
-
-One independent reviewer checks the exact full-architecture matrix,
-candidate/evaluator authority split, all 15 lifecycles, N exception, task-seed
-lineage, exact discovery-to-policy lineage, finite no-consumption scope, split
-leaf/consumer census, mechanically observed node/static/runtime selector
-coverage, fresh nineteen-module baseline, closed Task-0 JSON review adoption,
-structural multi-context feasibility result, exact A1 anchor, and the complete
-artifact-era applicability partitions,
-controller-only conforming reference product,
-inclusive 5,000–10,000 measured scale result, distinct witness, closed bypass
-oracle, package-level no-delivery, and candidate-LOC non-acceptance rule,
-unchanged topology/statistics/no-resume semantics, budget and packet
-scaling with observed positive headroom, actual-only metering, the separately
-scoped smoke, PRE_RUN lineage and zero-consumption proof, preservation of the
-existing Task-5 prompt/allocation/settlement/receipt behavior, and every digest
-in the canonical package. Required verdict:
-`ES_F1_REFREEZE_SPEC_APPROVED`.
-
-- [ ] **Step 2: Quality review**
-
-Only after specification approval, a distinct reviewer checks generic matrix
-iteration, absence of fourteen copied branches, evaluator runtime and packet
-proportionality, absence of scale-padding/copy/churn, genuine independent
-cluster/edge scope, reference repository and shared-metric reproducibility,
-baseline/desired-result separation, coverage-witness integrity, diagnostic
-quality, schema closure,
-provider-free E2E evidence, a byte/diff audit proving no new apparatus
-mechanism, canonical-smoke non-consumption, selector-lane isolation, and test
-maintainability. Required verdict:
-`ES_F1_REFREEZE_QUALITY_APPROVED`.
-
-- [ ] **Step 3: Treat this pair as the existing Task-6 prelaunch pair**
-
-Because the reviewers inspect the complete exact package, do not run a second
-duplicative Task-6 review pair. Any material byte correction invalidates the
-affected verdict and requires the ordered pair against the new exact digest.
-
-- [ ] **Step 4: Run final provider-free gates**
-
-Run the complete ES slice, Pyright over every changed public Python module,
-schema/canonical-JSON checks, and the broad non-security suite in tmux:
-
-```bash
-pytest -q -n 16 --dist=worksteal
-```
-
-Apply the repository's standing security exclusions. Record exact collection,
-pass, fail, error, skip, and warning totals; do not weaken or delete a failing
-non-security test.
-
-- [ ] **Step 5: Publish and commit the digest-bound pending owner form**
-
-Only after both approved review records exist, derive
-`prelaunch-owner-adoption.json` from the reviewed template. Set
-`evidence_status=pending_owner_confirmation`, bind the exact lock, package,
-Task-0 JSON review-adoption, and prelaunch-review digests, and retain the six
-statements byte-for-byte. The human Task-0 Markdown view is not a machine
-binding. Validate that the form differs from the template only in the closed
-post-review binding/lifecycle fields. Commit the review record, exact reviewed
-hashes, and pending form together. The pending form still grants no launch
-authority.
-
-### Task 8: Obtain exact owner adoption and hand back to ES Task 7
-
-**Files:** close the pending owner form; create `launch-manifest.json`; update
-only the owning ES roadmap/status/routing surfaces after adoption.
-
-- [ ] **Step 1: Present the exact six owner statements**
+review, retry, correction, arm, or evaluator attempt. Rebind only fields the
+existing Task-5/E2 apparatus already owns; do not add a new timeout authority,
+outer supervisor, transport, or public SDK input.
+
+Prove the unchanged call graph: compile through the public Workflow Lisp path
+and require the same four arms, all four compiled run refs to bind the one
+Task-3 successor seed, same complete terminal-route semantics (including the
+generic distinct final-provider-call failure variants), same two evaluation
+routes, same 22 receipt slots, and the same 7–22/17–22/21–66/51–66/88 call
+bounds. Scaling must not add a provider call slot or remove a terminal
+treatment-failure outcome.
+
+- [ ] **Step 2: Regenerate the authority records and `decision_lock.v3`**
+
+Rebind, in one deterministic regeneration, the resource envelope, metering
+authority, pre-run lineage, randomization schedule, and `decision_lock.v3` over
+the Task 1/2/3/3A successor bytes. Preserve the scientific and route choices
+exactly: unchanged four-arm topology, terminal routes, call bounds,
+`N=2`/`k=2`/`M=3` operating rule, one-invalid-attempt allowance, fresh sessions,
+no resume, median `RICH`/`DIRECT` token-cost-ratio cap of `4.0`, actual-only
+receipt authority, and no token cap. Bind metering without changing receipts or
+the existing Codex JSONL shim.
+
+The predecessor package must be recorded as
+`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL` — not failed and not invalid — and
+machine checks must prove it has no live attempt record, provider allocation,
+usage receipt, owner-adopted lock, or denominator contribution. The lock owns
+the `ES-F1-FULL` study/execution domain with empty dedicated roots; an old ID,
+fabricated prefix, smoke-as-attempt, resume, or mixed domain rejects.
+
+Update controller and synthesis package loading to consume the new content
+addresses. Do not introduce a new package schema version.
+
+- [ ] **Step 3: Run the existing provider-free gates unchanged**
+
+In tmux under `ptycho311`, regress the existing Task-5 apparatus against the
+successor bytes: package binding, tamper, metering, selector isolation, and
+no-resume controls; the reference-conformance and evaluator-calibration replay
+established in Task 3A; and deterministic re-generation (generate twice, require
+byte-identical output). Reuse the Task-3A evidence rather than re-running its
+matrix a second time for its own sake.
+
+The separately locked canonical smoke row stays unconsumed and outside every
+attempt counter, denominator, valid-block, and invalid-cap accounting.
+
+- [ ] **Step 4: Obtain one prelaunch review**
+
+Publish the exact committed package for a single review at
+`artifacts/review/es-first-effectiveness-study-prelaunch-review.md`. One
+reviewer reads the whole package. Per the Section-0 amendment this is one
+review, not an ordered specification/quality pair: the delta under review is
+digests over already-reviewed apparatus plus the Task 1–3A task, evaluator, and
+reference content.
+
+The review must confirm the successor scope and evaluator matrix, the
+reference-product band result, the unchanged apparatus, the lock contents, and
+the absence of any reference locator or measured count on a provider-visible
+surface. A finding that names a concrete contract violation blocks; prose
+preference does not. Record the verdict in the closed adoption bindings.
+
+- [ ] **Step 5: Obtain exact owner adoption**
 
 The pending form must require personal adoption by Ollie of these statements;
 an agent may mechanically prepare the exact record at his direction but may
@@ -2443,37 +2171,33 @@ scientific lock decision:
    adoption makes no general superiority, USD/billing, security/isolation,
    promotion/merge, or E3-implementation claim.
 
-- [ ] **Step 2: Validate the closed adoption record**
+Validate the closed record: require `evidence_status=owner_confirmed`, owner
+identity/role, one common adoption timestamp, all six statements byte-for-byte,
+exact package and review bindings, truthful `prepared_by`, and an explicit
+owner-adoption provenance statement saying Ollie personally reviewed and adopted
+those exact bytes. Reject a relayed summary, delegated adoption, standing
+direction merely to prepare a form, altered statement, stale digest, or
+pre-review adoption.
 
-Require `evidence_status=owner_confirmed`, owner identity/role, one common
-adoption timestamp, all six statements byte-for-byte, exact package and review
-bindings, truthful `prepared_by`, and an explicit owner-adoption provenance
-statement saying Ollie personally reviewed and adopted those exact bytes.
-Reject a relayed summary, delegated adoption, standing direction merely to
-prepare a form, altered statement, stale digest, or pre-review adoption.
-
-- [ ] **Step 3: Generate and validate the launch manifest**
+- [ ] **Step 6: Generate the launch manifest, record routing, and stop**
 
 Bind the closed adoption digest into `launch-manifest.json`, independently
-reload every file, prove the three exact Section-3 state/evidence/run-ref
-roots are real non-symlink empty directories (created only as part of this
+reload every file, prove the three exact Section-3 state/evidence/run-ref roots
+are real non-symlink empty directories (created only as part of this
 provider-free launch-manifest freeze), bind those exact paths without aliases,
 and prove no predecessor attempt ID is admissible. Any child, symlink,
-unreadable path, fallback root, or out-of-scope substitution fails closed.
-This remains a provider-free action.
+unreadable path, fallback root, or out-of-scope substitution fails closed. This
+remains a provider-free action.
 
-- [ ] **Step 4: Record the narrow routing transition**
+Advance the component-plan/roadmap/index/routing row from accepted refreeze
+pending to complete: the pre-run scope replacement is complete, the new lock is
+owner-adopted, and existing ES Task 7 is next. Do not reintroduce the old
+two-architecture wording or change E3, P, L, M, or security selection.
 
-Advance the Task-0 component-plan/roadmap/index/routing row from accepted
-refreeze pending to complete: the pre-run scope replacement is complete, the
-new lock is owner-adopted, and existing ES Task 7 is next. Do not reintroduce
-the old two-architecture wording or change E3, P, L, M, or security selection.
-
-- [ ] **Step 5: Run postcommit controls and stop this plan**
-
-Run the focused prelaunch and routing controls against committed bytes. This
-plan ends without a smoke or live arm. Continue immediately with the existing
-component plan's Task 7 using only the new lock and new attempt IDs.
+Run the focused prelaunch and routing controls against committed bytes and
+commit. This plan ends without a smoke or live arm. Continue immediately with
+the existing component plan's Task 7 using only the new lock and new attempt
+IDs.
 
 ## 6. Verification matrix
 
@@ -2509,35 +2233,26 @@ component plan's Task 7 using only the new lock and new attempt IDs.
 
 The scope amendment is complete only when:
 
-1. this plan passes ordered specification then quality review;
-2. deterministic discovery precedes policy authorship, the fresh
-   nineteen-selector baseline and structural feasibility spike pass; the
-   authenticated capture passes ordered pre-purge reviews; the authenticated
-   runner purges exactly the closed root set; the post-purge tombstone validates
-   that exact-root absence; and the closed top-level Task-0 JSON review-adoption
-   record binds the tombstone in addition to the five common authority digests;
-3. the new visible task, evaluator, seed, controller-only reference product,
+1. Task 0 is closed under its completed ordered review pair (already
+   satisfied; the Section-0 amendment requires no re-review);
+2. the new visible task, evaluator, seed, controller-only reference product,
    resource plan, lineage, schedule, decision lock, and controller package are
    canonical and content-addressed;
-4. the conforming reference measures 5,000–10,000 inclusive under the exact
+3. the conforming reference measures 5,000–10,000 inclusive under the exact
    metric, has one distinct witness, passes the closed bypass oracle, and is
    proven absent from every provider-visible closure/surface;
-5. all fifteen architectures pass the provider-free current-artifact control,
+4. all fifteen architectures pass the provider-free current-artifact control,
    every historical artifact follows its closed applicability partition, and
    the complete negative calibration matrix fails in the intended clauses;
-6. every desired-state proof result is bound to the exact reference tree and
-   the unchanged source projection and four-arm/call/statistical apparatus are
-   mechanically proven;
-7. provider-free public E2/ES execution reuses the completed Task-5 apparatus
+5. provider-free public E2/ES execution reuses the completed Task-5 apparatus
    unchanged, and its package-binding, tamper, metering, selector-isolation,
    and no-resume regression tests pass under the successor bytes;
-8. the exact package passes one ordered prelaunch specification/quality pair;
-9. Ollie personally adopts the final lock and six statements;
-10. the adoption-bound launch manifest validates from committed bytes and empty
-   dedicated roots; and
-11. focused, broad non-security, and postcommit routing controls pass.
+6. the exact package passes its one prelaunch review, Ollie personally adopts
+   the final lock and six statements, and the adoption-bound launch manifest
+   validates from committed bytes and empty dedicated roots; and
+7. focused, broad non-security, and postcommit routing controls pass.
 
 No smoke, arm, provider session, attempt, invalid-attempt allowance, or
-denominator row may be consumed before all eleven conditions hold. Completion of
+denominator row may be consumed before all seven conditions hold. Completion of
 this plan authorizes only return to existing ES Task 7; it is not an ES result,
 an E3 decision, or a claim that 5,000–10,000 LOC is intrinsically desirable.
