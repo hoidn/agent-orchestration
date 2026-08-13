@@ -1045,6 +1045,28 @@ def test_data_loader_is_not_a_tolerant_configuration_loader() -> None:
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
 
 
+@pytest.mark.parametrize(
+    ("imported", "expected"),
+    (
+        ("from package.dataloader import normalize_legacy_grouping_records", ()),
+        (
+            "from package.runtime import normalize_legacy_loader",
+            ("TOLERANT_OR_COMPATIBILITY_LOADER",),
+        ),
+    ),
+)
+def test_tolerant_loader_name_uses_the_callable_not_its_module(
+    imported: str, expected: tuple[str, ...]
+) -> None:
+    callable_name = imported.rsplit(" ", 1)[-1]
+    source = f"{imported}\ndef consume(config):\n    return {callable_name}(config)\n"
+
+    assert evaluator.detect_ast_bypasses(
+        source,
+        _tainted_names=("config",),
+    ) == expected
+
+
 def test_strict_compatibility_validation_is_not_a_tolerant_loader() -> None:
     assert evaluator.detect_ast_bypasses(
         "def consume(config):\n"

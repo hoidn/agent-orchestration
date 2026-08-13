@@ -2323,7 +2323,7 @@ def _is_legacy_configuration_symbol(name: str) -> bool:
 
 
 def _is_tolerant_configuration_operation(name: str) -> bool:
-    lowered = name.lower()
+    lowered = name.rsplit(".", 1)[-1].lower()
     return (
         "compat" in lowered
         and any(token in lowered for token in ("adapter", "coerce", "fallback", "load"))
