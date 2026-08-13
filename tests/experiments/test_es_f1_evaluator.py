@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from types import SimpleNamespace
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -859,6 +860,22 @@ def test_transitive_consumer_walk_does_not_stop_at_a_facade() -> None:
     assert result["unresolved_consumers"] == ["consumer-a"]
 
 
+def test_constructor_route_accepts_analyzed_safe_siblings_but_not_unknown_ones() -> None:
+    consumer = [{"consumer_id": "consumer-a", "entry_symbol": "public.start"}]
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={"public.start": ["authority", "safe"], "safe": []},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )["closed"] is True
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={"public.start": ["authority", "unknown"]},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )["closed"] is False
+
+
 def test_wrapper_deep_bypass_is_not_hidden_by_an_authority_sibling() -> None:
     result = evaluator.walk_consumer_routes(
         consumer_rows=[{"consumer_id": "consumer-a", "entry_symbol": "entry"}],
@@ -921,6 +938,23 @@ def test_resolved_value_read_may_terminate_at_an_analyzed_helper() -> None:
     assert result["unresolved_consumers"] == []
 
 
+def test_resolved_value_read_may_reach_an_external_terminal_operation() -> None:
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "read-a",
+            "entry_symbol": "read.value",
+            "requires_authority": False,
+        }],
+        call_graph={"read.value": ["numpy.squeeze"]},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+        terminal_symbols={"numpy.squeeze"},
+    )
+
+    assert result["closed"] is True
+    assert result["unresolved_consumers"] == []
+
+
 @pytest.mark.parametrize(
     "terminal",
     (
@@ -977,11 +1011,33 @@ def test_data_loader_is_not_a_tolerant_configuration_loader() -> None:
         _tainted_names=("config",),
     ) == ()
     assert evaluator.detect_ast_bypasses(
-        "import config_loader\n"
         "def consume(config):\n"
-        "    return config_loader.load(config)\n",
+        "    return load_config_with_fallback(config)\n",
         _tainted_names=("config",),
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_strict_compatibility_validation_is_not_a_tolerant_loader() -> None:
+    assert evaluator.detect_ast_bypasses(
+        "def consume(config):\n"
+        "    requirements = DatasetCompatibilityRequirements(config['shape'])\n"
+        "    return validate_dataset_compatibility(requirements)\n",
+        _tainted_names=("config",),
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        "def consume(config):\n"
+        "    return compatibility_adapter(config)\n",
+        _tainted_names=("config",),
+    ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_strict_config_loading_names_are_not_tolerant_by_name() -> None:
+    assert evaluator.detect_ast_bypasses(
+        "def consume(config):\n"
+        "    payload = resolve_training_payload(config)\n"
+        "    return load_checkpoint_with_configs(payload)\n",
+        _tainted_names=("config",),
+    ) == ()
 
 
 def test_resolved_typed_configuration_access_is_not_a_tolerant_loader() -> None:
@@ -1171,11 +1227,753 @@ def test_fresh_added_consumer_occurrence_is_evaluated(
     )
     assert result["closed"] is False
     assert result["added_consumer_count"] == 1
+    assert result["introduced_consumer_symbols"] == ["candidate.config.added"]
     assert {trace["consumer_id"] for trace in result["traces"]} == {
         "current-good",
         "current-added",
     }
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_accounted_count_includes_paired_added_and_surviving_occurrences(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
+            "def paired(config):\n"
+            "    return config\n"
+            "def added(config):\n"
+            "    return config\n"
+            "def surviving(config):\n"
+            "    return config\n"
+        ),
+    )
+
+    def row(consumer_id: str, route: str, line: int) -> dict[str, Any]:
+        return {
+            "consumer_id": consumer_id,
+            "match_kind": "CONFIGURATION_READ",
+            "path": "candidate/config.py",
+            "public_entry_route": route,
+            "source_span": {
+                "start_line": line,
+                "start_col": 11,
+                "end_line": line,
+                "end_col": 17,
+            },
+            "transitive_wrapper_chain": [route, "config"],
+        }
+
+    frozen = [
+        row("frozen-paired", "candidate.config.paired", 3),
+        row("frozen-surviving", "candidate.config.surviving", 7),
+    ]
+    current = [
+        row("current-paired", "candidate.config.paired", 3),
+        row("current-added", "candidate.config.added", 5),
+    ]
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": current},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": frozen},
+        workspace=workspace,
+    )
+
+    assert result["accounted_consumer_count"] == 3
+    assert result["paired_consumer_count"] == 1
+    assert result["added_consumer_count"] == 1
+    assert result["removed_consumer_count"] == 0
+    assert {trace["consumer_id"] for trace in result["traces"]} == {
+        "current-paired",
+        "current-added",
+        "frozen-surviving",
+    }
+
+
+def test_accounted_count_counts_occurrences_not_fanout_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "import json\n"
+            "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
+            "def consume(config):\n"
+            "    resolve(config, {})\n"
+            "    return json.dumps(config)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "fanout",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "transitive_wrapper_chain": ["candidate.config.consume", "config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["accounted_consumer_count"] == 1
+    assert result["paired_consumer_count"] == 1
+    assert len(result["traces"]) == 1
+    assert len(result["traces"][0]["paths"]) == 2
+
+
+def test_exact_read_occurrence_does_not_inherit_a_sibling_bypass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def consume(runtime_config):\n"
+            "    safe = runtime_config.value\n"
+            "    return runtime_config.get('mode', 'default')\n"
+        ),
+    )
+    row = {
+        "consumer_id": "safe-read",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 2,
+            "start_col": 11,
+            "end_line": 2,
+            "end_col": 31,
+        },
+        "transitive_wrapper_chain": [
+            "candidate.config.consume",
+            "runtime_config.value",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_exact_argument_does_not_inherit_a_sibling_coercion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def consume(runtime_config):\n"
+            "    return sink(value=runtime_config.value, label=str(runtime_config.label))\n"
+        ),
+    )
+    row = {
+        "consumer_id": "exact-argument",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 2,
+            "start_col": 22,
+            "end_line": 2,
+            "end_col": 42,
+        },
+        "transitive_wrapper_chain": [
+            "candidate.config.consume",
+            "runtime_config.value",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["bypass_classes"] == []
+
+
+def test_exact_field_bypass_propagates_through_a_helper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def helper(value):\n"
+            "    return value.get('mode', 'default')\n"
+            "def consume(runtime_config):\n"
+            "    return helper(runtime_config.value)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "helper-read",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 18,
+            "end_line": 4,
+            "end_col": 38,
+        },
+        "transitive_wrapper_chain": [
+            "candidate.config.consume",
+            "runtime_config.value",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_exact_field_does_not_inherit_a_sibling_helper_parameter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def helper(value, options):\n"
+            "    return options.get('mode', 'default')\n"
+            "def consume(value, options):\n"
+            "    return helper(value, options)\n"
+        ),
+    )
+    rows = [
+        {
+            "consumer_id": consumer_id,
+            "match_kind": "CONFIGURATION_READ",
+            "path": "candidate/config.py",
+            "public_entry_route": "candidate.config.consume",
+            "source_span": {
+                "start_line": 4,
+                "start_col": start_col,
+                "end_line": 4,
+                "end_col": end_col,
+            },
+            "transitive_wrapper_chain": ["candidate.config.consume", name],
+        }
+        for consumer_id, name, start_col, end_col in (
+            ("safe-value", "value", 18, 23),
+            ("tolerant-options", "options", 25, 32),
+        )
+    ]
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": rows},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": rows},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    traces = {trace["consumer_id"]: trace for trace in result["traces"]}
+    assert traces["safe-value"]["closed"] is True
+    assert traces["safe-value"]["bypass_classes"] == []
+    assert traces["tolerant-options"]["bypass_classes"] == [
+        "TOLERANT_OR_COMPATIBILITY_LOADER"
+    ]
+
+
+def test_exact_field_does_not_inherit_an_unrelated_same_name_receiver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "class adapter:\n"
+            "    def read(self, value):\n"
+            "        return value.get('mode', 'default')\n"
+            "def consume(config, adapter):\n"
+            "    return adapter.read(config)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "dynamic-reader",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 5,
+            "start_col": 24,
+            "end_line": 5,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_exact_construction_inside_authority_routes_to_that_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "class Settings:\n"
+            "    def __init__(self, value): self.value = value\n"
+            "def resolve(file_mapping, cli_patch):\n"
+            "    return Settings(file_mapping)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "authority-construction",
+        "match_kind": "CONFIGURATION_CONSTRUCTION",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 11,
+            "end_line": 4,
+            "end_col": 33,
+        },
+        "transitive_wrapper_chain": [
+            "candidate.config.resolve",
+            "candidate.config.Settings",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["traces"][0]["paths"] == [
+        ["@consumer:authority-construction", "candidate.config.resolve"]
+    ]
+
+
+def test_exact_construction_inside_authority_does_not_hide_a_bypass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "class Settings:\n"
+            "    def __init__(self, value): self.value = value\n"
+            "def resolve(file_mapping, cli_patch):\n"
+            "    return Settings(file_mapping.get('settings', {}))\n"
+        ),
+    )
+    row = {
+        "consumer_id": "authority-bypass",
+        "match_kind": "CONFIGURATION_CONSTRUCTION",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 11,
+            "end_line": 4,
+            "end_col": 53,
+        },
+        "transitive_wrapper_chain": [
+            "candidate.config.resolve",
+            "candidate.config.Settings",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "start_col", "end_col"),
+    (
+        ("runtime_config or {}", 12, 26),
+        ("{} or runtime_config", 18, 32),
+        ("runtime_config if enabled else {}", 12, 26),
+        ("{} if enabled else runtime_config", 31, 45),
+    ),
+)
+def test_exact_carrier_fallback_expression_remains_tainted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+    start_col: int,
+    end_col: int,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def consume(runtime_config):\n"
+            f"    alias = {expression}\n"
+            "    return alias.get('mode', 'default')\n"
+        ),
+    )
+    row = {
+        "consumer_id": "fallback-carrier",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 2,
+            "start_col": start_col,
+            "end_line": 2,
+            "end_col": end_col,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    (
+        "value or {}",
+        "value if sibling else {}",
+        "{} if sibling else value",
+    ),
+)
+def test_carrier_fallback_returned_from_one_wrapper_remains_tainted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/wrapped_carrier.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def carry(value, sibling):\n"
+        f"    return {expression}\n"
+        "def consume(runtime_config, metadata):\n"
+        "    alias = carry(runtime_config, metadata)\n"
+        "    return sink(alias)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "wrapped-fallback",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "scripts/wrapped_carrier.py",
+        "public_entry_route": "scripts.wrapped_carrier.consume",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 18,
+            "end_line": 4,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": [
+            "scripts.wrapped_carrier.consume",
+            "runtime_config",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["traces"][0]["paths"] == [
+        ["@consumer:wrapped-fallback", "scripts.wrapped_carrier.sink"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    (
+        "value * 2",
+        "sibling or {}",
+        "sibling if value else {}",
+    ),
+)
+def test_wrapper_noncarrier_return_does_not_taint_downstream_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/wrapped_noncarrier.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def carry(value, sibling):\n"
+        f"    return {expression}\n"
+        "def consume(runtime_config, metadata):\n"
+        "    alias = carry(runtime_config, metadata)\n"
+        "    return sink(alias)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "wrapped-noncarrier",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "scripts/wrapped_noncarrier.py",
+        "public_entry_route": "scripts.wrapped_noncarrier.consume",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 18,
+            "end_line": 4,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": [
+            "scripts.wrapped_noncarrier.consume",
+            "runtime_config",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["traces"][0]["paths"] == [["@consumer:wrapped-noncarrier"]]
+
+
+@pytest.mark.parametrize(
+    ("expression", "closed"),
+    (
+        ("value if metadata else {}", False),
+        ("metadata if value else {}", True),
+    ),
+)
+def test_contextual_ifexp_uses_only_result_branches_for_carrier_flow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def helper(value, metadata):\n"
+            f"    alias = {expression}\n"
+            "    return sink(alias)\n"
+            "def consume(runtime_config, metadata):\n"
+            "    return helper(runtime_config, metadata)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "contextual-ifexp",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 5,
+            "start_col": 18,
+            "end_line": 5,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["traces"][0]["paths"] == (
+        [["@consumer:contextual-ifexp"]]
+        if closed
+        else [["@consumer:contextual-ifexp", "candidate.config.sink"]]
+    )
+
+
+@pytest.mark.parametrize(
+    ("expression", "start_col", "end_col"),
+    (
+        ("runtime_config * 2", 12, 26),
+        ("2 * runtime_config", 16, 30),
+        ("1 if runtime_config else 2", 17, 31),
+    ),
+)
+def test_exact_noncarrier_expression_does_not_taint_its_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+    start_col: int,
+    end_col: int,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def consume(runtime_config):\n"
+            f"    alias = {expression}\n"
+            "    return alias.get('mode', 'default')\n"
+        ),
+    )
+    row = {
+        "consumer_id": "noncarrier-expression",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 2,
+            "start_col": start_col,
+            "end_line": 2,
+            "end_col": end_col,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_contextual_noncarrier_expression_does_not_taint_its_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def helper(value):\n"
+            "    alias = value * 2\n"
+            "    return alias.get('mode', 'default')\n"
+            "def consume(runtime_config):\n"
+            "    return helper(runtime_config)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "contextual-noncarrier",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 5,
+            "start_col": 18,
+            "end_line": 5,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
 
 
 @pytest.mark.parametrize("authority_field", ["passed", "satisfied", "decision"])
@@ -1489,6 +2287,7 @@ def test_consumer_inspection_handles_class_methods_retired_paths_and_new_consume
     assert result["closed"] is True
     assert result["retired_consumer_ids"] == ["retired"]
     assert "candidate.config.introduced" in result["introduced_consumer_symbols"]
+    assert "candidate.config.Runner.run" not in result["introduced_consumer_symbols"]
     assert result["accounted_consumer_count"] == 1
     assert result["paired_consumer_count"] == 1
     assert result["removed_consumer_count"] == 1
@@ -1671,6 +2470,280 @@ def test_module_level_legacy_mutation_taints_module_readers(tmp_path: Path) -> N
     assert result["bypass_classes"] == ["LEGACY_CONFIGURATION_STATE_MUTATION"]
 
 
+def test_cross_module_tainted_call_qualifies_global_legacy_mutation(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "params.py").write_text(
+        "cfg = {}\n"
+        "def set(key, value):\n"
+        "    cfg[key] = value\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "import ptycho.params as module\n"
+        "def consume(runtime_config):\n"
+        "    module.set('mode', runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["LEGACY_CONFIGURATION_STATE_MUTATION"]
+
+
+def test_cross_module_tainted_call_does_not_qualify_a_local_cfg(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "params.py").write_text(
+        "cfg = {'unrelated': True}\n"
+        "def set(key, value):\n"
+        "    cfg = {}\n"
+        "    cfg[key] = value\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "import ptycho.params as module\n"
+        "def consume(runtime_config):\n"
+        "    module.set('mode', runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+@pytest.mark.parametrize(
+    ("declaration", "closed"),
+    (("    global cfg\n", False), ("", True)),
+)
+def test_cross_module_direct_cfg_assignment_respects_global_declaration(
+    tmp_path: Path,
+    declaration: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "params.py").write_text(
+        "def set(value):\n"
+        + declaration
+        + "    cfg = value\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "import ptycho.params as module\n"
+        "def consume(runtime_config):\n"
+        "    module.set(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == (
+        [] if closed else ["LEGACY_CONFIGURATION_STATE_MUTATION"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "target", "start_col", "legacy_mutation"),
+    (
+        ("    global cfg\n", "cfg", 10, True),
+        ("", "cfg", 10, False),
+        ("", "cfg.value", 16, True),
+        ("", "cfg['value']", 19, True),
+    ),
+    ids=("global-name", "local-name", "attribute", "subscript"),
+)
+def test_exact_cfg_assignment_classifies_only_qualified_legacy_targets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    declaration: str,
+    target: str,
+    start_col: int,
+    legacy_mutation: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "params.py").write_text(
+        "cfg = {}\n"
+        "def consume(runtime_config):\n"
+        + declaration
+        + f"    {target} = runtime_config\n",
+        encoding="utf-8",
+    )
+    line = 4 if declaration else 3
+    row = {
+        "consumer_id": f"exact-{target}",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/params.py",
+        "public_entry_route": "ptycho.params.consume",
+        "source_span": {
+            "start_line": line,
+            "start_col": start_col,
+            "end_line": line,
+            "end_col": start_col + len("runtime_config"),
+        },
+        "transitive_wrapper_chain": ["ptycho.params.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is not legacy_mutation
+    assert result["bypass_classes"] == (
+        ["LEGACY_CONFIGURATION_STATE_MUTATION"] if legacy_mutation else []
+    )
+    assert result["traces"][0]["paths"] == [[f"@consumer:exact-{target}"]]
+
+
+@pytest.mark.parametrize(
+    ("declaration", "legacy_mutation"),
+    (("    global cfg\n", True), ("", False)),
+)
+def test_exact_named_expression_classifies_only_a_qualified_global_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    declaration: str,
+    legacy_mutation: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "params.py").write_text(
+        "cfg = {}\n"
+        "def consume(runtime_config):\n"
+        + declaration
+        + "    return (cfg := runtime_config)\n",
+        encoding="utf-8",
+    )
+    line = 4 if declaration else 3
+    row = {
+        "consumer_id": "exact-named-expression",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/params.py",
+        "public_entry_route": "ptycho.params.consume",
+        "source_span": {
+            "start_line": line,
+            "start_col": 19,
+            "end_line": line,
+            "end_col": 33,
+        },
+        "transitive_wrapper_chain": ["ptycho.params.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is not legacy_mutation
+    assert result["bypass_classes"] == (
+        ["LEGACY_CONFIGURATION_STATE_MUTATION"] if legacy_mutation else []
+    )
+    assert result["traces"][0]["paths"] == [
+        ["@consumer:exact-named-expression"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("declaration", "legacy_mutation"),
+    (("    global cfg\n", True), ("", False)),
+)
+def test_owner_wide_named_expression_respects_global_declaration(
+    tmp_path: Path,
+    declaration: str,
+    legacy_mutation: bool,
+) -> None:
+    path = tmp_path / "ptycho/params.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "cfg = {}\n"
+        "def consume(runtime_config):\n"
+        + declaration
+        + "    return (cfg := runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    _, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.params",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{"public_entry_route": "ptycho.params.consume"}],
+    )
+
+    assert (
+        "LEGACY_CONFIGURATION_STATE_MUTATION"
+        in bypasses.get("ptycho.params.consume", ())
+    ) is legacy_mutation
+
+
 def test_non_configuration_get_is_not_a_tolerant_config_bypass(
     tmp_path: Path,
 ) -> None:
@@ -1700,6 +2773,2099 @@ def test_non_configuration_get_is_not_a_tolerant_config_bypass(
 
     assert result["closed"] is True
     assert result["bypass_classes"] == []
+
+
+def test_imported_external_terminal_consumes_a_resolved_value(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/scientific_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import numpy as np\n"
+        "def consume(runtime_config):\n"
+        "    return np.squeeze(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_class_decorator_call_and_argument_get_exact_external_routes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_DATACLASS_ADAPTER_CONFIG = {}\n"
+        "@with_config(_DATACLASS_ADAPTER_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+
+    graph, _, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    assert len(rows) == 2
+    assert {
+        row["transitive_wrapper_chain"][-1] for row in rows
+    } == {"with_config", "_DATACLASS_ADAPTER_CONFIG"}
+    assert {
+        f"@consumer:{row['consumer_id']}": graph.get(
+            f"@consumer:{row['consumer_id']}"
+        )
+        for row in rows
+    } == {
+        f"@consumer:{row['consumer_id']}": ["pydantic.with_config"]
+        for row in rows
+    }
+    assert "pydantic.with_config" in terminals
+
+
+def test_class_decorator_nested_get_is_not_erased_by_outer_terminal(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "@with_config(_CONFIG.get('adapter', {}))\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+    assert len(consumers) == 2
+    assert all("ptycho.config._CONFIG.get" in graph[symbol] for symbol in consumers)
+    assert all(
+        bypasses[symbol] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+        for symbol in consumers
+    )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    ("adapter_body", "closed"),
+    (
+        ("return value.get('adapter', {})", False),
+        ("return value", True),
+    ),
+)
+def test_class_decorator_argument_uses_local_adapter_context(
+    tmp_path: Path,
+    adapter_body: str,
+    closed: bool,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "def adapt(value):\n"
+        f"    {adapter_body}\n"
+        "@with_config(adapt(_CONFIG))\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+    assert len(consumers) == 2
+    assert all("pydantic.with_config" in graph[symbol] for symbol in consumers)
+    if closed:
+        assert all(graph[symbol] == ["pydantic.with_config"] for symbol in consumers)
+        assert all(symbol not in bypasses for symbol in consumers)
+    else:
+        assert all("ptycho.config.value.get" in graph[symbol] for symbol in consumers)
+        assert all(
+            bypasses[symbol] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+            for symbol in consumers
+        )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is closed
+
+
+@pytest.mark.parametrize(
+    "wrappers",
+    (
+        "def adapt(value):\n"
+        "    return helper(value)\n",
+        "def adapt(value):\n"
+        "    return wrapper(value)\n"
+        "def wrapper(value):\n"
+        "    return helper(value)\n",
+    ),
+    ids=("one-wrapper", "two-wrappers"),
+)
+def test_decorator_wrapper_context_preserves_source_time_module_binding(
+    tmp_path: Path,
+    wrappers: str,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from dependency import compatibility_load as helper\n"
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        + wrappers
+        + "@with_config(adapt(_CONFIG))\n"
+        "class ExampleConfig:\n"
+        "    pass\n"
+        "def helper(value):\n"
+        "    return value\n"
+        "def consume(runtime_config):\n"
+        "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+    class_consumers = {
+        f"@consumer:{row['consumer_id']}"
+        for row in rows
+        if row["public_entry_route"] == "ptycho.config.ExampleConfig"
+    }
+    runtime_consumer = next(
+        f"@consumer:{row['consumer_id']}"
+        for row in rows
+        if row["public_entry_route"] == "ptycho.config.consume"
+    )
+
+    assert all(
+        "dependency.compatibility_load" in graph[consumer]
+        and bypasses[consumer] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+        for consumer in class_consumers
+    )
+    assert graph[runtime_consumer] == []
+    assert runtime_consumer not in bypasses
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("helper = lambda value: value\n", "del helper\n"),
+)
+def test_decorator_wrapper_context_ignores_later_dynamic_module_binding(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from dependency import compatibility_load as helper\n"
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "def adapt(value):\n"
+        "    return helper(value)\n"
+        "@with_config(adapt(_CONFIG))\n"
+        "class ExampleConfig:\n"
+        "    pass\n"
+        + mutation
+        + "def consume(runtime_config):\n"
+        "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+    class_consumers = {
+        f"@consumer:{row['consumer_id']}"
+        for row in rows
+        if row["public_entry_route"] == "ptycho.config.ExampleConfig"
+    }
+    runtime_consumer = next(
+        f"@consumer:{row['consumer_id']}"
+        for row in rows
+        if row["public_entry_route"] == "ptycho.config.consume"
+    )
+
+    assert all(
+        "dependency.compatibility_load" in graph[consumer]
+        and bypasses[consumer] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+        for consumer in class_consumers
+    )
+    assert "dependency.compatibility_load" not in graph[runtime_consumer]
+    assert runtime_consumer not in bypasses
+
+
+@pytest.mark.parametrize(
+    ("mutation", "closed"),
+    (
+        ("", True),
+        ("adapt = lambda value: value.get('adapter', {})\n", False),
+        ("del adapt\n", False),
+    ),
+)
+def test_class_decorator_adapter_binding_must_remain_unique(
+    tmp_path: Path,
+    mutation: str,
+    closed: bool,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "def adapt(value):\n"
+        "    return value\n"
+        + mutation
+        + "@with_config(adapt(_CONFIG))\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+    if closed:
+        assert all(graph[symbol] == ["pydantic.with_config"] for symbol in consumers)
+    else:
+        assert all(
+            any(call.startswith("@unresolved-binding:") for call in graph[symbol])
+            for symbol in consumers
+        )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is closed
+
+
+def test_rebound_local_function_call_does_not_use_stale_definition(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def adapt(value):\n"
+        "    return value\n"
+        "adapt = lambda value: value\n"
+        "def consume(runtime_config):\n"
+        "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+    )
+    consumer = f"@consumer:{rows[0]['consumer_id']}"
+
+    assert any(
+        call.startswith("@unresolved-binding:") for call in graph[consumer]
+    )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": rows[0]["consumer_id"],
+            "entry_symbol": consumer,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    ("definition_before_decorator", "expected_call", "has_bypass"),
+    (
+        (False, "dependency.compatibility_load", True),
+        (True, "pydantic.with_config", False),
+    ),
+)
+def test_class_decorator_uses_binding_active_at_its_source_position(
+    tmp_path: Path,
+    definition_before_decorator: bool,
+    expected_call: str,
+    has_bypass: bool,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    definition = "def adapt(value):\n    return value\n"
+    decorator = (
+        "@with_config(adapt(_CONFIG))\n"
+        "class ExampleConfig:\n"
+        "    pass\n"
+    )
+    path.write_text(
+        "from dependency import compatibility_load as adapt\n"
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        + (definition + decorator if definition_before_decorator else decorator + definition),
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+    assert all(expected_call in graph[symbol] for symbol in consumers)
+    assert all(
+        ("TOLERANT_OR_COMPATIBILITY_LOADER" in bypasses.get(symbol, ()))
+        is has_bypass
+        for symbol in consumers
+    )
+
+
+def test_conditional_module_import_is_not_active_for_class_decorator(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "if False:\n"
+        "    from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "@with_config(_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+    assert all("pydantic.with_config" not in graph[symbol] for symbol in consumers)
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is False
+
+
+def test_ordinary_calls_use_final_module_function_after_import_shadow(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from dependency import compatibility_load as adapt\n"
+        "def before(runtime_config):\n"
+        "    return adapt(runtime_config)\n"
+        "def adapt(value):\n"
+        "    return value.get('mode', 'default')\n"
+        "def after(runtime_config):\n"
+        "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+    )
+    consumers = {
+        row["public_entry_route"].rsplit(".", 1)[-1]:
+            f"@consumer:{row['consumer_id']}"
+        for row in rows
+    }
+
+    for consumer in consumers.values():
+        assert "dependency.compatibility_load" not in graph[consumer]
+        assert "ptycho.consumer.value.get" in graph[consumer]
+        assert bypasses[consumer] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_future_function_local_import_does_not_fall_back_to_module_import(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from dependency import compatibility_load as adapt\n"
+        "def consume(runtime_config):\n"
+        "    result = adapt(runtime_config)\n"
+        "    from json import dumps as adapt\n"
+        "    return result\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, _, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+    )
+    consumer = f"@consumer:{rows[0]['consumer_id']}"
+
+    assert not {
+        "dependency.compatibility_load", "json.dumps"
+    } & set(graph[consumer])
+
+
+@pytest.mark.parametrize(
+    "compound",
+    (
+        "    if False:\n"
+        "        from json import dumps as adapt\n",
+        "    try:\n"
+        "        from json import dumps as adapt\n"
+        "    except ImportError:\n"
+        "        pass\n",
+        "    for _ in ():\n"
+        "        from json import dumps as adapt\n",
+        "    while False:\n"
+        "        from json import dumps as adapt\n",
+        "    match False:\n"
+        "        case True:\n"
+        "            from json import dumps as adapt\n",
+        "    with nullcontext():\n"
+        "        from json import dumps as adapt\n",
+    ),
+    ids=("if-false", "try", "for", "while", "match", "with"),
+)
+def test_compound_function_import_is_not_a_definite_binding(
+    tmp_path: Path,
+    compound: str,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from contextlib import nullcontext\n"
+        "def consume(runtime_config):\n"
+        + compound
+        + "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+    consumer = f"@consumer:{rows[0]['consumer_id']}"
+
+    assert "json.dumps" not in graph[consumer]
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": rows[0]["consumer_id"],
+            "entry_symbol": consumer,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "adapt = lambda value: value\n",
+        "del adapt\n",
+    ),
+)
+def test_ordinary_function_binding_becomes_unresolved_at_mutation(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def adapt(value):\n"
+        "    return value\n"
+        "def before(runtime_config):\n"
+        "    return adapt(runtime_config)\n"
+        + mutation
+        + "def after(runtime_config):\n"
+        "    return adapt(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, _, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+    )
+    consumers = {
+        row["public_entry_route"].rsplit(".", 1)[-1]:
+            f"@consumer:{row['consumer_id']}"
+        for row in rows
+    }
+
+    assert all(
+        any(call.startswith("@unresolved-binding:") for call in graph[consumer])
+        for consumer in consumers.values()
+    )
+
+
+def test_duplicate_class_basenames_keep_decorator_occurrences_unambiguous(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    for relative in ("ptycho/first.py", "ptycho/second.py"):
+        path = workspace / relative
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            "from pydantic import with_config\n"
+            "_CONFIG = {}\n"
+            "@with_config(_CONFIG)\n"
+            "class SharedConfig:\n"
+            "    pass\n",
+            encoding="utf-8",
+        )
+    census = {"rows": [{
+        "consumer_id": "retired-authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["added_consumer_count"] == 4
+    assert all(
+        trace["paths"][0][-1] == "pydantic.with_config"
+        for trace in result["traces"]
+    )
+
+
+def test_class_decorator_occurrence_is_not_absorbed_by_explicit_init(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "@with_config(_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    def __init__(self):\n"
+        "        self.value = 1\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+
+    graph, _, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    assert graph["ptycho.config.ExampleConfig"] == [
+        "ptycho.config.ExampleConfig.__init__"
+    ]
+    assert all(
+        graph[f"@consumer:{row['consumer_id']}"] == ["pydantic.with_config"]
+        for row in rows
+    )
+
+
+def test_class_decorator_missing_span_or_mismatched_owner_fails_closed(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "@with_config(_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    def __init__(self):\n"
+        "        candidate_authority()\n"
+        "def consume():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    decorator_rows = evaluator.scan_workspace_configuration_consumers(tmp_path)[
+        "rows"
+    ]
+    missing_span = dict(decorator_rows[0], consumer_id="missing-span")
+    missing_span.pop("source_span")
+    mismatched_owner = dict(
+        decorator_rows[1],
+        consumer_id="mismatched-owner",
+        public_entry_route="ptycho.config.consume",
+    )
+
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"ptycho.config.candidate_authority"},
+        consumer_rows=[missing_span, mismatched_owner],
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    assert graph["@consumer:missing-span"] == [
+        "@unresolved-class-decorator:missing-span"
+    ]
+    assert graph["@consumer:mismatched-owner"] == [
+        "@unresolved-class-decorator:mismatched-owner"
+    ]
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": consumer_id,
+            "entry_symbol": f"@consumer:{consumer_id}",
+            "requires_authority": False,
+        } for consumer_id in ("missing-span", "mismatched-owner")],
+        call_graph=graph,
+        authority_symbols={"ptycho.config.candidate_authority"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    (
+        "",
+        "from pydantic import with_config\n"
+        "with_config = lambda value: value\n",
+    ),
+)
+def test_unresolved_or_rebound_class_decorator_fails_closed(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        prefix
+        + "_CONFIG = {}\n"
+        "@with_config(_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+
+    assert all(f"@consumer:{row['consumer_id']}" in graph for row in rows)
+    assert result["closed"] is False
+
+
+def test_class_decorator_construction_cannot_close_at_external_terminal(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from pydantic import with_config\n"
+        "_CONFIG = {}\n"
+        "@with_config(_CONFIG)\n"
+        "class ExampleConfig:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    call_row = next(
+        row for row in rows
+        if row["transitive_wrapper_chain"][-1] == "with_config"
+    )
+    call_row["match_kind"] = "CONFIGURATION_CONSTRUCTION"
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[call_row],
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"pydantic.with_config"}),
+    )
+
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": call_row["consumer_id"],
+            "entry_symbol": f"@consumer:{call_row['consumer_id']}",
+            "requires_authority": evaluator._requires_resolution_authority(call_row),
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+
+    assert graph[f"@consumer:{call_row['consumer_id']}"] == [
+        "pydantic.with_config"
+    ]
+    assert result["closed"] is False
+
+
+def test_canonical_dataclass_decorators_create_all_sixteen_exact_routes(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    path = workspace / "ptycho/config/config.py"
+    path.parent.mkdir(parents=True)
+    classes = (
+        "ProbeSimulationConfig",
+        "SyntheticObjectConfig",
+        "ScanSimulationConfig",
+        "DetectorSimulationConfig",
+        "SimulationConfig",
+        "ModelConfig",
+        "TrainingConfig",
+        "InferenceConfig",
+    )
+    path.write_text(
+        "from dataclasses import dataclass\n"
+        "from pydantic import with_config\n"
+        "_DATACLASS_ADAPTER_CONFIG = {}\n\n"
+        + "\n\n".join(
+            "@with_config(_DATACLASS_ADAPTER_CONFIG)\n"
+            "@dataclass(frozen=True)\n"
+            f"class {name}:\n"
+            "    pass"
+            for name in classes
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    scanned = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
+    rows = [row for row in scanned if row["path"] == "ptycho/config/config.py"]
+    census = {"rows": [{
+        "consumer_id": "retired-authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert len(rows) == 16
+    assert {row["public_entry_route"].rsplit(".", 1)[-1] for row in rows} == set(
+        classes
+    )
+    assert result["added_consumer_count"] == 16
+    assert result["accounted_consumer_count"] == 16
+    assert result["closed"] is True
+    assert all(
+        trace["paths"][0][0] == f"@consumer:{trace['consumer_id']}"
+        and trace["paths"][0][-1] == "pydantic.with_config"
+        for trace in result["traces"]
+    )
+
+
+def test_external_import_probe_requires_the_exact_target() -> None:
+    assert evaluator._available_external_imports(
+        frozenset({
+            "json.dumps",
+            "json.encoder.INFINITY",
+            "json.definitely_missing",
+        }),
+        Path(sys.executable),
+    ) == frozenset({"json.dumps"})
+
+
+def test_external_import_probe_walks_attributes_after_longest_module_prefix() -> None:
+    target = "json.encoder.JSONEncoder.default"
+    assert evaluator._available_external_imports(
+        frozenset({target}), Path(sys.executable)
+    ) == frozenset({target})
+
+
+def test_external_import_probe_handles_nested_ml_attribute_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tensorflow_target = "tensorflow.python.framework.ops.convert_to_tensor"
+    tensordict_target = "tensordict.nn.TensorDictModule.forward"
+    modules = {
+        "tensorflow.python.framework.ops": SimpleNamespace(
+            convert_to_tensor=lambda value: value
+        ),
+        "tensordict.nn": SimpleNamespace(
+            TensorDictModule=type(
+                "TensorDictModule", (), {"forward": lambda self, value: value}
+            )
+        ),
+    }
+
+    def import_module(name: str) -> Any:
+        if name not in modules:
+            raise ModuleNotFoundError(name)
+        return modules[name]
+
+    monkeypatch.setattr(evaluator.importlib, "import_module", import_module)
+
+    assert evaluator._available_external_imports(
+        frozenset({tensorflow_target, tensordict_target}), None
+    ) == frozenset({tensorflow_target, tensordict_target})
+
+
+def test_simple_module_callable_alias_is_a_static_graph_edge(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def read(value):\n    return value\n", encoding="utf-8"
+    )
+    (package / "alias.py").write_text(
+        "from ptycho import helper\nread = helper.read\n", encoding="utf-8"
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.alias import read\n"
+        "def consume(runtime_config):\n"
+        "    return read(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_simple_module_callable_alias_may_target_an_external_callable(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/alias_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import json\n"
+        "encode = json.dumps\n"
+        "def consume(runtime_config):\n"
+        "    return encode(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "alias_source",
+    (
+        "from ptycho import helper\n"
+        "read = helper.read\n"
+        "read = lambda value: value\n",
+        "from ptycho.helper import missing as read\n"
+        "from ptycho import helper\n"
+        "read = helper.read\n",
+        "from ptycho import helper\n"
+        "read = helper.read\n"
+        "del read\n",
+    ),
+)
+def test_rebound_module_callable_alias_fails_closed(
+    tmp_path: Path, alias_source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def read(value):\n    return value\n", encoding="utf-8"
+    )
+    (package / "alias.py").write_text(
+        alias_source,
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.alias import read\n"
+        "def consume(runtime_config):\n"
+        "    return read(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_missing_attribute_on_imported_module_is_not_a_terminal(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/external_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import json\n"
+        "def consume(runtime_config):\n"
+        "    return json.definitely_missing(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_namespace_only_workspace_directory_does_not_shadow_external_package(
+    tmp_path: Path,
+) -> None:
+    workspace, _ = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    (workspace / "torch").mkdir()
+    path = workspace / "scripts/external_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import torch.nn.functional as functional\n"
+        "def consume(runtime_config):\n"
+        "    return functional.normalize(runtime_config)\n",
+        encoding="utf-8",
+    )
+    _, _, _, terminals, _ = evaluator._module_functions(
+        path,
+        "scripts.external_reader",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{"public_entry_route": "scripts.external_reader.consume"}],
+        workspace_module_roots=frozenset({"candidate", "scripts"}),
+        available_external_imports=frozenset({
+            "torch.nn.functional.normalize"
+        }),
+    )
+
+    assert "torch.nn.functional.normalize" in terminals
+
+
+@pytest.mark.parametrize(
+    ("shadow", "closed"),
+    ((None, True), ("module", False), ("package", False)),
+)
+def test_census_root_shadows_external_package_only_when_importable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    shadow: str | None,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "json"
+    package.mkdir()
+    if shadow == "module":
+        (workspace / "json.py").write_text("value = 1\n", encoding="utf-8")
+    elif shadow == "package":
+        (package / "__init__.py").write_text("value = 1\n", encoding="utf-8")
+    path = package / "consumer.py"
+    path.write_text(
+        "import json\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "json-consumer",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "json/consumer.py",
+        "public_entry_route": "json.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 22,
+            "end_line": 3,
+            "end_col": 36,
+        },
+        "transitive_wrapper_chain": ["json.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+        python_executable=Path(sys.executable),
+    )
+
+    assert result["closed"] is closed
+
+
+def test_parameter_shadowing_an_import_is_not_an_external_terminal(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/external_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from json import dumps\n"
+        "def consume(runtime_config, dumps):\n"
+        "    return dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_module_rebinding_an_import_is_not_an_external_terminal(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/external_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import json\n"
+        "class Adapter:\n"
+        "    def dumps(self, value):\n"
+        "        return value.get('mode', 'default')\n"
+        "json = Adapter()\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from pathlib import Path\n"
+        "class Path:\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return Path(runtime_config)\n",
+        "from json import dumps\n"
+        "def dumps(value):\n"
+        "    return value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return dumps(runtime_config)\n",
+    ),
+)
+def test_local_callable_binding_shadows_imported_terminal(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/local_binding.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_deleted_module_import_is_not_an_external_terminal(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/deleted_import.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import json\n"
+        "del json\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "imports",
+    (
+        "    from json import dumps as read\n"
+        "    from pathlib import Path as read\n",
+        "    from pathlib import Path as read\n"
+        "    from json import dumps as read\n",
+    ),
+)
+def test_conflicting_function_local_imports_fail_closed_in_both_orders(
+    tmp_path: Path,
+    imports: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/ambiguous_import.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config):\n"
+        + imports
+        + "    return read(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_conflicting_module_imports_are_unresolved_for_all_function_bodies(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from json import dumps as read\n"
+        "def before(runtime_config):\n"
+        "    return read(runtime_config)\n"
+        "from pathlib import Path as read\n"
+        "def after(runtime_config):\n"
+        "    return read(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, _, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+    )
+    consumers = {
+        row["public_entry_route"].rsplit(".", 1)[-1]:
+            f"@consumer:{row['consumer_id']}"
+        for row in rows
+    }
+
+    assert all(
+        not {"json.dumps", "pathlib.Path"} & set(graph[consumer])
+        for consumer in consumers.values()
+    )
+
+
+@pytest.mark.parametrize(
+    "binding",
+    (
+        "    match marker:\n"
+        "        case dumps:\n"
+        "            pass\n",
+        "    match marker:\n"
+        "        case [*dumps]:\n"
+        "            pass\n",
+        "    match marker:\n"
+        "        case {**dumps}:\n"
+        "            pass\n",
+        "    try:\n"
+        "        pass\n"
+        "    except Exception as dumps:\n"
+        "        pass\n",
+    ),
+    ids=("match-as", "match-star", "match-mapping-rest", "except-name"),
+)
+def test_string_backed_local_binding_invalidates_an_imported_terminal(
+    tmp_path: Path,
+    binding: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/pattern_binding.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config, marker):\n"
+        "    from json import dumps\n"
+        + binding
+        + "    return dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_unambiguous_function_local_import_is_an_external_terminal(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/local_import.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config):\n"
+        "    from json import dumps\n"
+        "    return dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_external_import_probe_timeout_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def timeout(*args: Any, **kwargs: Any) -> None:
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr(evaluator.subprocess, "run", timeout)
+    with pytest.raises(evaluator.EvaluatorError, match="external module probe failed"):
+        evaluator._available_external_imports(
+            frozenset({"json.dumps"}), Path(sys.executable)
+        )
+
+
+def test_external_import_probe_ignores_dependency_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        evaluator.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, '["json.dumps"]\n', "optional accelerator unavailable\n"
+        ),
+    )
+
+    assert evaluator._available_external_imports(
+        frozenset({"json.dumps"}), Path(sys.executable)
+    ) == frozenset({"json.dumps"})
+
+
+@pytest.mark.parametrize("tolerant", (False, True))
+def test_workspace_constructor_is_recursively_analyzed(
+    tmp_path: Path, tolerant: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text(
+        "class Owner:\n"
+        "    def __init__(self, value):\n"
+        + (
+            "        self.value = value.get('mode', 'default')\n"
+            if tolerant
+            else "        self.value = value\n"
+        ),
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config):\n"
+        "    return Owner(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is not tolerant
+    assert ("TOLERANT_OR_COMPATIBILITY_LOADER" in result["bypass_classes"]) is tolerant
+
+
+def test_already_indexed_cross_module_helper_receives_carrier_taint(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def unrelated(config):\n"
+        "    return config.value\n"
+        "def read(value):\n"
+        "    return value.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import read\n"
+        "def consume(runtime_config):\n"
+        "    return read(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    ("tolerant_formal", "closed"),
+    (("data", False), ("options", True)),
+)
+def test_exact_cross_module_taint_binds_only_the_relevant_formal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tolerant_formal: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def helper(data, options):\n"
+        f"    return {tolerant_formal}.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import helper\n"
+        "def consume(runtime_config, options):\n"
+        "    return helper(runtime_config, options)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "cross-module-formal",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 18,
+            "end_line": 3,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == (
+        [] if closed else ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    )
+
+
+def test_ambiguous_cross_module_formal_binding_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def helper(data, options):\n"
+        "    return options.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import helper\n"
+        "def consume(runtime_config):\n"
+        "    return helper(*runtime_config)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "ambiguous-cross-module-formal",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 19,
+            "end_line": 3,
+            "end_col": 33,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_missing_cross_module_context_remains_conservative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def helper(data, options):\n"
+        "    return options.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import helper\n"
+        "def consume(runtime_config, options):\n"
+        "    return helper(runtime_config, options)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "missing-cross-module-context",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    ("tolerant_formal", "closed"),
+    (("data", False), ("options", True)),
+)
+def test_exact_context_crosses_a_valid_static_callable_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tolerant_formal: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def read(data, options):\n"
+        f"    return {tolerant_formal}.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "alias.py").write_text(
+        "from ptycho import helper\nread = helper.read\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.alias import read\n"
+        "def consume(runtime_config, options):\n"
+        "    return read(runtime_config, options)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "aliased-cross-module-formal",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 16,
+            "end_line": 3,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == (
+        [] if closed else ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("tolerant_formal", "closed"),
+    (("data", False), ("options", True)),
+)
+def test_exact_context_binds_a_workspace_constructor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tolerant_formal: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text(
+        "class Owner:\n"
+        "    def __init__(self, data, options):\n"
+        f"        self.value = {tolerant_formal}.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config, options):\n"
+        "    return Owner(runtime_config, options)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "constructor-cross-module-formal",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 17,
+            "end_line": 3,
+            "end_col": 31,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == (
+        [] if closed else ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    )
+
+
+def test_workspace_constructor_without_static_context_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text("class Owner: pass\n", encoding="utf-8")
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config):\n"
+        "    return Owner(runtime_config)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "unresolved-constructor-context",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 17,
+            "end_line": 3,
+            "end_col": 31,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_implicit_inherited_workspace_constructor_context_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text(
+        "class Base:\n"
+        "    def __init__(self, data, options):\n"
+        "        self.value = data\n"
+        "class Owner(Base):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config, options):\n"
+        "    return Owner(runtime_config, options)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "implicit-inherited-constructor",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 17,
+            "end_line": 3,
+            "end_col": 31,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_inherited_workspace_constructor_is_recursively_analyzed(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text(
+        "class Base:\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value.get('mode', 'default')\n"
+        "class Owner(Base):\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config):\n"
+        "    return Owner(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_inherited_external_constructor_is_a_valid_terminal(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/external_owner.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from pathlib import Path\n"
+        "class Owner(Path):\n"
+        "    pass\n"
+        "def consume(runtime_config):\n"
+        "    return Owner(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize("tolerant", (False, True))
+def test_super_constructor_is_resolved_before_terminal_classification(
+    tmp_path: Path, tolerant: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "owner.py").write_text(
+        "class Base:\n"
+        "    def __init__(self, value):\n"
+        + (
+            "        self.value = value.get('mode', 'default')\n"
+            if tolerant
+            else "        self.value = value\n"
+        )
+        + "class Owner(Base):\n"
+        "    def __init__(self, value):\n"
+        "        super().__init__(value)\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.owner import Owner\n"
+        "def consume(runtime_config):\n"
+        "    return Owner(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is not tolerant
+    assert ("TOLERANT_OR_COMPATIBILITY_LOADER" in result["bypass_classes"]) is tolerant
 
 
 def test_non_configuration_local_helper_is_not_a_consumer_route(
@@ -1828,6 +4994,8 @@ def test_frozen_route_survives_a_lexical_carrier_rename(tmp_path: Path) -> None:
 
     assert result["closed"] is False
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    assert result["accounted_consumer_count"] == 1
+    assert len(result["traces"]) == 1
     assert result["removed_consumer_count"] == 0
 
 
@@ -1870,7 +5038,7 @@ def test_frozen_route_with_a_stale_span_uses_conservative_route_analysis(
     )
 
     assert result["closed"] is True
-    assert result["removed_consumer_count"] == 0
+    assert result["removed_consumer_count"] == 1
 
 
 @pytest.mark.parametrize(
@@ -2077,7 +5245,7 @@ def test_relative_and_local_imports_resolve_to_the_authority(
     path.write_text(source, encoding="utf-8")
     rows = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
 
-    graph, bypasses, _ = evaluator._module_functions(
+    graph, bypasses, _, _, _ = evaluator._module_functions(
         path,
         "ptycho.consumer",
         authority_symbols={"ptycho.config.resolve"},
@@ -2116,7 +5284,250 @@ def test_taint_propagates_only_to_the_matching_callee_parameter(tmp_path: Path) 
     )
 
     assert result["closed"] is True
-    assert result["bypass_classes"] == []
+
+
+def test_runtime_object_returned_from_a_configured_call_is_not_a_carrier(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/runtime_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "class Runtime:\n"
+        "    def execute(self): return 1\n"
+        "def build(runtime_config): return Runtime()\n"
+        "def consume(runtime_config):\n"
+        "    runtime = build(runtime_config)\n"
+        "    return runtime.execute()\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_leaf_returned_from_a_configured_call_is_not_a_carrier(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/leaf_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def output_dir(runtime_config): return runtime_config.output_dir\n"
+        "def consume(runtime_config):\n"
+        "    path = output_dir(runtime_config)\n"
+        "    return str(path)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_typed_leaf_may_be_serialized_without_becoming_a_tolerant_loader(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/serialize_leaf.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config):\n"
+        "    return str(runtime_config.output_dir)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_external_result_derived_from_a_leaf_is_not_a_config_carrier(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/external_leaf.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from pathlib import Path\n"
+        "def consume(runtime_config):\n"
+        "    path = Path(runtime_config.output_dir)\n"
+        "    return path.exists()\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_expression_derived_from_a_leaf_is_not_a_config_carrier(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/derived_leaf.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config):\n"
+        "    path = runtime_config.output_dir / 'result.json'\n"
+        "    return path.exists()\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_dynamic_runtime_method_may_consume_a_typed_leaf(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/runtime_method.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config, model):\n"
+        "    return model.to(runtime_config.device)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+def test_carrier_returned_from_identity_call_remains_tainted(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/identity_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def identity(value): return value\n"
+        "def consume(runtime_config):\n"
+        "    alias = identity(runtime_config)\n"
+        "    return alias.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_nested_multiline_flow_is_parsed_for_exact_bypasses(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/nested_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config):\n"
+        "    if runtime_config:\n"
+        "        try:\n"
+        "            return strict(runtime_config)\n"
+        "        except ValueError:\n"
+        "            return runtime_config.get('mode', 'default')\n"
+        "    return runtime_config\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
 def test_workspace_detector_matches_git_detector_on_identical_tree(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ import base64
 import builtins
 from collections.abc import Mapping, Sequence
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -2321,12 +2322,68 @@ def _is_legacy_configuration_symbol(name: str) -> bool:
     )
 
 
+def _is_tolerant_configuration_operation(name: str) -> bool:
+    lowered = name.lower()
+    return (
+        "compat" in lowered
+        and any(token in lowered for token in ("adapter", "coerce", "fallback", "load"))
+        or "fallback" in lowered
+        or "legacy" in lowered and "load" in lowered
+        or name.endswith((".get", ".setdefault"))
+        or name in {"getattr", "hasattr"}
+    )
+
+
+def _is_mapping_value_coercion(name: str, arguments: Sequence[ast.AST]) -> bool:
+    return name in {"bool", "bytes", "float", "int", "str"} and any(
+        isinstance(child, ast.Subscript)
+        for argument in arguments
+        for child in ast.walk(argument)
+    )
+
+
 def _requires_resolution_authority(row: Mapping[str, Any]) -> bool:
     return row.get("match_kind") == "CONFIGURATION_CONSTRUCTION"
 
 
+def _module_binding_counts(tree: ast.Module) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    pending: list[ast.AST] = list(tree.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Import):
+            names = (alias.asname or alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names = (alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = (node.name,)
+        elif isinstance(node, ast.Lambda):
+            names = ()
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)):
+            names = (node.name,) if node.name is not None else ()
+            pending.extend(ast.iter_child_nodes(node))
+        elif isinstance(node, ast.MatchMapping):
+            names = (node.rest,) if node.rest is not None else ()
+            pending.extend(ast.iter_child_nodes(node))
+        elif isinstance(node, ast.ExceptHandler):
+            names = (node.name,) if node.name is not None else ()
+            pending.extend(ast.iter_child_nodes(node))
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names = (node.id,)
+        else:
+            pending.extend(ast.iter_child_nodes(node))
+            continue
+        for name in names:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
 def detect_ast_bypasses(
-    source: str, *, _tainted_names: Sequence[str] = ()
+    source: str,
+    *,
+    _tainted_names: Sequence[str] = (),
+    _qualified_names: Mapping[str, str] | None = None,
+    _propagate_taint: bool = True,
 ) -> tuple[str, ...]:
     """Classify bypasses only where configuration values can reach them."""
 
@@ -2343,7 +2400,9 @@ def detect_ast_bypasses(
 
     def qualified(node: ast.AST) -> str:
         if isinstance(node, ast.Name):
-            return imported.get(node.id, node.id)
+            return (_qualified_names or {}).get(
+                node.id, imported.get(node.id, node.id)
+            )
         if isinstance(node, ast.Attribute):
             owner = qualified(node.value)
             return f"{owner}.{node.attr}" if owner else node.attr
@@ -2385,7 +2444,7 @@ def detect_ast_bypasses(
                     value, targets = node.value, [node.target]
                 elif isinstance(node, ast.NamedExpr):
                     value, targets = node.value, [node.target]
-                if value_tainted(value):
+                if _propagate_taint and value_tainted(value):
                     for target in targets:
                         for name in (
                             child.id for child in ast.walk(target) if isinstance(child, ast.Name)
@@ -2403,20 +2462,12 @@ def detect_ast_bypasses(
                 tainted_call = value_tainted(node.func) or any(
                     value_tainted(argument) for argument in arguments
                 )
-                lowered_name = name.lower()
-                tolerant_name = (
-                    any(token in lowered_name for token in ("compat", "fallback"))
-                    or "config" in lowered_name
-                    and "load" in lowered_name
-                    or "legacy" in lowered_name
-                    and "load" in lowered_name
-                )
-                tolerant_operation = name.endswith((".get", ".setdefault")) or name in {
-                    "bool", "bytes", "float", "getattr", "hasattr", "int", "str"
-                }
                 if _is_legacy_configuration_symbol(name) and tainted_call:
                     classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
-                elif tainted_call and (tolerant_name or tolerant_operation):
+                elif tainted_call and (
+                    _is_tolerant_configuration_operation(name)
+                    or _is_mapping_value_coercion(name, arguments)
+                ):
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
             elif isinstance(node, ast.Try) and any(
                 value_tainted(child)
@@ -2434,11 +2485,20 @@ def detect_ast_bypasses(
                 and qualified(node.value) in {"os.environ", "environ"}
             ):
                 classes.add("AMBIENT_CONFIGURATION_READ")
-            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            elif isinstance(
+                node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)
+            ):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 if any(
-                    isinstance(target, (ast.Attribute, ast.Subscript))
-                    and _is_legacy_configuration_symbol(qualified(target.value))
+                    (
+                        isinstance(target, (ast.Attribute, ast.Subscript))
+                        and _is_legacy_configuration_symbol(qualified(target.value))
+                    )
+                    or (
+                        isinstance(target, ast.Name)
+                        and value_tainted(getattr(node, "value", None))
+                        and _is_legacy_configuration_symbol(qualified(target))
+                    )
                     for target in targets
                 ):
                     classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
@@ -2466,6 +2526,7 @@ def walk_consumer_routes(
     call_graph: Mapping[str, Sequence[str]],
     authority_symbols: set[str],
     bypass_symbols: Mapping[str, str | Sequence[str]],
+    terminal_symbols: set[str] | frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Follow every reachable branch until an authority, bypass, or dead end."""
 
@@ -2522,10 +2583,14 @@ def walk_consumer_routes(
                 reached_authority = True
                 paths.append(current)
                 return
+            if symbol in terminal_symbols:
+                paths.append(current)
+                return
             children = call_graph.get(symbol, ())
             if not children:
-                reached_dead_end = True
-                reached_unresolved = reached_unresolved or symbol not in call_graph
+                if symbol not in call_graph:
+                    reached_dead_end = True
+                    reached_unresolved = True
                 paths.append(current)
                 return
             for child in children:
@@ -2573,17 +2638,37 @@ def _module_functions(
     *,
     authority_symbols: set[str],
     consumer_rows: Sequence[Mapping[str, Any]],
-) -> tuple[dict[str, list[str]], dict[str, tuple[str, ...]], set[str]]:
+    workspace_module_roots: frozenset[str] = frozenset(),
+    available_external_imports: frozenset[str] = frozenset(),
+    workspace_function_nodes: Mapping[
+        str,
+        tuple[
+            str,
+            ast.FunctionDef | ast.AsyncFunctionDef | None,
+            bool,
+        ],
+    ] | None = None,
+) -> tuple[
+    dict[str, list[str]],
+    dict[str, tuple[str, ...]],
+    set[str],
+    set[str],
+    dict[str, tuple[str, tuple[str, ...]]],
+]:
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
     except (OSError, UnicodeError, SyntaxError) as exc:
         raise EvaluatorError(f"candidate consumer source is unreadable: {path}") from exc
+    workspace_function_nodes = workspace_function_nodes or {}
+    workspace_root = path.parents[len(module.split(".")) - 1]
     package = module.rsplit(".", 1)[0] if "." in module else ""
     def imported_names(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
         if isinstance(node, ast.Import):
             return {
-                alias.asname or alias.name: alias.name for alias in node.names
+                alias.asname or alias.name.split(".", 1)[0]:
+                    alias.name if alias.asname else alias.name.split(".", 1)[0]
+                for alias in node.names
             }
         if node.module:
             parts = package.split(".") if package else []
@@ -2604,10 +2689,24 @@ def _module_functions(
             }
         return {}
 
-    imports: dict[str, str] = {}
-    for node in tree.body:
+    module_binding_counts = _module_binding_counts(tree)
+    import_targets: dict[str, set[str]] = {}
+    pending_imports: list[ast.AST] = list(tree.body)
+    while pending_imports:
+        node = pending_imports.pop()
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            imports.update(imported_names(node))
+            for local, target in imported_names(node).items():
+                import_targets.setdefault(local, set()).add(target)
+        elif not isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+        ):
+            pending_imports.extend(ast.iter_child_nodes(node))
+    imports = {
+        local: next(iter(targets))
+        for local, targets in import_targets.items()
+        if len(targets) == 1 and module_binding_counts.get(local) == 1
+    }
+    module_rebounds = set(module_binding_counts) - set(imports)
     imports_by_owner: dict[str, dict[str, str]] = {}
     graph: dict[str, list[str]] = {}
     bypasses: dict[str, tuple[str, ...]] = {}
@@ -2631,15 +2730,34 @@ def _module_functions(
     def name(node: ast.AST, owner: str = "") -> str:
         visible_imports = imports_by_owner.get(owner, imports)
         if isinstance(node, ast.Name):
-            if node.id not in visible_imports and hasattr(builtins, node.id):
+            if node.id in visible_imports:
+                return visible_imports[node.id]
+            if node.id in module_rebounds:
+                return f"{module}.{node.id}"
+            if hasattr(builtins, node.id):
                 return ""
-            return visible_imports.get(node.id, f"{module}.{node.id}")
+            return f"{module}.{node.id}"
         if isinstance(node, ast.Attribute):
             prefix = name(node.value, owner)
             return f"{prefix}.{node.attr}" if prefix else node.attr
         return ""
 
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and module_binding_counts.get(node.targets[0].id) == 1
+        ):
+            continue
+        target = name(node.value)
+        if target and target.split(".", 1)[0] in {
+            imported.split(".", 1)[0] for imported in imports.values()
+        }:
+            graph[f"{module}.{node.targets[0].id}"] = [target]
+
     functions: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+    classes: list[tuple[str, ast.ClassDef]] = []
 
     def collect(nodes: Sequence[ast.stmt], owner: str) -> None:
         for node in nodes:
@@ -2648,7 +2766,9 @@ def _module_functions(
                 functions.append((symbol, node))
                 collect(node.body, symbol)
             elif isinstance(node, ast.ClassDef):
-                collect(node.body, f"{owner}.{node.name}")
+                symbol = f"{owner}.{node.name}"
+                classes.append((symbol, node))
+                collect(node.body, symbol)
 
     collect(tree.body, module)
     local_by_name: dict[str, str] = {}
@@ -2661,12 +2781,184 @@ def _module_functions(
     for duplicate in duplicates:
         local_by_name.pop(duplicate, None)
     function_by_symbol = dict(functions)
+    class_by_symbol = dict(classes)
+    rebound_by_owner: dict[str, set[str]] = {module: module_rebounds}
+    class_decorators = [
+        (symbol, decorator, {id(child) for child in ast.walk(decorator)})
+        for symbol, class_node in classes
+        for decorator in class_node.decorator_list
+        if isinstance(decorator, ast.Call)
+    ]
+    class_base: dict[str, str | None] = {}
+    for symbol, node in classes:
+        bases = tuple(filter(None, (name(base) for base in node.bases)))
+        class_base[symbol] = bases[0] if len(bases) == 1 else None
+        initializer = next(
+            (
+                f"{symbol}.__init__"
+                for child in node.body
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and child.name == "__init__"
+            ),
+            None,
+        )
+        if initializer is not None:
+            graph[symbol] = [initializer]
+        elif len(bases) == 1:
+            graph[symbol] = [bases[0]]
 
-    def local_callee(call: ast.Call, owner: str) -> str | None:
-        symbol = name(call.func, owner)
+    binding_events_by_owner: dict[
+        str, dict[str, list[tuple[int, int, str, str]]]
+    ] = {}
+
+    def scope_binding_events(
+        nodes: Sequence[ast.stmt], owner: str
+    ) -> dict[str, list[tuple[int, int, str, str]]]:
+        events: dict[str, list[tuple[int, int, str, str]]] = {}
+
+        def add(node: ast.AST, local: str, kind: str, target: str = "") -> None:
+            events.setdefault(local, []).append(
+                (node.lineno, node.col_offset, kind, target)
+            )
+
+        for node in nodes:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for local, target in imported_names(node).items():
+                    add(node, local, "import", target)
+                continue
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                target = f"{owner}.{node.name}"
+                known_node = function_by_symbol.get(target) or class_by_symbol.get(target)
+                add(
+                    node,
+                    node.name,
+                    "local" if known_node is node else "unknown",
+                    target,
+                )
+                continue
+            bindings = _module_binding_counts(
+                ast.Module(body=[node], type_ignores=[])
+            )
+            for local in bindings:
+                target = f"{owner}.{local}"
+                if isinstance(node, ast.Assign) and target in graph:
+                    add(node, local, "local", target)
+                else:
+                    add(node, local, "unknown")
+        for local_events in events.values():
+            import_positions = sorted(
+                event[:2] for event in local_events if event[2] == "import"
+            )
+            if len(import_positions) > 1:
+                conflict_position = import_positions[1]
+                local_events[:] = [
+                    (event[0], event[1], "unknown", "")
+                    if event[2] == "import" and event[:2] >= conflict_position
+                    else event
+                    for event in local_events
+                ]
+        return events
+
+    binding_events_by_owner[module] = scope_binding_events(tree.body, module)
+    for owner, node in functions:
+        events = scope_binding_events(node.body, owner)
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *((node.args.vararg,) if node.args.vararg is not None else ()),
+            *((node.args.kwarg,) if node.args.kwarg is not None else ()),
+        ):
+            events.setdefault(argument.arg, []).append(
+                (node.lineno, node.col_offset, "unknown", "")
+            )
+        binding_events_by_owner[owner] = events
+
+    def local_constructor(symbol: str) -> str | None:
+        seen: set[str] = set()
+        while symbol not in seen:
+            seen.add(symbol)
+            children = graph.get(symbol, ())
+            if len(children) != 1:
+                return None
+            symbol = children[0]
+            if symbol in function_by_symbol:
+                return symbol
+        return None
+
+    def super_callee(call: ast.Call, owner: str) -> str | None:
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__init__"
+            and isinstance(call.func.value, ast.Call)
+            and isinstance(call.func.value.func, ast.Name)
+            and call.func.value.func.id == "super"
+        ):
+            return None
+        class_owner = owner
+        while class_owner not in class_base and "." in class_owner:
+            class_owner = class_owner.rsplit(".", 1)[0]
+        return class_base.get(class_owner)
+
+    def active_name_binding(
+        call: ast.Call,
+        owner: str,
+        binding_context: tuple[str, int] = ("runtime", 0),
+    ) -> tuple[str, str] | None:
+        if not isinstance(call.func, ast.Name):
+            return None
+        local = call.func.id
+        position = (call.lineno, call.col_offset)
+        scope = owner
+        while scope.startswith(module):
+            events = binding_events_by_owner.get(scope, {}).get(local, ())
+            if scope == module and binding_context[0] == "source":
+                active = [event for event in events if event[0] <= binding_context[1]]
+            elif scope == module and owner != module:
+                active = events
+            else:
+                active = [event for event in events if event[:2] <= position]
+            if active:
+                _, _, kind, target = max(active, key=lambda event: event[:2])
+                return kind, target
+            if events:
+                return "unknown", ""
+            if scope == module:
+                break
+            scope = scope.rsplit(".", 1)[0]
+        return None
+
+    def unresolved_binding_symbol(call: ast.Call, owner: str) -> str:
+        assert isinstance(call.func, ast.Name)
+        candidate = f"{module}.{call.func.id}"
+        if (
+            candidate not in function_by_symbol
+            and candidate not in class_by_symbol
+            and candidate not in graph
+        ):
+            return candidate
+        return f"@unresolved-binding:{owner}:{call.func.id}"
+
+    def local_callee(
+        call: ast.Call,
+        owner: str,
+        binding_context: tuple[str, int] = ("runtime", 0),
+    ) -> str | None:
+        binding = active_name_binding(call, owner, binding_context)
+        if binding is not None and binding[0] != "local":
+            return None
+        base = super_callee(call, owner)
+        if base is not None:
+            initializer = graph.get(base, ())
+            if len(initializer) == 1 and initializer[0] in function_by_symbol:
+                return initializer[0]
+        symbol = binding[1] if binding is not None else name(call.func, owner)
+        constructor = local_constructor(symbol)
+        if constructor is not None:
+            return constructor
         if symbol in function_by_symbol:
             return symbol
-        if isinstance(call.func, ast.Name):
+        if isinstance(call.func, ast.Name) and binding is None:
             return local_by_name.get(call.func.id)
         if (
             isinstance(call.func, ast.Attribute)
@@ -2676,6 +2968,16 @@ def _module_functions(
             candidate = f"{parent}.{call.func.attr}"
             if candidate in function_by_symbol:
                 return candidate
+            owner_node = function_by_symbol.get(owner)
+            if owner_node is not None and call.func.value.id in {
+                argument.arg
+                for argument in (
+                    *owner_node.args.posonlyargs,
+                    *owner_node.args.args,
+                    *owner_node.args.kwonlyargs,
+                )
+            }:
+                return None
             suffix = f".{call.func.value.id}.{call.func.attr}"
             candidates = sorted(
                 symbol for symbol in function_by_symbol if symbol.endswith(suffix)
@@ -2683,8 +2985,6 @@ def _module_functions(
             if len(candidates) == 1:
                 return candidates[0]
         return None
-
-    rebound_by_owner: dict[str, set[str]] = {}
 
     def source_node(row: Mapping[str, Any]) -> ast.AST | None:
         span = row.get("source_span")
@@ -2729,6 +3029,22 @@ def _module_functions(
     forced_calls_by_owner: dict[str, set[str]] = {
         owner: set() for owner, _ in functions
     }
+    exact_rows: list[tuple[Mapping[str, Any], str, ast.AST]] = []
+    class_decorator_rows: list[tuple[Mapping[str, Any], ast.AST, ast.Call]] = []
+    context_rows: list[tuple[str, str, set[str]]] = []
+    terminal_symbols: set[str] = {
+        base
+        for base in class_base.values()
+        if base is not None and base in available_external_imports
+    } | {
+        target
+        for children in graph.values()
+        for target in children
+        if target in available_external_imports
+        and (root := target.split(".", 1)[0]) not in workspace_module_roots
+        and not (workspace_root / f"{root}.py").exists()
+        and not (workspace_root / root / "__init__.py").exists()
+    }
     for owner, node in functions:
         scoped_nodes: list[ast.AST] = []
         pending = list(node.body)
@@ -2738,23 +3054,43 @@ def _module_functions(
             if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
                 pending.extend(ast.iter_child_nodes(child))
         scoped_by_owner[owner] = scoped_nodes
-        local_imports = dict(imports_by_owner.get(owner.rsplit(".", 1)[0], imports))
+        inherited_imports = imports_by_owner.get(owner.rsplit(".", 1)[0], imports)
+        local_binding_counts = _module_binding_counts(
+            ast.Module(body=list(node.body), type_ignores=[])
+        )
+        local_import_targets: dict[str, set[str]] = {}
         for child in scoped_nodes:
             if isinstance(child, (ast.Import, ast.ImportFrom)):
-                local_imports.update(imported_names(child))
-        imports_by_owner[owner] = local_imports
-        rebound_by_owner[owner] = {
-            target.id
-            for child in scoped_nodes
-            for target in (
-                child.targets
-                if isinstance(child, ast.Assign)
-                else (child.target,)
-                if isinstance(child, (ast.AnnAssign, ast.NamedExpr))
-                else ()
-            )
-            if isinstance(target, ast.Name) and target.id in local_imports
+                for local, target in imported_names(child).items():
+                    local_import_targets.setdefault(local, set()).add(target)
+        local_imports = {
+            local: target
+            for local, target in inherited_imports.items()
+            if local not in local_binding_counts
         }
+        local_imports.update(
+            {
+                local: next(iter(targets))
+                for local, targets in local_import_targets.items()
+                if len(targets) == 1 and local_binding_counts.get(local) == 1
+            }
+        )
+        imports_by_owner[owner] = local_imports
+        argument_names = {
+            argument.arg
+            for argument in (
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+                *((node.args.vararg,) if node.args.vararg is not None else ()),
+                *((node.args.kwarg,) if node.args.kwarg is not None else ()),
+            )
+        }
+        for argument_name in argument_names:
+            local_imports.pop(argument_name, None)
+        rebound_by_owner[owner] = (
+            set(local_binding_counts) | argument_names
+        ) - set(local_imports)
         if owner in authority_symbols:
             tainted_by_owner[owner].update(
                 argument.arg
@@ -2769,14 +3105,66 @@ def _module_functions(
                 tainted_by_owner[owner].add(node.args.vararg.arg)
             if node.args.kwarg is not None:
                 tainted_by_owner[owner].add(node.args.kwarg.arg)
-
     for row in consumer_rows:
         owner = row.get("public_entry_route")
+        consumer_id = row.get("consumer_id")
+        node = source_node(row)
+        enclosing_decorators = [
+            (class_owner, decorator)
+            for class_owner, decorator, descendants in class_decorators
+            if node is not None and id(node) in descendants
+        ]
+        if enclosing_decorators or (
+            isinstance(owner, str)
+            and owner in class_by_symbol
+            and isinstance(consumer_id, str)
+        ):
+            if (
+                len(enclosing_decorators) == 1
+                and enclosing_decorators[0][0] == owner
+                and node is not None
+            ):
+                class_decorator_rows.append(
+                    (row, node, enclosing_decorators[0][1])
+                )
+            else:
+                if isinstance(consumer_id, str):
+                    graph[f"@consumer:{consumer_id}"] = [
+                        f"@unresolved-class-decorator:{consumer_id}"
+                    ]
+            continue
+        if isinstance(owner, str) and owner not in function_by_symbol:
+            owner = local_constructor(owner) or owner
         if not isinstance(owner, str) or owner not in function_by_symbol:
             continue
-        node = source_node(row)
         if node is None:
             function = function_by_symbol[owner]
+            context_symbol = row.get("context_symbol")
+            tainted_formals = row.get("tainted_formals")
+            if context_symbol is not None or tainted_formals is not None:
+                formals = {
+                    argument.arg
+                    for argument in (
+                        *function.args.posonlyargs,
+                        *function.args.args,
+                        *function.args.kwonlyargs,
+                        *((function.args.vararg,) if function.args.vararg is not None else ()),
+                        *((function.args.kwarg,) if function.args.kwarg is not None else ()),
+                    )
+                }
+                if (
+                    not isinstance(context_symbol, str)
+                    or not context_symbol
+                    or not isinstance(tainted_formals, list)
+                    or not tainted_formals
+                    or any(
+                        not isinstance(formal, str) or formal not in formals
+                        for formal in tainted_formals
+                    )
+                ):
+                    _fail("candidate consumer call context is malformed")
+                context_rows.append((context_symbol, owner, set(tainted_formals)))
+                continue
             tainted_by_owner[owner].update(
                 argument.arg
                 for argument in (
@@ -2787,6 +3175,7 @@ def _module_functions(
                 if argument.arg not in {"self", "cls"}
             )
             continue
+        exact_rows.append((row, owner, node))
         for value in row_values(node):
             tainted_by_owner[owner].update(
                 name_node.id
@@ -2800,6 +3189,32 @@ def _module_functions(
             forced_calls_by_owner[owner].add(
                 local_callee(node, owner) or name(node.func, owner)
             )
+
+    def qualified_globals(owner: str) -> dict[str, str]:
+        function = function_by_symbol[owner]
+        explicit_globals = {
+            name
+            for child in scoped_by_owner[owner]
+            if isinstance(child, ast.Global)
+            for name in child.names
+        }
+        local_names = {
+            argument.arg
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+            )
+        } | {
+            child.id
+            for child in scoped_by_owner[owner]
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store)
+        } - explicit_globals
+        return {
+            local: f"{module}.{local}"
+            for local in module_rebounds | explicit_globals
+            if local not in local_names
+        }
 
     def call_tainted_formals(
         call: ast.Call,
@@ -2852,6 +3267,123 @@ def _module_functions(
                 result.add(callee_node.args.kwarg.arg)
         return result
 
+    def returns_carrier(callee: str, seeds: set[str]) -> bool:
+        aliases = set(seeds)
+
+        def carrier_expression(value: ast.AST | None) -> bool:
+            if isinstance(value, ast.Name):
+                return value.id in aliases
+            if isinstance(value, ast.IfExp):
+                return carrier_expression(value.body) or carrier_expression(value.orelse)
+            return isinstance(value, ast.BoolOp) and any(
+                carrier_expression(item) for item in value.values
+            )
+
+        changed = True
+        while changed:
+            changed = False
+            for child in scoped_by_owner[callee]:
+                value: ast.AST | None = None
+                targets: Sequence[ast.AST] = ()
+                if isinstance(child, ast.Assign):
+                    value, targets = child.value, child.targets
+                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
+                    value, targets = child.value, (child.target,)
+                if not carrier_expression(value):
+                    continue
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in aliases:
+                        aliases.add(target.id)
+                        changed = True
+        return any(
+            isinstance(child, ast.Return)
+            and carrier_expression(child.value)
+            for child in scoped_by_owner[callee]
+        )
+
+    def is_bound_call(call: ast.Call, callee: str, owner: str) -> bool:
+        callee_node = function_by_symbol[callee]
+        decorators = {
+            decorator.id
+            for decorator in callee_node.decorator_list
+            if isinstance(decorator, ast.Name)
+        }
+        invoked_on_class = (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == callee.rsplit(".", 2)[-2]
+        )
+        return (
+            "classmethod" in decorators
+            or callee.endswith(".__init__")
+            and local_constructor(name(call.func, owner)) == callee
+            or "staticmethod" not in decorators
+            and isinstance(call.func, ast.Attribute)
+            and not invoked_on_class
+        )
+
+    def call_symbol(
+        call: ast.Call,
+        owner: str,
+        binding_context: tuple[str, int] = ("runtime", 0),
+    ) -> str:
+        binding = active_name_binding(call, owner, binding_context)
+        if binding is not None and binding[0] == "unknown":
+            return unresolved_binding_symbol(call, owner)
+        if binding is not None and binding[0] == "import":
+            return binding[1]
+        target = (
+            super_callee(call, owner)
+            or (binding[1] if binding is not None else name(call.func, owner))
+        )
+        local = local_callee(call, owner, binding_context)
+        if local is not None:
+            target = local
+        return target
+
+    def has_imported_receiver(call: ast.Call, owner: str) -> bool:
+        if not isinstance(call.func, ast.Attribute):
+            return False
+        root: ast.AST = call.func.value
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        return (
+            isinstance(root, ast.Name)
+            and root.id in imports_by_owner[owner]
+        )
+
+    context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
+
+    def routed_call_symbol(
+        call: ast.Call,
+        owner: str,
+        relevant: Any,
+        binding_context: tuple[str, int] = ("runtime", 0),
+    ) -> str:
+        target = call_symbol(call, owner, binding_context)
+        context = workspace_function_nodes.get(target)
+        if context is None:
+            return target
+        resolved_target, callee_node, bound = context
+        if callee_node is None:
+            if resolved_target in available_external_imports:
+                return target
+            context_symbol = f"@unresolved-context:{target}"
+            context_requests[context_symbol] = (target, ())
+            return context_symbol
+        formals = tuple(
+            sorted(
+                call_tainted_formals(
+                    call, callee_node, bound=bound, relevant=relevant
+                )
+            )
+        )
+        if not formals:
+            return target
+        context_symbol = f"@context:{target}:{','.join(formals)}"
+        context_requests[context_symbol] = (resolved_target, formals)
+        return context_symbol
+
     changed = True
     while changed:
         changed = False
@@ -2875,7 +3407,16 @@ def _module_functions(
                     value, targets = child.value, child.targets
                 elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
                     value, targets = child.value, (child.target,)
-                if value is not None and relevant(value):
+                carries_configuration = value is not None and relevant(value)
+                if isinstance(value, ast.Call):
+                    carries_configuration = call_symbol(value, owner) in authority_symbols
+                    callee = local_callee(value, owner)
+                    if callee is not None:
+                        callee_tainted = tainted_by_owner[callee]
+                        carries_configuration = returns_carrier(
+                            callee, callee_tainted
+                        )
+                if carries_configuration:
                     for target in targets:
                         for name_node in ast.walk(target):
                             if isinstance(name_node, ast.Name) and name_node.id not in tainted:
@@ -2889,28 +3430,409 @@ def _module_functions(
                     continue
                 callee_node = function_by_symbol[callee]
                 callee_tainted = tainted_by_owner[callee]
-                decorators = {
-                    decorator.id
-                    for decorator in callee_node.decorator_list
-                    if isinstance(decorator, ast.Name)
-                }
-                invoked_on_class = (
-                    isinstance(child.func, ast.Attribute)
-                    and isinstance(child.func.value, ast.Name)
-                    and child.func.value.id == callee.rsplit(".", 2)[-2]
-                )
-                bound = (
-                    "classmethod" in decorators
-                    or "staticmethod" not in decorators
-                    and isinstance(child.func, ast.Attribute)
-                    and not invoked_on_class
-                )
                 newly_tainted = call_tainted_formals(
-                    child, callee_node, bound=bound, relevant=relevant
+                    child,
+                    callee_node,
+                    bound=is_bound_call(child, callee, owner),
+                    relevant=relevant,
                 )
                 for argument_name in newly_tainted - callee_tainted:
                     callee_tainted.add(argument_name)
                     changed = True
+
+    def contextual_route(
+        owner: str,
+        seeds: set[str],
+        binding_context: tuple[str, int] = ("runtime", 0),
+        seen: frozenset[
+            tuple[str, tuple[str, ...], tuple[str, int]]
+        ] = frozenset(),
+    ) -> tuple[set[str], set[str]]:
+        context = (owner, tuple(sorted(seeds)), binding_context)
+        if context in seen:
+            return {owner}, set()
+        tainted = set(seeds)
+
+        def relevant(value: ast.AST | None) -> bool:
+            if value is None:
+                return False
+            if isinstance(value, ast.Name):
+                return value.id in tainted
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return relevant(value.value)
+            return any(relevant(child) for child in ast.iter_child_nodes(value))
+
+        def carrier_expression(value: ast.AST | None) -> bool:
+            if isinstance(value, ast.Name):
+                return value.id in tainted
+            if isinstance(value, ast.BoolOp):
+                return any(carrier_expression(item) for item in value.values)
+            if isinstance(value, ast.IfExp):
+                return carrier_expression(value.body) or carrier_expression(value.orelse)
+            if not isinstance(value, ast.Call):
+                return False
+            if call_symbol(value, owner, binding_context) in authority_symbols:
+                return True
+            callee = local_callee(value, owner, binding_context)
+            if callee is None:
+                return False
+            formals = call_tainted_formals(
+                value,
+                function_by_symbol[callee],
+                bound=is_bound_call(value, callee, owner),
+                relevant=carrier_expression,
+            )
+            return returns_carrier(callee, formals)
+
+        changed = True
+        while changed:
+            changed = False
+            for child in scoped_by_owner[owner]:
+                value: ast.AST | None = None
+                targets: Sequence[ast.AST] = ()
+                if isinstance(child, ast.Assign):
+                    value, targets = child.value, child.targets
+                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
+                    value, targets = child.value, (child.target,)
+                if not carrier_expression(value):
+                    continue
+                for target in targets:
+                    for name_node in ast.walk(target):
+                        if isinstance(name_node, ast.Name) and name_node.id not in tainted:
+                            tainted.add(name_node.id)
+                            changed = True
+
+        leaves: set[str] = set()
+        classes = set(
+            detect_ast_bypasses(
+                ast.get_source_segment(source, function_by_symbol[owner]) or "",
+                _tainted_names=tuple(tainted),
+                _qualified_names=qualified_globals(owner),
+                _propagate_taint=False,
+            )
+        )
+        for child in scoped_by_owner[owner]:
+            if not isinstance(child, ast.Call):
+                continue
+            values = (
+                *((child.func.value,) if isinstance(child.func, ast.Attribute) else ()),
+                *child.args,
+                *(keyword.value for keyword in child.keywords),
+            )
+            if not any(relevant(value) for value in values):
+                continue
+            callee = local_callee(child, owner, binding_context)
+            if callee is None:
+                target = routed_call_symbol(
+                    child, owner, relevant, binding_context
+                )
+                leaves.add(target)
+                arguments = (*child.args, *(item.value for item in child.keywords))
+                if not target.startswith("@") and (
+                    _is_tolerant_configuration_operation(target)
+                    or _is_mapping_value_coercion(target, arguments)
+                ):
+                    classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+                continue
+            formals = call_tainted_formals(
+                child,
+                function_by_symbol[callee],
+                bound=is_bound_call(child, callee, owner),
+                relevant=relevant,
+            )
+            nested_leaves, nested_classes = contextual_route(
+                callee, formals, binding_context, seen | {context}
+            )
+            leaves.update(nested_leaves)
+            classes.update(nested_classes)
+        return leaves, classes
+
+    for row, node, decorator in class_decorator_rows:
+        consumer_id = row.get("consumer_id")
+        if not isinstance(consumer_id, str):
+            continue
+        binding_context = ("source", decorator.lineno)
+        consumer_symbol = f"@consumer:{consumer_id}"
+        if not name(decorator.func):
+            graph[consumer_symbol] = [
+                f"@unresolved-class-decorator:{consumer_id}"
+            ]
+            continue
+        seeds = {id(node)}
+        if node is decorator:
+            seeds.update(
+                id(child)
+                for value in row_values(decorator)
+                for child in ast.walk(value)
+                if isinstance(child, ast.expr)
+            )
+
+        def relevant(value: ast.AST | None) -> bool:
+            return value is not None and (
+                id(value) in seeds
+                or any(relevant(child) for child in ast.iter_child_nodes(value))
+            )
+
+        relevant_calls = [
+            child
+            for child in ast.walk(decorator)
+            if isinstance(child, ast.Call) and relevant(child)
+        ]
+        calls: set[str] = set()
+        contextual_bypasses: set[str] = set()
+        for child in relevant_calls:
+            target = call_symbol(child, module, binding_context)
+            if target in authority_symbols:
+                calls.add(target)
+                continue
+            callee = local_callee(child, module, binding_context)
+            if callee is None:
+                calls.add(
+                    routed_call_symbol(
+                        child, module, relevant, binding_context
+                    )
+                    or f"@unresolved-class-decorator-call:{consumer_id}"
+                )
+                continue
+            formals = call_tainted_formals(
+                child,
+                function_by_symbol[callee],
+                bound=is_bound_call(child, callee, module),
+                relevant=relevant,
+            )
+            nested_calls, nested_bypasses = contextual_route(
+                callee, formals, binding_context
+            )
+            calls.update(nested_calls)
+            contextual_bypasses.update(nested_bypasses)
+        if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION" and isinstance(
+            node, ast.Call
+        ):
+            calls.add(call_symbol(node, module, binding_context))
+        graph[consumer_symbol] = sorted(filter(None, calls))
+        terminal_symbols.update(calls & available_external_imports)
+
+        exact_bypasses: set[str] = set()
+        for child in relevant_calls:
+            operation = call_symbol(child, module, binding_context)
+            if not operation and isinstance(child.func, ast.Name):
+                operation = child.func.id
+            arguments = (*child.args, *(item.value for item in child.keywords))
+            tainted_call = (
+                relevant(child.func.value)
+                if isinstance(child.func, ast.Attribute)
+                else False
+            ) or child is node or any(relevant(argument) for argument in arguments)
+            if operation in {"os.getenv", "os.environ.get", "environ.get"}:
+                exact_bypasses.add("AMBIENT_CONFIGURATION_READ")
+            elif _is_legacy_configuration_symbol(operation) and tainted_call:
+                exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
+            elif tainted_call and (
+                _is_tolerant_configuration_operation(operation)
+                or _is_mapping_value_coercion(operation, arguments)
+            ):
+                exact_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+        declared_bypasses = row.get("bypass_classes", ())
+        classes = tuple(
+            class_id
+            for class_id in BYPASS_CLASSES
+            if class_id in exact_bypasses
+            or class_id in contextual_bypasses
+            or class_id in module_bypasses
+            or class_id in declared_bypasses
+        )
+        if classes:
+            bypasses[consumer_symbol] = classes
+
+    for context_symbol, owner, formals in context_rows:
+        calls, classes = contextual_route(owner, formals)
+        graph[context_symbol] = sorted(filter(None, calls))
+        terminal_symbols.update(calls & available_external_imports)
+        classes.update(module_bypasses)
+        if classes:
+            bypasses[context_symbol] = tuple(
+                class_id for class_id in BYPASS_CLASSES if class_id in classes
+            )
+
+    for row, owner, node in exact_rows:
+        consumer_id = row.get("consumer_id")
+        if not isinstance(consumer_id, str):
+            continue
+        consumer_symbol = f"@consumer:{consumer_id}"
+        origin_names = {
+            name_node.id
+            for value in row_values(node)
+            for name_node in ast.walk(value)
+            if isinstance(name_node, ast.Name)
+            and name_node.id not in imports_by_owner[owner]
+        }
+        tainted: set[str] = set()
+
+        def relevant(value: ast.AST | None) -> bool:
+            if value is None:
+                return False
+            if value is node:
+                return True
+            if isinstance(value, ast.Name):
+                return value.id in tainted
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return relevant(value.value)
+            return any(relevant(child) for child in ast.iter_child_nodes(value))
+
+        def carrier_expression(value: ast.AST | None) -> bool:
+            if value is node or isinstance(value, ast.Name) and value.id in tainted:
+                return True
+            if isinstance(value, ast.IfExp):
+                return carrier_expression(value.body) or carrier_expression(value.orelse)
+            return isinstance(value, ast.BoolOp) and any(
+                carrier_expression(item) for item in value.values
+            )
+
+        changed = True
+        while changed:
+            changed = False
+            for child in scoped_by_owner[owner]:
+                value: ast.AST | None = None
+                targets: Sequence[ast.AST] = ()
+                if isinstance(child, ast.Assign):
+                    value, targets = child.value, child.targets
+                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
+                    value, targets = child.value, (child.target,)
+                carries_configuration = carrier_expression(value)
+                if isinstance(value, ast.Call):
+                    carries_configuration = call_symbol(value, owner) in authority_symbols
+                    callee = local_callee(value, owner)
+                    if callee is not None:
+                        callee_node = function_by_symbol[callee]
+                        formals = call_tainted_formals(
+                            value,
+                            callee_node,
+                            bound=is_bound_call(value, callee, owner),
+                            relevant=relevant,
+                        )
+                        carries_configuration = returns_carrier(callee, formals)
+                if not carries_configuration:
+                    continue
+                for target in targets:
+                    for name_node in ast.walk(target):
+                        if isinstance(name_node, ast.Name) and name_node.id not in tainted:
+                            tainted.add(name_node.id)
+                            changed = True
+
+        relevant_calls = [
+            child
+            for child in scoped_by_owner[owner]
+            if isinstance(child, ast.Call)
+            and (
+                child is node
+                or any(
+                    relevant(value)
+                    for value in (
+                        *((child.func.value,) if isinstance(child.func, ast.Attribute) else ()),
+                        *child.args,
+                        *(keyword.value for keyword in child.keywords),
+                    )
+                )
+            )
+        ]
+        calls: set[str] = set()
+        contextual_bypasses: set[str] = set()
+        for child in relevant_calls:
+            callee = local_callee(child, owner)
+            if callee is None:
+                calls.add(routed_call_symbol(child, owner, relevant))
+                continue
+            formals = call_tainted_formals(
+                child,
+                function_by_symbol[callee],
+                bound=is_bound_call(child, callee, owner),
+                relevant=relevant,
+            )
+            nested_calls, nested_bypasses = contextual_route(callee, formals)
+            calls.update(nested_calls)
+            contextual_bypasses.update(nested_bypasses)
+        if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION" and isinstance(node, ast.Call):
+            calls.add(call_symbol(node, owner))
+        if owner in authority_symbols:
+            calls = {owner}
+        graph[consumer_symbol] = sorted(filter(None, calls))
+        terminal_symbols.update(calls & available_external_imports)
+        terminal_symbols.update(
+            call_symbol(child, owner)
+            for child in relevant_calls
+            if isinstance(child.func, ast.Attribute)
+            and local_callee(child, owner) is None
+            and not has_imported_receiver(child, owner)
+            and not (
+                isinstance(child.func.value, ast.Name)
+                and child.func.value.id in module_rebounds
+            )
+        )
+
+        exact_bypasses: set[str] = set()
+        for child in scoped_by_owner[owner]:
+            if isinstance(child, ast.Call) and relevant(child):
+                operation = call_symbol(child, owner)
+                if not operation and isinstance(child.func, ast.Name):
+                    operation = child.func.id
+                arguments = (*child.args, *(item.value for item in child.keywords))
+                tainted_call = (
+                    relevant(child.func.value)
+                    if isinstance(child.func, ast.Attribute)
+                    else False
+                ) or child is node or any(relevant(argument) for argument in arguments)
+                if operation in {"os.getenv", "os.environ.get", "environ.get"}:
+                    exact_bypasses.add("AMBIENT_CONFIGURATION_READ")
+                elif _is_legacy_configuration_symbol(operation) and tainted_call:
+                    exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
+                elif tainted_call and (
+                    _is_tolerant_configuration_operation(operation)
+                    or _is_mapping_value_coercion(operation, arguments)
+                ):
+                    exact_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+            elif isinstance(child, ast.Try) and relevant(child) and any(
+                isinstance(descendant, (ast.Return, ast.Continue, ast.Break, ast.Pass))
+                for handler in child.handlers
+                for descendant in ast.walk(handler)
+            ):
+                exact_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+            elif (
+                isinstance(child, ast.Subscript)
+                and child is node
+                and isinstance(child.ctx, ast.Load)
+                and name(child.value, owner) in {"os.environ", "environ"}
+            ):
+                exact_bypasses.add("AMBIENT_CONFIGURATION_READ")
+            elif isinstance(
+                child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)
+            ):
+                targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+                if relevant(child) and any(
+                    (
+                        isinstance(target, (ast.Attribute, ast.Subscript))
+                        and _is_legacy_configuration_symbol(name(target.value, owner))
+                    )
+                    or (
+                        isinstance(target, ast.Name)
+                        and relevant(child.value)
+                        and _is_legacy_configuration_symbol(
+                            qualified_globals(owner).get(target.id, target.id)
+                        )
+                    )
+                    for target in targets
+                ):
+                    exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
+        declared_bypasses = row.get("bypass_classes", ())
+        classes = tuple(
+            class_id
+            for class_id in BYPASS_CLASSES
+            if class_id in exact_bypasses
+            or class_id in contextual_bypasses
+            or class_id in module_bypasses
+            or class_id in declared_bypasses
+        )
+        if classes:
+            bypasses[consumer_symbol] = classes
 
     for owner, node in functions:
         scoped_nodes = scoped_by_owner[owner]
@@ -2929,12 +3851,8 @@ def _module_functions(
         for child in scoped_nodes:
             if not isinstance(child, ast.Call):
                 continue
-            call = name(child.func, owner)
-            local = local_callee(child, owner)
-            if local is not None:
-                call = local
-            if isinstance(child.func, ast.Name) and child.func.id in rebound_by_owner[owner]:
-                call = f"{module}.{child.func.id}"
+            super_target = super_callee(child, owner)
+            call = call_symbol(child, owner)
             values = (
                 *((child.func.value,) if isinstance(child.func, ast.Attribute) else ()),
                 *child.args,
@@ -2945,11 +3863,34 @@ def _module_functions(
                 or any(relevant(value) for value in values)
             ):
                 calls.add(call)
+                root = child.func
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                visible_imports = imports_by_owner.get(owner, imports)
+                if (
+                    super_target is not None
+                    and (imported_root := super_target.split(".", 1)[0])
+                    not in workspace_module_roots
+                    and super_target in available_external_imports
+                    or isinstance(root, ast.Name)
+                    and root.id in visible_imports
+                    and root.id not in rebound_by_owner[owner]
+                    and root.id not in module_rebounds
+                    and (
+                        imported_root := visible_imports[root.id].split(".", 1)[0]
+                    )
+                    not in workspace_module_roots
+                    and not (workspace_root / f"{imported_root}.py").exists()
+                    and not (workspace_root / imported_root / "__init__.py").exists()
+                    and call in available_external_imports
+                ):
+                    terminal_symbols.add(call)
         graph[owner] = sorted(calls)
         function_source = ast.get_source_segment(source, node) or ""
         function_bypasses = detect_ast_bypasses(
             function_source,
             _tainted_names=tuple(tainted),
+            _qualified_names=qualified_globals(owner),
         )
         classes = tuple(
             class_id
@@ -2958,7 +3899,13 @@ def _module_functions(
         )
         if classes:
             bypasses[owner] = classes
-    return graph, bypasses, set(graph)
+    return (
+        graph,
+        bypasses,
+        set(function_by_symbol),
+        terminal_symbols,
+        context_requests,
+    )
 
 
 def reconcile_consumer_occurrences(
@@ -3030,11 +3977,231 @@ def reconcile_consumer_occurrences(
     }
 
 
+def _workspace_callable_index(
+    workspace: Path, module_roots: frozenset[str]
+) -> tuple[
+    dict[str, tuple[str, str | None]],
+    frozenset[str],
+    dict[
+        str,
+        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool],
+    ],
+]:
+    """Index functions and class constructors without importing candidate code."""
+
+    result: dict[str, tuple[str, str | None]] = {}
+    imported_targets: set[str] = set()
+    function_nodes: dict[
+        str,
+        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool],
+    ] = {}
+    callable_aliases: dict[str, str] = {}
+    for candidate in sorted(workspace.rglob("*.py")):
+        relative = candidate.relative_to(workspace).as_posix()
+        if PurePosixPath(relative).parts[0] not in module_roots:
+            continue
+        try:
+            tree = ast.parse(candidate.read_text(encoding="utf-8"), filename=relative)
+        except (OSError, UnicodeError, SyntaxError) as exc:
+            raise EvaluatorError(
+                f"candidate consumer source is unreadable: {candidate}"
+            ) from exc
+        module = relative.removesuffix(".py").replace("/", ".")
+        imported_by_name: dict[str, set[str]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local = alias.asname or alias.name.split(".", 1)[0]
+                    target = alias.name if alias.asname else local
+                    imported_targets.add(target)
+                    imported_by_name.setdefault(local, set()).add(target)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                for alias in node.names:
+                    target = f"{node.module}.{alias.name}"
+                    imported_targets.add(target)
+                    imported_by_name.setdefault(
+                        alias.asname or alias.name, set()
+                    ).add(target)
+
+        def imported_symbol(node: ast.AST) -> str | None:
+            parts: list[str] = []
+            while isinstance(node, ast.Attribute):
+                parts.append(node.attr)
+                node = node.value
+            if not isinstance(node, ast.Name):
+                return None
+            targets = imported_by_name.get(node.id, set())
+            if len(targets) != 1:
+                return None
+            return ".".join((next(iter(targets)), *reversed(parts)))
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                target = imported_symbol(node.func)
+                if target:
+                    imported_targets.add(target)
+            elif isinstance(node, ast.ClassDef):
+                for base in node.bases:
+                    target = imported_symbol(base)
+                    if target:
+                        imported_targets.add(target)
+
+        module_binding_counts = _module_binding_counts(tree)
+
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and module_binding_counts.get(node.targets[0].id) == 1
+            ):
+                continue
+            target = imported_symbol(node.value)
+            if target:
+                symbol = f"{module}.{node.targets[0].id}"
+                result[symbol] = (relative, symbol)
+                callable_aliases[symbol] = target
+                imported_targets.add(target)
+
+        def collect(nodes: Sequence[ast.stmt], owner: str) -> None:
+            for node in nodes:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    symbol = f"{owner}.{node.name}"
+                    if symbol in result:
+                        _fail(f"candidate callable is duplicated: {symbol}")
+                    result[symbol] = (relative, symbol)
+                    if owner == module:
+                        function_nodes[symbol] = (symbol, node, False)
+                    collect(node.body, symbol)
+                elif isinstance(node, ast.ClassDef):
+                    symbol = f"{owner}.{node.name}"
+                    initializer_node = next(
+                        (
+                            child
+                            for child in node.body
+                            if isinstance(
+                                child, (ast.FunctionDef, ast.AsyncFunctionDef)
+                            )
+                            and child.name == "__init__"
+                        ),
+                        None,
+                    )
+                    initializer = (
+                        f"{symbol}.__init__"
+                        if initializer_node is not None
+                        else None
+                    )
+                    if symbol in result:
+                        _fail(f"candidate callable is duplicated: {symbol}")
+                    result[symbol] = (relative, initializer or symbol)
+                    if owner == module and initializer_node is not None:
+                        function_nodes[symbol] = (symbol, initializer_node, True)
+                    elif owner == module:
+                        base = (
+                            imported_symbol(node.bases[0])
+                            if len(node.bases) == 1
+                            else None
+                        )
+                        if base is None and len(node.bases) == 1 and isinstance(
+                            node.bases[0], ast.Name
+                        ):
+                            base = f"{module}.{node.bases[0].id}"
+                        function_nodes[symbol] = (base or symbol, None, True)
+                    collect(node.body, symbol)
+
+        collect(tree.body, module)
+    for alias, target in callable_aliases.items():
+        seen = {alias}
+        while target in callable_aliases and target not in seen:
+            seen.add(target)
+            target = callable_aliases[target]
+        if target in seen or target not in function_nodes:
+            continue
+        function_nodes[alias] = function_nodes[target]
+    return result, frozenset(imported_targets), function_nodes
+
+
+def _available_external_imports(
+    targets: frozenset[str], python_executable: Path | None
+) -> frozenset[str]:
+    def available(target: str) -> bool:
+        parts = target.split(".")
+        for length in range(len(parts), 0, -1):
+            try:
+                value: Any = importlib.import_module(".".join(parts[:length]))
+            except (ImportError, ModuleNotFoundError, ValueError, AttributeError):
+                continue
+            try:
+                for attribute in parts[length:]:
+                    value = getattr(value, attribute)
+            except AttributeError:
+                return False
+            return callable(value)
+        return False
+
+    if python_executable is None:
+        return frozenset(target for target in targets if available(target))
+    probe = """\
+import contextlib
+import importlib
+import io
+import json
+import sys
+
+available = []
+for name in json.load(sys.stdin):
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        parts = name.split('.')
+        for length in range(len(parts), 0, -1):
+            try:
+                value = importlib.import_module('.'.join(parts[:length]))
+            except BaseException:
+                continue
+            try:
+                for attribute in parts[length:]:
+                    value = getattr(value, attribute)
+            except BaseException:
+                break
+            if not callable(value):
+                break
+            available.append(name)
+            break
+print(json.dumps(available))
+"""
+    try:
+        completed = subprocess.run(
+            (str(python_executable), "-I", "-B", "-c", probe),
+            check=False,
+            cwd=Path("/"),
+            env=_subprocess_environment(None),
+            input=json.dumps(sorted(targets)),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EvaluatorError("external module probe failed") from exc
+    try:
+        observed = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise EvaluatorError("external module probe returned invalid JSON") from exc
+    if (
+        completed.returncode != 0
+        or not isinstance(observed, list)
+        or any(not isinstance(target, str) or target not in targets for target in observed)
+        or len(observed) != len(set(observed))
+    ):
+        _fail("external module probe failed")
+    return frozenset(observed)
+
+
 def inspect_candidate_consumers(
     *,
     candidate_evidence: Mapping[str, Any],
     consumer_census: Mapping[str, Any],
     workspace: Path,
+    python_executable: Path | None = None,
 ) -> dict[str, Any]:
     """Join every frozen slot to candidate source and follow actual AST calls."""
 
@@ -3059,48 +4226,183 @@ def inspect_candidate_consumers(
             if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
         ]
     reconciliation = reconcile_consumer_occurrences(rows, scanned_rows)
+    span_cache: dict[str, dict[tuple[object, ...], int]] = {}
+
+    def occurrence_survives(row: Mapping[str, Any]) -> bool:
+        relative, span = row.get("path"), row.get("source_span")
+        if not isinstance(relative, str) or not isinstance(span, Mapping):
+            return False
+        if relative not in span_cache:
+            path = _safe_descendant(
+                workspace, relative, label="candidate census source"
+            )
+            if not path.exists():
+                span_cache[relative] = {}
+            else:
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, SyntaxError) as exc:
+                    raise EvaluatorError(
+                        f"candidate consumer source is unreadable: {path}"
+                    ) from exc
+                counts: dict[tuple[object, ...], int] = {}
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.stmt):
+                        continue
+                    key = (
+                        getattr(node, "lineno", None),
+                        getattr(node, "col_offset", None),
+                        getattr(node, "end_lineno", None),
+                        getattr(node, "end_col_offset", None),
+                    )
+                    counts[key] = counts.get(key, 0) + 1
+                span_cache[relative] = counts
+        expected = (
+            span.get("start_line"), span.get("start_col"),
+            span.get("end_line"), span.get("end_col"),
+        )
+        return span_cache[relative].get(expected) == 1
+
     surviving_removed = [
-        row
-        for row in reconciliation["removed"]
-        if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
-    ]
-    surviving_obligations = [
-        dict(row, source_span=None, bypass_classes=[]) for row in surviving_removed
+        row for row in reconciliation["removed"] if occurrence_survives(row)
     ]
     current_rows = (
         [current for _, current in reconciliation["paired"]]
         + reconciliation["added"]
-        + surviving_obligations
+        + surviving_removed
     )
     retired_rows = [
         row for row in reconciliation["removed"] if row not in surviving_removed
     ]
     graph: dict[str, list[str]] = {}
+    graph_paths: dict[str, str] = {}
     bypasses: dict[str, Any] = {}
-    modules_seen: set[tuple[str, str]] = set()
     introduced: set[str] = set()
+    terminal_symbols: set[str] = set()
     rows_by_path: dict[str, list[Mapping[str, Any]]] = {}
     for row in current_rows:
         rows_by_path.setdefault(cast(str, row["path"]), []).append(row)
-    for row in [*current_rows, *rows]:
-        relative = row["path"]
-        candidate_path = workspace.joinpath(*PurePosixPath(relative).parts)
-        if not candidate_path.exists():
-            continue
+    workspace_module_roots = frozenset(
+        PurePosixPath(cast(str, row["path"])).parts[0]
+        for row in [*current_rows, *rows]
+    )
+    workspace_shadow_roots = frozenset(
+        root
+        for root in workspace_module_roots
+        if (workspace / f"{root}.py").exists()
+        or (workspace / root / "__init__.py").exists()
+    )
+    callable_index, imported_targets, workspace_function_nodes = _workspace_callable_index(
+        workspace, workspace_module_roots
+    )
+    available_external_imports = _available_external_imports(
+        frozenset(
+            target
+            for target in imported_targets
+            if target.split(".", 1)[0] not in workspace_shadow_roots
+        ),
+        python_executable,
+    )
+    synthetic_owners: dict[str, set[str]] = {}
+    synthetic_contexts: dict[
+        str, dict[str, tuple[str, tuple[str, ...]]]
+    ] = {}
+    context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
+
+    def analyze(relative: str) -> None:
         path = _safe_descendant(workspace, relative, label="candidate census source")
         module = relative.removesuffix(".py").replace("/", ".")
-        key = (relative, module)
-        if key not in modules_seen:
-            local_graph, local_bypasses, local_symbols = _module_functions(
+        synthetic_rows = [
+            {"public_entry_route": owner}
+            for owner in sorted(synthetic_owners.get(relative, ()))
+        ] + [
+            {
+                "context_symbol": context_symbol,
+                "public_entry_route": owner,
+                "tainted_formals": list(formals),
+            }
+            for context_symbol, (owner, formals) in sorted(
+                synthetic_contexts.get(relative, {}).items()
+            )
+        ]
+        (
+            local_graph,
+            local_bypasses,
+            local_symbols,
+            local_terminals,
+            local_context_requests,
+        ) = (
+            _module_functions(
                 path,
                 module,
                 authority_symbols=authority_symbols,
-                consumer_rows=rows_by_path.get(relative, ()),
+                consumer_rows=[*rows_by_path.get(relative, ()), *synthetic_rows],
+                workspace_module_roots=workspace_shadow_roots,
+                available_external_imports=available_external_imports,
+                workspace_function_nodes=workspace_function_nodes,
             )
-            graph.update(local_graph)
-            bypasses.update(local_bypasses)
-            introduced.update(local_symbols)
-            modules_seen.add(key)
+        )
+        graph.update(local_graph)
+        graph_paths.update((symbol, relative) for symbol in local_graph)
+        bypasses.update(local_bypasses)
+        introduced.update(local_symbols)
+        terminal_symbols.update(local_terminals)
+        context_requests.update(local_context_requests)
+
+    analyzed_paths: set[str] = set()
+    for row in [*current_rows, *rows]:
+        relative = cast(str, row["path"])
+        candidate_path = workspace.joinpath(*PurePosixPath(relative).parts)
+        if not candidate_path.exists() or relative in analyzed_paths:
+            continue
+        analyze(relative)
+        analyzed_paths.add(relative)
+
+    while True:
+        changed_paths: set[str] = set()
+        for parent, children in tuple(graph.items()):
+            for symbol in children:
+                if (
+                    symbol in authority_symbols
+                    or symbol in bypasses
+                    or symbol in terminal_symbols
+                ):
+                    continue
+                context = context_requests.get(symbol)
+                target_symbol = context[0] if context is not None else symbol
+                target = callable_index.get(target_symbol)
+                if target is None:
+                    continue
+                relative, owner = target
+                if symbol in graph and graph_paths.get(symbol) == graph_paths.get(parent):
+                    continue
+                if context is not None and not context[1] and owner is not None:
+                    if symbol not in graph:
+                        graph[symbol] = [
+                            target_symbol,
+                            f"{symbol}:missing",
+                        ]
+                        graph_paths[symbol] = relative
+                    if owner not in synthetic_owners.setdefault(relative, set()):
+                        synthetic_owners[relative].add(owner)
+                        changed_paths.add(relative)
+                elif context is not None and owner is not None:
+                    contexts = synthetic_contexts.setdefault(relative, {})
+                    if symbol not in contexts:
+                        contexts[symbol] = (owner, context[1])
+                        changed_paths.add(relative)
+                elif owner is not None and owner not in synthetic_owners.setdefault(
+                    relative, set()
+                ):
+                    synthetic_owners[relative].add(owner)
+                    changed_paths.add(relative)
+                elif relative not in analyzed_paths:
+                    changed_paths.add(relative)
+        if not changed_paths:
+            break
+        for relative in sorted(changed_paths):
+            analyze(relative)
+            analyzed_paths.add(relative)
     for row in current_rows:
         classes = row.get("bypass_classes", ())
         if not classes:
@@ -3109,7 +4411,11 @@ def inspect_candidate_consumers(
             class_id not in BYPASS_CLASSES for class_id in classes
         ):
             _fail("candidate census names an unknown bypass class")
-        entry = row["public_entry_route"]
+        entry = (
+            f"@consumer:{row['consumer_id']}"
+            if f"@consumer:{row['consumer_id']}" in graph
+            else row["public_entry_route"]
+        )
         bypasses[entry] = tuple(
             class_id
             for class_id in BYPASS_CLASSES
@@ -3118,7 +4424,11 @@ def inspect_candidate_consumers(
     live_projected = [
         {
             "consumer_id": row["consumer_id"],
-            "entry_symbol": row["public_entry_route"],
+            "entry_symbol": (
+                f"@consumer:{row['consumer_id']}"
+                if f"@consumer:{row['consumer_id']}" in graph
+                else row["public_entry_route"]
+            ),
             "requires_authority": _requires_resolution_authority(row),
         }
         for row in current_rows
@@ -3144,6 +4454,7 @@ def inspect_candidate_consumers(
             call_graph=graph,
             authority_symbols=authority_symbols,
             bypass_symbols=bypasses,
+            terminal_symbols=terminal_symbols,
         )
         if live_projected
         else {
@@ -3153,7 +4464,7 @@ def inspect_candidate_consumers(
             "unresolved_consumers": [],
         }
     )
-    baseline_entries = {row["entry_symbol"] for row in live_projected}
+    baseline_entries = {row["public_entry_route"] for row in current_rows}
     introduced_consumers = sorted(
         symbol
         for symbol in introduced
@@ -3162,7 +4473,7 @@ def inspect_candidate_consumers(
     )
     return {
         **route,
-        "accounted_consumer_count": reconciliation["current_count"],
+        "accounted_consumer_count": len(current_rows),
         "added_consumer_count": reconciliation["added_count"],
         "introduced_consumer_symbols": sorted(
             set(introduced_consumers)
@@ -3316,6 +4627,7 @@ def _evaluate_candidate(
         candidate_evidence=evidence,
         consumer_census=consumer_census,
         workspace=workspace,
+        python_executable=python_executable,
     )
     visible_ok, visible_evidence = _visible_observation(
         visible_result,
