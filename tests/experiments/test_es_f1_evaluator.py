@@ -1656,6 +1656,7 @@ def _synthetic_complete_observation_inputs(
         "candidate_evidence": candidate_evidence,
         "candidate_tree": task0_candidate["tree"],
         "candidate_workspace": task0_candidate["workspace"],
+        "task0_proof_workspace": task0_candidate["workspace"],
         "fixture_manifest": fixture_manifest,
         "legacy_bypass_discovery_input": task0_candidate["input"],
         "lifecycle_request": request,
@@ -1950,7 +1951,11 @@ def test_authenticated_task0_observation_runs_fresh_discovery_and_pinned_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     evaluator = _evaluator()
-    from scripts.experiments.es import boundary_proofs, source_census
+    from scripts.experiments.es import (
+        boundary_proofs,
+        reference_calibration,
+        source_census,
+    )
 
     discovery = _task0_discovery_from_bare_commit(
         tmp_path / "authenticated",
@@ -1963,7 +1968,9 @@ def test_authenticated_task0_observation_runs_fresh_discovery_and_pinned_runner(
     )
     real_discover = source_census.discover_source
     discovery_calls: list[dict[str, Any]] = []
+    projection_calls: list[dict[str, Any]] = []
     runner_calls: list[dict[str, Any]] = []
+    projected_manifest = {"projected": "candidate-provider-node-domain"}
 
     def observe_fresh_discovery(
         discovery_input: dict[str, Any],
@@ -1988,19 +1995,47 @@ def test_authenticated_task0_observation_runs_fresh_discovery_and_pinned_runner(
             "proof-pre-task3a",
         )
 
+    def project_desired_state(selector_manifest, **kwargs: Any) -> dict[str, Any]:
+        projection_calls.append(
+            {
+                "selector_manifest": copy.deepcopy(selector_manifest),
+                "kwargs": copy.deepcopy(kwargs),
+            }
+        )
+        return copy.deepcopy(projected_manifest)
+
     monkeypatch.setattr(source_census, "discover_source", observe_fresh_discovery)
+    monkeypatch.setattr(
+        reference_calibration,
+        "build_reference_desired_state_execution_manifest",
+        project_desired_state,
+    )
     monkeypatch.setattr(boundary_proofs, "execute_desired_state", fail_desired_state)
 
     observation = evaluator.derive_authenticated_task0_bypass_observation(
         candidate_workspace=discovery["workspace"],
+        proof_workspace=discovery["workspace"],
         candidate_tree=discovery["tree"],
         discovery_input=discovery["input"],
+        builtin_architecture_ids=evaluator.F1_BUILTIN_ARCHITECTURES,
+        witness_architecture_id="reference_witness",
     )
 
     assert observation["satisfied"] is False
     assert observation["proof_error_code"] == "proof_desired_state_failed"
     assert len(discovery_calls) == 1
+    assert len(projection_calls) == 1
+    projection_call = projection_calls[0]
+    assert projection_call["kwargs"]["workspace"] == discovery["workspace"]
+    assert projection_call["kwargs"]["expected_tree"] == discovery["tree"]
+    assert projection_call["kwargs"]["builtin_architecture_ids"] == (
+        evaluator.F1_BUILTIN_ARCHITECTURES
+    )
+    assert projection_call["kwargs"]["witness_architecture_id"] == (
+        "reference_witness"
+    )
     assert len(runner_calls) == 1
+    assert runner_calls[0]["selector_manifest"] == projected_manifest
     runner_kwargs = runner_calls[0]["kwargs"]
     assert "expected_result_rows" not in runner_kwargs
     assert runner_kwargs["workspace"] == discovery["workspace"]
@@ -2153,8 +2188,11 @@ def test_authenticated_task0_candidate_context_fails_closed(
     with pytest.raises(evaluator.EvaluatorError, match=diagnostic):
         evaluator.derive_authenticated_task0_bypass_observation(
             candidate_workspace=workspace,
+            proof_workspace=discovery["workspace"],
             candidate_tree=tree,
             discovery_input=discovery_input,
+            builtin_architecture_ids=evaluator.F1_BUILTIN_ARCHITECTURES,
+            witness_architecture_id="reference_witness",
         )
 
 
@@ -2423,15 +2461,17 @@ def test_lifecycle_probe_inputs_are_deterministic_and_digest_bound() -> None:
     for row in cases:
         config_payload = payloads[row["config"]["path"]]
         input_payload = payloads[row["input"]["path"]]
+        config = json.loads(config_payload)
         assert row["config"]["sha256"] == "sha256:" + hashlib.sha256(
             config_payload
         ).hexdigest()
         assert row["input"]["sha256"] == "sha256:" + hashlib.sha256(
             input_payload
         ).hexdigest()
-        assert json.loads(config_payload)["schema_version"] == "es-f1-base-config.v1"
+        assert config["schema_version"] == "es-f1-base-config.v1"
+        assert config["subsample_seed"] == 20260802
         assert json.loads(input_payload)["schema_version"] == "es-f1-cdi-fixture.v1"
-        assert json.loads(config_payload)["N"] == row["N"]
+        assert config["N"] == row["N"]
         assert json.loads(input_payload)["image_size"] == row["N"]
     assert evaluator.build_lifecycle_probe_inputs(
         architecture_rows=architecture_rows,
@@ -2445,9 +2485,16 @@ def test_lifecycle_probe_inputs_are_deterministic_and_digest_bound() -> None:
         seed=20260803,
     )
     for row, alternate in zip(cases, alternate_cases, strict=True):
-        assert alternate_payloads[alternate["config"]["path"]] == payloads[
+        assert alternate_payloads[alternate["config"]["path"]] != payloads[
             row["config"]["path"]
         ]
+        assert alternate["config"]["sha256"] != row["config"]["sha256"]
+        assert (
+            json.loads(alternate_payloads[alternate["config"]["path"]])[
+                "subsample_seed"
+            ]
+            == 20260803
+        )
         assert alternate_payloads[alternate["input"]["path"]] != payloads[
             row["input"]["path"]
         ]
@@ -3778,6 +3825,7 @@ def test_real_product_lifecycle_is_evaluator_observed_through_public_apis(
         lifecycle_result=result,
         fixture_manifest=fixture_manifest,
         candidate_workspace=task0_candidate["workspace"],
+        task0_proof_workspace=task0_candidate["workspace"],
         candidate_tree=task0_candidate["tree"],
         legacy_bypass_discovery_input=task0_candidate["input"],
         registry_report=registry_report,

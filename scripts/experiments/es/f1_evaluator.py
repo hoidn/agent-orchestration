@@ -380,6 +380,7 @@ def build_lifecycle_probe_inputs(
                 "object_big": False,
                 "probe_big": False,
                 "scale_contract_version": "legacy_v1",
+                "subsample_seed": seed,
             }
         )
         input_payload = canonical_json_bytes(
@@ -2410,8 +2411,11 @@ def _derive_task0_bypass_observation(
 def derive_authenticated_task0_bypass_observation(
     *,
     candidate_workspace: Path,
+    proof_workspace: Path,
     candidate_tree: str,
     discovery_input: Mapping[str, Any],
+    builtin_architecture_ids: Sequence[str],
+    witness_architecture_id: str,
 ) -> dict[str, Any]:
     """Derive H05 only from fresh discovery and the pinned Task-0 runner."""
 
@@ -2439,13 +2443,29 @@ def derive_authenticated_task0_bypass_observation(
     )
     authority = _task0_bypass_authority()
     try:
-        from scripts.experiments.es import boundary_proofs
+        from scripts.experiments.es import boundary_proofs, reference_calibration
 
+        execution_manifest = (
+            reference_calibration.build_reference_desired_state_execution_manifest(
+                authority["selector"],
+                source_census=authority["census"],
+                workspace=proof_workspace,
+                expected_tree=candidate_tree,
+                python=boundary_proofs.PINNED_PYTHON,
+                pytest_carrier=boundary_proofs.PINNED_PYTEST_CARRIER,
+                expected_pytest_carrier_sha256=(
+                    boundary_proofs.PINNED_PYTEST_CARRIER_SHA256
+                ),
+                builtin_architecture_ids=builtin_architecture_ids,
+                witness_architecture_id=witness_architecture_id,
+                forbidden_roots=(),
+            )
+        )
         desired_rows = boundary_proofs.execute_desired_state(
-            authority["selector"],
+            execution_manifest,
             consumer_rows=authority["census"]["consumer_rows"],
             python=boundary_proofs.PINNED_PYTHON,
-            workspace=workspace,
+            workspace=proof_workspace,
             expected_tree=candidate_tree,
             expected_runner_sha256=authority["runner_sha256"],
             pytest_carrier=boundary_proofs.PINNED_PYTEST_CARRIER,
@@ -2454,7 +2474,10 @@ def derive_authenticated_task0_bypass_observation(
             ),
             forbidden_roots=(),
         )
-    except boundary_proofs.BoundaryProofError as exc:
+    except (
+        boundary_proofs.BoundaryProofError,
+        reference_calibration.CalibrationError,
+    ) as exc:
         failed_evidence = {
             "authority_bindings": deepcopy(authority["bindings"]),
             "candidate_tree": candidate_tree,
@@ -4291,6 +4314,7 @@ def derive_complete_observations(
     visible_check_result: Mapping[str, Any],
     candidate_evidence: Mapping[str, Any],
     candidate_workspace: Path,
+    task0_proof_workspace: Path,
     candidate_tree: str,
     legacy_bypass_discovery_input: Mapping[str, Any],
     lifecycle_request: Mapping[str, Any],
@@ -4703,8 +4727,11 @@ def derive_complete_observations(
         raise EvaluatorError("complete observation lifecycle clause set drifted")
     bypass_observation = derive_authenticated_task0_bypass_observation(
         candidate_workspace=candidate_workspace,
+        proof_workspace=task0_proof_workspace,
         candidate_tree=candidate_tree,
         discovery_input=legacy_bypass_discovery_input,
+        builtin_architecture_ids=candidate_architecture_ids[:-1],
+        witness_architecture_id=candidate_architecture_ids[-1],
     )
     complete_lifecycle = deepcopy(derived_lifecycle)
     h05 = complete_lifecycle[0]
