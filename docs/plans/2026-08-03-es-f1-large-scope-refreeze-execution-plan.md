@@ -1,33 +1,41 @@
-# ES F1 Large-Scope Pre-Run Refreeze Implementation Plan
+# ES F1v2 Configuration-Ownership Pre-Run Refreeze Implementation Plan
 
-**Status:** Draft pre-run scope amendment; no F1 arm, provider session, study
-attempt, invalid-attempt allowance, or denominator row has been consumed.
+**Status:** Owner-authorized replacement-task refreeze. The rejected F1
+extension-boundary package is terminally recorded as
+`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, its Task 3A apparatus is committed,
+and its scale-rejection post-mortem is complete. F1v2 Tasks 1–4 remain
+provider-free; no F1 arm, provider session, study attempt, invalid-attempt
+allowance, or denominator row has been consumed.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
 > `superpowers:executing-plans` to implement this plan task by task. Steps use
 > checkbox (`- [ ]`) syntax for tracking. Do not create a worktree.
 
-**Goal:** Replace the too-small two-architecture F1 task with one freshly
-frozen, solution-neutral full-architecture task whose controller-only
-conforming reference product measures 5,000–10,000 physical implementation
-delta lines, with tests and docs additional, without changing the four-arm
-treatment topology or consuming a live attempt before the replacement package
-and scientific lock pass every gate.
+**Goal:** Replace the too-small extension-boundary F1 task with the
+solution-neutral F1v2 configuration-ownership campaign: strict public
+configuration resolution, transactional torch-side application, retirement of
+tolerant compatibility paths, isolation of legacy state, boundary validation
+with derived public field names, and migration of every supported downstream
+consumer. A controller-only adapted reference must measure 5,000–10,000
+`implementation_delta_physical_lines.v1` additions; tests and docs are
+additional. The four-arm treatment topology remains unchanged, and no live
+attempt may be consumed before the replacement package and scientific lock
+pass every gate.
 
 **Architecture:** Retain the history-free PtychoPINN source projection and the
 landed DIRECT/DESIGN_QA/PRODUCT_QA/RICH apparatus. Version the task/evaluator
-contracts around an exact matrix of all fourteen frozen built-ins plus one
-candidate-declared witness, materialize a new task-seed child from the same
-projection root, and bind the new task, evaluator, resource envelope,
-metering authority, randomization schedule, and pre-run lineage into one new
-decision lock. Build a distinct controller-only conforming reference product
-from that child, measure it with one reproducible Git/numstat contract, and
-require the measured implementation delta to fall inside the owner-directed
-band before the lock can freeze. The reference implementation is never
-delivered to a provider, and candidate products are never measured or judged
-by LOC. The prior task package remains content-addressed provenance only and
-contributes no attempt or evidence to the successor denominator.
+contracts around the exact configuration-outcome and bypass matrix in Section
+2, materialize one new task-seed child from the same projection root, and bind
+the new task, evaluator, resource envelope, metering authority, randomization
+schedule, and pre-run lineage into one new decision lock. In a separate
+controller-only repository, adapt the real 2026-07-28 through 2026-07-31
+configuration campaign to the frozen projection rather than replaying its
+commits, then measure that adapted endpoint with the existing reproducible
+Git/numstat contract. The adapted reference is never delivered to a provider,
+and candidate products are never measured or judged by LOC. The rejected F1
+package remains content-addressed provenance only and contributes no attempt or
+evidence to the successor denominator.
 
 **Tech Stack:** Python 3.11 in `ptycho311`, canonical JSON and JSON Schema,
 PyTorch/PyTorch Lightning, Workflow Lisp target 2.25, Git object plumbing,
@@ -35,7 +43,9 @@ pytest, pinned Bubblewrap for evidence-integrity write routing, Pyright, tmux,
 and the existing Codex JSONL metering shim.
 
 **Terminology and product boundary:** `ES` means **effectiveness study**
-throughout this plan; `F1` is the first fixed task in that study. The sole
+throughout this plan; `F1v2` is the replacement for the first fixed task in
+that study, while `F1` without the suffix denotes the rejected predecessor.
+The sole
 source and product authority is the digest-bound PtychoPINN repository below.
 EasySpin is not a source repository, projection, task seed, product target,
 evidence store, or validation authority for this plan.
@@ -85,16 +95,23 @@ task by this amendment.
 stands. The `plan_sha256` binding inside
 `docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.json`
 records the pre-amendment plan bytes as provenance for the Task-0 decision and
-remains valid and unmodified; it is not a live-file assertion. This amendment
-removes downstream scope only. It does not alter the source identities, the
-projection, the metric, the architecture/lifecycle matrix, the scale band, the
-non-delivery requirement, or any Task-0 output, and therefore requires **no
-re-review of Task 0 and no new amendment review pair**. Do not open one.
+remains valid and unmodified; it is not a live-file assertion. The F1v2
+replacement does not alter the source identities, projection, metric, scale
+band, non-delivery requirement, or any Task-0 output. Task 0's task-specific
+architecture evidence remains provenance for the rejected F1 package rather
+than authority for F1v2's new configuration matrix. Therefore **do not
+re-review Task 0 and do not open a new amendment review pair**.
 
-**In-flight work is preserved.** Tasks 1, 2, and 3 are committed. Task 3A is in
-progress and is retained in full: it is the viability and oracle-calibration
-proof that directly answers the A1 pilot's forfeit failure, and it is not
-ceremony. Continue Task 3A from its current step.
+**F1 rejection and F1v2 authority.** The original Tasks 1, 2, and 3 remain
+committed provenance for the rejected F1 package. Its Task 3A ended correctly
+at the strict scale gate: the apparatus and green terminal disposition landed
+at `d24ad212`, and the row-level post-mortem landed at `d465d986`. They are not
+continued or promoted. The owner decision of 2026-08-12 plus
+`docs/superpowers/specs/2026-08-06-es-f1v2-config-ownership-task-design.md`
+authorize the F1-specific edits below and execution of fresh Tasks 1, 2, 3,
+and 3A analogues for F1v2. They do not reopen Task 0 and require no standalone
+amendment review pair; the single Task-4 prelaunch review remains the only
+prospective review gate in this plan.
 
 ---
 
@@ -102,6 +119,7 @@ ceremony. Continue Task 3A from its current step.
 
 This plan is subordinate to:
 
+- `docs/superpowers/specs/2026-08-06-es-f1v2-config-ownership-task-design.md`;
 - `docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`;
 - `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`;
 - `docs/plans/2026-08-03-es-task5-study-controller-execution-plan.md`;
@@ -111,11 +129,12 @@ This plan is subordinate to:
 - `docs/reports/2026-08-01-lean-pilot-forensics-and-e2-study-inputs.md`.
 
 The current E-series authority says E0, E1, and E2 are complete and ES Tasks
-0–5 are complete. Refreeze Tasks 0–3 are closed; Task 3A is in progress and
-Task 4 is pending. Together Tasks 1–4 own and subsume the old component Task 6
-freeze/review/adoption gate and hand directly to existing ES Task 7 after
-Task 4. Live allocation remains prohibited, and this amendment does not select
-or start E3.
+0–5 are complete. Refreeze Task 0 is historical complete. The original F1
+Tasks 1–3 and terminal Task 3A are superseded-package provenance; F1v2 Tasks
+1–4 are the current execution sequence. Together F1v2 Tasks 1–4 own and
+subsume the old component Task 6 freeze/review/adoption gate and hand directly
+to existing ES Task 7 after Task 4. Live allocation remains prohibited, and
+this amendment does not select or start E3.
 
 This plan now owns that formerly separate gate: refreeze Tasks 1–4 satisfy,
 replace, and subsume the component plan's old Task 6 package-freeze, review,
@@ -134,47 +153,70 @@ The source authority is unchanged:
 - history-free projection tree:
   `e64f3c05f5a0894f41c047d128a9040a2cda6764`.
 
-The pre-amendment package is preserved by Git and by its content-addressed
-task-seed repository. Its relevant closure commits are Task 2 at `d24c1818`,
-Task 3 at `0d16ca36`, and Task 4 at `d72c6085`. The replacement must call that
-package `SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, not failed or invalid. Before
-the replacement record closes, machine checks must prove that the predecessor
-has no live attempt record, provider allocation, usage receipt, owner-adopted
-lock, or denominator contribution.
+The historical campaign is evidence, not seed lineage:
+
+- campaign repository: `/home/ollie/Documents/PtychoPINN`;
+- campaign parent: `99efda11155119161d371d5d0e5ec7c33a720594`;
+- inclusive campaign range:
+  `7d630bcc14191ec5f8206a9ceb097a62a1c011c6` through
+  `015ca6e93d78c5f7f42adf0cae883d895de5f80c`;
+- committed interval: 2026-07-28 through 2026-07-31.
+
+The campaign parent and frozen source are different lineages. The projection
+therefore is not called the campaign's “exact starting point,” and no campaign
+commit may be replayed or cherry-picked into the successor. The reported
+`+8,698/-11,197` figures are inclusive **per-commit historical churn**, useful
+for selecting this task but not an output of the pinned endpoint metric. A
+read-only endpoint reconnaissance from the campaign parent is approximately
+`+7,047/-9,546` under the closest production selector; even that is diagnostic
+only. Task 3A must freshly adapt the behavior to the exact projection child and
+measure that adapted endpoint under `implementation_delta_physical_lines.v1`.
+
+The rejected F1 package is preserved by Git and its content-addressed task-seed
+repository. `experiments/orc_effectiveness/f1_es/reference-product-disposition.json`
+already records it as `SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, not failed or
+invalid, and binds the terminal out-of-band capture. F1v2 package validation
+must continue to prove that the predecessor has no live attempt record,
+provider allocation, usage receipt, owner-adopted lock, or denominator
+contribution.
 
 The owner-directed amendment binds these requirements:
 
 1. The exact A1 nanoBragg DIRECT product described in Section 3 is the
    calibration anchor: its retained product delta contains 667 production
    additions and 2 production deletions, with 690 physical production lines
-   in the postimage. Before launch, a controller-only conforming F1 reference
+   in the postimage. Before launch, a controller-only conforming F1v2 reference
    product must measure inclusively between 5,000 and 10,000
    `implementation_delta_physical_lines.v1` units. Tests and documentation are
-   additional, are recorded separately, and do not count toward that band. Relative to the
-   measured 667-line A1 delta, the requested band is approximately
+   additional, are recorded separately, and do not count toward that band.
+   Relative to the measured 667-line A1 delta, the requested band is approximately
    7.50x–14.99x. This is a strict prelaunch task-scale calibration gate, not a
    candidate acceptance, ranking, or stopping predicate.
-   Task 0 must establish the provider-free structural multi-context proxy below
-   before task-package work begins; working-set size by itself is not accepted
-   as proof. DIRECT nevertheless retains its one-call treatment contract;
+   The real campaign and the adapted Task-3A reference provide the scale
+   evidence; historical churn is not substituted for the endpoint metric.
+   DIRECT nevertheless retains its one-call treatment contract;
    inability to finish is a treatment outcome, not authority to add hidden
    calls, resume, or relax the task.
 2. Neither the provider-visible brief, a hard-evaluator clause, a review
    schema, nor the final screen may award, reject, or rank a candidate by LOC.
    No minimum-diff, maximum-diff, file-count, or churn proxy may replace the
    behavioral contract.
-3. All fourteen frozen built-ins and one candidate-declared witness must cross
-   the same public extension boundary. Every one must be covered for public
-   configuration, construction, forward execution, existing-loss backward,
-   one optimizer step, checkpoint and bundle save, fresh-process strict reload,
-   post-reload inference, persisted identity, and structural round-trip.
-4. `neuralop_uno` uses `N=128`; every other frozen built-in uses `N=64`.
-   The witness uses the evaluator-bound size declared for its case and may not
-   weaken either frozen built-in rule.
-5. Physics, loss definition, scaling, measurement-domain, and data ownership
-   remain outside the extension boundary. Exercising the existing training
-   path does not transfer those responsibilities into an architecture
-   descriptor or registration record.
+3. F1v2 must satisfy all six configuration-ownership outcomes in Section 2
+   across both backends, public CLI entry points, workflow components, study
+   scripts, and every projection consumer found by the fresh configuration
+   census. A candidate may choose a different internal decomposition from the
+   controller-only reference.
+4. Deriving public input field names is a hard behavioral outcome, not a
+   review-only preference. The bypass oracle has exactly three classes:
+   ambient configuration reads, tolerant/compatibility loaders (including
+   coercive fallbacks), and legacy configuration-state mutation. It follows
+   every public consumer transitively through facades and wrappers to the
+   actual authority; a facade that leaves a reachable bypass does not close a
+   consumer.
+5. Resolution provenance distinguishes file mappings from CLI patches and
+   survives a fresh-process round trip. Torch-side application is
+   transactional: a rejected resolution leaves no partially applied or
+   ambiently mutated state.
 6. The four-arm topology, provider/model/effort, role sequence, correction
    bounds, statistical operating rule, cost-ratio rule, one-invalid-attempt
    cap, and fresh-session/no-resume semantics stay unchanged.
@@ -193,99 +235,81 @@ The owner-directed amendment binds these requirements:
 ### What this approach makes harder later
 
 Every later task or evaluator change requires a whole-package digest refresh,
-new review verdicts, and a new owner adoption; the larger architecture matrix
-also makes provider-free calibration and hidden evaluation materially slower.
-That cost is intentional. The plan does not add a generic experiment framework
-or change E2 merely to make future studies cheaper.
+one new prelaunch review, and a new owner adoption. Transitive consumer
+closure also makes evaluator maintenance more expensive than checking only
+named entry points. That cost is intentional. The plan does not add a generic
+experiment framework or change E2 merely to make future studies cheaper.
 
-## 2. Exact architecture and lifecycle matrix
+## 2. Exact F1v2 outcome and evaluator matrix
 
-The frozen built-in order is authoritative and must be present exactly once:
+The provider-visible task contains these six indivisible outcomes, stated
+without prescribing the historical reference's class, function, module, or
+commit decomposition:
 
-| Order | Public architecture ID | Evaluator image size |
-| ---: | --- | ---: |
-| 1 | `cnn` | 64 |
-| 2 | `ffno` | 64 |
-| 3 | `fno` | 64 |
-| 4 | `fno_vanilla` | 64 |
-| 5 | `hybrid` | 64 |
-| 6 | `hybrid_resnet` | 64 |
-| 7 | `hybrid_resnet_convnext_bottleneck` | 64 |
-| 8 | `hybrid_resnet_ffno_bottleneck` | 64 |
-| 9 | `hybrid_resnet_ffno_ptychoblock_encoder` | 64 |
-| 10 | `hybrid_resnet_ptychoblock_ffno_encoder` | 64 |
-| 11 | `neuralop_uno` | 128 |
-| 12 | `spectral_resnet_bottleneck_linear_decoder` | 64 |
-| 13 | `spectral_resnet_bottleneck_net` | 64 |
-| 14 | `stable_hybrid` | 64 |
+| Outcome | Required behavior |
+| --- | --- |
+| `PUBLIC_RESOLUTION` | One strict public resolution route owns file-mapping and CLI-patch inputs with explicit, tested precedence. |
+| `TRANSACTIONAL_TORCH_APPLICATION` | Torch-side resolution either commits one complete validated configuration or leaves all configuration state unchanged. |
+| `TOLERANT_PATH_RETIREMENT` | Tolerant and compatibility loaders are removed or fail loudly; no silent fallback, coercive recovery, or ignored unknown field survives. |
+| `LEGACY_STATE_ISOLATION` | Modern paths neither read nor mutate legacy configuration state; retained legacy-only code cannot become a modern fallback. |
+| `BOUNDARY_VALIDATION_AND_DERIVATION` | Simulation mappings are validated at the boundary and public input field names are derived from the owning structure rather than duplicated. This is a hard outcome. |
+| `CONSUMER_MIGRATION` | Both backends, public CLI entry points, workflow components, study scripts, and every fresh-census production consumer construct configuration only through the public route. |
 
-The fifteenth row is one candidate-declared witness architecture. Its public ID
-must be nonempty, absent from the frozen built-in set, and distinct from every
-existing public or legacy alias. The witness is not a second representative
-shortcut: it passes the same lifecycle and identity stages as every built-in.
-Its evaluator-derived registry constructor identity and its construction,
-checkpoint-reload, bundle-reload, and persisted-rebuild implementation
-identity must all name the same witness implementation and must be absent from
-the exact fourteen frozen built-in constructor and implementation identity
-sets. The witness must own at least one witness-only structural field whose
-alternate value changes canonical artifact identity, state/module signature,
-and one fixed-seed observable while surviving both persistence routes. A new
-public ID that aliases a built-in implementation, including the current
-`es_f1_witness -> FfnoGenerator` fixture shortcut, is a hidden-evaluator H09
-failure rather than a conforming positive control.
+The candidate may implement those outcomes in any maintainable shape. It is
+not required to reproduce the historical campaign's modules or diff. The
+provider-visible baseline selectors are chosen from the frozen projection in
+Task 1 and then frozen exactly; this plan does not preassert a selector count.
 
-For each of the fifteen rows, the hidden evaluator must independently derive
-and freeze:
+The hidden evaluator retains the existing ten-clause apparatus shape and
+rebinds its clause IDs to F1v2:
 
-- the evaluator-bound configuration/input digests and deterministic seed;
-- the public construction route and persisted rebuild route;
-- implementation identity before save and after each strict reload;
-- forward output shape, dtype, finiteness, and deterministic digest/tolerance
-  facts appropriate to the frozen contract;
-- an existing-loss scalar, finite gradients, and a bounded optimizer-step
-  state transition, without giving loss ownership to the extension surface;
-- checkpoint and bundle bytes, content identity, and fresh-process reload
-  process identities;
-- post-reload inference facts for both artifact forms;
-- exact structural values before save and after each reload;
-- rejection of missing, extra, unknown, and unsupported structural identity
-  before a module is returned;
-- deterministic identity sensitivity for every evaluator-frozen built-in
-  structural field and every candidate-declared witness structural field; and
-- equality of the candidate-declared public construction, checkpoint reload,
-  bundle reload, and persisted-rebuild implementation identities, plus proof
-  that the witness identity is distinct from every frozen built-in identity.
-
-The adapter remains a path-only materialization seam. It may materialize the
-thirty checkpoint/bundle artifacts, but it may not author observations,
-process identities, structural values, pass/fail claims, or dispositions.
-
-Artifact compatibility is a closed architecture-by-route matrix rather than an
-ambiguous Cartesian product. The versioned fixture manifest must contain one
-row for every artifact era, and each row must carry exact ordered,
-nonoverlapping `applicable_architecture_ids` and
-`rejected_architecture_ids` arrays whose union is the complete fourteen-plus-one
-domain. The evaluator applies this exact matrix:
-
-| Lifecycle or artifact route | Positive architecture domain | Required result outside that domain |
+| Clause | Positive requirement | Required negative calibration |
 | --- | --- | --- |
-| Public configuration, construction, forward/backward, optimizer transition, and artifact-free inference | all fourteen built-ins plus the witness | not applicable; every row is positive |
-| Newly emitted current checkpoint, fresh strict checkpoint reload, and post-reload inference | all fourteen built-ins plus the witness | not applicable; every row is positive |
-| Newly emitted current bundle, fresh strict bundle reload, and post-reload inference | all fourteen built-ins plus the witness | not applicable; every row is positive |
-| Each retained non-`legacy_v1` historical checkpoint, model-spec, artifact, or bundle fixture | exactly the fixture row's digest-bound `applicable_architecture_ids` | `UNSUPPORTED_ARTIFACT_ARCHITECTURE` before returning a module |
-| Metadata-free `legacy_v1` bundle | exactly `cnn` | the other thirteen built-ins and the witness reject with `UNSUPPORTED_ARTIFACT_ARCHITECTURE` before returning a module |
-| Unknown, malformed, structurally incomplete, or identity-incompatible artifact | none | every architecture rejects before returning a module |
+| `F1-H01-FOCUSED-SUITES` | Every Task-1 provider-visible baseline selector and the candidate-owned selector pass from the exact evaluated tree. | Missing, reordered, substituted, or ambient-checkout selector execution rejects. |
+| `F1-H02-SCHEMA-CONFORMANCE` | Candidate evidence and evaluator-owned probe records conform before execution. | Extra authority fields, malformed paths, or candidate-authored pass/fail claims reject. |
+| `F1-H03-PUBLIC-RESOLUTION` | File mapping and CLI patch resolve through one strict public route with the frozen precedence table. | Reversing precedence or resolving the same input differently across public entry points fails. |
+| `F1-H04-TRANSACTIONAL-APPLICATION` | Valid torch resolution commits once; invalid resolution leaves byte-equivalent pre-state. | A late validation error after any partial mutation fails. |
+| `F1-H05-STRICT-INPUT-CONTRACT` | Unknown and ill-typed fields reject, and sampling/bridge fields survive a strict round trip byte-exactly. | Ignored unknowns, tolerant coercion, dropped bridge fields, or fallback defaults fail. |
+| `F1-H06-DERIVED-PUBLIC-FIELDS` | Public field names are derived from the validated owning structure and simulation mappings validate at entry. | A duplicated field-name table, accepted invalid mapping, or drift between the source structure and public names fails. |
+| `F1-H07-CONSUMER-CLOSURE` | Every fresh-census consumer reaches the public authority, including through nested facades and wrappers. | A named facade with a reachable old-path callee, or an unassigned discovered consumer, fails. |
+| `F1-H08-PROVENANCE-ROUNDTRIP` | The resolved value records file-mapping versus CLI-patch provenance and preserves it through a fresh-process round trip. | Missing, ambiguous, rewritten, or process-local-only provenance fails. |
+| `F1-H09-CROSS-SURFACE-COHERENCE` | Initialization and mode values have one canonical representation across core, torch, CLI, workflow, and study surfaces. | Cross-surface divergence or non-string/coercion drift fails. |
+| `F1-H10-BYPASS-ORACLE` | The exact three bypass classes below are absent from every modern public route, transitively. | Each class has a historical-defect negative plus facade-only and one-wrapper-deep negatives. |
 
-The current-artifact rows therefore exercise the full fifteen-row lifecycle;
-historical rows exercise only their truthfully supported architecture domain
-and prove explicit rejection everywhere else. A fixture without the complete
-partition, a `legacy_v1` positive for a non-`cnn` architecture, or a silent
-fallback to `cnn` fails schema validation or H04.
+`F1-H10` recognizes exactly these bypass classes; adding a new label does not
+let an implementation evade one:
 
-## 3. Calibration basis and resource envelope
+1. `AMBIENT_CONFIGURATION_READ` — a public route or reachable callee obtains
+   configuration from module/global/environment state instead of the resolved
+   value;
+2. `TOLERANT_OR_COMPATIBILITY_LOADER` — a public route or reachable callee
+   ignores, coerces, defaults, or best-effort-loads invalid configuration; and
+3. `LEGACY_CONFIGURATION_STATE_MUTATION` — a modern public route or reachable
+   callee reads then mutates, or directly mutates, legacy configuration state.
 
-The frozen source census establishes the real behavioral working set without
-pretending that inventory size predicts authored output:
+A wrapper is acceptable only when it strictly delegates the already validated,
+provenance-carrying value and exposes no fallback. The evaluator inventories
+the projection with AST checks and confirms reachability with runtime probes;
+checking only the top-level symbol is insufficient. The adapter may
+materialize probe inputs and paths but may not author observations,
+provenance, pass/fail claims, or dispositions. Candidate LOC, file count,
+cluster count, and churn remain outside every clause, review score, stopping
+rule, and result.
+
+## 3. Preserved calibration apparatus and F1v2 resource envelope
+
+The detailed census, feasibility, and review material below through
+“Authenticated feasibility capture and deletion lifecycle” records closed
+Task-0 provenance for the rejected extension-boundary F1 package. It remains
+useful evidence for the pinned projection, A1 anchor, metric implementation,
+and apparatus integrity; its generator-consumer rows, architecture clusters,
+nineteen-selector result, and feasibility vertical slice are **not** F1v2 task
+authority and are not rerun or re-reviewed. F1v2 Task 1 derives a fresh
+configuration-consumer census and exact selector set while reusing the closed
+metric and record machinery.
+
+The historical frozen source census established that task's behavioral working
+set without pretending that inventory size predicts authored output:
 
 For every strict-UTF-8 text blob in this census, a physical line is one element
 of Python's `text.splitlines()` result. A nonempty final line counts even when
@@ -628,12 +652,12 @@ origin-isolation report digest, exact projection tree before and after, and one
 baseline result for every coverage witness. Baseline facts may truthfully show
 a bypass, present removal target, or other desired-state failure; they are
 characterization, not conformance. The separate desired-state proof specs bind
-the required post-edit result for every witness. Task 3A, not Task 0, executes
-those specs against the exact reference-product tree and publishes the
-digest-bound result rows. Task 6 only replays the same specs/results against
-that bound reference product. This avoids binding future reference bytes into
-Task 0 and never asks a removal or migration proof to pass against the pre-edit
-tree.
+the required post-edit result for every witness. The rejected-F1 Task 3A, not
+Task 0, executed those specs against its exact reference-product tree and
+published the digest-bound result rows. That closed statement does not require
+F1v2 Task 3A to reuse the architecture-specific proof set; F1v2 uses its Task-1
+census and Task-2 clauses. This preserves Task-0 provenance without binding
+future reference bytes into its immutable runner.
 
 Both row schemas and every witness/result shape set
 `additionalProperties=false`. Selector IDs and ordinals are unique and lane
@@ -704,14 +728,15 @@ and these diff controls:
 --find-renames=100% --find-copies=100% --find-copies-harder
 ```
 
-Only production Python paths assigned to at least one frozen behavioral
-responsibility by the Task-0 proposal and its digest-bound approving reviews
-are counted. Tests, documentation, fixtures,
+For F1v2, only production Python paths assigned to at least one frozen
+configuration responsibility by the Task-1 census are counted. The closed
+Task-0 assignment remains the rejected F1 metric domain and is not reused as a
+shortcut. Tests, documentation, fixtures,
 generated files, caches, vendored code, and benchmark/task-seed assets are
 reported as separate totals. Candidate-authored or reference-authored product
 Python is not an excluded “candidate asset”: every new production path,
-including the distinct witness implementation, must declare at least one
-closed responsibility ID and is counted. The metric sums the Git `numstat`
+must declare at least one closed responsibility ID and is counted. The metric
+sums the Git `numstat`
 additions column: a new
 physical line counts one; a replacement counts its postimage/addition line
 once; its paired deletion adds no unit; a pure deletion, unchanged line,
@@ -897,32 +922,27 @@ It pins `/usr/bin/bwrap`, version `bubblewrap 0.9.0`, and SHA-256
 `52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712`.
 Every invocation re-verifies those bytes and version outputs before use.
 
-### Controller-only reference product and strict gate
+### Controller-only adapted reference product and strict gate
 
-After the successor task seed exists, Task 3A builds one genuine conforming
-reference implementation in a separate, remote-free, content-addressed bare
-repository under
+After the successor task seed exists, Task 3A creates one conforming F1v2
+reference in a separate, remote-free, content-addressed bare repository under
 `/home/ollie/.local/state/orchestrator/es-reference-products/git-sha1/<reference-commit>`.
-The repository exposes only its reference-product ref and is not part of the
-task-seed object database. Its manifest binds the frozen upstream/projection/
-task-seed commit and tree, reference commit and tree, repository snapshot,
-canonical patch, per-path delta rows, measured total, full visible and hidden
-evaluation results, distinct-witness proof, bypass-oracle result, and
-no-delivery proof.
+The controller uses the historical campaign only as an implementation oracle:
+it adapts the campaign's behavior to the exact projection child and records
+every conflict resolution. It never replays, merges, rebases, applies, or
+cherry-picks a campaign commit. The repository exposes only its
+reference-product ref and is not part of the task-seed object database.
 
-The reference implements every item in this indivisible behavioral contract
-before scale is measured:
-
-1. all fourteen built-ins plus the distinct witness through configuration,
-   construction, forward/backward, optimizer transition, checkpoint, bundle,
-   fresh reload, inference, identity, and round trip;
-2. architecture-owned structural fields, defaults, validation, canonical
-   serialization, missing/extra/unsupported rejection, and sensitivity;
-3. every frozen direct, supervised, Lightning, application-factory, training
-   entry-point, and trainer-API consumer;
-4. all supported checkpoint/bundle reconstruction and artifact eras;
-5. all frozen inference and workflow consumers; and
-6. complete frozen bypass retirement or delegation through the boundary.
+The manifest binds the frozen source/projection/task-seed identities; the
+historical parent and inclusive campaign range; the adaptation ledger;
+reference commit/tree and repository snapshot; canonical patch; per-path
+metric rows; full visible and hidden results; transitive consumer census;
+provenance/round-trip proofs; exact three-class bypass result; and non-delivery
+proof. Before scale is measured, the reference must satisfy all six Section-2
+outcomes and all ten hidden clauses. In particular, it must close every
+fresh-census consumer, reject the facade-only and wrapper-deep negatives,
+derive public field names, leave invalid torch resolution state unchanged, and
+preserve source provenance and bridge/sampling fields across a fresh process.
 
 Launch eligibility is exactly inclusive:
 
@@ -931,9 +951,9 @@ Launch eligibility is exactly inclusive:
 ```
 
 There is no 20-percent escape band. If an honest complete reference is below
-5,000 or above 10,000, F1 is unsuitable at the requested scale in this shape.
-Replace or coherently redesign the task, rerun the projection-wide census, and
-restart the reviewed pre-run amendment and package freeze. None of the six
+5,000 or above 10,000, F1v2 is unsuitable at the requested scale in this
+shape. Stop for owner disposition; do not reinterpret the historical
+`+8,698` per-commit churn as the metric result. None of the six
 required items may be trimmed, deferred, or treated as a removable scale
 tranche; padding, copied branches, formatting churn, and line-driven deletion
 of required behavior are forbidden.
@@ -944,36 +964,26 @@ blobs cannot resolve from that repository; no reference locator, patch,
 source blob, manifest, canary, or measured count appears in visible assets,
 prompts, provider argv/environment, or provider packets; and provider
 workspaces materialize only from the bound task seed. This is package-level
-non-delivery, not a filesystem-secrecy claim. Candidate products are never
-measured: candidate schemas, reviewer packets, synthesis, stopping logic, and
-outcomes reject or omit LOC/file-count/churn fields. Candidate correctness is
-entirely behavioral.
+non-delivery, not a filesystem-secrecy or provider-training-data claim. The
+residual possibility that a provider memorized public campaign history is
+disclosed and cannot be converted into a stronger isolation claim. Candidate
+products are never measured: candidate schemas, reviewer packets, synthesis,
+stopping logic, and outcomes reject or omit LOC/file-count/churn fields.
+Candidate correctness is entirely behavioral.
 
-The replacement pre-edit closure adds these nine existing selectors to the
-current ten, in this exact order before the candidate-owned selector:
-
-1. `tests/torch/test_fno_generators.py`
-2. `tests/torch/test_fno_lightning_integration.py`
-3. `tests/torch/test_neuralop_uno_generator.py`
-4. `tests/torch/test_model_output_modes.py`
-5. `tests/torch/test_model_manager.py`
-6. `tests/torch/test_model_training.py`
-7. `tests/torch/test_train_lightning_execution_contract.py`
-8. `tests/torch/test_object_big_generator_contract.py`
-9. `tests/torch/test_structural_config_ownership.py`
-
-`tests/torch/test_es_f1_extension_boundary.py` remains the separate
-candidate-owned selector. Regenerate the task profile's exact
-provider-visible nineteen-selector digest and separately bind the complete
-two-lane selector-manifest digest; no old digest is retained by assertion and
-the two digest domains may not be substituted for each other.
+Task 1 confirms its freshly derived 19-module provider-visible pre-edit set
+only after the projection census, 769-test collection, and baseline execution.
+The manifest then freezes that ordered set plus one candidate-owned F1v2
+selector. Task 4 binds the new digest; it must not carry the rejected F1 digest
+by assertion. The provider-visible and complete two-lane manifest digests
+remain separate domains and may not be substituted for each other.
 
 The replacement resource plan uses these conservative bounds:
 
 | Resource | Frozen value | Meaning |
 | --- | ---: | --- |
 | One visible-check invocation | 7,200 s | Per required visible invocation |
-| Hidden evaluator per candidate | 14,400 s | Full 15-row lifecycle and artifact evaluation |
+| Hidden evaluator per candidate | 14,400 s | Full F1v2 clause, consumer, provenance, and bypass evaluation |
 | E2 evaluation check | 14,400,000 ms | Public trial check deadline |
 | One arm | 172,800,000 ms | 48-hour arm deadline |
 | One four-arm trial | 216,000,000 ms | 60-hour concurrent trial deadline |
@@ -1061,115 +1071,53 @@ operation. Scaling time and byte envelopes must not add a call slot.
 
 ## 4. File ownership map
 
-### Create
+### Create during F1v2 Tasks 1–3A
 
-- `experiments/orc_effectiveness/f1_es/preregistration-lineage.schema.json`
-- `experiments/orc_effectiveness/f1_es/preregistration-lineage.json`
-- `experiments/orc_effectiveness/f1_es/resource-plan.schema.json`
-- `experiments/orc_effectiveness/f1_es/resource-plan.json`
-- `experiments/orc_effectiveness/f1_es/reference-product.schema.json`
-- `experiments/orc_effectiveness/f1_es/reference-product.json`
-- `experiments/orc_effectiveness/f1_es/environment-lock.json`
-- `experiments/orc_effectiveness/f1_es/prompt-manifest.schema.json`
-- `experiments/orc_effectiveness/f1_es/prompt-manifest.json`
-- `experiments/orc_effectiveness/f1_es/randomization-manifest.json`
-- `experiments/orc_effectiveness/f1_es/decision-lock.json`
-- `experiments/orc_effectiveness/f1_es/controller-package.json`
-- `experiments/orc_effectiveness/f1_es/prelaunch-owner-adoption.template.json`
-- `experiments/orc_effectiveness/f1_es/prelaunch-owner-adoption.json` only
-  after the exact prelaunch reviews
-- `experiments/orc_effectiveness/f1_es/launch-manifest.json` only after owner
-  adoption
-- `docs/plans/evidence/es-f1-large-scope-refreeze/source-census.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/source-census.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-discovery-input.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-discovery-input.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-policy-manifest.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-policy-manifest.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-selector-manifest.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/preedit-selector-manifest.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture/`,
-  closed by the canonical capture manifest
-- `docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture-manifest.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-capture-manifest.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-post-purge-tombstone.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/feasibility-post-purge-tombstone.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.schema.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.json`
-- `docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.schema.json`
-- `scripts/experiments/es/boundary_proofs.py`
-- `scripts/experiments/es/feasibility_proofs.py`
-- `scripts/experiments/es/prelaunch.py`
-- `scripts/experiments/es/reference_calibration.py`
-- `scripts/experiments/es/source_census.py`
-- `tests/experiments/test_es_boundary_proofs.py`
-- `tests/experiments/test_es_feasibility_lifecycle.py`
-- `tests/experiments/test_es_feasibility_proofs.py`
-- `tests/experiments/test_es_prelaunch.py`
-- `tests/experiments/test_es_reference_calibration.py`
-- `tests/experiments/test_es_source_census.py`
-- `tests/experiments/fixtures/es_f1/full_matrix_reference_adapter.py`
-- `artifacts/review/es-f1-large-scope-amendment-plan-specification-review.md`
-- `artifacts/review/es-f1-large-scope-amendment-plan-quality-review.md`
-- `artifacts/review/es-first-effectiveness-study-prelaunch-review.md`
+- `docs/plans/evidence/es-f1-large-scope-refreeze/f1v2/configuration-consumer-census.json`
+  and its task-local schema;
+- `docs/plans/evidence/es-f1-large-scope-refreeze/f1v2/preedit-selector-manifest.json`
+  and its task-local schema;
+- the minimum F1v2 task evidence/probe schemas referenced by the visible
+  contract;
+- one F1v2 calibration-case manifest and path-only reference adapter;
+- `experiments/orc_effectiveness/f1_es/reference-product.json` only after the
+  adapted product passes every clause and the scale gate; and
+- the external content-addressed adapted-reference repository and its
+  adaptation ledger.
 
-### Modify
+### Modify during F1v2 Tasks 1–3A
 
-- `experiments/orc_effectiveness/f1_es/task/neutral-task-brief.md`
-- `experiments/orc_effectiveness/f1_es/task/visible-task-contract.json`
-- `experiments/orc_effectiveness/f1_es/task/visible-task-contract.schema.json`
-- `experiments/orc_effectiveness/f1_es/task/visible-check-manifest.json`
-- `experiments/orc_effectiveness/f1_es/task/visible-check-manifest.schema.json`
-- `experiments/orc_effectiveness/f1_es/task/candidate-extension-evidence.schema.json`
-- `experiments/orc_effectiveness/f1_es/task/lifecycle-probe-request.schema.json`
-- `experiments/orc_effectiveness/f1_es/task/lifecycle-probe-result.schema.json`
-- `experiments/orc_effectiveness/f1_es/task-profile.json`
-- `experiments/orc_effectiveness/f1_es/task-profile.schema.json`
-- `experiments/orc_effectiveness/f1_es/task-seed-manifest.json`
-- `experiments/orc_effectiveness/f1_es/task-seed-manifest.schema.json`
-- `experiments/orc_effectiveness/f1_es/evaluator/fixture-manifest.json`
-- `experiments/orc_effectiveness/f1_es/evaluator/hard-finding.schema.json`
-- `experiments/orc_effectiveness/f1_es/decision-lock.schema.json`
-- `experiments/orc_effectiveness/f1_es/randomization-manifest.schema.json`
-- `experiments/orc_effectiveness/f1_es/attempt-record.schema.json`
-- `experiments/orc_effectiveness/f1_es/report.schema.json`
-- `tests/experiments/fixtures/es_f1/calibration-cases.json`
-- `scripts/experiments/es/task_package.py`
-- `scripts/experiments/es/f1_evaluator.py`
-- `scripts/experiments/es/hard_contract.py`
-- `scripts/experiments/es/decision_lock.py`
-- `scripts/experiments/es/attempts.py`
-- `scripts/experiments/es/blinding.py`
-- `scripts/experiments/es/controller.py`
-- `scripts/experiments/es/controller_artifacts.py`
-- `scripts/experiments/es/synthesis.py`
-- `scripts/experiments/es/cli.py`
-- `tests/experiments/test_es_f1_task_package.py`
-- `tests/experiments/test_es_f1_evaluator.py`
-- `tests/experiments/test_es_hard_contract.py`
-- `tests/experiments/test_es_decision_lock.py`
-- `tests/experiments/test_es_attempts.py`
-- `tests/experiments/test_es_blinding.py`
-- `tests/experiments/test_es_controller.py`
-- `tests/experiments/test_es_controller_artifacts.py`
-- `tests/experiments/test_es_reviews.py`
-- `tests/experiments/test_es_synthesis.py`
-- `tests/experiments/test_es_cli.py`
-- `tests/experiments/test_es_controller_e2_integration.py`
-- `workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc`
-- `tests/experiments/test_es_qa_placement_contract.py`
-- `tests/experiments/test_es_qa_placement_workflows.py`
-- `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
-- `docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`
-- `docs/index.md`
-- `tests/test_workflow_lisp_drain_roadmap_routing.py`
+- `experiments/orc_effectiveness/f1_es/task/` visible brief, contracts,
+  schemas, and check manifest;
+- `experiments/orc_effectiveness/f1_es/task-profile.json` and schema;
+- `experiments/orc_effectiveness/f1_es/task-seed-manifest.json` and schema;
+- `experiments/orc_effectiveness/f1_es/evaluator/fixture-manifest.json` and
+  hard-finding schema;
+- `experiments/orc_effectiveness/f1_es/reference-product.schema.json`;
+- `scripts/experiments/es/task_package.py`, `f1_evaluator.py`, and
+  `reference_calibration.py`;
+- their narrow experiment tests and F1v2 calibration fixtures.
+
+### Create or rebind only in consolidated Task 4
+
+- preregistration lineage, resource plan, environment lock, prompt manifest,
+  randomization manifest, `decision_lock.v3`, controller package, adoption
+  template/record, and launch manifest under
+  `experiments/orc_effectiveness/f1_es/`;
+- the existing controller/package binding surfaces and
+  `qa_placement_trial.orc` existing timeout/byte fields; and
+- `artifacts/review/es-first-effectiveness-study-prelaunch-review.md` as the
+  single review artifact.
 
 ### Preserve byte-for-byte unless a test proves an amendment-owned binding gap
 
 - `experiments/orc_effectiveness/f1_es/projection-manifest.json`
 - `experiments/orc_effectiveness/f1_es/projection-verification.json`
+- `docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.json`
+- all other closed Task-0 evidence and review artifacts;
 - `scripts/experiments/es/projection.py`
+- `scripts/experiments/es/boundary_proofs.py`
+- `scripts/experiments/es/feasibility_proofs.py`
 - `scripts/experiments/es/metering.py`
 - `experiments/orc_effectiveness/f1_es/usage-receipt.schema.json`
 - `scripts/experiments/es/provider_boundary.py`
@@ -1187,7 +1135,13 @@ operation. Scaling time and byte envelopes must not add a call slot.
 
 ## 5. Execution sequence
 
-### Task 0: Accept this pre-run amendment plan
+### Task 0: Historical rejected-F1 authority — closed, do not rerun
+
+This task and every checkbox below are preserved only as provenance for the
+closed Task-0 adoption and rejected extension-boundary F1 package. They are
+already satisfied under the recorded pre-amendment plan digest. They are not
+F1v2 work, do not select F1v2 consumers or tests, and must not be rerun,
+edited into new evidence, or reviewed again.
 
 **Files:** this plan; create the non-authoritative discovery input, final
 policy, census, selector-manifest, A1, and Task-0 review-adoption schemas and
@@ -1206,7 +1160,7 @@ implementation/test/object bytes and non-authoritative diagnostics remain
 under `.tmp/` and uncommitted. Do not touch the task package or launch surface
 during this task.
 
-- [ ] **Step 1: RED discovery, authority, metric, proof, and review contracts**
+- [x] **Step 1: RED discovery, authority, metric, proof, and review contracts**
 
 Create every Task-0 closed schema and all five test modules before producing
 a canonical authority record. Require the exact bare-repository locator,
@@ -1296,7 +1250,7 @@ pytest -q \
 Expected: collection succeeds and production/validation tests fail before the
 scripts, schemas, and canonical outputs exist.
 
-- [ ] **Step 2: Implement the shared delta metric and A1 calibration**
+- [x] **Step 2: Implement the shared delta metric and A1 calibration**
 
 Create `scripts/experiments/es/reference_calibration.py` in Task 0 with the
 shared Git metric, canonical per-path classifications, and `validate-a1`
@@ -1307,7 +1261,7 @@ member bytes and internal selection/review bindings, and prove the fresh
 667/2/690 result. Keep test/documentation totals separate and never expose the
 F1 band as a candidate predicate.
 
-- [ ] **Step 3: Discover consumers before authoring the final policy**
+- [x] **Step 3: Discover consumers before authoring the final policy**
 
 Implement `source_census discover` and publish the closed non-authoritative
 discovery input. Run this exact shape twice from clean processes, using literal
@@ -1367,7 +1321,7 @@ the owner-directed correction governs those lines. Close the nested correction
 with at most the one proportionate implementation-review pass defined by its
 plan, then return directly to Task 0 evidence.
 
-- [ ] **Step 4: Build the census and capture the exact nineteen-selector baseline**
+- [x] **Step 4: Build the census and capture the exact nineteen-selector baseline**
 
 Implement `scripts/experiments/es/boundary_proofs.py` as the sole runner for
 baseline characterization and later desired-state proof replay. Its tests own
@@ -1451,7 +1405,7 @@ desired-state failures. Feed the canonical bootstrap output directly to
 `source_census build-selector --baseline-characterization`; only that final
 builder emits `es_f1_preedit_selector_manifest.v1`.
 
-- [ ] **Step 5: Run the early feasibility spike and finalize Task-0 records**
+- [x] **Step 5: Run the early feasibility spike and finalize Task-0 records**
 
 Use `feasibility_proofs.py` to perform one authenticated Section-3 capture from
 a disposable exact extract. Bind the frozen base and the exact closed overlay
@@ -1501,7 +1455,7 @@ already-implemented shared metric. Do not derive the 5,000–10,000 gate by
 summing estimates; Task 3A alone supplies the measured complete reference
 value. Treat any contrary consumption fact or census mismatch as a stop.
 
-- [ ] **Step 6: Prove deterministic completeness and rerun GREEN**
+- [x] **Step 6: Prove deterministic completeness and rerun GREEN**
 
 Reload the discovery input and all four authority records through their closed
 schemas from a clean process. Require every Git leaf to have exactly one
@@ -1528,7 +1482,7 @@ bindings, tree algebra, ledgers, and AST-plus-trace facts, but it cannot claim
 ordered-review adoption, captured-byte deletion, or post-purge tombstone
 completion and grants no downstream disposition authority.
 
-- [ ] **Step 7: Run the plan's focused consistency sweep**
+- [x] **Step 7: Run the plan's focused consistency sweep**
 
 Run:
 
@@ -1549,24 +1503,20 @@ attempt identifier; explicitly labeled historical records and generic
 transport fixtures may retain neutral provenance bytes. No hidden authority
 surface is silently omitted.
 
-- [ ] **Step 8: Draft the immediate normative reconciliation**
+- [x] **Step 8: Draft the rejected-F1 normative reconciliation**
 
 Amend
 `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`
-before any package implementation. Replace its live prospective scope of one
-representative plus one witness with the exact 14-plus-one matrix in this
-plan, retain Tasks 0–4 as historical-complete provenance for the superseded
-prelaunch bytes together with completed provider-free Task 5, and record that
-refreeze Tasks 1–4 own and subsume the component plan's old Task 6 work. After
-Task 4, existing ES Task 7 follows directly. Its status must continue to say no
-live allocation is authorized. Update the E roadmap/index pointer and routing
-test only enough to make that ownership and gate discoverable; do not mark the
-refreeze implemented, adopted, or live-eligible.
+before any package implementation. This step historically installed the
+14-plus-one rejected-F1 scope and is closed provenance. The later F1v2 owner
+decision supersedes its prospective task content; Task 4 now performs the
+smallest routing correction to F1v2. Do not rerun this step or alter its review
+record.
 
-- [ ] **Step 9: Obtain ordered plan reviews and publish machine adoption**
+- [x] **Step 9: Preserve the closed ordered Task-0 reviews and machine adoption**
 
-While every closed, enumerated disposable source, test, and object root remains
-present, one independent specification reviewer must inspect those exact
+Historical procedure: while every closed, enumerated disposable source, test,
+and object root remained present, one independent specification reviewer inspected those exact
 disposable source, test, and object bytes plus the canonical capture before
 returning `ES_F1_SCOPE_AMENDMENT_PLAN_SPEC_APPROVED`. Only then, with the same
 disposable bytes still present, may a distinct quality reviewer independently
@@ -1618,7 +1568,7 @@ view—adopts the neutral disposition set. Validate the record through its close
 schema and canonical digest. No pre-review field may claim adoption, and a
 material edit restarts the applicable ordered pair.
 
-- [ ] **Step 10: Run routing controls and commit the accepted authority set**
+- [x] **Step 10: Run routing controls and commit the accepted authority set**
 
 Run:
 
@@ -1650,142 +1600,104 @@ baseline, canonical feasibility
 capture ledgers/manifest, feasibility facts, and the post-purge tombstone,
 component-plan/roadmap/index reconciliation, and routing assertion together.
 Never commit the disposable feasibility implementation, test, or object bytes.
-This commit authorizes
-provider-free implementation and makes the full matrix the sole prospective
-F1 scope; it preserves the existing live-allocation prohibition and does not
-authorize an arm.
+That historical commit authorized the rejected F1 package only. The 2026-08-12
+owner decision now authorizes provider-free F1v2 Tasks 1–4 and makes Section 2
+the sole prospective task scope; live allocation remains prohibited.
 
-### Task 1: Version the visible task and candidate contracts
+### Task 1: Freeze the F1v2 visible task, census, and baseline
 
-**Files:** all files under `experiments/orc_effectiveness/f1_es/task/`, the
-task profile and schemas, `scripts/experiments/es/task_package.py`, and
-`tests/experiments/test_es_f1_task_package.py`.
+**Files:** the task assets and schemas, task profile, `task_package.py`, its
+tests, and the F1v2 configuration-consumer census and selector manifest under
+`docs/plans/evidence/es-f1-large-scope-refreeze/f1v2/`.
 
-- [ ] **Step 1: Write failing schema and loader tests**
+- [ ] **Step 1: RED the F1v2 package contract**
 
-Require:
+Write tests that reject the current architecture/witness package and require:
 
-- exact built-in order and exact 14-row coverage;
-- exactly one candidate-declared non-built-in witness;
-- 15 unique architecture cases and 15 result rows;
-- 30 unique safe artifact paths, one checkpoint and one bundle per row;
-- per-case `N`, config/input bindings, construction/rebuild routes, and
-  structural-field declarations;
-- `N=128` only for `neuralop_uno` and `N=64` for the other built-ins;
-- rejection of missing, extra, duplicate, reordered, aliased, or unknown rows;
-- rejection of a witness public ID that collides with any frozen public or
-  legacy alias;
-- evaluator-owned proof that the witness registry constructor and all four
-  construction/reload implementation identities are equal to each other and
-  distinct from all fourteen built-in identities;
-- the exact nineteen-row `provider_visible_pytest_selectors` order plus the
-  separate candidate selector, with no `controller_only_proof_selectors` row
-  in either provider-visible invocation;
-- one boundary-owned lifecycle spanning configuration, construction,
-  training/optimizer use, checkpoint and bundle persistence, fresh reload,
-  inference, structural identity, and round-trip reconstruction for every
-  architecture, with no surviving direct legacy bypass;
-- visible timeout `7200`; and
-- absence of LOC/file-count/churn acceptance fields.
+- the exact six Section-2 visible outcomes and ten F1v2 hard-clause IDs;
+- the exact three bypass classes, with transitive facade/wrapper reachability;
+- one solution-neutral candidate evidence record, one fixed candidate-owned
+  test path, and one path-only configuration probe surface;
+- no architecture matrix, candidate witness, historical campaign commit,
+  reference module name, measured line count, or LOC/file/churn acceptance
+  field on any provider-visible surface;
+- a fresh ordered provider-visible selector set and separate candidate-owned
+  selector, with controller-only probes excluded; and
+- the existing visible timeout and runtime isolation contract unchanged.
 
-- [ ] **Step 2: Run RED and collection**
-
-Run:
+Run collection and RED:
 
 ```bash
 pytest --collect-only -q tests/experiments/test_es_f1_task_package.py
 pytest -q tests/experiments/test_es_f1_task_package.py
 ```
 
-Expected: collection succeeds; new matrix assertions fail against v1's
-representative/witness pair and ten-selector contract.
+- [ ] **Step 2: Derive the configuration-consumer census**
 
-- [ ] **Step 3: Implement the closed versioned shapes**
+Reuse the existing census/record helpers; do not create a new CLI or generic
+collector. Scan the exact projection twice and require byte-identical rows.
+Each production configuration read or construction site records its source
+blob/span, consumer domain, public entry route, transitive wrapper chain, and
+one of the exact three bypass classes when applicable. Group dispositions by
+consumer class, keep every discovered row, and fail on an unassigned or
+digest-drifting site. The census is controller authority and is not delivered
+to candidates.
 
-Use arrays rather than architecture-ID object keys so order, uniqueness, and
-coverage are explicit. Rename the semantically stale hard-clause IDs to:
+- [ ] **Step 3: Choose and freeze the fresh visible baseline**
 
-- `F1-H05-FULL-ARCHITECTURE-LIFECYCLE`; and
-- `F1-H06-STRUCTURAL-ROUNDTRIP`.
+From the census, choose the narrowest existing test modules that collectively
+exercise core configuration, torch configuration, CLI, workflow components,
+and study-script entry paths. The completed reconnaissance selects exactly 19
+modules, collected as 769 tests from the projection overlay, with ordered
+module-list digest
+`sha256:addd4297ebc3bb381efc2d7be2f6efef7a3190142d1578a4fe4af1aff51bca2d`.
+Reproduce those facts and the green baseline before freezing them. Their count
+is coincidentally the same as rejected F1's selector count but their members,
+digest, and configuration-consumer rationale are newly derived; never reuse
+the old digest as authority. Keep one separate candidate-owned F1v2 selector.
 
-Keep H01–H04 and H07–H10. Update every enum and exact clause list together.
-The neutral brief names the behavioral matrix but does not disclose the LOC
-range or instruct candidates to maximize code.
+- [ ] **Step 4: Author the neutral task and versioned records**
 
-Make the predecessor-to-successor transformation structural rather than
-prose-only: replace `representative_architecture` / `witness_architecture` and
-role-keyed lifecycle records with an exact ordered `builtin_architectures`
-array containing the fourteen Section-2 IDs, one separate
-`candidate_witness`, and exactly fifteen ordered lifecycle-result rows. Replace
-the four representative/witness artifact paths with exactly thirty unique safe
-paths, one checkpoint and one bundle for each row. The visible contract's
-`PROJECTED_FOCUSED_CLOSURE_ONLY` claim must name the complete frozen projected
-F1 closure. Narrow `NO_F2_CONSUMER_CLAIM` to say only that this study makes no
-quantitative downstream edit-locality, schema-evolution, or cross-task
-generalization claim; it must not deny the projection-wide consumers governed
-by the adopted proposal rows.
+Rewrite the brief and contracts around outcomes rather than reference
+decomposition. Advance the task profile, visible task contract, visible-check
+manifest, candidate evidence/probe records, and task-seed manifest from their
+current F1 versions to one coherent F1v2 successor version. Loaders reject all
+predecessor, unknown, and mixed packages before executing a check. Preserve
+the claim limits, including no general superiority, promotion, provider
+isolation, billing, or E3 claim.
 
-Use this exact successor-version table; no loader may silently reinterpret a
-predecessor version:
+- [ ] **Step 5: GREEN, tamper, and commit**
 
-| Closed record | Predecessor | Successor |
-| --- | --- | --- |
-| task profile | `es_f1_task_profile.v1` | `es_f1_task_profile.v2` |
-| visible task contract | `es_f1_visible_task_contract.v1` | `es_f1_visible_task_contract.v2` |
-| visible-check manifest | `es_f1_visible_checks.v1` | `es_f1_visible_checks.v2` |
-| candidate extension evidence | `candidate_extension_evidence.v1` | `candidate_extension_evidence.v2` |
-| lifecycle probe request/result | `lifecycle_probe_request.v2` / `lifecycle_probe_result.v2` | `lifecycle_probe_request.v3` / `lifecycle_probe_result.v3` |
-| public lifecycle operation | `ptychopinn_public_lifecycle.v1` | `ptychopinn_public_lifecycle.v2` |
-| task-seed manifest | `es_f1_task_seed.v1` | `es_f1_task_seed.v2` |
+Run the Task-1 tests and both-direction tamper cases: missing outcome, added
+bypass class, wrapper chain truncated before the authority, stale selector
+digest, controller-only selector leakage, and predecessor-version mixture all
+fail structurally. Commit only Task-1 assets, census/baseline evidence, loader,
+and tests. Do not generate the successor seed.
 
-The Task-1 tests must reject every predecessor, unknown successor, and mixed
-old/new task package before executing a visible check. The task-seed successor
-is emitted in Task 3, after the Task-1 assets it binds are final.
+### Task 2: Rebind the hidden evaluator to F1v2
 
-- [ ] **Step 4: Run GREEN and tamper cases**
+**Files:** `f1_evaluator.py`, `hard_contract.py`, the evaluator manifest and
+calibration cases, the hard-finding schema, the minimum path-only adapter, and
+their tests.
 
-Run the Task-1 module again and verify each one-field and one-row tamper fails
-with a stable structural diagnostic rather than a downstream evaluator error.
+- [ ] **Step 1: RED the ten-clause matrix**
 
-- [ ] **Step 5: Commit the task-contract tranche**
+Require the evaluator—not candidate evidence or the adapter—to derive all ten
+Section-2 observations in order. It must execute the frozen visible baseline,
+validate source precedence, compare transactional pre/post state, exercise
+strict and round-trip cases in fresh processes, traverse every census consumer
+through wrappers, and run the AST-plus-runtime bypass oracle for exactly three
+classes.
 
-Commit only the task assets, task profile/loader, and their tests. Do not
-generate the successor seed yet.
+Add both-direction cases for every empirical fix-tail defect: unknown/ill-typed
+input, sampling/bridge-field loss, study-script direct construction,
+cross-surface initialization divergence, noncanonical mode coercion, and each
+of the three bypass classes. Also require a partial-mutation failure, duplicated
+public-field table, lost provenance, facade-only resolver, and
+one-wrapper-deep surviving old path. Each case fails its owning clause; a
+candidate-authored observation or pass/fail claim fails schema validation.
 
-### Task 2: Expand the hidden evaluator to the full matrix
-
-**Files:** `scripts/experiments/es/f1_evaluator.py`,
-`scripts/experiments/es/hard_contract.py`, evaluator assets, calibration
-fixtures, hard-finding schema, and their tests.
-
-- [ ] **Step 1: Write failing full-matrix lifecycle tests**
-
-Assert that the evaluator, not the adapter, derives every stage for all
-fifteen rows; reloads checkpoint and bundle in fresh child processes; checks
-pre/post implementation identity and inference; proves one optimizer state
-transition; executes the complete Section-2 architecture/lifecycle/artifact
-applicability matrix; and returns ten complete hard-clause observations in
-exact order. Newly emitted current checkpoint and bundle routes are positive
-for all fifteen rows. Every historical fixture carries the exact complete
-positive/rejection partition, with metadata-free `legacy_v1` positive only for
-`cnn`.
-
-- [ ] **Step 2: Add both-direction failure coverage**
-
-At minimum cover one missing built-in, one duplicate, the wrong
-`neuralop_uno` size, one non-neuralop row at 128, one missing artifact, one
-same-process reload, one construction/rebuild disagreement, one structural
-round-trip loss, one identity-insensitive field, one forbidden ownership
-crossing, one witness ID mapped directly to `FfnoGenerator`, one reintroduced
-frozen bypass, one novel direct bypass, one `legacy_v1` non-`cnn` false
-positive, one missing historical-artifact rejection, one incomplete or
-overlapping applicability partition, and one candidate-authored
-observation/authority field. The witness alias must fail H09; every other case
-must fail the exact owning clause or fail schema validation before evaluation.
-
-- [ ] **Step 3: Run RED**
-
-Run:
+Run RED:
 
 ```bash
 pytest --collect-only -q \
@@ -1796,58 +1708,42 @@ pytest -q \
   tests/experiments/test_es_hard_contract.py
 ```
 
-Expected: new matrix cases fail because the evaluator still iterates only
-`representative` and `witness`.
+- [ ] **Step 2: Implement the minimum generic consumer evaluator**
 
-- [ ] **Step 4: Implement one generic per-architecture loop**
+Reuse the audited subprocess, protected-root, forbidden-import, path-safety,
+and fresh-process mechanisms. Replace the architecture loop with one loop over
+the digest-bound Task-1 consumer rows and one exact hard-clause table. The
+transitive walk continues until the resolved authority or a classified bypass;
+stopping at a facade is a failure. Keep clause logic in the evaluator and path
+materialization in the adapter.
 
-Replace role-specific branches with one exact architecture-case loop. Retain
-the existing audited subprocess, protected-root, forbidden-import, and
-fresh-process mechanisms. Do not add fourteen copied special cases; the sole
-size exception is the evaluator-owned table entry for `neuralop_uno`.
+Advance only the task-specific fixture, calibration, hard-finding/evaluation,
+visible-result, and probe record versions needed to reject the old F1 package;
+do not version unchanged base environment, reviewer, metering, controller, or
+trial records. Mixed F1/F1v2 evaluator packages fail before candidate code.
 
-Apply the exact evaluator successor versions below and reject predecessor,
-unknown, and mixed-version evaluator packages before running candidate code:
+- [ ] **Step 3: Freeze the calibration cases**
 
-| Closed record | Predecessor | Successor |
-| --- | --- | --- |
-| fixture manifest | `es-f1-fixture-manifest.v1` | `es-f1-fixture-manifest.v2` |
-| calibration cases | `es-f1-calibration-cases.v2` | `es-f1-calibration-cases.v3` |
-| hard finding/evaluation | `es-f1-hard-finding.v1` / `es-f1-hard-evaluation.v1` | `es-f1-hard-finding.v2` / `es-f1-hard-evaluation.v2` |
-| visible-check result | `es-f1-visible-check-result.v1` | `es-f1-visible-check-result.v2` |
-| pre-edit lifecycle probe | `es-f1-preedit-lifecycle-probe.v1` | `es-f1-preedit-lifecycle-probe.v2` |
-| semantic lifecycle/failure | `es-f1-semantic-lifecycle.v1` / `es-f1-semantic-lifecycle-failure.v1` | `es-f1-semantic-lifecycle.v2` / `es-f1-semantic-lifecycle-failure.v2` |
-| artifact fixture input/build/verification | `es-f1-artifact-fixture-input.v1` / `es-f1-artifact-fixture-build.v1` / `es-f1-artifact-fixture-verification.v1` | `es-f1-artifact-fixture-input.v2` / `es-f1-artifact-fixture-build.v2` / `es-f1-artifact-fixture-verification.v2` |
+Bind positive inputs for file mapping, CLI patch, precedence, both backends,
+CLI, workflows, study scripts, fresh-process provenance, and strict round trip.
+Bind one negative per defect above and explicit facade-only and wrapper-deep
+negatives. The exact three bypass-class enum is closed. Controller fixtures,
+historical commit IDs, and the real campaign decomposition remain outside the
+task seed and provider workspaces.
 
-Unchanged base-config, CDI-fixture, and reviewer-perspective records retain
-their existing versions. Any implementation that materially changes one of
-those shapes must first add it to this successor table and restart review.
+- [ ] **Step 4: Prove the adapter is path-only**
 
-- [ ] **Step 5: Rebuild the controller-only fixture manifest**
+Under `ptycho311`, run the F1v2 adapter against an exact extract. It may create
+probe inputs and return safe paths; it may not author observations, provenance,
+consumer closure, bypass classification, pass/fail state, or metric rows.
 
-Version the fixture manifest and calibration cases. Bind the exact 14-row
-registry baseline, evaluator-owned N=64/N=128 config and CDI input payloads,
-artifact-era fixtures, each fixture's exact complete fifteen-ID
-`applicable_architecture_ids`/`rejected_architecture_ids` partition, and the
-full calibration case table. Bind metadata-free `legacy_v1` to `cnn` alone and
-require the stable unsupported diagnostic for every other ID. Keep controller
-fixtures out of the task seed and every candidate workspace.
+- [ ] **Step 5: GREEN and commit**
 
-- [ ] **Step 6: Run the path-adapter mechanism control**
+Run the two focused modules plus the Task-1 package tests and the narrow config
+selectors needed by the evaluator. Commit only evaluator assets, code, and
+tests; no reference bytes or provider allocation.
 
-Under `ptycho311`, use `full_matrix_reference_adapter.py` against a fresh exact
-extract to prove only its path/materialization duties and all thirty artifact
-paths. It is not a conforming reference product and may not supply evaluator
-observations, alias `es_f1_witness` to a built-in, or satisfy the Task-3A scale
-gate. The fixture is controller-only and may not be copied into a
-provider-visible seed.
-
-- [ ] **Step 7: Run GREEN and commit**
-
-Run the two focused modules plus the existing artifact-era, registry, and
-calibration selectors, then commit only evaluator assets/code/tests.
-
-### Task 3: Materialize a fresh task-seed lineage
+### Task 3: Materialize the F1v2 task-seed lineage
 
 **Files:** task-seed manifest/schema, `scripts/experiments/es/task_package.py`,
 and task-package tests.
@@ -1857,8 +1753,10 @@ and task-package tests.
 Require a new deterministic child commit whose sole parent is the unchanged
 history-free projection commit `8f191031...`, whose tree contains the revised
 visible assets, and whose repository contains exactly the projection and new
-child reachable histories. Reject a child of the old `93e0eb08...` task seed,
-an old visible asset, an extra object, or an ambient live-tree read.
+child reachable histories. Reject a child of the rejected
+`4b5abddacacbf71eb508be94220dfd350ed5a5fb` task seed, an old visible asset,
+an extra object, an ambient live-tree read, or any object reachable only from
+the historical campaign range.
 
 - [ ] **Step 2: Run RED**
 
@@ -1868,157 +1766,109 @@ Run:
 pytest -q tests/experiments/test_es_f1_task_package.py -k 'seed or materializ'
 ```
 
-Expected: fail because the checked-in manifest still binds the v1 seed.
+Expected: fail because the checked-in manifest still binds the rejected F1
+seed and visible assets.
 
 - [ ] **Step 3: Generate the new seed deterministically**
 
 Use the existing Git object-plumbing path and external content-addressed seed
 store. Do not mutate or delete the predecessor seed. The new manifest binds
-the exact revised visible assets and their sorted overlay destinations.
+the exact revised visible assets and their sorted overlay destinations. Do not
+merge, replay, apply, or cherry-pick any campaign commit: the task seed remains
+exactly projection plus one visible-asset child.
 
 - [ ] **Step 4: Verify twice from empty destinations**
 
 Two independent materializations must produce identical commit, tree, object
 inventory, snapshot digest, and post-setup tree digest. The live PtychoPINN
-checkout remains unread at execution time after the projection identity is
-bound.
+checkout and campaign repository remain unread at execution time after the
+projection identity is bound.
 
 - [ ] **Step 5: Commit the seed tranche**
 
 Commit the new manifest/schema/loader tests only after both materializations
 pass.
 
-### Task 3A: Build and measure the controller-only reference product
+### Task 3A: Adapt and measure the controller-only F1v2 reference
 
-**Files:** extend the Task-0
-`scripts/experiments/es/reference_calibration.py`,
-`tests/experiments/test_es_reference_calibration.py`; create
-`experiments/orc_effectiveness/f1_es/reference-product.schema.json` and the
-canonical `reference-product.json`; create the external content-addressed
-reference repository; consume the Task-2 evaluator without placing reference
-bytes in the task seed. The Task-0 `boundary_proofs.py` and its tests are
-immutable inputs to this task, not files owned or modified by it.
+**Files:** `reference_calibration.py` and tests,
+`reference-product.schema.json`, the canonical `reference-product.json`, the
+Task-2 evaluator, and one external content-addressed reference repository. The
+closed Task-0 records and `boundary_proofs.py` remain immutable metric/apparatus
+provenance, not F1v2 desired-state proofs.
 
-- [ ] **Step 1: RED the reference-result and desired-state proof contracts**
+- [ ] **Step 1: RED the adaptation and reference contracts**
 
-Keep every Task-0 metric/A1 test green. Add failing tests for the closed
-reference manifest, complete per-path responsibility/cluster assignments,
-exact desired-state proof-result rows joined to every Task-0 proof spec,
-four-or-more changed implementation clusters and the three-or-more frozen
-cross-cluster edges established by the feasibility spike, the complete
-architecture/lifecycle/artifact applicability partitions, and the strict
-inclusive band. Reject an unassigned production path, duplicate responsibility
-or cluster assignment, padding-only change, missing/extra/duplicate proof
-result, baseline result substituted for post-edit conformance, wrong reference
-tree, one unsupported historical-artifact positive, an absent required
-rejection, and a total outside the inclusive band. Invoke the already-complete
-Task-0 runner through its data-driven desired-state interface in these tests;
-changing runner bytes or accepting a digest other than the selector manifest's
-pinned `runner_sha256` is itself a failure.
-
-Run:
+Keep every existing metric, A1-anchor, and rejection-disposition test green.
+Add failing tests requiring exact campaign parent/range identities, a complete
+adaptation ledger, the Task-1 census and selector bindings, all ten Task-2
+clause results, exact three-class bypass results, explicit separation of
+historical churn from the authoritative adapted endpoint metric, and the
+strict inclusive band. Reject replay/cherry-pick ancestry, an unassigned
+production path, missing consumer, facade-only closure, stale selector/census
+digest, historical `8,698` copied into the metric result, padding-only change,
+or an out-of-band total.
 
 ```bash
 pytest --collect-only -q tests/experiments/test_es_reference_calibration.py
 pytest -q tests/experiments/test_es_reference_calibration.py
 ```
 
-Expected: collection succeeds, the existing shared metric/A1 tests remain
-green, and the new reference/proof-result tests fail before the reference
-manifest exists.
+- [ ] **Step 2: Reuse the metric and bind the historical source truthfully**
 
-- [ ] **Step 2: Extend the shared loader without forking the metric**
+Reuse the exact `implementation_delta_physical_lines.v1` implementation,
+pinned Git executable, A1 anchor, and Git options; do not fork the metric.
+Record `+8,698/-11,197` only as inclusive per-commit historical churn and the
+parent-to-endpoint reconnaissance only as a diagnostic. Canonical metric rows
+compare the exact F1v2 task-seed tree with the adapted reference tree and join
+production paths to the Task-1 configuration responsibility domain. New
+production paths require explicit responsibilities; tests/docs remain separate.
 
-Reuse the exact Task-0 `implementation_delta_physical_lines.v1`
-implementation; a second metric implementation or changed Git contract is a
-review restart. Invoke only the pinned Git executable and exact Section-3
-options. Build
-canonical per-path rows from explicit baseline/reference trees and the frozen
-responsibility ID domain. Existing paths join to the frozen census; every new
-production path must carry an explicit allowed responsibility assignment in
-the reference manifest. Never scan an ambient checkout or infer a
-classification from a filename after measurement. The schema must bind every
-input/tool/output digest and separate production, test, documentation, and
-excluded totals. One-bit field, path, blob, classification, or total drift
-fails closed.
+- [ ] **Step 3: Adapt, never replay, the real campaign**
 
-Before accepting any successor measurement, require the calibration loader to
-validate the closed A1 input explicitly:
+Create a remote-free bare repository from the exact F1v2 task seed. Read the
+historical diff from `7d630bcc1^..015ca6e93` controller-side and adapt its
+behavior to the projection's APIs. Do not merge, rebase, apply, or cherry-pick
+campaign commits. For each historical production path, record the projection
+target(s) and `adapted | superseded | not_applicable` disposition with a short
+conflict rationale. Implement all six Section-2 outcomes without padding,
+copied branches, or reference-shaped requirements in the visible task.
 
-```bash
-python -m scripts.experiments.es.reference_calibration validate-a1 \
-  --policy docs/plans/evidence/es-f1-large-scope-refreeze/preedit-policy-manifest.json \
-  --expected-policy-sha256 <POLICY_RECORD_SHA256> \
-  --source-census docs/plans/evidence/es-f1-large-scope-refreeze/source-census.json \
-  --expected-source-census-sha256 <SOURCE_CENSUS_RECORD_SHA256> \
-  --task0-review-adoption docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.json \
-  --task0-review-adoption-schema docs/plans/evidence/es-f1-large-scope-refreeze/task0-review-adoption.schema.json \
-  --expected-task0-review-adoption-sha256 <TASK0_REVIEW_ADOPTION_RECORD_SHA256> \
-  --a1-anchor docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.json \
-  --a1-anchor-schema docs/plans/evidence/es-f1-large-scope-refreeze/a1-calibration-anchor.schema.json \
-  --expected-a1-anchor-sha256 <A1_ANCHOR_RECORD_SHA256>
+- [ ] **Step 4: Run the complete evaluator**
+
+Under `ptycho311`, materialize the reference twice and run the exact Task-1
+visible selector set, the candidate-owned selector, all ten hidden clauses,
+fresh-process provenance/round-trip checks, every census consumer, the three
+bypass classes, and all negative calibration cases. Require byte-identical
+normalized results and bind every observation to the exact reference tree.
+
+- [ ] **Step 5: Apply the strict reference-only scale decision**
+
+Measure only after the reference is behaviorally conforming. Continue only
+when:
+
+```text
+5000 <= implementation_delta_physical_lines.v1 additions <= 10000
 ```
 
-The actual Task-0 record digests replace the placeholders in the captured
-command. There is no default anchor root or copied-metric fallback.
+The historical churn and approximate endpoint diagnostic cannot satisfy this
+gate. An out-of-band adapted product stops F1v2 for owner disposition. Never
+add or remove behavior merely to cross the threshold, and never apply this
+metric to a candidate product.
 
-- [ ] **Step 3: Author the genuine conforming reference product**
+- [ ] **Step 6: Prove non-delivery, freeze, and commit**
 
-From the exact successor task seed, create one remote-free bare repository at
-the Section-3 content-addressed root. Implement all six indivisible behavioral
-contract items, including one genuine witness whose registry,
-construction, checkpoint, bundle, and persisted-rebuild implementation
-identity is distinct from all built-ins. Do not add copied branches or churn
-to reach the scale band. Keep reference source, patch, ref, and object database
-outside the provider-visible seed and experiment prompts.
+From empty destinations, prove the task-seed closure is exactly projection plus
+visible child; campaign/reference commits, trees, and blobs cannot resolve;
+and visible assets, prompts, argv/environment, packet templates, and provider
+workspaces contain no campaign commit, design vocabulary, reference locator,
+patch, manifest, canary, or measured count. Disclose that this is
+package-level non-delivery, not a provider-training-data claim.
 
-- [ ] **Step 4: Run the complete evaluator and bypass oracle**
-
-Under `ptycho311`, materialize the reference tree twice from its bare
-repository and run the exact nineteen provider-visible pytest selectors, the
-candidate-owned selector, all ten hidden clauses over all fifteen rows, both
-fresh reload routes, every positive and negative cell in the closed
-artifact-era applicability matrix, and the closed AST-plus-runtime bypass
-oracle. Execute every Task-0 desired-state proof spec through the same
-digest-bound, byte-for-byte unchanged `boundary_proofs.py` runner and publish
-one observed result row per spec; every result must bind the exact reference
-tree. Verify its raw SHA-256 against each selector row before execution. Require
-a distinct witness and convert the old built-in-alias shortcut into a failing
-H09 negative control.
-
-- [ ] **Step 5: Apply the strict scale decision**
-
-Measure the conforming product only after all six required items pass.
-Continue only when the canonical total is between 5,000 and 10,000 inclusive.
-Require reference delta rows to demonstrate real implementation changes in at
-least the four independently unmet Task-0 clusters and preserve all three
-frozen cross-cluster integration edges; this is reference-only calibration,
-not a candidate LOC or file-count rule.
-An out-of-band complete product rejects this task shape: replace or coherently
-redesign F1, repeat the full census and evaluation, and restart amendment
-review before any final freeze. Never add or remove behavior merely to cross a
-line threshold, and never remove a required consumer, artifact era, or bypass
-proposal/proof obligation.
-
-- [ ] **Step 6: Prove package-level non-delivery**
-
-From empty destinations, prove the task-seed closure is still exactly the
-projection plus visible child; every reference-only commit/tree/blob lookup in
-the task-seed repository fails; visible task assets, prompts, provider
-argv/environment, and packet templates contain no reference locator, patch,
-manifest, canary, or measured count; and provider workspaces materialize only
-from the task seed. Prove separately that the controller can resolve and
-validate the reference repository only during provider-free calibration.
-
-- [ ] **Step 7: Freeze and commit the reference authority**
-
-Publish `reference-product.json` with exact source/seed/reference identities,
-repository snapshot, patch, metric rows/total, cluster/edge facts, evaluator
-results, desired-state proof results, complete artifact applicability results,
-distinct-witness proof, bypass-oracle result, and no-delivery proof. Reload it
-twice from disk, rerun the focused tests, and commit only the calibration
-mechanism, schema, manifest, and tests; the external reference object database
-remains content-addressed evidence rather than repository source.
+Publish and reload `reference-product.json` twice with exact lineage,
+adaptation, metric, evaluator, census, bypass, and non-delivery bindings. Run
+the focused tests and commit only the schema/manifest, minimal calibration
+delta, and tests; the external object database remains external evidence.
 
 ### Task 4: Bind, freeze, review once, and adopt
 
@@ -2040,11 +1890,12 @@ roadmap/status/routing surfaces.
 
 Write the failing assertions first, run them RED, then bind.
 
-Load the Task-3 `es_f1_task_seed.v2` manifest and assert that each of the four
+Load the Task-3 F1v2 task-seed manifest and assert that each of the four
 arm run refs resolves to its one exact successor repository locator and commit,
-with no predecessor `93e0eb08...` locator/commit and no mixed seed set. Assert
-exactly nineteen provider-visible pre-edit pytest selectors plus the one
-candidate-owned selector; separately assert that every controller-only proof
+with no rejected `4b5abddacacbf71eb508be94220dfd350ed5a5fb`
+locator/commit and no mixed seed set. Assert the exact Task-1-selected
+provider-visible pre-edit pytest count/order plus the one candidate-owned
+selector; separately assert that every controller-only proof
 selector remains outside the authored workflow and provider-visible manifest,
 14,400,000 ms check timeout, 172,800,000 ms arm timeout, 216,000,000 ms trial
 timeout, 4 MiB item cap, 2 MiB diff cap, and 8 MiB packet cap. Separately hash
@@ -2127,9 +1978,10 @@ review, not an ordered specification/quality pair: the delta under review is
 digests over already-reviewed apparatus plus the Task 1–3A task, evaluator, and
 reference content.
 
-The review must confirm the successor scope and evaluator matrix, the
-reference-product band result, the unchanged apparatus, the lock contents, and
-the absence of any reference locator or measured count on a provider-visible
+The review must confirm the six-outcome scope and ten-clause evaluator matrix,
+transitive three-class bypass oracle, adapted reference-product band result,
+unchanged apparatus, lock contents, and absence of campaign/reference
+identities, decomposition, locator, or measured count on a provider-visible
 surface. A finding that names a concrete contract violation blocks; prose
 preference does not. Record the verdict in the closed adoption bindings.
 
@@ -2144,19 +1996,20 @@ scientific lock decision:
    `SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, that no arm or provider session ran
    under it, and that it contributes no attempt, invalid-attempt allowance, or
    denominator row to this study.
-2. I confirm the exact successor scope of all fourteen named frozen built-ins
-   plus one candidate-declared witness through construction, training,
-   checkpoint, bundle, fresh-process reload, inference, identity, and
-   round-trip evaluation, including a witness implementation distinct from all
-   built-ins, the complete current/historical artifact applicability matrix,
-   and the complete JSON-review-adopted legacy-bypass proposal/proof set.
+2. I confirm the exact F1v2 successor scope: strict public source resolution
+   and precedence, transactional torch application, tolerant-path retirement,
+   legacy-state isolation, hard boundary validation with derived public field
+   names, and complete migration of both backends, public CLI entry points,
+   workflow components, study scripts, and every frozen census consumer. I
+   confirm the transitive oracle for exactly ambient reads, tolerant loaders,
+   and legacy-state mutation, including facade-only and wrapper-deep cases.
 3. I confirm the exact measured 667-production-addition A1 anchor, the
-   fresh nineteen-selector baseline, the independently unmet cluster and
-   cross-cluster feasibility facts, the controller-only conforming
+   fresh Task-1 selector count/order/digest, the controller-only adapted
    reference-product manifest, and its inclusive 5,000–10,000
-   `implementation_delta_physical_lines.v1` result; tests/docs are additional,
-   and no candidate is accepted, ranked, or stopped by LOC, file-count, cluster
-   count, or churn.
+   `implementation_delta_physical_lines.v1` result. I confirm that historical
+   `+8,698/-11,197` is per-commit churn rather than that metric result;
+   tests/docs are additional, and no candidate is accepted, ranked, or stopped
+   by LOC, file count, cluster count, or churn.
 4. I confirm the exact existing-field visible/hidden/check/arm/trial timeout and
    byte envelope, observed positive packet headroom, the 120-hour
    planning-only allowance that adds no runtime deadline, low-confidence token
@@ -2191,8 +2044,8 @@ remains a provider-free action.
 
 Advance the component-plan/roadmap/index/routing row from accepted refreeze
 pending to complete: the pre-run scope replacement is complete, the new lock is
-owner-adopted, and existing ES Task 7 is next. Do not reintroduce the old
-two-architecture wording or change E3, P, L, M, or security selection.
+owner-adopted, and existing ES Task 7 is next. Do not reintroduce the rejected
+extension-boundary task or change E3, P, L, M, or security selection.
 
 Run the focused prelaunch and routing controls against committed bytes and
 commit. This plan ends without a smoke or live arm. Continue immediately with
@@ -2203,27 +2056,27 @@ IDs.
 
 | Risk | Positive proof | Negative proof |
 | --- | --- | --- |
-| Scope still too small | conforming reference measures 5,000–10,000 inclusive | out-of-band reference or unmeasured estimate blocks freeze |
-| Work is still one-context-shaped | closed tree algebra; authenticated baseline, two-green, remove-one, and adjacent ledgers; three AST-plus-same-node-trace edges; pre-purge ordered adoption; and a post-purge tombstone | hidden tree delta, self-attested Boolean, missing callsite/callee trace, premature purge, retained root, or missing/stale tombstone blocks Task 0 |
-| Policy invents discovered consumers | two byte-identical non-authoritative discoveries precede policy authorship; build independently rescans all 1,948 leaves | downstream discovery consumption or any discovery/policy/recomputed-set mismatch rejects |
-| Architecture domain incomplete | exact 14 built-ins + one witness | missing/duplicate/reordered/colliding row rejected |
-| Artifact-era domain is over- or under-applied | every era partitions all fifteen IDs; current artifacts cover all and metadata-free `legacy_v1` covers only `cnn` | incomplete/overlapping partition, non-`cnn` legacy positive, or missing rejection fails H04 |
-| Witness is an alias | constructor and four reload identities are equal and distinct from all built-ins | `es_f1_witness -> FfnoGenerator` fails H09 |
-| Legacy bypass survives | frozen AST inventory plus runtime consumer probes satisfy all adopted consumer proposals | one restored or novel bypass fails the owning clause |
+| Scope still too small | behaviorally conforming adapted reference measures 5,000–10,000 inclusive | out-of-band endpoint, historical churn, or unmeasured estimate blocks freeze |
+| Historical campaign is replayed | adaptation repository is projection-child lineage with a complete path disposition ledger | merge/rebase/apply/cherry-pick ancestry or unresolved campaign path rejects |
+| Consumer inventory is incomplete | two byte-identical projection scans assign every configuration read/construction site | missing, invented, stale-digest, or unassigned consumer rejects |
+| Public resolution diverges | file mapping and CLI patch use one strict route and frozen precedence | divergent entry point or reversed precedence fails H03 |
+| Transactionality leaks | invalid torch resolution preserves byte-equivalent pre-state | any partial mutation before late rejection fails H04 |
+| Strict contract drifts | unknown/ill-typed input rejects and bridge/sampling fields round-trip | tolerant coercion, ignored unknown, dropped bridge field, or fallback default fails H05 |
+| Derived fields become duplicate taxonomy | names derive from the validated owner | duplicated/drifting field-name table or invalid mapping fails H06 |
+| Bypass survives behind a facade | AST plus runtime probes transitively close every consumer for exactly three classes | ambient read, tolerant loader, legacy mutation, facade-only closure, or wrapper-deep bypass fails H07/H10 |
+| Provenance is process-local | file/CLI provenance survives a fresh-process round trip | absent, ambiguous, rewritten, or process-local provenance fails H08 |
+| Cross-surface values drift | initialization/mode values are canonical across core, torch, CLI, workflow, and study paths | divergent initialization or coercive/non-string mode fails H09 |
 | LOC becomes a target | calibration flags say non-acceptance | LOC/file-count/churn field rejected from task and outcome contracts |
-| Hidden reference leaks | task-seed closure and every provider surface exclude all reference objects/locators/canaries/counts | one resolvable object or delivered marker blocks freeze |
-| Neuralop shape drift | `neuralop_uno` runs at 128 | 64 for it, or 128 for another built-in, rejected |
-| Adapter claims authority | evaluator derives all observations | adapter-authored observation/identity/pass field rejected |
-| Partial lifecycle | every row has every current lifecycle stage and two current artifacts; historical fixtures follow the closed applicability matrix | missing stage/artifact/fresh PID or wrong historical applicability rejected |
-| Ownership expansion | existing training path exercised with boundary exclusions intact | descriptor-owned physics/loss/scaling/data field rejected |
+| Hidden reference leaks | task-seed closure and every provider surface exclude campaign/reference identities, objects, locators, decomposition, canaries, and counts | one resolvable object or delivered marker blocks freeze |
+| Adapter claims authority | evaluator derives all observations, provenance, closure, and bypass results | adapter-authored observation/provenance/classification/pass field rejects |
 | Old seed leaks | new child has only projection parent | old-task-seed parent or old asset rejected |
 | Apparatus drift | same arm topology and call tables | extra call/role/retry/review fails lock validation |
 | Large diff truncation | 2 MiB diff, 4 MiB item, and 8 MiB packet calibration passes | oversized/truncated/unbound packet fails closed |
 | Estimate mistaken for cost | actual receipts are sole synthesis authority | estimate in receipt or imputation rejected |
 | Line census drifts | strict-UTF-8 `splitlines()` totals count an unterminated final line | LF-only subtotal or changed line method fails validation |
-| Selector coverage is asserted rather than observed | exact node IDs and static/runtime observations cover the sampling-rule-derived required set; every other consumer remains source-identity-bound as `inherited` or `open` | unknown node, echoed required consumer ID, missing class/provider representative, witness on `inherited`/`open`, domain mismatch, or backpointer-cardinality mismatch rejects |
-| Baseline is mistaken for desired-state conformance | Task 0 records truthful pre-edit facts; Task 3A binds desired-state results to the exact reference tree | removal/bypass proof claimed passed on baseline, or baseline result substituted for reference result, rejects |
-| Review prose becomes machine authority | closed ordered JSON adoption binds plan plus four canonical records | Markdown-only, stale, reordered, duplicate-reviewer, or non-approved state rejects |
+| Selector coverage is asserted rather than observed | Task 1 reproduces the exact 19-module digest and 769-test projection collection before freezing | stale F1 digest, unknown selector, wrong order, or controller-only leakage rejects |
+| Baseline is mistaken for desired-state conformance | Task 1 records truthful pre-edit facts; Task 3A binds F1v2 results to the reference tree | baseline result substituted for reference conformance rejects |
+| Review prose becomes machine authority | closed owner record binds the one Task-4 review and canonical package | Markdown-only, stale, duplicate-review, or non-approved state rejects |
 | Refreeze invents apparatus | Task-5 provider/prompt/SDK/hard-evidence/runtime bytes remain unchanged except content-addressed package bindings | new helper, schema version, call input, deadline, or collector blocks review |
 | Smoke contaminates the study | provider-free fixtures leave the separately locked canonical smoke row unconsumed and it remains outside every attempt counter | pre-adoption canonical consumption, or smoke ID/map in attempt order, denominator, valid-block, or invalid-cap accounting rejected |
 | Attempt reuse | lock-owned `ES-F1-FULL` study/execution domain and empty roots | old ID, fabricated prefix, smoke-as-attempt, resume, mixed domain, or nonempty root rejected |
@@ -2239,11 +2092,13 @@ The scope amendment is complete only when:
    resource plan, lineage, schedule, decision lock, and controller package are
    canonical and content-addressed;
 3. the conforming reference measures 5,000–10,000 inclusive under the exact
-   metric, has one distinct witness, passes the closed bypass oracle, and is
-   proven absent from every provider-visible closure/surface;
-4. all fifteen architectures pass the provider-free current-artifact control,
-   every historical artifact follows its closed applicability partition, and
-   the complete negative calibration matrix fails in the intended clauses;
+   metric, separately reports the non-authoritative historical churn, passes
+   all six outcomes and the transitive three-class bypass oracle, and is proven
+   absent from every provider-visible closure/surface;
+4. the exact Task-1 configuration census and observed selector baseline are
+   bound; every ten-clause positive passes and every fix-tail, partial-mutation,
+   duplicated-field, facade-only, and wrapper-deep negative fails in its
+   intended clause;
 5. provider-free public E2/ES execution reuses the completed Task-5 apparatus
    unchanged, and its package-binding, tamper, metering, selector-isolation,
    and no-resume regression tests pass under the successor bytes;
