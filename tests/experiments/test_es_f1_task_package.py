@@ -548,6 +548,76 @@ def test_census_marks_only_explicit_ambient_configuration_reads(
     assert ambient[0]["transitive_wrapper_chain"][-1] == "os.environ"
 
 
+def test_census_distinguishes_configuration_construction_from_reads(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    source = repository / "scripts/example.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "def consume(config, profile, raw):\n"
+        "    config.get('mode')\n"
+        "    profile.to_model_config()\n"
+        "    validate_runnable_training_config(config)\n"
+        "    resolve_scale_contract(config)\n"
+        "    setup_configuration(raw)\n"
+        "    setup_inference_configuration(raw)\n"
+        "    make_config(raw)\n"
+        "    load_configs_from_run(raw)\n"
+        "    ModelConfig.from_mapping(raw)\n"
+        "    _build_generator_module_from_config(config)\n"
+        "    _build_torch_model_from_saved_config(config)\n"
+        "    _build_model_for_config(config)\n"
+        "    _load_model_config_param_counts(config)\n"
+        "    _load_configured_probe(config)\n"
+        "    Configuration()\n",
+        encoding="utf-8",
+    )
+    subprocess.run(("git", "init", "-q", str(repository)), check=True)
+    subprocess.run(("git", "-C", str(repository), "add", "."), check=True)
+    subprocess.run(
+        (
+            "git", "-C", str(repository), "-c", "user.name=Task Test",
+            "-c", "user.email=task@example.invalid", "commit", "-qm", "fixture",
+        ),
+        check=True,
+    )
+    commit = subprocess.check_output(
+        ("git", "-C", str(repository), "rev-parse", "HEAD"), text=True
+    ).strip()
+
+    rows = task_package.scan_configuration_consumers(repository, commit)["rows"]
+    by_terminal = {
+        row["transitive_wrapper_chain"][-1]: row["match_kind"] for row in rows
+    }
+    assert {
+        terminal
+        for terminal, kind in by_terminal.items()
+        if kind == "CONFIGURATION_CONSTRUCTION"
+    } == {
+        "profile.to_model_config",
+        "setup_configuration",
+        "setup_inference_configuration",
+        "make_config",
+        "load_configs_from_run",
+        "Configuration",
+        "ModelConfig.from_mapping",
+    }
+    assert by_terminal["config.get"] == "CONFIGURATION_READ"
+    assert by_terminal["validate_runnable_training_config"] == "CONFIGURATION_READ"
+    assert "resolve_scale_contract" not in by_terminal
+    assert all(
+        by_terminal.get(terminal) != "CONFIGURATION_CONSTRUCTION"
+        for terminal in {
+            "_build_generator_module_from_config",
+            "_build_torch_model_from_saved_config",
+            "_build_model_for_config",
+            "_load_model_config_param_counts",
+            "_load_configured_probe",
+        }
+    )
+
+
 @pytest.mark.parametrize("mutation", ["row", "wrapper", "bypass", "digest"])
 def test_census_rejects_tamper(tmp_path: Path, mutation: str) -> None:
     payload = json.loads(CENSUS.read_bytes())

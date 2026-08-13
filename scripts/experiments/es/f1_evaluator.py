@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import builtins
 from collections.abc import Mapping, Sequence
 import hashlib
 import json
@@ -2309,6 +2310,21 @@ def normalize_bypass_events(events: Sequence[Mapping[str, Any]]) -> tuple[str, .
     return tuple(class_id for class_id in BYPASS_CLASSES if class_id in present)
 
 
+def _is_legacy_configuration_symbol(name: str) -> bool:
+    lower = name.lower()
+    return (
+        "legacy_state" in lower
+        or "legacy_config" in lower
+        or "legacy_params" in lower
+        or "params.cfg" in lower
+        or "update_legacy_dict" in lower
+    )
+
+
+def _requires_resolution_authority(row: Mapping[str, Any]) -> bool:
+    return row.get("match_kind") == "CONFIGURATION_CONSTRUCTION"
+
+
 def detect_ast_bypasses(
     source: str, *, _tainted_names: Sequence[str] = ()
 ) -> tuple[str, ...]:
@@ -2331,23 +2347,14 @@ def detect_ast_bypasses(
         if isinstance(node, ast.Attribute):
             owner = qualified(node.value)
             return f"{owner}.{node.attr}" if owner else node.attr
+        if isinstance(node, ast.Subscript):
+            return qualified(node.value)
         return ""
 
     classes: set[str] = set()
 
-    def is_config_name(name: str) -> bool:
-        lower = name.lower()
-        return (
-            lower in {"mapping", "patch", "file_mapping", "cli_patch"}
-            or "config" in lower
-        )
-
     def analyze(function: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        tainted = {
-            argument.arg
-            for argument in (*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs)
-            if is_config_name(argument.arg)
-        } | set(_tainted_names)
+        tainted = set(_tainted_names)
 
         def value_tainted(node: ast.AST | None) -> bool:
             if node is None:
@@ -2403,7 +2410,9 @@ def detect_ast_bypasses(
                 tolerant_operation = name.endswith((".get", ".setdefault")) or name in {
                     "bool", "bytes", "float", "getattr", "hasattr", "int", "str"
                 }
-                if tainted_call and (tolerant_name or tolerant_operation):
+                if _is_legacy_configuration_symbol(name) and tainted_call:
+                    classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
+                elif tainted_call and (tolerant_name or tolerant_operation):
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
             elif isinstance(node, ast.Try) and any(
                 value_tainted(child)
@@ -2425,13 +2434,14 @@ def detect_ast_bypasses(
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 if any(
                     isinstance(target, (ast.Attribute, ast.Subscript))
-                    and "legacy" in qualified(target.value).lower()
+                    and _is_legacy_configuration_symbol(qualified(target.value))
                     for target in targets
                 ):
                     classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
 
     functions = [
-        node for node in ast.walk(tree)
+        node
+        for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
     if functions:
@@ -2472,20 +2482,31 @@ def walk_consumer_routes(
     traces: list[dict[str, Any]] = []
     seen_consumers: set[str] = set()
     for row in consumer_rows:
-        if set(row) != {"consumer_id", "entry_symbol"}:
+        if set(row) not in (
+            {"consumer_id", "entry_symbol"},
+            {"consumer_id", "entry_symbol", "requires_authority"},
+        ):
             _fail("consumer row field set is not exact")
         consumer_id, entry = row["consumer_id"], row["entry_symbol"]
-        if not isinstance(consumer_id, str) or not isinstance(entry, str) or consumer_id in seen_consumers:
+        requires_authority = row.get("requires_authority", True)
+        if (
+            not isinstance(consumer_id, str)
+            or not isinstance(entry, str)
+            or type(requires_authority) is not bool
+            or consumer_id in seen_consumers
+        ):
             _fail("consumer row identity is invalid")
         seen_consumers.add(consumer_id)
         reached_authority = False
         reached_dead_end = False
+        reached_unresolved = False
         paths: list[list[str]] = []
 
         def visit(symbol: str, trail: list[str]) -> None:
-            nonlocal reached_authority, reached_dead_end
+            nonlocal reached_authority, reached_dead_end, reached_unresolved
             if symbol in trail:
                 reached_dead_end = True
+                reached_unresolved = True
                 paths.append([*trail, symbol])
                 return
             current = [*trail, symbol]
@@ -2500,6 +2521,7 @@ def walk_consumer_routes(
             children = call_graph.get(symbol, ())
             if not children:
                 reached_dead_end = True
+                reached_unresolved = reached_unresolved or symbol not in call_graph
                 paths.append(current)
                 return
             for child in children:
@@ -2516,7 +2538,13 @@ def walk_consumer_routes(
                 for class_id in normalized_bypasses.get(symbol, ())
             }
         )
-        closed = reached_authority and not reached_dead_end and not consumer_bypasses
+        closed = (
+            not consumer_bypasses
+            and (
+                not requires_authority and not reached_unresolved
+                or reached_authority and not reached_dead_end
+            )
+        )
         if not closed:
             unresolved.append(consumer_id)
         traces.append(
@@ -2536,27 +2564,75 @@ def walk_consumer_routes(
 
 
 def _module_functions(
-    path: Path, module: str
+    path: Path,
+    module: str,
+    *,
+    authority_symbols: set[str],
+    consumer_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[dict[str, list[str]], dict[str, tuple[str, ...]], set[str]]:
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
     except (OSError, UnicodeError, SyntaxError) as exc:
         raise EvaluatorError(f"candidate consumer source is unreadable: {path}") from exc
+    package = module.rsplit(".", 1)[0] if "." in module else ""
+    def imported_names(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
+        if isinstance(node, ast.Import):
+            return {
+                alias.asname or alias.name: alias.name for alias in node.names
+            }
+        if node.module:
+            parts = package.split(".") if package else []
+            base = parts[: max(0, len(parts) - node.level + 1)] if node.level else []
+            imported_module = ".".join((*base, node.module)) if node.level else node.module
+            return dict(
+                (alias.asname or alias.name, f"{imported_module}.{alias.name}")
+                for alias in node.names
+            )
+        if node.level:
+            parts = package.split(".") if package else []
+            imported_module = ".".join(
+                parts[: max(0, len(parts) - node.level + 1)]
+            )
+            return {
+                alias.asname or alias.name: f"{imported_module}.{alias.name}"
+                for alias in node.names
+            }
+        return {}
+
     imports: dict[str, str] = {}
     for node in tree.body:
-        if isinstance(node, ast.Import):
-            imports.update((alias.asname or alias.name, alias.name) for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imports.update((alias.asname or alias.name, f"{node.module}.{alias.name}") for alias in node.names)
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imports.update(imported_names(node))
+    imports_by_owner: dict[str, dict[str, str]] = {}
     graph: dict[str, list[str]] = {}
     bypasses: dict[str, tuple[str, ...]] = {}
+    module_bypasses = detect_ast_bypasses(
+        ast.unparse(
+            ast.Module(
+                body=[
+                    node
+                    for node in tree.body
+                    if not isinstance(
+                        node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                    )
+                ],
+                type_ignores=[],
+            )
+        )
+    )
+    if module_bypasses:
+        bypasses[module] = module_bypasses
 
-    def name(node: ast.AST) -> str:
+    def name(node: ast.AST, owner: str = "") -> str:
+        visible_imports = imports_by_owner.get(owner, imports)
         if isinstance(node, ast.Name):
-            return imports.get(node.id, f"{module}.{node.id}")
+            if node.id not in visible_imports and hasattr(builtins, node.id):
+                return ""
+            return visible_imports.get(node.id, f"{module}.{node.id}")
         if isinstance(node, ast.Attribute):
-            owner = name(node.value)
-            return f"{owner}.{node.attr}" if owner else node.attr
+            prefix = name(node.value, owner)
+            return f"{prefix}.{node.attr}" if prefix else node.attr
         return ""
 
     functions: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
@@ -2580,7 +2656,75 @@ def _module_functions(
             local_by_name[node.name] = symbol
     for duplicate in duplicates:
         local_by_name.pop(duplicate, None)
+    function_by_symbol = dict(functions)
 
+    def local_callee(call: ast.Call, owner: str) -> str | None:
+        symbol = name(call.func, owner)
+        if symbol in function_by_symbol:
+            return symbol
+        if isinstance(call.func, ast.Name):
+            return local_by_name.get(call.func.id)
+        if (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+        ):
+            parent = owner.rsplit(".", 1)[0]
+            candidate = f"{parent}.{call.func.attr}"
+            if candidate in function_by_symbol:
+                return candidate
+            suffix = f".{call.func.value.id}.{call.func.attr}"
+            candidates = sorted(
+                symbol for symbol in function_by_symbol if symbol.endswith(suffix)
+            )
+            if len(candidates) == 1:
+                return candidates[0]
+        return None
+
+    rebound_by_owner: dict[str, set[str]] = {}
+
+    def source_node(row: Mapping[str, Any]) -> ast.AST | None:
+        span = row.get("source_span")
+        if not isinstance(span, Mapping):
+            return None
+        expected = (
+            span.get("start_line"),
+            span.get("start_col"),
+            span.get("end_line"),
+            span.get("end_col"),
+        )
+        matches = [
+            node
+            for node in ast.walk(tree)
+            if not isinstance(node, ast.stmt)
+            and (
+                getattr(node, "lineno", None),
+                getattr(node, "col_offset", None),
+                getattr(node, "end_lineno", None),
+                getattr(node, "end_col_offset", None),
+            )
+            == expected
+        ]
+        if len(matches) != 1:
+            _fail("candidate census source span does not select one AST node")
+        return matches[0]
+
+    def row_values(node: ast.AST) -> tuple[ast.AST, ...]:
+        if not isinstance(node, ast.Call):
+            return (node,)
+        receiver = (
+            (node.func.value,) if isinstance(node.func, ast.Attribute) else ()
+        )
+        return (
+            *receiver,
+            *node.args,
+            *(keyword.value for keyword in node.keywords),
+        )
+
+    scoped_by_owner: dict[str, list[ast.AST]] = {}
+    tainted_by_owner: dict[str, set[str]] = {owner: set() for owner, _ in functions}
+    forced_calls_by_owner: dict[str, set[str]] = {
+        owner: set() for owner, _ in functions
+    }
     for owner, node in functions:
         scoped_nodes: list[ast.AST] = []
         pending = list(node.body)
@@ -2589,41 +2733,224 @@ def _module_functions(
             scoped_nodes.append(child)
             if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
                 pending.extend(ast.iter_child_nodes(child))
-        tainted = {
-            argument.arg
-            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
-            if argument.arg not in {"self", "cls"}
+        scoped_by_owner[owner] = scoped_nodes
+        local_imports = dict(imports_by_owner.get(owner.rsplit(".", 1)[0], imports))
+        for child in scoped_nodes:
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                local_imports.update(imported_names(child))
+        imports_by_owner[owner] = local_imports
+        rebound_by_owner[owner] = {
+            target.id
+            for child in scoped_nodes
+            for target in (
+                child.targets
+                if isinstance(child, ast.Assign)
+                else (child.target,)
+                if isinstance(child, (ast.AnnAssign, ast.NamedExpr))
+                else ()
+            )
+            if isinstance(target, ast.Name) and target.id in local_imports
         }
+        if owner in authority_symbols:
+            tainted_by_owner[owner].update(
+                argument.arg
+                for argument in (
+                    *node.args.posonlyargs,
+                    *node.args.args,
+                    *node.args.kwonlyargs,
+                )
+                if argument.arg not in {"self", "cls"}
+            )
+            if node.args.vararg is not None:
+                tainted_by_owner[owner].add(node.args.vararg.arg)
+            if node.args.kwarg is not None:
+                tainted_by_owner[owner].add(node.args.kwarg.arg)
 
-        def relevant(value: ast.AST) -> bool:
-            return any(
-                isinstance(child, ast.Name) and child.id in tainted
-                for child in ast.walk(value)
+    for row in consumer_rows:
+        owner = row.get("public_entry_route")
+        if not isinstance(owner, str) or owner not in function_by_symbol:
+            continue
+        node = source_node(row)
+        if node is None:
+            function = function_by_symbol[owner]
+            tainted_by_owner[owner].update(
+                argument.arg
+                for argument in (
+                    *function.args.posonlyargs,
+                    *function.args.args,
+                    *function.args.kwonlyargs,
+                )
+                if argument.arg not in {"self", "cls"}
+            )
+            continue
+        for value in row_values(node):
+            tainted_by_owner[owner].update(
+                name_node.id
+                for name_node in ast.walk(value)
+                if isinstance(name_node, ast.Name)
+                and name_node.id not in imports_by_owner[owner]
+            )
+        if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION":
+            if not isinstance(node, ast.Call):
+                _fail("candidate construction census row is not a call")
+            forced_calls_by_owner[owner].add(
+                local_callee(node, owner) or name(node.func, owner)
             )
 
-        calls: set[str] = set()
+    def call_tainted_formals(
+        call: ast.Call,
+        callee_node: ast.FunctionDef | ast.AsyncFunctionDef,
+        *,
+        bound: bool,
+        relevant: Any,
+    ) -> set[str]:
+        positional = [*callee_node.args.posonlyargs, *callee_node.args.args]
+        if bound and positional:
+            positional = positional[1:]
+        result: set[str] = set()
+        position = 0
+        position_ambiguous = False
+        for value in call.args:
+            if isinstance(value, ast.Starred):
+                if relevant(value.value):
+                    result.update(argument.arg for argument in positional[position:])
+                    if callee_node.args.vararg is not None:
+                        result.add(callee_node.args.vararg.arg)
+                position_ambiguous = True
+                continue
+            if relevant(value):
+                if position_ambiguous:
+                    result.update(argument.arg for argument in positional[position:])
+                    if callee_node.args.vararg is not None:
+                        result.add(callee_node.args.vararg.arg)
+                elif position < len(positional):
+                    result.add(positional[position].arg)
+                elif callee_node.args.vararg is not None:
+                    result.add(callee_node.args.vararg.arg)
+            position += 1
+        keyword_formals = {
+            argument.arg
+            for argument in (*callee_node.args.args, *callee_node.args.kwonlyargs)
+        }
+        for keyword in call.keywords:
+            if not relevant(keyword.value):
+                continue
+            if keyword.arg is None:
+                result.update(argument.arg for argument in positional)
+                result.update(argument.arg for argument in callee_node.args.kwonlyargs)
+                if callee_node.args.vararg is not None:
+                    result.add(callee_node.args.vararg.arg)
+                if callee_node.args.kwarg is not None:
+                    result.add(callee_node.args.kwarg.arg)
+            elif keyword.arg in keyword_formals:
+                result.add(keyword.arg)
+            elif callee_node.args.kwarg is not None:
+                result.add(callee_node.args.kwarg.arg)
+        return result
+
+    changed = True
+    while changed:
+        changed = False
+        for owner, node in functions:
+            tainted = tainted_by_owner[owner]
+            scoped_nodes = scoped_by_owner[owner]
+
+            def relevant(value: ast.AST) -> bool:
+                if isinstance(value, ast.Name):
+                    return value.id in tainted
+                if isinstance(value, (ast.Starred, ast.NamedExpr)):
+                    return relevant(value.value)
+                if isinstance(value, (ast.IfExp, ast.BoolOp, ast.Call)):
+                    return any(relevant(child) for child in ast.iter_child_nodes(value))
+                return False
+
+            for child in scoped_nodes:
+                value: ast.AST | None = None
+                targets: Sequence[ast.AST] = ()
+                if isinstance(child, ast.Assign):
+                    value, targets = child.value, child.targets
+                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
+                    value, targets = child.value, (child.target,)
+                if value is not None and relevant(value):
+                    for target in targets:
+                        for name_node in ast.walk(target):
+                            if isinstance(name_node, ast.Name) and name_node.id not in tainted:
+                                tainted.add(name_node.id)
+                                changed = True
+            for child in scoped_nodes:
+                if not isinstance(child, ast.Call):
+                    continue
+                callee = local_callee(child, owner)
+                if callee is None:
+                    continue
+                callee_node = function_by_symbol[callee]
+                callee_tainted = tainted_by_owner[callee]
+                decorators = {
+                    decorator.id
+                    for decorator in callee_node.decorator_list
+                    if isinstance(decorator, ast.Name)
+                }
+                invoked_on_class = (
+                    isinstance(child.func, ast.Attribute)
+                    and isinstance(child.func.value, ast.Name)
+                    and child.func.value.id == callee.rsplit(".", 2)[-2]
+                )
+                bound = (
+                    "classmethod" in decorators
+                    or "staticmethod" not in decorators
+                    and isinstance(child.func, ast.Attribute)
+                    and not invoked_on_class
+                )
+                newly_tainted = call_tainted_formals(
+                    child, callee_node, bound=bound, relevant=relevant
+                )
+                for argument_name in newly_tainted - callee_tainted:
+                    callee_tainted.add(argument_name)
+                    changed = True
+
+    for owner, node in functions:
+        scoped_nodes = scoped_by_owner[owner]
+        tainted = tainted_by_owner[owner]
+
+        def relevant(value: ast.AST) -> bool:
+            if isinstance(value, ast.Name):
+                return value.id in tainted
+            if isinstance(value, (ast.Starred, ast.NamedExpr)):
+                return relevant(value.value)
+            if isinstance(value, (ast.IfExp, ast.BoolOp, ast.Call)):
+                return any(relevant(child) for child in ast.iter_child_nodes(value))
+            return False
+
+        calls = set(forced_calls_by_owner[owner])
         for child in scoped_nodes:
             if not isinstance(child, ast.Call):
                 continue
-            call = name(child.func)
-            if isinstance(child.func, ast.Name) and child.func.id in local_by_name:
-                call = local_by_name[child.func.id]
-            arguments = (*child.args, *(keyword.value for keyword in child.keywords))
-            imported_call = isinstance(child.func, ast.Name) and child.func.id in imports
+            call = name(child.func, owner)
+            local = local_callee(child, owner)
+            if local is not None:
+                call = local
+            if isinstance(child.func, ast.Name) and child.func.id in rebound_by_owner[owner]:
+                call = f"{module}.{child.func.id}"
+            values = (
+                *((child.func.value,) if isinstance(child.func, ast.Attribute) else ()),
+                *child.args,
+                *(keyword.value for keyword in child.keywords),
+            )
             if call and (
-                call in local_by_name.values()
-                or imported_call and any(relevant(value) for value in arguments)
+                call in authority_symbols
+                or any(relevant(value) for value in values)
             ):
                 calls.add(call)
         graph[owner] = sorted(calls)
-        source = ast.get_source_segment(path.read_text(encoding="utf-8"), node) or ""
-        classes = detect_ast_bypasses(
-            source,
-            _tainted_names=tuple(
-                argument.arg
-                for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
-                if argument.arg not in {"self", "cls"}
-            ),
+        function_source = ast.get_source_segment(source, node) or ""
+        function_bypasses = detect_ast_bypasses(
+            function_source,
+            _tainted_names=tuple(tainted),
+        )
+        classes = tuple(
+            class_id
+            for class_id in BYPASS_CLASSES
+            if class_id in function_bypasses or class_id in module_bypasses
         )
         if classes:
             bypasses[owner] = classes
@@ -2728,13 +3055,26 @@ def inspect_candidate_consumers(
             if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
         ]
     reconciliation = reconcile_consumer_occurrences(rows, scanned_rows)
-    current_rows = [
-        current for _, current in reconciliation["paired"]
-    ] + reconciliation["added"]
+    surviving_removed = [
+        row
+        for row in reconciliation["removed"]
+        if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
+    ]
+    current_rows = (
+        [current for _, current in reconciliation["paired"]]
+        + reconciliation["added"]
+        + surviving_removed
+    )
+    retired_rows = [
+        row for row in reconciliation["removed"] if row not in surviving_removed
+    ]
     graph: dict[str, list[str]] = {}
     bypasses: dict[str, Any] = {}
     modules_seen: set[tuple[str, str]] = set()
     introduced: set[str] = set()
+    rows_by_path: dict[str, list[Mapping[str, Any]]] = {}
+    for row in current_rows:
+        rows_by_path.setdefault(cast(str, row["path"]), []).append(row)
     for row in [*current_rows, *rows]:
         relative = row["path"]
         candidate_path = workspace.joinpath(*PurePosixPath(relative).parts)
@@ -2744,20 +3084,38 @@ def inspect_candidate_consumers(
         module = relative.removesuffix(".py").replace("/", ".")
         key = (relative, module)
         if key not in modules_seen:
-            local_graph, local_bypasses, local_symbols = _module_functions(path, module)
+            local_graph, local_bypasses, local_symbols = _module_functions(
+                path,
+                module,
+                authority_symbols=authority_symbols,
+                consumer_rows=rows_by_path.get(relative, ()),
+            )
             graph.update(local_graph)
             bypasses.update(local_bypasses)
             introduced.update(local_symbols)
             modules_seen.add(key)
+    for row in current_rows:
+        classes = row.get("bypass_classes", ())
+        if not classes:
+            continue
+        if not isinstance(classes, list) or any(
+            class_id not in BYPASS_CLASSES for class_id in classes
+        ):
+            _fail("candidate census names an unknown bypass class")
+        entry = row["public_entry_route"]
+        bypasses[entry] = tuple(
+            class_id
+            for class_id in BYPASS_CLASSES
+            if class_id in classes or class_id in bypasses.get(entry, ())
+        )
     live_projected = [
-        {"consumer_id": row["consumer_id"], "entry_symbol": row["public_entry_route"]}
+        {
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": row["public_entry_route"],
+            "requires_authority": _requires_resolution_authority(row),
+        }
         for row in current_rows
     ]
-    relevant_symbols = set(graph) | authority_symbols | set(bypasses)
-    graph = {
-        symbol: [child for child in children if child in relevant_symbols]
-        for symbol, children in graph.items()
-    }
     for row in live_projected:
         entry = row["entry_symbol"]
         if entry in graph:
@@ -2805,9 +3163,9 @@ def inspect_candidate_consumers(
         ),
         "paired_consumer_count": reconciliation["paired_count"],
         "projected_consumer_count": len(projected),
-        "removed_consumer_count": reconciliation["removed_count"],
+        "removed_consumer_count": len(retired_rows),
         "retired_consumer_ids": [
-            row["consumer_id"] for row in reconciliation["removed"]
+            row["consumer_id"] for row in retired_rows
         ],
     }
 

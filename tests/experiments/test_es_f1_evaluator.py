@@ -874,17 +874,87 @@ def test_wrapper_deep_bypass_is_not_hidden_by_an_authority_sibling() -> None:
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
+def test_resolved_value_read_need_not_reenter_authority_but_bypass_still_fails() -> None:
+    consumer = [{
+        "consumer_id": "read-a",
+        "entry_symbol": "read.value",
+        "requires_authority": False,
+    }]
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={"read.value": []},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )["closed"] is True
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={"read.value": ["old.path"]},
+        authority_symbols={"authority"},
+        bypass_symbols={"old.path": "TOLERANT_OR_COMPATIBILITY_LOADER"},
+    )
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+    missing = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+    assert missing["closed"] is False
+    assert missing["unresolved_consumers"] == ["read-a"]
+
+
+def test_resolved_value_read_may_terminate_at_an_analyzed_helper() -> None:
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "read-a",
+            "entry_symbol": "read.value",
+            "requires_authority": False,
+        }],
+        call_graph={"read.value": ["read.helper"], "read.helper": []},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+
+    assert result["closed"] is True
+    assert result["unresolved_consumers"] == []
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    (
+        "build_config",
+        "TrainingConfig",
+        "_fresh_config",
+        "profile.to_model_config",
+        "setup_configuration",
+        "setup_inference_configuration",
+        "make_config",
+    ),
+)
+def test_only_configuration_authority_construction_requires_resolution(
+    terminal: str,
+) -> None:
+    assert evaluator._requires_resolution_authority({
+        "match_kind": "CONFIGURATION_CONSTRUCTION",
+        "transitive_wrapper_chain": ["consumer", terminal],
+    }) is True
+
+
 def test_ast_and_runtime_oracle_use_only_the_three_closed_classes() -> None:
     source = """
 import os
 
-def resolve(mapping, legacy_config):
+def resolve(config, legacy_config):
     mode = os.getenv("MODE")
-    value = mapping.get("value", 1)
+    value = config.get("value", 1)
     legacy_config.mode = mode
     return value
 """
-    assert evaluator.detect_ast_bypasses(source) == BYPASSES
+    assert evaluator.detect_ast_bypasses(
+        source, _tainted_names=("config", "legacy_config")
+    ) == BYPASSES
     with pytest.raises(evaluator.EvaluatorError, match="bypass class"):
         evaluator.normalize_bypass_events(
             [{"class_id": "NEW_CLASS", "consumer_id": "a", "symbol": "a"}]
@@ -893,8 +963,37 @@ def resolve(mapping, legacy_config):
 
 def test_explicit_scalar_conversion_is_a_tolerant_loader_bypass() -> None:
     assert evaluator.detect_ast_bypasses(
-        "def resolve(mapping, patch):\n    return str(mapping['mode'])\n"
+        "def resolve(file_mapping):\n    return str(file_mapping['mode'])\n",
+        _tainted_names=("file_mapping",),
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_resolved_typed_configuration_access_is_not_a_tolerant_loader() -> None:
+    assert evaluator.detect_ast_bypasses(
+        "def use(model_config: ModelConfig):\n"
+        "    return getattr(model_config, 'mode', 'default')\n"
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        "def use(model_config: ModelConfig | None):\n"
+        "    return getattr(model_config, 'mode', 'default')\n"
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        "from typing import Mapping\n"
+        "def resolve(config: Mapping[str, object]):\n"
+        "    return config.get('mode', 'default')\n",
+        _tainted_names=("config",),
+    ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_legacy_architecture_table_is_not_legacy_configuration_state() -> None:
+    assert evaluator.detect_ast_bypasses(
+        "MODEL_TO_LEGACY_ARCH['hybrid'] = 'hybrid'\n"
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        "def commit(config, params):\n"
+        "    params.cfg.update(config)\n",
+        _tainted_names=("config",),
+    ) == ("LEGACY_CONFIGURATION_STATE_MUTATION",)
 
 
 def test_bypass_detection_is_config_tainted_and_requires_a_real_legacy_write() -> None:
@@ -905,7 +1004,9 @@ def resolve(config, telemetry, legacy_state):
     current = legacy_state.mode
     return config["mode"]
 """
-    assert evaluator.detect_ast_bypasses(source) == ()
+    assert evaluator.detect_ast_bypasses(
+        source, _tainted_names=("config", "legacy_state")
+    ) == ()
 
 
 def test_swallowed_config_fallback_is_a_tolerant_bypass() -> None:
@@ -916,7 +1017,7 @@ def resolve(config):
     except (TypeError, ValueError):
         return {}
 """
-    assert evaluator.detect_ast_bypasses(source) == (
+    assert evaluator.detect_ast_bypasses(source, _tainted_names=("config",)) == (
         "TOLERANT_OR_COMPATIBILITY_LOADER",
     )
 
@@ -937,7 +1038,9 @@ def test_config_tainted_bypass_forms_are_detected(
     statement: str, expected: str
 ) -> None:
     source = "import os\n\ndef resolve(config, legacy_state):\n    " + statement.replace("\n", "\n    ") + "\n"
-    assert expected in evaluator.detect_ast_bypasses(source)
+    assert expected in evaluator.detect_ast_bypasses(
+        source, _tainted_names=("config", "legacy_state")
+    )
 
 
 def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
@@ -950,7 +1053,7 @@ def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
             "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
             "def wrapper(config):\n"
             "    def nested(value):\n"
-            "        audit(value)\n"
+            "        audit('resolution-started')\n"
             "        return resolve(value, {})\n"
             "    return nested(config)\n"
         ),
@@ -960,7 +1063,7 @@ def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
         "match_kind": "CONFIGURATION_READ",
         "path": "candidate/config.py",
         "public_entry_route": "candidate.config.wrapper",
-        "source_span": {"start_line": 7, "start_col": 11, "end_line": 7, "end_col": 17},
+        "source_span": {"start_line": 6, "start_col": 18, "end_line": 6, "end_col": 24},
         "transitive_wrapper_chain": ["candidate.config.wrapper", "config"],
     }
     monkeypatch.setattr(
@@ -1019,20 +1122,26 @@ def test_fresh_added_consumer_occurrence_is_evaluated(
         ),
     )
 
-    def row(consumer_id: str, route: str, line: int) -> dict[str, Any]:
+    def row(
+        consumer_id: str, route: str, line: int, start_col: int, end_col: int,
+        terminal: str,
+    ) -> dict[str, Any]:
         return {
             "consumer_id": consumer_id,
             "match_kind": "CONFIGURATION_READ",
             "path": "candidate/config.py",
             "public_entry_route": route,
-            "source_span": {"start_line": line, "start_col": 4, "end_line": line, "end_col": 10},
-            "transitive_wrapper_chain": [route, "config"],
+            "source_span": {
+                "start_line": line, "start_col": start_col,
+                "end_line": line, "end_col": end_col,
+            },
+            "transitive_wrapper_chain": [route, terminal],
         }
 
-    old = row("old-good", "candidate.config.good", 2)
+    old = row("old-good", "candidate.config.good", 2, 33, 39, "config")
     current = [
-        row("current-good", "candidate.config.good", 2),
-        row("current-added", "candidate.config.added", 3),
+        row("current-good", "candidate.config.good", 2, 33, 39, "config"),
+        row("current-added", "candidate.config.added", 3, 26, 52, "config.get"),
     ]
     monkeypatch.setattr(
         evaluator,
@@ -1323,8 +1432,8 @@ def test_checked_in_frozen_census_projects_every_slot_exactly_once() -> None:
     )
     rows = package["consumer_census"]["rows"]
     slots = evaluator.project_frozen_consumer_slots(rows)
-    assert len(rows) == len(slots) == 4255
-    assert len({slot["consumer_id"] for slot in slots}) == 4255
+    assert len(rows) == len(slots) == 4394
+    assert len({slot["consumer_id"] for slot in slots}) == 4394
 
 
 def test_consumer_inspection_handles_class_methods_retired_paths_and_new_consumers(
@@ -1395,7 +1504,9 @@ def test_consumer_inspection_fails_closed_on_ambiguous_method_resolution(
         )
 
 
-def test_new_path_consumer_is_scanned_and_must_close_to_authority(tmp_path: Path) -> None:
+def test_new_resolved_value_reader_is_scanned_without_reentering_authority(
+    tmp_path: Path,
+) -> None:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
         resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
@@ -1416,8 +1527,538 @@ def test_new_path_consumer_is_scanned_and_must_close_to_authority(tmp_path: Path
         consumer_census=census,
         workspace=workspace,
     )
+    assert result["closed"] is True
+    assert "scripts.new_config_consumer.consume" in result["introduced_consumer_symbols"]
+
+
+def test_new_configuration_constructor_must_close_to_authority(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    new_path = workspace / "scripts/new_config_constructor.py"
+    new_path.parent.mkdir(exist_ok=True)
+    new_path.write_text(
+        "def consume(mapping):\n    return build_config(mapping)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+    assert result["closed"] is False
+    assert "scripts.new_config_constructor.consume" in result["introduced_consumer_symbols"]
+
+
+def test_module_level_ambient_read_is_not_hidden_by_missing_function_graph(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    new_path = workspace / "scripts/ambient_config.py"
+    new_path.parent.mkdir(exist_ok=True)
+    new_path.write_text(
+        "import os\nVALUE = os.getenv('APP_CONFIG_PATH')\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["AMBIENT_CONFIGURATION_READ"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from dependency import fetch\n"
+        "def consume(runtime_config):\n"
+        "    return fetch(runtime_config)\n",
+        "def consume(runtime_config):\n"
+        "    resolved = runtime_config\n"
+        "    return fetch(resolved)\n",
+        "import dependency\n"
+        "def consume(runtime_config):\n"
+        "    return dependency.fetch(runtime_config)\n",
+        "def consume(runtime_config):\n"
+        "    return fetch(runtime_config)\n",
+    ),
+)
+def test_resolved_value_reader_fails_closed_on_unindexed_helper(
+    tmp_path: Path, source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/new_config_consumer.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
     assert result["closed"] is False
     assert "scripts.new_config_consumer.consume" in result["introduced_consumer_symbols"]
+
+
+def test_module_level_legacy_mutation_taints_module_readers(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/legacy_mutation.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import legacy_state\n"
+        "legacy_state.value = 1\n"
+        "def consume(runtime_config):\n"
+        "    return runtime_config.value\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["LEGACY_CONFIGURATION_STATE_MUTATION"]
+
+
+def test_non_configuration_get_is_not_a_tolerant_config_bypass(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/scientific_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(runtime_config, scientific_data):\n"
+        "    scale = scientific_data.get('scale', 1)\n"
+        "    return runtime_config.value * scale\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_non_configuration_local_helper_is_not_a_consumer_route(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/scientific_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def scientific_scale(value):\n"
+        "    return value * 2\n"
+        "def consume(runtime_config):\n"
+        "    return runtime_config.value * scientific_scale(1)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_derived_configuration_field_is_not_propagated_as_the_whole_carrier(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/scientific_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def scientific_scale(value):\n"
+        "    return value * 2\n"
+        "def consume(runtime_config):\n"
+        "    return scientific_scale(runtime_config.scale)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_candidate_type_alias_cannot_hide_a_tolerant_configuration_read(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/alias_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "ModelConfig = dict\n"
+        "def consume(config: ModelConfig):\n"
+        "    return config.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_frozen_route_survives_a_lexical_carrier_rename(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/renamed_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def consume(settings):\n"
+        "    return settings.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "frozen-reader",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "scripts/renamed_reader.py",
+        "public_entry_route": "scripts.renamed_reader.consume",
+        "source_span": {
+            "start_line": 2, "start_col": 11, "end_line": 2, "end_col": 19,
+        },
+        "transitive_wrapper_chain": ["scripts.renamed_reader.consume", "config"],
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    assert result["removed_consumer_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "class C:\n"
+        "    def helper(self, value):\n"
+        "        return value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return C.helper(C(), runtime_config)\n",
+        "def helper(*values):\n"
+        "    return values[0].get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return helper(runtime_config)\n",
+        "def helper(**values):\n"
+        "    return values.get('config', {}).get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return helper(config=runtime_config)\n",
+        "def helper(first, second):\n"
+        "    return second.get('mode', 'default')\n"
+        "def consume(runtime_config, values):\n"
+        "    return helper(*values, runtime_config)\n",
+    ),
+)
+def test_whole_carrier_taint_survives_python_call_binding(
+    tmp_path: Path, source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/wrapper_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    ("helper(identity(runtime_config))", "helper(runtime_config or {})"),
+)
+def test_carrier_taint_survives_calls_and_fallback_expressions(
+    tmp_path: Path, expression: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/expression_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "def identity(value):\n"
+        "    return value\n"
+        "def helper(value):\n"
+        "    return value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        f"    return {expression}\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert "TOLERANT_OR_COMPATIBILITY_LOADER" in result["bypass_classes"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "class C:\n"
+        "    @classmethod\n"
+        "    def helper(receiver, value):\n"
+        "        return value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    return C.helper(runtime_config)\n",
+        "class C:\n"
+        "    def helper(receiver, value):\n"
+        "        return value.get('mode', 'default')\n"
+        "    def consume(receiver, runtime_config):\n"
+        "        return receiver.helper(runtime_config)\n",
+    ),
+)
+def test_bound_method_taint_does_not_depend_on_parameter_spelling(
+    tmp_path: Path, source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/method_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    route = (
+        "scripts.method_reader.C.consume"
+        if "def consume(receiver" in source
+        else "scripts.method_reader.consume"
+    )
+    census = {"rows": [
+        {
+            "consumer_id": "authority",
+            "path": "candidate/config.py",
+            "public_entry_route": "candidate.config.resolve",
+        },
+        {
+            "consumer_id": "method-reader",
+            "match_kind": "CONFIGURATION_READ",
+            "path": "scripts/method_reader.py",
+            "public_entry_route": route,
+            "source_span": {
+                "start_line": 5 if ".C." in route else 6,
+                "start_col": 31 if ".C." in route else 20,
+                "end_line": 5 if ".C." in route else 6,
+                "end_col": 45 if ".C." in route else 34,
+            },
+            "transitive_wrapper_chain": [route, "runtime_config"],
+        },
+    ]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_rebound_import_cannot_masquerade_as_the_authority(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/rebound_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from candidate.config import resolve\n"
+        "def compatibility_load(value):\n"
+        "    return value.get('mode', 'default')\n"
+        "def consume(runtime_config):\n"
+        "    resolve = compatibility_load\n"
+        "    return resolve(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert any(
+        "scripts.rebound_reader.resolve" in path
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from .config import resolve\n"
+        "def consume(runtime_config):\n"
+        "    return resolve(runtime_config)\n",
+        "def consume(runtime_config):\n"
+        "    from .config import resolve\n"
+        "    return resolve(runtime_config)\n",
+    ),
+)
+def test_relative_and_local_imports_resolve_to_the_authority(
+    tmp_path: Path, source: str,
+) -> None:
+    workspace = tmp_path / "workspace"
+    path = workspace / "ptycho/consumer.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    rows = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
+
+    graph, bypasses, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"ptycho.config.resolve"},
+        consumer_rows=rows,
+    )
+
+    assert graph["ptycho.consumer.consume"] == ["ptycho.config.resolve"]
+    assert bypasses == {}
+
+
+def test_taint_propagates_only_to_the_matching_callee_parameter(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/scientific_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "class Options: pass\n"
+        "def helper(data, options):\n"
+        "    return data.value * getattr(options, 'scale', 1)\n"
+        "def consume(runtime_config):\n"
+        "    return helper(runtime_config, Options())\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "authority",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.resolve",
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
 
 
 def test_workspace_detector_matches_git_detector_on_identical_tree(tmp_path: Path) -> None:

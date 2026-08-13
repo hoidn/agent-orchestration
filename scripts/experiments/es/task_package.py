@@ -1631,7 +1631,10 @@ _CONFIGURATION_DOMAINS = (
     "STUDY_SCRIPT",
 )
 _CONFIGURATION_ROOTS = ("ptycho/", "ptycho_torch/", "scripts/")
-_CONFIGURATION_NAMES = frozenset({"config", "cfg", "configuration"})
+_CONFIGURATION_NAMES = frozenset(
+    {"config", "cfg", "configuration", "file_mapping", "cli_patch"}
+)
+_CONFIGURATION_DETECTOR_VERSION = "3"
 
 
 def _configuration_domain(path: str) -> str:
@@ -1665,6 +1668,39 @@ def _is_configuration_name(value: str) -> bool:
         or part.lower().endswith("_config")
         or part.lower().endswith("configuration")
         for part in value.split(".")
+    )
+
+
+def _is_configuration_constructor(value: str) -> bool:
+    owner, _, terminal = value.rpartition(".")
+    if terminal in {"from_mapping", "from_dict", "from_json"}:
+        owner_terminal = owner.rsplit(".", 1)[-1]
+        if owner_terminal[:1].isupper() and owner_terminal.lower().endswith(
+            ("config", "configuration")
+        ):
+            return True
+    lower = terminal.lower().lstrip("_")
+    if terminal[:1].isupper() and lower.endswith(("config", "configuration")):
+        return True
+    tokens = lower.split("_")
+    configuration_tokens = {"config", "configs", "configuration", "configurations"}
+    positions = [
+        index for index, token in enumerate(tokens) if token in configuration_tokens
+    ]
+    if not positions:
+        return False
+    if tokens[0] in configuration_tokens and len(tokens) > 1 and tokens[1] == "from":
+        return True
+    producer_verbs = {
+        "build", "create", "fresh", "from", "load", "make", "parse",
+        "resolve", "setup", "to",
+    }
+    if tokens[0] not in producer_verbs:
+        return False
+    if positions[0] == 1:
+        return True
+    return positions[-1] == len(tokens) - 1 and not any(
+        token in {"for", "from"} for token in tokens[1 : positions[-1]]
     )
 
 
@@ -1768,10 +1804,10 @@ class _ConfigurationConsumerVisitor(ast.NodeVisitor):
         )
         if environment_config_read:
             self._record(node, "CONFIGURATION_READ", symbol)
-        elif _is_configuration_name(symbol) or terminal.startswith(
-            ("resolve_", "build_config", "create_config", "load_config")
-        ):
+        elif _is_configuration_constructor(symbol):
             self._record(node, "CONFIGURATION_CONSTRUCTION", symbol)
+        elif _is_configuration_name(symbol):
+            self._record(node, "CONFIGURATION_READ", symbol)
         for argument in (*node.args, *[keyword.value for keyword in node.keywords]):
             self.visit(argument)
 
@@ -1864,7 +1900,7 @@ def scan_configuration_consumers(
         "consumer_count": len(rows),
         "detector": {
             "id": "python-ast-configuration-consumer",
-            "version": "1",
+            "version": _CONFIGURATION_DETECTOR_VERSION,
         },
         "production_responsibility_paths": sorted(responsibility_paths),
         "production_responsibility_physical_lines": physical_lines,
@@ -1921,7 +1957,10 @@ def scan_workspace_configuration_consumers(repository: Path) -> dict[str, object
     )
     return {
         "consumer_count": len(rows),
-        "detector": {"id": "python-ast-configuration-consumer", "version": "1"},
+        "detector": {
+            "id": "python-ast-configuration-consumer",
+            "version": _CONFIGURATION_DETECTOR_VERSION,
+        },
         "production_responsibility_paths": sorted(responsibility_paths),
         "production_responsibility_physical_lines": physical_lines,
         "rows": rows,
