@@ -257,6 +257,7 @@ Deeper reading:
 | Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
+| Run a target-2.25 trial entry | [`docs/design/workflow_lisp_trial_runs.md`](docs/design/workflow_lisp_trial_runs.md) |
 
 If you are new to the repo, first compile the registry-approved `.orc` example
 below. Compilation validates the typed frontend without executing providers.
@@ -383,6 +384,9 @@ python -m orchestrator report --format md
 # Serve the dashboard
 python -m orchestrator dashboard --workspace "$(pwd)"
 
+# Inspect the target-2.25 terminal trial entry
+python -m orchestrator trial --help
+
 # Run the default non-e2e test loop
 pytest -m "not e2e" -v
 ```
@@ -391,7 +395,8 @@ pytest -m "not e2e" -v
 
 The Core/runtime contract spans multiple DSL versions, including the older
 `1.x` semantics and newer `2.x` structured-control, reusable-call,
-provider-session, managed-job, and materialization/variant surfaces. Fresh
+provider-session, managed-job, materialization/variant, and the
+target-2.24 `run-ref` / target-2.25 `trial` surfaces. Fresh
 authored source is `.orc`; authoritative versioning details live in
 [`specs/index.md`](specs/index.md) and
 [`specs/versioning.md`](specs/versioning.md).
