@@ -3054,53 +3054,127 @@ def _module_functions(
         elif len(bases) == 1:
             graph[symbol] = [bases[0]]
 
+    parent_by_node: dict[int, tuple[ast.AST, str, bool]] = {}
+    for parent in ast.walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if isinstance(value, ast.AST):
+                parent_by_node[id(value)] = (parent, field, False)
+            elif isinstance(value, list):
+                for child in value:
+                    if isinstance(child, ast.AST):
+                        parent_by_node[id(child)] = (parent, field, True)
+
+    def enclosing_suites(node: ast.AST) -> set[tuple[int, str]]:
+        suites: set[tuple[int, str]] = set()
+        while (parent := parent_by_node.get(id(node))) is not None:
+            owner_node, field, is_sequence = parent
+            if is_sequence and isinstance(node, ast.stmt):
+                suites.add((id(owner_node), field))
+            node = owner_node
+        return suites
+
     binding_events_by_owner: dict[
-        str, dict[str, list[tuple[int, int, str, str]]]
+        str, dict[str, list[tuple[int, int, str, str, tuple[int, str]]]]
     ] = {}
 
     def scope_binding_events(
         nodes: Sequence[ast.stmt], owner: str
-    ) -> dict[str, list[tuple[int, int, str, str]]]:
-        events: dict[str, list[tuple[int, int, str, str]]] = {}
+    ) -> dict[str, list[tuple[int, int, str, str, tuple[int, str]]]]:
+        events: dict[
+            str, list[tuple[int, int, str, str, tuple[int, str]]]
+        ] = {}
+        nested_nonlocal_mutations: set[str] = set()
+
+        def collect_nonlocal_mutations(scope: ast.AST) -> None:
+            declared: set[str] = set()
+            mutated: set[str] = set()
+            nested: list[ast.AST] = []
+            pending = list(ast.iter_child_nodes(scope))
+            while pending:
+                child = pending.pop()
+                if isinstance(
+                    child,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    nested.append(child)
+                    continue
+                if isinstance(child, ast.Nonlocal):
+                    declared.update(child.names)
+                elif isinstance(child, ast.Name) and isinstance(
+                    child.ctx, (ast.Store, ast.Del)
+                ):
+                    mutated.add(child.id)
+                pending.extend(ast.iter_child_nodes(child))
+            nested_nonlocal_mutations.update(declared & mutated)
+            for child in nested:
+                collect_nonlocal_mutations(child)
 
         def add(node: ast.AST, local: str, kind: str, target: str = "") -> None:
+            parent, field, is_sequence = parent_by_node[id(node)]
+            assert is_sequence
             events.setdefault(local, []).append(
-                (node.lineno, node.col_offset, kind, target)
+                (node.lineno, node.col_offset, kind, target, (id(parent), field))
             )
 
-        for node in nodes:
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                for local, target in imported_names(node).items():
-                    add(node, local, "import", target)
-                continue
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                target = f"{owner}.{node.name}"
-                known_node = function_by_symbol.get(target) or class_by_symbol.get(target)
-                add(
-                    node,
-                    node.name,
-                    "local" if known_node is node else "unknown",
-                    target,
+        def collect(suite: Sequence[ast.stmt]) -> None:
+            for node in suite:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for local, target in imported_names(node).items():
+                        add(node, local, "import", target)
+                    continue
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    collect_nonlocal_mutations(node)
+                    target = f"{owner}.{node.name}"
+                    known_node = function_by_symbol.get(target) or class_by_symbol.get(target)
+                    add(
+                        node,
+                        node.name,
+                        "local" if known_node is node else "unknown",
+                        target,
+                    )
+                    continue
+                bindings = _module_binding_counts(
+                    ast.Module(body=[node], type_ignores=[])
                 )
-                continue
-            bindings = _module_binding_counts(
-                ast.Module(body=[node], type_ignores=[])
-            )
-            for local in bindings:
-                target = f"{owner}.{local}"
-                if isinstance(node, ast.Assign) and target in graph:
-                    add(node, local, "local", target)
-                else:
-                    add(node, local, "unknown")
+                for local in bindings:
+                    target = f"{owner}.{local}"
+                    if isinstance(node, ast.Assign) and target in graph:
+                        add(node, local, "local", target)
+                    else:
+                        add(node, local, "unknown")
+                for field in ("body", "orelse", "finalbody"):
+                    nested = getattr(node, field, None)
+                    if isinstance(nested, list):
+                        collect(nested)
+                if isinstance(node, (ast.Try, ast.TryStar)):
+                    for handler in node.handlers:
+                        collect(handler.body)
+                elif isinstance(node, ast.Match):
+                    for case in node.cases:
+                        collect(case.body)
+
+        collect(nodes)
+        for local in nested_nonlocal_mutations:
+            local_events = events.get(local, ())
+            events[local] = [
+                (event[0], event[1], "unknown", "", event[4])
+                if event[2] == "import"
+                else event
+                for event in local_events
+            ]
         for local_events in events.values():
-            import_positions = sorted(
-                event[:2] for event in local_events if event[2] == "import"
-            )
+            imports_for_local = [event for event in local_events if event[2] == "import"]
+            import_positions = sorted(event[:2] for event in imports_for_local)
             if len(import_positions) > 1:
                 conflict_position = import_positions[1]
+                conflicting_suites = (
+                    len({event[3] for event in imports_for_local}) > 1
+                    and len({event[4] for event in imports_for_local}) > 1
+                )
                 local_events[:] = [
-                    (event[0], event[1], "unknown", "")
-                    if event[2] == "import" and event[:2] >= conflict_position
+                    (event[0], event[1], "unknown", "", event[4])
+                    if event[2] == "import"
+                    and (conflicting_suites or event[:2] >= conflict_position)
                     else event
                     for event in local_events
                 ]
@@ -3117,7 +3191,13 @@ def _module_functions(
             *((node.args.kwarg,) if node.args.kwarg is not None else ()),
         ):
             events.setdefault(argument.arg, []).append(
-                (node.lineno, node.col_offset, "unknown", "")
+                (
+                    node.lineno,
+                    node.col_offset,
+                    "unknown",
+                    "",
+                    (id(node), "body"),
+                )
             )
         binding_events_by_owner[owner] = events
 
@@ -3152,21 +3232,44 @@ def _module_functions(
         owner: str,
         binding_context: tuple[str, int] = ("runtime", 0),
     ) -> tuple[str, str] | None:
-        if not isinstance(call.func, ast.Name):
+        root: ast.AST = call.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name):
             return None
-        local = call.func.id
+        local = root.id
+        if isinstance(call.func, ast.Attribute):
+            scope = owner
+            while scope.startswith(module):
+                if any(
+                    event[2] == "import"
+                    for event in binding_events_by_owner.get(scope, {}).get(local, ())
+                ):
+                    break
+                if scope == module:
+                    return None
+                scope = scope.rsplit(".", 1)[0]
         position = (call.lineno, call.col_offset)
+        call_suites = enclosing_suites(call)
         scope = owner
         while scope.startswith(module):
             events = binding_events_by_owner.get(scope, {}).get(local, ())
             if scope == module and binding_context[0] == "source":
-                active = [event for event in events if event[0] <= binding_context[1]]
+                active = [
+                    event
+                    for event in events
+                    if event[4] in call_suites and event[0] <= binding_context[1]
+                ]
             elif scope == module and owner != module:
-                active = events
+                active = [event for event in events if event[4] in call_suites]
             else:
-                active = [event for event in events if event[:2] <= position]
+                active = [
+                    event
+                    for event in events
+                    if event[4] in call_suites and event[:2] <= position
+                ]
             if active:
-                _, _, kind, target = max(active, key=lambda event: event[:2])
+                _, _, kind, target, _ = max(active, key=lambda event: event[:2])
                 return kind, target
             if events:
                 return "unknown", ""
@@ -3176,15 +3279,18 @@ def _module_functions(
         return None
 
     def unresolved_binding_symbol(call: ast.Call, owner: str) -> str:
-        assert isinstance(call.func, ast.Name)
-        candidate = f"{module}.{call.func.id}"
+        root: ast.AST = call.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        assert isinstance(root, ast.Name)
+        candidate = f"{module}.{root.id}"
         if (
             candidate not in function_by_symbol
             and candidate not in class_by_symbol
             and candidate not in graph
         ):
             return candidate
-        return f"@unresolved-binding:{owner}:{call.func.id}"
+        return f"@unresolved-binding:{owner}:{root.id}"
 
     def local_callee(
         call: ast.Call,
@@ -3578,7 +3684,12 @@ def _module_functions(
         if binding is not None and binding[0] == "unknown":
             return unresolved_binding_symbol(call, owner)
         if binding is not None and binding[0] == "import":
-            return binding[1]
+            attributes: list[str] = []
+            value = call.func
+            while isinstance(value, ast.Attribute):
+                attributes.append(value.attr)
+                value = value.value
+            return ".".join((binding[1], *reversed(attributes)))
         target = (
             super_callee(call, owner)
             or (binding[1] if binding is not None else name(call.func, owner))

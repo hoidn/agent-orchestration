@@ -7194,3 +7194,200 @@ def test_evaluator_source_contains_no_superseded_task0_or_architecture_authority
         "_LEGACY_BYPASS_AUTHORITY",
     ):
         assert forbidden not in source
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        return render(runtime_config)\n"
+        "    return None\n",
+        "    try:\n"
+        "        from json import dumps as render\n"
+        "        return render(runtime_config)\n"
+        "    except TypeError:\n"
+        "        raise\n",
+        "    if enabled:\n"
+        "        import json\n"
+        "        return json.dumps(runtime_config)\n"
+        "    return None\n",
+    ),
+    ids=("if-suite", "try-suite", "attribute-if-suite"),
+)
+def test_import_dominating_call_in_same_lexical_suite_is_terminal(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def consume(runtime_config, enabled=True):\n" + body,
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+
+    assert consumers
+    assert all("json.dumps" in graph[consumer] for consumer in consumers)
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "    return render(runtime_config)\n",
+        "    try:\n"
+        "        from json import dumps as render\n"
+        "    except ImportError:\n"
+        "        pass\n"
+        "    return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "    else:\n"
+        "        from pathlib import Path as render\n"
+        "    return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        return render(runtime_config)\n"
+        "    else:\n"
+        "        from pathlib import Path as render\n"
+        "        return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        render = replacement\n"
+        "        return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        del render\n"
+        "        return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        import json\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "    except ImportError:\n"
+        "        pass\n"
+        "    return json.dumps(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        class Mutate:\n"
+        "            nonlocal render\n"
+        "            render = replacement\n"
+        "        return render(runtime_config)\n",
+        "    if enabled:\n"
+        "        from json import dumps as render\n"
+        "        def mutate():\n"
+        "            nonlocal render\n"
+        "            render = replacement\n"
+        "        mutate()\n"
+        "        return render(runtime_config)\n",
+    ),
+    ids=(
+        "outside-if",
+        "continuing-except",
+        "conflicting-branch-join",
+        "conflicting-branch-calls",
+        "rebind",
+        "delete",
+        "attribute-outside-if",
+        "attribute-continuing-except",
+        "nested-class-nonlocal-rebind",
+        "invoked-closure-nonlocal-rebind",
+    ),
+)
+def test_nested_import_without_local_dominance_fails_closed(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def replacement(value):\n"
+        "    return value\n"
+        "def consume(runtime_config, enabled=True):\n"
+        + body,
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps", "pathlib.Path"}),
+    )
+    consumers = {f"@consumer:{row['consumer_id']}" for row in rows}
+
+    assert consumers
+    assert all(
+        not {"json.dumps", "pathlib.Path"} & set(graph[consumer])
+        for consumer in consumers
+    )
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
+
+
+def test_optional_module_import_does_not_dominate_function_attribute_call(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "if False:\n"
+        "    import json\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
