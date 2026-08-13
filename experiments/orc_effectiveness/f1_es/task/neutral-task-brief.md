@@ -1,66 +1,50 @@
-# F1 Reloadable-Generator Extension Boundary
+# F1 Configuration Ownership
 
-Diagnose the change amplification involved in maintaining reloadable PyTorch
-CDI architectures. Design and implement the smallest coherent package-local
-extension boundary that reduces cross-cutting edits while preserving current
-construction, training, checkpoint and bundle reload, inference, public
-configuration, and supported artifact behavior.
+Diagnose and remove the change amplification caused by configuration ownership
+being spread across the product. Implement one coherent public configuration
+surface while preserving the behavior exercised by the frozen checks.
 
-The boundary must cover the frozen built-ins `cnn`, `ffno`, `fno`,
-`fno_vanilla`, `hybrid`, `hybrid_resnet`,
-`hybrid_resnet_convnext_bottleneck`, `hybrid_resnet_ffno_bottleneck`,
-`hybrid_resnet_ffno_ptychoblock_encoder`,
-`hybrid_resnet_ptychoblock_ffno_encoder`, `neuralop_uno`,
-`spectral_resnet_bottleneck_linear_decoder`,
-`spectral_resnet_bottleneck_net`, and `stable_hybrid`, in that order, plus one
-candidate-declared architecture whose implementation is distinct from every
-built-in. Each architecture crosses the same configuration, construction,
-training and optimizer, checkpoint and bundle persistence, fresh reload,
-inference, structural-identity, and round-trip reconstruction lifecycle.
+The completed product must:
 
-Produce working product code and tests, an architecture decision record, a
-concise extension-author guide, a versioned candidate-evidence record, and the
-fixed solution-neutral lifecycle adapter. The evidence record declares the
-ordered built-in rows, the separate candidate witness, structural fields and
-safe product-relative document paths. The other output paths, visible checks,
-lifecycle schemas, hard-contract clauses, and claim limits are frozen by
-`visible-task-contract.json`.
+- resolve simulation, training, inference, and runtime-execution configuration
+  through declared public entry points;
+- give file mappings and command-line patches a strict, documented precedence;
+- apply torch execution configuration transactionally, without leaving partial
+  or ambient state after a rejected update;
+- reject unknown or ill-typed input rather than silently accepting it through a
+  tolerant compatibility path;
+- isolate retired configuration state from modern entry points;
+- validate mappings at the boundary and derive public input fields from one
+  authority;
+- preserve source provenance across a fresh-process round trip; and
+- migrate production consumers across both backends, command-line entry points,
+  workflow components, and study scripts to the public surface.
 
-The exact Python runner, environment, invocation order, nineteen pre-edit
-selectors, and separate candidate-owned selector are frozen by
-`visible-check-manifest.json`; both required invocations must exit
-successfully.
+Produce working product code and tests, the fixed
+`scripts/es_f1_config_resolution_adapter.py`,
+`es_f1_candidate_evidence.json`, and
+`tests/test_es_f1_config_ownership.py`. Also produce a configuration decision
+record and a migration guide at safe product-relative paths declared in the
+candidate evidence. The evidence declares public resolution symbols and
+clause-scoped evidence paths; it does not declare evaluator observations,
+provenance findings, verdicts, or quantitative implementation measurements.
 
-The evaluator runs each required invocation from its own fresh empty external
-scratch working directory, outside the disposable exact-extract product copy.
-Selectors and project imports still resolve against that product copy;
-relative test and library outputs instead land in the invocation scratch
-directory and are discarded. The product copy must retain the same exact
-digest before and after every invocation. Do not assume that the process
-working directory is the product root.
+The exact runner, environment, pre-edit checks, separate candidate-owned check,
+output schemas, hard clauses, and claim limits are frozen by the visible task
+assets. Every required invocation must pass. Checks run from fresh external
+scratch directories against an exact disposable product copy, whose bytes must
+remain unchanged by verification. Do not assume the process working directory
+is the product root.
 
-The lifecycle adapter is a benchmark seam, not a prescribed internal product
-architecture. Its lifecycle-result responsibility is limited to materializing
-one checkpoint and one bundle path for each requested architecture. It
-receives per-case evaluator-owned configuration and CDI inputs whose paths and
-bytes are digest-bound by the request. It does not author lifecycle
-observations, process identities, structural values, artifact-era support,
-implementation identities, or pass/fail claims.
+The adapter is a path-materialization seam, not a prescribed product
+architecture. It receives evaluator-owned file mappings and command-line
+patches bound by digest and returns only safe paths to resolved records. The
+evaluator independently derives precedence, transactional behavior, strictness,
+consumer closure, provenance, cross-surface coherence, bypass classification,
+and pass/fail state.
 
-The evaluator verifies the candidate-evidence, input, operation, and result
-bindings, then independently loads and tamper-checks all artifacts. Every
-lifecycle, construction-identity, structural-roundtrip, fresh-process, and
-inference assertion is evaluator-derived through approved public APIs rather
-than accepted from adapter-authored claims.
-
-Every request path is relative to the evaluator-owned directory containing
-`request.json`, and every result artifact path is relative to the
-evaluator-owned directory containing `result.json`. The adapter must resolve
-those paths against the corresponding record root, never against its current
-working directory or an assumed candidate-workspace root.
-
-Do not assume a descriptor name, registry layout, payload nesting, class name,
-file count, or other particular internal representation. Existing physics,
-loss, scaling, and data ownership remain outside the new extension boundary.
-The study is task-specific and makes only the claim limits in the visible
-contract.
+Request paths are relative to the directory containing `request.json`; result
+paths are relative to the directory containing `result.json`. Do not assume a
+module name, class hierarchy, record nesting, file count, or internal
+representation. The study is task-specific and makes only the claim limits in
+the visible contract.

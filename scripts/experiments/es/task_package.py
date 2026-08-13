@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -19,71 +20,58 @@ from jsonschema import Draft202012Validator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _TASK_ASSET_ROOT = REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es/task"
-_TASK_PROFILE = REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es/task-profile.json"
+_TASK_PROFILE = (
+    REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es/task-profile.json"
+)
 _TASK_PROFILE_SCHEMA = _TASK_PROFILE.with_name("task-profile.schema.json")
 
-F1_BUILTIN_ARCHITECTURES = (
-    "cnn",
-    "ffno",
-    "fno",
-    "fno_vanilla",
-    "hybrid",
-    "hybrid_resnet",
-    "hybrid_resnet_convnext_bottleneck",
-    "hybrid_resnet_ffno_bottleneck",
-    "hybrid_resnet_ffno_ptychoblock_encoder",
-    "hybrid_resnet_ptychoblock_ffno_encoder",
-    "neuralop_uno",
-    "spectral_resnet_bottleneck_linear_decoder",
-    "spectral_resnet_bottleneck_net",
-    "stable_hybrid",
-)
 F1_PROVIDER_VISIBLE_SELECTORS = (
-    "tests/torch/test_generator_registry.py",
-    "tests/torch/test_construction_consolidation.py",
-    "tests/torch/test_generator_adapter.py",
+    "tests/test_simulation_config.py",
     "tests/torch/test_config_bridge.py",
-    "tests/torch/test_model_spec.py",
-    "tests/torch/test_model_spec_v2.py",
-    "tests/torch/test_lightning_checkpoint.py",
-    "tests/torch/test_artifact_schema.py",
-    "tests/torch/test_artifact_schema_v2.py",
-    "tests/torch/test_workflows_components.py",
-    "tests/torch/test_fno_generators.py",
-    "tests/torch/test_fno_lightning_integration.py",
-    "tests/torch/test_neuralop_uno_generator.py",
-    "tests/torch/test_model_output_modes.py",
-    "tests/torch/test_model_manager.py",
-    "tests/torch/test_model_training.py",
-    "tests/torch/test_train_lightning_execution_contract.py",
-    "tests/torch/test_object_big_generator_contract.py",
     "tests/torch/test_structural_config_ownership.py",
+    "tests/scripts/test_training_backend_selector.py",
+    "tests/scripts/test_inference_backend_selector.py",
+    "tests/scripts/test_simulation_config_cli.py",
+    "tests/torch/test_cli_shared.py",
+    "tests/test_workflow_components.py",
+    "tests/test_grid_lines_workflow.py",
+    "tests/torch/test_workflows_components.py",
+    "tests/torch/test_train_lightning_execution_contract.py",
+    "tests/torch/test_cli_train_torch.py",
+    "tests/studies/test_grid_study_dataset_builder.py",
+    "tests/studies/test_tf_reference_cnn_runner.py",
+    "tests/studies/test_openfwi_flatvel_a_run_config.py",
 )
-F1_LIFECYCLE_STAGES = (
-    "CONFIGURATION",
-    "CONSTRUCTION",
-    "FORWARD",
-    "BACKWARD",
-    "OPTIMIZER_STEP",
-    "CHECKPOINT_PERSISTENCE",
-    "CHECKPOINT_FRESH_RELOAD",
-    "BUNDLE_PERSISTENCE",
-    "BUNDLE_FRESH_RELOAD",
-    "POST_RELOAD_INFERENCE",
-    "STRUCTURAL_IDENTITY",
-    "ROUND_TRIP_RECONSTRUCTION",
+F1_CONFIG_RESOLUTION_ROLES = (
+    "SIMULATION",
+    "TRAINING",
+    "INFERENCE",
+    "RUNTIME_EXECUTION",
+)
+F1_REQUIRED_OUTCOMES = (
+    "PUBLIC_RESOLUTION",
+    "TRANSACTIONAL_TORCH_APPLICATION",
+    "TOLERANT_PATH_RETIREMENT",
+    "LEGACY_STATE_ISOLATION",
+    "BOUNDARY_VALIDATION_AND_DERIVATION",
+    "CONSUMER_MIGRATION",
+)
+F1_BYPASS_CLASSES = (
+    "AMBIENT_CONFIGURATION_READ",
+    "TOLERANT_OR_COMPATIBILITY_LOADER",
+    "LEGACY_CONFIGURATION_STATE_MUTATION",
 )
 F1_HARD_CLAUSE_IDS = (
     "F1-H01-FOCUSED-SUITES",
     "F1-H02-SCHEMA-CONFORMANCE",
-    "F1-H03-BUILTIN-SIGNATURES",
-    "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-    "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
-    "F1-H06-STRUCTURAL-ROUNDTRIP",
-    "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
-    "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
-    "F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
-    "F1-H10-OWNERSHIP-BOUNDARY",
+    "F1-H03-PUBLIC-RESOLUTION",
+    "F1-H04-TRANSACTIONAL-APPLICATION",
+    "F1-H05-STRICT-INPUT-CONTRACT",
+    "F1-H06-DERIVED-PUBLIC-FIELDS",
+    "F1-H07-CONSUMER-CLOSURE",
+    "F1-H08-PROVENANCE-ROUNDTRIP",
+    "F1-H09-CROSS-SURFACE-COHERENCE",
+    "F1-H10-BYPASS-ORACLE",
 )
 
 _CONTROLLED_GIT_ENVIRONMENT_NAMES = frozenset(
@@ -119,7 +107,6 @@ class TaskProfile:
     reviewer_perspective_ids: tuple[str, ...]
     review_dimension_ids: tuple[str, ...]
     focused_selectors: tuple[str, ...]
-    builtin_architectures: tuple[str, ...]
     required_task_seed_schema_version: str
     selector_manifest_record_digest: str
     environment_name: str
@@ -463,9 +450,7 @@ def _git_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
     """Build a Git environment independent of ambient repository/config state."""
 
     environment = {
-        name: value
-        for name, value in os.environ.items()
-        if not name.startswith("GIT_")
+        name: value for name, value in os.environ.items() if not name.startswith("GIT_")
     }
     environment.update(
         {
@@ -506,7 +491,9 @@ def _repository_path(value: object, *, label: str) -> Path:
         or any(part in {"", ".", ".."} for part in relative_path.parts)
     ):
         raise TaskPackageError(
-            "task_package_path_invalid", value, f"{label} is not canonical relative text"
+            "task_package_path_invalid",
+            value,
+            f"{label} is not canonical relative text",
         )
     candidate = REPOSITORY_ROOT.joinpath(*relative_path.parts)
     try:
@@ -557,11 +544,13 @@ def _expected_visible_asset_pairs() -> tuple[tuple[str, str], ...]:
     visible_check = cast(dict[str, object], profile["visible_check"])
     contract_check = cast(dict[str, object], contract["visible_checks"])
     expected_schema_targets = {
-        "CANDIDATE_EXTENSION_EVIDENCE": visible_schemas[
-            "candidate_extension_evidence"
+        "CANDIDATE_CONFIG_EVIDENCE": visible_schemas["candidate_config_evidence"],
+        "CONFIG_RESOLUTION_PROBE_REQUEST": visible_schemas[
+            "config_resolution_probe_request"
         ],
-        "LIFECYCLE_PROBE_REQUEST": visible_schemas["lifecycle_probe_request"],
-        "LIFECYCLE_PROBE_RESULT": visible_schemas["lifecycle_probe_result"],
+        "CONFIG_RESOLUTION_PROBE_RESULT": visible_schemas[
+            "config_resolution_probe_result"
+        ],
     }
     if (
         neutral_brief["overlay_path"] != contract_brief["path"]
@@ -569,8 +558,7 @@ def _expected_visible_asset_pairs() -> tuple[tuple[str, str], ...]:
         or tuple(binding["id"] for binding in schema_bindings)
         != tuple(expected_schema_targets)
         or any(
-            binding["overlay_path"]
-            != expected_schema_targets[cast(str, binding["id"])]
+            binding["overlay_path"] != expected_schema_targets[cast(str, binding["id"])]
             for binding in schema_bindings
         )
         or visible_check["overlay_path"] != contract_check["path"]
@@ -678,7 +666,7 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
     pre_edit = cast(list[str], invocations[0]["selectors"])
     candidate = cast(list[str], invocations[1]["selectors"])
     if tuple(pre_edit) != F1_PROVIDER_VISIBLE_SELECTORS or candidate != [
-        "tests/torch/test_es_f1_extension_boundary.py"
+        "tests/test_es_f1_config_ownership.py"
     ]:
         raise TaskPackageError(
             "visible_check_selector_mismatch",
@@ -721,7 +709,7 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
 
 
 def load_visible_task_contract(path: Path) -> dict[str, object]:
-    """Load the exact v2 matrix contract without requiring a Task-3 seed."""
+    """Load the exact F1v2 configuration-ownership contract."""
 
     contract_path = Path(path)
     payload = _load_canonical_json(
@@ -729,25 +717,33 @@ def load_visible_task_contract(path: Path) -> dict[str, object]:
         schema_path=contract_path.with_name("visible-task-contract.schema.json"),
     )
     hard_ids = tuple(
-        str(row["id"]) for row in cast(list[dict[str, object]], payload["hard_contract"])
+        str(row["id"])
+        for row in cast(list[dict[str, object]], payload["hard_contract"])
     )
-    if tuple(cast(list[str], payload["builtin_architectures"])) != F1_BUILTIN_ARCHITECTURES:
-        raise TaskPackageError(
-            "task_package_architecture_mismatch",
-            payload["builtin_architectures"],
-            "built-in architectures changed from the exact frozen order",
-        )
-    if tuple(cast(list[str], payload["focused_selectors"])) != F1_PROVIDER_VISIBLE_SELECTORS:
+    if (
+        tuple(cast(list[str], payload["focused_selectors"]))
+        != F1_PROVIDER_VISIBLE_SELECTORS
+    ):
         raise TaskPackageError(
             "task_package_selector_mismatch",
             payload["focused_selectors"],
             "provider-visible selectors changed from the exact frozen order",
         )
-    if tuple(cast(list[str], payload["required_lifecycle_stages"])) != F1_LIFECYCLE_STAGES:
+    outcome_ids = tuple(
+        str(row["id"])
+        for row in cast(list[dict[str, object]], payload["visible_outcomes"])
+    )
+    if outcome_ids != F1_REQUIRED_OUTCOMES:
         raise TaskPackageError(
-            "task_package_lifecycle_mismatch",
-            payload["required_lifecycle_stages"],
-            "required lifecycle stages changed from the exact frozen order",
+            "task_package_outcome_mismatch",
+            outcome_ids,
+            "required outcomes changed from the exact frozen order",
+        )
+    if tuple(cast(list[str], payload["bypass_classes"])) != F1_BYPASS_CLASSES:
+        raise TaskPackageError(
+            "task_package_bypass_mismatch",
+            payload["bypass_classes"],
+            "bypass classes changed from the exact frozen order",
         )
     if hard_ids != F1_HARD_CLAUSE_IDS:
         raise TaskPackageError(
@@ -788,21 +784,18 @@ def load_task_profile(path: Path) -> TaskProfile:
         )
     contract = load_visible_task_contract(contract_path)
     payload_fixed_outputs = cast(list[str], payload["fixed_output_paths"])
-    payload_declared_outputs = cast(
-        list[str], payload["candidate_declared_output_ids"]
-    )
+    payload_declared_outputs = cast(list[str], payload["candidate_declared_output_ids"])
     payload_hard_ids = cast(list[str], payload["hard_clause_ids"])
     payload_dispositions = cast(list[str], payload["finding_dispositions"])
     payload_perspectives = cast(list[str], payload["reviewer_perspective_ids"])
     payload_selectors = cast(list[str], payload["focused_selectors"])
-    payload_builtins = cast(list[str], payload["builtin_architectures"])
     payload_claim_ids = cast(list[str], payload["claim_limit_ids"])
     payload_review_dimensions = cast(list[str], payload["review_dimension_ids"])
     contract_dispositions = cast(list[str], contract["finding_dispositions"])
     contract_selectors = cast(list[str], contract["focused_selectors"])
-    contract_builtins = cast(list[str], contract["builtin_architectures"])
     fixed_outputs = tuple(
-        row["path"] for row in contract["candidate_outputs"]["fixed"]  # type: ignore[index,union-attr]
+        row["path"]
+        for row in contract["candidate_outputs"]["fixed"]  # type: ignore[index,union-attr]
     )
     declared_outputs = tuple(
         row["id"]
@@ -810,12 +803,11 @@ def load_task_profile(path: Path) -> TaskProfile:
     )
     hard_ids = tuple(row["id"] for row in contract["hard_contract"])  # type: ignore[union-attr]
     perspective_ids = tuple(
-        row["id"] for row in contract["reviewer_perspectives"]  # type: ignore[union-attr]
+        row["id"]
+        for row in contract["reviewer_perspectives"]  # type: ignore[union-attr]
     )
     claim_ids = tuple(row["id"] for row in contract["claim_limits"])  # type: ignore[union-attr]
-    contract_review_dimensions = tuple(
-        cast(list[str], contract["review_dimensions"])
-    )
+    contract_review_dimensions = tuple(cast(list[str], contract["review_dimensions"]))
     comparisons = (
         ("task_id", payload["task_id"], contract["task_id"]),
         ("fixed_output_paths", tuple(payload_fixed_outputs), fixed_outputs),
@@ -840,11 +832,6 @@ def load_task_profile(path: Path) -> TaskProfile:
             tuple(payload_selectors),
             tuple(contract_selectors),
         ),
-        (
-            "builtin_architectures",
-            tuple(payload_builtins),
-            tuple(contract_builtins),
-        ),
         ("claim_limit_ids", tuple(payload_claim_ids), claim_ids),
         (
             "review_dimension_ids",
@@ -859,12 +846,6 @@ def load_task_profile(path: Path) -> TaskProfile:
                 recorded,
                 f"{label} disagrees with the visible contract",
             )
-    if tuple(payload_builtins) != F1_BUILTIN_ARCHITECTURES:
-        raise TaskPackageError(
-            "task_package_architecture_mismatch",
-            payload_builtins,
-            "built-in architectures changed from the exact frozen order",
-        )
     if tuple(payload_hard_ids) != F1_HARD_CLAUSE_IDS:
         raise TaskPackageError(
             "task_package_hard_clause_mismatch",
@@ -907,7 +888,7 @@ def load_task_profile(path: Path) -> TaskProfile:
     assert isinstance(selector_binding, dict)
     expected_seed_binding = {
         "manifest_path": "experiments/orc_effectiveness/f1_es/task-seed-manifest.json",
-        "required_schema_version": "es_f1_task_seed.v2",
+        "required_schema_version": "es_f1_task_seed.v3",
         "schema_path": "experiments/orc_effectiveness/f1_es/task-seed-manifest.schema.json",
     }
     if seed_binding != expected_seed_binding:
@@ -919,48 +900,32 @@ def load_task_profile(path: Path) -> TaskProfile:
     selector_manifest_path = _repository_path(
         selector_binding["manifest_path"], label="pre-edit selector manifest path"
     )
-    selector_schema_path = _repository_path(
+    _repository_path(
         selector_binding["schema_path"], label="pre-edit selector schema path"
     )
-    selector_manifest = _load_preedit_selector_authority(
-        selector_manifest_path,
-        selector_schema_path,
-    )
-    record_without_digest = {
-        key: value
-        for key, value in selector_manifest.items()
-        if key != "record_sha256"
-    }
-    computed_selector_record_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(record_without_digest)
-    ).hexdigest()
-    provider_selector_rows = cast(
-        list[dict[str, object]],
-        selector_manifest["provider_visible_pytest_selectors"],
-    )
-    controller_selector_rows = cast(
-        list[dict[str, object]],
-        selector_manifest["controller_only_proof_selectors"],
-    )
-    selector_paths = tuple(
-        str(row["pytest_module_path"]) for row in provider_selector_rows
-    )
-    selector_paths_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(list(selector_paths))
-    ).hexdigest()
+    selector_manifest = load_f1v2_selector_manifest(selector_manifest_path)
+    selector_paths = tuple(cast(list[str], selector_manifest["selectors"]))
     if (
-        selector_manifest["record_sha256"]
-        != selector_binding["record_sha256"]
-        or computed_selector_record_digest != selector_binding["record_sha256"]
+        selector_manifest["record_sha256"] != selector_binding["record_sha256"]
         or selector_paths != F1_PROVIDER_VISIBLE_SELECTORS
-        or selector_paths_digest
-        != selector_binding["provider_visible_pytest_selectors_sha256"]
-        or not controller_selector_rows
+        or selector_manifest["ordered_module_list_sha256"]
+        != selector_binding["ordered_module_list_sha256"]
     ):
         raise TaskPackageError(
             "task_package_selector_authority_mismatch",
             selector_binding,
-            "task profile must bind the complete two-lane Task-0 selector authority",
+            "task profile must bind the complete F1v2 selector record",
+        )
+    census_binding = cast(dict[str, object], payload["consumer_census"])
+    census_path = _repository_path(
+        census_binding["path"], label="configuration consumer census path"
+    )
+    census = load_configuration_consumer_census(census_path)
+    if census["record_sha256"] != census_binding["record_sha256"]:
+        raise TaskPackageError(
+            "task_package_binding_mismatch",
+            census_binding,
+            "task profile must bind the complete configuration consumer census",
         )
 
     brief_path = _repository_path(
@@ -980,14 +945,14 @@ def load_task_profile(path: Path) -> TaskProfile:
         )
 
     expected_schema_paths = {
-        "CANDIDATE_EXTENSION_EVIDENCE": contract["visible_schemas"][  # type: ignore[index]
-            "candidate_extension_evidence"
+        "CANDIDATE_CONFIG_EVIDENCE": contract["visible_schemas"][  # type: ignore[index]
+            "candidate_config_evidence"
         ],
-        "LIFECYCLE_PROBE_REQUEST": contract["visible_schemas"][  # type: ignore[index]
-            "lifecycle_probe_request"
+        "CONFIG_RESOLUTION_PROBE_REQUEST": contract["visible_schemas"][  # type: ignore[index]
+            "config_resolution_probe_request"
         ],
-        "LIFECYCLE_PROBE_RESULT": contract["visible_schemas"][  # type: ignore[index]
-            "lifecycle_probe_result"
+        "CONFIG_RESOLUTION_PROBE_RESULT": contract["visible_schemas"][  # type: ignore[index]
+            "config_resolution_probe_result"
         ],
     }
     if tuple(row["id"] for row in schema_bindings) != tuple(expected_schema_paths):
@@ -1038,26 +1003,23 @@ def load_task_profile(path: Path) -> TaskProfile:
             checks.pre_edit_selectors,
             "visible checks disagree with the task profile selectors",
         )
-    perspective_rows = cast(
-        list[dict[str, object]], contract["reviewer_perspectives"]
-    )
+    perspective_rows = cast(list[dict[str, object]], contract["reviewer_perspectives"])
     owned_dimensions = tuple(
         dimension
         for perspective in perspective_rows
         for dimension in cast(list[str], perspective["owned_dimensions"])
     )
-    if (
-        len(set(owned_dimensions)) != len(owned_dimensions)
-        or set(owned_dimensions) != set(contract_review_dimensions)
-    ):
+    if len(set(owned_dimensions)) != len(owned_dimensions) or set(
+        owned_dimensions
+    ) != set(contract_review_dimensions):
         raise TaskPackageError(
             "task_package_binding_mismatch",
             owned_dimensions,
             "reviewer perspectives must partition the exact frozen dimensions",
         )
-    selectors_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(payload_selectors)
-    ).hexdigest()
+    selectors_digest = (
+        "sha256:" + hashlib.sha256(canonical_json_bytes(payload_selectors)).hexdigest()
+    )
     if selectors_digest != profile_environment["focused_selectors_sha256"]:
         raise TaskPackageError(
             "task_package_binding_mismatch",
@@ -1080,10 +1042,7 @@ def load_task_profile(path: Path) -> TaskProfile:
         reviewer_perspective_ids=perspective_ids,
         review_dimension_ids=contract_review_dimensions,
         focused_selectors=tuple(payload_selectors),
-        builtin_architectures=tuple(payload_builtins),
-        required_task_seed_schema_version=str(
-            seed_binding["required_schema_version"]
-        ),
+        required_task_seed_schema_version=str(seed_binding["required_schema_version"]),
         selector_manifest_record_digest=str(selector_binding["record_sha256"]),
         environment_name=str(profile_environment["conda_environment"]),
         claim_limit_ids=claim_ids,
@@ -1141,8 +1100,7 @@ def load_execution_ready_task_profile(
     )
     if (
         seed_path != bound_manifest_path
-        or seed_path.with_name("task-seed-manifest.schema.json")
-        != bound_schema_path
+        or seed_path.with_name("task-seed-manifest.schema.json") != bound_schema_path
     ):
         raise TaskPackageError(
             "task_package_seed_not_ready",
@@ -1336,9 +1294,9 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
             "visible assets must be unique and sorted source to overlay target",
         )
     _require_visible_asset_allowlist(tuple(rows))
-    rows_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(canonical_rows)
-    ).hexdigest()
+    rows_digest = (
+        "sha256:" + hashlib.sha256(canonical_json_bytes(canonical_rows)).hexdigest()
+    )
     if (
         assets_payload["row_count"] != len(rows)
         or assets_payload["sha256"] != rows_digest
@@ -1364,8 +1322,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
         )
     if (
         recipe["message_bytes"] != len(message)
-        or recipe["message_sha256"]
-        != "sha256:" + hashlib.sha256(message).hexdigest()
+        or recipe["message_sha256"] != "sha256:" + hashlib.sha256(message).hexdigest()
     ):
         raise TaskPackageError(
             "task_seed_recipe_mismatch",
@@ -1389,9 +1346,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
         locator=locator,
         repository_snapshot_digest=str(repository["repository_snapshot_sha256"]),
         e1_source_manifest_digest=str(actual_e1["source_tree_manifest_sha256"]),
-        e1_post_setup_manifest_digest=str(
-            actual_e1["post_setup_tree_manifest_sha256"]
-        ),
+        e1_post_setup_manifest_digest=str(actual_e1["post_setup_tree_manifest_sha256"]),
         raw=payload,
     )
     content = render_task_seed_commit_content(result)
@@ -1420,228 +1375,497 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
     return result
 
 
-def load_candidate_extension_evidence(path: Path) -> dict[str, object]:
-    """Validate candidate declarations without manufacturing evaluator verdicts."""
+def _safe_relative_path(value: object, *, label: str) -> str:
+    """Validate a canonical product-relative path without requiring it to exist."""
+
+    if not isinstance(value, str):
+        raise TaskPackageError("task_package_path_invalid", value, label)
+    candidate = PurePosixPath(value)
+    if (
+        candidate.is_absolute()
+        or not candidate.parts
+        or candidate.as_posix() != value
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+    ):
+        raise TaskPackageError("task_package_path_invalid", value, label)
+    return value
+
+
+def load_candidate_config_evidence(path: Path) -> dict[str, object]:
+    """Validate candidate-declared configuration surfaces, never evaluator facts."""
 
     payload = _load_canonical_json(
         Path(path),
-        schema_path=_TASK_ASSET_ROOT / "candidate-extension-evidence.schema.json",
+        schema_path=_TASK_ASSET_ROOT / "candidate-config-evidence.schema.json",
     )
-    profile = load_task_profile(_TASK_PROFILE)
-    claims = payload["claims"]
-    builtins = payload["builtin_architectures"]
-    witness = payload["candidate_witness"]
-    assert isinstance(claims, list)
-    assert isinstance(builtins, list)
-    assert isinstance(witness, dict)
-    claim_ids = tuple(row["clause_id"] for row in claims)
-    if claim_ids != profile.hard_clause_ids:
+    routes = cast(list[dict[str, object]], payload["public_resolution_routes"])
+    observed_roles = tuple(
+        str(role) for row in routes for role in cast(list[str], row["roles"])
+    )
+    if observed_roles != F1_CONFIG_RESOLUTION_ROLES:
+        raise TaskPackageError(
+            "candidate_evidence_role_mismatch",
+            observed_roles,
+            "public routes must partition every configuration role once in order",
+        )
+    claims = cast(list[dict[str, object]], payload["claims"])
+    claim_ids = tuple(str(row["clause_id"]) for row in claims)
+    if claim_ids != F1_HARD_CLAUSE_IDS:
         raise TaskPackageError(
             "candidate_evidence_clause_mismatch",
             claim_ids,
             "candidate claims must enumerate every hard clause exactly once in order",
         )
-    builtin_ids = tuple(str(row["public_id"]) for row in builtins)
-    if builtin_ids != profile.builtin_architectures:
-        raise TaskPackageError(
-            "candidate_evidence_builtin_matrix_mismatch",
-            builtin_ids,
-            "built-in architecture rows must be exact, unique, and ordered",
-        )
-    witness_id = str(witness["public_id"])
-    if witness_id in set(profile.builtin_architectures):
-        raise TaskPackageError(
-            "candidate_evidence_witness_identity_invalid",
-            witness_id,
-            "candidate witness must be distinct from every frozen public ID",
-        )
-    for architecture in (*builtins, witness):
-        assert isinstance(architecture, dict)
-        structural_fields = architecture["structural_fields"]
-        assert isinstance(structural_fields, list)
-        field_names = tuple(str(row["name"]) for row in structural_fields)
-        if len(set(field_names)) != len(field_names) or any(
-            row["baseline_value"] == row["alternate_value"]
-            for row in structural_fields
-        ):
-            raise TaskPackageError(
-                "candidate_evidence_structural_field_invalid",
-                structural_fields,
-                "each architecture needs unique fields with distinct alternate values",
-            )
-    builtin_field_names = {
-        str(field["name"])
-        for architecture in builtins
-        for field in architecture["structural_fields"]
-    }
-    witness_field_names = {
-        str(field["name"]) for field in witness["structural_fields"]
-    }
-    if not witness_field_names - builtin_field_names:
-        raise TaskPackageError(
-            "candidate_evidence_witness_structural_field_invalid",
-            tuple(sorted(witness_field_names)),
-            "candidate witness needs at least one witness-only structural field name",
-        )
     declared_paths = (
-        str(payload["architecture_decision_path"]),
-        str(payload["extension_author_guide_path"]),
+        str(payload["configuration_decision_path"]),
+        str(payload["migration_guide_path"]),
     )
-    if (
-        len(set(declared_paths)) != 2
-        or any(
-            path == fixed or path.startswith("benchmark/es_f1/")
-            for path in declared_paths
-            for fixed in profile.fixed_output_paths
-        )
-    ):
+    fixed = cast(dict[str, str], payload["fixed_outputs"])
+    fixed_paths = (fixed["adapter_path"], fixed["candidate_test_path"])
+    for candidate_path in (*declared_paths, *fixed_paths):
+        _safe_relative_path(candidate_path, label="candidate output path is unsafe")
+    if len(set((*declared_paths, *fixed_paths))) != 4:
         raise TaskPackageError(
             "candidate_evidence_path_invalid",
-            declared_paths,
-            "candidate-declared document paths collide with frozen outputs",
+            (*declared_paths, *fixed_paths),
+            "candidate output paths must be distinct",
+        )
+    expected_fixed = (
+        "scripts/es_f1_config_resolution_adapter.py",
+        "tests/test_es_f1_config_ownership.py",
+    )
+    if fixed_paths != expected_fixed:
+        raise TaskPackageError(
+            "candidate_evidence_path_invalid",
+            fixed_paths,
+            "candidate fixed outputs changed",
         )
     return payload
 
 
-def load_lifecycle_probe_request(path: Path) -> dict[str, object]:
-    """Load one evaluator-owned full-matrix lifecycle request."""
+def load_config_resolution_probe_request(
+    path: Path,
+    *,
+    expected_candidate_id: str | None = None,
+    expected_case_ids: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    """Load one evaluator-bound configuration-resolution probe request."""
 
+    if expected_candidate_id is None or expected_case_ids is None:
+        raise TaskPackageError(
+            "config_resolution_probe_context_missing",
+            None,
+            "the evaluator must supply candidate identity and exact case order",
+        )
     request_path = Path(path)
     payload = _load_canonical_json(
         request_path,
-        schema_path=_TASK_ASSET_ROOT / "lifecycle-probe-request.schema.json",
+        schema_path=_TASK_ASSET_ROOT / "config-resolution-probe-request.schema.json",
     )
     evidence_path = request_path.parent / str(payload["candidate_evidence_path"])
     if _digest(evidence_path) != payload["candidate_evidence_sha256"]:
         raise TaskPackageError(
-            "lifecycle_probe_evidence_mismatch",
+            "config_resolution_probe_evidence_mismatch",
             str(evidence_path),
             "candidate evidence bytes disagree with the request binding",
         )
-    evidence = load_candidate_extension_evidence(evidence_path)
-    if payload["candidate_id"] != evidence["candidate_id"]:
+    evidence = load_candidate_config_evidence(evidence_path)
+    if (
+        payload["candidate_id"] != expected_candidate_id
+        or payload["candidate_id"] != evidence["candidate_id"]
+    ):
         raise TaskPackageError(
-            "lifecycle_probe_evidence_mismatch",
+            "config_resolution_probe_candidate_mismatch",
             payload["candidate_id"],
-            "candidate ID disagrees with the bound evidence",
+            "candidate identity disagrees with evaluator context or evidence",
         )
-    evidence_builtins = cast(list[dict[str, object]], evidence["builtin_architectures"])
-    evidence_witness = cast(dict[str, object], evidence["candidate_witness"])
-    evidence_rows = (*evidence_builtins, evidence_witness)
-    cases = cast(list[dict[str, object]], payload["architecture_cases"])
-    architecture_ids = tuple(str(row["architecture_id"]) for row in cases)
-    expected_ids = tuple(str(row["public_id"]) for row in evidence_rows)
-    if architecture_ids != expected_ids:
+    rows = cast(list[dict[str, object]], payload["probe_cases"])
+    observed_ids = tuple(str(row["case_id"]) for row in rows)
+    if observed_ids != expected_case_ids:
         raise TaskPackageError(
-            "lifecycle_probe_architecture_matrix_mismatch",
-            architecture_ids,
-            "lifecycle cases must match the exact built-in-plus-witness order",
+            "config_resolution_probe_case_mismatch",
+            observed_ids,
+            "probe cases must match the evaluator-derived order exactly",
         )
-    if tuple(cast(list[str], payload["required_lifecycle_stages"])) != F1_LIFECYCLE_STAGES:
+    paths = tuple(
+        str(cast(dict[str, str], row[binding])["path"])
+        for row in rows
+        for binding in ("file_mapping", "cli_patch")
+    )
+    for bound_path in paths:
+        _safe_relative_path(bound_path, label="probe input path is unsafe")
+    if len(paths) != len(set(paths)):
         raise TaskPackageError(
-            "lifecycle_probe_stage_mismatch",
-            payload["required_lifecycle_stages"],
-            "the complete boundary lifecycle must be requested exactly once",
-        )
-    bound_paths: list[str] = []
-    for case, declared in zip(cases, evidence_rows, strict=True):
-        architecture_id = str(case["architecture_id"])
-        if architecture_id in F1_BUILTIN_ARCHITECTURES:
-            expected_n = 128 if architecture_id == "neuralop_uno" else 64
-            if case["N"] != expected_n:
-                raise TaskPackageError(
-                    "lifecycle_probe_image_size_mismatch",
-                    {"architecture_id": architecture_id, "N": case["N"]},
-                    "neuralop_uno requires N=128 and every other built-in "
-                    "requires N=64",
-                )
-        expected_case_bindings = (
-            declared["construction_route"],
-            declared["persisted_rebuild_route"],
-            declared["structural_fields"],
-        )
-        observed_case_bindings = (
-            case["construction_route"],
-            case["persisted_rebuild_route"],
-            case["structural_fields"],
-        )
-        if observed_case_bindings != expected_case_bindings:
-            raise TaskPackageError(
-                "lifecycle_probe_case_binding_mismatch",
-                architecture_id,
-                "request routes and structural fields disagree with candidate evidence",
-            )
-        for binding_name in ("config", "input"):
-            binding = cast(dict[str, str], case[binding_name])
-            bound_paths.append(binding["path"])
-    if len(bound_paths) != len(set(bound_paths)):
-        raise TaskPackageError(
-            "lifecycle_probe_case_binding_mismatch",
-            bound_paths,
-            "per-case config and input paths must be unique",
-        )
-    output_dir = str(payload["lifecycle_output_dir"])
-    if output_dir == "benchmark/es_f1" or output_dir.startswith("benchmark/es_f1/"):
-        raise TaskPackageError(
-            "lifecycle_probe_path_invalid",
-            output_dir,
-            "lifecycle output cannot overlap frozen visible assets",
+            "config_resolution_probe_path_invalid",
+            paths,
+            "probe input paths must be unique",
         )
     return payload
 
 
-def load_lifecycle_probe_result(
+def load_config_resolution_probe_result(
     path: Path,
     *,
-    expected_architecture_ids: tuple[str, ...] | None = None,
     expected_candidate_id: str | None = None,
+    expected_case_ids: tuple[str, ...] | None = None,
 ) -> dict[str, object]:
-    """Load candidate artifact paths; evaluator-owned behavior stays out of the record."""
+    """Load candidate-authored result paths with evaluator context required."""
 
+    if expected_candidate_id is None or expected_case_ids is None:
+        raise TaskPackageError(
+            "config_resolution_probe_context_missing",
+            None,
+            "the evaluator must supply candidate identity and exact case order",
+        )
     payload = _load_canonical_json(
         Path(path),
-        schema_path=_TASK_ASSET_ROOT / "lifecycle-probe-result.schema.json",
+        schema_path=_TASK_ASSET_ROOT / "config-resolution-probe-result.schema.json",
     )
-    if expected_architecture_ids is None or expected_candidate_id is None:
-        raise TaskPackageError(
-            "lifecycle_probe_result_context_missing",
-            None,
-            "the evaluator must supply the request-derived architecture order "
-            "and candidate ID",
-        )
-    rows = cast(list[dict[str, str]], payload["architecture_results"])
-    observed_ids = tuple(row["architecture_id"] for row in rows)
-    if (
-        len(expected_architecture_ids) != 15
-        or expected_architecture_ids[:14] != F1_BUILTIN_ARCHITECTURES
-        or expected_architecture_ids[-1] in set(F1_BUILTIN_ARCHITECTURES)
-        or observed_ids != expected_architecture_ids
-    ):
-        raise TaskPackageError(
-            "lifecycle_probe_result_matrix_mismatch",
-            observed_ids,
-            "result rows must match the request-derived fifteen-row order",
-        )
     if payload["candidate_id"] != expected_candidate_id:
         raise TaskPackageError(
-            "lifecycle_probe_result_candidate_mismatch",
+            "config_resolution_probe_candidate_mismatch",
             payload["candidate_id"],
-            "result candidate ID must match the request-derived candidate ID",
+            "result candidate identity disagrees with evaluator context",
         )
-    artifact_paths = tuple(
-        artifact_path
-        for row in rows
-        for artifact_path in (row["checkpoint_path"], row["bundle_path"])
+    rows = cast(list[dict[str, str]], payload["probe_results"])
+    observed_ids = tuple(row["case_id"] for row in rows)
+    paths = tuple(row["resolved_record_path"] for row in rows)
+    if observed_ids != expected_case_ids:
+        raise TaskPackageError(
+            "config_resolution_probe_case_mismatch",
+            observed_ids,
+            "result rows must match the evaluator-derived order exactly",
+        )
+    for result_path in paths:
+        _safe_relative_path(result_path, label="probe result path is unsafe")
+    if len(paths) != len(set(paths)):
+        raise TaskPackageError(
+            "config_resolution_probe_path_invalid",
+            paths,
+            "probe result paths must be unique",
+        )
+    return payload
+
+
+_CONFIGURATION_DOMAINS = (
+    "CORE_CONFIGURATION",
+    "TENSORFLOW_BACKEND",
+    "TORCH_BACKEND",
+    "CLI_ENTRY_POINT",
+    "WORKFLOW_COMPONENT",
+    "STUDY_SCRIPT",
+)
+_CONFIGURATION_ROOTS = ("ptycho/", "ptycho_torch/", "scripts/")
+_CONFIGURATION_NAMES = frozenset({"config", "cfg", "configuration"})
+
+
+def _configuration_domain(path: str) -> str:
+    if path.startswith("scripts/studies/"):
+        return "STUDY_SCRIPT"
+    if path.startswith("scripts/") or path.startswith("ptycho_torch/cli/"):
+        return "CLI_ENTRY_POINT"
+    if "/workflows/" in path:
+        return "WORKFLOW_COMPONENT"
+    if path.startswith("ptycho_torch/"):
+        return "TORCH_BACKEND"
+    if path.startswith("ptycho/config/"):
+        return "CORE_CONFIGURATION"
+    return "TENSORFLOW_BACKEND"
+
+
+def _dotted_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    if isinstance(node, ast.Subscript):
+        return _dotted_name(node.value)
+    return ""
+
+
+def _is_configuration_name(value: str) -> bool:
+    return any(
+        part.lower() in _CONFIGURATION_NAMES
+        or part.lower().endswith("_config")
+        or part.lower().endswith("configuration")
+        for part in value.split(".")
     )
-    if len(artifact_paths) != len(set(artifact_paths)) or any(
-        artifact_path == "benchmark/es_f1"
-        or artifact_path.startswith("benchmark/es_f1/")
-        for artifact_path in artifact_paths
+
+
+class _ConfigurationConsumerVisitor(ast.NodeVisitor):
+    def __init__(self, path: str, blob_oid: str) -> None:
+        self.path = path
+        self.blob_oid = blob_oid
+        self.scope: list[str] = []
+        self.rows: list[dict[str, object]] = []
+
+    def _route(self) -> str:
+        module = self.path.removesuffix(".py").replace("/", ".")
+        return ".".join((module, *self.scope))
+
+    def _record(self, node: ast.AST, kind: str, symbol: str) -> None:
+        route = self._route()
+        bypasses: list[str] = []
+        lower = symbol.lower()
+        tokens = tuple(lower.replace("-", "_").split("."))
+        if lower in {"os.environ", "os.getenv"} or lower.startswith(
+            ("global_config.", "ambient_config.", "legacy_config_state.")
+        ):
+            bypasses.append("AMBIENT_CONFIGURATION_READ")
+        if any(
+            token == "load_config"
+            or token.startswith("load_config_")
+            or token.endswith("_load_config")
+            or token.startswith("from_config")
+            or "compatibility_config" in token
+            or "legacy_config_loader" in token
+            for token in tokens
+        ):
+            bypasses.append("TOLERANT_OR_COMPATIBILITY_LOADER")
+        if "legacy" in lower or lower.endswith(
+            ("update_existing_config", "update_legacy_dict", "scoped_legacy_params")
+        ):
+            bypasses.append("LEGACY_CONFIGURATION_STATE_MUTATION")
+        domain = _configuration_domain(self.path)
+        responsibilities = ["CONSUMER_MIGRATION"]
+        if kind == "CONFIGURATION_CONSTRUCTION":
+            responsibilities[0:0] = [
+                "PUBLIC_RESOLUTION",
+                "BOUNDARY_VALIDATION_AND_DERIVATION",
+            ]
+        else:
+            responsibilities.insert(0, "LEGACY_STATE_ISOLATION")
+        if domain == "TORCH_BACKEND":
+            responsibilities.insert(0, "TRANSACTIONAL_TORCH_APPLICATION")
+        if "TOLERANT_OR_COMPATIBILITY_LOADER" in bypasses:
+            responsibilities.insert(0, "TOLERANT_PATH_RETIREMENT")
+        responsibilities = [
+            item for item in F1_REQUIRED_OUTCOMES if item in responsibilities
+        ]
+        chain = [route]
+        if symbol and symbol != route:
+            chain.append(symbol)
+        base = {
+            "blob_oid": self.blob_oid,
+            "bypass_classes": [item for item in F1_BYPASS_CLASSES if item in bypasses],
+            "consumer_domain": domain,
+            "match_kind": kind,
+            "path": self.path,
+            "public_entry_route": route,
+            "responsibility_ids": responsibilities,
+            "source_span": {
+                "end_col": int(getattr(node, "end_col_offset", node.col_offset + 1)),
+                "end_line": int(getattr(node, "end_lineno", node.lineno)),
+                "start_col": int(node.col_offset),
+                "start_line": int(node.lineno),
+            },
+            "transitive_wrapper_chain": chain,
+        }
+        consumer_id = hashlib.sha256(canonical_json_bytes(base)).hexdigest()[:24]
+        self.rows.append({"consumer_id": f"config-consumer-{consumer_id}", **base})
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Call(self, node: ast.Call) -> None:
+        symbol = _dotted_name(node.func)
+        if symbol.startswith("tf.config."):
+            for argument in (*node.args, *[keyword.value for keyword in node.keywords]):
+                self.visit(argument)
+            return
+        terminal = symbol.rsplit(".", 1)[-1].lower()
+        environment_config_read = (
+            symbol == "os.getenv"
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and "config" in node.args[0].value.lower()
+        )
+        if environment_config_read:
+            self._record(node, "CONFIGURATION_READ", symbol)
+        elif _is_configuration_name(symbol) or terminal.startswith(
+            ("resolve_", "build_config", "create_config", "load_config")
+        ):
+            self._record(node, "CONFIGURATION_CONSTRUCTION", symbol)
+        for argument in (*node.args, *[keyword.value for keyword in node.keywords]):
+            self.visit(argument)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        symbol = _dotted_name(node)
+        if (
+            isinstance(node.ctx, ast.Load)
+            and _is_configuration_name(symbol)
+            and not symbol.startswith("tf.config.")
+        ):
+            self._record(node, "CONFIGURATION_READ", symbol)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        symbol = _dotted_name(node)
+        environment_config_read = (
+            symbol == "os.environ"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+            and "config" in node.slice.value.lower()
+        )
+        if isinstance(node.ctx, ast.Load) and (
+            _is_configuration_name(symbol) or environment_config_read
+        ):
+            self._record(node, "CONFIGURATION_READ", symbol)
+        self.visit(node.slice)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Load) and _is_configuration_name(node.id):
+            self._record(node, "CONFIGURATION_READ", node.id)
+
+
+def scan_configuration_consumers(
+    repository: Path,
+    commit: str,
+) -> dict[str, object]:
+    """Scan one immutable projection for configuration construction and reads."""
+
+    root = Path(repository)
+    resolved_commit = (
+        _run_git(root, "rev-parse", f"{commit}^{{commit}}").decode().strip()
+    )
+    tree = _run_git(root, "rev-parse", f"{commit}^{{tree}}").decode().strip()
+    if resolved_commit != commit:
+        raise TaskPackageError(
+            "configuration_census_projection_mismatch",
+            resolved_commit,
+            "projection commit did not resolve exactly",
+        )
+    paths = tuple(
+        row.decode("utf-8")
+        for row in _run_git(root, "ls-tree", "-r", "--name-only", "-z", commit).split(
+            b"\0"
+        )
+        if row
+        and row.decode("utf-8").endswith(".py")
+        and row.decode("utf-8").startswith(_CONFIGURATION_ROOTS)
+        and not row.decode("utf-8").startswith(("scripts/orchestration/",))
+    )
+    all_rows: list[dict[str, object]] = []
+    responsibility_paths: set[str] = set()
+    physical_lines = 0
+    for path in paths:
+        source = _run_git(root, "show", f"{commit}:{path}")
+        try:
+            tree_node = ast.parse(source, filename=path)
+        except (SyntaxError, UnicodeDecodeError) as exc:
+            raise TaskPackageError(
+                "configuration_census_parse_failed",
+                path,
+                "production Python could not be parsed",
+            ) from exc
+        blob_oid = _run_git(root, "rev-parse", f"{commit}:{path}").decode().strip()
+        visitor = _ConfigurationConsumerVisitor(path, blob_oid)
+        visitor.visit(tree_node)
+        if visitor.rows:
+            responsibility_paths.add(path)
+            physical_lines += len(source.decode("utf-8").splitlines())
+            all_rows.extend(visitor.rows)
+    rows = sorted(
+        all_rows,
+        key=lambda row: (
+            str(row["path"]),
+            int(cast(dict[str, int], row["source_span"])["start_line"]),
+            int(cast(dict[str, int], row["source_span"])["start_col"]),
+            str(row["match_kind"]),
+            str(row["consumer_id"]),
+        ),
+    )
+    return {
+        "consumer_count": len(rows),
+        "detector": {
+            "id": "python-ast-configuration-consumer",
+            "version": "1",
+        },
+        "production_responsibility_paths": sorted(responsibility_paths),
+        "production_responsibility_physical_lines": physical_lines,
+        "projection": {"commit": commit, "tree": tree},
+        "rows": rows,
+        "schema_version": "configuration_consumer_census.v1",
+    }
+
+
+def _record_digest(payload: dict[str, object]) -> str:
+    body = {key: value for key, value in payload.items() if key != "record_sha256"}
+    return "sha256:" + hashlib.sha256(canonical_json_bytes(body)).hexdigest()
+
+
+def load_configuration_consumer_census(path: Path) -> dict[str, object]:
+    """Load and validate one two-scan configuration-consumer census."""
+
+    census_path = Path(path)
+    payload = _load_canonical_json(
+        census_path,
+        schema_path=census_path.with_name("configuration-consumer-census.schema.json"),
+    )
+    scan_body = {
+        key: value
+        for key, value in payload.items()
+        if key not in {"first_scan_sha256", "second_scan_sha256", "record_sha256"}
+    }
+    scan_digest = (
+        "sha256:" + hashlib.sha256(canonical_json_bytes(scan_body)).hexdigest()
+    )
+    rows = cast(list[dict[str, object]], payload["rows"])
+    row_ids = tuple(str(row["consumer_id"]) for row in rows)
+    if (
+        payload["first_scan_sha256"] != scan_digest
+        or payload["second_scan_sha256"] != scan_digest
+        or payload["record_sha256"] != _record_digest(payload)
+        or payload["consumer_count"] != len(rows)
+        or len(row_ids) != len(set(row_ids))
+        or not rows
     ):
         raise TaskPackageError(
-            "lifecycle_probe_artifact_path_invalid",
-            artifact_paths,
-            "every checkpoint and bundle path must be unique",
+            "configuration_census_digest_mismatch",
+            str(census_path),
+            "census counts, identities, or scan/record digests changed",
+        )
+    return payload
+
+
+def load_f1v2_selector_manifest(path: Path) -> dict[str, object]:
+    """Load the fresh F1v2 baseline selector authority."""
+
+    manifest_path = Path(path)
+    payload = _load_canonical_json(
+        manifest_path,
+        schema_path=manifest_path.with_name("preedit-selector-manifest.schema.json"),
+    )
+    selectors = tuple(cast(list[str], payload["selectors"]))
+    selector_digest = (
+        "sha256:" + hashlib.sha256(canonical_json_bytes(list(selectors))).hexdigest()
+    )
+    census_path = _repository_path(
+        payload["configuration_consumer_census_path"],
+        label="configuration consumer census path",
+    )
+    census = load_configuration_consumer_census(census_path)
+    if (
+        selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or payload["selector_count"] != len(selectors)
+        or payload["ordered_module_list_sha256"] != selector_digest
+        or payload["configuration_consumer_census_sha256"] != census["record_sha256"]
+        or payload["record_sha256"] != _record_digest(payload)
+    ):
+        raise TaskPackageError(
+            "task_package_selector_authority_mismatch",
+            str(manifest_path),
+            "F1v2 selector authority or census binding changed",
         )
     return payload
 
@@ -1753,9 +1977,7 @@ def verify_task_seed(locator: Path, manifest: TaskSeedManifest) -> TaskSeedResul
             manifest.commit,
             "task-seed child commit bytes changed",
         )
-    parent_content = _run_git(
-        repository, "cat-file", "commit", manifest.parent_commit
-    )
+    parent_content = _run_git(repository, "cat-file", "commit", manifest.parent_commit)
     canonical_parent_content = _run_git(
         manifest.parent_locator, "cat-file", "commit", manifest.parent_commit
     )
@@ -1811,9 +2033,12 @@ def verify_task_seed(locator: Path, manifest: TaskSeedManifest) -> TaskSeedResul
                 row.target_path,
                 "visible asset Git row changed",
             )
-        if _run_git(
-            repository, "ls-tree", manifest.parent_commit, "--", row.target_path
-        ) != b"":
+        if (
+            _run_git(
+                repository, "ls-tree", manifest.parent_commit, "--", row.target_path
+            )
+            != b""
+        ):
             raise TaskPackageError(
                 "task_seed_overlay_mismatch",
                 row.target_path,
@@ -1861,9 +2086,8 @@ def verify_task_seed(locator: Path, manifest: TaskSeedManifest) -> TaskSeedResul
             "task-seed object inventory is not its exact reachable closure",
         )
     commits = tuple(sorted(oid for oid, kind in all_rows if kind == "commit"))
-    if (
-        len(all_rows) != manifest.object_count
-        or commits != tuple(sorted((manifest.parent_commit, manifest.commit)))
+    if len(all_rows) != manifest.object_count or commits != tuple(
+        sorted((manifest.parent_commit, manifest.commit))
     ):
         raise TaskPackageError(
             "task_seed_object_closure_mismatch",
@@ -2042,7 +2266,9 @@ def materialize_task_seed(
         temporary_root = Path(temp)
         repository = temporary_root / "repository.git"
         _run_git(temporary_root, "init", "--bare", str(repository))
-        _copy_parent_objects(manifest.parent_locator, repository, manifest.parent_commit)
+        _copy_parent_objects(
+            manifest.parent_locator, repository, manifest.parent_commit
+        )
         index = temporary_root / "task-seed.index"
         index_env = {"GIT_INDEX_FILE": str(index)}
         _run_git(
@@ -2065,8 +2291,7 @@ def materialize_task_seed(
                 ) from exc
             if (
                 len(asset_bytes) != row.byte_count
-                or "sha256:" + hashlib.sha256(asset_bytes).hexdigest()
-                != row.digest
+                or "sha256:" + hashlib.sha256(asset_bytes).hexdigest() != row.digest
                 or _git_object_id("blob", asset_bytes) != row.oid
             ):
                 raise TaskPackageError(

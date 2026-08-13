@@ -971,8 +971,11 @@ products are never measured: candidate schemas, reviewer packets, synthesis,
 stopping logic, and outcomes reject or omit LOC/file-count/churn fields.
 Candidate correctness is entirely behavioral.
 
-Task 1 confirms its freshly derived 19-module provider-visible pre-edit set
-only after the projection census, 769-test collection, and baseline execution.
+Task 1 confirms its freshly derived 15-module provider-visible pre-edit set
+only after the projection census, 386-test collection, and green baseline
+execution. The four reconnaissance candidates omitted from that set were
+observed red when run independently from the frozen projection, so they are
+desired-state or unstable checks rather than pre-edit baseline authority.
 The manifest then freezes that ordered set plus one candidate-owned F1v2
 selector. Task 4 binds the new digest; it must not carry the rejected F1 digest
 by assertion. The provider-visible and complete two-lane manifest digests
@@ -1647,14 +1650,17 @@ to candidates.
 
 From the census, choose the narrowest existing test modules that collectively
 exercise core configuration, torch configuration, CLI, workflow components,
-and study-script entry paths. The completed reconnaissance selects exactly 19
-modules, collected as 769 tests from the projection overlay, with ordered
-module-list digest
-`sha256:addd4297ebc3bb381efc2d7be2f6efef7a3190142d1578a4fe4af1aff51bca2d`.
-Reproduce those facts and the green baseline before freezing them. Their count
-is coincidentally the same as rejected F1's selector count but their members,
-digest, and configuration-consumer rationale are newly derived; never reuse
-the old digest as authority. Keep one separate candidate-owned F1v2 selector.
+and study-script entry paths. Fresh per-module runs rejected four red
+reconnaissance candidates (`test_config_factory.py`,
+`test_execution_config_defaults.py`, `test_backend_selection.py`, and
+`test_torch_ablation_configuration.py`). The resulting exact 15-module set
+collects and passes 386 tests from the projection overlay, with no failures,
+errors, or skips, and ordered module-list digest
+`sha256:fd9b06bd75d8caba9c7f4088279f1cbde500879019e6f5431aaf8708f7bb51ea`.
+Reproduce those facts and the green baseline before freezing them. The
+members, digest, and configuration-consumer rationale are newly derived;
+never reuse the rejected-F1 digest as authority. Keep one separate
+candidate-owned F1v2 selector.
 
 - [ ] **Step 4: Author the neutral task and versioned records**
 
@@ -2074,7 +2080,7 @@ IDs.
 | Large diff truncation | 2 MiB diff, 4 MiB item, and 8 MiB packet calibration passes | oversized/truncated/unbound packet fails closed |
 | Estimate mistaken for cost | actual receipts are sole synthesis authority | estimate in receipt or imputation rejected |
 | Line census drifts | strict-UTF-8 `splitlines()` totals count an unterminated final line | LF-only subtotal or changed line method fails validation |
-| Selector coverage is asserted rather than observed | Task 1 reproduces the exact 19-module digest and 769-test projection collection before freezing | stale F1 digest, unknown selector, wrong order, or controller-only leakage rejects |
+| Selector coverage is asserted rather than observed | Task 1 reproduces the exact 15-module digest and 386-test green projection baseline before freezing | stale F1 digest, unknown selector, wrong order, controller-only leakage, or a red reconnaissance candidate in the baseline rejects |
 | Baseline is mistaken for desired-state conformance | Task 1 records truthful pre-edit facts; Task 3A binds F1v2 results to the reference tree | baseline result substituted for reference conformance rejects |
 | Review prose becomes machine authority | closed owner record binds the one Task-4 review and canonical package | Markdown-only, stale, duplicate-review, or non-approved state rejects |
 | Refreeze invents apparatus | Task-5 provider/prompt/SDK/hard-evidence/runtime bytes remain unchanged except content-addressed package bindings | new helper, schema version, call input, deadline, or collector blocks review |
