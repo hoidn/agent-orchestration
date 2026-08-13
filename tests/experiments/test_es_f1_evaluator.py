@@ -7549,6 +7549,113 @@ def test_import_dominating_call_in_same_lexical_suite_is_terminal(
 
 
 @pytest.mark.parametrize(
+    "source",
+    (
+        "def consume(runtime_config):\n"
+        "    try:\n"
+        "        import json\n"
+        "    except ImportError as exc:\n"
+        "        raise RuntimeError('json is required') from exc\n"
+        "    return json.dumps(runtime_config)\n",
+        "def consume(runtime_config):\n"
+        "    try:\n"
+        "        from json import dumps as render\n"
+        "    except ImportError:\n"
+        "        return None\n"
+        "    return render(runtime_config)\n",
+        "try:\n"
+        "    import json\n"
+        "except ImportError as exc:\n"
+        "    raise RuntimeError('json is required') from exc\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+    ),
+    ids=("function-raise", "function-return", "module-raise"),
+)
+def test_try_import_with_terminating_handlers_dominates_following_call(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(source, encoding="utf-8")
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+
+    assert rows
+    assert all(
+        "json.dumps" in graph[f"@consumer:{row['consumer_id']}"]
+        for row in rows
+    )
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is True
+
+
+def test_module_try_import_with_nested_global_mutation_fails_closed(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/consumer.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def replacement(value):\n"
+        "    return value\n"
+        "try:\n"
+        "    import json\n"
+        "    def mutate():\n"
+        "        global json\n"
+        "        json = replacement\n"
+        "    mutate()\n"
+        "except ImportError:\n"
+        "    raise\n"
+        "def consume(runtime_config):\n"
+        "    return json.dumps(runtime_config)\n",
+        encoding="utf-8",
+    )
+    rows = evaluator.scan_workspace_configuration_consumers(tmp_path)["rows"]
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=rows,
+        workspace_module_roots=frozenset({"ptycho"}),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+
+    assert rows
+    assert all(
+        "json.dumps" not in graph[f"@consumer:{row['consumer_id']}"]
+        for row in rows
+    )
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": row["consumer_id"],
+            "entry_symbol": f"@consumer:{row['consumer_id']}",
+            "requires_authority": False,
+        } for row in rows],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
+
+
+@pytest.mark.parametrize(
     "body",
     (
         "    if enabled:\n"
@@ -7586,6 +7693,59 @@ def test_import_dominating_call_in_same_lexical_suite_is_terminal(
         "    except ImportError:\n"
         "        pass\n"
         "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "    except ImportError:\n"
+        "        if enabled:\n"
+        "            raise\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "    except ImportError:\n"
+        "        raise\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "    except* ImportError:\n"
+        "        raise\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "    except ImportError:\n"
+        "        raise\n"
+        "    finally:\n"
+        "        enabled = False\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "        json = replacement\n"
+        "    except ImportError:\n"
+        "        raise\n"
+        "    return json.dumps(runtime_config)\n",
+        "    try:\n"
+        "        import json\n"
+        "        del json\n"
+        "    except ImportError:\n"
+        "        raise\n"
+        "    return json.dumps(runtime_config)\n",
+        "    for _ in range(1):\n"
+        "        try:\n"
+        "            import json\n"
+        "        except ImportError:\n"
+        "            continue\n"
+        "        return json.dumps(runtime_config)\n"
+        "    return None\n",
+        "    try:\n"
+        "        from json import dumps as render\n"
+        "        def mutate():\n"
+        "            nonlocal render\n"
+        "            render = replacement\n"
+        "        mutate()\n"
+        "    except ImportError:\n"
+        "        raise\n"
+        "    return render(runtime_config)\n",
         "    if enabled:\n"
         "        from json import dumps as render\n"
         "        class Mutate:\n"
@@ -7609,6 +7769,14 @@ def test_import_dominating_call_in_same_lexical_suite_is_terminal(
         "delete",
         "attribute-outside-if",
         "attribute-continuing-except",
+        "conditional-handler",
+        "mixed-handlers",
+        "try-star",
+        "finally-effect",
+        "try-rebind",
+        "try-delete",
+        "continuing-handler",
+        "try-nonlocal-rebind",
         "nested-class-nonlocal-rebind",
         "invoked-closure-nonlocal-rebind",
     ),

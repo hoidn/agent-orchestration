@@ -3142,6 +3142,37 @@ def _module_functions(
             node = owner_node
         return suites
 
+    def import_event_suite(
+        node: ast.Import | ast.ImportFrom,
+        local: str,
+        owner: str,
+    ) -> tuple[int, str]:
+        parent, field, is_sequence = parent_by_node[id(node)]
+        suite = (id(parent), field)
+        if not (
+            is_sequence
+            and field == "body"
+            and isinstance(parent, ast.Try)
+            and not parent.orelse
+            and not parent.finalbody
+            and parent.handlers
+            and all(
+                len(handler.body) == 1
+                and (
+                    isinstance(handler.body[0], ast.Raise)
+                    or owner != module and isinstance(handler.body[0], ast.Return)
+                )
+                for handler in parent.handlers
+            )
+            and _module_binding_counts(
+                ast.Module(body=list(parent.body), type_ignores=[])
+            ).get(local) == 1
+        ):
+            return suite
+        outer, outer_field, outer_is_sequence = parent_by_node[id(parent)]
+        assert outer_is_sequence
+        return id(outer), outer_field
+
     binding_events_by_owner: dict[
         str, dict[str, list[tuple[int, int, str, str, tuple[int, str]]]]
     ] = {}
@@ -3152,9 +3183,9 @@ def _module_functions(
         events: dict[
             str, list[tuple[int, int, str, str, tuple[int, str]]]
         ] = {}
-        nested_nonlocal_mutations: set[str] = set()
+        nested_binding_mutations: set[str] = set()
 
-        def collect_nonlocal_mutations(scope: ast.AST) -> None:
+        def collect_nested_mutations(scope: ast.AST) -> None:
             declared: set[str] = set()
             mutated: set[str] = set()
             nested: list[ast.AST] = []
@@ -3169,20 +3200,30 @@ def _module_functions(
                     continue
                 if isinstance(child, ast.Nonlocal):
                     declared.update(child.names)
+                elif owner == module and isinstance(child, ast.Global):
+                    declared.update(child.names)
                 elif isinstance(child, ast.Name) and isinstance(
                     child.ctx, (ast.Store, ast.Del)
                 ):
                     mutated.add(child.id)
                 pending.extend(ast.iter_child_nodes(child))
-            nested_nonlocal_mutations.update(declared & mutated)
+            nested_binding_mutations.update(declared & mutated)
             for child in nested:
-                collect_nonlocal_mutations(child)
+                collect_nested_mutations(child)
 
         def add(node: ast.AST, local: str, kind: str, target: str = "") -> None:
             parent, field, is_sequence = parent_by_node[id(node)]
             assert is_sequence
             events.setdefault(local, []).append(
-                (node.lineno, node.col_offset, kind, target, (id(parent), field))
+                (
+                    node.lineno,
+                    node.col_offset,
+                    kind,
+                    target,
+                    import_event_suite(node, local, owner)
+                    if isinstance(node, (ast.Import, ast.ImportFrom))
+                    else (id(parent), field),
+                )
             )
 
         def collect(suite: Sequence[ast.stmt]) -> None:
@@ -3192,7 +3233,7 @@ def _module_functions(
                         add(node, local, "import", target)
                     continue
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    collect_nonlocal_mutations(node)
+                    collect_nested_mutations(node)
                     target = f"{owner}.{node.name}"
                     known_node = function_by_symbol.get(target) or class_by_symbol.get(target)
                     add(
@@ -3223,10 +3264,10 @@ def _module_functions(
                         collect(case.body)
 
         collect(nodes)
-        for local in nested_nonlocal_mutations:
+        for local in nested_binding_mutations:
             local_events = events.get(local, ())
             events[local] = [
-                (event[0], event[1], "unknown", "", event[4])
+                (event[0], event[1], "invalid_import", "", event[4])
                 if event[2] == "import"
                 else event
                 for event in local_events
@@ -3241,7 +3282,7 @@ def _module_functions(
                     and len({event[4] for event in imports_for_local}) > 1
                 )
                 local_events[:] = [
-                    (event[0], event[1], "unknown", "", event[4])
+                    (event[0], event[1], "invalid_import", "", event[4])
                     if event[2] == "import"
                     and (conflicting_suites or event[:2] >= conflict_position)
                     else event
@@ -3311,7 +3352,7 @@ def _module_functions(
             scope = owner
             while scope.startswith(module):
                 if any(
-                    event[2] == "import"
+                    event[2] in {"import", "invalid_import"}
                     for event in binding_events_by_owner.get(scope, {}).get(local, ())
                 ):
                     break
@@ -3339,7 +3380,7 @@ def _module_functions(
                 ]
             if active:
                 _, _, kind, target, _ = max(active, key=lambda event: event[:2])
-                return kind, target
+                return ("unknown", "") if kind == "invalid_import" else (kind, target)
             if events:
                 return "unknown", ""
             if scope == module:
