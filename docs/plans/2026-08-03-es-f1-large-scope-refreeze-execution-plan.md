@@ -265,7 +265,7 @@ rebinds its clause IDs to F1v2:
 
 | Clause | Positive requirement | Required negative calibration |
 | --- | --- | --- |
-| `F1-H01-FOCUSED-SUITES` | Every Task-1 provider-visible baseline selector and the candidate-owned selector pass from the exact evaluated tree. | Missing, reordered, substituted, or ambient-checkout selector execution rejects. |
+| `F1-H01-FOCUSED-SUITES` | Every Task-1 provider-visible baseline invocation and the candidate-owned selector pass from the exact evaluated tree under the one frozen oracle-defect deselection. | Missing, reordered, substituted, differently deselected, or ambient-checkout selector execution rejects. |
 | `F1-H02-SCHEMA-CONFORMANCE` | Candidate evidence and evaluator-owned probe records conform before execution. | Extra authority fields, malformed paths, or candidate-authored pass/fail claims reject. |
 | `F1-H03-PUBLIC-RESOLUTION` | File mapping and CLI patch resolve through one strict public route with the frozen precedence table. | Reversing precedence or resolving the same input differently across public entry points fails. |
 | `F1-H04-TRANSACTIONAL-APPLICATION` | Valid torch resolution commits once; invalid resolution leaves byte-equivalent pre-state. | A late validation error after any partial mutation fails. |
@@ -972,8 +972,12 @@ stopping logic, and outcomes reject or omit LOC/file-count/churn fields.
 Candidate correctness is entirely behavioral.
 
 Task 1 confirms its freshly derived 15-module provider-visible pre-edit set
-only after the projection census, 386-test collection, and green baseline
-execution. The four reconnaissance candidates omitted from that set were
+only after the projection census, 386-test collection, execution of 385 green
+nodes, and one exact oracle-defect deselection. The deselected node requires
+mutation of the legacy configuration singleton, which directly contradicts
+F1v2 hard clause H10; it is retained in the collected module and excluded by
+its exact node ID rather than restored through a hidden compatibility path.
+The four reconnaissance candidates omitted from that set were
 observed red when run independently from the frozen projection, so they are
 desired-state or unstable checks rather than pre-edit baseline authority.
 The manifest then freezes that ordered set plus one candidate-owned F1v2
@@ -1624,8 +1628,9 @@ Write tests that reject the current architecture/witness package and require:
 - no architecture matrix, candidate witness, historical campaign commit,
   reference module name, measured line count, or LOC/file/churn acceptance
   field on any provider-visible surface;
-- a fresh ordered provider-visible selector set and separate candidate-owned
-  selector, with controller-only probes excluded; and
+- a fresh ordered provider-visible selector set, its one exact H10-conflicting
+  node deselection, and a separate candidate-owned selector, with
+  controller-only probes excluded; and
 - the existing visible timeout and runtime isolation contract unchanged.
 
 Run collection and RED:
@@ -1654,8 +1659,10 @@ and study-script entry paths. Fresh per-module runs rejected four red
 reconnaissance candidates (`test_config_factory.py`,
 `test_execution_config_defaults.py`, `test_backend_selection.py`, and
 `test_torch_ablation_configuration.py`). The resulting exact 15-module set
-collects and passes 386 tests from the projection overlay, with no failures,
-errors, or skips, and ordered module-list digest
+collects 386 tests from the projection overlay; 385 pass and exactly
+`tests/torch/test_workflows_components.py::TestWorkflowsComponentsScaffold::test_run_cdi_example_calls_update_legacy_dict`
+is deselected because it requires the legacy-state mutation that F1v2 H10
+forbids. There are no failures, errors, or skips, and the ordered module-list digest
 `sha256:fd9b06bd75d8caba9c7f4088279f1cbde500879019e6f5431aaf8708f7bb51ea`.
 Reproduce those facts and the green baseline before freezing them. The
 members, digest, and configuration-consumer rationale are newly derived;
@@ -2080,7 +2087,7 @@ IDs.
 | Large diff truncation | 2 MiB diff, 4 MiB item, and 8 MiB packet calibration passes | oversized/truncated/unbound packet fails closed |
 | Estimate mistaken for cost | actual receipts are sole synthesis authority | estimate in receipt or imputation rejected |
 | Line census drifts | strict-UTF-8 `splitlines()` totals count an unterminated final line | LF-only subtotal or changed line method fails validation |
-| Selector coverage is asserted rather than observed | Task 1 reproduces the exact 15-module digest and 386-test green projection baseline before freezing | stale F1 digest, unknown selector, wrong order, controller-only leakage, or a red reconnaissance candidate in the baseline rejects |
+| Selector coverage is asserted rather than observed | Task 1 reproduces the exact 15-module digest, 386-node collection, 385 passes, and one H10-conflicting exact-node deselection before freezing | stale F1 digest, unknown selector, wrong order, different deselection, controller-only leakage, or a red reconnaissance candidate in the baseline rejects |
 | Baseline is mistaken for desired-state conformance | Task 1 records truthful pre-edit facts; Task 3A binds F1v2 results to the reference tree | baseline result substituted for reference conformance rejects |
 | Review prose becomes machine authority | closed owner record binds the one Task-4 review and canonical package | Markdown-only, stale, duplicate-review, or non-approved state rejects |
 | Refreeze invents apparatus | Task-5 provider/prompt/SDK/hard-evidence/runtime bytes remain unchanged except content-addressed package bindings | new helper, schema version, call input, deadline, or collector blocks review |

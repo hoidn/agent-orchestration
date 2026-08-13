@@ -54,6 +54,7 @@ BYPASSES = (
 )
 SELECTORS = ("tests/test_baseline.py",)
 CANDIDATE_SELECTOR = "tests/test_es_f1_config_ownership.py"
+DESELECTED_NODES = ("tests/test_baseline.py::test_retired_contract",)
 DIGEST = "sha256:" + "1" * 64
 
 
@@ -94,6 +95,7 @@ def _visible_result() -> dict[str, Any]:
                 "argv": [sys.executable, "-m", "pytest", *SELECTORS],
                 "exit_code": 0,
                 "invocation_id": "PRE_EDIT_FOCUSED",
+                "deselectors": [],
                 "selectors": list(SELECTORS),
                 "stderr_sha256": DIGEST,
                 "stdout_sha256": DIGEST,
@@ -102,6 +104,7 @@ def _visible_result() -> dict[str, Any]:
                 "argv": [sys.executable, "-m", "pytest", CANDIDATE_SELECTOR],
                 "exit_code": 0,
                 "invocation_id": "CANDIDATE_CONFIG",
+                "deselectors": [],
                 "selectors": [CANDIDATE_SELECTOR],
                 "stderr_sha256": DIGEST,
                 "stdout_sha256": DIGEST,
@@ -116,11 +119,15 @@ def _root_visible_result() -> dict[str, Any]:
     result["invocations"][0]["selectors"] = list(
         evaluator.F1_PROVIDER_VISIBLE_SELECTORS
     )
+    result["invocations"][0]["deselectors"] = list(
+        evaluator.F1_PROVIDER_VISIBLE_DESELECTORS
+    )
     result["invocations"][0]["argv"] = [
         sys.executable,
         "-m",
         "pytest",
         *evaluator.F1_PROVIDER_VISIBLE_SELECTORS,
+        *(f"--deselect={node}" for node in evaluator.F1_PROVIDER_VISIBLE_DESELECTORS),
     ]
     return result
 
@@ -1779,7 +1786,11 @@ def test_visible_checks_use_one_audited_subprocess_route_and_v3_result(
     workspace = tmp_path / "candidate"
     tests = workspace / "tests"
     tests.mkdir(parents=True)
-    (tests / "test_baseline.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+    (tests / "test_baseline.py").write_text(
+        "def test_ok(): assert True\n"
+        "def test_retired_contract(): assert False\n",
+        encoding="utf-8",
+    )
     (tests / "test_es_f1_config_ownership.py").write_text(
         "def test_contract(): assert True\n", encoding="utf-8"
     )
@@ -1790,12 +1801,14 @@ def test_visible_checks_use_one_audited_subprocess_route_and_v3_result(
                 "candidate_owned": False,
                 "id": "PRE_EDIT_FOCUSED",
                 "required": True,
+                "deselectors": list(DESELECTED_NODES),
                 "selectors": list(SELECTORS),
             },
             {
                 "candidate_owned": True,
                 "id": "CANDIDATE_CONFIG",
                 "required": True,
+                "deselectors": [],
                 "selectors": [CANDIDATE_SELECTOR],
             },
         ],
@@ -1835,6 +1848,7 @@ def test_visible_checks_use_one_audited_subprocess_route_and_v3_result(
         "CANDIDATE_CONFIG",
     ]
     assert all(row["exit_code"] == 0 for row in result["invocations"])
+    assert result["invocations"][0]["deselectors"] == list(DESELECTED_NODES)
     assert evaluator.directory_digest(workspace) == before
     assert calls == [
         "visible invocation PRE_EDIT_FOCUSED",
@@ -1863,6 +1877,7 @@ def test_visible_check_mutation_fails_closed(tmp_path: Path) -> None:
             "candidate_owned": False,
             "id": "PRE_EDIT_FOCUSED",
             "required": True,
+            "deselectors": [],
             "selectors": list(SELECTORS),
         }],
         "runner": {

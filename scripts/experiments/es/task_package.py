@@ -42,6 +42,9 @@ F1_PROVIDER_VISIBLE_SELECTORS = (
     "tests/studies/test_tf_reference_cnn_runner.py",
     "tests/studies/test_openfwi_flatvel_a_run_config.py",
 )
+F1_PROVIDER_VISIBLE_DESELECTORS = (
+    "tests/torch/test_workflows_components.py::TestWorkflowsComponentsScaffold::test_run_cdi_example_calls_update_legacy_dict",
+)
 F1_CONFIG_RESOLUTION_ROLES = (
     "SIMULATION",
     "TRAINING",
@@ -113,6 +116,7 @@ class TaskProfile:
     reviewer_perspective_ids: tuple[str, ...]
     review_dimension_ids: tuple[str, ...]
     focused_selectors: tuple[str, ...]
+    focused_deselectors: tuple[str, ...]
     required_task_seed_schema_version: str
     selector_manifest_record_digest: str
     environment_name: str
@@ -173,7 +177,9 @@ class VisibleCheckManifest:
     timeout_seconds: int
     invocation_order: tuple[str, ...]
     pre_edit_selectors: tuple[str, ...]
+    pre_edit_deselectors: tuple[str, ...]
     candidate_selector: str
+    candidate_deselectors: tuple[str, ...]
     raw: dict[str, object]
 
 
@@ -670,10 +676,12 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
             "invocations must appear exactly once in their frozen order",
         )
     pre_edit = cast(list[str], invocations[0]["selectors"])
+    pre_edit_deselectors = cast(list[str], invocations[0]["deselectors"])
     candidate = cast(list[str], invocations[1]["selectors"])
+    candidate_deselectors = cast(list[str], invocations[1]["deselectors"])
     if tuple(pre_edit) != F1_PROVIDER_VISIBLE_SELECTORS or candidate != [
         "tests/test_es_f1_config_ownership.py"
-    ]:
+    ] or tuple(pre_edit_deselectors) != F1_PROVIDER_VISIBLE_DESELECTORS or candidate_deselectors:
         raise TaskPackageError(
             "visible_check_selector_mismatch",
             (pre_edit, candidate),
@@ -709,7 +717,9 @@ def load_visible_check_manifest(path: Path) -> VisibleCheckManifest:
         timeout_seconds=int(runner["timeout_seconds"]),
         invocation_order=invocation_order,
         pre_edit_selectors=tuple(pre_edit),
+        pre_edit_deselectors=tuple(pre_edit_deselectors),
         candidate_selector=candidate[0],
+        candidate_deselectors=tuple(candidate_deselectors),
         raw=payload,
     )
 
@@ -734,6 +744,12 @@ def load_visible_task_contract(path: Path) -> dict[str, object]:
             "task_package_selector_mismatch",
             payload["focused_selectors"],
             "provider-visible selectors changed from the exact frozen order",
+        )
+    if tuple(cast(list[str], payload["focused_deselectors"])) != F1_PROVIDER_VISIBLE_DESELECTORS:
+        raise TaskPackageError(
+            "task_package_selector_mismatch",
+            payload["focused_deselectors"],
+            "provider-visible deselectors changed from the exact frozen set",
         )
     outcome_ids = tuple(
         str(row["id"])
@@ -795,10 +811,12 @@ def load_task_profile(path: Path) -> TaskProfile:
     payload_dispositions = cast(list[str], payload["finding_dispositions"])
     payload_perspectives = cast(list[str], payload["reviewer_perspective_ids"])
     payload_selectors = cast(list[str], payload["focused_selectors"])
+    payload_deselectors = cast(list[str], payload["focused_deselectors"])
     payload_claim_ids = cast(list[str], payload["claim_limit_ids"])
     payload_review_dimensions = cast(list[str], payload["review_dimension_ids"])
     contract_dispositions = cast(list[str], contract["finding_dispositions"])
     contract_selectors = cast(list[str], contract["focused_selectors"])
+    contract_deselectors = cast(list[str], contract["focused_deselectors"])
     fixed_outputs = tuple(
         row["path"]
         for row in contract["candidate_outputs"]["fixed"]  # type: ignore[index,union-attr]
@@ -838,6 +856,11 @@ def load_task_profile(path: Path) -> TaskProfile:
             tuple(payload_selectors),
             tuple(contract_selectors),
         ),
+        (
+            "focused_deselectors",
+            tuple(payload_deselectors),
+            tuple(contract_deselectors),
+        ),
         ("claim_limit_ids", tuple(payload_claim_ids), claim_ids),
         (
             "review_dimension_ids",
@@ -863,6 +886,12 @@ def load_task_profile(path: Path) -> TaskProfile:
             "task_package_selector_mismatch",
             payload_selectors,
             "provider-visible selectors changed from the exact frozen order",
+        )
+    if tuple(payload_deselectors) != F1_PROVIDER_VISIBLE_DESELECTORS:
+        raise TaskPackageError(
+            "task_package_selector_mismatch",
+            payload_deselectors,
+            "provider-visible deselectors changed from the exact frozen set",
         )
     profile_environment = payload["environment"]
     contract_environment = contract["environment"]
@@ -1009,6 +1038,12 @@ def load_task_profile(path: Path) -> TaskProfile:
             checks.pre_edit_selectors,
             "visible checks disagree with the task profile selectors",
         )
+    if checks.pre_edit_deselectors != tuple(payload_deselectors):
+        raise TaskPackageError(
+            "task_package_binding_mismatch",
+            checks.pre_edit_deselectors,
+            "visible checks disagree with the task profile deselectors",
+        )
     perspective_rows = cast(list[dict[str, object]], contract["reviewer_perspectives"])
     owned_dimensions = tuple(
         dimension
@@ -1048,6 +1083,7 @@ def load_task_profile(path: Path) -> TaskProfile:
         reviewer_perspective_ids=perspective_ids,
         review_dimension_ids=contract_review_dimensions,
         focused_selectors=tuple(payload_selectors),
+        focused_deselectors=tuple(payload_deselectors),
         required_task_seed_schema_version=str(seed_binding["required_schema_version"]),
         selector_manifest_record_digest=str(selector_binding["record_sha256"]),
         environment_name=str(profile_environment["conda_environment"]),
@@ -1941,6 +1977,7 @@ def load_f1v2_selector_manifest(path: Path) -> dict[str, object]:
         schema_path=manifest_path.with_name("preedit-selector-manifest.schema.json"),
     )
     selectors = tuple(cast(list[str], payload["selectors"]))
+    deselectors = tuple(cast(list[str], payload["deselected_node_ids"]))
     selector_digest = (
         "sha256:" + hashlib.sha256(canonical_json_bytes(list(selectors))).hexdigest()
     )
@@ -1951,6 +1988,9 @@ def load_f1v2_selector_manifest(path: Path) -> dict[str, object]:
     census = load_configuration_consumer_census(census_path)
     if (
         selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or deselectors != F1_PROVIDER_VISIBLE_DESELECTORS
+        or payload["deselection_reason_code"]
+        != "F1V2_H10_LEGACY_MUTATION_CONTRADICTION"
         or payload["selector_count"] != len(selectors)
         or payload["ordered_module_list_sha256"] != selector_digest
         or payload["configuration_consumer_census_sha256"] != census["record_sha256"]

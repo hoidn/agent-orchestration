@@ -23,6 +23,7 @@ from scripts.experiments.es.task_package import (
     F1_BYPASS_CLASSES,
     F1_CONFIG_RESOLUTION_ROLES,
     F1_HARD_CLAUSE_IDS,
+    F1_PROVIDER_VISIBLE_DESELECTORS,
     F1_PROVIDER_VISIBLE_SELECTORS,
     F1_REQUIRED_OUTCOMES,
     TaskPackageError,
@@ -713,6 +714,7 @@ def load_frozen_evaluator_package(
         profile.task_id != "F1"
         or profile.hard_clause_ids != HARD_CLAUSE_IDS
         or profile.focused_selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or profile.focused_deselectors != F1_PROVIDER_VISIBLE_DESELECTORS
         or profile.required_task_seed_schema_version != "es_f1_task_seed.v3"
         or contract.get("schema_version") != "es_f1_visible_task_contract.v3"
         or contract.get("task_id") != "F1"
@@ -722,7 +724,9 @@ def load_frozen_evaluator_package(
         or tuple(contract["bypass_classes"]) != BYPASS_CLASSES
         or checks.invocation_order != ("PRE_EDIT_FOCUSED", "CANDIDATE_CONFIG")
         or checks.pre_edit_selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or checks.pre_edit_deselectors != F1_PROVIDER_VISIBLE_DESELECTORS
         or checks.candidate_selector != "tests/test_es_f1_config_ownership.py"
+        or checks.candidate_deselectors
     ):
         _fail("Task-1 and evaluator package identities are mixed")
     census_binding = cast(dict[str, Any], profile.raw["consumer_census"])
@@ -1685,7 +1689,7 @@ def run_visible_checks(
     by_id = {}
     for row in rows:
         if not isinstance(row, Mapping) or set(row) != {
-            "candidate_owned", "id", "required", "selectors"
+            "candidate_owned", "deselectors", "id", "required", "selectors"
         }:
             _fail("visible invocation row is malformed")
         if row["required"] is not True or type(row["candidate_owned"]) is not bool:
@@ -1728,18 +1732,27 @@ def run_visible_checks(
     for invocation_id in order:
         row = by_id[invocation_id]
         selectors = row["selectors"]
+        deselectors = row["deselectors"]
         if not isinstance(selectors, list) or not selectors:
             _fail("visible selectors are malformed")
+        if not isinstance(deselectors, list) or not all(
+            isinstance(node, str) and "::" in node for node in deselectors
+        ):
+            _fail("visible deselectors are malformed")
         for selector in selectors:
             _safe_descendant(workspace, selector, label="visible selector")
+        for node in deselectors:
+            path, _, _ = node.partition("::")
+            _safe_descendant(workspace, path, label="visible deselector")
         with tempfile.TemporaryDirectory(prefix="es-f1-visible-") as raw:
             copy = Path(raw) / "candidate"
             shutil.copytree(workspace, copy, symlinks=True)
             copy_before = directory_digest(copy)
             if copy_before != source_before:
                 _fail("visible disposable copy does not match the candidate")
-            argv = [str(python), *prefix, *selectors]
-            pytest_argv = ["pytest", *prefix[2:], *selectors]
+            deselect_argv = [f"--deselect={node}" for node in deselectors]
+            argv = [str(python), *prefix, *selectors, *deselect_argv]
+            pytest_argv = ["pytest", *prefix[2:], *selectors, *deselect_argv]
             program = (
                 "import runpy,sys\n"
                 f"sys.argv={pytest_argv!r}\n"
@@ -1766,6 +1779,7 @@ def run_visible_checks(
                 "argv": argv,
                 "exit_code": process.returncode,
                 "invocation_id": invocation_id,
+                "deselectors": list(deselectors),
                 "selectors": list(selectors),
                 "stderr_sha256": _SHA256_PREFIX + hashlib.sha256(process.stderr.encode()).hexdigest(),
                 "stdout_sha256": _SHA256_PREFIX + hashlib.sha256(process.stdout.encode()).hexdigest(),
@@ -2944,6 +2958,10 @@ def _evaluate_candidate(
             "PRE_EDIT_FOCUSED": F1_PROVIDER_VISIBLE_SELECTORS,
             "CANDIDATE_CONFIG": ("tests/test_es_f1_config_ownership.py",),
         },
+        {
+            "PRE_EDIT_FOCUSED": F1_PROVIDER_VISIBLE_DESELECTORS,
+            "CANDIDATE_CONFIG": (),
+        },
     )
     direct_facts = direct["facts"]
     surface_facts = surface["facts"]
@@ -3016,7 +3034,9 @@ def _exact_digest(value: Any) -> bool:
 
 
 def _visible_observation(
-    result: Mapping[str, Any], expected: Mapping[str, Sequence[str]]
+    result: Mapping[str, Any],
+    expected: Mapping[str, Sequence[str]],
+    expected_deselectors: Mapping[str, Sequence[str]],
 ) -> tuple[bool, dict[str, Any]]:
     if (
         result.get("schema_version") != "es-f1-visible-check-result.v3"
@@ -3028,7 +3048,13 @@ def _visible_observation(
     if not isinstance(invocations, list) or [row.get("invocation_id") for row in invocations if isinstance(row, Mapping)] != list(expected):
         return False, {"reason": "visible-invocation-order"}
     for row in invocations:
-        if not isinstance(row, Mapping) or tuple(row.get("selectors", ())) != tuple(expected[row["invocation_id"]]) or row.get("exit_code") != 0:
+        if (
+            not isinstance(row, Mapping)
+            or tuple(row.get("selectors", ())) != tuple(expected[row["invocation_id"]])
+            or tuple(row.get("deselectors", ()))
+            != tuple(expected_deselectors[row["invocation_id"]])
+            or row.get("exit_code") != 0
+        ):
             return False, {"reason": "visible-invocation-result"}
     return True, {"invocation_ids": list(expected)}
 

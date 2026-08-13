@@ -55,6 +55,9 @@ SELECTOR_PATHS = (
     "tests/studies/test_tf_reference_cnn_runner.py",
     "tests/studies/test_openfwi_flatvel_a_run_config.py",
 )
+DESELECTED_NODES = (
+    "tests/torch/test_workflows_components.py::TestWorkflowsComponentsScaffold::test_run_cdi_example_calls_update_legacy_dict",
+)
 OUTCOMES = (
     "PUBLIC_RESOLUTION",
     "TRANSACTIONAL_TORCH_APPLICATION",
@@ -208,6 +211,8 @@ def test_checked_in_v3_visible_package_is_coherent() -> None:
     )
     assert profile.hard_clause_ids == CLAUSES
     assert profile.focused_selectors == checks.pre_edit_selectors == SELECTOR_PATHS
+    assert checks.pre_edit_deselectors == DESELECTED_NODES
+    assert checks.candidate_deselectors == ()
     assert checks.candidate_selector == "tests/test_es_f1_config_ownership.py"
     assert checks.invocation_order == ("PRE_EDIT_FOCUSED", "CANDIDATE_CONFIG")
     assert checks.timeout_seconds == 7200
@@ -568,10 +573,16 @@ def test_selector_manifest_freezes_exact_green_projection_baseline() -> None:
     assert tuple(manifest["selectors"]) == SELECTOR_PATHS
     assert manifest["selector_count"] == 15
     assert manifest["collected_test_count"] == 386
+    assert tuple(manifest["deselected_node_ids"]) == DESELECTED_NODES
+    assert (
+        manifest["deselection_reason_code"]
+        == "F1V2_H10_LEGACY_MUTATION_CONTRADICTION"
+    )
     assert manifest["outcomes"] == {
+        "deselected": 1,
         "error": 0,
         "failed": 0,
-        "passed": 386,
+        "passed": 385,
         "skipped": 0,
     }
     assert (
