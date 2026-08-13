@@ -2403,10 +2403,14 @@ def detect_ast_bypasses(
                 tainted_call = value_tainted(node.func) or any(
                     value_tainted(argument) for argument in arguments
                 )
-                tolerant_name = any(
-                    token in name.lower()
-                    for token in ("compat", "fallback", "load_config", "loader")
-                ) or "legacy" in name.lower() and "load" in name.lower()
+                lowered_name = name.lower()
+                tolerant_name = (
+                    any(token in lowered_name for token in ("compat", "fallback"))
+                    or "config" in lowered_name
+                    and "load" in lowered_name
+                    or "legacy" in lowered_name
+                    and "load" in lowered_name
+                )
                 tolerant_operation = name.endswith((".get", ".setdefault")) or name in {
                     "bool", "bytes", "float", "getattr", "hasattr", "int", "str"
                 }
@@ -3060,10 +3064,13 @@ def inspect_candidate_consumers(
         for row in reconciliation["removed"]
         if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
     ]
+    surviving_obligations = [
+        dict(row, source_span=None, bypass_classes=[]) for row in surviving_removed
+    ]
     current_rows = (
         [current for _, current in reconciliation["paired"]]
         + reconciliation["added"]
-        + surviving_removed
+        + surviving_obligations
     )
     retired_rows = [
         row for row in reconciliation["removed"] if row not in surviving_removed

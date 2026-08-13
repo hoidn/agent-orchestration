@@ -968,6 +968,22 @@ def test_explicit_scalar_conversion_is_a_tolerant_loader_bypass() -> None:
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
 
 
+def test_data_loader_is_not_a_tolerant_configuration_loader() -> None:
+    assert evaluator.detect_ast_bypasses(
+        "import ptycho.loader\n"
+        "def consume(config):\n"
+        "    dataset = lambda: range(config['N'])\n"
+        "    return ptycho.loader.load(dataset)\n",
+        _tainted_names=("config",),
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        "import config_loader\n"
+        "def consume(config):\n"
+        "    return config_loader.load(config)\n",
+        _tainted_names=("config",),
+    ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
 def test_resolved_typed_configuration_access_is_not_a_tolerant_loader() -> None:
     assert evaluator.detect_ast_bypasses(
         "def use(model_config: ModelConfig):\n"
@@ -1812,6 +1828,48 @@ def test_frozen_route_survives_a_lexical_carrier_rename(tmp_path: Path) -> None:
 
     assert result["closed"] is False
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    assert result["removed_consumer_count"] == 0
+
+
+def test_frozen_route_with_a_stale_span_uses_conservative_route_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/rewritten_reader.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from candidate.config import resolve\n"
+        "def consume(settings):\n"
+        "    return resolve(settings, {})\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": []},
+    )
+    census = {"rows": [{
+        "consumer_id": "frozen-rewritten-reader",
+        "bypass_classes": ["TOLERANT_OR_COMPATIBILITY_LOADER"],
+        "match_kind": "CONFIGURATION_READ",
+        "path": "scripts/rewritten_reader.py",
+        "public_entry_route": "scripts.rewritten_reader.consume",
+        "source_span": {
+            "start_line": 99, "start_col": 0, "end_line": 99, "end_col": 1,
+        },
+        "transitive_wrapper_chain": ["scripts.rewritten_reader.consume", "config"],
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
     assert result["removed_consumer_count"] == 0
 
 
