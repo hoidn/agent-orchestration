@@ -120,6 +120,20 @@ Structural clauses reuse the existing apparatus concepts one-to-one:
   (fresh-baselined during refreeze) must remain green; existing training-path
   behavior is exercised, not redefined.
 
+The Task 3A rejection post-mortem is retained beside its capture as
+`scale-rejection-postmortem.md` (SHA-256
+`47a63bb58ed8e9c9323326a4339fb8f1c90ca40b70d69d7fe837cd7307586031`).
+Its row-by-row analysis shows that one shared boundary pipeline covered all four
+independently unmet Task-0 clusters while keeping consumer edits small. F1v2's
+bypass oracle therefore follows every public consumer transitively through
+wrappers to the actual configuration authority. A consumer closes only when
+the old path is removed or strictly delegates to the resolved,
+provenance-carrying transactional value. A facade that leaves an ambient read,
+tolerant load or coercion, duplicated field mapping, or legacy-state mutation
+in any reachable callee is a hard bypass failure. Negative calibration must
+include both a facade-only resolver and a one-wrapper-deep surviving legacy
+access so a shared shim cannot satisfy the consumer census by shape alone.
+
 ## 5. Reference product: adapt, don't author
 
 The Task 3A analogue becomes **adapt-and-measure**: derive the reference
