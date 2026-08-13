@@ -1,9 +1,12 @@
 # ES F1v2: Config-Ownership Campaign Task Design
 
-**Status:** Proposed replacement task for the ES effectiveness study, following the
+**Status:** Replacement task design for the ES effectiveness study, following the
 Task 3A out-of-band scale rejection of F1 (extension-boundary task, measured 615
 implementation additions against the required 5,000–10,000 band). Owner-selected
-from a brainstormed option space on 2026-08-06.
+from a brainstormed option space on 2026-08-06 and synthesized on 2026-08-12 with
+`docs/plans/2026-08-12-es-f1-scale-rejection-resolution-proposal.md`: this design
+is the primary path; that proposal contributes the immediate triage steps
+(Section 9) and the recorded fallback (Section 10).
 
 **Authority context:** Subordinate to
 `docs/plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md` (including
@@ -173,11 +176,57 @@ denominator contribution.
   would need rework; deferred as the designed F2+ direction once one real
   result exists.
 - **Keep F1, drop the band:** cheapest, but spends provider budget on a task
-  A1 evidence predicts is one-context-doable; predictable null.
+  A1 evidence predicts is one-context-doable; probable null. Retained as the
+  owner-activated fallback in Section 10, not as a live alternative.
 - **Full nanoBragg port:** no completed historical implementation to measure —
   a third guessed band, the exact failure mode this design eliminates.
 
-## 9. Open decisions for the refreeze
+## 9. Execution sequence (synthesis)
+
+Ordered; steps 1–2 are prerequisites of step 3 and proceed under existing
+authority without a new review pair.
+
+1. **Commit the Task 3A apparatus now.** The +11,694-line evaluator/calibration
+   apparatus and the content-addressed rejection evidence are committed with
+   the scale rejection recorded as a green terminal disposition that continues
+   to block Task 4 and any reference-product promotion. An uncommitted day of
+   apparatus work is the largest current operational risk, and every forward
+   path reuses these bytes. (Adopted from the resolution proposal, Section 7.)
+2. **Run the hours-scale post-mortem.** Analyze the rejection capture's per-row
+   metric data: which of the four Task-0 clusters the 615 lines cover and
+   whether one mechanism spans them. Its output is evidence beside the capture
+   and directly informs F1v2 clause design — in particular, which abstraction
+   moves collapse per-site work, so F1v2's bypass clauses can name them.
+   (Adopted from the resolution proposal, path C.)
+3. **Execute this design as the primary path** under the amended refreeze plan
+   structure (Tasks 1, 2, 3, 3A-analogue, consolidated Task 4). The rejected
+   F1 package is recorded `SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`.
+
+Why the resolution proposal's path B (drop the LOC band, keep F1) is not the
+primary path: its own root finding — "any candidate agent capable enough to be
+worth studying will find the compact solution" — predicts that every capable
+arm, DIRECT included, solves F1 at ~615 lines, reproducing the A1 tie. The
+structural criteria gate the controller's reference, not candidate difficulty.
+B is therefore the cheapest path to a probable null, and it reinterprets the
+owner's explicit output-size directive as a proxy without owner ratification.
+Conversely, this design's scale is measured (8,698), its reference passes the
+band by construction, and the config-ownership shape resists the compaction
+that defeated F1: per-consumer migration is per-site work, and the one cheap
+shortcut — a tolerant compatibility shim — is exactly the bypass class the
+Section 4 clauses reject.
+
+## 10. Recorded fallback (owner-activated only)
+
+If the owner explicitly decides the 5,000–10,000 directive was a proxy for
+multi-context difficulty rather than an output-size requirement, the fallback
+is the resolution proposal's path B: one proportionate amendment dropping the
+LOC band, with the four structural criteria (four independently unmet
+clusters, three authenticated cross-blob edges, remove-one failures,
+non-collapse) as the complete multi-context gate, then `decision_lock.v3` and
+ES Task 7 at F1's natural scale. This fallback is not active; activating it
+requires an owner decision message and supersedes Sections 2–8 of this design.
+
+## 11. Open decisions for the refreeze
 
 1. Exact visible pytest selector set for the fresh pre-edit baseline (chosen
    during the F1v2 Task-1 analogue, as before).
