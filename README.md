@@ -58,9 +58,9 @@ typed expression over an agent step:
                                                   ; on the result, fail-closed
   (match attempt
     ((COMPLETED c)             ; proof: c's fields exist only in this arm
-      (review-completed-implementation :report c.execution-report))
+      (review-completed-implementation c.execution-report))
     ((BLOCKED b)               ; typed blocker routes onward; nothing parsed
-      b)))
+      (escalate-blocker b.blocker-class b.blocker-reason))))
 ```
 
 Hand-rolled against the same CLI agent, with the same guarantees attempted,
@@ -120,9 +120,9 @@ or
 ```
 
 And this is one step, abridged — the stringly-typed routing on
-`result["status"]` still happens at every consumer. The `.orc` version is
-complete as written; the next step costs another typed declaration, not
-another copy of this.
+`result["status"]` still happens at every consumer. The `.orc` step carries
+no bookkeeping: the enclosing module adds only typed declarations, and the
+next step costs one more declaration, not another copy of this.
 
 What the typed declarations buy:
 

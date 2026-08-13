@@ -1237,14 +1237,13 @@ Good pattern:
 
   (match attempt
     ((COMPLETED c)
-      (review-completed-implementation
-        :ctx ctx
-        :inputs inputs
-        :execution-report c.execution-report
-        :providers providers))
+      (review-completed-implementation ctx inputs c.execution-report providers))
 
     ((BLOCKED b)
-      b)))
+      (variant ImplementationResult EXECUTION_BLOCKED
+        :progress-report b.progress-report
+        :blocker-class b.blocker-class
+        :blocker-reason b.blocker-reason))))
 ```
 
 Bad pattern:
@@ -3068,9 +3067,10 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 ## 32. Minimal Safe Subset
 
 For conservative examples, tutorials, and compatibility fixtures, prefer this
-small subset before introducing modules, procedures, macros, loops, or library
-forms:
+small subset before introducing procedures, macros, loops, or library forms
+(the `defmodule`/`export` header is mandatory in every module):
 
+- `defmodule` and `export`
 - `defenum`
 - `defpath`
 - `defrecord`
@@ -3089,7 +3089,10 @@ Minimal example:
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.15")
+
+  (defmodule minimal_subset)
+  (export implementation-execute)
 
   (defenum BlockerClass
     missing_resource
@@ -3112,24 +3115,22 @@ Minimal example:
       (blocker-class BlockerClass)))
 
   (defworkflow implementation-execute
-    ((provider Provider)
-     (prompt Prompt)
-     (design WorkReport)
+    ((design WorkReport)
      (plan WorkReport))
-    -> ImplementationAttempt
+    -> WorkReport
 
     (let* ((attempt
-             (provider-result provider
-               :prompt prompt
+             (provider-result providers.execute
+               :prompt prompts.implementation.execute
                :inputs (design plan)
                :returns ImplementationAttempt)))
 
       (match attempt
         ((COMPLETED c)
-          c)
+          c.execution-report)
 
         ((BLOCKED b)
-          b)))))
+          b.progress-report)))))
 ```
 
 Do not use forms from an active design tranche in ordinary authoring examples
