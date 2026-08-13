@@ -2329,9 +2329,12 @@ def _is_tolerant_configuration_operation(name: str) -> bool:
         and any(token in lowered for token in ("adapter", "coerce", "fallback", "load"))
         or "fallback" in lowered
         or "legacy" in lowered and "load" in lowered
-        or name.endswith((".get", ".setdefault"))
         or name in {"getattr", "hasattr"}
     )
+
+
+def _is_tolerant_mapping_operation(name: str) -> bool:
+    return name.endswith((".get", ".setdefault"))
 
 
 def _is_mapping_value_coercion(name: str, arguments: Sequence[ast.AST]) -> bool:
@@ -2339,6 +2342,23 @@ def _is_mapping_value_coercion(name: str, arguments: Sequence[ast.AST]) -> bool:
         isinstance(child, ast.Subscript)
         for argument in arguments
         for child in ast.walk(argument)
+    )
+
+
+def _is_tolerant_configuration_call(
+    name: str,
+    arguments: Sequence[ast.AST],
+    *,
+    receiver_tainted: bool,
+    call_tainted: bool,
+) -> bool:
+    return (
+        receiver_tainted and _is_tolerant_mapping_operation(name)
+        or call_tainted
+        and (
+            _is_tolerant_configuration_operation(name)
+            or _is_mapping_value_coercion(name, arguments)
+        )
     )
 
 
@@ -2459,14 +2479,20 @@ def detect_ast_bypasses(
                 if name in {"os.getenv", "os.environ.get", "environ.get"}:
                     classes.add("AMBIENT_CONFIGURATION_READ")
                 arguments = (*node.args, *(keyword.value for keyword in node.keywords))
-                tainted_call = value_tainted(node.func) or any(
+                receiver_tainted = (
+                    isinstance(node.func, ast.Attribute)
+                    and value_tainted(node.func.value)
+                )
+                tainted_call = receiver_tainted or any(
                     value_tainted(argument) for argument in arguments
                 )
                 if _is_legacy_configuration_symbol(name) and tainted_call:
                     classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
-                elif tainted_call and (
-                    _is_tolerant_configuration_operation(name)
-                    or _is_mapping_value_coercion(name, arguments)
+                elif _is_tolerant_configuration_call(
+                    name,
+                    arguments,
+                    receiver_tainted=receiver_tainted,
+                    call_tainted=tainted_call,
                 ):
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
             elif isinstance(node, ast.Try) and any(
@@ -4118,9 +4144,16 @@ def _module_functions(
                     child, owner, relevant, binding_context
                 )
                 arguments = (*child.args, *(item.value for item in child.keywords))
-                tolerant = not target.startswith("@") and (
-                    _is_tolerant_configuration_operation(target)
-                    or _is_mapping_value_coercion(target, arguments)
+                receiver_tainted = (
+                    isinstance(child.func, ast.Attribute)
+                    and relevant(child.func.value)
+                )
+                tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
+                    target,
+                    arguments,
+                    receiver_tainted=receiver_tainted,
+                    call_tainted=receiver_tainted
+                    or any(relevant(argument) for argument in arguments),
                 )
                 verified_receiver = has_verified_external_receiver(child, owner)
                 stable_local_receiver = has_stable_local_list_receiver(child, owner)
@@ -4235,18 +4268,23 @@ def _module_functions(
             if not operation and isinstance(child.func, ast.Name):
                 operation = child.func.id
             arguments = (*child.args, *(item.value for item in child.keywords))
-            tainted_call = (
+            receiver_tainted = (
                 relevant(child.func.value)
                 if isinstance(child.func, ast.Attribute)
                 else False
-            ) or child is node or any(relevant(argument) for argument in arguments)
+            ) or child is node
+            tainted_call = receiver_tainted or child is node or any(
+                relevant(argument) for argument in arguments
+            )
             if operation in {"os.getenv", "os.environ.get", "environ.get"}:
                 exact_bypasses.add("AMBIENT_CONFIGURATION_READ")
             elif _is_legacy_configuration_symbol(operation) and tainted_call:
                 exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
-            elif tainted_call and (
-                _is_tolerant_configuration_operation(operation)
-                or _is_mapping_value_coercion(operation, arguments)
+            elif _is_tolerant_configuration_call(
+                operation,
+                arguments,
+                receiver_tainted=receiver_tainted,
+                call_tainted=tainted_call,
             ):
                 exact_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
         declared_bypasses = row.get("bypass_classes", ())
@@ -4363,9 +4401,16 @@ def _module_functions(
             if callee is None:
                 target = routed_call_symbol(child, owner, relevant)
                 arguments = (*child.args, *(item.value for item in child.keywords))
-                tolerant = not target.startswith("@") and (
-                    _is_tolerant_configuration_operation(target)
-                    or _is_mapping_value_coercion(target, arguments)
+                receiver_tainted = (
+                    isinstance(child.func, ast.Attribute)
+                    and relevant(child.func.value)
+                ) or child is node
+                tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
+                    target,
+                    arguments,
+                    receiver_tainted=receiver_tainted,
+                    call_tainted=receiver_tainted
+                    or any(relevant(argument) for argument in arguments),
                 )
                 verified_receiver = has_verified_external_receiver(child, owner)
                 stable_local_receiver = has_stable_local_list_receiver(child, owner)
@@ -4416,18 +4461,23 @@ def _module_functions(
                 if not operation and isinstance(child.func, ast.Name):
                     operation = child.func.id
                 arguments = (*child.args, *(item.value for item in child.keywords))
-                tainted_call = (
+                receiver_tainted = (
                     relevant(child.func.value)
                     if isinstance(child.func, ast.Attribute)
                     else False
-                ) or child is node or any(relevant(argument) for argument in arguments)
+                ) or child is node
+                tainted_call = receiver_tainted or child is node or any(
+                    relevant(argument) for argument in arguments
+                )
                 if operation in {"os.getenv", "os.environ.get", "environ.get"}:
                     exact_bypasses.add("AMBIENT_CONFIGURATION_READ")
                 elif _is_legacy_configuration_symbol(operation) and tainted_call:
                     exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
-                elif tainted_call and (
-                    _is_tolerant_configuration_operation(operation)
-                    or _is_mapping_value_coercion(operation, arguments)
+                elif _is_tolerant_configuration_call(
+                    operation,
+                    arguments,
+                    receiver_tainted=receiver_tainted,
+                    call_tainted=tainted_call,
                 ):
                     exact_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
             elif isinstance(child, ast.Try) and relevant(child) and any(

@@ -1085,6 +1085,83 @@ def test_resolved_typed_configuration_access_is_not_a_tolerant_loader() -> None:
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
 
 
+@pytest.mark.parametrize("method", ("get", "setdefault"))
+def test_mapping_tolerance_depends_on_the_receiver_not_the_default(
+    method: str,
+) -> None:
+    source = (
+        "def consume(config, observed):\n"
+        f"    return observed.{method}('mode', config.mode)\n"
+    )
+
+    assert evaluator.detect_ast_bypasses(
+        source,
+        _tainted_names=("config",),
+    ) == ()
+    assert evaluator.detect_ast_bypasses(
+        source,
+        _tainted_names=("observed",),
+    ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+def test_mapping_tolerance_follows_a_configuration_receiver_alias() -> None:
+    source = (
+        "def consume(config):\n"
+        "    alias = config\n"
+        "    return alias.get('mode', 'safe')\n"
+    )
+
+    assert evaluator.detect_ast_bypasses(
+        source,
+        _tainted_names=("config",),
+    ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "def consume(runtime_config):\n"
+            "    observed = {'mode': 'strict'}\n"
+            "    return observed.get('mode', runtime_config.mode)\n"
+        ),
+        (
+            "def read(observed, default):\n"
+            "    return observed.get('mode', default)\n"
+            "def consume(runtime_config):\n"
+            "    return read({'mode': 'strict'}, runtime_config.mode)\n"
+        ),
+    ),
+    ids=("exact", "context"),
+)
+def test_mapping_default_does_not_create_a_route_bypass(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/mapping_default_consumer.py",
+        source,
+    )
+
+    assert "TOLERANT_OR_COMPATIBILITY_LOADER" not in result["bypass_classes"]
+
+
+def test_configuration_mapping_receiver_remains_a_route_bypass(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/config_mapping_consumer.py",
+        "def read(config):\n"
+        "    return config.get('mode', 'safe')\n"
+        "def consume(runtime_config):\n"
+        "    return read(runtime_config)\n",
+    )
+
+    assert "TOLERANT_OR_COMPATIBILITY_LOADER" in result["bypass_classes"]
+
+
 def test_legacy_architecture_table_is_not_legacy_configuration_state() -> None:
     assert evaluator.detect_ast_bypasses(
         "MODEL_TO_LEGACY_ARCH['hybrid'] = 'hybrid'\n"
