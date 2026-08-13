@@ -3941,6 +3941,92 @@ def _module_functions(
                     callee_tainted.add(argument_name)
                     changed = True
 
+    def has_stable_local_list_receiver(call: ast.Call, owner: str) -> bool:
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr in {"append", "extend"}
+            and isinstance(call.func.value, ast.Name)
+        ):
+            return False
+        receiver = call.func.value.id
+        function = function_by_symbol[owner]
+        formals = {
+            argument.arg
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+                *((function.args.vararg,) if function.args.vararg is not None else ()),
+                *((function.args.kwarg,) if function.args.kwarg is not None else ()),
+            )
+        }
+        if receiver in formals:
+            return False
+        if _module_binding_counts(
+            ast.Module(body=list(function.body), type_ignores=[])
+        ).get(receiver) != 1:
+            return False
+        definitions = [
+            statement
+            for statement in function.body
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and statement.targets[0].id == receiver
+                and isinstance(statement.value, ast.List)
+                or isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                and statement.target.id == receiver
+                and isinstance(statement.value, ast.List)
+            )
+            and (statement.lineno, statement.col_offset)
+            < (call.lineno, call.col_offset)
+        ]
+        if len(definitions) != 1:
+            return False
+        definition = definitions[0]
+
+        def contains_receiver(value: ast.AST | None) -> bool:
+            return value is not None and any(
+                isinstance(child, ast.Name) and child.id == receiver
+                for child in ast.walk(value)
+            )
+
+        for node in scoped_by_owner[owner]:
+            if (getattr(node, "lineno", call.lineno), getattr(node, "col_offset", 0)) >= (
+                call.lineno,
+                call.col_offset,
+            ):
+                continue
+            if isinstance(node, (ast.Global, ast.Nonlocal)) and receiver in node.names:
+                return False
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                if contains_receiver(node):
+                    return False
+                continue
+            if isinstance(node, ast.Name) and node.id == receiver and isinstance(
+                node.ctx, (ast.Store, ast.Del)
+            ):
+                if not any(node is child for child in ast.walk(definition)):
+                    return False
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                if node is not definition and contains_receiver(node.value):
+                    return False
+            if isinstance(node, ast.Call) and node is not call and any(
+                contains_receiver(value)
+                for value in (
+                    *node.args,
+                    *(keyword.value for keyword in node.keywords),
+                )
+            ):
+                return False
+            if isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) and contains_receiver(
+                node.value
+            ):
+                return False
+        return True
+
     def contextual_route(
         owner: str,
         seeds: set[str],
@@ -4037,13 +4123,19 @@ def _module_functions(
                     or _is_mapping_value_coercion(target, arguments)
                 )
                 verified_receiver = has_verified_external_receiver(child, owner)
+                stable_local_receiver = has_stable_local_list_receiver(child, owner)
                 safe_dynamic_terminal = (
                     isinstance(child.func, ast.Attribute)
-                    and (relevant(child.func.value) or verified_receiver)
+                    and (
+                        relevant(child.func.value)
+                        or verified_receiver
+                        or stable_local_receiver
+                    )
                     and not tolerant
                     and not has_imported_receiver(child, owner)
                     and (
                         verified_receiver
+                        or stable_local_receiver
                         or not (
                             isinstance(child.func.value, ast.Name)
                             and child.func.value.id in module_rebounds
@@ -4276,16 +4368,19 @@ def _module_functions(
                     or _is_mapping_value_coercion(target, arguments)
                 )
                 verified_receiver = has_verified_external_receiver(child, owner)
+                stable_local_receiver = has_stable_local_list_receiver(child, owner)
                 if (
                     isinstance(child.func, ast.Attribute)
                     and (
                         relevant(child.func.value)
                         or verified_receiver
+                        or stable_local_receiver
                     )
                     and not tolerant
                     and not has_imported_receiver(child, owner)
                     and (
                         verified_receiver
+                        or stable_local_receiver
                         or not (
                             isinstance(child.func.value, ast.Name)
                             and child.func.value.id in module_rebounds

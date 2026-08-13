@@ -3641,6 +3641,116 @@ def test_verified_external_factory_receiver_is_occurrence_terminal(
     assert result["closed"] is True
 
 
+def test_stable_function_local_list_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/local_list_consumer.py",
+        "def consume(runtime_config):\n"
+        "    output = ['--mode']\n"
+        "    output.extend([runtime_config.mode])\n"
+        "    return output\n",
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "def consume(runtime_config, output):\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = runtime_config.values\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    alias = output\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def retain(value):\n"
+            "    return None\n"
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    retain(output)\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    output = runtime_config.values\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    del output\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    def capture():\n"
+            "        return output\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    try:\n"
+            "        pass\n"
+            "    except ValueError as output:\n"
+            "        pass\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    import pathlib as output\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = []\n"
+            "    match runtime_config.other:\n"
+            "        case {'x': output}:\n"
+            "            pass\n"
+            "    output.extend([runtime_config.mode])\n"
+        ),
+    ),
+    ids=(
+        "formal",
+        "configuration-derived",
+        "alias",
+        "argument-escape",
+        "rebound",
+        "deleted",
+        "nested-capture",
+        "except-binder",
+        "import-binder",
+        "match-binder",
+    ),
+)
+def test_unverified_local_list_receiver_fails_closed(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/unverified_local_list_consumer.py",
+        source,
+    )
+
+    assert result["closed"] is False
+
+
 def test_external_factory_accepts_stable_same_module_workspace_class(
     tmp_path: Path,
 ) -> None:
