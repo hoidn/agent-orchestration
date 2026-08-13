@@ -1,62 +1,45 @@
-"""Controller-owned hard evaluator for the ES F1 calibration package.
+"""Controller-owned F1v2 configuration-ownership evaluator.
 
-The evaluator is intentionally outside candidate workspaces.  It consumes
-closed, canonical records and derives observations independently of candidate
-claims; candidates never author a clause result.
+Candidate records name paths and claims.  This module alone executes probes,
+walks consumers, classifies bypasses, and derives hard-clause observations.
 """
 
 from __future__ import annotations
 
-import json
+import ast
+import base64
+from collections.abc import Mapping, Sequence
 import hashlib
-import math
+import json
 import os
-from copy import deepcopy
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
 import subprocess
 import tempfile
-from typing import Any, Mapping, Sequence
-from functools import lru_cache
-
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
+from typing import Any, NoReturn, cast
 
 from scripts.experiments.es.task_package import (
-    F1_BUILTIN_ARCHITECTURES,
+    F1_BYPASS_CLASSES,
+    F1_CONFIG_RESOLUTION_ROLES,
     F1_HARD_CLAUSE_IDS,
-    F1_LIFECYCLE_STAGES,
+    F1_PROVIDER_VISIBLE_SELECTORS,
+    F1_REQUIRED_OUTCOMES,
     TaskPackageError,
-    load_candidate_extension_evidence,
-    load_lifecycle_probe_request,
-    load_lifecycle_probe_result,
+    load_candidate_config_evidence,
+    load_configuration_consumer_census,
+    load_config_resolution_probe_request,
+    load_config_resolution_probe_result,
+    load_task_profile,
+    load_visible_check_manifest,
+    load_visible_task_contract,
+    scan_workspace_configuration_consumers,
 )
 
 
 HARD_CLAUSE_IDS = F1_HARD_CLAUSE_IDS
-
-F1_PUBLIC_CONSTRUCTION_ROUTE = (
-    "ptycho_torch.generators.registry.resolve_generator"
-)
-F1_PUBLIC_PERSISTED_REBUILD_ROUTE = (
-    "ptycho_torch.application_factory.build_ptychopinn_application"
-)
-F1_MAX_OPTIMIZER_STEP_ABS_DELTA = 1.0
-F1_BUILTIN_STRUCTURAL_DECLARATIONS = tuple(
-    (
-        architecture_id,
-        (
-            (
-                "architecture",
-                architecture_id,
-                f"{architecture_id}-alternate",
-            ),
-        ),
-    )
-    for architecture_id in F1_BUILTIN_ARCHITECTURES
-)
-
+CONFIG_RESOLUTION_ROLES = F1_CONFIG_RESOLUTION_ROLES
+BYPASS_CLASSES = F1_BYPASS_CLASSES
 DISPOSITIONS = (
     "PRODUCT_DEFECT",
     "ORACLE_DEFECT",
@@ -64,2703 +47,720 @@ DISPOSITIONS = (
     "INFRASTRUCTURE",
     "UNRESOLVED",
 )
-
 REVIEWER_PERSPECTIVES = (
     "SCIENTIFIC_APPLICATION_SEMANTICS",
     "API_PERSISTENCE_MIGRATION_MAINTAINABILITY",
 )
 
-EVALUATOR_SUCCESSOR_SCHEMA_VERSIONS = {
-    "visible-check-result": (
-        "es-f1-visible-check-result.v1",
-        "es-f1-visible-check-result.v2",
-    ),
-    "preedit-lifecycle-probe": (
-        "es-f1-preedit-lifecycle-probe.v1",
-        "es-f1-preedit-lifecycle-probe.v2",
-    ),
-    "semantic-lifecycle": (
-        "es-f1-semantic-lifecycle.v1",
-        "es-f1-semantic-lifecycle.v2",
-    ),
-    "semantic-lifecycle-failure": (
-        "es-f1-semantic-lifecycle-failure.v1",
-        "es-f1-semantic-lifecycle-failure.v2",
-    ),
-    "artifact-fixture-input": (
-        "es-f1-artifact-fixture-input.v1",
-        "es-f1-artifact-fixture-input.v2",
-    ),
-    "artifact-fixture-build": (
-        "es-f1-artifact-fixture-build.v1",
-        "es-f1-artifact-fixture-build.v2",
-    ),
-    "artifact-fixture-verification": (
-        "es-f1-artifact-fixture-verification.v1",
-        "es-f1-artifact-fixture-verification.v2",
-    ),
+CALIBRATION_DEFECT_CLAUSES = {
+    "ambient_configuration_read": ("F1-H10-BYPASS-ORACLE",),
+    "bridge_field_lost": ("F1-H05-STRICT-INPUT-CONTRACT",),
+    "cross_surface_divergence": ("F1-H09-CROSS-SURFACE-COHERENCE",),
+    "duplicated_public_field_table": ("F1-H06-DERIVED-PUBLIC-FIELDS",),
+    "facade_only_resolver": ("F1-H07-CONSUMER-CLOSURE",),
+    "ill_typed_field_coerced": ("F1-H05-STRICT-INPUT-CONTRACT",),
+    "legacy_state_mutation": ("F1-H10-BYPASS-ORACLE",),
+    "lost_provenance": ("F1-H08-PROVENANCE-ROUNDTRIP",),
+    "noncanonical_mode_coercion": ("F1-H09-CROSS-SURFACE-COHERENCE",),
+    "partial_transaction_mutation": ("F1-H04-TRANSACTIONAL-APPLICATION",),
+    "reversed_precedence": ("F1-H03-PUBLIC-RESOLUTION",),
+    "sampling_field_lost": ("F1-H05-STRICT-INPUT-CONTRACT",),
+    "study_direct_construction": ("F1-H07-CONSUMER-CLOSURE",),
+    "tolerant_compatibility_loader": ("F1-H10-BYPASS-ORACLE",),
+    "unknown_field_accepted": ("F1-H05-STRICT-INPUT-CONTRACT",),
+    "wrapper_deep_old_path": ("F1-H10-BYPASS-ORACLE",),
 }
-
-ARTIFACT_ERA_IDS = (
-    "torch-model-spec-v1",
-    "torch-model-spec-v2",
-    "torch-artifact-v1",
-    "torch-artifact-v2",
-    "legacy-config-only-checkpoint",
-    "current-model-spec-v2-checkpoint",
-    "metadata-free-legacy-bundle",
-    "transitional-ci-entrypoints-v1-bundle",
-    "torch-artifact-v1-bundle",
-    "torch-artifact-v2-bundle",
-)
-
-F1_CANDIDATE_WITNESS_PLACEHOLDER = "$candidate_witness"
-F1_ARTIFACT_ARCHITECTURE_DOMAIN = (
-    *F1_BUILTIN_ARCHITECTURES,
-    F1_CANDIDATE_WITNESS_PLACEHOLDER,
-)
-_F1_FFNO_HISTORICAL_ARTIFACT_ERAS = frozenset(
-    {
-        "torch-model-spec-v1",
-        "torch-model-spec-v2",
-        "torch-artifact-v1",
-        "torch-artifact-v2",
-        "legacy-config-only-checkpoint",
-        "current-model-spec-v2-checkpoint",
-        "transitional-ci-entrypoints-v1-bundle",
-        "torch-artifact-v1-bundle",
-        "torch-artifact-v2-bundle",
-    }
-)
-
-_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-_LIFECYCLE_REQUEST_SCHEMA = (
-    _REPOSITORY_ROOT
-    / "experiments/orc_effectiveness/f1_es/task/lifecycle-probe-request.schema.json"
-)
-_LIFECYCLE_RESULT_SCHEMA = (
-    _REPOSITORY_ROOT
-    / "experiments/orc_effectiveness/f1_es/task/lifecycle-probe-result.schema.json"
-)
-_CANDIDATE_EVIDENCE_SCHEMA = (
-    _REPOSITORY_ROOT
-    / "experiments/orc_effectiveness/f1_es/task/candidate-extension-evidence.schema.json"
-)
-_VISIBLE_CHECK_SCHEMA = (
-    _REPOSITORY_ROOT
-    / "experiments/orc_effectiveness/f1_es/task/visible-check-manifest.schema.json"
-)
-
-_LEGACY_BYPASS_AUTHORITY_ROOT = (
-    _REPOSITORY_ROOT / "docs/plans/evidence/es-f1-large-scope-refreeze"
-)
-_LEGACY_BYPASS_AUTHORITY_BINDINGS = {
-    "preedit_policy": (
-        "preedit-policy-manifest.json",
-        "preedit-policy-manifest.schema.json",
-        "sha256:58c757172ca0c7bb667f7b1291a09d9ec8e37866fe6cd04d903037a5a8bd5c85",
-    ),
-    "source_census": (
-        "source-census.json",
-        "source-census.schema.json",
-        "sha256:d1e6a55a20e0b671f1cd6ec7b265ba7acbe78f4b7bb22c976a9857dcae6b50f6",
-    ),
-    "selector_manifest": (
-        "preedit-selector-manifest.json",
-        "preedit-selector-manifest.schema.json",
-        "sha256:6c19fddc893e313acb89bb14d878988699c1d1d29b0e2355d00ad69a98926305",
-    ),
-    "review_adoption": (
-        "task0-review-adoption.json",
-        "task0-review-adoption.schema.json",
-        "sha256:f8e0a807709b7415458820795026695fd22672c31541ee8026acbe8a8245ac37",
-    ),
-}
-_LEGACY_BYPASS_INVENTORY_SHA256 = (
-    "sha256:3701ca66235df5733ceb5bb54fa0c118519a9ae0e3acd5515bef7af9e78c119c"
+CALIBRATION_POSITIVE_CASE_IDS = (
+    "cli_patch",
+    "file_mapping",
+    "fresh_process_provenance",
+    "precedence",
+    "public_cli",
+    "study_script",
+    "strict_roundtrip",
+    "tensorflow_backend",
+    "torch_backend",
+    "workflow_component",
 )
 
 _CANDIDATE_AUTHORITY_FIELDS = frozenset(
-    {
-        "passed",
-        "satisfied",
-        "hard_findings",
-        "evaluator_observations",
-        "disposition",
-        "decision",
-    }
+    {"decision", "disposition", "evaluator_observations", "hard_findings", "passed", "satisfied"}
+)
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+_F1_ROOT = _REPOSITORY_ROOT / "experiments/orc_effectiveness/f1_es"
+_F1_EVIDENCE_ROOT = (
+    _REPOSITORY_ROOT
+    / "docs/plans/evidence/es-f1-large-scope-refreeze/f1v2"
+)
+_F1_CALIBRATION_CASES = (
+    _REPOSITORY_ROOT / "tests/experiments/fixtures/es_f1/calibration-cases.json"
+)
+_F1_FIXTURE_ADAPTER = (
+    _REPOSITORY_ROOT
+    / "tests/experiments/fixtures/es_f1/config_resolution_adapter.py"
+)
+_SHA256_PREFIX = "sha256:"
+_FORBIDDEN_IMPORT_PREFIXES = (
+    "PtychoNN",
+    "notebooks.archive.ePIE_recon_simulation",
+    "ptycho.FRC",
+    "ptycho.evaluation",
+    "scripts.orchestration",
 )
 
-_PUBLIC_SCIENTIFIC_BOUNDARY_OWNERS = {
-    "compute_loss": "ptycho_torch.model.PtychoPINN_Lightning.compute_loss",
-    "loss_forward": "ptycho_torch.model.PoissonLoss.forward",
-    "model_forward": "ptycho_torch.model.PtychoPINN.forward",
-    "physics_forward": "ptycho_torch.model.ForwardModel.forward",
-    "scaling": "ptycho_torch.model.IntensityScalerModule.scale",
+_AUDITED_PROJECTION_WRAPPER = r'''import json,os,pathlib,runpy,sys
+events=[]
+recording=True
+roots=tuple(pathlib.Path(value).resolve(strict=True) for value in json.loads(sys.argv[1]))
+program=pathlib.Path(sys.argv[2]).resolve(strict=True)
+audit_path=pathlib.Path(sys.argv[3])
+workspace=pathlib.Path(sys.argv[4]).resolve(strict=True)
+cwd=pathlib.Path(sys.argv[5]).resolve(strict=True)
+forbidden=("PtychoNN","notebooks.archive.ePIE_recon_simulation","ptycho.FRC","ptycho.evaluation","scripts.orchestration")
+child_events={"subprocess.Popen","os.system","os.posix_spawn","os.posix_spawnp","os.exec","os.fork","os.forkpty","pty.spawn"}
+def audit(event,args):
+    if not recording:return
+    if event=="import" and args:
+        value=str(args[0])
+        if any(value==prefix or value.startswith(prefix+".") for prefix in forbidden):
+            events.append({"event":"forbidden_import","value":value})
+            raise PermissionError("candidate import is excluded")
+    elif event=="open" and args:
+        value=args[0]
+        if isinstance(value,(str,bytes)):
+            decoded=value.decode(errors="replace") if isinstance(value,bytes) else value
+            path=pathlib.Path(decoded)
+            if not path.is_absolute():path=pathlib.Path.cwd()/path
+            resolved=path.resolve(strict=False)
+            mode=args[1] if len(args)>1 else None
+            flags=args[2] if len(args)>2 else None
+            writing=(isinstance(mode,str) and any(token in mode for token in "wax+")) or (isinstance(flags,int) and bool(flags & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC|os.O_APPEND)))
+            if writing and any(resolved.is_relative_to(root) for root in roots):
+                events.append({"event":"workspace_write_attempt","value":str(resolved)})
+                raise PermissionError("candidate workspace is evaluator-read-only")
+    elif event in child_events:
+        events.append({"event":"unaudited_child_process","value":event})
+        raise PermissionError("candidate child process is outside the evaluator audit boundary")
+sys.addaudithook(audit)
+sys.path.insert(0,str(workspace))
+os.chdir(cwd)
+try:runpy.run_path(str(program),run_name="__main__")
+finally:
+    recording=False
+    forbidden_loaded=sorted(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden))
+    for name in forbidden_loaded:events.append({"event":"forbidden_module_loaded","value":name})
+    outside=[]
+    for name,module in tuple(sys.modules.items()):
+        if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")):continue
+        values=[]
+        origin=getattr(getattr(module,"__spec__",None),"origin",None)
+        if isinstance(origin,str):values.append(origin)
+        module_file=getattr(module,"__file__",None)
+        if isinstance(module_file,str):values.append(module_file)
+        for value in values:
+            path=pathlib.Path(value)
+            if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace):outside.append([name,str(path.resolve(strict=False))])
+    for value in sorted(outside):events.append({"event":"outside_project_owned_origin","value":value})
+    audit_path.write_text(json.dumps({"events":events},sort_keys=True,separators=(",",":"))+"\n",encoding="utf-8")
+'''
+
+_ORIGIN_PROBE_SUFFIX = r'''
+forbidden_prefixes=("PtychoNN","notebooks.archive.ePIE_recon_simulation","ptycho.FRC","ptycho.evaluation","scripts.orchestration")
+forbidden=sorted(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))
+outside=[]
+for name,module in tuple(sys.modules.items()):
+    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")):continue
+    values=[]
+    origin=getattr(getattr(module,"__spec__",None),"origin",None)
+    if isinstance(origin,str):values.append(origin)
+    module_file=getattr(module,"__file__",None)
+    if isinstance(module_file,str):values.append(module_file)
+    for value in values:
+        path=pathlib.Path(value)
+        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace):outside.append([name,str(path.resolve(strict=False))])
+pathlib.Path(os.environ["ES_F1_ORIGIN_REPORT"]).write_bytes((json.dumps({"loaded_forbidden_modules":forbidden,"outside_project_owned_origins":sorted(outside)},sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+_HOOK_CALL_PROGRAM = r'''import copy,importlib,inspect,json,os,pathlib
+workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
+request_path=pathlib.Path(os.environ["ES_F1_HOOK_REQUEST"])
+result_path=pathlib.Path(os.environ["ES_F1_HOOK_RESULT"])
+symbol=os.environ["ES_F1_HOOK_SYMBOL"]
+module_name,separator,name=symbol.rpartition(".")
+if not separator:raise TypeError("hook symbol is not dotted")
+hook=getattr(importlib.import_module(module_name),name)
+if not callable(hook):raise TypeError("hook symbol is not callable")
+source=inspect.getsourcefile(hook)
+if not isinstance(source,str) or not pathlib.Path(source).resolve(strict=True).is_relative_to(workspace):
+    raise TypeError("hook origin is outside the candidate workspace")
+request=json.loads(request_path.read_bytes())
+before=copy.deepcopy(request)
+result=hook(request)
+if request!=before:raise TypeError("hook mutated its request")
+authority={"decision","disposition","evaluator_observations","hard_findings","passed","satisfied"}
+def validate(value):
+    if value is None or type(value) in (bool,int,float,str):return
+    if type(value) is list:
+        for item in value:validate(item)
+        return
+    if type(value) is dict:
+        if any(type(key) is not str for key in value):raise TypeError("hook returned a non-string key")
+        if authority.intersection(value):raise TypeError("hook returned an evaluator authority field")
+        for item in value.values():validate(item)
+        return
+    raise TypeError("hook returned a non-JSON value")
+if type(result) is not dict:raise TypeError("hook result is not one object")
+validate(result)
+result_path.write_bytes((json.dumps(result,allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+_SURFACE_PROOF_PROGRAM = r'''import copy,importlib,inspect,json,os,pathlib,sys
+workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
+descriptor=json.loads(pathlib.Path(os.environ["ES_F1_SURFACE_DESCRIPTOR"]).read_bytes())
+cases=json.loads(pathlib.Path(os.environ["ES_F1_SURFACE_CASES"]).read_bytes())
+target_path=pathlib.Path(os.environ["ES_F1_SURFACE_TRANSCRIPT"])
+hook_symbol=os.environ["ES_F1_SURFACE_HOOK"]
+def code(value):
+    return getattr(value,"__code__",getattr(getattr(value,"__func__",None),"__code__",None))
+ambient_codes={
+    code(os.getenv):("os.getenv",False),
+    code(os.environ.get):("os.environ.get",True),
+    code(os.environ.__getitem__):("os.environ.__getitem__",True),
+}
+ambient_codes.pop(None,None)
+active=None
+runtime_events=[]
+def profile(frame,event,arg):
+    if active is None or event!="call" or frame.f_code not in ambient_codes:return
+    symbol,requires_environ=ambient_codes[frame.f_code]
+    if requires_environ and frame.f_locals.get("self") is not os.environ:return
+    runtime_events.append({"class_id":"AMBIENT_CONFIGURATION_READ","consumer_id":active[0],"symbol":symbol})
+sys.setprofile(profile)
+def dotted(symbol):
+    module_name,separator,name=symbol.rpartition(".")
+    if not separator:raise TypeError("surface symbol is not dotted")
+    module=importlib.import_module(module_name)
+    value=getattr(module,name)
+    source=inspect.getsourcefile(value)
+    if not callable(value) or not isinstance(source,str) or not pathlib.Path(source).resolve(strict=True).is_relative_to(workspace):
+        raise TypeError("surface target is not candidate product code")
+    return module,name,value
+_,_,hook=dotted(hook_symbol)
+rows=[]
+for surface,symbol in descriptor.items():
+    module,name,target=dotted(symbol)
+    for case in cases:
+        request={"op":"RESOLVE","surface":surface,"file_mapping":copy.deepcopy(case["file_mapping"]),"cli_patch":copy.deepcopy(case["cli_patch"])}
+        before=copy.deepcopy(request)
+        active=(surface+":"+case["case_id"]+":direct",symbol)
+        try:
+            try:direct=target(copy.deepcopy(case["file_mapping"]),copy.deepcopy(case["cli_patch"]))
+            finally:active=None
+        except Exception as exc:
+            direct_result={"exception_type":type(exc).__module__+"."+type(exc).__qualname__,"kind":"raised"}
+        else:
+            direct_result={"kind":"returned","value":direct}
+        active=(surface+":"+case["case_id"]+":hook",hook_symbol)
+        try:
+            try:via_hook=hook(request)
+            finally:active=None
+        except Exception as exc:
+            hook_result={"exception_type":type(exc).__module__+"."+type(exc).__qualname__,"kind":"raised"}
+        else:
+            hook_result={"kind":"returned","value":via_hook}
+        if request!=before:raise TypeError("surface hook mutated its request")
+        rows.append({"case_id":case["case_id"],"direct":direct_result,"hook":hook_result,"surface":surface})
+    sentinel={"resolved":{"__es_f1_sentinel__":surface},"source_by_pointer":{"/__es_f1_sentinel__":"DERIVED"}}
+    original=getattr(module,name)
+    setattr(module,name,lambda file_mapping,cli_patch,value=sentinel:value)
+    active=(surface+":sentinel:hook",hook_symbol)
+    try:
+        try:forwarded=hook({"op":"RESOLVE","surface":surface,"file_mapping":{},"cli_patch":{}})
+        finally:active=None
+    finally:
+        setattr(module,name,original)
+    rows.append({"sentinel_forwarded":forwarded==sentinel,"surface":surface})
+sys.setprofile(None)
+def validate(value):
+    if value is None or type(value) in (bool,int,float,str):return
+    if type(value) is list:
+        for item in value:validate(item)
+        return
+    if type(value) is dict:
+        if any(type(key) is not str for key in value):raise TypeError("surface result has a non-string key")
+        for item in value.values():validate(item)
+        return
+    raise TypeError("surface result is not JSON-safe")
+validate(rows)
+validate(runtime_events)
+target_path.write_bytes((json.dumps({"rows":rows,"runtime_bypass_events":runtime_events},allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+_DERIVATION_PROOF_PROGRAM = r'''import dataclasses,importlib,inspect,json,os,pathlib,sys
+workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
+descriptor=json.loads(pathlib.Path(os.environ["ES_F1_DERIVATION_DESCRIPTOR"]).read_bytes())
+simulation=json.loads(pathlib.Path(os.environ["ES_F1_DERIVATION_INPUT"]).read_bytes())
+target_path=pathlib.Path(os.environ["ES_F1_DERIVATION_TRANSCRIPT"])
+def dotted(symbol):
+    module_name,separator,name=symbol.rpartition(".")
+    if not separator:raise TypeError("derivation symbol is not dotted")
+    value=getattr(importlib.import_module(module_name),name)
+    source=inspect.getsourcefile(value)
+    if not isinstance(source,str) or not pathlib.Path(source).resolve(strict=True).is_relative_to(workspace):
+        raise TypeError("derivation target is not candidate product code")
+    return value
+resolver=dotted(descriptor["resolver_symbol"])
+owners=[(row,dotted(row["owner_symbol"]),dotted(row["deriver_symbol"])) for row in descriptor["owners"]]
+called=set()
+codes={deriver.__code__:row["deriver_symbol"] for row,_,deriver in owners if inspect.isfunction(deriver)}
+def profile(frame,event,arg):
+    if event=="call" and frame.f_code in codes:called.add(codes[frame.f_code])
+sys.setprofile(profile)
+try:value=resolver(simulation,{})
+finally:sys.setprofile(None)
+def contains(value,owner,seen=None):
+    seen=set() if seen is None else seen
+    if isinstance(value,owner):return True
+    identity=id(value)
+    if identity in seen:return False
+    seen.add(identity)
+    if dataclasses.is_dataclass(value) and not isinstance(value,type):
+        return any(contains(getattr(value,field.name),owner,seen) for field in dataclasses.fields(value))
+    if isinstance(value,dict):return any(contains(item,owner,seen) for item in value.values())
+    if isinstance(value,(list,tuple)):return any(contains(item,owner,seen) for item in value)
+    return False
+rows=[]
+for row,owner,deriver in owners:
+    direct=list(deriver(owner))
+    if dataclasses.is_dataclass(owner):
+        synthetic=dataclasses.make_dataclass("EsF1Synthetic",[("__es_f1_sentinel__",int,dataclasses.field(default=1))],bases=(owner,))
+    elif isinstance(getattr(owner,"__annotations__",None),dict):
+        synthetic=type("EsF1Synthetic",(owner,),{"__annotations__":{"__es_f1_sentinel__":int}})
+    else:raise TypeError("structural owner kind cannot be extended")
+    extended=list(deriver(synthetic))
+    rows.append({
+        "called_by_resolver":row["deriver_symbol"] in called,
+        "direct_fields":direct,
+        "owner_present":contains(value,owner),
+        "owner_symbol":row["owner_symbol"],
+        "sentinel_derived":"__es_f1_sentinel__" in extended and all(field in extended for field in direct),
+    })
+target_path.write_bytes((json.dumps({"rows":rows},allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+_TRANSACTION_PROOF_PROGRAM = r'''import ast,dataclasses,enum,importlib,inspect,json,math,os,pathlib,sys,types
+workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
+descriptor=json.loads(pathlib.Path(os.environ["ES_F1_TRANSACTION_DESCRIPTOR"]).read_bytes())
+inputs=json.loads(pathlib.Path(os.environ["ES_F1_TRANSACTION_INPUT"]).read_bytes())
+target_path=pathlib.Path(os.environ["ES_F1_TRANSACTION_TRANSCRIPT"])
+scenario=os.environ["ES_F1_TRANSACTION_SCENARIO"]
+def dotted(symbol):
+    module_name,separator,name=symbol.rpartition(".")
+    if not separator:raise TypeError("transaction symbol is not dotted")
+    module=importlib.import_module(module_name)
+    value=getattr(module,name)
+    source=inspect.getsourcefile(value) if callable(value) else inspect.getsourcefile(module)
+    if not isinstance(source,str) or not pathlib.Path(source).resolve(strict=True).is_relative_to(workspace):
+        raise TypeError("transaction target is not candidate product state")
+    return module,name,value
+apply_module,apply_name,apply=dotted(descriptor["apply_symbol"])
+commit_module,commit_name,commit=dotted(descriptor["commit_symbol"])
+states={symbol:dotted(symbol)[2] for symbol in descriptor["state_symbols"]}
+def normalize(value,seen=None):
+    seen=set() if seen is None else seen
+    if isinstance(value,enum.Enum):return normalize(value.value,seen)
+    if isinstance(value,pathlib.PurePath):return value.as_posix()
+    if value is None or type(value) in (bool,int,str):return value
+    if type(value) is float:
+        if not math.isfinite(value):raise TypeError("non-finite state")
+        return value
+    identity=id(value)
+    if identity in seen:raise TypeError("cyclic state")
+    seen.add(identity)
+    try:
+        if isinstance(value,dict):return {str(key):normalize(item,seen) for key,item in sorted(value.items(),key=lambda row:str(row[0]))}
+        if isinstance(value,(list,tuple)):return [normalize(item,seen) for item in value]
+        if isinstance(value,set):return sorted((normalize(item,seen) for item in value),key=repr)
+        if dataclasses.is_dataclass(value) and not isinstance(value,type):return {field.name:normalize(getattr(value,field.name),seen) for field in dataclasses.fields(value)}
+        values=getattr(value,"__dict__",None)
+        if isinstance(values,dict):return {name:normalize(item,seen) for name,item in sorted(values.items()) if not name.startswith("_") and not callable(item)}
+        raise TypeError("opaque state")
+    finally:seen.remove(identity)
+def module_state():
+    result={}
+    for module_name,module in sorted(sys.modules.items()):
+        source=getattr(module,"__file__",None)
+        if not isinstance(source,str) or not pathlib.Path(source).resolve(strict=False).is_relative_to(workspace):continue
+        for name,value in sorted(vars(module).items()):
+            if name.startswith("__") or isinstance(value,types.ModuleType) or callable(value):continue
+            try:result[module_name+"."+name]=normalize(value)
+            except TypeError:continue
+    return result
+def mutation_roots(function,module_name):
+    tree=ast.parse(inspect.getsource(function))
+    roots=set()
+    mutators={"append","clear","extend","insert","pop","remove","setdefault","update","add","discard"}
+    def root(node):
+        while isinstance(node,(ast.Attribute,ast.Subscript)):node=node.value
+        return node.id if isinstance(node,ast.Name) else None
+    for node in ast.walk(tree):
+        targets=[]
+        if isinstance(node,ast.Assign):targets=node.targets
+        elif isinstance(node,(ast.AnnAssign,ast.AugAssign)):targets=[node.target]
+        elif isinstance(node,ast.Delete):targets=node.targets
+        elif isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr in mutators:targets=[node.func.value]
+        for target in targets:
+            name=root(target)
+            if name and name in function.__globals__ and not callable(function.__globals__[name]):roots.add(module_name+"."+name)
+    return roots
+derived=sorted(mutation_roots(apply,apply_module.__name__)|mutation_roots(commit,commit_module.__name__))
+before=module_state()
+counter={"value":0}
+original=getattr(commit_module,commit_name)
+def counted(value):
+    counter["value"]+=1
+    original(value)
+    if scenario=="post_commit_failure":raise RuntimeError("injected post-commit failure")
+setattr(commit_module,commit_name,counted)
+try:
+    try:
+        result=apply(inputs["file_mapping"],inputs["cli_patch"])
+    except Exception as exc:
+        outcome={"exception_type":type(exc).__module__+"."+type(exc).__qualname__,"kind":"raised"}
+    else:
+        outcome={"kind":"returned","value":normalize(result)}
+finally:setattr(commit_module,commit_name,original)
+after=module_state()
+changed=sorted(key for key in set(before)|set(after) if before.get(key)!=after.get(key))
+record={"after":after,"before":before,"changed_symbols":changed,"commit_count":counter["value"],"derived_state_symbols":derived,"outcome":outcome,"scenario":scenario,"state_values":{symbol:normalize(dotted(symbol)[2]) for symbol in descriptor["state_symbols"]}}
+target_path.write_bytes((json.dumps(record,allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+_TRAINING_PROBE_FILE = {
+    "model": {
+        "N": 64,
+        "generator_output_mode": "amp_phase",
+        "rect_s1s2_init": "ones",
+    },
+    "n_groups": 5,
+    "n_subsample": 3,
+    "subsample_seed": 17,
+    "enable_oversampling": True,
+    "neighbor_pool_size": 5,
+    "sequential_sampling": True,
+}
+_SIMULATION_PROBE_FILE = {
+    "N": 64,
+    "seed": 17,
+    "probe": {"source": "ideal", "ideal_scale": 0.7},
+    "object": {
+        "kind": "lines",
+        "image_size": [128, 128],
+        "objects_per_probe": 1,
+        "diffractions_per_object": 4,
+        "set_phi": True,
+        "patch_amplitude_normalization": "none",
+    },
+    "scan": {
+        "kind": "grid",
+        "grid_size": [2, 2],
+        "offset": 4,
+        "outer_offset_train": 8,
+        "outer_offset_test": 20,
+        "train_groups": 3,
+        "test_groups": 2,
+        "buffer": 0,
+        "position_layout": "uniform_random",
+    },
+    "detector": {
+        "photons_per_pattern": 1_000_000.0,
+        "beamstop_diameter": 0.0,
+    },
 }
 
-_PUBLIC_SCIENTIFIC_BOUNDARY_CONTRACT = {
-    "loss_function": "Poisson",
-    "measurement_domain": "normalized_amplitude",
-    "physics_forward_mode": "amplitude",
-    "scale_contract_version": "legacy_v1",
-    "torch_loss_mode": "poisson",
-}
 
-_TOP_LEVEL_FIELDS = {
-    "example.v1": frozenset({"schema_version", "values"}),
-    "es-f1-fixture-manifest.v2": frozenset(
-        {
-            "schema_version",
-            "hard_clause_ids",
-            "registry_baseline",
-            "artifact_eras",
-            "artifact_fixture_origin",
-            "calibration_cases",
-            "external_fixture_store",
-        }
-    ),
-    "es-f1-reviewer-perspectives.v1": frozenset(
-        {"schema_version", "perspectives"}
-    ),
-    "es-f1-calibration-cases.v3": frozenset({"schema_version", "cases"}),
-    "es_f1_visible_checks.v2": frozenset(
-        {
-            "schema_version",
-            "task_id",
-            "runner",
-            "invocation_order",
-            "invocations",
-        }
-    ),
-}
+def _direct_resolver_cases() -> tuple[dict[str, Any], ...]:
+    simulation_ill_typed = json.loads(json.dumps(_SIMULATION_PROBE_FILE))
+    simulation_ill_typed["N"] = "64"
+    simulation_unknown = json.loads(json.dumps(_SIMULATION_PROBE_FILE))
+    simulation_unknown["probe"]["__es_f1_unknown_field__"] = 1
+    simulation_invalid = json.loads(json.dumps(_SIMULATION_PROBE_FILE))
+    simulation_invalid["scan"]["grid_size"] = [2]
+    return (
+        {"case_id": "strict-unknown", "role": "TRAINING", "file_mapping": _TRAINING_PROBE_FILE, "cli_patch": {"__es_f1_unknown_field__": 1}},
+        {"case_id": "strict-illtyped", "role": "TRAINING", "file_mapping": _TRAINING_PROBE_FILE, "cli_patch": {"n_groups": True}},
+        {"case_id": "strict-retention", "role": "TRAINING", "file_mapping": _TRAINING_PROBE_FILE, "cli_patch": {"model": {"N": 128}, "n_groups": 7}},
+        {"case_id": "simulation-valid", "role": "SIMULATION", "file_mapping": _SIMULATION_PROBE_FILE, "cli_patch": {}},
+        {"case_id": "simulation-illtyped", "role": "SIMULATION", "file_mapping": simulation_ill_typed, "cli_patch": {}},
+        {"case_id": "simulation-unknown", "role": "SIMULATION", "file_mapping": simulation_unknown, "cli_patch": {}},
+        {"case_id": "simulation-invalid-mapping", "role": "SIMULATION", "file_mapping": simulation_invalid, "cli_patch": {}},
+    )
 
-CALIBRATION_DEFECT_CLAUSES = {
-    "none": (),
-    "missing_identity": ("F1-H07-STRUCTURAL-IDENTITY-REJECTION",),
-    "extra_identity": ("F1-H07-STRUCTURAL-IDENTITY-REJECTION",),
-    "unknown_identity": ("F1-H07-STRUCTURAL-IDENTITY-REJECTION",),
-    "unsupported_identity": ("F1-H07-STRUCTURAL-IDENTITY-REJECTION",),
-    "schema_version_drift": ("F1-H02-SCHEMA-CONFORMANCE",),
-    "route_disagreement": ("F1-H09-CONSTRUCTION-REBUILD-EQUALITY",),
-    "missing_persisted_builder": ("F1-H09-CONSTRUCTION-REBUILD-EQUALITY",),
-    "same_process_reload": ("F1-H05-FULL-ARCHITECTURE-LIFECYCLE",),
-    "injection_dependent_reload": ("F1-H05-FULL-ARCHITECTURE-LIFECYCLE",),
-    "checkpoint_field_loss": ("F1-H06-STRUCTURAL-ROUNDTRIP",),
-    "bundle_field_loss": ("F1-H06-STRUCTURAL-ROUNDTRIP",),
-    "identity_insensitive": ("F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",),
-    "forbidden_import": ("F1-H10-OWNERSHIP-BOUNDARY",),
-    "forbidden_path": ("F1-H10-OWNERSHIP-BOUNDARY",),
-    "copy_mutation": ("F1-H10-OWNERSHIP-BOUNDARY",),
-    "architecture_owned_boundary": ("F1-H10-OWNERSHIP-BOUNDARY",),
-}
 
-CALIBRATION_CASE_SEQUENCE = (
-    ("conforming_control", "none"),
-    ("missing_structural_identity", "missing_identity"),
-    ("extra_structural_identity", "extra_identity"),
-    ("unknown_structural_identity", "unknown_identity"),
-    ("unsupported_structural_identity", "unsupported_identity"),
-    ("candidate_schema_version_drift", "schema_version_drift"),
-    ("public_persisted_disagreement", "route_disagreement"),
-    ("missing_persisted_builder", "missing_persisted_builder"),
-    ("non_fresh_reload", "same_process_reload"),
-    ("injection_dependent_reload", "injection_dependent_reload"),
-    ("checkpoint_witness_field_loss", "checkpoint_field_loss"),
-    ("bundle_witness_field_loss", "bundle_field_loss"),
-    ("unchanged_identity_after_structural_change", "identity_insensitive"),
-    ("forbidden_import", "forbidden_import"),
-    ("forbidden_path", "forbidden_path"),
-    ("copy_mutation", "copy_mutation"),
-    ("architecture_owned_scientific_boundary", "architecture_owned_boundary"),
-)
+DIRECT_RESOLVER_CASES = _direct_resolver_cases()
+DIRECT_RESOLVER_CASE_IDS = tuple(row["case_id"] for row in DIRECT_RESOLVER_CASES)
 
-def canonical_json_bytes(value: Any) -> bytes:
-    """Return canonical UTF-8 JSON with one trailing LF."""
+_DIRECT_RESOLVER_RUNNER = r'''import dataclasses,enum,importlib,json,math,os,pathlib,sys
+workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
+calls=json.loads(pathlib.Path(os.environ["ES_F1_DIRECT_CALLS"]).read_bytes())
+routes=json.loads(os.environ["ES_F1_DIRECT_ROUTES"])
+target=pathlib.Path(os.environ["ES_F1_DIRECT_TRANSCRIPT"])
+def dotted(symbol):
+    module,sep,name=symbol.rpartition(".")
+    if not sep:raise TypeError("resolver symbol is not dotted")
+    value=getattr(importlib.import_module(module),name)
+    if not callable(value):raise TypeError("resolver symbol is not callable")
+    return value
+resolved_routes={role:dotted(symbol) for role,symbol in routes.items()}
+def normalize(value,path="$",catalog=None,stack=None):
+    catalog=[] if catalog is None else catalog
+    stack=set() if stack is None else stack
+    if isinstance(value,enum.Enum):return normalize(value.value,path,catalog,stack)
+    if isinstance(value,pathlib.PurePath):return value.as_posix()
+    if value is None or type(value) in (bool,int,str):return value
+    if type(value) is float:
+        if not math.isfinite(value):raise TypeError("non-finite value")
+        return value
+    identity=id(value)
+    if identity in stack:raise TypeError("cyclic value")
+    stack.add(identity)
+    try:
+        if isinstance(value,dict) or hasattr(value,"items"):
+            items=list(value.items())
+            if any(type(key) is not str for key,_ in items):raise TypeError("non-string mapping key")
+            if len({key for key,_ in items})!=len(items):raise TypeError("duplicate mapping key")
+            fields=sorted(key for key,_ in items)
+            catalog.append({"fields":fields,"kind":"mapping","path":path})
+            return {key:normalize(item,path+"."+key,catalog,stack) for key,item in sorted(items)}
+        if dataclasses.is_dataclass(value) and not isinstance(value,type):
+            items=[(field.name,getattr(value,field.name)) for field in dataclasses.fields(value)]
+            catalog.append({"fields":sorted(name for name,_ in items),"kind":"dataclass","path":path})
+            return {name:normalize(item,path+"."+name,catalog,stack) for name,item in items}
+        if isinstance(value,tuple) and hasattr(value,"_fields"):
+            names=tuple(value._fields)
+            if any(type(name) is not str for name in names):raise TypeError("invalid namedtuple fields")
+            catalog.append({"fields":sorted(names),"kind":"namedtuple","path":path})
+            return {name:normalize(getattr(value,name),path+"."+name,catalog,stack) for name in names}
+        if callable(getattr(value,"model_dump",None)) and isinstance(getattr(type(value),"model_fields",None),dict):
+            names=sorted(type(value).model_fields)
+            catalog.append({"fields":names,"kind":"pydantic","path":path})
+            dumped=value.model_dump(mode="python")
+            if not isinstance(dumped,dict) or set(dumped)!=set(names):raise TypeError("pydantic field drift")
+            return {name:normalize(dumped[name],path+"."+name,catalog,stack) for name in names}
+        if isinstance(value,(list,tuple)):
+            return [normalize(item,path+"["+str(index)+"]",catalog,stack) for index,item in enumerate(value)]
+        values=getattr(value,"__dict__",None)
+        if isinstance(values,dict):
+            items=sorted((name,item) for name,item in values.items() if type(name) is str and not name.startswith("_") and not callable(item))
+            if not items:raise TypeError("opaque value")
+            catalog.append({"fields":[name for name,_ in items],"kind":"object","path":path})
+            return {name:normalize(item,path+"."+name,catalog,stack) for name,item in items}
+        raise TypeError("opaque value")
+    finally:stack.remove(identity)
+rows=[]
+for call in calls:
+    file_mapping=json.loads(json.dumps(call["file_mapping"]))
+    cli_patch=json.loads(json.dumps(call["cli_patch"]))
+    before={"file_mapping":normalize(file_mapping),"cli_patch":normalize(cli_patch)}
+    try:
+        value=resolved_routes[call["role"]](file_mapping,cli_patch)
+    except Exception as exc:
+        outcome={"exception_type":type(exc).__module__+"."+type(exc).__qualname__,"kind":"raised"}
+    else:
+        catalog=[]
+        normalized=normalize(value,catalog=catalog)
+        outcome={"field_catalog":sorted(catalog,key=lambda row:row["path"]),"kind":"returned","value":normalized}
+    after={"file_mapping":normalize(file_mapping),"cli_patch":normalize(cli_patch)}
+    rows.append({"case_id":call["case_id"],"input_after":after,"input_before":before,"outcome":outcome})
+target.write_bytes((json.dumps({"pid":os.getpid(),"rows":rows},allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
 
+
+class EvaluatorError(RuntimeError):
+    """A controller-owned evaluation invariant failed closed."""
+
+
+def _fail(detail: str) -> NoReturn:
+    raise EvaluatorError(detail)
+
+
+def canonical_json_bytes(value: object) -> bytes:
     return (
         json.dumps(
             value,
             allow_nan=False,
             ensure_ascii=False,
-            sort_keys=True,
             separators=(",", ":"),
-        )
-        + "\n"
-    ).encode("utf-8")
-
-
-def build_lifecycle_probe_inputs(
-    *,
-    architecture_rows: Sequence[Mapping[str, Any]],
-    seed: int,
-) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
-    """Build one evaluator-owned config/input pair for every lifecycle case."""
-
-    if type(seed) is not int or not 0 <= seed <= 2_147_483_647:
-        raise ValueError("lifecycle seed must be a 31-bit non-negative integer")
-    rows = list(architecture_rows)
-    if len(rows) != 15 or any(not isinstance(row, Mapping) for row in rows):
-        raise ValueError("lifecycle architecture rows must contain exactly fifteen records")
-    architecture_ids = tuple(row.get("public_id") for row in rows)
-    if (
-        architecture_ids[:14] != F1_BUILTIN_ARCHITECTURES
-        or not isinstance(architecture_ids[-1], str)
-        or not architecture_ids[-1]
-        or architecture_ids[-1] in set(F1_BUILTIN_ARCHITECTURES)
-        or len(set(architecture_ids)) != 15
-    ):
-        raise ValueError("lifecycle architecture rows are not the exact built-in-plus-witness order")
-    if any(
-        row.get("construction_route") != F1_PUBLIC_CONSTRUCTION_ROUTE
-        or row.get("persisted_rebuild_route") != F1_PUBLIC_PERSISTED_REBUILD_ROUTE
-        for row in rows
-    ):
-        raise EvaluatorObservationError(
-            clause_id="F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
-            mechanism="declared-construction-route-authority",
-            evidence={
-                "declared_routes": [
-                    {
-                        "architecture_id": row.get("public_id"),
-                        "construction_route": row.get("construction_route"),
-                        "persisted_rebuild_route": row.get(
-                            "persisted_rebuild_route"
-                        ),
-                    }
-                    for row in rows
-                ],
-                "expected_construction_route": F1_PUBLIC_CONSTRUCTION_ROUTE,
-                "expected_persisted_rebuild_route": (
-                    F1_PUBLIC_PERSISTED_REBUILD_ROUTE
-                ),
-            },
-            detail="lifecycle declarations do not use the frozen public routes",
-        )
-    expected_builtin_fields = {
-        architecture_id: [
-            {
-                "name": name,
-                "baseline_value": baseline_value,
-                "alternate_value": alternate_value,
-            }
-            for name, baseline_value, alternate_value in fields
-        ]
-        for architecture_id, fields in F1_BUILTIN_STRUCTURAL_DECLARATIONS
-    }
-    for row in rows[:14]:
-        architecture_id = str(row["public_id"])
-        if row.get("structural_fields") != expected_builtin_fields[architecture_id]:
-            raise ValueError(
-                "lifecycle built-in structural declarations must match evaluator authority"
-            )
-
-    cases: list[dict[str, Any]] = []
-    payloads: dict[str, bytes] = {}
-    for ordinal, row in enumerate(rows, start=1):
-        architecture_id = str(row["public_id"])
-        N = 128 if architecture_id == "neuralop_uno" else 64
-        config_path = f"evaluator-inputs/{ordinal:02d}-{architecture_id}/base-config.json"
-        input_path = f"evaluator-inputs/{ordinal:02d}-{architecture_id}/cdi-fixture.json"
-        config_payload = canonical_json_bytes(
-            {
-                "schema_version": "es-f1-base-config.v1",
-                "N": N,
-                "batch_size": 1,
-                "device": "cpu",
-                "epochs": 1,
-                "fno_blocks": 3,
-                "fno_cnn_blocks": 1,
-                "fno_modes": 2,
-                "fno_width": 4,
-                "gridsize": 1,
-                "measurement_domain": "normalized_amplitude",
-                "n_filters_scale": 1,
-                "n_groups": 1,
-                "object_big": False,
-                "probe_big": False,
-                "scale_contract_version": "legacy_v1",
-                "subsample_seed": seed,
-            }
-        )
-        input_payload = canonical_json_bytes(
-            {
-                "schema_version": "es-f1-cdi-fixture.v1",
-                "diffraction_generator": "numpy-default-rng-random-float32.v1",
-                "image_size": N,
-                "probe_generator": "complex-ones.v1",
-                "sample_count": 3,
-                "seed": seed,
-            }
-        )
-        payloads[config_path] = config_payload
-        payloads[input_path] = input_payload
-        cases.append(
-            {
-                "N": N,
-                "architecture_id": architecture_id,
-                "config": {
-                    "path": config_path,
-                    "sha256": "sha256:" + hashlib.sha256(config_payload).hexdigest(),
-                },
-                "construction_route": row["construction_route"],
-                "input": {
-                    "path": input_path,
-                    "sha256": "sha256:" + hashlib.sha256(input_payload).hexdigest(),
-                },
-                "persisted_rebuild_route": row["persisted_rebuild_route"],
-                "structural_fields": deepcopy(row["structural_fields"]),
-            }
-        )
-    return cases, payloads
-
-
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON object key: {key!r}")
-        result[key] = value
-    return result
-
-
-def load_controller_asset(
-    path: Path,
-    *,
-    expected_schema_version: str,
-) -> dict[str, Any]:
-    """Load one exact, closed controller record and reject ambiguous bytes."""
-
-    raw = path.read_bytes()
-    try:
-        parsed = json.loads(
-            raw,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=lambda token: (_ for _ in ()).throw(
-                ValueError(f"invalid JSON scalar {token!r}")
-            ),
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"invalid JSON asset {path}: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("controller asset must be a JSON object")
-    if raw != canonical_json_bytes(parsed):
-        raise ValueError("controller asset bytes are not canonical LF JSON")
-    version = parsed.get("schema_version")
-    if version != expected_schema_version:
-        raise ValueError(
-            f"schema_version mismatch: expected {expected_schema_version!r}, got {version!r}"
-        )
-    allowed = _TOP_LEVEL_FIELDS.get(expected_schema_version)
-    if allowed is None:
-        raise ValueError(f"unsupported controller schema {expected_schema_version!r}")
-    unexpected = set(parsed) - allowed
-    missing = allowed - set(parsed)
-    if unexpected or missing:
-        raise ValueError(
-            "controller asset field set is not exact; "
-            f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
-        )
-    return parsed
-
-
-class EvaluatorError(RuntimeError):
-    """The controller could not produce a trusted evaluator observation."""
-
-
-def require_evaluator_successor_schema(
-    record: Mapping[str, Any],
-    *,
-    record_type: str,
-) -> Mapping[str, Any]:
-    """Reject predecessor and unknown evaluator records at their parse boundary."""
-
-    versions = EVALUATOR_SUCCESSOR_SCHEMA_VERSIONS.get(record_type)
-    if versions is None:
-        raise EvaluatorError(f"unknown evaluator successor record type {record_type!r}")
-    if not isinstance(record, Mapping):
-        raise EvaluatorError(f"{record_type} must be an object")
-    expected = versions[1]
-    observed = record.get("schema_version")
-    if observed != expected:
-        raise EvaluatorError(
-            f"{record_type} schema version mismatch: "
-            f"expected {expected!r}, got {observed!r}"
-        )
-    return record
-
-
-class EvaluatorObservationError(EvaluatorError):
-    """A controller-owned mechanism produced one typed failed observation."""
-
-    def __init__(
-        self,
-        *,
-        clause_id: str,
-        mechanism: str,
-        evidence: Mapping[str, Any],
-        detail: str,
-    ) -> None:
-        if clause_id not in HARD_CLAUSE_IDS:
-            raise ValueError(f"unknown evaluator observation clause {clause_id!r}")
-        if not isinstance(mechanism, str) or not mechanism:
-            raise ValueError("evaluator observation mechanism must be non-empty")
-        if not isinstance(evidence, Mapping):
-            raise ValueError("evaluator observation evidence must be an object")
-        if not isinstance(detail, str) or not detail:
-            raise ValueError("evaluator observation detail must be non-empty")
-        self.clause_id = clause_id
-        self.mechanism = mechanism
-        self.evidence_record = dict(evidence)
-        self.observation_detail = detail
-        super().__init__(f"{mechanism}: {detail}")
-
-    def as_observation(self) -> dict[str, Any]:
-        return {
-            "clause_id": self.clause_id,
-            "satisfied": False,
-            "evidence": [
-                _digest(
-                    {
-                        "mechanism": self.mechanism,
-                        "evidence": self.evidence_record,
-                    }
-                )
-            ],
-            "details": self.observation_detail,
-        }
-
-
-_FORBIDDEN_IMPORT_PREFIXES = (
-    "ptycho.evaluation",
-    "ptycho.FRC",
-    "PtychoNN",
-    "notebooks.archive.ePIE_recon_simulation",
-    "scripts.orchestration",
-)
-_FORBIDDEN_PATH_FRAGMENTS = (
-    "/home/ollie/Documents/PtychoPINN",
-    "/.claude/",
-    "/PtychoNN/",
-    "/notebooks/archive/ePIE_recon_simulation/",
-    "/ptycho/FRC/",
-    "/scripts/orchestration/",
-)
-
-_AUDITED_ADAPTER_WRAPPER = r'''import json,os,pathlib,platform,runpy,sys
-platform.processor()
-events=[]
-recording=True
-workspace=pathlib.Path(sys.argv[5]).resolve(strict=True)
-bootstrap=pathlib.Path(sys.argv[6]).resolve(strict=True)
-read_only_workspaces=(workspace,bootstrap)
-mutation_specs={
-    "os.rename":((0,2),(1,3)),"os.remove":((0,1),),
-    "os.link":((0,2),(1,3)),"os.symlink":((0,None),(1,2)),
-    "os.mkdir":((0,2),),"os.rmdir":((0,1),),
-    "os.chmod":((0,2),),"os.chown":((0,3),),
-    "os.utime":((0,3),),"os.truncate":((0,None),),
-    "os.setxattr":((0,None),),"os.removexattr":((0,None),),
-}
-def resolve_operand(value,dir_fd):
-    if isinstance(value,int):
-        return pathlib.Path(os.readlink("/proc/self/fd/"+str(value))).resolve(strict=False)
-    if isinstance(value,bytes): value=value.decode(errors="replace")
-    if not isinstance(value,str): raise TypeError("mutation path operand is not path-like")
-    candidate=pathlib.Path(value)
-    if candidate.is_absolute(): return candidate.resolve(strict=False)
-    if dir_fd in (None,-1): base=pathlib.Path.cwd()
-    elif isinstance(dir_fd,int): base=pathlib.Path(os.readlink("/proc/self/fd/"+str(dir_fd)))
-    else: raise TypeError("mutation dir_fd is malformed")
-    return (base/candidate).resolve(strict=False)
-def audit(event,args):
-    if not recording:
-        return
-    if event == "import" and args:
-        events.append({"event":"import","value":str(args[0])})
-    elif event in {"open","os.listdir","os.scandir"} and args:
-        value=args[0]
-        if isinstance(value,(str,bytes)):
-            decoded=value.decode(errors="replace") if isinstance(value,bytes) else value
-            events.append({"event":"path","value":decoded})
-            if event=="open":
-                mode=args[1] if len(args)>1 else None
-                flags=args[2] if len(args)>2 else None
-                writing=(isinstance(mode,str) and any(token in mode for token in "wax+")) or (isinstance(flags,int) and bool(flags & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC|os.O_APPEND)))
-                if writing:
-                    candidate=pathlib.Path(decoded)
-                    if not candidate.is_absolute(): candidate=pathlib.Path.cwd()/candidate
-                    resolved=candidate.resolve(strict=False)
-                    if any(resolved.is_relative_to(root) for root in read_only_workspaces):
-                        events.append({"event":"workspace_write_attempt","value":str(resolved)})
-                        raise PermissionError("candidate workspace is evaluator-read-only")
-    elif event in mutation_specs:
-        resolved=[]
-        try:
-            for value_index,dir_fd_index in mutation_specs[event]:
-                dir_fd=None if dir_fd_index is None else args[dir_fd_index]
-                resolved.append(resolve_operand(args[value_index],dir_fd))
-        except (IndexError,OSError,RuntimeError,TypeError,ValueError) as exc:
-            events.append({"event":"protected_path_mutation_attempt","value":event+":unresolved:"+type(exc).__name__})
-            raise PermissionError("candidate mutation target could not be resolved")
-        protected=sorted({str(path) for path in resolved if any(path.is_relative_to(root) for root in read_only_workspaces)})
-        if protected:
-            events.append({"event":"protected_path_mutation_attempt","value":event+":"+"|".join(protected)})
-            raise PermissionError("candidate workspace is evaluator-read-only")
-    elif event in {"subprocess.Popen","os.system","os.posix_spawn","os.posix_spawnp","os.exec","os.fork","os.forkpty","pty.spawn"}:
-        value=str(args[0]) if args else event
-        events.append({"event":"unaudited_child_process","value":value})
-        raise PermissionError("candidate child process is outside the evaluator audit boundary")
-sys.addaudithook(audit)
-adapter,request,result,audit_path=sys.argv[1:5]
-sys.argv=[adapter,"--request",request,"--result",result]
-sys.path.insert(0,str(workspace))
-try:
-    runpy.run_path(adapter,run_name="__main__")
-finally:
-    recording=False
-    with open(audit_path,"w",encoding="utf-8",newline="\n") as stream:
-        json.dump({"events":events},stream,ensure_ascii=False,sort_keys=True,separators=(",",":"))
-        stream.write("\n")
-'''
-
-_AUDITED_PROJECTION_WRAPPER = r'''import hashlib,json,os,pathlib,platform,runpy,sys
-# Evaluator-owned deterministic dependency initialization: NumPy 1.x probes
-# SVE support with lscpu while importing numpy.testing.
-if os.environ.get("ES_F1_PRELOAD_NUMPY_TESTING")=="1":
-    import numpy.testing
-platform.processor()
-approved_python_executable=sys.executable
-events=[]
-recording=True
-read_only_workspaces=tuple(pathlib.Path(value).resolve(strict=True) for value in json.loads(sys.argv[1]))
-protected_roots_literal=sys.argv[1]
-program=pathlib.Path(sys.argv[2]).resolve(strict=True)
-audit_path=pathlib.Path(sys.argv[3])
-candidate_workspace=pathlib.Path(sys.argv[4]).resolve(strict=True)
-program_cwd=pathlib.Path(sys.argv[5]).resolve(strict=True)
-forbidden_imports=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-forbidden_paths=("/home/ollie/Documents/PtychoPINN","/.claude/","/PtychoNN/","/notebooks/archive/ePIE_recon_simulation/","/ptycho/FRC/","/scripts/orchestration/")
-child_events={"subprocess.Popen","os.system","os.posix_spawn","os.posix_spawnp","os.exec","os.fork","os.forkpty","pty.spawn"}
-mutation_specs={
-    "os.rename":((0,2),(1,3)),"os.remove":((0,1),),
-    "os.link":((0,2),(1,3)),"os.symlink":((0,None),(1,2)),
-    "os.mkdir":((0,2),),"os.rmdir":((0,1),),
-    "os.chmod":((0,2),),"os.chown":((0,3),),
-    "os.utime":((0,3),),"os.truncate":((0,None),),
-    "os.setxattr":((0,None),),"os.removexattr":((0,None),),
-}
-nested_wrapper_literal=os.environ.get("ES_F1_NESTED_WRAPPER")
-controlled_root_literal=os.environ.get("ES_F1_CONTROLLED_CHILD_ROOT")
-controlled_digest_literal=os.environ.get("ES_F1_CONTROLLED_CHILD_SHA256")
-controlled_specs_literal=os.environ.get("ES_F1_CONTROLLED_CHILD_SPECS","{}")
-controlled_specs=json.loads(controlled_specs_literal)
-baseline_child_environment=dict(os.environ)
-def exact_string_dict(value):
-    return type(value) is dict and all(type(key) is str and type(item) is str for key,item in value.items())
-def resolve_operand(value,dir_fd):
-    if isinstance(value,int):
-        return pathlib.Path(os.readlink("/proc/self/fd/"+str(value))).resolve(strict=False)
-    if isinstance(value,bytes): value=value.decode(errors="replace")
-    if not isinstance(value,str): raise TypeError("mutation path operand is not path-like")
-    candidate=pathlib.Path(value)
-    if candidate.is_absolute(): return candidate.resolve(strict=False)
-    if dir_fd in (None,-1): base=pathlib.Path.cwd()
-    elif isinstance(dir_fd,int): base=pathlib.Path(os.readlink("/proc/self/fd/"+str(dir_fd)))
-    else: raise TypeError("mutation dir_fd is malformed")
-    return (base/candidate).resolve(strict=False)
-def controlled_child(args):
-    if len(args)!=4 or type(args[0]) is not str: return False
-    argv=args[1]
-    if type(argv) is not list or len(argv)!=9 or any(type(value) is not str for value in argv): return False
-    if type(nested_wrapper_literal) is not str or type(protected_roots_literal) is not str: return False
-    expected=[approved_python_executable,"-B","-c",nested_wrapper_literal,protected_roots_literal]
-    if argv[:5]!=expected or args[0]!=approved_python_executable: return False
-    child_root=controlled_root_literal
-    if type(child_root) is not str or not child_root: return False
-    root=pathlib.Path(child_root).resolve(strict=True)
-    try:
-        child_program=pathlib.Path(argv[5]).resolve(strict=True)
-        child_audit=pathlib.Path(argv[6]).resolve(strict=False)
-    except (OSError,RuntimeError): return False
-    if not child_program.is_file() or not child_program.is_relative_to(root) or not child_audit.is_relative_to(root): return False
-    spec=controlled_specs.get(str(child_program))
-    if type(spec) is not dict or any(type(key) is not str for key in spec) or set(spec)!={"audit_path","cwd","environment_updates"}: return False
-    if type(spec["audit_path"]) is not str or type(spec["cwd"]) is not str or not exact_string_dict(spec["environment_updates"]): return False
-    if spec["audit_path"]!=str(child_audit): return False
-    if argv[7]!=str(candidate_workspace) or argv[8]!=spec["cwd"]: return False
-    expected_digest=controlled_digest_literal
-    if type(expected_digest) is not str or not expected_digest or hashlib.sha256(child_program.read_bytes()).hexdigest()!=expected_digest: return False
-    child_cwd=args[2]
-    if type(child_cwd) is not str or pathlib.Path(child_cwd).resolve(strict=True)!=pathlib.Path(spec["cwd"]).resolve(strict=True): return False
-    child_env=args[3]
-    if not exact_string_dict(baseline_child_environment) or not exact_string_dict(child_env): return False
-    expected_env={**baseline_child_environment,**spec["environment_updates"]}
-    if not exact_string_dict(expected_env) or child_env!=expected_env: return False
-    del controlled_specs[str(child_program)]
-    return True
-def audit(event,args):
-    if not recording: return
-    if event=="import" and args:
-        value=str(args[0])
-        if any(value==prefix or value.startswith(prefix+".") for prefix in forbidden_imports):
-            events.append({"event":"forbidden_import","value":value})
-            raise PermissionError("candidate import is excluded")
-    elif event in {"open","os.listdir","os.scandir"} and args:
-        value=args[0]
-        if not isinstance(value,(str,bytes)): return
-        decoded=value.decode(errors="replace") if isinstance(value,bytes) else value
-        candidate=pathlib.Path(decoded)
-        if not candidate.is_absolute(): candidate=pathlib.Path.cwd()/candidate
-        resolved=candidate.resolve(strict=False)
-        rendered=str(resolved)
-        if any(fragment in rendered for fragment in forbidden_paths):
-            events.append({"event":"forbidden_path","value":rendered})
-            raise PermissionError("candidate path is excluded")
-        if event=="open":
-            mode=args[1] if len(args)>1 else None
-            flags=args[2] if len(args)>2 else None
-            writing=(isinstance(mode,str) and any(token in mode for token in "wax+")) or (isinstance(flags,int) and bool(flags & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC|os.O_APPEND)))
-            if writing and any(resolved.is_relative_to(root) for root in read_only_workspaces):
-                events.append({"event":"workspace_write_attempt","value":rendered})
-                raise PermissionError("candidate workspace is evaluator-read-only")
-    elif event in mutation_specs:
-        resolved=[]
-        try:
-            for value_index,dir_fd_index in mutation_specs[event]:
-                dir_fd=None if dir_fd_index is None else args[dir_fd_index]
-                resolved.append(resolve_operand(args[value_index],dir_fd))
-        except (IndexError,OSError,RuntimeError,TypeError,ValueError) as exc:
-            events.append({"event":"protected_path_mutation_attempt","value":event+":unresolved:"+type(exc).__name__})
-            raise PermissionError("candidate mutation target could not be resolved")
-        protected=sorted({str(path) for path in resolved if any(path.is_relative_to(root) for root in read_only_workspaces)})
-        if protected:
-            events.append({"event":"protected_path_mutation_attempt","value":event+":"+"|".join(protected)})
-            raise PermissionError("candidate workspace is evaluator-read-only")
-    elif event in child_events:
-        if event=="subprocess.Popen" and controlled_child(args): return
-        value=str(args[0]) if args else event
-        events.append({"event":"unaudited_child_process","value":value})
-        raise PermissionError("candidate child process is outside the evaluator audit boundary")
-sys.addaudithook(audit)
-sys.argv=[str(program)]
-sys.path.insert(0,str(candidate_workspace))
-os.chdir(program_cwd)
-try:
-    runpy.run_path(str(program),run_name="__main__")
-finally:
-    recording=False
-    with open(audit_path,"w",encoding="utf-8",newline="\n") as stream:
-        json.dump({"events":events},stream,ensure_ascii=False,sort_keys=True,separators=(",",":"))
-        stream.write("\n")
-'''
-
-_VISIBLE_CHECK_PROBE = r'''import json,os,pathlib,runpy,sys
-product=pathlib.Path(os.environ["ES_F1_VISIBLE_PRODUCT_ROOT"]).resolve(strict=True)
-selectors=set(json.loads(os.environ["ES_F1_VISIBLE_SELECTORS"]))
-argv=json.loads(os.environ["ES_F1_VISIBLE_ARGV"])
-for index,value in enumerate(argv):
-    path,separator,node=value.partition("::")
-    if path in selectors:
-        argv[index]=str(product/path)+(separator+node if separator else "")
-sys.path.insert(0,str(product))
-sys.argv=argv
-runpy.run_module("pytest",run_name="__main__")
-'''
-
-_REGISTRY_SIGNATURE_PROBE = r'''import gc,hashlib,importlib,json,os,pathlib,sys
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix):
-        sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-import torch
-from ptycho.config.config import ModelConfig as CanonicalModelConfig
-from ptycho.config.config import TrainingConfig as CanonicalTrainingConfig
-from ptycho_torch.application_factory import build_ptychopinn_application
-from ptycho_torch.config_bridge import to_model_config
-from ptycho_torch.config_params import DataConfig,InferenceConfig,ModelConfig,TrainingConfig
-from ptycho_torch.generators.registry import _REGISTRY,resolve_generator
-from ptycho_torch.model_spec import derive_model_spec
-
-def canonical(value):
-    return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def fq(value):
-    kind=type(value)
-    return kind.__module__+"."+kind.__qualname__
-def state_signature(model):
-    return [
-        {"dtype":str(value.dtype).removeprefix("torch."),"name":name,"shape":list(value.shape)}
-        for name,value in sorted(model.state_dict().items())
-    ]
-
-rows=[]
-builtin_architectures=json.loads(os.environ["ES_F1_BUILTIN_ARCHITECTURES"])
-if not isinstance(builtin_architectures,list) or len(set(builtin_architectures))!=len(builtin_architectures): raise RuntimeError("frozen built-in selector is malformed")
-if any(architecture not in _REGISTRY for architecture in builtin_architectures): raise RuntimeError("frozen built-in architecture is missing")
-for architecture in builtin_architectures:
-    image_size=128 if architecture=="neuralop_uno" else 64
-    data=DataConfig(N=image_size,C=1,grid_size=(1,1),probe_scale=4.0)
-    model=ModelConfig(
-        architecture=architecture,C_model=1,C_forward=1,object_big=False,
-        probe_big=False,n_filters_scale=1,fno_width=4,fno_modes=2,
-        fno_blocks=3,fno_cnn_blocks=1,hybrid_resnet_blocks=1,
-        hybrid_downsample_steps=1,spectral_bottleneck_blocks=1,
-        spectral_bottleneck_modes=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
     )
-    training=TrainingConfig(device="cpu",torch_loss_mode="poisson")
-    inference=InferenceConfig()
-    canonical_model=to_model_config(data,model)
-    canonical_training=CanonicalTrainingConfig(
-        model=CanonicalModelConfig(N=image_size,gridsize=1,architecture=architecture)
-    )
-    configs={"data_config":data,"model_config":model,"training_config":training,"inference_config":inference}
-    torch.manual_seed(1717)
-    public=resolve_generator(canonical_training).build_model(configs)
-    torch.manual_seed(1717)
-    persisted=build_ptychopinn_application(
-        derive_model_spec(canonical_model,model,data),data,training,inference
-    )
-    public_impl=fq(public.model.autoencoder)
-    persisted_impl=fq(persisted.model.autoencoder)
-    public_state=state_signature(public)
-    persisted_state=state_signature(persisted)
-    if public_impl!=persisted_impl or public_state!=persisted_state:
-        raise RuntimeError("public/persisted construction mismatch for "+architecture)
-    rows.append({
-        "N":image_size,
-        "architecture":architecture,
-        "implementation_identity":public_impl,
-        "parameter_count":sum(value.numel() for value in public.state_dict().values()),
-        "state_entry_count":len(public_state),
-        "state_signature":"sha256:"+hashlib.sha256(canonical(public_state)).hexdigest(),
-    })
-    del public,persisted
-    gc.collect()
-
-forbidden_prefixes=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-forbidden=sorted(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))
-outside=[]
-for name,module in tuple(sys.modules.items()):
-    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")):
-        continue
-    origins=[]
-    spec=getattr(module,"__spec__",None)
-    origin=getattr(spec,"origin",None)
-    if isinstance(origin,str): origins.append(origin)
-    module_file=getattr(module,"__file__",None)
-    if isinstance(module_file,str): origins.append(module_file)
-    for value in origins:
-        path=pathlib.Path(value)
-        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace):
-            outside.append([name,str(path.resolve(strict=False))])
-cache=sorted(
-    path.relative_to(workspace).as_posix() for path in workspace.rglob("*")
-    if path.name=="__pycache__" or path.suffix in {".pyc",".pyo"}
-)
-payload={
-    "schema_version":"es-f1-registry-signature-probe.v1",
-    "registry_baseline":rows,
-    "loaded_forbidden_modules":forbidden,
-    "outside_project_origin_rows":sorted(outside),
-    "cache_artifacts":cache,
-}
-report.write_bytes(canonical(payload))
-'''
-
-_REGISTRY_CONSTRUCTOR_IDENTITY_PROBE = r'''import json,os,pathlib,sys
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-architectures=json.loads(os.environ["ES_F1_ARCHITECTURES"])
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-from ptycho.config.config import ModelConfig,TrainingConfig
-from ptycho_torch.generators.registry import resolve_generator
-
-def canonical(value): return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-rows=[]
-for architecture in architectures:
-    constructor=resolve_generator(TrainingConfig(model=ModelConfig(architecture=architecture)))
-    rows.append({"architecture_id":architecture,"identity":type(constructor).__module__+"."+type(constructor).__qualname__})
-report.write_bytes(canonical({"registry_constructor_identities":rows}))
-'''
-
-_DECLARED_STRUCTURAL_BINDING_PROBE = r'''
-def keyed_paths(value,key,path=()):
-    rows=[]
-    if isinstance(value,dict):
-        for name,item in value.items():
-            child=path+(name,)
-            if name==key: rows.append(child)
-            rows.extend(keyed_paths(item,key,child))
-    elif isinstance(value,list):
-        for index,item in enumerate(value): rows.extend(keyed_paths(item,key,path+(index,)))
-    return rows
-def value_at(value,path):
-    target=value
-    for part in path: target=target[part]
-    return target
-def differing_paths(left,right,path=()):
-    if isinstance(left,dict) and isinstance(right,dict):
-        rows=[]
-        for name in sorted(set(left)&set(right)):
-            rows.extend(differing_paths(left[name],right[name],path+(name,)))
-        rows.extend(path+(name,) for name in sorted(set(left)-set(right)))
-        return rows
-    if isinstance(left,list) and isinstance(right,list) and len(left)==len(right):
-        rows=[]
-        for index,(left_item,right_item) in enumerate(zip(left,right)):
-            rows.extend(differing_paths(left_item,right_item,path+(index,)))
-        return rows
-    return [] if type(left) is type(right) and left==right else [path]
-def consistent_binding(value,key,expected):
-    paths=keyed_paths(value,key)
-    if not paths: raise RuntimeError("declared structural field location is absent or ambiguous")
-    observed=[value_at(value,path) for path in paths]
-    if any(type(item) is not type(expected) or item!=expected for item in observed): raise RuntimeError("declared structural field location is absent or ambiguous")
-    return paths,observed[0]
-def observed_structural_value(model_spec_architecture,value,declaration):
-    name=declaration["name"]
-    if name=="architecture": return model_spec_architecture
-    paths=keyed_paths(value,name)
-    if not paths: raise RuntimeError("declared structural field location is absent or ambiguous")
-    observed=[value_at(value,path) for path in paths]
-    first=observed[0]
-    if any(type(item) is not type(first) or item!=first for item in observed[1:]): raise RuntimeError("declared structural field location is absent or ambiguous")
-    return first
-def declared_structural_binding(model_spec_architecture,value,declaration,alternate_value=None):
-    name=declaration["name"]
-    expected=declaration["baseline_value"]
-    if name=="architecture":
-        observed=model_spec_architecture
-        paths=[] if alternate_value is None else differing_paths(value,alternate_value)
-        if alternate_value is not None and not paths: raise RuntimeError("declared structural field location is absent or ambiguous")
-    else:
-        paths,observed=consistent_binding(value,name,expected)
-    if type(observed) is not type(expected) or observed!=expected: raise RuntimeError("declared structural field location is absent or ambiguous")
-    return paths,observed
-'''
 
 
-_FRESH_RELOAD_PROBE = (r'''import copy,hashlib,importlib,json,os,pathlib,sys
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-report=pathlib.Path(os.environ["ES_F1_CHILD_REPORT"])
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-import torch
-from ptycho_torch.config_bridge import to_model_config
-from ptycho_torch.model_spec import ModelSpec,derive_model_spec
-mode=os.environ["ES_F1_RELOAD_MODE"]
-artifact=pathlib.Path(os.environ["ES_F1_RELOAD_ARTIFACT"])
-artifact_file=artifact if artifact.is_file() else artifact/"wts.h5.zip"
-artifact_payload=artifact_file.read_bytes()
-structural_declarations=json.loads(os.environ.get("ES_F1_STRUCTURAL_FIELDS","[]"))
-image_size=int(os.environ["ES_F1_IMAGE_SIZE"])
-seed=int(os.environ["ES_F1_SEED"])
-if mode=="checkpoint":
-    from ptycho_torch.model import PtychoPINN_Lightning
-    model=PtychoPINN_Lightning.load_from_checkpoint(artifact,map_location="cpu")
-    roles=[]
-else:
-    from ptycho_torch.workflows.components import load_inference_bundle_torch
-    models,_=load_inference_bundle_torch(artifact)
-    roles=sorted(models)
-    model=models["diffraction_to_obj"]
-def canonical(value): return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def fq(value): return type(value).__module__+"."+type(value).__qualname__
-def callable_owner(value):
-    target=getattr(value,"__func__",value)
-    return target.__module__+"."+target.__qualname__
-def boundary_owners(value):
-    return {
-        "compute_loss":callable_owner(value.compute_loss),
-        "loss_forward":callable_owner(value.Loss.forward),
-        "model_forward":callable_owner(value.model.forward),
-        "physics_forward":callable_owner(value.model.forward_model.forward),
-        "scaling":callable_owner(value.model.scaler.scale),
-    }
-def boundary_contract(value):
-    return {
-        "loss_function":value.model_config.loss_function,
-        "measurement_domain":value.data_config.measurement_domain,
-        "physics_forward_mode":value.model_config.physics_forward_mode,
-        "scale_contract_version":value.data_config.scale_contract_version,
-        "torch_loss_mode":value.training_config.torch_loss_mode,
-    }
-def tensor_record(value):
-    item=value.detach().cpu().contiguous()
-    return {"dtype":str(item.dtype).removeprefix("torch."),"shape":list(item.shape),"sha256":"sha256:"+hashlib.sha256(item.numpy().tobytes()).hexdigest()}
-def tensor_facts(value,repeat):
-    item=value.detach(); repeated=repeat.detach(); delta=float((item-repeated).abs().max().cpu().item()) if item.numel() else 0.0; tolerance=0.0
-    return {"deterministic":delta<=tolerance,"dtype":str(item.dtype).removeprefix("torch."),"finite":bool(torch.isfinite(item).all().cpu().item()),"max_abs_delta":delta,"observable_digest":"sha256:"+hashlib.sha256(canonical(tensor_record(item))).hexdigest(),"shape":list(item.shape),"tolerance":tolerance}
-def input_digest(values):
-    return "sha256:"+hashlib.sha256(canonical({name:tensor_record(value) for name,value in sorted(values.items())})).hexdigest()
-def state_signature(value):
-    rows=[{"dtype":str(item.dtype).removeprefix("torch."),"name":name,"shape":list(item.shape)} for name,item in sorted(value.state_dict().items())]
-    return "sha256:"+hashlib.sha256(canonical(rows)).hexdigest()
-''' + _DECLARED_STRUCTURAL_BINDING_PROBE + r'''
-torch.manual_seed(seed)
-x=torch.rand((1,1,image_size,image_size),dtype=torch.float32)
-positions=torch.zeros((1,1,1,2),dtype=torch.float32)
-probe=torch.ones((1,1,1,image_size,image_size),dtype=torch.complex64)
-scale=torch.ones((1,1,1,1),dtype=torch.float32)
-boundary_inputs={"images":x,"positions":positions,"probe":probe,"input_scale_factor":scale}
-boundary_input_digest_before=input_digest(boundary_inputs)
-model.eval()
-with torch.no_grad():
-    prediction=model.forward_predict(x,positions,probe,scale)
-    repeated_prediction=model.forward_predict(x,positions,probe,scale)
-inference_facts=tensor_facts(prediction,repeated_prediction)
-boundary_input_digest_after=input_digest(boundary_inputs)
-forbidden_prefixes=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-forbidden=sorted(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))
-outside=[]
-for name,module in tuple(sys.modules.items()):
-    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")): continue
-    values=[]
-    origin=getattr(getattr(module,"__spec__",None),"origin",None)
-    if isinstance(origin,str): values.append(origin)
-    module_file=getattr(module,"__file__",None)
-    if isinstance(module_file,str): values.append(module_file)
-    for value in values:
-        path=pathlib.Path(value)
-        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace): outside.append([name,str(path.resolve(strict=False))])
-retained_model_spec_payload=model.hparams.get("model_spec")
-if isinstance(retained_model_spec_payload,dict):
-    model_spec=ModelSpec.from_payload(copy.deepcopy(retained_model_spec_payload))
-else:
-    model_spec=derive_model_spec(
-        to_model_config(model.data_config,model.model_config),
-        model.model_config,model.data_config,
-        parity_scale_mode=getattr(model,"parity_scale_mode","off"),
-        parity_fixed_delta=float(model.hparams.get("parity_fixed_delta",0.0)),
-        parity_init_scheme=model.hparams.get("parity_init_scheme","default"),
-    )
-model_spec_payload=model_spec.to_payload()
-structural_values={}
-for declaration in structural_declarations:
-    value=observed_structural_value(model_spec.architecture,model_spec_payload,declaration)
-    structural_values[declaration["name"]]=value
-payload={"artifact_bytes":len(artifact_payload),"artifact_sha256":"sha256:"+hashlib.sha256(artifact_payload).hexdigest(),"architecture_id":model_spec.architecture,"boundary_contract":boundary_contract(model),"boundary_input_digest_after":boundary_input_digest_after,"boundary_input_digest_before":boundary_input_digest_before,"boundary_owners":boundary_owners(model),"fresh_pid":os.getpid(),"implementation_identity":fq(model.model.autoencoder),"inference_deterministic":inference_facts["deterministic"],"inference_dtype":inference_facts["dtype"],"inference_finite":inference_facts["finite"],"inference_max_abs_delta":inference_facts["max_abs_delta"],"inference_shape":inference_facts["shape"],"inference_tolerance":inference_facts["tolerance"],"observable_digest":inference_facts["observable_digest"],"roles":roles,"state_signature":state_signature(model),"structural_values":structural_values,"loaded_forbidden_modules":forbidden,"outside_project_origin_rows":sorted(outside)}
-report.write_bytes((json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8"))
-''')
-
-_PREEDIT_LIFECYCLE_PROBE = r'''import hashlib,importlib,json,os,pathlib,subprocess,sys
-child_launch_environment=dict(os.environ)
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-output=pathlib.Path(os.environ["ES_F1_OUTPUT"]).resolve(strict=False)
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-child_code=os.environ["ES_F1_CHILD_CODE"]
-output.mkdir(parents=True,exist_ok=True)
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-import numpy as np
-import torch
-from lightning.pytorch import Trainer
-from ptycho.config.config import PyTorchExecutionConfig
-from ptycho.raw_data import RawData
-from ptycho_torch.application_factory import build_ptychopinn_application
-from ptycho_torch.artifact_schema import encode_artifact_identity,to_json_payload
-from ptycho_torch.config_factory import create_training_payload
-from ptycho_torch.generators.registry import resolve_generator
-from ptycho_torch.workflows.components import run_cdi_example_torch
-
-def canonical(value): return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def fq(value): return type(value).__module__+"."+type(value).__qualname__
-def state_signature(model):
-    rows=[{"dtype":str(value.dtype).removeprefix("torch."),"name":name,"shape":list(value.shape)} for name,value in sorted(model.state_dict().items())]
-    return "sha256:"+hashlib.sha256(canonical(rows)).hexdigest()
-
-data_path=output/"train.npz"
-rng=np.random.default_rng(20260802)
-diffraction=rng.random((3,64,64),dtype=np.float32)
-probe_guess=np.ones((64,64),dtype=np.complex64)
-np.savez(data_path,diffraction=diffraction,probeGuess=probe_guess)
-payload=create_training_payload(
-    data_path,output/"training",
-    overrides={
-        "N":64,"n_groups":1,"gridsize":1,"architecture":"ffno",
-        "fno_width":4,"fno_modes":2,"fno_blocks":3,"fno_cnn_blocks":1,
-        "n_filters_scale":1,"object_big":False,"probe_big":False,
-        "batch_size":1,"epochs":1,"device":"cpu",
-        "scale_contract_version":"legacy_v1","measurement_domain":"normalized_amplitude",
-    },
-)
-configs={"data_config":payload.pt_data_config,"model_config":payload.pt_model_config,"training_config":payload.pt_training_config,"inference_config":payload.pt_inference_config}
-torch.manual_seed(20260802)
-public=resolve_generator(payload.tf_training_config).build_model(configs)
-torch.manual_seed(20260802)
-persisted=build_ptychopinn_application(payload.model_spec,payload.pt_data_config,payload.pt_training_config,payload.pt_inference_config)
-public_impl=fq(public.model.autoencoder)
-persisted_impl=fq(persisted.model.autoencoder)
-public_state=state_signature(public)
-persisted_state=state_signature(persisted)
-if public_impl!=persisted_impl or public_state!=persisted_state: raise RuntimeError("public/persisted construction mismatch")
-
-torch.manual_seed(20260802)
-images=torch.rand((1,1,64,64),dtype=torch.float32)
-positions=torch.zeros((1,1,1,2),dtype=torch.float32)
-probe=torch.ones((1,1,1,64,64),dtype=torch.complex64)
-rms=torch.ones((1,1,1,1),dtype=torch.float32)
-physics=torch.ones((1,1,1,1),dtype=torch.float32)
-experiment=torch.zeros(1,dtype=torch.long)
-scale=torch.ones(1,dtype=torch.float32)
-batch=({"images":images,"coords_relative":positions,"rms_scaling_constant":rms,"physics_scaling_constant":physics,"experiment_id":experiment},probe,scale)
-persisted.train()
-prediction,_,_=persisted(images,positions,probe,rms,rms,experiment)
-loss=persisted.compute_loss(batch)
-optimizer=persisted.configure_optimizers()["optimizer"]
-tracked=next(parameter for parameter in persisted.parameters() if parameter.requires_grad)
-before=tracked.detach().clone()
-optimizer.zero_grad(); loss.backward(); optimizer.step()
-changed=not torch.equal(before,tracked.detach())
-
-checkpoint=output/"representative.ckpt"
-trainer=Trainer(max_epochs=0,enable_checkpointing=True,logger=False,enable_progress_bar=False,accelerator="cpu",default_root_dir=output)
-trainer.strategy._lightning_module=persisted
-trainer.save_checkpoint(checkpoint)
-coords=np.arange(3,dtype=np.float64)
-raw_data=RawData(
-    xcoords=coords,ycoords=coords,xcoords_start=coords,ycoords_start=coords,
-    diff3d=diffraction,probeGuess=probe_guess,scan_index=np.arange(3,dtype=int),
-)
-execution=PyTorchExecutionConfig(
-    accelerator="cpu",deterministic=True,num_workers=0,
-    enable_progress_bar=False,enable_checkpointing=False,logger_backend=None,
-)
-torch.manual_seed(20260802)
-_,_,workflow_results=run_cdi_example_torch(
-    raw_data,None,payload.tf_training_config,do_stitching=False,
-    execution_config=execution,
-    overrides={
-        "scale_contract_version":"legacy_v1",
-        "measurement_domain":"normalized_amplitude",
-    },
-)
-bundle_model=workflow_results["models"]["diffraction_to_obj"]
-bundle_impl=fq(bundle_model.model.autoencoder)
-if bundle_impl!=persisted_impl: raise RuntimeError("public bundle implementation mismatch")
-bundle_dir=pathlib.Path(payload.tf_training_config.output_dir)
-if not (bundle_dir/"wts.h5.zip").is_file(): raise RuntimeError("public workflow produced no bundle")
-
-def reload(mode,artifact,name):
-    child_report=output/(name+".json")
-    child_program=output/(name+"-program.py")
-    child_audit=output/(name+"-audit.json")
-    child_program.write_text(child_code,encoding="utf-8",newline="\n")
-    spec=json.loads(os.environ["ES_F1_CONTROLLED_CHILD_SPECS"])[str(child_program)]
-    env=dict(child_launch_environment); env.update(spec["environment_updates"])
-    proc=subprocess.run([sys.executable,"-B","-c",os.environ["ES_F1_NESTED_WRAPPER"],os.environ["ES_F1_PROTECTED_ROOTS"],str(child_program),str(child_audit),str(workspace),spec["cwd"]],cwd=spec["cwd"],env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,check=False)
-    nested=json.loads(child_audit.read_bytes()) if child_audit.is_file() else {"events":[]}
-    if nested.get("events"): raise RuntimeError("fresh "+mode+" crossed candidate-process audit boundary")
-    if proc.returncode!=0: raise RuntimeError("fresh "+mode+" reload failed: "+proc.stderr)
-    return json.loads(child_report.read_bytes())
-checkpoint_result=reload("checkpoint",checkpoint,"checkpoint-reload")
-bundle_result=reload("bundle",bundle_dir,"bundle-reload")
-identity=to_json_payload(encode_artifact_identity(payload.model_spec,payload.pt_data_config,payload.pt_training_config,payload.pt_inference_config))
-structural_identity="sha256:"+hashlib.sha256(canonical(identity)).hexdigest()
-
-forbidden_prefixes=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-forbidden=sorted(set(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))|set(checkpoint_result["loaded_forbidden_modules"])|set(bundle_result["loaded_forbidden_modules"]))
-outside=[]
-for name,module in tuple(sys.modules.items()):
-    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")): continue
-    values=[]
-    origin=getattr(getattr(module,"__spec__",None),"origin",None)
-    if isinstance(origin,str): values.append(origin)
-    module_file=getattr(module,"__file__",None)
-    if isinstance(module_file,str): values.append(module_file)
-    for value in values:
-        path=pathlib.Path(value)
-        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace): outside.append([name,str(path.resolve(strict=False))])
-outside.extend(checkpoint_result["outside_project_origin_rows"]); outside.extend(bundle_result["outside_project_origin_rows"])
-cache=sorted(path.relative_to(workspace).as_posix() for path in workspace.rglob("*") if path.name=="__pycache__" or path.suffix in {".pyc",".pyo"})
-result={
-    "schema_version":"es-f1-preedit-lifecycle-probe.v2","architecture":"ffno",
-    "construction_pid":os.getpid(),"public_implementation":public_impl,
-    "persisted_implementation":persisted_impl,"public_state_signature":public_state,
-    "persisted_state_signature":persisted_state,"structural_identity":structural_identity,
-    "forward_shape":list(prediction.shape),"loss_finite":bool(torch.isfinite(loss).item()),
-    "optimizer_changed_parameter":changed,"checkpoint_reload":checkpoint_result,
-    "bundle_persistence_route":"ptycho_torch.workflows.components.run_cdi_example_torch",
-    "bundle_implementation":bundle_impl,"bundle_reload":bundle_result,
-    "loaded_forbidden_modules":forbidden,
-    "outside_project_origin_rows":sorted({tuple(row) for row in outside}),"cache_artifacts":cache,
-}
-report.write_bytes(canonical(result))
-'''
+def _digest(value: object) -> str:
+    return _SHA256_PREFIX + hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
-_FULL_MATRIX_SEMANTIC_LIFECYCLE_PROBE = (r'''import copy,hashlib,importlib,json,os,pathlib,subprocess,sys
-child_launch_environment=dict(os.environ)
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-output=pathlib.Path(os.environ["ES_F1_OUTPUT"]).resolve(strict=False)
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-request_path=pathlib.Path(os.environ["ES_F1_REQUEST"])
-request=json.loads(request_path.read_bytes())
-input_root=request_path.parent
-evidence=json.loads(pathlib.Path(os.environ["ES_F1_CANDIDATE_EVIDENCE"]).read_bytes())
-seed=int(request["seed"])
-optimizer_step_bound=float(os.environ["ES_F1_OPTIMIZER_STEP_BOUND"])
-child_code=os.environ["ES_F1_CHILD_CODE"]
-output.mkdir(parents=True,exist_ok=True)
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-import numpy as np
-import torch
-from lightning.pytorch import Trainer
-from ptycho.config.config import ModelConfig as CanonicalModelConfig,PyTorchExecutionConfig,TrainingConfig as CanonicalTrainingConfig
-from ptycho.raw_data import RawData
-from ptycho_torch.artifact_schema import decode_artifact_identity,encode_artifact_identity,from_json_payload,to_json_payload
-from ptycho_torch.config_factory import create_training_payload
-from ptycho_torch.model_spec import ModelSpec
-from ptycho_torch.workflows.components import run_cdi_example_torch
-
-def canonical(value): return (json.dumps(value,allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def digest(value): return "sha256:"+hashlib.sha256(canonical(value)).hexdigest()
-def fq(value): return type(value).__module__+"."+type(value).__qualname__
-def callable_owner(value):
-    target=getattr(value,"__func__",value)
-    return target.__module__+"."+target.__qualname__
-def boundary_owners(value):
-    return {"compute_loss":callable_owner(value.compute_loss),"loss_forward":callable_owner(value.Loss.forward),"model_forward":callable_owner(value.model.forward),"physics_forward":callable_owner(value.model.forward_model.forward),"scaling":callable_owner(value.model.scaler.scale)}
-def boundary_contract(value):
-    return {"loss_function":value.model_config.loss_function,"measurement_domain":value.data_config.measurement_domain,"physics_forward_mode":value.model_config.physics_forward_mode,"scale_contract_version":value.data_config.scale_contract_version,"torch_loss_mode":value.training_config.torch_loss_mode}
-def tensor_record(value):
-    item=value.detach().cpu().contiguous()
-    return {"dtype":str(item.dtype).removeprefix("torch."),"shape":list(item.shape),"sha256":"sha256:"+hashlib.sha256(item.numpy().tobytes()).hexdigest()}
-def tensor_facts(value,repeat):
-    item=value.detach(); repeated=repeat.detach(); delta=float((item-repeated).abs().max().cpu().item()) if item.numel() else 0.0; tolerance=0.0
-    return {"deterministic":delta<=tolerance,"dtype":str(item.dtype).removeprefix("torch."),"finite":bool(torch.isfinite(item).all().cpu().item()),"max_abs_delta":delta,"observable_digest":digest(tensor_record(item)),"shape":list(item.shape),"tolerance":tolerance}
-def input_digest(values): return digest({name:tensor_record(value) for name,value in sorted(values.items())})
-def state_signature(model):
-    return digest([{"dtype":str(value.dtype).removeprefix("torch."),"name":name,"shape":list(value.shape)} for name,value in sorted(model.state_dict().items())])
-def state_value_digest(model):
-    return digest({name:tensor_record(value) for name,value in sorted(model.state_dict().items())})
-def observable(model,N):
-    torch.manual_seed(seed)
-    images=torch.rand((1,1,N,N),dtype=torch.float32)
-    positions=torch.zeros((1,1,1,2),dtype=torch.float32)
-    probe=torch.ones((1,1,1,N,N),dtype=torch.complex64)
-    scale=torch.ones((1,1,1,1),dtype=torch.float32)
-    model.eval()
-    with torch.no_grad():
-        prediction=model.forward_predict(images,positions,probe,scale)
-        repeated_prediction=model.forward_predict(images,positions,probe,scale)
-    return tensor_facts(prediction,repeated_prediction)
-def operation_failure(stage,exc,audit_events=None):
-    detail=str(exc)
-    payload={"schema_version":"es-f1-semantic-lifecycle-failure.v2","stage":stage,"exception_type":type(exc).__name__,"exception_detail_sha256":"sha256:"+hashlib.sha256(detail.encode("utf-8")).hexdigest()}
-    if audit_events is not None: payload["audit_events"]=audit_events
-    report.write_bytes(canonical(payload)); raise SystemExit(0)
-def resolve_route(route):
-    if not isinstance(route,str) or not route or route.startswith(".") or route.endswith(".") or ".." in route: raise ValueError("declared route is malformed")
-    parts=route.split("."); module=None; split_at=0
-    for index in range(len(parts),0,-1):
-        try: module=importlib.import_module(".".join(parts[:index]))
-        except ModuleNotFoundError as exc:
-            if exc.name!=".".join(parts[:index]): raise
-            continue
-        split_at=index; break
-    if module is None: raise ValueError("declared route module does not exist")
-    target=module
-    for name in parts[split_at:]: target=getattr(target,name)
-    if not callable(target): raise TypeError("declared route is not callable")
-    return target
-''' + _DECLARED_STRUCTURAL_BINDING_PROBE + r'''
-def parent_at(value,path):
-    target=value
-    for part in path[:-1]: target=target[part]
-    return target
-def add_extra_structural_field(value):
-    if isinstance(value,dict):
-        value["es_f1_extra_structural_field"]=1
-        for item in tuple(value.values()): add_extra_structural_field(item)
-    elif isinstance(value,list):
-        for item in value: add_extra_structural_field(item)
-def rejected(builder,payload,decoded):
-    try:
-        spec=ModelSpec.from_payload(copy.deepcopy(payload)); builder(spec,decoded.data_config,decoded.training_config,decoded.inference_config)
-    except Exception as exc:
-        return {"exception_detail_sha256":"sha256:"+hashlib.sha256(str(exc).encode("utf-8")).hexdigest(),"exception_type":type(exc).__name__,"module_returned":False,"rejected":True}
-    return {"exception_detail_sha256":"sha256:"+hashlib.sha256(b"").hexdigest(),"exception_type":None,"module_returned":True,"rejected":False}
-def unsupported(value):
-    if type(value) is bool: return None
-    if isinstance(value,(int,float)) and not isinstance(value,bool): return 0 if value!=0 else -1
-    if isinstance(value,str): return "es_f1_unsupported_value"
-    return None
-def reload(name):
-    child_report=output/(name+".json"); child_program=output/(name+"-program.py"); child_audit=output/(name+"-audit.json")
-    child_program.write_text(child_code,encoding="utf-8",newline="\n")
-    spec=json.loads(os.environ["ES_F1_CONTROLLED_CHILD_SPECS"])[str(child_program)]
-    env=dict(child_launch_environment); env.update(spec["environment_updates"])
-    proc=subprocess.run([sys.executable,"-B","-c",os.environ["ES_F1_NESTED_WRAPPER"],os.environ["ES_F1_PROTECTED_ROOTS"],str(child_program),str(child_audit),str(workspace),spec["cwd"]],cwd=spec["cwd"],env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,check=False)
-    nested=json.loads(child_audit.read_bytes()) if child_audit.is_file() else {"events":[]}
-    if nested.get("events"): operation_failure("OWNERSHIP_BOUNDARY",RuntimeError("nested candidate-process audit rejected the reload"),nested["events"])
-    if proc.returncode!=0: raise RuntimeError("fresh reload failed: "+proc.stderr)
-    return json.loads(child_report.read_bytes())
-
-declarations=[*evidence["builtin_architectures"],evidence["candidate_witness"]]
-cases=request["architecture_cases"]
-if len(declarations)!=15 or [row["public_id"] for row in declarations]!=[row["architecture_id"] for row in cases]: raise RuntimeError("full-matrix declaration join drifted")
-builtin_structural_names={field["name"] for declaration in declarations[:-1] for field in declaration["structural_fields"]}
-execution=PyTorchExecutionConfig(accelerator="cpu",deterministic=True,num_workers=0,enable_progress_bar=False,enable_checkpointing=False,logger_backend=None)
-architecture_results=[]; all_forbidden=set(); all_outside=[]; unknown_route=None; unknown_configs=None
-for ordinal,(declaration,case) in enumerate(zip(declarations,cases),start=1):
-    architecture=case["architecture_id"]; N=case["N"]
-    base=json.loads((input_root/case["config"]["path"]).read_bytes())
-    fixture=json.loads((input_root/case["input"]["path"]).read_bytes())
-    if base["N"]!=N or fixture["image_size"]!=N: raise RuntimeError("evaluator input size drifted")
-    structural_rows=case["structural_fields"]
-    structural_names=[row["name"] for row in structural_rows]
-    baseline={row["name"]:row["baseline_value"] for row in structural_rows}
-    alternate={row["name"]:row["alternate_value"] for row in structural_rows}
-    try:
-        construction_route=resolve_route(case["construction_route"]); persisted_route=resolve_route(case["persisted_rebuild_route"])
-    except Exception as exc: operation_failure("ROUTE_RESOLUTION",exc)
-    row_output=output/(f"{ordinal:02d}-"+architecture); row_output.mkdir(parents=True,exist_ok=True)
-    rng=np.random.default_rng(fixture["seed"])
-    diffraction=rng.random((fixture["sample_count"],N,N),dtype=np.float32)
-    probe_guess=np.ones((N,N),dtype=np.complex64)
-    data_path=row_output/"train.npz"; np.savez(data_path,diffraction=diffraction,probeGuess=probe_guess)
-    overrides={name:value for name,value in base.items() if name!="schema_version"}; overrides["architecture"]=architecture
-    payload=create_training_payload(data_path,row_output/"configuration",overrides=overrides,execution_config=execution)
-    public_payload=payload.model_spec.to_payload(); structural_paths={}; structural_values={}; alternate_specs={}
-    for field_ordinal,structural_row in enumerate(structural_rows,start=1):
-        name=structural_row["name"]
-        alternate_overrides=dict(overrides); alternate_overrides[name]=alternate[name]
-        alternate_training_payload=create_training_payload(data_path,row_output/(f"alternate-{field_ordinal:02d}"),overrides=alternate_overrides,execution_config=execution)
-        alternate_spec=alternate_training_payload.model_spec; alternate_public_payload=alternate_spec.to_payload()
-        paths,value=declared_structural_binding(payload.model_spec.architecture,public_payload,structural_row,alternate_public_payload if name=="architecture" else None)
-        if name=="architecture":
-            if type(alternate_spec.architecture) is not type(alternate[name]) or alternate_spec.architecture!=alternate[name]: raise RuntimeError("declared structural field location is absent or ambiguous")
-        else:
-            consistent_binding(alternate_public_payload,name,alternate[name])
-        structural_paths[name]=paths; structural_values[name]=value; alternate_specs[name]=alternate_spec
-    configs={"data_config":payload.pt_data_config,"model_config":payload.pt_model_config,"training_config":payload.pt_training_config,"inference_config":payload.pt_inference_config}
-    try:
-        registry_constructor=construction_route(payload.tf_training_config)
-        registry_constructor_identity=fq(registry_constructor)
-        torch.manual_seed(seed); public=registry_constructor.build_model(configs)
-    except Exception as exc: operation_failure("PUBLIC_BUILD",exc)
-    try:
-        torch.manual_seed(seed); persisted=persisted_route(payload.model_spec,payload.pt_data_config,payload.pt_training_config,payload.pt_inference_config)
-    except Exception as exc: operation_failure("PERSISTED_BUILD",exc)
-    public_impl=fq(public.model.autoencoder); persisted_impl=fq(persisted.model.autoencoder)
-    public_state=state_signature(public); persisted_state=state_signature(persisted)
-    baseline_sensitivity_digest=observable(public,N)["observable_digest"]
-    torch.manual_seed(seed)
-    images=torch.rand((1,1,N,N),dtype=torch.float32); positions=torch.zeros((1,1,1,2),dtype=torch.float32); probe=torch.ones((1,1,1,N,N),dtype=torch.complex64)
-    rms=torch.ones((1,1,1,1),dtype=torch.float32); physics=torch.ones((1,1,1,1),dtype=torch.float32); experiment=torch.zeros(1,dtype=torch.long); scale=torch.ones(1,dtype=torch.float32)
-    batch=({"images":images,"coords_relative":positions,"rms_scaling_constant":rms,"physics_scaling_constant":physics,"experiment_id":experiment},probe,scale)
-    boundary_inputs={"experiment_id":experiment,"images":images,"input_scale_factor":rms,"output_scale_factor":rms,"physics_scaling_constant":physics,"positions":positions,"probe":probe,"probe_scaling":scale}
-    boundary_before=input_digest(boundary_inputs)
-    persisted.train(); prediction,_,_=persisted(images,positions,probe,rms,rms,experiment); loss=persisted.compute_loss(batch)
-    optimizer=persisted.configure_optimizers()["optimizer"]; optimizer_before=state_value_digest(persisted); optimizer.zero_grad(); loss.backward()
-    gradients=[parameter.grad for parameter in persisted.parameters() if parameter.grad is not None]
-    gradients_finite=bool(gradients) and all(bool(torch.isfinite(gradient).all().cpu().item()) for gradient in gradients)
-    parameter_before={name:parameter.detach().clone() for name,parameter in persisted.named_parameters()}
-    optimizer.step(); optimizer_after=state_value_digest(persisted)
-    optimizer_deltas=[float((parameter.detach()-parameter_before[name]).abs().max().cpu().item()) for name,parameter in persisted.named_parameters() if parameter.numel()]
-    optimizer_step_max_abs_delta=max(optimizer_deltas,default=0.0)
-    optimizer_transition_bounded=bool(np.isfinite(optimizer_step_max_abs_delta) and 0.0<optimizer_step_max_abs_delta<=optimizer_step_bound)
-    boundary_after=input_digest(boundary_inputs); inference_facts=observable(persisted,N); inference_digest=inference_facts["observable_digest"]
-    checkpoint=row_output/"evaluator.ckpt"; trainer=Trainer(max_epochs=0,enable_checkpointing=True,logger=False,enable_progress_bar=False,accelerator="cpu",default_root_dir=row_output); trainer.strategy._lightning_module=persisted; trainer.save_checkpoint(checkpoint)
-    coords=np.arange(fixture["sample_count"],dtype=np.float64)
-    raw_data=RawData(xcoords=coords,ycoords=coords,xcoords_start=coords,ycoords_start=coords,diff3d=diffraction,probeGuess=probe_guess,scan_index=np.arange(fixture["sample_count"],dtype=int))
-    torch.manual_seed(seed)
-    _,_,workflow_results=run_cdi_example_torch(raw_data,None,payload.tf_training_config,do_stitching=False,execution_config=execution,overrides={"scale_contract_version":base["scale_contract_version"],"measurement_domain":base["measurement_domain"]})
-    bundle_model=workflow_results["models"]["diffraction_to_obj"]; bundle_dir=pathlib.Path(payload.tf_training_config.output_dir)
-    if not (bundle_dir/"wts.h5.zip").is_file(): raise RuntimeError("public workflow produced no bundle")
-    checkpoint_reload=reload(f"{ordinal:02d}-{architecture}-checkpoint-reload"); bundle_reload=reload(f"{ordinal:02d}-{architecture}-bundle-reload")
-    identity=to_json_payload(encode_artifact_identity(payload.model_spec,payload.pt_data_config,payload.pt_training_config,payload.pt_inference_config)); decoded=decode_artifact_identity(from_json_payload(identity)); rebuilt=persisted_route(decoded.model_spec,decoded.data_config,decoded.training_config,decoded.inference_config)
-    sensitivities={}
-    for field in structural_names:
-        alternate_spec=alternate_specs[field]
-        alternate_identity=to_json_payload(encode_artifact_identity(alternate_spec,decoded.data_config,decoded.training_config,decoded.inference_config))
-        alternate_identity_repeat=to_json_payload(encode_artifact_identity(alternate_spec,decoded.data_config,decoded.training_config,decoded.inference_config))
-        alternate_observable=baseline_sensitivity_digest; alternate_state=public_state; deterministic=alternate_identity==alternate_identity_repeat
-        if field not in builtin_structural_names:
-            torch.manual_seed(seed); alternate_model=persisted_route(alternate_spec,decoded.data_config,decoded.training_config,decoded.inference_config)
-            alternate_facts=observable(alternate_model,N); alternate_observable=alternate_facts["observable_digest"]; alternate_state=state_signature(alternate_model)
-            deterministic=deterministic and alternate_facts["deterministic"]
-        sensitivities[field]={"alternate_identity_digest":digest(alternate_identity),"alternate_observable_digest":alternate_observable,"alternate_state_signature":alternate_state,"baseline_identity_digest":digest(identity),"baseline_observable_digest":baseline_sensitivity_digest,"baseline_state_signature":public_state,"deterministic":deterministic}
-    missing={}
-    for field in structural_names:
-        candidate=copy.deepcopy(public_payload)
-        for path in structural_paths[field]: parent_at(candidate,path).pop(path[-1])
-        missing[field]=rejected(persisted_route,candidate,decoded)
-    extra=copy.deepcopy(public_payload)
-    for value in tuple(extra.values()): add_extra_structural_field(value)
-    unsupported_payload=copy.deepcopy(public_payload); first=structural_names[0]
-    for path in structural_paths[first]: parent_at(unsupported_payload,path)[path[-1]]=unsupported(parent_at(unsupported_payload,path)[path[-1]])
-    identity_rejections={"missing":missing,"extra":rejected(persisted_route,extra,decoded),"unsupported_value":rejected(persisted_route,unsupported_payload,decoded)}
-    row={"N":N,"architecture_id":architecture,"boundary_contract":boundary_contract(persisted),"boundary_input_digest_after":boundary_after,"boundary_input_digest_before":boundary_before,"bundle_implementation":fq(bundle_model.model.autoencoder),"completed_stages":request["required_lifecycle_stages"],"config_digest":case["config"]["sha256"],"construction_route":case["construction_route"],"registry_constructor_identity":registry_constructor_identity,"evaluator_bundle_reload":bundle_reload,"evaluator_checkpoint_reload":checkpoint_reload,"forward_deterministic":inference_facts["deterministic"],"forward_dtype":inference_facts["dtype"],"forward_finite":inference_facts["finite"],"forward_max_abs_delta":inference_facts["max_abs_delta"],"forward_shape":inference_facts["shape"],"forward_tolerance":inference_facts["tolerance"],"gradients_finite":gradients_finite,"identity_rejections":identity_rejections,"identity_sensitivity":sensitivities,"inference_digest":inference_digest,"input_digest":case["input"]["sha256"],"loss_finite":bool(torch.isfinite(loss).all().cpu().item()),"loss_scalar":bool(loss.numel()==1 and loss.ndim==0),"optimizer_state_after":optimizer_after,"optimizer_state_before":optimizer_before,"optimizer_step_bound":optimizer_step_bound,"optimizer_step_max_abs_delta":optimizer_step_max_abs_delta,"optimizer_transition_bounded":optimizer_transition_bounded,"persisted_boundary_owners":boundary_owners(persisted),"persisted_implementation":persisted_impl,"persisted_rebuild_implementation":fq(rebuilt.model.autoencoder),"persisted_rebuild_route":case["persisted_rebuild_route"],"persisted_state_signature":persisted_state,"public_boundary_owners":boundary_owners(public),"public_implementation":public_impl,"public_state_signature":public_state,"seed":seed,"structural_fields":structural_rows,"structural_values":structural_values}
-    architecture_results.append(row); unknown_route=construction_route; unknown_configs=configs
-    all_forbidden.update(checkpoint_reload["loaded_forbidden_modules"]); all_forbidden.update(bundle_reload["loaded_forbidden_modules"]); all_outside.extend(checkpoint_reload["outside_project_origin_rows"]); all_outside.extend(bundle_reload["outside_project_origin_rows"])
-
-try:
-    unknown_training=CanonicalTrainingConfig(model=CanonicalModelConfig(architecture="es_f1_unknown_architecture")); unknown_route(unknown_training).build_model(unknown_configs)
-except Exception as exc:
-    unknown_rejection={"exception_detail_sha256":"sha256:"+hashlib.sha256(str(exc).encode("utf-8")).hexdigest(),"exception_type":type(exc).__name__,"module_returned":False,"rejected":True}
-else:
-    unknown_rejection={"exception_detail_sha256":"sha256:"+hashlib.sha256(b"").hexdigest(),"exception_type":None,"module_returned":True,"rejected":False}
-forbidden_prefixes=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-all_forbidden.update(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))
-for name,module in tuple(sys.modules.items()):
-    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")): continue
-    values=[]; origin=getattr(getattr(module,"__spec__",None),"origin",None); module_file=getattr(module,"__file__",None)
-    if isinstance(origin,str): values.append(origin)
-    if isinstance(module_file,str): values.append(module_file)
-    for value in values:
-        path=pathlib.Path(value)
-        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace): all_outside.append([name,str(path.resolve(strict=False))])
-cache=sorted(path.relative_to(workspace).as_posix() for path in workspace.rglob("*") if path.name=="__pycache__" or path.suffix in {".pyc",".pyo"})
-result={"schema_version":"es-f1-semantic-lifecycle.v2","construction_pid":os.getpid(),"architecture_results":architecture_results,"unknown_architecture_rejection":unknown_rejection,"loaded_forbidden_modules":sorted(all_forbidden),"outside_project_origin_rows":sorted({tuple(row) for row in all_outside}),"cache_artifacts":cache}
-report.write_bytes(canonical(result))
-''')
-
-_ARTIFACT_FIXTURE_BUILD_PROBE = r'''import hashlib,io,json,os,pathlib,sys,zipfile
-from dataclasses import asdict
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-output=pathlib.Path(os.environ["ES_F1_OUTPUT"]).resolve(strict=True)
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-import dill
-import torch
-from lightning.pytorch import Trainer
-from ptycho.config.config import ModelConfig as CanonicalModelConfig
-from ptycho.config.config import TrainingConfig as CanonicalTrainingConfig
-from ptycho_torch.application_factory import build_ptychopinn_application
-from ptycho_torch.artifact_schema import ARTIFACT_SCHEMA_V1_VERSION,CURRENT_ARTIFACT_SCHEMA_VERSION,ARTIFACT_V1_DATA_FIELDS,ARTIFACT_V1_TRAINING_FIELDS,ARTIFACT_V1_INFERENCE_FIELDS,encode_artifact_identity,to_json_payload
-from ptycho_torch.config_bridge import to_model_config
-from ptycho_torch.config_params import DataConfig,InferenceConfig,ModelConfig,TrainingConfig
-from ptycho_torch.model import PtychoPINN_Lightning
-from ptycho_torch.model_manager import create_torch_model_with_gridsize,save_torch_bundle
-from ptycho_torch.model_spec import MODEL_SPEC_V1_MODEL_FIELDS,derive_model_spec
-
-def canonical(value): return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def write_json(name,value):
-    path=output/name
-    path.write_bytes(canonical(to_json_payload(value)))
-    return path
-def v1_spec(spec):
-    model=spec.to_model_config()
-    return {
-        "schema_version":"torch-model-spec-v1",
-        "model_config":{name:getattr(model,name) for name in MODEL_SPEC_V1_MODEL_FIELDS},
-        "parity_scale_mode":spec.parity_scale_mode,
-        "parity_fixed_delta":spec.parity_fixed_delta,
-        "parity_init_scheme":spec.parity_init_scheme,
-    }
-def subset(value,names): return {name:getattr(value,name) for name in names}
-def save_checkpoint(model,path):
-    trainer=Trainer(max_epochs=0,enable_checkpointing=True,logger=False,enable_progress_bar=False,accelerator="cpu",default_root_dir=output)
-    trainer.strategy._lightning_module=model
-    trainer.save_checkpoint(path)
-def replace_bundle_metadata(path,*,metadata=None,artifact_schema=None):
-    with zipfile.ZipFile(path,"r") as archive:
-        members={info.filename:archive.read(info.filename) for info in archive.infolist() if info.filename not in {"manifest.dill","torch_scaling_metadata.pt"}}
-        manifest=dill.loads(archive.read("manifest.dill"))
-    if artifact_schema is None:
-        manifest.pop("artifact_schema_version",None)
-    else:
-        manifest.update(backend="pytorch",artifact_schema_version=artifact_schema)
-    temporary=path.with_suffix(path.suffix+".tmp")
-    with zipfile.ZipFile(temporary,"w",zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.dill",dill.dumps(manifest))
-        for name in sorted(members): archive.writestr(name,members[name])
-        if metadata is not None:
-            buffer=io.BytesIO(); torch.save(metadata,buffer)
-            archive.writestr("torch_scaling_metadata.pt",buffer.getvalue())
-    os.replace(temporary,path)
-
-data=DataConfig(N=64,C=1,grid_size=(1,1),probe_scale=4.0)
-model=ModelConfig(architecture="ffno",C_model=1,C_forward=1,n_filters_scale=1,fno_width=4,fno_modes=2,fno_blocks=3,fno_cnn_blocks=1,object_big=False,probe_big=False)
-training=TrainingConfig(device="cpu",torch_loss_mode="poisson")
-inference=InferenceConfig()
-canonical_model=CanonicalModelConfig(N=64,gridsize=1,architecture="ffno",n_filters_scale=1,fno_width=4,fno_modes=2,fno_blocks=3,fno_cnn_blocks=1,object_big=False,probe_big=False)
-spec=derive_model_spec(to_model_config(data,model),model,data)
-model_v1=v1_spec(spec)
-model_v2=spec.to_payload()
-artifact_v2=encode_artifact_identity(spec,data,training,inference)
-artifact_v1={
-    "backend":"pytorch","schema_version":ARTIFACT_SCHEMA_V1_VERSION,
-    "model_spec":model_v1,"data_config":subset(data,ARTIFACT_V1_DATA_FIELDS),
-    "training_config":subset(training,ARTIFACT_V1_TRAINING_FIELDS),
-    "inference_config":subset(inference,ARTIFACT_V1_INFERENCE_FIELDS),
-    "ci_statistics":None,
-}
-paths={
-    "torch-model-spec-v1":write_json("torch-model-spec-v1.json",model_v1),
-    "torch-model-spec-v2":write_json("torch-model-spec-v2.json",model_v2),
-    "torch-artifact-v1":write_json("torch-artifact-v1.json",artifact_v1),
-    "torch-artifact-v2":write_json("torch-artifact-v2.json",artifact_v2),
-}
-
-torch.manual_seed(20260802)
-legacy_checkpoint_model=PtychoPINN_Lightning(model_config=model,data_config=data,training_config=training,inference_config=inference)
-legacy_checkpoint=output/"legacy-config-only.ckpt"
-save_checkpoint(legacy_checkpoint_model,legacy_checkpoint)
-torch.manual_seed(20260802)
-current_model=build_ptychopinn_application(spec,data,training,inference)
-current_checkpoint=output/"current-model-spec-v2.ckpt"
-save_checkpoint(current_model,current_checkpoint)
-paths["legacy-config-only-checkpoint"]=legacy_checkpoint
-paths["current-model-spec-v2-checkpoint"]=current_checkpoint
-
-legacy_config=CanonicalTrainingConfig(
-    model=CanonicalModelConfig(N=64,gridsize=1,model_type="pinn"),
-    train_data_file=output/"unused.npz",n_groups=1,neighbor_count=1,
-    nepochs=0,output_dir=output/"metadata-free-legacy",
-)
-legacy_params={"N":64,"gridsize":1,"model_type":"pinn"}
-torch.manual_seed(20260802)
-legacy_bundle_model=create_torch_model_with_gridsize(1,64,legacy_params)
-legacy_dir=output/"metadata-free-legacy"; legacy_base=legacy_dir/"wts.h5"
-save_torch_bundle({"autoencoder":legacy_bundle_model,"diffraction_to_obj":legacy_bundle_model},str(legacy_base),legacy_config)
-legacy_bundle=legacy_base.with_suffix(".h5.zip")
-replace_bundle_metadata(legacy_bundle)
-paths["metadata-free-legacy-bundle"]=legacy_bundle
-
-current_config=CanonicalTrainingConfig(
-    model=canonical_model,train_data_file=output/"unused.npz",n_groups=1,
-    neighbor_count=1,nepochs=0,output_dir=output,
-)
-transitional={
-    "schema_version":"ci-entrypoints-v1","data_config":asdict(data),
-    "model_config":asdict(current_model.model_config),
-    "training_config":asdict(training),"inference_config":asdict(inference),
-    "ci_statistics":None,
-}
-for era,metadata,schema in (
-    ("transitional-ci-entrypoints-v1-bundle",transitional,None),
-    ("torch-artifact-v1-bundle",artifact_v1,ARTIFACT_SCHEMA_V1_VERSION),
-    ("torch-artifact-v2-bundle",artifact_v2,CURRENT_ARTIFACT_SCHEMA_VERSION),
-):
-    directory=output/era; base=directory/"wts.h5"
-    save_torch_bundle({"autoencoder":current_model,"diffraction_to_obj":current_model},str(base),current_config)
-    bundle=base.with_suffix(".h5.zip")
-    replace_bundle_metadata(bundle,metadata=metadata,artifact_schema=schema)
-    paths[era]=bundle
-
-rows=[]
-for era in (
-    "torch-model-spec-v1","torch-model-spec-v2","torch-artifact-v1","torch-artifact-v2",
-    "legacy-config-only-checkpoint","current-model-spec-v2-checkpoint",
-    "metadata-free-legacy-bundle","transitional-ci-entrypoints-v1-bundle",
-    "torch-artifact-v1-bundle","torch-artifact-v2-bundle",
-):
-    path=paths[era]
-    rows.append({"era_id":era,"kind":"json" if path.suffix==".json" else ("checkpoint" if path.suffix==".ckpt" else "bundle"),"path":path.relative_to(output).as_posix()})
-report.write_bytes(canonical({"schema_version":"es-f1-artifact-fixture-build.v2","artifact_eras":rows}))
-'''
-
-_ARTIFACT_FIXTURE_VERIFY_PROBE = r'''import json,os,pathlib,shutil,sys,tempfile
-workspace=pathlib.Path(os.environ["ES_F1_WORKSPACE"]).resolve(strict=True)
-rows_path=pathlib.Path(os.environ["ES_F1_FIXTURE_ROWS"])
-report=pathlib.Path(os.environ["ES_F1_REPORT"])
-rows_record=json.loads(rows_path.read_bytes())
-if not isinstance(rows_record,dict) or rows_record.get("schema_version")!="es-f1-artifact-fixture-input.v2" or set(rows_record)!={"schema_version","artifact_eras"}: raise RuntimeError("artifact fixture input schema version/shape mismatch")
-rows=rows_record["artifact_eras"]
-editable_prefix="__editable___ptychopinn_"
-sys.meta_path[:]=[hook for hook in sys.meta_path if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path_hooks[:]=[hook for hook in sys.path_hooks if not getattr(hook,"__module__","").startswith(editable_prefix)]
-sys.path[:]=[value for value in sys.path if not str(value).startswith("__editable__.ptychopinn-")]
-sys.path_importer_cache.clear()
-for name in tuple(sys.modules):
-    if name.startswith(editable_prefix): sys.modules.pop(name,None)
-sys.path.insert(0,str(workspace))
-
-from ptycho.config.config import ModelConfig as CanonicalModelConfig
-from ptycho_torch.application_factory import build_ptychopinn_application
-from ptycho_torch.artifact_schema import decode_artifact_identity,from_json_payload
-from ptycho_torch.config_bridge import to_model_config
-from ptycho_torch.config_params import DataConfig,InferenceConfig,ModelConfig,TrainingConfig
-from ptycho_torch.model import PtychoPINN_Lightning
-from ptycho_torch.model_spec import ModelSpec
-from ptycho_torch.workflows.components import load_inference_bundle_torch
-
-def canonical(value): return (json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode("utf-8")
-def fq(model): return type(model.model.autoencoder).__module__+"."+type(model.model.autoencoder).__qualname__
-data=DataConfig(N=64,C=1,grid_size=(1,1),probe_scale=4.0)
-model=ModelConfig(architecture="ffno",C_model=1,C_forward=1,n_filters_scale=1,fno_width=4,fno_modes=2,fno_blocks=3,fno_cnn_blocks=1,object_big=False,probe_big=False)
-training=TrainingConfig(device="cpu",torch_loss_mode="poisson")
-inference=InferenceConfig()
-observed_by_era={}
-with tempfile.TemporaryDirectory(prefix="es-f1-era-load-") as raw_temp:
-    temporary=pathlib.Path(raw_temp)
-    for row in rows:
-        era=row["era_id"]; architecture=row["architecture_id"]
-        if row["expected_outcome"]=="REJECTED":
-            outcome={"architecture_id":architecture,"diagnostic":"UNSUPPORTED_ARTIFACT_ARCHITECTURE","implementation_identity":None,"module_returned":False,"strict_load":False}
-            observed_by_era.setdefault(era,[]).append(outcome); continue
-        if row["expected_outcome"]!="LOAD": raise RuntimeError("artifact expected outcome is invalid")
-        path=pathlib.Path(row["absolute_path"])
-        if era.startswith("torch-model-spec-"):
-            payload=from_json_payload(json.loads(path.read_bytes()))
-            spec=ModelSpec.from_payload(payload)
-            loaded=build_ptychopinn_application(spec,data,training,inference)
-            implementation=fq(loaded)
-        elif era in {"torch-artifact-v1","torch-artifact-v2"}:
-            identity=decode_artifact_identity(from_json_payload(json.loads(path.read_bytes())))
-            loaded=build_ptychopinn_application(identity.model_spec,identity.data_config,identity.training_config,identity.inference_config)
-            implementation=fq(loaded)
-        elif row["kind"]=="checkpoint":
-            loaded=PtychoPINN_Lightning.load_from_checkpoint(path,map_location="cpu")
-            implementation=fq(loaded)
-        else:
-            bundle_dir=temporary/era; bundle_dir.mkdir()
-            shutil.copyfile(path,bundle_dir/"wts.h5.zip")
-            kwargs={}
-            if era=="metadata-free-legacy-bundle":
-                kwargs={"scale_contract_version":"legacy_v1","measurement_domain":"normalized_amplitude"}
-            models,_=load_inference_bundle_torch(bundle_dir,**kwargs)
-            if sorted(models)!=["autoencoder","diffraction_to_obj"]: raise RuntimeError("bundle roles drifted")
-            implementation=fq(models["diffraction_to_obj"])
-        outcome={"architecture_id":architecture,"diagnostic":None,"implementation_identity":implementation,"module_returned":True,"strict_load":True}
-        observed_by_era.setdefault(era,[]).append(outcome)
-observed=[{"era_id":era,"architecture_results":observed_by_era[era]} for era in observed_by_era]
-
-forbidden_prefixes=("ptycho.evaluation","ptycho.FRC","PtychoNN","notebooks.archive.ePIE_recon_simulation","scripts.orchestration")
-forbidden=sorted(name for name in sys.modules if any(name==prefix or name.startswith(prefix+".") for prefix in forbidden_prefixes))
-outside=[]
-for name,module in tuple(sys.modules.items()):
-    if not (name=="ptycho" or name.startswith("ptycho.") or name=="ptycho_torch" or name.startswith("ptycho_torch.")): continue
-    values=[]
-    origin=getattr(getattr(module,"__spec__",None),"origin",None)
-    if isinstance(origin,str): values.append(origin)
-    module_file=getattr(module,"__file__",None)
-    if isinstance(module_file,str): values.append(module_file)
-    for value in values:
-        path=pathlib.Path(value)
-        if path.is_absolute() and not path.resolve(strict=False).is_relative_to(workspace): outside.append([name,str(path.resolve(strict=False))])
-cache=sorted(path.relative_to(workspace).as_posix() for path in workspace.rglob("*") if path.name=="__pycache__" or path.suffix in {".pyc",".pyo"})
-report.write_bytes(canonical({"schema_version":"es-f1-artifact-fixture-verification.v2","artifact_eras":observed,"loaded_forbidden_modules":forbidden,"outside_project_origin_rows":sorted(outside),"cache_artifacts":cache}))
-'''
+def file_sha256(path: Path) -> str:
+    return _SHA256_PREFIX + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _digest(value: Any) -> str:
-    return "sha256:" + hashlib.sha256(canonical_json_bytes(value)).hexdigest()
-
-
-def _workspace_digest(root: Path) -> str:
-    rows: list[dict[str, Any]] = []
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
-        relative = path.relative_to(root).as_posix()
-        if relative == ".git" or relative.startswith(".git/"):
-            continue
-        mode = stat.S_IMODE(path.lstat().st_mode)
-        if path.is_symlink():
-            rows.append(
-                {"kind": "symlink", "mode": mode, "path": relative, "target": os.readlink(path)}
-            )
-        elif path.is_dir():
-            rows.append({"kind": "directory", "mode": mode, "path": relative})
-        elif path.is_file():
-            rows.append(
-                {
-                    "kind": "file",
-                    "mode": mode,
-                    "path": relative,
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                }
-            )
-        else:
-            raise EvaluatorError(f"unsupported candidate entry type: {relative}")
-    return _digest(rows)
-
-
-def _safe_candidate_path(workspace: Path, relative: str) -> Path:
-    if not isinstance(relative, str) or not relative or "\\" in relative:
-        raise EvaluatorError("adapter path must be a safe product-relative path")
-    candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts or "." in candidate.parts:
-        raise EvaluatorError("adapter path must be a safe product-relative path")
-    resolved_root = workspace.resolve(strict=True)
-    resolved = (resolved_root / candidate).resolve(strict=True)
-    try:
-        resolved.relative_to(resolved_root)
-    except ValueError as exc:
-        raise EvaluatorError("adapter path escapes candidate workspace") from exc
-    if not resolved.is_file():
-        raise EvaluatorError("adapter path must name a regular file")
-    return resolved
-
-
-def _load_canonical_unversioned(path: Path) -> dict[str, Any]:
-    raw = path.read_bytes()
-    try:
-        value = json.loads(
-            raw,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=lambda token: (_ for _ in ()).throw(
-                ValueError(f"invalid JSON scalar {token!r}")
-            ),
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise EvaluatorError(f"adapter emitted invalid JSON: {exc}") from exc
-    if not isinstance(value, dict) or raw != canonical_json_bytes(value):
-        raise EvaluatorError("adapter result is not canonical LF JSON")
-    return value
-
-
-def _load_canonical_schema(path: Path) -> dict[str, Any]:
-    try:
-        schema = _load_canonical_unversioned(path)
-        Draft202012Validator.check_schema(schema)
-    except EvaluatorError:
-        raise
-    except (OSError, SchemaError, ValueError) as exc:
-        raise EvaluatorError(f"JSON schema is unavailable or invalid: {path}") from exc
-    return schema
-
-
-def _load_strict_formatted_object(path: Path) -> dict[str, Any]:
+def _canonical_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
         raw = path.read_bytes()
         value = json.loads(
             raw,
             object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=lambda token: (_ for _ in ()).throw(
-                ValueError(f"invalid JSON scalar {token!r}")
-            ),
+            parse_constant=lambda constant: (_fail(f"{label} contains {constant}")),
         )
-        if not isinstance(value, dict):
-            raise ValueError("JSON root must be an object")
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise EvaluatorError(f"JSON document is unavailable or invalid: {path}") from exc
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise EvaluatorError(f"{label} is unreadable canonical JSON") from exc
+    if not isinstance(value, dict) or canonical_json_bytes(value) != raw:
+        _fail(f"{label} is not one canonical object")
     return value
 
 
-def _load_strict_formatted_schema(path: Path) -> dict[str, Any]:
-    """Load a bound JSON schema without requiring canonical byte formatting."""
-
-    try:
-        schema = _load_strict_formatted_object(path)
-        Draft202012Validator.check_schema(schema)
-    except (EvaluatorError, SchemaError, ValueError) as exc:
-        raise EvaluatorError(f"JSON schema is unavailable or invalid: {path}") from exc
-    return schema
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            _fail(f"duplicate JSON key {key}")
+        value[key] = item
+    return value
 
 
-def _validate_schema_record(
-    value: Mapping[str, Any],
-    *,
-    schema_path: Path,
-    label: str,
-) -> None:
-    schema = _load_canonical_schema(schema_path)
-    errors = sorted(Draft202012Validator(schema).iter_errors(value), key=str)
-    if errors:
-        raise EvaluatorError(f"{label} schema violation: {errors[0].message}")
+def load_controller_asset(path: Path, *, expected_schema_version: str) -> dict[str, Any]:
+    payload = _canonical_object(Path(path), label=f"controller asset {path}")
+    if payload.get("schema_version") != expected_schema_version:
+        _fail(f"controller asset {path} has an unsupported schema version")
+    return payload
 
 
-def _validate_formatted_schema_record(
-    value: Mapping[str, Any],
-    *,
-    schema_path: Path,
-    label: str,
-) -> None:
-    schema = _load_strict_formatted_schema(schema_path)
-    errors = sorted(Draft202012Validator(schema).iter_errors(value), key=str)
-    if errors:
-        raise EvaluatorError(f"{label} schema violation: {errors[0].message}")
-
-
-@lru_cache(maxsize=1)
-def _task0_bypass_authority() -> dict[str, Any]:
-    """Load and cross-bind the immutable Task-0 bypass authority once."""
-
-    records: dict[str, dict[str, Any]] = {}
-    for role, (record_name, schema_name, expected_digest) in (
-        _LEGACY_BYPASS_AUTHORITY_BINDINGS.items()
+def _validate_calibration_cases(cases: object) -> list[Mapping[str, Any]]:
+    if not isinstance(cases, list) or any(
+        not isinstance(row, Mapping) for row in cases
     ):
-        record_path = _LEGACY_BYPASS_AUTHORITY_ROOT / record_name
-        schema_path = _LEGACY_BYPASS_AUTHORITY_ROOT / schema_name
-        record = _load_canonical_unversioned(record_path)
-        _validate_formatted_schema_record(
-            record,
-            schema_path=schema_path,
-            label=f"Task-0 {role}",
-        )
-        observed_digest = record.get("record_sha256")
-        body = dict(record)
-        body.pop("record_sha256", None)
-        if observed_digest != expected_digest or _digest(body) != expected_digest:
-            raise EvaluatorError(f"Task-0 {role} record digest drifted")
-        records[role] = record
-
-    policy = records["preedit_policy"]
-    census = records["source_census"]
-    selector = records["selector_manifest"]
-    adoption = records["review_adoption"]
-    schema_binding_rows = policy.get("schema_bindings")
-    if not isinstance(schema_binding_rows, list):
-        raise EvaluatorError("Task-0 schema authority bindings are unavailable")
-    schema_bindings = {
-        row.get("role"): row
-        for row in schema_binding_rows
-        if isinstance(row, Mapping) and isinstance(row.get("role"), str)
-    }
-    if (
-        len(schema_bindings) != len(schema_binding_rows)
-        or census.get("schema_bindings") != schema_binding_rows
-    ):
-        raise EvaluatorError("Task-0 schema authority bindings drifted")
-    for role, (_, schema_name, _) in _LEGACY_BYPASS_AUTHORITY_BINDINGS.items():
-        schema_path = _LEGACY_BYPASS_AUTHORITY_ROOT / schema_name
-        try:
-            raw_schema = schema_path.read_bytes()
-        except OSError as exc:
-            raise EvaluatorError("Task-0 bound schema is unavailable") from exc
-        expected_path = schema_path.relative_to(_REPOSITORY_ROOT).as_posix()
-        if schema_bindings.get(role) != {
-            "byte_count": len(raw_schema),
-            "path": expected_path,
-            "role": role,
-            "sha256": "sha256:" + hashlib.sha256(raw_schema).hexdigest(),
-        }:
-            raise EvaluatorError(f"Task-0 {role} schema binding drifted")
-    discovery_input_path = _LEGACY_BYPASS_AUTHORITY_ROOT / "preedit-discovery-input.json"
-    discovery_schema_path = (
-        _LEGACY_BYPASS_AUTHORITY_ROOT / "preedit-discovery-input.schema.json"
+        _fail("calibration cases are malformed")
+    rows = cast(list[Mapping[str, Any]], cases)
+    expected_ids = (
+        *CALIBRATION_POSITIVE_CASE_IDS,
+        *tuple(CALIBRATION_DEFECT_CLAUSES),
     )
-    discovery_input = _load_strict_formatted_object(discovery_input_path)
-    _validate_formatted_schema_record(
-        discovery_input,
-        schema_path=discovery_schema_path,
-        label="Task-0 discovery input",
-    )
-    raw_discovery_input = discovery_input_path.read_bytes()
-    raw_discovery_schema = discovery_schema_path.read_bytes()
-    if (
-        "sha256:" + hashlib.sha256(raw_discovery_input).hexdigest()
-        != policy["discovery"]["input_sha256"]
-        or schema_bindings.get("discovery_input")
-        != {
-            "byte_count": len(raw_discovery_schema),
-            "path": discovery_schema_path.relative_to(_REPOSITORY_ROOT).as_posix(),
-            "role": "discovery_input",
-            "sha256": "sha256:" + hashlib.sha256(raw_discovery_schema).hexdigest(),
-        }
-    ):
-        raise EvaluatorError("Task-0 discovery input authority drifted")
-    bindings = {
-        "legacy_bypass_inventory_sha256": _digest(
-            census["legacy_bypass_inventory"]
-        ),
-        "preedit_policy_sha256": policy["record_sha256"],
-        "review_adoption_sha256": adoption["record_sha256"],
-        "selector_manifest_sha256": selector["record_sha256"],
-        "source_census_sha256": census["record_sha256"],
-    }
-    if (
-        bindings["legacy_bypass_inventory_sha256"]
-        != _LEGACY_BYPASS_INVENTORY_SHA256
-        or policy["legacy_bypass_consumer_ids"]
-        != census["legacy_bypass_inventory"]
-        or selector["preedit_policy_sha256"] != policy["record_sha256"]
-        or selector["source_census_sha256"] != census["record_sha256"]
-        or adoption["bindings"]["preedit_policy_sha256"]
-        != policy["record_sha256"]
-        or adoption["bindings"]["source_census_sha256"]
-        != census["record_sha256"]
-        or adoption["bindings"]["selector_manifest_sha256"]
-        != selector["record_sha256"]
-        or adoption["evidence_status"] != "approved"
-    ):
-        raise EvaluatorError("Task-0 legacy bypass authority bindings drifted")
-
-    try:
-        from scripts.experiments.es import boundary_proofs
-
-        runner_digests = {
-            row["runner_sha256"] for row in selector["coverage_witnesses"]
-        }
-        if len(runner_digests) != 1:
-            raise EvaluatorError("Task-0 bypass proof runner binding is ambiguous")
-        contract = boundary_proofs.validate_contract(
-            selector,
-            consumer_rows=census["consumer_rows"],
-            expected_runner_sha256=next(iter(runner_digests)),
-        )
-    except EvaluatorError:
-        raise
-    except Exception as exc:
-        raise EvaluatorError("Task-0 bypass proof contract is invalid") from exc
-
-    consumers = {row["consumer_id"]: row for row in census["consumer_rows"]}
-    inventory = census["legacy_bypass_inventory"]
-    if (
-        len(consumers) != len(census["consumer_rows"])
-        or any(consumer_id not in consumers for consumer_id in inventory)
-    ):
-        raise EvaluatorError("Task-0 legacy bypass consumer domain is invalid")
-    partition = {
-        status + "_consumer_ids": [
-            consumer_id
-            for consumer_id in inventory
-            if consumers[consumer_id]["coverage_status"] == status
-        ]
-        for status in ("required", "inherited", "open")
-    }
-    selected_ids = [spec.consumer_id for spec in contract.desired_specs]
-    if (
-        len(contract.desired_specs) != 23
-        or len(selected_ids) != len(set(selected_ids))
-        or not set(partition["required_consumer_ids"]) <= set(selected_ids)
-        or sum(len(values) for values in partition.values()) != len(inventory)
-    ):
-        raise EvaluatorError("Task-0 bypass selected proof domain drifted")
-    return {
-        "bindings": bindings,
-        "census": census,
-        "contract": contract,
-        "discovery_input": discovery_input,
-        "partition": partition,
-        "policy": policy,
-        "runner_sha256": next(iter(runner_digests)),
-        "selector": selector,
-    }
-
-
-_TASK0_CANDIDATE_IDENTITY_KEYS = {
-    "anchor_id",
-    "callee_or_dispatch_form",
-    "caller_object_id",
-    "caller_path",
-    "consumer_id",
-    "detector_id",
-    "detector_version",
-    "match_id",
-    "responsibility_ids",
-    "span",
-}
-
-
-def _task0_candidate_signature(row: Mapping[str, Any]) -> tuple[Any, ...]:
-    return (
-        row["caller_path"],
-        row["detector_id"],
-        row["detector_version"],
-        row["anchor_id"],
-        row["callee_or_dispatch_form"],
-        tuple(row["responsibility_ids"]),
-    )
-
-
-def _valid_task0_candidate_identity(row: Any) -> bool:
-    if not isinstance(row, Mapping) or set(row) != _TASK0_CANDIDATE_IDENTITY_KEYS:
-        return False
-    span = row.get("span")
-    caller_path = row.get("caller_path")
-    path = PurePosixPath(caller_path) if isinstance(caller_path, str) else None
-    return bool(
-        isinstance(row.get("consumer_id"), str)
-        and len(row["consumer_id"]) == 41
-        and row["consumer_id"].startswith("consumer-")
-        and all(character in "0123456789abcdef" for character in row["consumer_id"][9:])
-        and isinstance(row.get("match_id"), str)
-        and len(row["match_id"]) == 38
-        and row["match_id"].startswith("match-")
-        and all(character in "0123456789abcdef" for character in row["match_id"][6:])
-        and isinstance(row.get("caller_object_id"), str)
-        and len(row["caller_object_id"]) == 40
-        and all(character in "0123456789abcdef" for character in row["caller_object_id"])
-        and path is not None
-        and not path.is_absolute()
-        and caller_path == path.as_posix()
-        and ".." not in path.parts
-        and isinstance(row.get("responsibility_ids"), list)
-        and bool(row["responsibility_ids"])
-        and len(row["responsibility_ids"]) == len(set(row["responsibility_ids"]))
-        and all(isinstance(value, str) and value for value in row["responsibility_ids"])
-        and isinstance(span, Mapping)
-        and set(span) == {"line_start", "column_start", "line_end", "column_end"}
-        and all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in span.values())
-        and span["line_start"] >= 1
-        and span["line_end"] >= span["line_start"]
-        and all(
-            isinstance(row.get(name), str) and bool(row[name])
-            for name in (
-                "anchor_id",
-                "callee_or_dispatch_form",
-                "detector_id",
-                "detector_version",
-            )
-        )
-    )
-
-
-def _classify_task0_bypass_candidates(
-    discovery_candidates: Sequence[Mapping[str, Any]],
-    *,
-    verified_construction_route: str,
-) -> dict[str, Any]:
-    """Classify fresh public source-census rows against the frozen Task-0 domain."""
-
-    authority = _task0_bypass_authority()
-    if verified_construction_route != F1_PUBLIC_CONSTRUCTION_ROUTE:
-        raise EvaluatorError("legacy bypass construction route is not H09-verified")
-    if (
-        not isinstance(discovery_candidates, Sequence)
-        or isinstance(discovery_candidates, (str, bytes))
-        or any(not _valid_task0_candidate_identity(row) for row in discovery_candidates)
-    ):
-        raise EvaluatorError("legacy bypass discovery candidate domain is malformed")
-    consumer_ids = [row["consumer_id"] for row in discovery_candidates]
-    match_ids = [row["match_id"] for row in discovery_candidates]
-    if len(consumer_ids) != len(set(consumer_ids)) or len(match_ids) != len(set(match_ids)):
-        raise EvaluatorError("legacy bypass discovery candidate identities repeat")
-
-    anchors = {
-        anchor["anchor_id"]: anchor
-        for detector in authority["policy"]["detectors"]
-        for anchor in detector["anchors"]
-    }
-    direct_import_ids = {
-        anchor_id
-        for anchor_id, anchor in anchors.items()
-        if anchor["form"] == "import"
-        and "CONSTRUCTION_ARCHITECTURES" in anchor["responsibility_ids"]
-        and "LEGACY_BYPASS_RETIREMENT" in anchor["responsibility_ids"]
-    }
-    package_anchor = anchors.get("GENERATOR_PACKAGE_IMPORT")
-    registry_anchor = anchors.get("GENERATOR_REGISTRY_IMPORT")
-    route_module, _, route_callable = verified_construction_route.rpartition(".")
-    if (
-        direct_import_ids
-        != {"GENERATOR_PACKAGE_IMPORT", "GENERATOR_REGISTRY_IMPORT"}
-        or not isinstance(package_anchor, Mapping)
-        or not isinstance(registry_anchor, Mapping)
-        or registry_anchor.get("pattern") != route_module
-        or route_callable != "resolve_generator"
-        or not isinstance(package_anchor.get("pattern"), str)
-        or not route_module.startswith(package_anchor["pattern"] + ".")
-    ):
-        raise EvaluatorError("legacy bypass construction authority is inconsistent")
-    boundary_root = PurePosixPath(*package_anchor["pattern"].split("."))
-
-    frozen_by_signature: dict[tuple[Any, ...], list[Mapping[str, Any]]] = {}
-    for frozen in authority["census"]["consumer_rows"]:
-        frozen_by_signature.setdefault(_task0_candidate_signature(frozen), []).append(frozen)
-    absence_ids = {
-        spec.consumer_id
-        for spec in authority["contract"].desired_specs
-        if spec.proof_kind == "reference_absence"
-        and spec.expected_result == {"path_absent": True}
-    }
-    governed: list[dict[str, Any]] = []
-    allowed: list[dict[str, Any]] = []
-    disclosed: list[dict[str, Any]] = []
-    novel: list[dict[str, Any]] = []
-    restored: list[str] = []
-    approved_route_calls = {
-        (row["caller_path"], row["caller_object_id"], row["callee_or_dispatch_form"])
-        for row in discovery_candidates
-        if row["anchor_id"] == "RESOLVE_GENERATOR_CALL"
-        and row["callee_or_dispatch_form"] == verified_construction_route
-    }
-    for candidate_value in discovery_candidates:
-        candidate = deepcopy(dict(candidate_value))
-        matching = frozen_by_signature.get(_task0_candidate_signature(candidate), [])
-        if matching:
-            frozen = matching.pop(0)
-            governed.append(candidate)
-            if frozen["consumer_id"] in absence_ids:
-                restored.append(frozen["consumer_id"])
-            continue
-        candidate_path = PurePosixPath(candidate["caller_path"])
-        is_boundary_owned = candidate_path.parts[: len(boundary_root.parts)] == boundary_root.parts
-        if candidate["anchor_id"] in direct_import_ids:
-            is_approved_route_import = (
-                candidate["callee_or_dispatch_form"] == verified_construction_route
-                and (
-                    candidate["caller_path"],
-                    candidate["caller_object_id"],
-                    candidate["callee_or_dispatch_form"],
-                )
-                in approved_route_calls
-            )
-            (allowed if is_boundary_owned or is_approved_route_import else novel).append(
-                candidate
-            )
-        else:
-            disclosed.append(candidate)
-    return {
-        "allowed_boundary_matches": allowed,
-        "authority_bindings": deepcopy(authority["bindings"]),
-        "disclosed_matches": disclosed,
-        "governed_matches": governed,
-        "novel_direct_matches": novel,
-        "restored_required_consumer_ids": restored,
-        "schema_version": "es-f1-legacy-bypass-classification.v1",
-        "verified_construction_route": verified_construction_route,
-    }
-
-
-def _fresh_task0_bypass_discovery(
-    *,
-    discovery_input: Mapping[str, Any],
-    expected_tree: str | None = None,
-) -> tuple[dict[str, Any], list[Mapping[str, Any]]]:
-    """Run the public detector once against the frozen non-projection authority."""
-
-    authority = _task0_bypass_authority()
-    if not isinstance(discovery_input, Mapping):
-        raise EvaluatorError("legacy bypass discovery contract is malformed")
-    candidate_input = deepcopy(dict(discovery_input))
-    frozen_input = deepcopy(authority["discovery_input"])
-    projection = candidate_input.get("projection")
-    candidate_input["projection"] = frozen_input["projection"]
-    if candidate_input != frozen_input or not isinstance(projection, Mapping):
-        raise EvaluatorError("legacy bypass detector authority drifted")
-    if expected_tree is not None and projection.get("tree") != expected_tree:
-        raise EvaluatorError("legacy bypass discovery tree binding drifted")
-    candidate_input["projection"] = deepcopy(dict(projection))
-    try:
-        from scripts.experiments.es import source_census
-
-        fresh = source_census.discover_source(
-            candidate_input,
-            discovery_input_sha256=_digest(candidate_input),
-        )
-    except Exception as exc:
-        raise EvaluatorError("legacy bypass source discovery failed") from exc
-    candidates = fresh.get("consumer_candidates")
-    leaves = fresh.get("leaf_rows")
-    if not isinstance(candidates, list) or not isinstance(leaves, list):
-        raise EvaluatorError("legacy bypass discovery output is malformed")
-    leaf_match_ids: list[str] = []
-    leaf_keys: set[tuple[str, str, str]] = set()
-    for leaf in leaves:
-        if not isinstance(leaf, Mapping):
-            raise EvaluatorError("legacy bypass discovery leaf domain is malformed")
-        for match_id in leaf.get("match_ids", []):
-            leaf_match_ids.append(match_id)
-            leaf_keys.add((leaf.get("path"), leaf.get("object_id"), match_id))
-    candidate_keys = {
-        (row.get("caller_path"), row.get("caller_object_id"), row.get("match_id"))
-        for row in candidates
-        if isinstance(row, Mapping)
-    }
-    if (
-        fresh.get("projection") != projection
-        or fresh.get("candidate_set_sha256") != _digest(candidates)
-        or len(candidate_keys) != len(candidates)
-        or candidate_keys != leaf_keys
-        or len(leaf_match_ids) != len(set(leaf_match_ids))
-    ):
-        raise EvaluatorError("legacy bypass discovery bindings are not exact")
-    return fresh, candidates
-
-
-def _validated_task0_bypass_discovery(
-    *,
-    discovery_input: Mapping[str, Any],
-    discovery_output: Mapping[str, Any],
-) -> list[Mapping[str, Any]]:
-    """Re-run the frozen detector contract and reject partial supplied outputs."""
-
-    if not isinstance(discovery_output, Mapping):
-        raise EvaluatorError("legacy bypass discovery contract is malformed")
-    fresh, candidates = _fresh_task0_bypass_discovery(
-        discovery_input=discovery_input,
-    )
-    if fresh != deepcopy(dict(discovery_output)):
-        raise EvaluatorError("legacy bypass discovery output is incomplete or drifted")
-    return candidates
-
-
-def classify_task0_bypass_discovery(
-    *,
-    discovery_input: Mapping[str, Any],
-    discovery_output: Mapping[str, Any],
-    verified_construction_route: str,
-) -> dict[str, Any]:
-    candidates = _validated_task0_bypass_discovery(
-        discovery_input=discovery_input,
-        discovery_output=discovery_output,
-    )
-    return _classify_task0_bypass_candidates(
-        candidates,
-        verified_construction_route=verified_construction_route,
-    )
-
-
-def _derive_task0_bypass_observation(
-    legacy_bypass_report: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Validate an evaluator-assembled Task-0 proof join and derive H05."""
-
-    authority = _task0_bypass_authority()
-    if (
-        not isinstance(legacy_bypass_report, Mapping)
-        or set(legacy_bypass_report)
-        != {
-            "bindings",
-            "legacy_inventory_partition",
-            "novel_matches",
-            "schema_version",
-            "selected_required_results",
-        }
-        or legacy_bypass_report.get("schema_version")
-        != "es-f1-legacy-bypass-report.v1"
-        or legacy_bypass_report.get("bindings") != authority["bindings"]
-        or legacy_bypass_report.get("legacy_inventory_partition")
-        != authority["partition"]
-    ):
-        raise EvaluatorError("legacy bypass report authority join is not exact")
-
-    contract = authority["contract"]
-    results = legacy_bypass_report.get("selected_required_results")
-    if not isinstance(results, list) or len(results) != len(contract.desired_specs):
-        raise EvaluatorError("legacy bypass selected result domain is not exact")
-    runtime_kinds = {
-        "pytest_runtime",
-        "controller_pytest_runtime",
-        "runtime_probe",
-    }
-    base_result_keys = {
-        "consumer_id",
-        "mechanically_observed",
-        "observation",
-        "observation_sha256",
-        "ordinal",
-        "passed",
-        "proof_id",
-        "proof_kind",
-        "selector_id",
-        "target_blob_id",
-        "target_path",
-        "target_tree",
-        "witness_id",
-        "witness_kind",
-    }
-    target_trees: set[str] = set()
-    selected_passed = True
-    for result, spec, witness in zip(
-        results,
-        contract.desired_specs,
-        contract.witnesses,
-        strict=True,
-    ):
-        expected_keys = (
-            base_result_keys | {"source_event"}
-            if witness.witness_kind in runtime_kinds
-            else base_result_keys
-        )
-        if not isinstance(result, Mapping) or set(result) != expected_keys:
-            raise EvaluatorError("legacy bypass desired result shape is not exact")
-        observation = result["observation"]
-        try:
-            observation_digest = _digest(observation)
-        except (TypeError, ValueError) as exc:
-            raise EvaluatorError("legacy bypass observation is not canonical") from exc
-        passed = observation == spec.expected_result
-        target_tree = result["target_tree"]
-        target_blob_id = result["target_blob_id"]
-        if (
-            result["proof_id"] != spec.proof_id
-            or result["ordinal"] != spec.ordinal
-            or result["selector_id"] != spec.selector_id
-            or result["witness_id"] != spec.witness_id
-            or result["consumer_id"] != spec.consumer_id
-            or result["proof_kind"] != spec.proof_kind
-            or result["witness_kind"] != witness.witness_kind
-            or result["target_path"] != witness.consumer_path
-            or result["mechanically_observed"] is not True
-            or result["observation_sha256"] != observation_digest
-            or result["passed"] is not passed
-            or not isinstance(target_tree, str)
-            or len(target_tree) != 40
-            or any(character not in "0123456789abcdef" for character in target_tree)
-            or (
-                target_blob_id is not None
-                and (
-                    not isinstance(target_blob_id, str)
-                    or len(target_blob_id) != 40
-                    or any(
-                        character not in "0123456789abcdef"
-                        for character in target_blob_id
-                    )
-                )
-            )
-            or (
-                observation == {"path_absent": True}
-                and target_blob_id is not None
-            )
-            or (
-                observation == {"path_absent": False}
-                and target_blob_id is None
-            )
-            or (
-                witness.witness_kind in runtime_kinds
-                and result["source_event"] != observation
-            )
-        ):
-            raise EvaluatorError("legacy bypass desired result binding drifted")
-        target_trees.add(target_tree)
-        selected_passed = selected_passed and passed
-    if len(target_trees) != 1:
-        raise EvaluatorError("legacy bypass desired results bind different trees")
-
-    novel_matches = legacy_bypass_report.get("novel_matches")
-    novel_keys = {
-        "anchor_id",
-        "callee_or_dispatch_form",
-        "caller_object_id",
-        "caller_path",
-        "consumer_id",
-        "detector_id",
-        "detector_version",
-        "match_id",
-        "responsibility_ids",
-        "span",
-    }
-    if not isinstance(novel_matches, list):
-        raise EvaluatorError("legacy bypass novel match set is malformed")
-    census_consumer_ids = {
-        row["consumer_id"] for row in authority["census"]["consumer_rows"]
-    }
-    novel_consumer_ids: set[str] = set()
-    novel_match_ids: set[str] = set()
-    for row in novel_matches:
-        if (
-            not isinstance(row, Mapping)
-            or set(row) != novel_keys
-            or not isinstance(row["consumer_id"], str)
-            or not row["consumer_id"].startswith("consumer-")
-            or len(row["consumer_id"]) != 41
-            or row["consumer_id"] in census_consumer_ids
-            or row["consumer_id"] in novel_consumer_ids
-            or not isinstance(row["match_id"], str)
-            or not row["match_id"].startswith("match-")
-            or len(row["match_id"]) != 38
-            or row["match_id"] in novel_match_ids
-            or not isinstance(row["caller_object_id"], str)
-            or len(row["caller_object_id"]) != 40
-            or not isinstance(row["responsibility_ids"], list)
-            or "LEGACY_BYPASS_RETIREMENT" not in row["responsibility_ids"]
-            or not isinstance(row["span"], Mapping)
-            or set(row["span"])
-            != {"line_start", "column_start", "line_end", "column_end"}
-            or any(
-                not isinstance(row.get(name), str) or not row[name]
-                for name in (
-                    "anchor_id",
-                    "callee_or_dispatch_form",
-                    "caller_path",
-                    "detector_id",
-                    "detector_version",
-                )
-            )
-        ):
-            raise EvaluatorError("legacy bypass novel match shape is not exact")
-        novel_consumer_ids.add(row["consumer_id"])
-        novel_match_ids.add(row["match_id"])
-    return {
-        "satisfied": selected_passed and not novel_matches,
-        "evidence": _digest(legacy_bypass_report),
-    }
-
-
-def derive_authenticated_task0_bypass_observation(
-    *,
-    candidate_workspace: Path,
-    proof_workspace: Path,
-    candidate_tree: str,
-    discovery_input: Mapping[str, Any],
-    builtin_architecture_ids: Sequence[str],
-    witness_architecture_id: str,
-) -> dict[str, Any]:
-    """Derive H05 only from fresh discovery and the pinned Task-0 runner."""
-
-    if (
-        not isinstance(candidate_tree, str)
-        or len(candidate_tree) != 40
-        or any(character not in "0123456789abcdef" for character in candidate_tree)
-    ):
-        raise EvaluatorError("legacy bypass candidate tree is malformed")
-    workspace_value = Path(candidate_workspace)
-    try:
-        workspace = workspace_value.resolve(strict=True)
-    except OSError as exc:
-        raise EvaluatorError("legacy bypass candidate workspace is unavailable") from exc
-    if not workspace_value.is_absolute() or workspace_value != workspace:
-        raise EvaluatorError("legacy bypass candidate workspace is not canonical")
-
-    fresh_discovery, candidates = _fresh_task0_bypass_discovery(
-        discovery_input=discovery_input,
-        expected_tree=candidate_tree,
-    )
-    classification = _classify_task0_bypass_candidates(
-        candidates,
-        verified_construction_route=F1_PUBLIC_CONSTRUCTION_ROUTE,
-    )
-    authority = _task0_bypass_authority()
-    try:
-        from scripts.experiments.es import boundary_proofs, reference_calibration
-
-        execution_manifest = (
-            reference_calibration.build_reference_desired_state_execution_manifest(
-                authority["selector"],
-                source_census=authority["census"],
-                workspace=proof_workspace,
-                expected_tree=candidate_tree,
-                python=boundary_proofs.PINNED_PYTHON,
-                pytest_carrier=boundary_proofs.PINNED_PYTEST_CARRIER,
-                expected_pytest_carrier_sha256=(
-                    boundary_proofs.PINNED_PYTEST_CARRIER_SHA256
-                ),
-                builtin_architecture_ids=builtin_architecture_ids,
-                witness_architecture_id=witness_architecture_id,
-                forbidden_roots=(),
-            )
-        )
-        desired_rows = boundary_proofs.execute_desired_state(
-            execution_manifest,
-            consumer_rows=authority["census"]["consumer_rows"],
-            python=boundary_proofs.PINNED_PYTHON,
-            workspace=proof_workspace,
-            expected_tree=candidate_tree,
-            expected_runner_sha256=authority["runner_sha256"],
-            pytest_carrier=boundary_proofs.PINNED_PYTEST_CARRIER,
-            expected_pytest_carrier_sha256=(
-                boundary_proofs.PINNED_PYTEST_CARRIER_SHA256
-            ),
-            forbidden_roots=(),
-        )
-    except (
-        boundary_proofs.BoundaryProofError,
-        reference_calibration.CalibrationError,
-    ) as exc:
-        failed_evidence = {
-            "authority_bindings": deepcopy(authority["bindings"]),
-            "candidate_tree": candidate_tree,
-            "classification": classification,
-            "discovery_candidate_set_sha256": fresh_discovery[
-                "candidate_set_sha256"
-            ],
-            "discovery_projection": deepcopy(fresh_discovery["projection"]),
-            "proof_error_code": exc.code,
-            "proof_error_detail_sha256": "sha256:"
-            + hashlib.sha256(str(exc.detail).encode("utf-8")).hexdigest(),
-            "runner_sha256": authority["runner_sha256"],
-            "schema_version": "es-f1-authenticated-task0-bypass.v1",
-        }
-        return {
-            "satisfied": False,
-            "evidence": _digest(failed_evidence),
-            "proof_error_code": exc.code,
-        }
-
-    result_rows = deepcopy(list(desired_rows))
-    if any(row.get("target_tree") != candidate_tree for row in result_rows):
-        raise EvaluatorError("legacy bypass runner result tree binding drifted")
-    report = {
-        "bindings": deepcopy(authority["bindings"]),
-        "legacy_inventory_partition": deepcopy(authority["partition"]),
-        "novel_matches": deepcopy(classification["novel_direct_matches"]),
-        "schema_version": "es-f1-legacy-bypass-report.v1",
-        "selected_required_results": result_rows,
-    }
-    derived = _derive_task0_bypass_observation(report)
-    evidence = {
-        "authority_bindings": deepcopy(authority["bindings"]),
-        "candidate_tree": candidate_tree,
-        "classification": classification,
-        "desired_state_results": result_rows,
-        "discovery_candidate_set_sha256": fresh_discovery[
-            "candidate_set_sha256"
-        ],
-        "discovery_projection": deepcopy(fresh_discovery["projection"]),
-        "runner_sha256": authority["runner_sha256"],
-        "schema_version": "es-f1-authenticated-task0-bypass.v1",
-    }
-    return {
-        "satisfied": (
-            derived["satisfied"]
-            and not classification["restored_required_consumer_ids"]
-        ),
-        "evidence": _digest(evidence),
-        "proof_error_code": None,
-    }
-
-
-def _file_sha256(path: Path) -> str:
-    try:
-        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as exc:
-        raise EvaluatorError(f"bound evaluator asset is unreadable: {path}") from exc
-
-
-def _validate_frozen_artifact_applicability(
-    artifact_rows: Any,
-) -> None:
-    """Validate the exact evaluator-owned historical applicability partitions."""
-
-    expected_fields = {
-        "applicable_architecture_ids",
-        "bytes",
-        "cas_relative_path",
-        "era_id",
-        "kind",
-        "load_contract",
-        "rejected_architecture_ids",
-        "sha256",
-    }
-    if not isinstance(artifact_rows, list) or [
-        row.get("era_id") if isinstance(row, Mapping) else None
-        for row in artifact_rows
-    ] != list(ARTIFACT_ERA_IDS):
-        raise EvaluatorError("artifact applicability era set/order drifted")
-    for row in artifact_rows:
-        if not isinstance(row, Mapping) or set(row) != expected_fields:
-            raise EvaluatorError("artifact applicability row is not exact")
-        expected_applicable = [
-            "ffno"
-            if row["era_id"] in _F1_FFNO_HISTORICAL_ARTIFACT_ERAS
-            else "cnn"
-        ]
-        expected_rejected = [
-            architecture_id
-            for architecture_id in F1_ARTIFACT_ARCHITECTURE_DOMAIN
-            if architecture_id not in expected_applicable
-        ]
-        if (
-            row["applicable_architecture_ids"] != expected_applicable
-            or row["rejected_architecture_ids"] != expected_rejected
-        ):
-            raise EvaluatorError(
-                f"artifact applicability partition drifted for {row['era_id']}"
-            )
-
-
-def _artifact_implementation_identities(
-    fixture_manifest: Mapping[str, Any],
-) -> dict[str, str]:
-    """Return the evaluator-owned built-in identity authority for H04 loads."""
-
-    rows = fixture_manifest.get("registry_baseline")
-    if not isinstance(rows, list) or len(rows) != len(F1_BUILTIN_ARCHITECTURES):
-        raise EvaluatorError("artifact implementation identity authority is malformed")
-    identities: dict[str, str] = {}
+    if tuple(row.get("case_id") for row in rows) != expected_ids:
+        _fail("calibration case order or identity drifted")
     for row in rows:
-        if not isinstance(row, Mapping):
-            raise EvaluatorError(
-                "artifact implementation identity authority is malformed"
-            )
-        architecture_id = row.get("architecture")
-        implementation_identity = row.get("implementation_identity")
+        case_id = cast(str, row["case_id"])
+        if case_id in CALIBRATION_POSITIVE_CASE_IDS:
+            probe = row.get("probe")
+            if (
+                set(row)
+                != {"case_id", "defect_kind", "expected_failed_clauses", "probe"}
+                or row.get("defect_kind") != "none"
+                or row.get("expected_failed_clauses") != []
+                or not isinstance(probe, Mapping)
+                or set(probe) != {"cli_patch", "file_mapping", "role"}
+                or probe.get("role") not in CONFIG_RESOLUTION_ROLES
+                or not isinstance(probe.get("file_mapping"), Mapping)
+                or not isinstance(probe.get("cli_patch"), Mapping)
+            ):
+                _fail("calibration positive case is malformed")
+            continue
         if (
-            not isinstance(architecture_id, str)
-            or architecture_id not in F1_BUILTIN_ARCHITECTURES
-            or architecture_id in identities
-            or not isinstance(implementation_identity, str)
-            or not implementation_identity
+            set(row) != {"case_id", "defect_kind", "expected_failed_clauses"}
+            or row.get("defect_kind") != case_id
+            or tuple(cast(Sequence[str], row.get("expected_failed_clauses", ())))
+            != CALIBRATION_DEFECT_CLAUSES[case_id]
         ):
-            raise EvaluatorError(
-                "artifact implementation identity authority is malformed"
-            )
-        identities[architecture_id] = implementation_identity
-    if tuple(identities) != F1_BUILTIN_ARCHITECTURES:
-        raise EvaluatorError("artifact implementation identity authority drifted")
-    return identities
-
-
-def resolve_artifact_applicability(
-    *,
-    fixture_manifest: Mapping[str, Any],
-    candidate_evidence_path: Path,
-) -> list[dict[str, Any]]:
-    """Resolve the reserved witness placeholder only from validated evidence."""
-
-    if not isinstance(fixture_manifest, Mapping):
-        raise EvaluatorError("artifact applicability fixture manifest is malformed")
-    artifact_rows = fixture_manifest.get("artifact_eras")
-    _validate_frozen_artifact_applicability(artifact_rows)
-    try:
-        candidate_evidence = load_candidate_extension_evidence(
-            candidate_evidence_path
-        )
-    except (OSError, TaskPackageError) as exc:
-        detail = exc.detail if isinstance(exc, TaskPackageError) else str(exc)
-        raise EvaluatorError(
-            f"artifact applicability candidate evidence is invalid: {detail}"
-        ) from exc
-    witness_id = candidate_evidence["candidate_witness"]["public_id"]
-    if (
-        not isinstance(witness_id, str)
-        or not witness_id
-        or witness_id in set(F1_BUILTIN_ARCHITECTURES)
-        or witness_id == F1_CANDIDATE_WITNESS_PLACEHOLDER
-    ):
-        raise EvaluatorError("artifact applicability candidate witness is invalid")
-    assert isinstance(artifact_rows, list)
-    return _resolve_artifact_witness_placeholder(
-        artifact_rows=artifact_rows,
-        witness_id=witness_id,
-    )
-
-
-def _resolve_artifact_witness_placeholder(
-    *,
-    artifact_rows: list[Mapping[str, Any]],
-    witness_id: str,
-) -> list[dict[str, Any]]:
-    if (
-        not isinstance(witness_id, str)
-        or not witness_id
-        or witness_id in set(F1_BUILTIN_ARCHITECTURES)
-        or witness_id == F1_CANDIDATE_WITNESS_PLACEHOLDER
-    ):
-        raise EvaluatorError("artifact applicability candidate witness is invalid")
-    resolved_rows = deepcopy(artifact_rows)
-    for row in resolved_rows:
-        for field_name in (
-            "applicable_architecture_ids",
-            "rejected_architecture_ids",
-        ):
-            row[field_name] = [
-                witness_id
-                if architecture_id == F1_CANDIDATE_WITNESS_PLACEHOLDER
-                else architecture_id
-                for architecture_id in row[field_name]
-            ]
-    return resolved_rows
-
-
-def preflight_artifact_architecture(
-    *,
-    artifact_row: Mapping[str, Any],
-    architecture_id: str,
-) -> dict[str, Any] | None:
-    """Reject an out-of-partition artifact before construction or load."""
-
-    if not isinstance(artifact_row, Mapping) or not isinstance(
-        architecture_id, str
-    ):
-        raise EvaluatorError("artifact architecture preflight input is malformed")
-    applicable = artifact_row.get("applicable_architecture_ids")
-    rejected = artifact_row.get("rejected_architecture_ids")
-    if (
-        not isinstance(applicable, list)
-        or not isinstance(rejected, list)
-        or architecture_id not in {*applicable, *rejected}
-        or (architecture_id in applicable) == (architecture_id in rejected)
-    ):
-        raise EvaluatorError("artifact architecture preflight partition is malformed")
-    if architecture_id in applicable:
-        return None
-    return {
-        "diagnostic": "UNSUPPORTED_ARTIFACT_ARCHITECTURE",
-        "implementation_identity": None,
-        "module_returned": False,
-        "strict_load": False,
-    }
+            _fail("calibration negative case is malformed")
+    return rows
 
 
 def load_frozen_evaluator_package(
     *,
-    visible_contract_path: Path,
-    visible_contract_schema_path: Path,
-    visible_check_path: Path,
-    visible_check_schema_path: Path,
+    calibration_cases_path: Path,
+    consumer_census_path: Path,
     fixture_manifest_path: Path,
     reviewer_perspectives_path: Path,
+    task_profile_path: Path,
+    visible_check_path: Path,
+    visible_contract_path: Path,
 ) -> dict[str, Any]:
-    """Join evaluator assets to the one schema-validated visible task authority."""
+    """Join the F1v2 evaluator to one schema-validated Task-1 package."""
 
-    contract = _load_canonical_unversioned(visible_contract_path)
-    _validate_schema_record(
-        contract,
-        schema_path=visible_contract_schema_path,
-        label="visible task contract",
+    try:
+        profile = load_task_profile(task_profile_path)
+        contract = load_visible_task_contract(visible_contract_path)
+        checks = load_visible_check_manifest(visible_check_path)
+        census = load_configuration_consumer_census(consumer_census_path)
+    except (OSError, TaskPackageError) as exc:
+        raise EvaluatorError("Task-1 package validation failed") from exc
+    try:
+        fixtures = load_controller_asset(
+            fixture_manifest_path,
+            expected_schema_version="es-f1-fixture-manifest.v3",
+        )
+    except EvaluatorError as exc:
+        raise EvaluatorError("evaluator package is not the F1v2 successor") from exc
+    calibration = load_controller_asset(
+        calibration_cases_path,
+        expected_schema_version="es-f1-calibration-cases.v4",
     )
-    if tuple(row["id"] for row in contract["hard_contract"]) != HARD_CLAUSE_IDS:
-        raise EvaluatorError("visible hard-clause vocabulary drifted")
-    if tuple(contract["finding_dispositions"]) != DISPOSITIONS:
-        raise EvaluatorError("visible finding-disposition vocabulary drifted")
-    if tuple(row["id"] for row in contract["reviewer_perspectives"]) != (
-        REVIEWER_PERSPECTIVES
-    ):
-        raise EvaluatorError("visible reviewer-perspective vocabulary drifted")
-
-    check_binding = contract["visible_checks"]
-    if _file_sha256(visible_check_path) != check_binding["sha256"]:
-        raise EvaluatorError("visible check manifest digest binding drifted")
-    if _file_sha256(visible_check_schema_path) != check_binding["schema_sha256"]:
-        raise EvaluatorError("visible check schema digest binding drifted")
-    checks = _load_canonical_unversioned(visible_check_path)
-    _validate_schema_record(
-        checks,
-        schema_path=visible_check_schema_path,
-        label="visible check manifest",
-    )
-    if checks["invocation_order"] != ["PRE_EDIT_FOCUSED", "CANDIDATE_EXTENSION"]:
-        raise EvaluatorError("visible check invocation order drifted")
-    by_id = {row["id"]: row for row in checks["invocations"]}
-    if set(by_id) != {"PRE_EDIT_FOCUSED", "CANDIDATE_EXTENSION"}:
-        raise EvaluatorError("visible check invocation set drifted")
-    if by_id["PRE_EDIT_FOCUSED"]["selectors"] != contract["focused_selectors"]:
-        raise EvaluatorError("visible focused selector binding drifted")
-    if by_id["CANDIDATE_EXTENSION"]["selectors"] != [
-        "tests/torch/test_es_f1_extension_boundary.py"
-    ]:
-        raise EvaluatorError("visible candidate selector binding drifted")
-    if _digest(contract["focused_selectors"]) != contract["environment"][
-        "focused_selectors_sha256"
-    ]:
-        raise EvaluatorError("visible focused selector digest drifted")
-
     perspectives = load_controller_asset(
         reviewer_perspectives_path,
         expected_schema_version="es-f1-reviewer-perspectives.v1",
     )
+    if (
+        profile.task_id != "F1"
+        or profile.hard_clause_ids != HARD_CLAUSE_IDS
+        or profile.focused_selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or profile.required_task_seed_schema_version != "es_f1_task_seed.v3"
+        or contract.get("schema_version") != "es_f1_visible_task_contract.v3"
+        or contract.get("task_id") != "F1"
+        or tuple(row["id"] for row in contract["hard_contract"]) != HARD_CLAUSE_IDS
+        or tuple(row["id"] for row in contract["visible_outcomes"])
+        != F1_REQUIRED_OUTCOMES
+        or tuple(contract["bypass_classes"]) != BYPASS_CLASSES
+        or checks.invocation_order != ("PRE_EDIT_FOCUSED", "CANDIDATE_CONFIG")
+        or checks.pre_edit_selectors != F1_PROVIDER_VISIBLE_SELECTORS
+        or checks.candidate_selector != "tests/test_es_f1_config_ownership.py"
+    ):
+        _fail("Task-1 and evaluator package identities are mixed")
+    census_binding = cast(dict[str, Any], profile.raw["consumer_census"])
+    if (
+        census_binding["path"]
+        != consumer_census_path.resolve().relative_to(_REPOSITORY_ROOT).as_posix()
+        or census_binding["record_sha256"] != census["record_sha256"]
+        or census["consumer_count"] != len(census["rows"])
+    ):
+        _fail("evaluator consumer census binding drifted")
+    expected_fixture_fields = {
+        "bypass_classes", "calibration_cases", "configuration_roles",
+        "fixture_adapter", "hard_clause_ids", "schema_version", "versions",
+    }
+    calibration_binding = fixtures.get("calibration_cases")
+    if (
+        set(fixtures) != expected_fixture_fields
+        or tuple(fixtures["hard_clause_ids"]) != HARD_CLAUSE_IDS
+        or tuple(fixtures["configuration_roles"]) != CONFIG_RESOLUTION_ROLES
+        or tuple(fixtures["bypass_classes"]) != BYPASS_CLASSES
+        or not isinstance(calibration_binding, Mapping)
+        or calibration_binding.get("schema_version")
+        != "es-f1-calibration-cases.v4"
+        or calibration_binding.get("sha256") != file_sha256(calibration_cases_path)
+        or calibration_binding.get("path")
+        != calibration_cases_path.resolve().relative_to(_REPOSITORY_ROOT).as_posix()
+    ):
+        _fail("evaluator fixture binding drifted")
+    versions = fixtures["versions"]
+    if versions != {
+        "candidate_evidence": "candidate_config_evidence.v2",
+        "hard_evaluation": "es-f1-hard-evaluation.v3",
+        "hard_finding": "es-f1-hard-finding.v3",
+        "probe_request": "config_resolution_probe_request.v1",
+        "probe_result": "config_resolution_probe_result.v1",
+        "visible_result": "es-f1-visible-check-result.v3",
+    }:
+        _fail("evaluator fixture versions are mixed")
     expected_perspectives = [
         {
             "owned_dimensions": row["owned_dimensions"],
@@ -2769,2842 +769,2358 @@ def load_frozen_evaluator_package(
         }
         for row in contract["reviewer_perspectives"]
     ]
-    if perspectives["perspectives"] != expected_perspectives:
-        raise EvaluatorError("reviewer perspective asset drifted from visible authority")
-    dimensions = [
-        dimension
-        for row in perspectives["perspectives"]
-        for dimension in row["owned_dimensions"]
-    ]
-    if len(dimensions) != len(set(dimensions)) or set(dimensions) != set(
-        contract["review_dimensions"]
-    ):
-        raise EvaluatorError("reviewer perspective dimension partition is not exact")
-
-    try:
-        fixtures = load_controller_asset(
-            fixture_manifest_path,
-            expected_schema_version="es-f1-fixture-manifest.v2",
-        )
-    except ValueError as exc:
-        raise EvaluatorError(f"fixture manifest preflight failed: {exc}") from exc
-    if fixtures["hard_clause_ids"] != list(HARD_CLAUSE_IDS):
-        raise EvaluatorError("fixture manifest hard-clause binding drifted")
-    if fixtures["artifact_fixture_origin"] != {
-        "generator": (
-            "scripts.experiments.es.f1_evaluator.build_artifact_fixture_pack"
-        ),
-        "source_projection_commit": (
-            "8f191031f233d50a4d020d8a988036e99487f570"
-        ),
-        "source_projection_tree": "e64f3c05f5a0894f41c047d128a9040a2cda6764",
-    }:
-        raise EvaluatorError("artifact fixture origin binding drifted")
-    _validate_frozen_artifact_applicability(fixtures.get("artifact_eras"))
-    calibration_binding = fixtures["calibration_cases"]
-    if not isinstance(calibration_binding, Mapping) or set(calibration_binding) != {
-        "path",
-        "schema_version",
-        "sha256",
-    }:
-        raise EvaluatorError("calibration fixture binding is malformed")
-    if calibration_binding["path"] != (
-        "tests/experiments/fixtures/es_f1/calibration-cases.json"
-    ):
-        raise EvaluatorError("calibration fixture path binding drifted")
-    calibration_path = _REPOSITORY_ROOT / calibration_binding["path"]
+    if perspectives.get("perspectives") != expected_perspectives:
+        _fail("reviewer perspective binding drifted")
+    _validate_calibration_cases(calibration.get("cases"))
+    adapter_binding = fixtures.get("fixture_adapter")
+    expected_adapter_path = _F1_FIXTURE_ADAPTER.relative_to(
+        _REPOSITORY_ROOT
+    ).as_posix()
     if (
-        calibration_binding["schema_version"] != "es-f1-calibration-cases.v3"
-        or _file_sha256(calibration_path) != calibration_binding["sha256"]
+        not isinstance(adapter_binding, Mapping)
+        or set(adapter_binding) != {"path", "policy", "sha256"}
+        or adapter_binding.get("path") != expected_adapter_path
+        or adapter_binding.get("policy") != "path-only.v1"
+        or adapter_binding.get("sha256") != file_sha256(_F1_FIXTURE_ADAPTER)
     ):
-        raise EvaluatorError("calibration fixture digest/schema binding drifted")
-    try:
-        calibration = load_controller_asset(
-            calibration_path,
-            expected_schema_version="es-f1-calibration-cases.v3",
-        )
-        calibration_cases = calibration["cases"]
-        if not isinstance(calibration_cases, list) or [
-            (
-                row.get("case_id") if isinstance(row, Mapping) else None,
-                row.get("defect_kind") if isinstance(row, Mapping) else None,
-            )
-            for row in calibration_cases
-        ] != list(CALIBRATION_CASE_SEQUENCE):
-            raise ValueError("calibration case identity/order drifted")
-        for case in calibration_cases:
-            validate_calibration_case(case)
-    except (OSError, TypeError, ValueError) as exc:
-        raise EvaluatorError(f"calibration fixture is malformed: {exc}") from exc
+        _fail("evaluator fixture adapter binding drifted")
     return {
         "calibration_cases": calibration,
+        "consumer_census": census,
         "fixture_manifest": fixtures,
+        "package_conformance": {
+            "candidate_evidence": versions["candidate_evidence"],
+            "probe_request": versions["probe_request"],
+            "probe_result": versions["probe_result"],
+            "validated": True,
+        },
         "reviewer_perspectives": perspectives,
+        "task_profile": profile,
         "visible_checks": checks,
         "visible_contract": contract,
     }
 
 
-def run_visible_checks(
+def load_checked_in_evaluator_package() -> dict[str, Any]:
+    """Load the one checked-in F1v2 evaluator package."""
+
+    return load_frozen_evaluator_package(
+        calibration_cases_path=_F1_CALIBRATION_CASES,
+        consumer_census_path=_F1_EVIDENCE_ROOT / "configuration-consumer-census.json",
+        fixture_manifest_path=_F1_ROOT / "evaluator/fixture-manifest.json",
+        reviewer_perspectives_path=_F1_ROOT / "evaluator/reviewer-perspectives.json",
+        task_profile_path=_F1_ROOT / "task-profile.json",
+        visible_check_path=_F1_ROOT / "task/visible-check-manifest.json",
+        visible_contract_path=_F1_ROOT / "task/visible-task-contract.json",
+    )
+
+
+def _safe_relative(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or "\\" in value:
+        _fail(f"{label} is not a safe relative path")
+    relative = PurePosixPath(value)
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or relative.as_posix() != value
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        _fail(f"{label} is not a safe relative path")
+    return value
+
+
+def _safe_descendant(root: Path, relative: object, *, label: str) -> Path:
+    value = _safe_relative(relative, label=label)
+    candidate = root.joinpath(*PurePosixPath(value).parts)
+    try:
+        candidate.resolve(strict=False).relative_to(root.resolve(strict=True))
+    except (OSError, ValueError) as exc:
+        raise EvaluatorError(f"{label} escapes its root") from exc
+    return candidate
+
+
+def directory_digest(root: Path) -> str:
+    root = root.resolve(strict=True)
+    if not root.is_dir() or root.is_symlink():
+        _fail("digest root must be one real directory")
+    rows: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            rows.append({"kind": "symlink", "path": relative, "target": os.readlink(path)})
+        elif stat.S_ISDIR(metadata.st_mode):
+            rows.append({"kind": "directory", "path": relative})
+        elif stat.S_ISREG(metadata.st_mode):
+            rows.append({"kind": "file", "path": relative, "sha256": file_sha256(path)})
+        else:
+            _fail(f"workspace contains unsupported file type at {relative}")
+    return _digest(rows)
+
+
+def _subprocess_environment(rows: object) -> dict[str, str]:
+    environment = {
+        "HOME": os.environ.get("HOME", ""),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    if rows is None:
+        return environment
+    if not isinstance(rows, list):
+        _fail("required subprocess environment is malformed")
+    for row in rows:
+        if not isinstance(row, Mapping) or set(row) != {"name", "value"}:
+            _fail("required subprocess environment row is malformed")
+        name, value = row["name"], row["value"]
+        if not isinstance(name, str) or not isinstance(value, str):
+            _fail("required subprocess environment row is malformed")
+        environment[name] = value
+    return environment
+
+
+def _run_audited_subprocess(
+    argv: Sequence[str],
     *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int,
+    label: str,
+) -> subprocess.CompletedProcess[str]:
+    if timeout_seconds < 1:
+        _fail(f"{label} timeout must be positive")
+    try:
+        return subprocess.run(
+            list(argv),
+            check=False,
+            cwd=cwd,
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EvaluatorError(f"{label} did not complete") from exc
+
+
+def run_candidate_probe(
+    *,
+    code: str,
+    environment: dict[str, str],
+    label: str,
+    python_executable: Path,
+    timeout_seconds: int,
     workspace: Path,
-    visible_checks: Mapping[str, Any],
+    protected_roots: Sequence[Path] = (),
+    require_success: bool = True,
+    working_directory: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run candidate code under the one protected-root/import audit spine."""
+
+    workspace = workspace.resolve(strict=True)
+    cwd = workspace if working_directory is None else working_directory.resolve(strict=True)
+    roots = (workspace, *(Path(root).resolve(strict=True) for root in protected_roots))
+    before = {root: directory_digest(root) for root in roots}
+    with tempfile.TemporaryDirectory(prefix="es-f1-audited-") as raw:
+        root = Path(raw)
+        program = root / "program.py"
+        audit_path = root / "audit.json"
+        program.write_text(code, encoding="utf-8", newline="\n")
+        protected = json.dumps([str(root) for root in roots], separators=(",", ":"))
+        process = _run_audited_subprocess(
+            [
+                str(python_executable), "-B", "-c", _AUDITED_PROJECTION_WRAPPER,
+                protected, str(program), str(audit_path), str(workspace), str(cwd),
+            ],
+            cwd=root,
+            environment={**_subprocess_environment(None), **environment},
+            timeout_seconds=timeout_seconds,
+            label=label,
+        )
+        audit = _canonical_object(audit_path, label=f"{label} audit") if audit_path.is_file() else {"events": []}
+    for root, digest in before.items():
+        if directory_digest(root) != digest:
+            _fail(f"{label} mutated a protected execution root")
+    events = audit.get("events")
+    if not isinstance(events, list):
+        _fail(f"{label} audit is malformed")
+    for event in events:
+        if not isinstance(event, Mapping):
+            _fail(f"{label} audit row is malformed")
+        if event.get("event") == "forbidden_import":
+            _fail(f"{label} crossed a forbidden import boundary")
+        if event.get("event") == "forbidden_module_loaded":
+            _fail(f"{label} loaded a forbidden project module")
+        if event.get("event") == "outside_project_owned_origin":
+            _fail(f"{label} loaded a project module from an outside project origin")
+        if event.get("event") == "workspace_write_attempt":
+            _fail(f"{label} mutated or attempted to mutate a protected execution root")
+        if event.get("event") == "unaudited_child_process":
+            _fail(f"{label} crossed the protected execution boundary")
+    if require_success and process.returncode != 0:
+        _fail(f"{label} failed: {process.stderr}")
+    return process
+
+
+def _run_evaluation_hook_call(
+    *,
+    hook_id: str,
+    request: dict[str, Any],
+    root: Path,
+    sequence: int,
+    symbol: str,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
 ) -> dict[str, Any]:
-    """Execute only the schema-bound visible invocations on an immutable copy."""
+    call_root = root / f"{sequence:02d}-{hook_id.lower()}-{request['op'].lower()}"
+    call_root.mkdir()
+    request_path = call_root / "request.json"
+    result_path = call_root / "result.json"
+    request_path.write_bytes(canonical_json_bytes(request))
+    run_candidate_probe(
+        code=_HOOK_CALL_PROGRAM,
+        environment={
+            "ES_F1_HOOK_REQUEST": str(request_path),
+            "ES_F1_HOOK_RESULT": str(result_path),
+            "ES_F1_HOOK_SYMBOL": symbol,
+            "ES_F1_WORKSPACE": str(workspace),
+        },
+        label=f"{hook_id} {request['op']} hook",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+        working_directory=call_root,
+    )
+    return _canonical_object(result_path, label=f"{hook_id} {request['op']} result")
+
+
+def run_evaluation_hooks(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Execute the exact four candidate hooks without trusting them for verdicts."""
+
+    workspace = workspace.resolve(strict=True)
+    try:
+        candidate_evidence_path.resolve(strict=True).relative_to(workspace)
+    except (OSError, ValueError) as exc:
+        raise EvaluatorError("candidate evidence is outside the candidate workspace") from exc
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    hooks = cast(list[dict[str, str]], evidence["evaluation_hooks"])
+    by_id = {row["hook_id"]: row["symbol"] for row in hooks}
+    expected = (
+        "CONFIG_SURFACE",
+        "CONFIG_CARRIER",
+        "TORCH_TRANSACTION",
+        "SIMULATION_DERIVATION",
+    )
+    if tuple(by_id) != expected or len(set(by_id.values())) != len(by_id):
+        _fail("evaluation hook identity is missing, reordered, or ambiguous")
+    if output_root.resolve(strict=False).is_relative_to(workspace):
+        _fail("evaluation hook output must be outside the candidate workspace")
+    output_root.mkdir(parents=True, exist_ok=False)
+    sequence = 0
+
+    def call(hook_id: str, request: dict[str, Any]) -> dict[str, Any]:
+        nonlocal sequence
+        sequence += 1
+        return _run_evaluation_hook_call(
+            hook_id=hook_id,
+            request=request,
+            root=output_root,
+            sequence=sequence,
+            symbol=by_id[hook_id],
+            python_executable=python_executable,
+            timeout_seconds=timeout_seconds,
+            workspace=workspace,
+        )
+
+    surfaces = call("CONFIG_SURFACE", {"op": "DESCRIBE"})
+    surface_names = ("SIMULATION", "CORE", "TORCH", "CLI", "WORKFLOW", "STUDY")
+    if (
+        set(surfaces) != {"surface_symbols"}
+        or not isinstance(surfaces["surface_symbols"], dict)
+        or set(surfaces["surface_symbols"]) != set(surface_names)
+        or not all(
+            isinstance(symbol, str) and symbol
+            for symbol in surfaces["surface_symbols"].values()
+        )
+    ):
+        _fail("CONFIG_SURFACE DESCRIBE field set is invalid")
+
+    carrier = {
+        "resolved": {"value": 1},
+        "source_by_pointer": {"/value": "FILE_MAPPING"},
+    }
+    encoded = [
+        call("CONFIG_CARRIER", {"carrier": carrier, "op": "ENCODE"})
+        for _ in range(2)
+    ]
+    for row in encoded:
+        if set(row) != {"payload_b64", "payload_sha256"} or not all(
+            isinstance(row[name], str) for name in row
+        ):
+            _fail("CONFIG_CARRIER ENCODE field set is invalid")
+        try:
+            payload = base64.b64decode(row["payload_b64"], validate=True)
+        except (ValueError, TypeError) as exc:
+            raise EvaluatorError("CONFIG_CARRIER payload is not canonical base64") from exc
+        if _SHA256_PREFIX + hashlib.sha256(payload).hexdigest() != row["payload_sha256"]:
+            _fail("CONFIG_CARRIER payload digest is invalid")
+    if encoded[0] != encoded[1]:
+        _fail("CONFIG_CARRIER encoding is nondeterministic")
+    decoded = call(
+        "CONFIG_CARRIER",
+        {"op": "DECODE", "payload_b64": encoded[0]["payload_b64"]},
+    )
+    if set(decoded) != {"carrier"} or decoded["carrier"] != carrier:
+        _fail("CONFIG_CARRIER did not reconstruct the exact carrier")
+
+    transaction = call("TORCH_TRANSACTION", {"op": "DESCRIBE"})
+    if (
+        set(transaction) != {"apply_symbol", "commit_symbol", "state_symbols"}
+        or not all(
+            isinstance(transaction[name], str) and transaction[name]
+            for name in ("apply_symbol", "commit_symbol")
+        )
+        or not isinstance(transaction["state_symbols"], list)
+        or not transaction["state_symbols"]
+        or not all(isinstance(symbol, str) and symbol for symbol in transaction["state_symbols"])
+    ):
+        _fail("TORCH_TRANSACTION DESCRIBE field set is invalid")
+
+    derivation = call("SIMULATION_DERIVATION", {"op": "DESCRIBE"})
+    owners = derivation.get("owners")
+    if (
+        set(derivation) != {"owners", "resolver_symbol"}
+        or not isinstance(derivation["resolver_symbol"], str)
+        or not isinstance(owners, list)
+        or not owners
+        or any(
+            not isinstance(owner, dict)
+            or set(owner) != {"deriver_symbol", "owner_symbol"}
+            or not all(isinstance(owner[name], str) and owner[name] for name in owner)
+            for owner in owners
+        )
+    ):
+        _fail("SIMULATION_DERIVATION DESCRIBE field set is invalid")
+    catalog = call(
+        "SIMULATION_DERIVATION",
+        {"op": "CATALOG", "owner_symbol": owners[0]["owner_symbol"]},
+    )
+    fields = catalog.get("fields")
+    if (
+        set(catalog) != {"fields"}
+        or not isinstance(fields, list)
+        or fields != sorted(set(fields))
+        or not all(isinstance(field, str) and field for field in fields)
+    ):
+        _fail("SIMULATION_DERIVATION CATALOG field set is invalid")
+
+    return {
+        "facts": {
+            "F1-H04-TRANSACTIONAL-APPLICATION": False,
+            "F1-H06-DERIVED-PUBLIC-FIELDS": False,
+            "F1-H08-PROVENANCE-ROUNDTRIP": False,
+            "F1-H09-CROSS-SURFACE-COHERENCE": False,
+        },
+        "transcript": [
+            {"hook_id": "CONFIG_SURFACE", "operations": ["DESCRIBE"]},
+            {"hook_id": "CONFIG_CARRIER", "operations": ["ENCODE", "ENCODE", "DECODE"]},
+            {"hook_id": "TORCH_TRANSACTION", "operations": ["DESCRIBE"]},
+            {"hook_id": "SIMULATION_DERIVATION", "operations": ["DESCRIBE", "CATALOG"]},
+        ],
+    }
+
+
+def _merge_mappings(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(left)
+    for key, value in right.items():
+        current = merged.get(key)
+        merged[key] = (
+            _merge_mappings(cast(Mapping[str, Any], current), cast(Mapping[str, Any], value))
+            if isinstance(current, Mapping) and isinstance(value, Mapping)
+            else value
+        )
+    return merged
+
+
+def _source_pointers(
+    value: Mapping[str, Any],
+    file_mapping: Mapping[str, Any],
+    patch: Mapping[str, Any],
+    prefix: str = "",
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        pointer = f"{prefix}/{key}"
+        file_item = file_mapping.get(key)
+        patch_item = patch.get(key)
+        if isinstance(item, Mapping):
+            result.update(
+                _source_pointers(
+                    cast(Mapping[str, Any], item),
+                    cast(Mapping[str, Any], file_item)
+                    if isinstance(file_item, Mapping)
+                    else {},
+                    cast(Mapping[str, Any], patch_item)
+                    if isinstance(patch_item, Mapping)
+                    else {},
+                    pointer,
+                )
+            )
+        else:
+            result[pointer] = (
+                "CLI_PATCH"
+                if key in patch
+                else "FILE_MAPPING"
+                if key in file_mapping
+                else "DEFAULT"
+            )
+    return result
+
+
+def _lookup_pointer(value: Mapping[str, Any], pointer: str) -> Any:
+    current: Any = value
+    for part in pointer.split("/")[1:]:
+        if not isinstance(current, Mapping) or part not in current:
+            return object()
+        current = current[part]
+    return current
+
+
+def run_surface_and_carrier_proof(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Prove product-target surface coherence and carrier provenance by execution."""
+
+    workspace = workspace.resolve(strict=True)
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    hooks = {
+        row["hook_id"]: row["symbol"]
+        for row in cast(list[dict[str, str]], evidence["evaluation_hooks"])
+    }
+    output_root.mkdir(parents=True, exist_ok=False)
+    descriptor = _run_evaluation_hook_call(
+        hook_id="CONFIG_SURFACE",
+        request={"op": "DESCRIBE"},
+        root=output_root,
+        sequence=1,
+        symbol=hooks["CONFIG_SURFACE"],
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    surface_symbols = descriptor.get("surface_symbols")
+    surfaces = ("SIMULATION", "CORE", "TORCH", "CLI", "WORKFLOW", "STUDY")
+    if (
+        set(descriptor) != {"surface_symbols"}
+        or not isinstance(surface_symbols, dict)
+        or set(surface_symbols) != set(surfaces)
+        or len(set(surface_symbols.values())) != len(surfaces)
+        or not all(isinstance(symbol, str) and symbol for symbol in surface_symbols.values())
+    ):
+        _fail("CONFIG_SURFACE descriptor does not bind six distinct product targets")
+
+    file_source = json.loads(json.dumps(_TRAINING_PROBE_FILE))
+    cli_source = json.loads(json.dumps(_TRAINING_PROBE_FILE))
+    cli_source["model"]["N"] = 32
+    invalid_mode = json.loads(json.dumps(_TRAINING_PROBE_FILE))
+    invalid_mode["model"]["generator_output_mode"] = 1
+    invalid_initialization = json.loads(json.dumps(_TRAINING_PROBE_FILE))
+    invalid_initialization["model"]["rect_s1s2_init"] = True
+    cases = [
+        {"case_id": "file-source", "file_mapping": file_source, "cli_patch": {}},
+        {
+            "case_id": "cli-source",
+            "file_mapping": cli_source,
+            "cli_patch": {"model": {"N": 64}},
+        },
+        {"case_id": "invalid-mode", "file_mapping": invalid_mode, "cli_patch": {}},
+        {
+            "case_id": "invalid-initialization",
+            "file_mapping": invalid_initialization,
+            "cli_patch": {},
+        },
+    ]
+    descriptor_path = output_root / "surface-descriptor.json"
+    cases_path = output_root / "surface-cases.json"
+    transcript_path = output_root / "surface-transcript.json"
+    descriptor_path.write_bytes(canonical_json_bytes(surface_symbols))
+    cases_path.write_bytes(canonical_json_bytes(cases))
+    run_candidate_probe(
+        code=_SURFACE_PROOF_PROGRAM,
+        environment={
+            "ES_F1_SURFACE_CASES": str(cases_path),
+            "ES_F1_SURFACE_DESCRIPTOR": str(descriptor_path),
+            "ES_F1_SURFACE_HOOK": hooks["CONFIG_SURFACE"],
+            "ES_F1_SURFACE_TRANSCRIPT": str(transcript_path),
+            "ES_F1_WORKSPACE": str(workspace),
+        },
+        label="configuration surface proof",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+        working_directory=output_root,
+    )
+    transcript = _canonical_object(transcript_path, label="configuration surface transcript")
+    if set(transcript) != {"rows", "runtime_bypass_events"}:
+        _fail("configuration surface transcript fields are malformed")
+    rows = transcript.get("rows")
+    if not isinstance(rows, list) or len(rows) != len(surfaces) * (len(cases) + 1):
+        _fail("configuration surface transcript is incomplete")
+    runtime_events = transcript.get("runtime_bypass_events")
+    if not isinstance(runtime_events, list):
+        _fail("configuration surface runtime bypass events are malformed")
+    runtime_bypass_classes = list(normalize_bypass_events(runtime_events))
+    by_case: dict[str, list[dict[str, Any]]] = {
+        case["case_id"]: [] for case in cases
+    }
+    sentinel_ok = True
+    for row in rows:
+        if not isinstance(row, dict) or row.get("surface") not in surfaces:
+            _fail("configuration surface transcript row is malformed")
+        if "sentinel_forwarded" in row:
+            if set(row) != {"sentinel_forwarded", "surface"}:
+                _fail("configuration surface sentinel row is malformed")
+            sentinel_ok = sentinel_ok and row["sentinel_forwarded"] is True
+            continue
+        if set(row) != {"case_id", "direct", "hook", "surface"}:
+            _fail("configuration surface result row is malformed")
+        by_case[cast(str, row["case_id"])].append(row)
+
+    valid_carriers: dict[str, dict[str, Any]] = {}
+    coherence_ok = sentinel_ok
+    for case in cases:
+        case_id = cast(str, case["case_id"])
+        case_rows = by_case.get(case_id, [])
+        if len(case_rows) != len(surfaces):
+            _fail("configuration surface case coverage is incomplete")
+        if case_id.startswith("invalid-"):
+            coherence_ok = coherence_ok and all(
+                row["direct"].get("kind") == "raised"
+                and row["hook"].get("kind") == "raised"
+                for row in case_rows
+            )
+            continue
+        outputs = []
+        for row in case_rows:
+            direct, via_hook = row["direct"], row["hook"]
+            if (
+                direct.get("kind") != "returned"
+                or via_hook.get("kind") != "returned"
+                or direct.get("value") != via_hook.get("value")
+            ):
+                coherence_ok = False
+                continue
+            outputs.append(direct["value"])
+        coherence_ok = coherence_ok and len(outputs) == len(surfaces) and all(
+            output == outputs[0] for output in outputs
+        )
+        if outputs:
+            valid_carriers[case_id] = outputs[0]
+
+    provenance_ok = set(valid_carriers) == {"file-source", "cli-source"}
+    for case in cases[:2]:
+        case_id = cast(str, case["case_id"])
+        expected_resolved = _merge_mappings(
+            cast(Mapping[str, Any], case["file_mapping"]),
+            cast(Mapping[str, Any], case["cli_patch"]),
+        )
+        expected_carrier = {
+            "resolved": valid_carriers.get(case_id, {}).get("resolved"),
+            "source_by_pointer": _source_pointers(
+                cast(Mapping[str, Any], valid_carriers.get(case_id, {}).get("resolved", {})),
+                cast(Mapping[str, Any], case["file_mapping"]),
+                cast(Mapping[str, Any], case["cli_patch"]),
+            ),
+        }
+        carrier_value = valid_carriers.get(case_id)
+        provenance_ok = provenance_ok and carrier_value == expected_carrier
+        if carrier_value is not None:
+            resolved = cast(Mapping[str, Any], carrier_value["resolved"])
+            provenance_ok = provenance_ok and all(
+                _lookup_pointer(resolved, pointer) == _lookup_pointer(expected_resolved, pointer)
+                for pointer in _source_pointers(
+                    expected_resolved,
+                    cast(Mapping[str, Any], case["file_mapping"]),
+                    cast(Mapping[str, Any], case["cli_patch"]),
+                )
+            )
+    provenance_ok = provenance_ok and (
+        valid_carriers.get("file-source", {}).get("resolved")
+        == valid_carriers.get("cli-source", {}).get("resolved")
+        and valid_carriers.get("file-source", {}).get("source_by_pointer")
+        != valid_carriers.get("cli-source", {}).get("source_by_pointer")
+    )
+    resolution_ok = provenance_ok and sentinel_ok
+
+    carrier = valid_carriers.get("cli-source")
+    codec_rows: list[dict[str, Any]] = []
+    if carrier is not None:
+        for sequence in (2, 3):
+            codec_rows.append(
+                _run_evaluation_hook_call(
+                    hook_id="CONFIG_CARRIER",
+                    request={"carrier": carrier, "op": "ENCODE"},
+                    root=output_root,
+                    sequence=sequence,
+                    symbol=hooks["CONFIG_CARRIER"],
+                    python_executable=python_executable,
+                    timeout_seconds=timeout_seconds,
+                    workspace=workspace,
+                )
+            )
+        if codec_rows[0] != codec_rows[1] or set(codec_rows[0]) != {
+            "payload_b64",
+            "payload_sha256",
+        }:
+            provenance_ok = False
+        else:
+            try:
+                payload = base64.b64decode(codec_rows[0]["payload_b64"], validate=True)
+            except (TypeError, ValueError):
+                provenance_ok = False
+            else:
+                provenance_ok = provenance_ok and (
+                    codec_rows[0]["payload_sha256"]
+                    == _SHA256_PREFIX + hashlib.sha256(payload).hexdigest()
+                )
+                decoded = _run_evaluation_hook_call(
+                    hook_id="CONFIG_CARRIER",
+                    request={"op": "DECODE", "payload_b64": codec_rows[0]["payload_b64"]},
+                    root=output_root,
+                    sequence=4,
+                    symbol=hooks["CONFIG_CARRIER"],
+                    python_executable=python_executable,
+                    timeout_seconds=timeout_seconds,
+                    workspace=workspace,
+                )
+                provenance_ok = provenance_ok and decoded == {"carrier": carrier}
+
+    return {
+        "facts": {
+            "F1-H03-PUBLIC-RESOLUTION": resolution_ok,
+            "F1-H08-PROVENANCE-ROUNDTRIP": provenance_ok and sentinel_ok,
+            "F1-H09-CROSS-SURFACE-COHERENCE": coherence_ok,
+        },
+        "surface_transcript": transcript,
+        "surface_transcript_sha256": file_sha256(transcript_path),
+        "runtime_bypass_classes": runtime_bypass_classes,
+    }
+
+
+def run_simulation_derivation_proof(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Prove simulation fields come from the returned structural owner."""
+
+    workspace = workspace.resolve(strict=True)
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    hooks = {
+        row["hook_id"]: row["symbol"]
+        for row in cast(list[dict[str, str]], evidence["evaluation_hooks"])
+    }
+    output_root.mkdir(parents=True, exist_ok=False)
+    descriptor = _run_evaluation_hook_call(
+        hook_id="SIMULATION_DERIVATION",
+        request={"op": "DESCRIBE"},
+        root=output_root,
+        sequence=1,
+        symbol=hooks["SIMULATION_DERIVATION"],
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    owners = descriptor.get("owners")
+    simulation_routes = {
+        row["symbol"]
+        for row in cast(list[dict[str, Any]], evidence["public_resolution_routes"])
+        if "SIMULATION" in row["roles"]
+    }
+    if (
+        set(descriptor) != {"owners", "resolver_symbol"}
+        or descriptor.get("resolver_symbol") not in simulation_routes
+        or not isinstance(owners, list)
+        or not owners
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {"deriver_symbol", "owner_symbol"}
+            or not all(isinstance(row[name], str) and row[name] for name in row)
+            for row in owners
+        )
+        or len({row["owner_symbol"] for row in owners}) != len(owners)
+        or len({row["deriver_symbol"] for row in owners}) != len(owners)
+    ):
+        _fail("SIMULATION_DERIVATION descriptor is invalid or detached from the public route")
+    descriptor_path = output_root / "descriptor.json"
+    input_path = output_root / "simulation-input.json"
+    transcript_path = output_root / "transcript.json"
+    descriptor_path.write_bytes(canonical_json_bytes(descriptor))
+    input_path.write_bytes(canonical_json_bytes(_SIMULATION_PROBE_FILE))
+    run_candidate_probe(
+        code=_DERIVATION_PROOF_PROGRAM,
+        environment={
+            "ES_F1_DERIVATION_DESCRIPTOR": str(descriptor_path),
+            "ES_F1_DERIVATION_INPUT": str(input_path),
+            "ES_F1_DERIVATION_TRANSCRIPT": str(transcript_path),
+            "ES_F1_WORKSPACE": str(workspace),
+        },
+        label="simulation field derivation proof",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+        working_directory=output_root,
+    )
+    transcript = _canonical_object(transcript_path, label="simulation derivation transcript")
+    rows = transcript.get("rows")
+    if not isinstance(rows, list) or len(rows) != len(owners):
+        _fail("simulation derivation transcript is incomplete")
+    satisfied = True
+    for sequence, (owner, row) in enumerate(zip(owners, rows, strict=True), start=2):
+        if (
+            not isinstance(row, dict)
+            or set(row)
+            != {
+                "called_by_resolver",
+                "direct_fields",
+                "owner_present",
+                "owner_symbol",
+                "sentinel_derived",
+            }
+            or row["owner_symbol"] != owner["owner_symbol"]
+            or not isinstance(row["direct_fields"], list)
+            or row["direct_fields"] != sorted(set(row["direct_fields"]))
+            or not all(isinstance(field, str) and field for field in row["direct_fields"])
+        ):
+            _fail("simulation derivation transcript row is malformed")
+        catalog = _run_evaluation_hook_call(
+            hook_id="SIMULATION_DERIVATION",
+            request={"op": "CATALOG", "owner_symbol": owner["owner_symbol"]},
+            root=output_root,
+            sequence=sequence,
+            symbol=hooks["SIMULATION_DERIVATION"],
+            python_executable=python_executable,
+            timeout_seconds=timeout_seconds,
+            workspace=workspace,
+        )
+        satisfied = satisfied and (
+            catalog == {"fields": row["direct_fields"]}
+            and row["called_by_resolver"] is True
+            and row["owner_present"] is True
+            and row["sentinel_derived"] is True
+        )
+    return {
+        "facts": {"F1-H06-DERIVED-PUBLIC-FIELDS": satisfied},
+        "transcript": transcript,
+        "transcript_sha256": file_sha256(transcript_path),
+    }
+
+
+def run_torch_transaction_proof(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Prove one complete torch commit and rollback for both failure paths."""
+
+    workspace = workspace.resolve(strict=True)
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    hooks = {
+        row["hook_id"]: row["symbol"]
+        for row in cast(list[dict[str, str]], evidence["evaluation_hooks"])
+    }
+    output_root.mkdir(parents=True, exist_ok=False)
+    descriptor = _run_evaluation_hook_call(
+        hook_id="TORCH_TRANSACTION",
+        request={"op": "DESCRIBE"},
+        root=output_root,
+        sequence=1,
+        symbol=hooks["TORCH_TRANSACTION"],
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    states = descriptor.get("state_symbols")
+    if (
+        set(descriptor) != {"apply_symbol", "commit_symbol", "state_symbols"}
+        or not all(
+            isinstance(descriptor.get(name), str) and descriptor[name]
+            for name in ("apply_symbol", "commit_symbol")
+        )
+        or descriptor["apply_symbol"] == descriptor["commit_symbol"]
+        or not isinstance(states, list)
+        or not states
+        or states != sorted(set(states))
+        or not all(isinstance(symbol, str) and symbol for symbol in states)
+    ):
+        _fail("TORCH_TRANSACTION descriptor is malformed or incomplete")
+    valid_input = {
+        "file_mapping": _TRAINING_PROBE_FILE,
+        "cli_patch": {"batch_size": 2, "model": {"N": 128}, "n_groups": 7},
+    }
+    invalid_input = {
+        "file_mapping": _TRAINING_PROBE_FILE,
+        "cli_patch": {"batch_size": 0, "model": {"N": 128}, "n_groups": 7},
+    }
+    descriptor_path = output_root / "descriptor.json"
+    descriptor_path.write_bytes(canonical_json_bytes(descriptor))
+    scenarios = (
+        ("valid", valid_input),
+        ("invalid", invalid_input),
+        ("post_commit_failure", valid_input),
+    )
+    transcripts: list[dict[str, Any]] = []
+    for sequence, (scenario, inputs) in enumerate(scenarios, start=2):
+        scenario_root = output_root / scenario
+        scenario_root.mkdir()
+        input_path = scenario_root / "input.json"
+        transcript_path = scenario_root / "transcript.json"
+        input_path.write_bytes(canonical_json_bytes(inputs))
+        run_candidate_probe(
+            code=_TRANSACTION_PROOF_PROGRAM,
+            environment={
+                "ES_F1_TRANSACTION_DESCRIPTOR": str(descriptor_path),
+                "ES_F1_TRANSACTION_INPUT": str(input_path),
+                "ES_F1_TRANSACTION_SCENARIO": scenario,
+                "ES_F1_TRANSACTION_TRANSCRIPT": str(transcript_path),
+                "ES_F1_WORKSPACE": str(workspace),
+            },
+            label=f"torch transaction {scenario} proof",
+            python_executable=python_executable,
+            timeout_seconds=timeout_seconds,
+            workspace=workspace,
+            working_directory=scenario_root,
+        )
+        record = _canonical_object(
+            transcript_path, label=f"torch transaction {scenario} transcript"
+        )
+        if set(record) != {
+            "after",
+            "before",
+            "changed_symbols",
+            "commit_count",
+            "derived_state_symbols",
+            "outcome",
+            "scenario",
+            "state_values",
+        } or record["scenario"] != scenario:
+            _fail("torch transaction transcript is malformed")
+        transcripts.append(record)
+    valid, invalid, post_commit = transcripts
+    declared_states = cast(list[str], states)
+    complete = all(
+        row["derived_state_symbols"] == declared_states for row in transcripts
+    )
+    valid_state_bytes = canonical_json_bytes(valid["state_values"])
+    satisfied = (
+        complete
+        and valid["commit_count"] == 1
+        and valid["outcome"].get("kind") == "returned"
+        and valid["changed_symbols"] == declared_states
+        and all(token in valid_state_bytes for token in (b"128", b"7", b"2"))
+        and invalid["commit_count"] == 0
+        and invalid["outcome"].get("kind") == "raised"
+        and invalid["before"] == invalid["after"]
+        and invalid["changed_symbols"] == []
+        and post_commit["commit_count"] == 1
+        and post_commit["outcome"].get("kind") == "raised"
+        and post_commit["before"] == post_commit["after"]
+        and post_commit["changed_symbols"] == []
+    )
+    return {
+        "facts": {"F1-H04-TRANSACTIONAL-APPLICATION": satisfied},
+        "transcripts": transcripts,
+        "transcripts_sha256": _digest(transcripts),
+    }
+
+
+def validate_project_module_origins(projection: Mapping[str, Any]) -> None:
+    if projection.get("loaded_forbidden_modules"):
+        _fail("candidate loaded a forbidden project module")
+    if projection.get("outside_project_owned_origins"):
+        _fail("candidate loaded a project module from an outside project origin")
+
+
+def run_visible_checks(
+    *, workspace: Path, visible_checks: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Run declared selectors on disposable extracts via the audited route."""
 
     if not isinstance(visible_checks, Mapping):
-        raise EvaluatorError("visible checks must be an object")
+        _fail("visible checks must be one object")
     checks = dict(visible_checks)
-    _validate_schema_record(
-        checks,
-        schema_path=_VISIBLE_CHECK_SCHEMA,
-        label="visible check manifest",
-    )
-    workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir():
-        raise EvaluatorError("visible check workspace must be a directory")
+    if set(checks) != {
+        "invocation_order", "invocations", "runner", "schema_version", "task_id"
+    }:
+        _fail("visible check field set is not exact")
+    if checks["schema_version"] != "es_f1_visible_checks.v3" or checks["task_id"] != "F1":
+        _fail("visible check package is not the F1v2 successor")
+    order = checks["invocation_order"]
+    rows = checks["invocations"]
     runner = checks["runner"]
-    python_executable = Path(runner["python_executable"])
-    if (
-        not python_executable.is_absolute()
-        or not python_executable.is_file()
-        or _file_sha256(python_executable) != runner["python_executable_sha256"]
-    ):
-        raise EvaluatorError("visible check Python identity drifted")
-    by_id = {row["id"]: row for row in checks["invocations"]}
-    if set(by_id) != set(checks["invocation_order"]):
-        raise EvaluatorError("visible check invocation join is not exact")
-    for invocation in checks["invocations"]:
-        for selector in invocation["selectors"]:
-            _safe_candidate_path(workspace, selector)
+    if not isinstance(order, list) or not isinstance(rows, list) or not isinstance(runner, Mapping):
+        _fail("visible check contract is malformed")
+    by_id = {}
+    for row in rows:
+        if not isinstance(row, Mapping) or set(row) != {
+            "candidate_owned", "id", "required", "selectors"
+        }:
+            _fail("visible invocation row is malformed")
+        if row["required"] is not True or type(row["candidate_owned"]) is not bool:
+            _fail("visible invocation authority is malformed")
+        by_id[row["id"]] = row
+    if list(by_id) != order or len(by_id) != len(rows):
+        _fail("visible invocation order is not exact")
+    python = Path(cast(str, runner.get("python_executable", "")))
+    prefix = runner.get("argv_prefix")
+    timeout = runner.get("timeout_seconds")
+    if not python.is_absolute() or not python.is_file():
+        _fail("visible Python executable is invalid")
+    if not isinstance(prefix, list) or not all(isinstance(arg, str) for arg in prefix):
+        _fail("visible argv prefix is malformed")
+    if prefix[:2] != ["-m", "pytest"]:
+        _fail("visible argv prefix is unsupported")
+    if not isinstance(timeout, int):
+        _fail("visible timeout is malformed")
+    exact_runner_fields = {
+        "argv_prefix", "execution_copy_policy", "install_policy", "mutation_policy",
+        "python_executable", "python_executable_sha256", "python_version",
+        "required_environment", "result_policy", "timeout_seconds",
+        "working_directory_policy",
+    }
+    if set(runner) != exact_runner_fields:
+        _fail("visible runner field set is not exact")
     if (
         runner["execution_copy_policy"] != "disposable-exact-extract.v1"
+        or runner["install_policy"] != "no-install-build-or-editable.v1"
         or runner["mutation_policy"] != "verify-product-digest-before-after.v1"
+        or runner["result_policy"] != "every-required-invocation-exit-zero.v1"
         or runner["working_directory_policy"]
         != "external-disposable-invocation-root.v1"
+        or file_sha256(python) != runner["python_executable_sha256"]
     ):
-        raise EvaluatorError("visible check execution policy is unsupported")
-    before = _workspace_digest(workspace)
+        _fail("visible runner identity or policy drifted")
+    workspace = workspace.resolve(strict=True)
+    source_before = directory_digest(workspace)
     results: list[dict[str, Any]] = []
-    for invocation_id in checks["invocation_order"]:
-        invocation = by_id[invocation_id]
-        argv = [
-            str(python_executable),
-            *runner["argv_prefix"],
-            *invocation["selectors"],
-        ]
-        with tempfile.TemporaryDirectory(
-            prefix=f"es-f1-visible-{invocation_id.lower()}-"
-        ) as raw_temp:
-            execution_workspace = Path(raw_temp) / "candidate"
-            invocation_workspace = Path(raw_temp) / "invocation"
-
-            def ignore_root_git(directory: str, names: list[str]) -> set[str]:
-                if Path(directory).resolve() == workspace and ".git" in names:
-                    return {".git"}
-                return set()
-
-            shutil.copytree(
-                workspace,
-                execution_workspace,
-                symlinks=True,
-                copy_function=shutil.copy2,
-                ignore=ignore_root_git,
+    for invocation_id in order:
+        row = by_id[invocation_id]
+        selectors = row["selectors"]
+        if not isinstance(selectors, list) or not selectors:
+            _fail("visible selectors are malformed")
+        for selector in selectors:
+            _safe_descendant(workspace, selector, label="visible selector")
+        with tempfile.TemporaryDirectory(prefix="es-f1-visible-") as raw:
+            copy = Path(raw) / "candidate"
+            shutil.copytree(workspace, copy, symlinks=True)
+            copy_before = directory_digest(copy)
+            if copy_before != source_before:
+                _fail("visible disposable copy does not match the candidate")
+            argv = [str(python), *prefix, *selectors]
+            pytest_argv = ["pytest", *prefix[2:], *selectors]
+            program = (
+                "import runpy,sys\n"
+                f"sys.argv={pytest_argv!r}\n"
+                "runpy.run_module('pytest',run_name='__main__')\n"
             )
-            invocation_workspace.mkdir()
-            execution_before = _workspace_digest(execution_workspace)
-            if execution_before != before:
-                raise EvaluatorError(
-                    "visible check disposable extract does not match the source candidate"
-                )
-            if _workspace_digest(workspace) != before:
-                raise EvaluatorError(
-                    "visible check source candidate changed during disposable extraction"
-                )
-            try:
-                process = _run_projection_probe(
-                    workspace=execution_workspace,
-                    working_directory=invocation_workspace,
-                    protected_workspaces=(workspace, execution_workspace),
-                    python_executable=python_executable,
-                    code=_VISIBLE_CHECK_PROBE,
-                    environment={
-                        **{
-                            row["name"]: row["value"]
-                            for row in runner["required_environment"]
-                        },
-                        "ES_F1_VISIBLE_ARGV": json.dumps(["pytest", *argv[3:]]),
-                        "ES_F1_VISIBLE_PRODUCT_ROOT": str(execution_workspace),
-                        "ES_F1_VISIBLE_SELECTORS": json.dumps(
-                            invocation["selectors"]
-                        ),
-                        "ES_F1_PRELOAD_NUMPY_TESTING": "1",
-                    },
-                    timeout_seconds=runner["timeout_seconds"],
-                    label=f"visible check invocation {invocation_id}",
-                    check_process=False,
-                )
-            finally:
-                source_after_invocation = _workspace_digest(workspace)
-                execution_after_invocation = _workspace_digest(
-                    execution_workspace
-                )
-                if source_after_invocation != before:
-                    raise EvaluatorObservationError(
-                        clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                        mechanism="candidate-source-digest-ratchet",
-                        evidence={
-                            "copy_digest_before": before,
-                            "copy_digest_after": source_after_invocation,
-                            "invocation_id": invocation_id,
-                        },
-                        detail="visible checks mutated the source candidate",
-                    )
-                if execution_after_invocation != execution_before:
-                    raise EvaluatorObservationError(
-                        clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                        mechanism="candidate-process-write-audit",
-                        evidence={
-                            "copy_digest_before": execution_before,
-                            "copy_digest_after": execution_after_invocation,
-                            "invocation_id": invocation_id,
-                        },
-                        detail="visible checks mutated the execution product copy",
-                    )
+            process = run_candidate_probe(
+                code=program,
+                environment=_subprocess_environment(
+                    runner.get("required_environment")
+                ),
+                label=f"visible invocation {invocation_id}",
+                python_executable=python,
+                require_success=False,
+                timeout_seconds=timeout,
+                workspace=copy,
+                working_directory=copy,
+            )
+            if directory_digest(copy) != copy_before:
+                _fail(f"visible invocation {invocation_id} mutated its candidate copy")
+            if directory_digest(workspace) != source_before:
+                _fail(f"visible invocation {invocation_id} mutated the source candidate")
         results.append(
             {
                 "argv": argv,
                 "exit_code": process.returncode,
                 "invocation_id": invocation_id,
-                "stderr_sha256": "sha256:"
-                + hashlib.sha256(process.stderr.encode("utf-8")).hexdigest(),
-                "stdout_sha256": "sha256:"
-                + hashlib.sha256(process.stdout.encode("utf-8")).hexdigest(),
+                "selectors": list(selectors),
+                "stderr_sha256": _SHA256_PREFIX + hashlib.sha256(process.stderr.encode()).hexdigest(),
+                "stdout_sha256": _SHA256_PREFIX + hashlib.sha256(process.stdout.encode()).hexdigest(),
             }
         )
-    after = _workspace_digest(workspace)
-    if after != before:
-        raise EvaluatorError("visible checks mutated the candidate evaluation copy")
+    source_after = directory_digest(workspace)
+    if source_after != source_before:
+        _fail("visible checks mutated the candidate")
     return {
-        "schema_version": "es-f1-visible-check-result.v2",
-        "copy_digest_after": after,
-        "copy_digest_before": before,
+        "copy_digest_after": source_after,
+        "copy_digest_before": source_before,
         "invocations": results,
+        "schema_version": "es-f1-visible-check-result.v3",
     }
 
 
-def _safe_external_result_path(root: Path, relative: Any, *, label: str) -> Path:
-    if not isinstance(relative, str) or not relative or "\\" in relative:
-        raise EvaluatorError(f"{label} is not a safe result-relative path")
-    path = Path(relative)
-    if path.is_absolute() or "." in path.parts or ".." in path.parts:
-        raise EvaluatorError(f"{label} is not a safe result-relative path")
-    try:
-        resolved = (root / path).resolve(strict=True)
-    except OSError as exc:
-        raise EvaluatorError(f"missing lifecycle artifact: {label}") from exc
-    if not resolved.is_relative_to(root.resolve(strict=True)) or not resolved.is_file():
-        raise EvaluatorError(f"{label} escaped the evaluator output root")
-    return resolved
-
-
-def _safe_evaluator_input_target(root: Path, relative: Any, *, label: str) -> Path:
-    if not isinstance(relative, str) or not relative or "\\" in relative:
-        raise EvaluatorError(f"{label} is not a safe request-relative path")
-    path = Path(relative)
-    if path.is_absolute() or "." in path.parts or ".." in path.parts:
-        raise EvaluatorError(f"{label} is not a safe request-relative path")
-    resolved_root = root.resolve(strict=True)
-    resolved = (resolved_root / path).resolve(strict=False)
-    if not resolved.is_relative_to(resolved_root):
-        raise EvaluatorError(f"{label} escaped the evaluator request root")
-    return resolved
-
-
-def _fresh_artifact_semantic_probe(
+def run_config_resolution_adapter(
     *,
-    workspace: Path,
-    python_executable: Path,
-    artifact: Path,
-    mode: str,
-    report: Path,
-    structural_fields: Sequence[Mapping[str, Any]],
-    image_size: int,
-    seed: int,
-    timeout_seconds: int,
-    expect_success: bool,
-) -> dict[str, Any] | None:
-    load_target = artifact.parent if mode == "bundle" and artifact.is_file() else artifact
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
-    env.update(
-        {
-            "ES_F1_WORKSPACE": str(workspace),
-            "ES_F1_CHILD_REPORT": str(report),
-            "ES_F1_RELOAD_MODE": mode,
-            "ES_F1_RELOAD_ARTIFACT": str(load_target),
-            "ES_F1_STRUCTURAL_FIELDS": json.dumps(
-                list(structural_fields), separators=(",", ":")
-            ),
-            "ES_F1_IMAGE_SIZE": str(image_size),
-            "ES_F1_SEED": str(seed),
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-            "PTYCHO_DISABLE_MEMOIZE": "1",
-        }
-    )
-    process = _run_projection_probe(
-        workspace=workspace,
-        python_executable=python_executable,
-        code=_FRESH_RELOAD_PROBE,
-        environment=env,
-        timeout_seconds=timeout_seconds,
-        label=f"semantic lifecycle {mode} probe",
-        check_process=False,
-    )
-    if expect_success:
-        if process.returncode != 0:
-            raise EvaluatorError(
-                f"semantic lifecycle {mode} load failed: "
-                f"exit={process.returncode}, stdout={process.stdout!r}, "
-                f"stderr={process.stderr!r}"
-            )
-        if not report.is_file():
-            raise EvaluatorError(f"semantic lifecycle {mode} produced no report")
-        payload = _load_canonical_unversioned(report)
-        if (
-            not isinstance(payload.get("fresh_pid"), int)
-            or not payload.get("inference_shape")
-        ):
-            raise EvaluatorError(f"semantic lifecycle {mode} report is incomplete")
-        return payload
-    if process.returncode == 0:
-        raise EvaluatorError(f"semantic lifecycle tampered {mode} artifact was accepted")
-    return None
-
-
-def _verify_adapter_artifacts(
-    *,
-    workspace: Path,
-    python_executable: Path,
-    artifacts: Mapping[str, Mapping[str, Path]],
-    structural_fields: Mapping[str, Sequence[Mapping[str, Any]]],
-    image_sizes: Mapping[str, int],
-    seed: int,
+    adapter_relative_path: str,
+    expected_candidate_id: str,
+    expected_case_ids: tuple[str, ...],
     output_root: Path,
-    timeout_seconds: int,
-) -> dict[str, Any]:
-    observations: dict[str, Any] = {}
-    for architecture_id, architecture_artifacts in artifacts.items():
-        architecture_observations: dict[str, Any] = {}
-        for kind, mode in (("checkpoint", "checkpoint"), ("bundle", "bundle")):
-            artifact = architecture_artifacts[kind]
-            report = output_root / f"{architecture_id}-{kind}-fresh-load.json"
-            try:
-                loaded = _fresh_artifact_semantic_probe(
-                    workspace=workspace,
-                    python_executable=python_executable,
-                    artifact=artifact,
-                    mode=mode,
-                    report=report,
-                    structural_fields=structural_fields[architecture_id],
-                    image_size=image_sizes[architecture_id],
-                    seed=seed,
-                    timeout_seconds=timeout_seconds,
-                    expect_success=True,
-                )
-            except EvaluatorError as exc:
-                raise EvaluatorObservationError(
-                    clause_id="F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
-                    mechanism="fresh-artifact-reload",
-                    evidence={
-                        "artifact_kind": kind,
-                        "architecture_id": architecture_id,
-                        "error_type": type(exc).__name__,
-                        "error_detail_sha256": "sha256:"
-                        + hashlib.sha256(str(exc).encode("utf-8")).hexdigest(),
-                    },
-                    detail="a full-matrix lifecycle artifact failed fresh-process reload",
-                ) from exc
-            if kind == "bundle":
-                tampered = (
-                    output_root
-                    / f"{architecture_id}-{kind}-tampered"
-                    / "wts.h5.zip"
-                )
-                tampered.parent.mkdir()
-            else:
-                tampered = (
-                    output_root
-                    / f"{architecture_id}-{kind}-tampered{artifact.suffix}"
-                )
-            payload = artifact.read_bytes()
-            tampered.write_bytes(payload[: max(1, len(payload) // 2)])
-            _fresh_artifact_semantic_probe(
-                workspace=workspace,
-                python_executable=python_executable,
-                artifact=tampered,
-                mode=mode,
-                report=(
-                    output_root
-                    / f"{architecture_id}-{kind}-tampered-report.json"
-                ),
-                structural_fields=structural_fields[architecture_id],
-                image_size=image_sizes[architecture_id],
-                seed=seed,
-                timeout_seconds=timeout_seconds,
-                expect_success=False,
-            )
-            architecture_observations[kind] = loaded
-        observations[architecture_id] = architecture_observations
-    return observations
-
-
-def _run_semantic_lifecycle_probe(
-    *,
-    workspace: Path,
     python_executable: Path,
-    candidate_evidence: Path,
     request_path: Path,
-    architecture_cases: Sequence[Mapping[str, Any]],
-    adapter_observations: Mapping[str, Any],
-    output_root: Path,
-    seed: int,
     timeout_seconds: int,
-) -> dict[str, Any]:
-    semantic_root = output_root / "evaluator-semantic-lifecycle"
-    semantic_root.mkdir(parents=True, exist_ok=False)
-    report_path = semantic_root / "report.json"
-    child_pairs = tuple(
-        (
-            f"{ordinal:02d}-{case['architecture_id']}-{kind}-reload-program.py",
-            f"{ordinal:02d}-{case['architecture_id']}-{kind}-reload-audit.json",
-        )
-        for ordinal, case in enumerate(architecture_cases, start=1)
-        for kind in ("checkpoint", "bundle")
-    )
-    child_environments: dict[tuple[str, str], dict[str, str]] = {}
-    for ordinal, case in enumerate(architecture_cases, start=1):
-        architecture_id = case["architecture_id"]
-        for kind in ("checkpoint", "bundle"):
-            name = f"{ordinal:02d}-{architecture_id}-{kind}-reload"
-            pair = (f"{name}-program.py", f"{name}-audit.json")
-            artifact = semantic_root / f"{ordinal:02d}-{architecture_id}" / (
-                "evaluator.ckpt" if kind == "checkpoint" else "configuration"
-            )
-            child_environments[pair] = {
-                "ES_F1_CHILD_REPORT": str(semantic_root / f"{name}.json"),
-                "ES_F1_RELOAD_MODE": kind,
-                "ES_F1_RELOAD_ARTIFACT": str(artifact),
-                "ES_F1_STRUCTURAL_FIELDS": json.dumps(
-                    case["structural_fields"],
-                    separators=(",", ":"),
-                ),
-                "ES_F1_IMAGE_SIZE": str(case["N"]),
-                "ES_F1_SEED": str(seed),
-                "ES_F1_FRESH_RELOAD": "1",
-            }
-    _run_projection_probe(
-        workspace=workspace,
-        controlled_child_root=semantic_root,
-        controlled_child_pairs=child_pairs,
-        controlled_child_environment_updates=child_environments,
-        python_executable=python_executable,
-        code=_FULL_MATRIX_SEMANTIC_LIFECYCLE_PROBE,
-        environment={
-            "ES_F1_CANDIDATE_EVIDENCE": str(candidate_evidence),
-            "ES_F1_CHILD_CODE": _FRESH_RELOAD_PROBE,
-            "ES_F1_OUTPUT": str(semantic_root),
-            "ES_F1_REPORT": str(report_path),
-            "ES_F1_REQUEST": str(request_path),
-            "ES_F1_SEED": str(seed),
-            "ES_F1_OPTIMIZER_STEP_BOUND": str(
-                F1_MAX_OPTIMIZER_STEP_ABS_DELTA
-            ),
-            "ES_F1_WORKSPACE": str(workspace),
-        },
-        timeout_seconds=timeout_seconds,
-        label="semantic lifecycle",
-    )
-    if not report_path.is_file():
-        raise EvaluatorError("semantic lifecycle produced no report")
-    report = _load_canonical_unversioned(report_path)
-    semantic_version = report.get("schema_version")
-    semantic_record_type = (
-        "semantic-lifecycle-failure"
-        if isinstance(semantic_version, str)
-        and semantic_version.startswith("es-f1-semantic-lifecycle-failure.")
-        else "semantic-lifecycle"
-    )
-    require_evaluator_successor_schema(
-        report,
-        record_type=semantic_record_type,
-    )
-    if semantic_record_type == "semantic-lifecycle-failure":
-        base_failure_fields = {
-            "schema_version",
-            "stage",
-            "exception_type",
-            "exception_detail_sha256",
-        }
-        stage = report.get("stage")
-        expected_failure_fields = (
-            base_failure_fields | {"audit_events"}
-            if stage == "OWNERSHIP_BOUNDARY"
-            else base_failure_fields
-        )
-        if set(report) != expected_failure_fields or stage not in {
-            "ROUTE_RESOLUTION",
-            "PUBLIC_BUILD",
-            "PERSISTED_BUILD",
-            "OWNERSHIP_BOUNDARY",
-        }:
-            raise EvaluatorError("semantic lifecycle failure report is malformed")
-        if (
-            not isinstance(report.get("exception_type"), str)
-            or not report["exception_type"]
-            or not isinstance(report.get("exception_detail_sha256"), str)
-            or not report["exception_detail_sha256"].startswith("sha256:")
-            or len(report["exception_detail_sha256"]) != 71
-        ):
-            raise EvaluatorError("semantic lifecycle failure evidence is malformed")
-        if stage == "OWNERSHIP_BOUNDARY":
-            audit_events = report.get("audit_events")
-            if (
-                not isinstance(audit_events, list)
-                or not audit_events
-                or any(
-                    not isinstance(row, Mapping)
-                    or set(row) != {"event", "value"}
-                    or row.get("event")
-                    not in {
-                        "forbidden_import",
-                        "forbidden_path",
-                        "unaudited_child_process",
-                        "workspace_write_attempt",
-                    }
-                    or not isinstance(row.get("value"), str)
-                    or not row["value"]
-                    for row in audit_events
-                )
-            ):
-                raise EvaluatorError("semantic lifecycle nested audit is malformed")
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="nested-candidate-process-audit",
-                evidence=report,
-                detail="fresh reload crossed an excluded candidate-process boundary",
-            )
-        raise EvaluatorObservationError(
-            clause_id="F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
-            mechanism={
-                "ROUTE_RESOLUTION": "declared-construction-route-resolution",
-                "PUBLIC_BUILD": "declared-public-construction-boundary",
-                "PERSISTED_BUILD": "declared-persisted-construction-boundary",
-            }[stage],
-            evidence=report,
-            detail="a declared public construction route did not construct the nominated architecture",
-        )
-    if set(report) != {
-        "schema_version",
-        "construction_pid",
-        "architecture_results",
-        "unknown_architecture_rejection",
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    }:
-        raise EvaluatorError("semantic lifecycle report is not exact")
-    observed_rows = report.get("architecture_results")
-    if not isinstance(observed_rows, list) or len(observed_rows) != 15:
-        raise EvaluatorError("semantic lifecycle architecture matrix is incomplete")
-    for case, observed in zip(architecture_cases, observed_rows, strict=True):
-        architecture_id = case["architecture_id"]
-        if (
-            not isinstance(observed, dict)
-            or observed.get("architecture_id") != architecture_id
-        ):
-            raise EvaluatorError("semantic lifecycle architecture join is malformed")
-        checkpoint = adapter_observations[architecture_id]["checkpoint"]
-        bundle = adapter_observations[architecture_id]["bundle"]
-        observed["adapter_checkpoint_reload"] = checkpoint
-        observed["adapter_bundle_reload"] = bundle
-    return report
-
-
-
-def derive_lifecycle_observations(
-    *,
-    semantic_report: Mapping[str, Any],
-    adapter_process_id: int,
-) -> list[dict[str, Any]]:
-    """Derive H05--H10 from one exact ordered full-matrix semantic record."""
-
-    top_level_keys = {
-        "schema_version",
-        "construction_pid",
-        "architecture_results",
-        "unknown_architecture_rejection",
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    }
-    require_evaluator_successor_schema(
-        semantic_report,
-        record_type="semantic-lifecycle",
-    )
-    if (
-        not isinstance(semantic_report, Mapping)
-        or set(semantic_report) != top_level_keys
-        or type(adapter_process_id) is not int
-        or adapter_process_id <= 0
-    ):
-        raise EvaluatorError("semantic lifecycle full-matrix report is not exact")
-    construction_pid = semantic_report["construction_pid"]
-    if type(construction_pid) is not int or construction_pid <= 0:
-        raise EvaluatorError("semantic lifecycle construction process is malformed")
-    rows = semantic_report["architecture_results"]
-    if not isinstance(rows, list) or len(rows) != 15:
-        raise EvaluatorError("semantic lifecycle architecture matrix is incomplete")
-    architecture_ids = tuple(
-        row.get("architecture_id") if isinstance(row, Mapping) else None
-        for row in rows
-    )
-    if (
-        architecture_ids[:14] != F1_BUILTIN_ARCHITECTURES
-        or not isinstance(architecture_ids[-1], str)
-        or not architecture_ids[-1]
-        or architecture_ids[-1] in set(F1_BUILTIN_ARCHITECTURES)
-        or len(set(architecture_ids)) != 15
-    ):
-        raise EvaluatorError("semantic lifecycle architecture matrix is not exact")
-
-    row_keys = {
-        "N",
-        "architecture_id",
-        "boundary_contract",
-        "boundary_input_digest_after",
-        "boundary_input_digest_before",
-        "bundle_implementation",
-        "completed_stages",
-        "config_digest",
-        "construction_route",
-        "registry_constructor_identity",
-        "evaluator_bundle_reload",
-        "evaluator_checkpoint_reload",
-        "adapter_bundle_reload",
-        "adapter_checkpoint_reload",
-        "forward_deterministic",
-        "forward_dtype",
-        "forward_finite",
-        "forward_max_abs_delta",
-        "forward_shape",
-        "forward_tolerance",
-        "gradients_finite",
-        "identity_rejections",
-        "identity_sensitivity",
-        "inference_digest",
-        "input_digest",
-        "loss_finite",
-        "loss_scalar",
-        "optimizer_state_after",
-        "optimizer_state_before",
-        "optimizer_step_bound",
-        "optimizer_step_max_abs_delta",
-        "optimizer_transition_bounded",
-        "persisted_boundary_owners",
-        "persisted_implementation",
-        "persisted_rebuild_implementation",
-        "persisted_rebuild_route",
-        "persisted_state_signature",
-        "public_boundary_owners",
-        "public_implementation",
-        "public_state_signature",
-        "seed",
-        "structural_fields",
-        "structural_values",
-    }
-    reload_keys = {
-        "artifact_bytes",
-        "artifact_sha256",
-        "architecture_id",
-        "boundary_contract",
-        "boundary_input_digest_after",
-        "boundary_input_digest_before",
-        "boundary_owners",
-        "fresh_pid",
-        "implementation_identity",
-        "inference_deterministic",
-        "inference_dtype",
-        "inference_finite",
-        "inference_max_abs_delta",
-        "inference_shape",
-        "inference_tolerance",
-        "loaded_forbidden_modules",
-        "observable_digest",
-        "outside_project_origin_rows",
-        "roles",
-        "state_signature",
-        "structural_values",
-    }
-    sensitivity_keys = {
-        "alternate_identity_digest",
-        "alternate_observable_digest",
-        "alternate_state_signature",
-        "baseline_identity_digest",
-        "baseline_observable_digest",
-        "baseline_state_signature",
-        "deterministic",
-    }
-
-    def is_digest(value: Any) -> bool:
-        return (
-            isinstance(value, str)
-            and value.startswith("sha256:")
-            and len(value) == 71
-            and all(character in "0123456789abcdef" for character in value[7:])
-        )
-
-    def valid_rejection_record(value: Any) -> bool:
-        if (
-            not isinstance(value, Mapping)
-            or set(value)
-            != {
-                "exception_detail_sha256",
-                "exception_type",
-                "module_returned",
-                "rejected",
-            }
-            or not is_digest(value.get("exception_detail_sha256"))
-        ):
-            return False
-        if value.get("rejected") is True:
-            return (
-                value.get("module_returned") is False
-                and isinstance(value.get("exception_type"), str)
-                and bool(value["exception_type"])
-            )
-        return (
-            value.get("rejected") is False
-            and value.get("module_returned") is True
-            and value.get("exception_type") is None
-        )
-
-    def rejection_succeeded(value: Mapping[str, Any]) -> bool:
-        return value["rejected"] is True
-
-    unknown_rejection = semantic_report["unknown_architecture_rejection"]
-    if not valid_rejection_record(unknown_rejection):
-        raise EvaluatorError("semantic lifecycle unknown-architecture rejection is malformed")
-    for field_name in (
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    ):
-        if not isinstance(semantic_report[field_name], list):
-            raise EvaluatorError("semantic lifecycle ownership evidence is malformed")
-
-    lifecycle_ok = True
-    structural_ok = True
-    rejection_ok = True
-    sensitivity_ok = True
-    construction_ok = True
-    ownership_ok = (
-        semantic_report["loaded_forbidden_modules"] == []
-        and semantic_report["outside_project_origin_rows"] == []
-        and semantic_report["cache_artifacts"] == []
-    )
-    fresh_pids: set[int] = set()
-    builtin_implementations: set[str] = set()
-    builtin_registry_constructors: set[str] = set()
-    builtin_field_names: set[str] = set()
-    witness_implementation: str | None = None
-    witness_registry_constructor: str | None = None
-
-    for ordinal, row in enumerate(rows):
-        if not isinstance(row, Mapping) or set(row) != row_keys:
-            raise EvaluatorError("semantic lifecycle architecture record is not exact")
-        architecture_id = str(row["architecture_id"])
-        N = row["N"]
-        expected_N = 128 if architecture_id == "neuralop_uno" else 64
-        if type(N) is not int or N not in {64, 128} or N != expected_N:
-            raise EvaluatorError("semantic lifecycle architecture image size is invalid")
-        structural_fields = row["structural_fields"]
-        if not isinstance(structural_fields, list) or not structural_fields:
-            raise EvaluatorError("semantic lifecycle structural field set is malformed")
-        field_names: list[str] = []
-        baseline_values: dict[str, Any] = {}
-        for field in structural_fields:
-            if (
-                not isinstance(field, Mapping)
-                or set(field) != {"name", "baseline_value", "alternate_value"}
-                or not isinstance(field.get("name"), str)
-                or not field["name"]
-                or field["baseline_value"] == field["alternate_value"]
-            ):
-                raise EvaluatorError("semantic lifecycle structural field is malformed")
-            field_names.append(field["name"])
-            baseline_values[field["name"]] = field["baseline_value"]
-        if len(field_names) != len(set(field_names)):
-            raise EvaluatorError("semantic lifecycle structural fields are duplicated")
-        if ordinal < 14:
-            builtin_field_names.update(field_names)
-        if row["structural_values"] != baseline_values:
-            structural_ok = False
-
-        lifecycle_ok = lifecycle_ok and (
-            row["completed_stages"] == list(F1_LIFECYCLE_STAGES)
-            and is_digest(row["config_digest"])
-            and is_digest(row["input_digest"])
-            and type(row["seed"]) is int
-            and 0 <= row["seed"] <= 2_147_483_647
-            and row["forward_shape"] == [1, 1, N, N]
-            and row["forward_dtype"] == "complex64"
-            and row["forward_finite"] is True
-            and row["forward_deterministic"] is True
-            and isinstance(row["forward_max_abs_delta"], (int, float))
-            and not isinstance(row["forward_max_abs_delta"], bool)
-            and math.isfinite(row["forward_max_abs_delta"])
-            and isinstance(row["forward_tolerance"], (int, float))
-            and not isinstance(row["forward_tolerance"], bool)
-            and math.isfinite(row["forward_tolerance"])
-            and row["forward_tolerance"] >= 0
-            and 0 <= row["forward_max_abs_delta"] <= row["forward_tolerance"]
-            and row["loss_finite"] is True
-            and row["loss_scalar"] is True
-            and row["gradients_finite"] is True
-            and is_digest(row["inference_digest"])
-            and is_digest(row["optimizer_state_before"])
-            and is_digest(row["optimizer_state_after"])
-            and row["optimizer_state_before"] != row["optimizer_state_after"]
-            and isinstance(row["optimizer_step_max_abs_delta"], (int, float))
-            and not isinstance(row["optimizer_step_max_abs_delta"], bool)
-            and math.isfinite(row["optimizer_step_max_abs_delta"])
-            and isinstance(row["optimizer_step_bound"], (int, float))
-            and not isinstance(row["optimizer_step_bound"], bool)
-            and math.isfinite(row["optimizer_step_bound"])
-            and row["optimizer_step_bound"]
-            == F1_MAX_OPTIMIZER_STEP_ABS_DELTA
-            and 0 < row["optimizer_step_max_abs_delta"]
-            <= row["optimizer_step_bound"]
-            and row["optimizer_transition_bounded"] is True
-        )
-        ownership_ok = ownership_ok and (
-            row["boundary_contract"] == _PUBLIC_SCIENTIFIC_BOUNDARY_CONTRACT
-            and row["public_boundary_owners"] == _PUBLIC_SCIENTIFIC_BOUNDARY_OWNERS
-            and row["persisted_boundary_owners"] == _PUBLIC_SCIENTIFIC_BOUNDARY_OWNERS
-            and is_digest(row["boundary_input_digest_before"])
-            and row["boundary_input_digest_after"]
-            == row["boundary_input_digest_before"]
-        )
-        implementation_values = {
-            row["public_implementation"],
-            row["persisted_implementation"],
-            row["persisted_rebuild_implementation"],
-            row["bundle_implementation"],
-        }
-        expected_implementation = row["public_implementation"]
-        construction_ok = construction_ok and (
-            len(implementation_values) == 1
-            and row["construction_route"] == F1_PUBLIC_CONSTRUCTION_ROUTE
-            and row["persisted_rebuild_route"]
-            == F1_PUBLIC_PERSISTED_REBUILD_ROUTE
-            and all(
-                isinstance(row[name], str) and bool(row[name])
-                for name in (
-                    "construction_route",
-                    "registry_constructor_identity",
-                    "persisted_rebuild_route",
-                    "public_implementation",
-                    "persisted_implementation",
-                    "persisted_rebuild_implementation",
-                    "bundle_implementation",
-                )
-            )
-            and is_digest(row["public_state_signature"])
-            and row["persisted_state_signature"] == row["public_state_signature"]
-        )
-        if ordinal < 14:
-            builtin_implementations.add(str(expected_implementation))
-            builtin_registry_constructors.add(
-                str(row["registry_constructor_identity"])
-            )
-        else:
-            witness_implementation = str(expected_implementation)
-            witness_registry_constructor = str(
-                row["registry_constructor_identity"]
-            )
-
-        rejections = row["identity_rejections"]
-        if not isinstance(rejections, Mapping) or set(rejections) != {
-            "missing",
-            "extra",
-            "unsupported_value",
-        }:
-            raise EvaluatorError("semantic lifecycle identity rejection set is malformed")
-        missing = rejections["missing"]
-        rejection_records = (
-            *missing.values(),
-            rejections["extra"],
-            rejections["unsupported_value"],
-        ) if isinstance(missing, Mapping) else ()
-        if not rejection_records or not all(
-            valid_rejection_record(value) for value in rejection_records
-        ):
-            raise EvaluatorError(
-                "semantic lifecycle identity rejection record is malformed"
-            )
-        rejection_ok = rejection_ok and (
-            isinstance(missing, Mapping)
-            and set(missing) == set(field_names)
-            and all(rejection_succeeded(value) for value in missing.values())
-            and rejection_succeeded(rejections["extra"])
-            and rejection_succeeded(rejections["unsupported_value"])
-        )
-        sensitivity = row["identity_sensitivity"]
-        if not isinstance(sensitivity, Mapping) or set(sensitivity) != set(field_names):
-            raise EvaluatorError("semantic lifecycle identity sensitivity set is malformed")
-        for field_name, value in sensitivity.items():
-            if not isinstance(value, Mapping) or set(value) != sensitivity_keys:
-                raise EvaluatorError("semantic lifecycle identity sensitivity is malformed")
-            base_sensitivity = (
-                value["deterministic"] is True
-                and all(is_digest(value[name]) for name in sensitivity_keys - {"deterministic"})
-                and value["baseline_identity_digest"]
-                != value["alternate_identity_digest"]
-            )
-            witness_semantics = True
-            if ordinal == 14 and field_name not in builtin_field_names:
-                witness_semantics = (
-                    value["baseline_state_signature"]
-                    != value["alternate_state_signature"]
-                    and value["baseline_observable_digest"]
-                    != value["alternate_observable_digest"]
-                )
-            sensitivity_ok = sensitivity_ok and base_sensitivity and witness_semantics
-
-        for reload_name, expected_roles in (
-            ("evaluator_checkpoint_reload", []),
-            ("evaluator_bundle_reload", ["autoencoder", "diffraction_to_obj"]),
-            ("adapter_checkpoint_reload", []),
-            ("adapter_bundle_reload", ["autoencoder", "diffraction_to_obj"]),
-        ):
-            reload = row[reload_name]
-            if not isinstance(reload, Mapping) or set(reload) != reload_keys:
-                raise EvaluatorError("semantic lifecycle reload record is not exact")
-            fresh_pid = reload["fresh_pid"]
-            fresh = (
-                type(fresh_pid) is int
-                and fresh_pid > 0
-                and fresh_pid not in {construction_pid, adapter_process_id}
-                and fresh_pid not in fresh_pids
-            )
-            if type(fresh_pid) is int:
-                fresh_pids.add(fresh_pid)
-            lifecycle_ok = lifecycle_ok and (
-                fresh
-                and type(reload["artifact_bytes"]) is int
-                and reload["artifact_bytes"] > 0
-                and is_digest(reload["artifact_sha256"])
-                and reload["architecture_id"] == architecture_id
-                and reload["inference_shape"] == [1, 1, N, N]
-                and reload["inference_dtype"] == row["forward_dtype"]
-                and reload["inference_finite"] is True
-                and reload["inference_deterministic"] is True
-                and isinstance(reload["inference_max_abs_delta"], (int, float))
-                and not isinstance(reload["inference_max_abs_delta"], bool)
-                and math.isfinite(reload["inference_max_abs_delta"])
-                and isinstance(reload["inference_tolerance"], (int, float))
-                and not isinstance(reload["inference_tolerance"], bool)
-                and math.isfinite(reload["inference_tolerance"])
-                and reload["inference_tolerance"] >= 0
-                and 0
-                <= reload["inference_max_abs_delta"]
-                <= reload["inference_tolerance"]
-                and reload["roles"] == expected_roles
-                and is_digest(reload["observable_digest"])
-                and is_digest(reload["state_signature"])
-            )
-            structural_ok = structural_ok and reload["structural_values"] == baseline_values
-            construction_ok = construction_ok and (
-                reload["implementation_identity"] == expected_implementation
-            )
-            ownership_ok = ownership_ok and (
-                reload["boundary_contract"] == _PUBLIC_SCIENTIFIC_BOUNDARY_CONTRACT
-                and reload["boundary_owners"] == _PUBLIC_SCIENTIFIC_BOUNDARY_OWNERS
-                and reload["boundary_input_digest_after"]
-                == reload["boundary_input_digest_before"]
-                and is_digest(reload["boundary_input_digest_before"])
-                and reload["loaded_forbidden_modules"] == []
-                and reload["outside_project_origin_rows"] == []
-            )
-
-    rejection_ok = rejection_ok and rejection_succeeded(unknown_rejection)
-    construction_ok = construction_ok and (
-        witness_implementation is not None
-        and witness_implementation not in builtin_implementations
-        and witness_registry_constructor is not None
-        and witness_registry_constructor not in builtin_registry_constructors
-    )
-    facts = {
-        "F1-H05-FULL-ARCHITECTURE-LIFECYCLE": lifecycle_ok,
-        "F1-H06-STRUCTURAL-ROUNDTRIP": structural_ok,
-        "F1-H07-STRUCTURAL-IDENTITY-REJECTION": rejection_ok,
-        "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY": sensitivity_ok,
-        "F1-H09-CONSTRUCTION-REBUILD-EQUALITY": construction_ok,
-        "F1-H10-OWNERSHIP-BOUNDARY": ownership_ok,
-    }
-    return [
-        {
-            "clause_id": clause_id,
-            "satisfied": facts[clause_id],
-            "evidence": [
-                _digest(
-                    {
-                        "clause_id": clause_id,
-                        "semantic_report": semantic_report,
-                    }
-                )
-            ],
-            "details": "evaluator-owned full-matrix public lifecycle verification",
-        }
-        for clause_id in HARD_CLAUSE_IDS[4:]
-    ]
-
-
-def _preflight_registry_constructor_identities(
-    *,
     workspace: Path,
-    python_executable: Path,
-    architecture_ids: Sequence[str],
-    output_root: Path,
-    timeout_seconds: int,
-) -> dict[str, str]:
-    """Resolve all nominated registry constructors before candidate execution."""
+) -> dict[str, Any]:
+    """Run one path-only adapter and independently validate every returned path."""
 
-    if (
-        len(architecture_ids) != len(F1_BUILTIN_ARCHITECTURES) + 1
-        or not isinstance(architecture_ids[-1], str)
-        or not architecture_ids[-1]
-        or architecture_ids[-1] in set(F1_BUILTIN_ARCHITECTURES)
-        or list(architecture_ids[:-1]) != list(F1_BUILTIN_ARCHITECTURES)
-    ):
-        raise EvaluatorError("registry constructor preflight domain is malformed")
+    workspace = workspace.resolve(strict=True)
+    adapter = _safe_descendant(workspace, adapter_relative_path, label="adapter path")
+    request = load_config_resolution_probe_request(
+        request_path,
+        expected_candidate_id=expected_candidate_id,
+        expected_case_ids=expected_case_ids,
+    )
+    if request["operation_version"] != "ptychopinn_public_config_resolution.v1":
+        _fail("probe request operation version is unsupported")
     output_root.mkdir(parents=True, exist_ok=False)
-    report_path = output_root / "registry-constructors.json"
-    _run_projection_probe(
-        workspace=workspace,
-        python_executable=python_executable,
-        code=_REGISTRY_CONSTRUCTOR_IDENTITY_PROBE,
+    result_path = output_root / "result.json"
+    runner = (
+        "import os,runpy,sys\n"
+        "sys.argv=[os.environ['ES_F1_ADAPTER'],'--request',"
+        "os.environ['ES_F1_REQUEST'],'--result',os.environ['ES_F1_RESULT']]\n"
+        "runpy.run_path(os.environ['ES_F1_ADAPTER'],run_name='__main__')\n"
+    )
+    run_candidate_probe(
+        code=runner,
         environment={
-            "ES_F1_ARCHITECTURES": json.dumps(
-                list(architecture_ids), separators=(",", ":")
-            ),
-            "ES_F1_REPORT": str(report_path),
-            "ES_F1_WORKSPACE": str(workspace),
+            "ES_F1_ADAPTER": str(adapter),
+            "ES_F1_REQUEST": str(request_path.resolve(strict=True)),
+            "ES_F1_RESULT": str(result_path),
         },
-        timeout_seconds=timeout_seconds,
-        label="registry constructor identity preflight",
-    )
-    if not report_path.is_file():
-        raise EvaluatorError("registry constructor preflight produced no report")
-    report = _load_canonical_unversioned(report_path)
-    rows = report.get("registry_constructor_identities")
-    if (
-        set(report) != {"registry_constructor_identities"}
-        or not isinstance(rows, list)
-        or len(rows) != len(architecture_ids)
-        or any(
-            not isinstance(row, Mapping)
-            or set(row) != {"architecture_id", "identity"}
-            or row.get("architecture_id") != architecture_id
-            or not isinstance(row.get("identity"), str)
-            or not row["identity"]
-            for row, architecture_id in zip(rows, architecture_ids, strict=True)
-        )
-    ):
-        raise EvaluatorError("registry constructor preflight report is not exact")
-    identities = {row["architecture_id"]: row["identity"] for row in rows}
-    witness_id = architecture_ids[-1]
-    if identities[witness_id] in {
-        identities[architecture_id]
-        for architecture_id in F1_BUILTIN_ARCHITECTURES
-    }:
-        raise EvaluatorObservationError(
-            clause_id="F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
-            mechanism="registry-constructor-identity-alias",
-            evidence={"registry_constructor_identities": identities},
-            detail=(
-                "the nominated witness resolves to a frozen built-in registry "
-                "constructor"
-            ),
-        )
-    return identities
-
-
-def _bind_registry_constructor_identities(
-    *,
-    preflight_identities: Mapping[str, str],
-    semantic_report: Mapping[str, Any],
-) -> None:
-    """Reject registry behavior that changes between preflight and lifecycle."""
-
-    rows = semantic_report.get("architecture_results")
-    if not isinstance(rows, list):
-        raise EvaluatorError("registry constructor semantic binding is malformed")
-    semantic_identities: dict[str, str] = {}
-    for row in rows:
-        if not isinstance(row, Mapping):
-            raise EvaluatorError("registry constructor semantic binding is malformed")
-        architecture_id = row.get("architecture_id")
-        identity = row.get("registry_constructor_identity")
-        if (
-            not isinstance(architecture_id, str)
-            or architecture_id in semantic_identities
-            or not isinstance(identity, str)
-            or not identity
-        ):
-            raise EvaluatorError("registry constructor semantic binding is malformed")
-        semantic_identities[architecture_id] = identity
-    if (
-        not isinstance(preflight_identities, Mapping)
-        or list(preflight_identities) != list(semantic_identities)
-        or any(
-            not isinstance(identity, str) or not identity
-            for identity in preflight_identities.values()
-        )
-    ):
-        raise EvaluatorError("registry constructor preflight binding is malformed")
-    if dict(preflight_identities) != semantic_identities:
-        raise EvaluatorObservationError(
-            clause_id="F1-H09-CONSTRUCTION-REBUILD-EQUALITY",
-            mechanism="registry-constructor-phase-drift",
-            evidence={
-                "preflight_identities": dict(preflight_identities),
-                "semantic_identities": semantic_identities,
-            },
-            detail=(
-                "registry constructor identities changed between evaluator "
-                "preflight and lifecycle construction"
-            ),
-        )
-
-
-def run_lifecycle_adapter(
-    *,
-    workspace: Path,
-    adapter_path: str,
-    request: Mapping[str, Any],
-    python_executable: Path,
-    timeout_seconds: int,
-) -> dict[str, Any]:
-    """Run the candidate seam once in an evaluator-owned fresh process.
-
-    Request/result files and the audit ledger live outside the candidate copy.
-    The copy is hashed before and after, so an adapter cannot satisfy the
-    lifecycle by altering evaluator input bytes.
-    """
-
-    if type(timeout_seconds) is not int or timeout_seconds <= 0:
-        raise EvaluatorError("timeout_seconds must be a positive integer")
-    if not isinstance(request, Mapping):
-        raise EvaluatorError("lifecycle request must be an object")
-    request_record = dict(request)
-    _validate_schema_record(
-        request_record,
-        schema_path=_LIFECYCLE_REQUEST_SCHEMA,
-        label="lifecycle request",
-    )
-    workspace = workspace.resolve(strict=True)
-    adapter = _safe_candidate_path(workspace, adapter_path)
-    candidate_evidence_source = _safe_candidate_path(
-        workspace, "es_f1_candidate_evidence.json"
-    )
-    candidate_evidence_bytes = candidate_evidence_source.read_bytes()
-    candidate_evidence_record = _load_canonical_unversioned(
-        candidate_evidence_source
-    )
-    try:
-        _validate_schema_record(
-            candidate_evidence_record,
-            schema_path=_CANDIDATE_EVIDENCE_SCHEMA,
-            label="candidate evidence",
-        )
-    except EvaluatorError as exc:
-        raise EvaluatorObservationError(
-            clause_id="F1-H02-SCHEMA-CONFORMANCE",
-            mechanism="candidate-evidence-schema-validation",
-            evidence={
-                "candidate_evidence_sha256": "sha256:"
-                + hashlib.sha256(candidate_evidence_bytes).hexdigest(),
-                "error_type": type(exc).__name__,
-                "error_detail_sha256": "sha256:"
-                + hashlib.sha256(str(exc).encode("utf-8")).hexdigest(),
-            },
-            detail="candidate evidence failed the closed public schema",
-        ) from exc
-    candidate_evidence_digest = "sha256:" + hashlib.sha256(
-        candidate_evidence_bytes
-    ).hexdigest()
-    if request_record["candidate_evidence_sha256"] != candidate_evidence_digest:
-        raise EvaluatorError("lifecycle candidate evidence digest binding drifted")
-    if candidate_evidence_record["candidate_id"] != request_record["candidate_id"]:
-        raise EvaluatorError("lifecycle candidate evidence identity drifted")
-    with tempfile.TemporaryDirectory(prefix="es-f1-package-preflight-") as raw_preflight:
-        preflight = Path(raw_preflight)
-        preflight_evidence = preflight / "es_f1_candidate_evidence.json"
-        preflight_request = preflight / "request.json"
-        preflight_evidence.write_bytes(candidate_evidence_bytes)
-        preflight_request.write_bytes(canonical_json_bytes(request_record))
-        try:
-            loaded_evidence = load_candidate_extension_evidence(preflight_evidence)
-            loaded_request = load_lifecycle_probe_request(preflight_request)
-        except TaskPackageError as exc:
-            diagnostic = exc.code.replace("_", " ")
-            raise EvaluatorError(
-                f"lifecycle package preflight {diagnostic}: {exc.detail}"
-            ) from exc
-    if loaded_evidence != candidate_evidence_record or loaded_request != request_record:
-        raise EvaluatorError("lifecycle package canonical loader disagreement")
-    architecture_rows = [
-        *candidate_evidence_record["builtin_architectures"],
-        candidate_evidence_record["candidate_witness"],
-    ]
-    if any(
-        case["N"]
-        != (128 if case["architecture_id"] == "neuralop_uno" else 64)
-        for case in request_record["architecture_cases"]
-    ):
-        raise EvaluatorError("lifecycle architecture image size is invalid")
-    try:
-        expected_cases, input_payloads = build_lifecycle_probe_inputs(
-            architecture_rows=architecture_rows,
-            seed=request_record["seed"],
-        )
-    except ValueError as exc:
-        raise EvaluatorError(f"lifecycle evaluator authority rejected input: {exc}") from exc
-    if request_record["architecture_cases"] != expected_cases:
-        raise EvaluatorError("lifecycle evaluator input binding drifted")
-    if not python_executable.is_absolute() or not python_executable.is_file():
-        raise EvaluatorError("python executable must be an existing absolute file")
-    before = _workspace_digest(workspace)
-    with tempfile.TemporaryDirectory(prefix="es-f1-evaluator-") as raw_temp:
-        temp = Path(raw_temp)
-        request_path = temp / "request.json"
-        result_path = temp / "result.json"
-        audit_path = temp / "audit.json"
-        bootstrap = temp / "bootstrap"
-        bootstrap.mkdir()
-        for relative_path, payload in input_payloads.items():
-            input_path = temp / relative_path
-            input_path.parent.mkdir(parents=True, exist_ok=True)
-            input_path.write_bytes(payload)
-        candidate_evidence = _safe_evaluator_input_target(
-            temp,
-            request_record["candidate_evidence_path"],
-            label="lifecycle candidate evidence path",
-        )
-        if candidate_evidence.exists():
-            raise EvaluatorError("lifecycle candidate evidence path collides with evaluator input")
-        candidate_evidence.parent.mkdir(parents=True, exist_ok=True)
-        candidate_evidence.write_bytes(candidate_evidence_bytes)
-        request_path.write_bytes(canonical_json_bytes(request_record))
-        registry_constructor_identities = _preflight_registry_constructor_identities(
-            workspace=workspace,
-            python_executable=python_executable,
-            architecture_ids=[row["public_id"] for row in architecture_rows],
-            output_root=temp / "registry-constructor-preflight",
-            timeout_seconds=timeout_seconds,
-        )
-        env = dict(os.environ)
-        env.update(
-            {
-                "PYTHONPATH": "",
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-                "PTYCHO_DISABLE_MEMOIZE": "1",
-            }
-        )
-        process = subprocess.Popen(
-            [
-                str(python_executable),
-                "-I",
-                "-B",
-                "-c",
-                _AUDITED_ADAPTER_WRAPPER,
-                str(adapter),
-                str(request_path),
-                str(result_path),
-                str(audit_path),
-                str(workspace),
-                str(bootstrap),
-            ],
-            cwd=bootstrap,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired as exc:
-            process.kill()
-            process.communicate()
-            raise EvaluatorError("lifecycle adapter timed out") from exc
-
-        audit = _load_canonical_unversioned(audit_path) if audit_path.exists() else {"events": []}
-        events = audit.get("events")
-        if not isinstance(events, list):
-            raise EvaluatorError("lifecycle audit ledger is malformed")
-        forbidden_import_values: set[str] = set()
-        forbidden_path_values: set[str] = set()
-        workspace_write_values: set[str] = set()
-        protected_mutation_values: set[str] = set()
-        child_launch_values: set[str] = set()
-        for row in events:
-            if not isinstance(row, Mapping):
-                continue
-            value = row.get("value")
-            if not isinstance(value, str):
-                continue
-            if row.get("event") == "import" and any(
-                value == prefix or value.startswith(prefix + ".")
-                for prefix in _FORBIDDEN_IMPORT_PREFIXES
-            ):
-                forbidden_import_values.add(value)
-            if row.get("event") == "path" and any(
-                fragment in value for fragment in _FORBIDDEN_PATH_FRAGMENTS
-            ):
-                forbidden_path_values.add(value)
-            if row.get("event") == "workspace_write_attempt":
-                workspace_write_values.add(value)
-            if row.get("event") == "protected_path_mutation_attempt":
-                protected_mutation_values.add(value)
-            if row.get("event") == "unaudited_child_process":
-                child_launch_values.add(value)
-        forbidden_imports = sorted(forbidden_import_values)
-        if forbidden_imports:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="adapter-import-audit",
-                evidence={"forbidden_imports": forbidden_imports},
-                detail="candidate adapter crossed a forbidden import boundary",
-            )
-        forbidden_paths = sorted(forbidden_path_values)
-        if forbidden_paths:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="adapter-path-audit",
-                evidence={"forbidden_paths": forbidden_paths},
-                detail="candidate adapter crossed a forbidden path boundary",
-            )
-        workspace_writes = sorted(workspace_write_values)
-        if workspace_writes:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="candidate-copy-write-audit",
-                evidence={"workspace_write_attempts": workspace_writes},
-                detail="candidate adapter attempted to mutate the evaluator copy",
-            )
-        protected_mutations = sorted(protected_mutation_values)
-        if protected_mutations:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="adapter-mutation-audit",
-                evidence={"observed_values": protected_mutations},
-                detail="candidate adapter attempted a transient protected-root mutation",
-            )
-        child_launches = sorted(child_launch_values)
-        if child_launches:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism="candidate-process-child-launch-audit",
-                evidence={"observed_values": child_launches},
-                detail="candidate adapter attempted to launch an unaudited child process",
-            )
-        if process.returncode != 0:
-            raise EvaluatorError(
-                "lifecycle adapter failed: "
-                f"exit={process.returncode}, stdout={stdout!r}, stderr={stderr!r}"
-            )
-        if not result_path.exists():
-            raise EvaluatorError("lifecycle adapter produced no result")
-        adapter_result = _load_canonical_unversioned(result_path)
-        _validate_schema_record(
-            adapter_result,
-            schema_path=_LIFECYCLE_RESULT_SCHEMA,
-            label="lifecycle result",
-        )
-        expected_architecture_ids = tuple(
-            row["architecture_id"] for row in request_record["architecture_cases"]
-        )
-        try:
-            loaded_result = load_lifecycle_probe_result(
-                result_path,
-                expected_architecture_ids=expected_architecture_ids,
-                expected_candidate_id=request_record["candidate_id"],
-            )
-        except TaskPackageError as exc:
-            diagnostic = exc.code.replace("_", " ")
-            raise EvaluatorError(
-                f"lifecycle result preflight {diagnostic}: {exc.detail}"
-            ) from exc
-        if loaded_result != adapter_result:
-            raise EvaluatorError("lifecycle result canonical loader disagreement")
-        if adapter_result["operation_version"] != request_record["operation_version"]:
-            raise EvaluatorError("lifecycle result operation version drifted")
-        artifacts: dict[str, dict[str, Path]] = {}
-        structural_fields: dict[str, list[Mapping[str, Any]]] = {}
-        image_sizes: dict[str, int] = {}
-        for case, artifact_record in zip(
-            request_record["architecture_cases"],
-            adapter_result["architecture_results"],
-            strict=True,
-        ):
-            architecture_id = case["architecture_id"]
-            structural_fields[architecture_id] = deepcopy(case["structural_fields"])
-            image_sizes[architecture_id] = case["N"]
-            artifacts[architecture_id] = {
-                "checkpoint": _safe_external_result_path(
-                    temp,
-                    artifact_record["checkpoint_path"],
-                    label=f"lifecycle {architecture_id} checkpoint",
-                ),
-                "bundle": _safe_external_result_path(
-                    temp,
-                    artifact_record["bundle_path"],
-                    label=f"lifecycle {architecture_id} bundle",
-                ),
-            }
-        semantic_observations = _verify_adapter_artifacts(
-            workspace=workspace,
-            python_executable=python_executable,
-            artifacts=artifacts,
-            structural_fields=structural_fields,
-            image_sizes=image_sizes,
-            seed=request_record["seed"],
-            output_root=temp,
-            timeout_seconds=timeout_seconds,
-        )
-        semantic_report = _run_semantic_lifecycle_probe(
-            workspace=workspace,
-            python_executable=python_executable,
-            candidate_evidence=candidate_evidence,
-            request_path=request_path,
-            architecture_cases=request_record["architecture_cases"],
-            adapter_observations=semantic_observations,
-            output_root=temp,
-            seed=request_record["seed"],
-            timeout_seconds=timeout_seconds,
-        )
-        _bind_registry_constructor_identities(
-            preflight_identities=registry_constructor_identities,
-            semantic_report=semantic_report,
-        )
-    after = _workspace_digest(workspace)
-    if after != before:
-        raise EvaluatorObservationError(
-            clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-            mechanism="candidate-copy-digest-ratchet",
-            evidence={"copy_digest_before": before, "copy_digest_after": after},
-            detail="candidate evaluation copy mutated during lifecycle",
-        )
-    lifecycle_observations = derive_lifecycle_observations(
-        semantic_report=semantic_report,
-        adapter_process_id=process.pid,
-    )
-    return {
-        "adapter_result": adapter_result,
-        "audit_digest": _digest(audit),
-        "copy_digest_after": after,
-        "copy_digest_before": before,
-        "adapter_process_id": process.pid,
-        "semantic_observations": semantic_observations,
-        "semantic_report": semantic_report,
-        "lifecycle_observations": lifecycle_observations,
-    }
-
-
-def derive_registry_observation(
-    *,
-    expected_registry_baseline: list[Mapping[str, Any]],
-    registry_report: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Compare only the 14 frozen built-ins; candidate additions are out of scope."""
-
-    if (
-        not isinstance(expected_registry_baseline, list)
-        or len(expected_registry_baseline) != 14
-        or any(not isinstance(row, Mapping) for row in expected_registry_baseline)
-    ):
-        raise EvaluatorError("frozen registry baseline is malformed")
-    architectures = [row.get("architecture") for row in expected_registry_baseline]
-    if (
-        any(not isinstance(value, str) or not value for value in architectures)
-        or len(set(architectures)) != len(architectures)
-    ):
-        raise EvaluatorError("frozen registry baseline selector is malformed")
-    if not isinstance(registry_report, Mapping) or set(registry_report) != {
-        "schema_version",
-        "registry_baseline",
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    }:
-        raise EvaluatorError("registry signature report is not exact")
-    registry_rows = registry_report.get("registry_baseline")
-    expected_keys = {
-        "N",
-        "architecture",
-        "implementation_identity",
-        "parameter_count",
-        "state_entry_count",
-        "state_signature",
-    }
-    def valid_row(row: Any) -> bool:
-        return (
-            isinstance(row, Mapping)
-            and set(row) == expected_keys
-            and type(row.get("N")) is int
-            and row["N"] > 0
-            and isinstance(row.get("architecture"), str)
-            and bool(row["architecture"])
-            and isinstance(row.get("implementation_identity"), str)
-            and bool(row["implementation_identity"])
-            and type(row.get("parameter_count")) is int
-            and row["parameter_count"] >= 0
-            and type(row.get("state_entry_count")) is int
-            and row["state_entry_count"] >= 0
-            and isinstance(row.get("state_signature"), str)
-            and row["state_signature"].startswith("sha256:")
-            and len(row["state_signature"]) == 71
-        )
-    if (
-        registry_report.get("schema_version")
-        != "es-f1-registry-signature-probe.v1"
-        or not isinstance(registry_rows, list)
-        or len(registry_rows) != len(expected_registry_baseline)
-        or any(not valid_row(row) for row in expected_registry_baseline)
-        or any(not valid_row(row) for row in registry_rows)
-        or [row["architecture"] for row in registry_rows] != architectures
-        or registry_report.get("loaded_forbidden_modules") != []
-        or registry_report.get("outside_project_origin_rows") != []
-        or registry_report.get("cache_artifacts") != []
-    ):
-        raise EvaluatorError("registry signature report is malformed")
-    return {
-        "clause_id": "F1-H03-BUILTIN-SIGNATURES",
-        "satisfied": registry_rows == expected_registry_baseline,
-        "evidence": [
-            _digest(
-                {
-                    "expected_registry": expected_registry_baseline,
-                    "registry_report": registry_report,
-                }
-            )
-        ],
-        "details": "exact frozen built-in registry signature comparison",
-    }
-
-
-def derive_complete_observations(
-    *,
-    visible_checks: Mapping[str, Any],
-    visible_check_result: Mapping[str, Any],
-    candidate_evidence: Mapping[str, Any],
-    candidate_workspace: Path,
-    task0_proof_workspace: Path,
-    candidate_tree: str,
-    legacy_bypass_discovery_input: Mapping[str, Any],
-    lifecycle_request: Mapping[str, Any],
-    lifecycle_result: Mapping[str, Any],
-    fixture_manifest: Mapping[str, Any],
-    registry_report: Mapping[str, Any],
-    artifact_report: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    """Join complete controller-owned evidence into H01 through H10."""
-
-    def require_digest(value: Any, *, label: str) -> str:
-        if (
-            not isinstance(value, str)
-            or not value.startswith("sha256:")
-            or len(value) != 71
-        ):
-            raise EvaluatorError(f"{label} digest is malformed")
-        return value
-
-    def observation(
-        clause_id: str,
-        *,
-        satisfied: bool,
-        evidence: Mapping[str, Any],
-        details: str,
-    ) -> dict[str, Any]:
-        return {
-            "clause_id": clause_id,
-            "satisfied": satisfied,
-            "evidence": [_digest(evidence)],
-            "details": details,
-        }
-
-    if not isinstance(visible_checks, Mapping):
-        raise EvaluatorError("complete observation visible manifest is malformed")
-    visible_manifest = dict(visible_checks)
-    _validate_schema_record(
-        visible_manifest,
-        schema_path=_VISIBLE_CHECK_SCHEMA,
-        label="complete observation visible manifest",
-    )
-    require_evaluator_successor_schema(
-        visible_check_result,
-        record_type="visible-check-result",
-    )
-    if not isinstance(visible_check_result, Mapping) or set(visible_check_result) != {
-        "schema_version",
-        "copy_digest_after",
-        "copy_digest_before",
-        "invocations",
-    }:
-        raise EvaluatorError("complete observation visible result is not exact")
-    visible_before = require_digest(
-        visible_check_result.get("copy_digest_before"), label="visible copy before"
-    )
-    visible_after = require_digest(
-        visible_check_result.get("copy_digest_after"), label="visible copy after"
-    )
-    if visible_before != visible_after:
-        raise EvaluatorError("complete observation visible checks mutated the copy")
-    declared_invocations = {
-        row["id"]: row for row in visible_manifest["invocations"]
-    }
-    observed_invocations = visible_check_result.get("invocations")
-    if not isinstance(observed_invocations, list) or len(observed_invocations) != len(
-        visible_manifest["invocation_order"]
-    ):
-        raise EvaluatorError("complete observation visible invocation count drifted")
-    runner = visible_manifest["runner"]
-    visible_satisfied = True
-    for invocation_id, observed in zip(
-        visible_manifest["invocation_order"], observed_invocations, strict=True
-    ):
-        if not isinstance(observed, Mapping) or set(observed) != {
-            "argv",
-            "exit_code",
-            "invocation_id",
-            "stderr_sha256",
-            "stdout_sha256",
-        }:
-            raise EvaluatorError("complete observation visible invocation is not exact")
-        expected_argv = [
-            runner["python_executable"],
-            *runner["argv_prefix"],
-            *declared_invocations[invocation_id]["selectors"],
-        ]
-        if (
-            observed.get("invocation_id") != invocation_id
-            or observed.get("argv") != expected_argv
-            or type(observed.get("exit_code")) is not int
-        ):
-            raise EvaluatorError("complete observation visible invocation drifted")
-        visible_satisfied = visible_satisfied and observed["exit_code"] == 0
-        require_digest(observed.get("stderr_sha256"), label="visible stderr")
-        require_digest(observed.get("stdout_sha256"), label="visible stdout")
-    h01 = observation(
-        "F1-H01-FOCUSED-SUITES",
-        satisfied=visible_satisfied,
-        evidence={
-            "visible_checks": visible_manifest,
-            "visible_check_result": visible_check_result,
-        },
-        details="exact candidate-visible invocation results on an immutable copy",
-    )
-
-    if not isinstance(candidate_evidence, Mapping):
-        raise EvaluatorError("complete observation candidate evidence is malformed")
-    candidate_record = dict(candidate_evidence)
-    if not isinstance(lifecycle_request, Mapping):
-        raise EvaluatorError("complete observation lifecycle request is malformed")
-    request_record = dict(lifecycle_request)
-    if not isinstance(lifecycle_result, Mapping) or set(lifecycle_result) != {
-        "adapter_result",
-        "audit_digest",
-        "copy_digest_after",
-        "copy_digest_before",
-        "adapter_process_id",
-        "semantic_observations",
-        "semantic_report",
-        "lifecycle_observations",
-    }:
-        raise EvaluatorError("complete observation lifecycle result is not exact")
-    adapter_result = lifecycle_result.get("adapter_result")
-    if not isinstance(adapter_result, Mapping):
-        raise EvaluatorError("complete observation adapter result is malformed")
-    _validate_schema_record(
-        candidate_record,
-        schema_path=_CANDIDATE_EVIDENCE_SCHEMA,
-        label="complete observation candidate evidence",
-    )
-    _validate_schema_record(
-        request_record,
-        schema_path=_LIFECYCLE_REQUEST_SCHEMA,
-        label="complete observation lifecycle request",
-    )
-    _validate_schema_record(
-        adapter_result,
-        schema_path=_LIFECYCLE_RESULT_SCHEMA,
-        label="complete observation lifecycle result",
-    )
-    candidate_digest = "sha256:" + hashlib.sha256(
-        canonical_json_bytes(candidate_record)
-    ).hexdigest()
-    candidate_architecture_rows = [
-        *candidate_record["builtin_architectures"],
-        candidate_record["candidate_witness"],
-    ]
-    candidate_architecture_ids = [
-        row["public_id"] for row in candidate_architecture_rows
-    ]
-    request_architecture_ids = [
-        row["architecture_id"] for row in request_record["architecture_cases"]
-    ]
-    adapter_architecture_ids = [
-        row["architecture_id"] for row in adapter_result["architecture_results"]
-    ]
-    if (
-        request_record["candidate_evidence_sha256"] != candidate_digest
-        or candidate_record["candidate_id"] != request_record["candidate_id"]
-        or adapter_result["candidate_id"] != request_record["candidate_id"]
-        or adapter_result["operation_version"] != request_record["operation_version"]
-        or candidate_architecture_ids != request_architecture_ids
-        or adapter_architecture_ids != request_architecture_ids
-    ):
-        raise EvaluatorError("complete observation schema bindings drifted")
-    try:
-        expected_architecture_cases, _ = build_lifecycle_probe_inputs(
-            architecture_rows=candidate_architecture_rows,
-            seed=request_record["seed"],
-        )
-    except ValueError as exc:
-        raise EvaluatorError(
-            f"complete observation lifecycle authority drifted: {exc}"
-        ) from exc
-    if request_record["architecture_cases"] != expected_architecture_cases:
-        raise EvaluatorError("complete observation lifecycle input binding drifted")
-    h02 = observation(
-        "F1-H02-SCHEMA-CONFORMANCE",
-        satisfied=True,
-        evidence={
-            "candidate_evidence": candidate_record,
-            "lifecycle_request": request_record,
-            "lifecycle_result": adapter_result,
-        },
-        details="candidate evidence and lifecycle request/result passed exact schemas",
-    )
-
-    expected_fixture_fields = _TOP_LEVEL_FIELDS["es-f1-fixture-manifest.v2"]
-    if (
-        not isinstance(fixture_manifest, Mapping)
-        or set(fixture_manifest) != expected_fixture_fields
-        or fixture_manifest.get("schema_version") != "es-f1-fixture-manifest.v2"
-        or fixture_manifest.get("hard_clause_ids") != list(HARD_CLAUSE_IDS)
-    ):
-        raise EvaluatorError("complete observation fixture manifest is not exact")
-    expected_registry_rows = fixture_manifest.get("registry_baseline")
-    if not isinstance(expected_registry_rows, list):
-        raise EvaluatorError("complete observation frozen registry is malformed")
-    artifact_implementation_identities = _artifact_implementation_identities(
-        fixture_manifest
-    )
-    h03 = derive_registry_observation(
-        expected_registry_baseline=expected_registry_rows,
-        registry_report=registry_report,
-    )
-
-    require_evaluator_successor_schema(
-        artifact_report,
-        record_type="artifact-fixture-verification",
-    )
-    if not isinstance(artifact_report, Mapping) or set(artifact_report) != {
-        "schema_version",
-        "artifact_eras",
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    }:
-        raise EvaluatorError("complete observation artifact report is not exact")
-    artifact_rows = artifact_report.get("artifact_eras")
-    frozen_artifact_rows = fixture_manifest.get("artifact_eras")
-    _validate_frozen_artifact_applicability(frozen_artifact_rows)
-    assert isinstance(frozen_artifact_rows, list)
-    expected_artifact_rows = _resolve_artifact_witness_placeholder(
-        artifact_rows=frozen_artifact_rows,
-        witness_id=candidate_record["candidate_witness"]["public_id"],
-    )
-    expected_eras = [row["era_id"] for row in expected_artifact_rows]
-    if (
-        not isinstance(artifact_rows, list)
-        or [row.get("era_id") if isinstance(row, Mapping) else None for row in artifact_rows]
-        != expected_eras
-        or artifact_report.get("loaded_forbidden_modules") != []
-        or artifact_report.get("outside_project_origin_rows") != []
-        or artifact_report.get("cache_artifacts") != []
-    ):
-        raise EvaluatorError("complete observation artifact-era verification drifted")
-    outcome_fields = {
-        "architecture_id",
-        "diagnostic",
-        "implementation_identity",
-        "module_returned",
-        "strict_load",
-    }
-    artifact_matrix_satisfied = True
-    for expected_row, observed_row in zip(
-        expected_artifact_rows,
-        artifact_rows,
-        strict=True,
-    ):
-        if (
-            not isinstance(observed_row, Mapping)
-            or set(observed_row) != {"era_id", "architecture_results"}
-            or not isinstance(observed_row["architecture_results"], list)
-            or [
-                outcome.get("architecture_id")
-                if isinstance(outcome, Mapping)
-                else None
-                for outcome in observed_row["architecture_results"]
-            ]
-            != candidate_architecture_ids
-        ):
-            raise EvaluatorError("complete observation artifact matrix is not exact")
-        for outcome in observed_row["architecture_results"]:
-            if (
-                not isinstance(outcome, Mapping)
-                or set(outcome) != outcome_fields
-                or type(outcome["module_returned"]) is not bool
-                or type(outcome["strict_load"]) is not bool
-                or (
-                    outcome["diagnostic"] is not None
-                    and not isinstance(outcome["diagnostic"], str)
-                )
-                or (
-                    outcome["implementation_identity"] is not None
-                    and not isinstance(outcome["implementation_identity"], str)
-                )
-            ):
-                raise EvaluatorError(
-                    "complete observation artifact matrix outcome is malformed"
-                )
-            architecture_id = outcome["architecture_id"]
-            if architecture_id in expected_row["applicable_architecture_ids"]:
-                expected_outcome = (
-                    outcome["diagnostic"] is None
-                    and outcome["implementation_identity"]
-                    == artifact_implementation_identities[architecture_id]
-                    and outcome["module_returned"] is True
-                    and outcome["strict_load"] is True
-                )
-            else:
-                expected_outcome = (
-                    outcome["diagnostic"]
-                    == "UNSUPPORTED_ARTIFACT_ARCHITECTURE"
-                    and outcome["implementation_identity"] is None
-                    and outcome["module_returned"] is False
-                    and outcome["strict_load"] is False
-                )
-            artifact_matrix_satisfied = (
-                artifact_matrix_satisfied and expected_outcome
-            )
-    h04 = observation(
-        "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-        satisfied=artifact_matrix_satisfied,
-        evidence={
-            "expected_artifact_eras": fixture_manifest["artifact_eras"],
-            "expected_implementation_identities": (
-                artifact_implementation_identities
-            ),
-            "artifact_report": artifact_report,
-        },
-        details=(
-            "exact public-load/rejection outcomes for the frozen ten-by-fifteen "
-            "artifact applicability matrix"
-        ),
-    )
-
-    lifecycle_before = require_digest(
-        lifecycle_result.get("copy_digest_before"), label="lifecycle copy before"
-    )
-    lifecycle_after = require_digest(
-        lifecycle_result.get("copy_digest_after"), label="lifecycle copy after"
-    )
-    require_digest(lifecycle_result.get("audit_digest"), label="lifecycle audit")
-    if lifecycle_before != lifecycle_after:
-        raise EvaluatorError("complete observation lifecycle mutated the copy")
-    try:
-        authenticated_workspace = Path(candidate_workspace)
-        if not authenticated_workspace.is_dir():
-            raise OSError("candidate workspace is not a directory")
-        authenticated_workspace_digest = _workspace_digest(
-            authenticated_workspace
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        raise EvaluatorError(
-            "complete observation authenticated candidate workspace is unavailable"
-        ) from exc
-    if (
-        authenticated_workspace_digest != visible_before
-        or authenticated_workspace_digest != lifecycle_before
-    ):
-        raise EvaluatorError(
-            "complete observation candidate workspace digest does not match "
-            "visible and lifecycle evidence"
-        )
-    adapter_process_id = lifecycle_result.get("adapter_process_id")
-    if type(adapter_process_id) is not int or adapter_process_id <= 0:
-        raise EvaluatorError("complete observation adapter process is malformed")
-    semantic_report = lifecycle_result.get("semantic_report")
-    semantic_observations = lifecycle_result.get("semantic_observations")
-    if not isinstance(semantic_report, Mapping) or not isinstance(
-        semantic_observations, Mapping
-    ):
-        raise EvaluatorError("complete observation semantic evidence is malformed")
-    semantic_rows = semantic_report.get("architecture_results")
-    if (
-        not isinstance(semantic_rows, list)
-        or [
-            row.get("architecture_id") if isinstance(row, Mapping) else None
-            for row in semantic_rows
-        ]
-        != candidate_architecture_ids
-        or not isinstance(semantic_observations, Mapping)
-        or list(semantic_observations) != candidate_architecture_ids
-    ):
-        raise EvaluatorError("complete observation semantic matrix binding drifted")
-    for semantic_row, declaration, request_case in zip(
-        semantic_rows,
-        candidate_architecture_rows,
-        request_record["architecture_cases"],
-        strict=True,
-    ):
-        architecture_id = declaration["public_id"]
-        assert isinstance(semantic_row, Mapping)
-        if (
-            semantic_row.get("structural_fields")
-            != declaration["structural_fields"]
-            or semantic_row.get("config_digest")
-            != request_case["config"]["sha256"]
-            or semantic_row.get("input_digest")
-            != request_case["input"]["sha256"]
-            or semantic_row.get("seed") != request_record["seed"]
-            or semantic_row.get("construction_route")
-            != F1_PUBLIC_CONSTRUCTION_ROUTE
-            or semantic_row.get("persisted_rebuild_route")
-            != F1_PUBLIC_PERSISTED_REBUILD_ROUTE
-        ):
-            raise EvaluatorError("complete observation semantic declaration drifted")
-        observed_architecture = semantic_observations[architecture_id]
-        if not isinstance(observed_architecture, Mapping) or set(
-            observed_architecture
-        ) != {
-            "checkpoint",
-            "bundle",
-        }:
-            raise EvaluatorError("complete observation adapter semantics are not exact")
-        if (
-            observed_architecture["checkpoint"]
-            != semantic_row.get("adapter_checkpoint_reload")
-            or observed_architecture["bundle"]
-            != semantic_row.get("adapter_bundle_reload")
-        ):
-            raise EvaluatorError("complete observation adapter semantics drifted")
-    derived_lifecycle = derive_lifecycle_observations(
-        semantic_report=semantic_report,
-        adapter_process_id=adapter_process_id,
-    )
-    if lifecycle_result.get("lifecycle_observations") != derived_lifecycle:
-        raise EvaluatorError("complete observation lifecycle derivation drifted")
-    if [row["clause_id"] for row in derived_lifecycle] != list(HARD_CLAUSE_IDS[4:]):
-        raise EvaluatorError("complete observation lifecycle clause set drifted")
-    bypass_observation = derive_authenticated_task0_bypass_observation(
-        candidate_workspace=candidate_workspace,
-        proof_workspace=task0_proof_workspace,
-        candidate_tree=candidate_tree,
-        discovery_input=legacy_bypass_discovery_input,
-        builtin_architecture_ids=candidate_architecture_ids[:-1],
-        witness_architecture_id=candidate_architecture_ids[-1],
-    )
-    complete_lifecycle = deepcopy(derived_lifecycle)
-    h05 = complete_lifecycle[0]
-    h05["satisfied"] = h05["satisfied"] and bypass_observation["satisfied"]
-    h05["evidence"].append(bypass_observation["evidence"])
-    h05["details"] = (
-        h05["details"]
-        + "; closed Task-0 desired-state proofs and legacy-bypass oracle"
-    )
-    return [h01, h02, h03, h04, *complete_lifecycle]
-
-
-def run_registry_signature_probe(
-    *,
-    workspace: Path,
-    python_executable: Path,
-    expected_registry_baseline: list[Mapping[str, Any]],
-    timeout_seconds: int,
-) -> dict[str, Any]:
-    """Capture the exact pre-edit public/persisted signature for all 14 built-ins."""
-
-    workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir():
-        raise EvaluatorError("registry probe workspace must be a directory")
-    if not python_executable.is_absolute() or not python_executable.is_file():
-        raise EvaluatorError("registry probe Python must be an existing absolute file")
-    if (
-        not isinstance(expected_registry_baseline, list)
-        or not expected_registry_baseline
-        or any(
-            not isinstance(row, Mapping)
-            or not isinstance(row.get("architecture"), str)
-            or not row["architecture"]
-            for row in expected_registry_baseline
-        )
-    ):
-        raise EvaluatorError("registry probe frozen baseline selector is malformed")
-    architectures = [row["architecture"] for row in expected_registry_baseline]
-    if len(set(architectures)) != len(architectures):
-        raise EvaluatorError("registry probe frozen baseline selector is ambiguous")
-    before = _workspace_digest(workspace)
-    with tempfile.TemporaryDirectory(prefix="es-f1-registry-") as raw_temp:
-        report = Path(raw_temp) / "report.json"
-        _run_projection_probe(
-            workspace=workspace,
-            python_executable=python_executable,
-            code=_REGISTRY_SIGNATURE_PROBE,
-            environment={
-                "ES_F1_BUILTIN_ARCHITECTURES": json.dumps(architectures),
-                "ES_F1_REPORT": str(report),
-                "ES_F1_WORKSPACE": str(workspace),
-            },
-            timeout_seconds=timeout_seconds,
-            label="registry signature probe",
-        )
-        if not report.is_file():
-            raise EvaluatorError("registry signature probe produced no report")
-        payload = _load_canonical_unversioned(report)
-    if _workspace_digest(workspace) != before:
-        raise EvaluatorError("registry signature probe mutated the pre-edit copy")
-    if payload.get("schema_version") != "es-f1-registry-signature-probe.v1":
-        raise EvaluatorError("registry signature probe schema mismatch")
-    return payload
-
-
-def run_preedit_representative_lifecycle_probe(
-    *,
-    workspace: Path,
-    python_executable: Path,
-    output_root: Path,
-    timeout_seconds: int,
-) -> dict[str, Any]:
-    """Exercise the landed F1 representative lifecycle through production APIs."""
-
-    workspace = workspace.resolve(strict=True)
-    output_root = output_root.resolve(strict=False)
-    if output_root.is_relative_to(workspace):
-        raise EvaluatorError("lifecycle probe output must be outside the evaluated copy")
-    output_root.mkdir(parents=True, exist_ok=False)
-    before = _workspace_digest(workspace)
-    report = output_root / "lifecycle-report.json"
-    child_pairs = (
-        ("checkpoint-reload-program.py", "checkpoint-reload-audit.json"),
-        ("bundle-reload-program.py", "bundle-reload-audit.json"),
-    )
-    child_environments = {
-        pair: {
-            "ES_F1_CHILD_REPORT": str(
-                output_root / pair[0].removesuffix("-program.py")
-            )
-            + ".json",
-            "ES_F1_RELOAD_MODE": kind,
-            "ES_F1_RELOAD_ARTIFACT": str(output_root / artifact),
-            "ES_F1_FRESH_RELOAD": "1",
-            "ES_F1_IMAGE_SIZE": "64",
-            "ES_F1_SEED": "20260802",
-        }
-        for pair, kind, artifact in (
-            (child_pairs[0], "checkpoint", "representative.ckpt"),
-            (child_pairs[1], "bundle", "training"),
-        )
-    }
-    _run_projection_probe(
-        workspace=workspace,
-        controlled_child_root=output_root,
-        controlled_child_pairs=child_pairs,
-        controlled_child_environment_updates=child_environments,
+        label="configuration-resolution adapter",
+        protected_roots=(request_path.parent,),
         python_executable=python_executable,
-        code=_PREEDIT_LIFECYCLE_PROBE,
-        environment={
-            "ES_F1_CHILD_CODE": _FRESH_RELOAD_PROBE,
-            "ES_F1_OUTPUT": str(output_root),
-            "ES_F1_REPORT": str(report),
-            "ES_F1_WORKSPACE": str(workspace),
-        },
         timeout_seconds=timeout_seconds,
-        label="pre-edit representative lifecycle probe",
+        workspace=workspace,
+        working_directory=output_root,
     )
-    if not report.is_file():
-        raise EvaluatorError("pre-edit representative lifecycle produced no report")
-    payload = _load_canonical_unversioned(report)
-    require_evaluator_successor_schema(
-        payload,
-        record_type="preedit-lifecycle-probe",
-    )
-    if _workspace_digest(workspace) != before:
-        raise EvaluatorError("pre-edit lifecycle probe mutated the evaluated copy")
-    return payload
+    try:
+        result = load_config_resolution_probe_result(
+            result_path,
+            expected_candidate_id=expected_candidate_id,
+            expected_case_ids=expected_case_ids,
+        )
+    except (TaskPackageError, OSError) as exc:
+        raise EvaluatorError("configuration-resolution probe result is invalid") from exc
+    if result["operation_version"] != request["operation_version"]:
+        _fail("configuration-resolution probe result operation version drifted")
+    paths: list[Path] = []
+    for row in cast(list[dict[str, str]], result["probe_results"]):
+        path = _safe_descendant(output_root, row["resolved_record_path"], label="probe result path")
+        if not path.is_file() or path.is_symlink():
+            _fail("configuration-resolution probe artifact is missing or unsafe")
+        paths.append(path)
+    observations = [_load_resolution_artifact(path) for path in paths]
+    return {"artifact_paths": paths, "observations": observations, "result": result}
 
 
-def _run_projection_probe(
-    *,
-    workspace: Path,
-    read_only_workspace: Path | None = None,
-    protected_workspaces: Sequence[Path] | None = None,
-    working_directory: Path | None = None,
-    controlled_child_root: Path | None = None,
-    controlled_child_pairs: tuple[tuple[str, str], ...] = (),
-    controlled_child_environment_updates: dict[
-        tuple[str, str], dict[str, str]
-    ] | None = None,
-    python_executable: Path,
-    code: str,
-    environment: dict[str, str],
-    timeout_seconds: int,
-    label: str,
-    check_process: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    if type(timeout_seconds) is not int or timeout_seconds <= 0:
-        raise EvaluatorError("timeout_seconds must be a positive integer")
-    if not python_executable.is_absolute() or not python_executable.is_file():
-        raise EvaluatorError(f"{label} Python must be an existing absolute file")
-    workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir():
-        raise EvaluatorError(f"{label} workspace must be an existing directory")
-    if read_only_workspace is not None and protected_workspaces is not None:
-        raise EvaluatorError(f"{label} supplied conflicting read-only workspaces")
-    raw_protected = (
-        protected_workspaces
-        if protected_workspaces is not None
-        else (workspace if read_only_workspace is None else read_only_workspace,)
-    )
-    audited_workspaces = tuple(path.resolve(strict=True) for path in raw_protected)
-    if not audited_workspaces or any(not path.is_dir() for path in audited_workspaces):
-        raise EvaluatorError(f"{label} read-only workspace must be an existing directory")
-    process_workspace = (
-        workspace
-        if working_directory is None
-        else working_directory.resolve(strict=True)
-    )
-    if not process_workspace.is_dir():
-        raise EvaluatorError(f"{label} working directory must be an existing directory")
-    child_root = (
-        None if controlled_child_root is None else controlled_child_root.resolve(strict=True)
-    )
-    if child_root is not None and not child_root.is_dir():
-        raise EvaluatorError(f"{label} controlled child root must be a directory")
-    protected_roots = json.dumps(
-        [str(path) for path in audited_workspaces], separators=(",", ":")
-    )
-    if type(environment) is not dict or any(
-        type(name) is not str or type(value) is not str
-        for name, value in environment.items()
-    ):
-        raise EvaluatorError(
-            f"{label} environment must be an exact built-in dict of exact built-in strings"
-        )
-    if type(controlled_child_pairs) is not tuple or any(
-        type(pair) is not tuple
-        or len(pair) != 2
-        or any(type(value) is not str for value in pair)
-        for pair in controlled_child_pairs
-    ):
-        raise EvaluatorError(
-            f"{label} controlled child pairs must use exact built-in tuples and strings"
-        )
-    if controlled_child_environment_updates is not None and (
-        type(controlled_child_environment_updates) is not dict
-        or any(
-            type(pair) is not tuple
-            or len(pair) != 2
-            or any(type(value) is not str for value in pair)
-            or type(updates) is not dict
-            or any(
-                type(name) is not str or type(value) is not str
-                for name, value in updates.items()
-            )
-            for pair, updates in controlled_child_environment_updates.items()
-        )
-    ):
-        raise EvaluatorError(
-            f"{label} controlled child environments must use exact built-in dicts and strings"
-        )
-    env = dict(os.environ)
-    env.update(environment)
-    env.update(
-        {
-            "PYTHONPATH": "",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-            "PTYCHO_DISABLE_MEMOIZE": "1",
-            "ES_F1_NESTED_WRAPPER": _AUDITED_PROJECTION_WRAPPER,
-            "ES_F1_PROTECTED_ROOTS": protected_roots,
-            "ES_F1_WORKSPACE": str(workspace),
-        }
-    )
-    if child_root is not None:
-        child_code = environment.get("ES_F1_CHILD_CODE")
-        if type(child_code) is not str:
-            raise EvaluatorError(f"{label} controlled child code is not bound")
-        env["ES_F1_CONTROLLED_CHILD_ROOT"] = str(child_root)
-        env["ES_F1_CONTROLLED_CHILD_SHA256"] = hashlib.sha256(
-            child_code.encode("utf-8")
-        ).hexdigest()
-        update_rows = (
-            {}
-            if controlled_child_environment_updates is None
-            else {
-                pair: dict(updates)
-                for pair, updates in controlled_child_environment_updates.items()
-            }
-        )
-        if set(update_rows) != set(controlled_child_pairs):
-            raise EvaluatorError(
-                f"{label} controlled child environments do not match the approved pairs"
-            )
-        absolute_pairs: list[list[str]] = []
-        child_bootstraps: list[Path] = []
-        controlled_specs: dict[str, dict[str, Any]] = {}
-        for index, pair in enumerate(controlled_child_pairs):
-            if any(not value for value in pair):
-                raise EvaluatorError(f"{label} controlled child pair is malformed")
-            resolved_pair = [
-                str((child_root / value).resolve(strict=False)) for value in pair
-            ]
-            if any(
-                not Path(value).is_relative_to(child_root)
-                for value in resolved_pair
-            ):
-                raise EvaluatorError(f"{label} controlled child pair escaped its root")
-            absolute_pairs.append(resolved_pair)
-            updates = update_rows[pair]
-            immutable_child_fields = {
-                "PYTHONPATH",
-                "PYTHONDONTWRITEBYTECODE",
-                "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
-                "PTYCHO_DISABLE_MEMOIZE",
-                "ES_F1_NESTED_WRAPPER",
-                "ES_F1_PROTECTED_ROOTS",
-                "ES_F1_WORKSPACE",
-                "ES_F1_CONTROLLED_CHILD_ROOT",
-                "ES_F1_CONTROLLED_CHILD_SHA256",
-                "ES_F1_CONTROLLED_CHILD_SPECS",
-            }
-            if immutable_child_fields.intersection(updates):
-                raise EvaluatorError(
-                    f"{label} controlled child environment overrides a fixed field"
-                )
-            child_cwd = child_root / (
-                f".evaluator-bootstrap-{index}-{Path(pair[0]).stem}"
-            )
-            child_cwd.mkdir()
-            child_bootstraps.append(child_cwd.resolve(strict=True))
-            controlled_specs[resolved_pair[0]] = {
-                "audit_path": resolved_pair[1],
-                "cwd": str(child_cwd),
-                "environment_updates": dict(updates),
-            }
-        if not absolute_pairs or len({tuple(pair) for pair in absolute_pairs}) != len(
-            absolute_pairs
-        ):
-            raise EvaluatorError(f"{label} controlled child pairs are absent or ambiguous")
-        env["ES_F1_CONTROLLED_CHILD_SPECS"] = json.dumps(
-            controlled_specs, separators=(",", ":"), sort_keys=True
-        )
-    else:
-        if controlled_child_pairs:
-            raise EvaluatorError(f"{label} controlled child pairs have no root")
-        if controlled_child_environment_updates:
-            raise EvaluatorError(f"{label} controlled child environments have no root")
-        env.pop("ES_F1_CONTROLLED_CHILD_ROOT", None)
-        env.pop("ES_F1_CONTROLLED_CHILD_SHA256", None)
-        env.pop("ES_F1_CONTROLLED_CHILD_SPECS", None)
-        child_bootstraps = []
-    with tempfile.TemporaryDirectory(prefix="es-f1-candidate-process-") as raw_temp:
-        process_root = Path(raw_temp)
-        bootstrap = process_root / "bootstrap"
-        bootstrap.mkdir()
-        protected_roots = json.dumps(
-            [
-                str(path)
-                for path in (*audited_workspaces, *child_bootstraps, bootstrap)
-            ],
-            separators=(",", ":"),
-        )
-        env["ES_F1_PROTECTED_ROOTS"] = protected_roots
-        program_path = process_root / "program.py"
-        audit_path = process_root / "audit.json"
-        program_path.write_text(code, encoding="utf-8", newline="\n")
-        try:
-            process = subprocess.run(
-                [
-                    str(python_executable),
-                    "-B",
-                    "-c",
-                    _AUDITED_PROJECTION_WRAPPER,
-                    protected_roots,
-                    str(program_path),
-                    str(audit_path),
-                    str(workspace),
-                    str(process_workspace),
-                ],
-                cwd=bootstrap,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise EvaluatorError(f"{label} timed out") from exc
-        audit = (
-            _load_canonical_unversioned(audit_path)
-            if audit_path.is_file()
-            else {"events": []}
-        )
-    events = audit.get("events")
-    if not isinstance(events, list):
-        raise EvaluatorError(f"{label} candidate-process audit is malformed")
-    for event_name, mechanism, detail in (
-        (
-            "forbidden_import",
-            "candidate-process-import-audit",
-            "candidate code crossed a forbidden import boundary",
-        ),
-        (
-            "forbidden_path",
-            "candidate-process-path-audit",
-            "candidate code crossed a forbidden path boundary",
-        ),
-        (
-            "workspace_write_attempt",
-            "candidate-process-write-audit",
-            "candidate code attempted to mutate an evaluator read-only workspace",
-        ),
-        (
-            "protected_path_mutation_attempt",
-            "candidate-process-mutation-audit",
-            "candidate code attempted a transient mutation of an evaluator read-only workspace",
-        ),
-        (
-            "unaudited_child_process",
-            "candidate-process-child-launch-audit",
-            "candidate code attempted to launch an unaudited child process",
-        ),
-    ):
-        observed_values: set[str] = set()
-        for row in events:
-            if not isinstance(row, Mapping) or row.get("event") != event_name:
-                continue
-            value = row.get("value")
-            if isinstance(value, str):
-                observed_values.add(value)
-        values = sorted(observed_values)
-        if values:
-            raise EvaluatorObservationError(
-                clause_id="F1-H10-OWNERSHIP-BOUNDARY",
-                mechanism=mechanism,
-                evidence={"label": label, "observed_values": values},
-                detail=detail,
-            )
-    if check_process and process.returncode != 0:
-        raise EvaluatorError(
-            f"{label} failed: exit={process.returncode}, "
-            f"stdout={process.stdout!r}, stderr={process.stderr!r}"
-        )
-    return process
+def _load_resolution_artifact(path: Path) -> dict[str, Any]:
+    """Interpret candidate bytes as raw facts; derive provenance controller-side."""
+
+    payload = _canonical_object(path, label="configuration-resolution artifact")
+    return _load_resolution_artifact_value(payload)
 
 
-def build_artifact_fixture_pack(
-    *,
-    workspace: Path,
-    python_executable: Path,
-    store_root: Path,
-    timeout_seconds: int,
-) -> list[dict[str, Any]]:
-    """Build the ten frozen pre-edit era artifacts into an external SHA-256 CAS."""
+def _load_resolution_artifact_value(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Accept only the raw candidate outcome; source facts remain controller-owned."""
 
-    workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir():
-        raise EvaluatorError("artifact builder workspace must be a directory")
-    store_root = store_root.resolve(strict=False)
-    if not store_root.is_absolute() or store_root.is_relative_to(workspace):
-        raise EvaluatorError("artifact fixture store must be external and absolute")
-    store_root.mkdir(parents=True, exist_ok=True)
-    before = _workspace_digest(workspace)
-    with tempfile.TemporaryDirectory(prefix="es-f1-artifact-build-") as raw_temp:
-        output = Path(raw_temp).resolve(strict=True)
-        report_path = output / "build-report.json"
-        _run_projection_probe(
-            workspace=workspace,
-            python_executable=python_executable,
-            code=_ARTIFACT_FIXTURE_BUILD_PROBE,
-            environment={
-                "ES_F1_OUTPUT": str(output),
-                "ES_F1_REPORT": str(report_path),
-                "ES_F1_WORKSPACE": str(workspace),
-            },
-            timeout_seconds=timeout_seconds,
-            label="artifact fixture build",
-        )
-        if not report_path.is_file():
-            raise EvaluatorError("artifact fixture build produced no report")
-        report = _load_canonical_unversioned(report_path)
-        require_evaluator_successor_schema(
-            report,
-            record_type="artifact-fixture-build",
-        )
-        if set(report) != {"schema_version", "artifact_eras"}:
-            raise EvaluatorError("artifact fixture build report is not exact")
-        source_rows = report.get("artifact_eras")
-        if not isinstance(source_rows, list) or [
-            row.get("era_id") if isinstance(row, Mapping) else None
-            for row in source_rows
-        ] != list(ARTIFACT_ERA_IDS):
-            raise EvaluatorError("artifact fixture build era set/order drifted")
-        rows: list[dict[str, Any]] = []
-        contracts = {
-            "json": "decode-and-build.v1",
-            "checkpoint": "lightning-strict-load.v1",
-            "bundle": "public-bundle-strict-load.v1",
-        }
-        for source_row in source_rows:
-            if not isinstance(source_row, Mapping) or set(source_row) != {
-                "era_id",
-                "kind",
-                "path",
-            }:
-                raise EvaluatorError("artifact fixture build row is not exact")
-            kind = source_row["kind"]
-            if kind not in contracts:
-                raise EvaluatorError(f"unknown artifact fixture kind {kind!r}")
-            relative = source_row["path"]
-            if not isinstance(relative, str):
-                raise EvaluatorError("artifact fixture build path is malformed")
-            source = (output / relative).resolve(strict=True)
-            if not source.is_file() or not source.is_relative_to(output):
-                raise EvaluatorError("artifact fixture build path escaped output root")
-            payload = source.read_bytes()
-            digest_hex = hashlib.sha256(payload).hexdigest()
-            relative_cas = f"{digest_hex}/payload"
-            destination = store_root / relative_cas
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.exists():
-                if not destination.is_file() or destination.read_bytes() != payload:
-                    raise EvaluatorError("artifact fixture CAS collision or corruption")
-            else:
-                shutil.copyfile(source, destination)
-                destination.chmod(0o444)
-            rows.append(
-                {
-                    "applicable_architecture_ids": [
-                        "ffno"
-                        if source_row["era_id"]
-                        in _F1_FFNO_HISTORICAL_ARTIFACT_ERAS
-                        else "cnn"
-                    ],
-                    "bytes": len(payload),
-                    "cas_relative_path": relative_cas,
-                    "era_id": source_row["era_id"],
-                    "kind": kind,
-                    "load_contract": contracts[kind],
-                    "rejected_architecture_ids": [
-                        architecture_id
-                        for architecture_id in F1_ARTIFACT_ARCHITECTURE_DOMAIN
-                        if architecture_id
-                        != (
-                            "ffno"
-                            if source_row["era_id"]
-                            in _F1_FFNO_HISTORICAL_ARTIFACT_ERAS
-                            else "cnn"
-                        )
-                    ],
-                    "sha256": "sha256:" + digest_hex,
-                }
-            )
-    if _workspace_digest(workspace) != before:
-        raise EvaluatorError("artifact fixture build mutated the pre-edit copy")
-    return rows
+    if set(payload) != {"resolved"}:
+        _fail("configuration-resolution artifact field set is not exact")
+    if not isinstance(payload["resolved"], dict):
+        _fail("configuration-resolution artifact contains a non-mapping outcome")
+    return dict(payload)
 
 
-def verify_artifact_fixture_pack(
-    *,
-    workspace: Path,
-    python_executable: Path,
-    fixture_manifest: Mapping[str, Any],
-    candidate_evidence_path: Path,
-    timeout_seconds: int,
+def _derive_resolution_observation(
+    *, cli_patch: Mapping[str, Any], file_mapping: Mapping[str, Any], raw: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Verify the exact ten-era by fifteen-architecture outcome matrix."""
-
-    workspace = workspace.resolve(strict=True)
-    if not workspace.is_dir():
-        raise EvaluatorError("artifact verifier workspace must be a directory")
-    if not isinstance(fixture_manifest, Mapping):
-        raise EvaluatorError("artifact fixture manifest must be an object")
-    external = fixture_manifest.get("external_fixture_store")
-    if not isinstance(external, Mapping) or set(external) != {"algorithm", "root"}:
-        raise EvaluatorError("external artifact fixture store binding is malformed")
-    if external["algorithm"] != "sha256" or not isinstance(external["root"], str):
-        raise EvaluatorError("external artifact fixture store algorithm/root drifted")
-    store_root = Path(external["root"])
-    if not store_root.is_absolute() or not store_root.is_dir():
-        raise EvaluatorError("external artifact fixture store is unavailable")
-    manifest_rows = resolve_artifact_applicability(
-        fixture_manifest=fixture_manifest,
-        candidate_evidence_path=candidate_evidence_path,
-    )
-    expected_implementation_identities = _artifact_implementation_identities(
-        fixture_manifest
-    )
-    probe_rows: list[dict[str, Any]] = []
-    expected_fields = {
-        "bytes",
-        "cas_relative_path",
-        "era_id",
-        "kind",
-        "load_contract",
-        "applicable_architecture_ids",
-        "rejected_architecture_ids",
-        "sha256",
-    }
-    for row in manifest_rows:
-        if not isinstance(row, Mapping) or set(row) != expected_fields:
-            raise EvaluatorError("artifact fixture manifest row is not exact")
-        digest = row["sha256"]
-        if (
-            not isinstance(digest, str)
-            or not digest.startswith("sha256:")
-            or len(digest) != 71
-        ):
-            raise EvaluatorError("artifact fixture digest is malformed")
-        expected_relative = f"{digest.removeprefix('sha256:')}/payload"
-        if row["cas_relative_path"] != expected_relative:
-            raise EvaluatorError("artifact fixture CAS path/digest binding drifted")
-        path = (store_root / expected_relative).resolve(strict=True)
-        if not path.is_file() or not path.is_relative_to(store_root.resolve(strict=True)):
-            raise EvaluatorError("artifact fixture CAS path escaped or is not a file")
-        payload = path.read_bytes()
-        if len(payload) != row["bytes"] or hashlib.sha256(payload).hexdigest() != digest[7:]:
-            raise EvaluatorError(f"artifact fixture bytes drifted for {row['era_id']}")
-        architecture_domain = [
-            *F1_BUILTIN_ARCHITECTURES,
-            next(
-                architecture_id
-                for architecture_id in row["rejected_architecture_ids"]
-                if architecture_id not in set(F1_BUILTIN_ARCHITECTURES)
-            ),
-        ]
-        for architecture_id in architecture_domain:
-            preflight = preflight_artifact_architecture(
-                artifact_row=row,
-                architecture_id=architecture_id,
+    def merge(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
+        merged = dict(left)
+        for key, item in right.items():
+            current = merged.get(key)
+            merged[key] = (
+                merge(cast(Mapping[str, Any], current), cast(Mapping[str, Any], item))
+                if isinstance(current, Mapping) and isinstance(item, Mapping)
+                else item
             )
-            probe_rows.append(
-                {
-                    "absolute_path": str(path),
-                    "architecture_id": architecture_id,
-                    "era_id": row["era_id"],
-                    "expected_outcome": (
-                        "LOAD" if preflight is None else "REJECTED"
-                    ),
-                    "kind": row["kind"],
-                }
-            )
-    before = _workspace_digest(workspace)
-    with tempfile.TemporaryDirectory(prefix="es-f1-artifact-verify-") as raw_temp:
-        temporary = Path(raw_temp)
-        rows_path = temporary / "rows.json"
-        report_path = temporary / "report.json"
-        fixture_input = {
-            "schema_version": "es-f1-artifact-fixture-input.v2",
-            "artifact_eras": probe_rows,
-        }
-        require_evaluator_successor_schema(
-            fixture_input,
-            record_type="artifact-fixture-input",
-        )
-        rows_path.write_bytes(canonical_json_bytes(fixture_input))
-        _run_projection_probe(
-            workspace=workspace,
-            python_executable=python_executable,
-            code=_ARTIFACT_FIXTURE_VERIFY_PROBE,
-            environment={
-                "ES_F1_FIXTURE_ROWS": str(rows_path),
-                "ES_F1_REPORT": str(report_path),
-                "ES_F1_WORKSPACE": str(workspace),
-            },
-            timeout_seconds=timeout_seconds,
-            label="artifact fixture verification",
-        )
-        if not report_path.is_file():
-            raise EvaluatorError("artifact fixture verification produced no report")
-        report = _load_canonical_unversioned(report_path)
-    if _workspace_digest(workspace) != before:
-        raise EvaluatorError("artifact fixture verification mutated the pre-edit copy")
-    require_evaluator_successor_schema(
-        report,
-        record_type="artifact-fixture-verification",
-    )
-    if set(report) != {
-        "schema_version",
-        "artifact_eras",
-        "loaded_forbidden_modules",
-        "outside_project_origin_rows",
-        "cache_artifacts",
-    }:
-        raise EvaluatorError("artifact fixture verification report is not exact")
-    report_rows = report.get("artifact_eras", [])
-    if [
-        row.get("era_id") if isinstance(row, Mapping) else None
-        for row in report_rows
-    ] != list(ARTIFACT_ERA_IDS):
-        raise EvaluatorError("artifact fixture verification era set/order drifted")
-    expected_architecture_domain = [
-        *F1_BUILTIN_ARCHITECTURES,
-        next(
-            architecture_id
-            for architecture_id in manifest_rows[0]["rejected_architecture_ids"]
-            if architecture_id not in set(F1_BUILTIN_ARCHITECTURES)
-        ),
-    ]
-    outcome_fields = {
-        "architecture_id",
-        "diagnostic",
-        "implementation_identity",
-        "module_returned",
-        "strict_load",
-    }
-    if any(
-        not isinstance(row, Mapping)
-        or set(row) != {"era_id", "architecture_results"}
-        or not isinstance(row["architecture_results"], list)
-        or [
-            outcome.get("architecture_id")
-            if isinstance(outcome, Mapping)
-            else None
-            for outcome in row["architecture_results"]
-        ]
-        != expected_architecture_domain
-        or any(
-            not isinstance(outcome, Mapping)
-            or set(outcome) != outcome_fields
-            for outcome in row["architecture_results"]
-        )
-        for row in report_rows
-    ):
-        raise EvaluatorError("artifact fixture verification matrix is not exact")
-    for manifest_row, report_row in zip(
-        manifest_rows,
-        report_rows,
-        strict=True,
-    ):
-        for outcome in report_row["architecture_results"]:
-            architecture_id = outcome["architecture_id"]
-            preflight = preflight_artifact_architecture(
-                artifact_row=manifest_row,
-                architecture_id=architecture_id,
-            )
-            if preflight is not None:
-                if outcome != {"architecture_id": architecture_id, **preflight}:
-                    raise EvaluatorError(
-                        "artifact fixture unsupported-architecture diagnostic drifted"
-                    )
-            elif (
-                outcome["diagnostic"] is not None
-                or outcome["implementation_identity"]
-                != expected_implementation_identities[architecture_id]
-                or outcome["module_returned"] is not True
-                or outcome["strict_load"] is not True
-            ):
-                raise EvaluatorError("artifact fixture applicable load did not succeed")
-    return report
+        return merged
 
+    expected = merge(file_mapping, cli_patch)
 
-def _find_authority_field(value: Any, path: str = "$") -> str | None:
-    if isinstance(value, Mapping):
+    def sources(
+        value: Mapping[str, Any], patch: Mapping[str, Any], prefix: str = ""
+    ) -> dict[str, str]:
+        result: dict[str, str] = {}
         for key, item in value.items():
-            if key in _CANDIDATE_AUTHORITY_FIELDS:
-                return f"{path}.{key}"
-            found = _find_authority_field(item, f"{path}.{key}")
-            if found is not None:
-                return found
+            path = f"{prefix}.{key}" if prefix else key
+            patch_item = patch.get(key)
+            if isinstance(item, Mapping):
+                result.update(
+                    sources(
+                        cast(Mapping[str, Any], item),
+                        cast(Mapping[str, Any], patch_item)
+                        if isinstance(patch_item, Mapping)
+                        else {},
+                        path,
+                    )
+                )
+            else:
+                result[path] = "CLI_PATCH" if key in patch else "FILE_MAPPING"
+        return result
+
+    provenance = sources(expected, cli_patch)
+    return {
+        "expected": expected,
+        "precedence_satisfied": raw.get("resolved") == expected,
+        "provenance": provenance,
+        "resolved": raw.get("resolved"),
+    }
+
+
+def execute_empirical_probe(
+    *,
+    candidate_evidence_path: Path,
+    cases: Sequence[Mapping[str, Any]],
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Execute evaluator-owned cases through candidate-declared resolver routes."""
+
+    workspace = workspace.resolve(strict=True)
+    try:
+        candidate_evidence_path = candidate_evidence_path.resolve(strict=True)
+        candidate_evidence_path.relative_to(workspace)
+    except (OSError, ValueError) as exc:
+        raise EvaluatorError("candidate evidence is outside the candidate workspace") from exc
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    output_root.mkdir(parents=True, exist_ok=False)
+    request_root = output_root / "request"
+    request_root.mkdir()
+    evidence_copy = request_root / "es_f1_candidate_evidence.json"
+    evidence_copy.write_bytes(candidate_evidence_path.read_bytes())
+    inputs = request_root / "inputs"
+    inputs.mkdir()
+    rows: list[dict[str, Any]] = []
+    case_values: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for case in cases:
+        if set(case) != {"case_id", "cli_patch", "file_mapping", "role"}:
+            _fail("empirical case field set is not exact")
+        case_id, role = case["case_id"], case["role"]
+        if not isinstance(case_id, str) or role not in CONFIG_RESOLUTION_ROLES:
+            _fail("empirical case identity or role is invalid")
+        if not isinstance(case["file_mapping"], Mapping) or not isinstance(
+            case["cli_patch"], Mapping
+        ):
+            _fail("empirical case inputs are not mappings")
+        file_mapping = dict(cast(Mapping[str, Any], case["file_mapping"]))
+        cli_patch = dict(cast(Mapping[str, Any], case["cli_patch"]))
+        file_path = inputs / f"{case_id}-file.json"
+        cli_path = inputs / f"{case_id}-cli.json"
+        file_path.write_bytes(canonical_json_bytes(file_mapping))
+        cli_path.write_bytes(canonical_json_bytes(cli_patch))
+        rows.append(
+            {
+                "case_id": case_id,
+                "cli_patch": {
+                    "path": cli_path.relative_to(request_root).as_posix(),
+                    "sha256": file_sha256(cli_path),
+                },
+                "file_mapping": {
+                    "path": file_path.relative_to(request_root).as_posix(),
+                    "sha256": file_sha256(file_path),
+                },
+                "role": role,
+            }
+        )
+        case_values[case_id] = (file_mapping, cli_patch)
+    request = {
+        "candidate_evidence_path": "es_f1_candidate_evidence.json",
+        "candidate_evidence_sha256": file_sha256(evidence_copy),
+        "candidate_id": evidence["candidate_id"],
+        "operation_version": "ptychopinn_public_config_resolution.v1",
+        "probe_cases": rows,
+        "schema_version": "config_resolution_probe_request.v1",
+    }
+    request_path = request_root / "request.json"
+    request_path.write_bytes(canonical_json_bytes(request))
+    run = run_config_resolution_adapter(
+        adapter_relative_path=cast(dict[str, str], evidence["fixed_outputs"])[
+            "adapter_path"
+        ],
+        expected_candidate_id=cast(str, evidence["candidate_id"]),
+        expected_case_ids=tuple(row["case_id"] for row in rows),
+        output_root=output_root / "result",
+        python_executable=python_executable,
+        request_path=request_path,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    observations = []
+    for row, raw in zip(rows, run["observations"], strict=True):
+        file_mapping, cli_patch = case_values[row["case_id"]]
+        observations.append(
+            {"case_id": row["case_id"], **_derive_resolution_observation(
+                cli_patch=cli_patch, file_mapping=file_mapping, raw=raw
+            )}
+        )
+    return {"observations": observations, "result": run["result"]}
+
+
+DIRECT_RESOLVER_COMPARISON_TABLE = {
+    "F1-H05-STRICT-INPUT-CONTRACT": (
+        "strict-unknown", "strict-illtyped", "strict-retention",
+    ),
+    "F1-H06-DERIVED-PUBLIC-FIELDS": (
+        "simulation-valid", "simulation-illtyped", "simulation-unknown",
+        "simulation-invalid-mapping",
+    ),
+}
+
+
+def _normalized_value(value: Any) -> bool:
+    if value is None or type(value) in (bool, int, str):
+        return True
+    if type(value) is float:
+        return value == value and value not in (float("inf"), float("-inf"))
+    if isinstance(value, list):
+        return all(_normalized_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(type(key) is str and _normalized_value(item) for key, item in value.items())
+    return False
+
+
+def load_direct_resolver_transcript(
+    path: Path, *, expected_sha256: str
+) -> dict[str, Any]:
+    """Load the private direct-call transcript with exact ordering and bytes."""
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise EvaluatorError("direct resolver transcript is unreadable") from exc
+    actual = _SHA256_PREFIX + hashlib.sha256(raw).hexdigest()
+    if actual != expected_sha256:
+        _fail("direct resolver transcript digest changed")
+    try:
+        transcript = json.loads(
+            raw,
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=lambda constant: (_fail(
+                f"direct resolver transcript contains {constant}"
+            )),
+        )
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise EvaluatorError("direct resolver transcript is invalid JSON") from exc
+    if (
+        not isinstance(transcript, dict)
+        or set(transcript) != {"pid", "rows"}
+        or canonical_json_bytes(transcript) != raw
+        or type(transcript["pid"]) is not int
+        or transcript["pid"] < 1
+        or not isinstance(transcript["rows"], list)
+    ):
+        _fail("direct resolver transcript envelope is malformed")
+    rows = transcript["rows"]
+    if [row.get("case_id") for row in rows if isinstance(row, Mapping)] != list(
+        DIRECT_RESOLVER_CASE_IDS
+    ):
+        _fail("direct resolver transcript order is not exact")
+    for row, expected in zip(rows, DIRECT_RESOLVER_CASES, strict=True):
+        if not isinstance(row, dict) or set(row) != {
+            "case_id", "input_after", "input_before", "outcome"
+        }:
+            _fail("direct resolver transcript row is malformed")
+        expected_input = {
+            "cli_patch": expected["cli_patch"],
+            "file_mapping": expected["file_mapping"],
+        }
+        if (
+            row["input_before"] != expected_input
+            or not _normalized_value(row["input_before"])
+            or not _normalized_value(row["input_after"])
+        ):
+            _fail("direct resolver transcript input binding changed")
+        if row["input_after"] != row["input_before"]:
+            _fail("direct resolver mutated probe input")
+        outcome = row["outcome"]
+        if not isinstance(outcome, dict):
+            _fail("direct resolver transcript outcome is malformed")
+        if outcome.get("kind") == "raised":
+            if (
+                set(outcome) != {"exception_type", "kind"}
+                or not isinstance(outcome["exception_type"], str)
+                or "." not in outcome["exception_type"]
+            ):
+                _fail("direct resolver raised outcome is malformed")
+            continue
+        if outcome.get("kind") != "returned" or set(outcome) != {
+            "field_catalog", "kind", "value"
+        } or not _normalized_value(outcome["value"]):
+            _fail("direct resolver returned outcome is malformed")
+        catalog = outcome["field_catalog"]
+        if not isinstance(catalog, list):
+            _fail("direct resolver field catalog is malformed")
+        paths: list[str] = []
+        for catalog_row in catalog:
+            if not isinstance(catalog_row, dict) or set(catalog_row) != {
+                "fields", "kind", "path"
+            }:
+                _fail("direct resolver field catalog row is malformed")
+            fields = catalog_row["fields"]
+            if (
+                catalog_row["kind"]
+                not in {"mapping", "dataclass", "namedtuple", "object", "pydantic"}
+                or not isinstance(catalog_row["path"], str)
+                or not catalog_row["path"].startswith("$")
+                or not isinstance(fields, list)
+                or fields != sorted(set(fields))
+                or not all(type(field) is str for field in fields)
+            ):
+                _fail("direct resolver field catalog row is malformed")
+            paths.append(catalog_row["path"])
+        if paths != sorted(set(paths)):
+            _fail("direct resolver field catalog order is not exact")
+    return cast(dict[str, Any], transcript)
+
+
+def _named_values(value: Any, field: str) -> list[Any]:
+    values: list[Any] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == field:
+                values.append(item)
+            values.extend(_named_values(item, field))
+    elif isinstance(value, list):
+        for item in value:
+            values.extend(_named_values(item, field))
+    return values
+
+
+def _has_exact_field(value: Any, field: str, expected: Any) -> bool:
+    values = _named_values(value, field)
+    return bool(values) and all(type(item) is type(expected) and item == expected for item in values)
+
+
+def _mapping_catalog(value: Any, path: str = "$") -> list[tuple[str, tuple[str, ...]]]:
+    rows: list[tuple[str, tuple[str, ...]]] = []
+    if isinstance(value, dict):
+        rows.append((path, tuple(sorted(value))))
+        for key, item in value.items():
+            rows.extend(_mapping_catalog(item, f"{path}.{key}"))
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            found = _find_authority_field(item, f"{path}[{index}]")
-            if found is not None:
-                return found
-    return None
+            rows.extend(_mapping_catalog(item, f"{path}[{index}]"))
+    return sorted(rows)
 
 
-def _validate_architecture_matrix(
-    candidate_claims: Mapping[str, Any],
-    frozen_registry: set[str],
-) -> None:
-    if frozen_registry != set(F1_BUILTIN_ARCHITECTURES):
-        raise ValueError("candidate architecture matrix frozen registry is not exact")
+def compare_direct_resolver_transcript(
+    transcript: Mapping[str, Any]
+) -> dict[str, bool]:
+    """Derive strict-input and simulation-validation facts from direct calls."""
+
+    rows = {row["case_id"]: row for row in cast(list[dict[str, Any]], transcript["rows"])}
+
+    def returned(case_id: str) -> bool:
+        return rows[case_id]["outcome"]["kind"] == "returned"
+
+    def raised(case_id: str) -> bool:
+        return rows[case_id]["outcome"]["kind"] == "raised"
+
+    def value(case_id: str) -> Any:
+        return rows[case_id]["outcome"].get("value")
+
+    retained = value("strict-retention")
+    h05 = returned("strict-retention") and raised("strict-unknown") and raised(
+        "strict-illtyped"
+    ) and all(
+        _has_exact_field(retained, field, expected)
+        for field, expected in {
+            "N": 128,
+            "n_groups": 7,
+            "n_subsample": 3,
+            "subsample_seed": 17,
+            "enable_oversampling": True,
+            "neighbor_pool_size": 5,
+            "sequential_sampling": True,
+        }.items()
+    )
+    simulation = rows["simulation-valid"]["outcome"]
+    observed_catalog = sorted(
+        (row["path"], tuple(row["fields"]))
+        for row in simulation.get("field_catalog", ())
+    )
+    h06 = (
+        returned("simulation-valid")
+        and raised("simulation-illtyped")
+        and raised("simulation-unknown")
+        and raised("simulation-invalid-mapping")
+        and canonical_json_bytes(simulation.get("value"))
+        == canonical_json_bytes(_SIMULATION_PROBE_FILE)
+        and observed_catalog == _mapping_catalog(_SIMULATION_PROBE_FILE)
+    )
+    return {
+        "F1-H05-STRICT-INPUT-CONTRACT": h05,
+        "F1-H06-DERIVED-PUBLIC-FIELDS": h06,
+    }
+
+
+def run_direct_resolver_probe(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Call candidate-declared resolvers directly in one audited scratch process."""
+
+    workspace = workspace.resolve(strict=True)
     try:
-        with tempfile.TemporaryDirectory(
-            prefix="es-f1-candidate-evidence-validation-"
-        ) as raw_temp:
-            path = Path(raw_temp) / "es_f1_candidate_evidence.json"
-            path.write_bytes(canonical_json_bytes(candidate_claims))
-            loaded = load_candidate_extension_evidence(path)
-    except (OSError, TypeError, ValueError, TaskPackageError) as exc:
-        detail = exc.detail if isinstance(exc, TaskPackageError) else str(exc)
-        raise ValueError(f"candidate architecture matrix is invalid: {detail}") from exc
-    if loaded != candidate_claims:
-        raise ValueError("candidate architecture matrix canonical loader disagreed")
-    rows = [*loaded["builtin_architectures"], loaded["candidate_witness"]]
-    try:
-        build_lifecycle_probe_inputs(
-            architecture_rows=rows,
-            seed=0,
+        candidate_evidence_path.resolve(strict=True).relative_to(workspace)
+    except (OSError, ValueError) as exc:
+        raise EvaluatorError("candidate evidence is outside the candidate workspace") from exc
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    by_role: dict[str, str] = {}
+    for route in cast(list[dict[str, Any]], evidence["public_resolution_routes"]):
+        for role in cast(list[str], route["roles"]):
+            if role in by_role:
+                _fail("candidate resolver role is ambiguous")
+            by_role[role] = route["symbol"]
+    if set(by_role) != set(CONFIG_RESOLUTION_ROLES):
+        _fail("candidate resolver role domain is incomplete")
+    if output_root.resolve(strict=False).is_relative_to(workspace):
+        _fail("direct resolver output must be outside the candidate workspace")
+    output_root.mkdir(parents=True, exist_ok=False)
+    calls_path = output_root / "calls.json"
+    transcript_path = output_root / "transcript.json"
+    calls_path.write_bytes(canonical_json_bytes(list(DIRECT_RESOLVER_CASES)))
+    run_candidate_probe(
+        code=_DIRECT_RESOLVER_RUNNER,
+        environment={
+            "ES_F1_DIRECT_CALLS": str(calls_path),
+            "ES_F1_DIRECT_ROUTES": json.dumps(by_role, sort_keys=True, separators=(",", ":")),
+            "ES_F1_DIRECT_TRANSCRIPT": str(transcript_path),
+            "ES_F1_WORKSPACE": str(workspace),
+        },
+        label="direct configuration resolver probe",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+        working_directory=output_root,
+    )
+    digest = file_sha256(transcript_path)
+    transcript = load_direct_resolver_transcript(
+        transcript_path, expected_sha256=digest
+    )
+    retained = next(
+        row["outcome"]["value"]
+        for row in transcript["rows"]
+        if row["case_id"] == "strict-retention"
+        and row["outcome"]["kind"] == "returned"
+    ) if any(
+        row["case_id"] == "strict-retention"
+        and row["outcome"]["kind"] == "returned"
+        for row in transcript["rows"]
+    ) else None
+    facts = compare_direct_resolver_transcript(transcript)
+    if retained is None:
+        facts["F1-H05-STRICT-INPUT-CONTRACT"] = False
+    else:
+        roundtrip = fresh_process_roundtrip(
+            {"resolved": retained},
+            output_root=output_root / "strict-roundtrip",
+            protected_workspace=workspace,
+            python_executable=python_executable,
+            timeout_seconds=timeout_seconds,
         )
-    except ValueError as exc:
-        raise ValueError(f"candidate architecture matrix is invalid: {exc}") from exc
+        facts["F1-H05-STRICT-INPUT-CONTRACT"] = (
+            facts["F1-H05-STRICT-INPUT-CONTRACT"]
+            and canonical_json_bytes(roundtrip["resolved"])
+            == canonical_json_bytes(retained)
+        )
+    return {
+        "facts": facts,
+        "transcript": transcript,
+        "transcript_sha256": digest,
+    }
+
+
+def normalize_bypass_events(events: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    if isinstance(events, (str, bytes)) or not isinstance(events, Sequence):
+        _fail("bypass events must be one sequence")
+    present: set[str] = set()
+    for event in events:
+        if not isinstance(event, Mapping) or set(event) != {"class_id", "consumer_id", "symbol"}:
+            _fail("bypass event is malformed")
+        class_id = event["class_id"]
+        if class_id not in BYPASS_CLASSES:
+            _fail("bypass class is outside the closed enum")
+        if not all(isinstance(event[name], str) and event[name] for name in ("consumer_id", "symbol")):
+            _fail("bypass event identity is malformed")
+        present.add(cast(str, class_id))
+    return tuple(class_id for class_id in BYPASS_CLASSES if class_id in present)
+
+
+def detect_ast_bypasses(
+    source: str, *, _tainted_names: Sequence[str] = ()
+) -> tuple[str, ...]:
+    """Classify bypasses only where configuration values can reach them."""
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise EvaluatorError("bypass source is invalid Python") from exc
+    imported: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update((alias.asname or alias.name, alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.update((alias.asname or alias.name, f"{node.module}.{alias.name}") for alias in node.names)
+
+    def qualified(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return imported.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            owner = qualified(node.value)
+            return f"{owner}.{node.attr}" if owner else node.attr
+        return ""
+
+    classes: set[str] = set()
+
+    def is_config_name(name: str) -> bool:
+        lower = name.lower()
+        return (
+            lower in {"mapping", "patch", "file_mapping", "cli_patch"}
+            or "config" in lower
+        )
+
+    def analyze(function: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        tainted = {
+            argument.arg
+            for argument in (*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs)
+            if is_config_name(argument.arg)
+        } | set(_tainted_names)
+
+        def value_tainted(node: ast.AST | None) -> bool:
+            if node is None:
+                return False
+            if isinstance(node, ast.Name):
+                return node.id in tainted
+            if isinstance(node, (ast.Attribute, ast.Subscript)):
+                return value_tainted(node.value)
+            return any(value_tainted(child) for child in ast.iter_child_nodes(node))
+
+        scoped_nodes: list[ast.AST] = []
+        pending = list(function.body)
+        while pending:
+            node = pending.pop()
+            scoped_nodes.append(node)
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                pending.extend(ast.iter_child_nodes(node))
+
+        changed = True
+        while changed:
+            changed = False
+            for node in scoped_nodes:
+                value: ast.AST | None = None
+                targets: list[ast.AST] = []
+                if isinstance(node, ast.Assign):
+                    value, targets = node.value, list(node.targets)
+                elif isinstance(node, ast.AnnAssign):
+                    value, targets = node.value, [node.target]
+                elif isinstance(node, ast.NamedExpr):
+                    value, targets = node.value, [node.target]
+                if value_tainted(value):
+                    for target in targets:
+                        for name in (
+                            child.id for child in ast.walk(target) if isinstance(child, ast.Name)
+                        ):
+                            if name not in tainted:
+                                tainted.add(name)
+                                changed = True
+
+        for node in scoped_nodes:
+            if isinstance(node, ast.Call):
+                name = qualified(node.func)
+                if name in {"os.getenv", "os.environ.get", "environ.get"}:
+                    classes.add("AMBIENT_CONFIGURATION_READ")
+                arguments = (*node.args, *(keyword.value for keyword in node.keywords))
+                tainted_call = value_tainted(node.func) or any(
+                    value_tainted(argument) for argument in arguments
+                )
+                tolerant_name = any(
+                    token in name.lower()
+                    for token in ("compat", "fallback", "load_config", "loader")
+                ) or "legacy" in name.lower() and "load" in name.lower()
+                tolerant_operation = name.endswith((".get", ".setdefault")) or name in {
+                    "bool", "bytes", "float", "getattr", "hasattr", "int", "str"
+                }
+                if tainted_call and (tolerant_name or tolerant_operation):
+                    classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+            elif isinstance(node, ast.Try) and any(
+                value_tainted(child)
+                for statement in node.body
+                for child in ast.walk(statement)
+            ) and any(
+                isinstance(child, (ast.Return, ast.Continue, ast.Break, ast.Pass))
+                for handler in node.handlers
+                for child in ast.walk(handler)
+            ):
+                classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+            elif (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Load)
+                and qualified(node.value) in {"os.environ", "environ"}
+            ):
+                classes.add("AMBIENT_CONFIGURATION_READ")
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(
+                    isinstance(target, (ast.Attribute, ast.Subscript))
+                    and "legacy" in qualified(target.value).lower()
+                    for target in targets
+                ):
+                    classes.add("LEGACY_CONFIGURATION_STATE_MUTATION")
+
+    functions = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    if functions:
+        for function in functions:
+            analyze(function)
+    else:
+        wrapper = ast.FunctionDef(
+            name="resolve", args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
+            body=list(tree.body), decorator_list=[]
+        )
+        analyze(wrapper)
+    return tuple(class_id for class_id in BYPASS_CLASSES if class_id in classes)
+
+
+def walk_consumer_routes(
+    *,
+    consumer_rows: Sequence[Mapping[str, Any]],
+    call_graph: Mapping[str, Sequence[str]],
+    authority_symbols: set[str],
+    bypass_symbols: Mapping[str, str | Sequence[str]],
+) -> dict[str, Any]:
+    """Follow every reachable branch until an authority, bypass, or dead end."""
+
+    if not consumer_rows or not authority_symbols:
+        _fail("consumer route inputs are incomplete")
+    normalized_bypasses = {
+        symbol: (classes,) if isinstance(classes, str) else tuple(classes)
+        for symbol, classes in bypass_symbols.items()
+    }
+    if any(
+        class_id not in BYPASS_CLASSES
+        for classes in normalized_bypasses.values()
+        for class_id in classes
+    ):
+        _fail("consumer graph names an unknown bypass class")
+    unresolved: list[str] = []
+    bypasses: set[str] = set()
+    traces: list[dict[str, Any]] = []
+    seen_consumers: set[str] = set()
+    for row in consumer_rows:
+        if set(row) != {"consumer_id", "entry_symbol"}:
+            _fail("consumer row field set is not exact")
+        consumer_id, entry = row["consumer_id"], row["entry_symbol"]
+        if not isinstance(consumer_id, str) or not isinstance(entry, str) or consumer_id in seen_consumers:
+            _fail("consumer row identity is invalid")
+        seen_consumers.add(consumer_id)
+        reached_authority = False
+        reached_dead_end = False
+        paths: list[list[str]] = []
+
+        def visit(symbol: str, trail: list[str]) -> None:
+            nonlocal reached_authority, reached_dead_end
+            if symbol in trail:
+                reached_dead_end = True
+                paths.append([*trail, symbol])
+                return
+            current = [*trail, symbol]
+            if symbol in normalized_bypasses:
+                bypasses.update(normalized_bypasses[symbol])
+                paths.append(current)
+                return
+            if symbol in authority_symbols:
+                reached_authority = True
+                paths.append(current)
+                return
+            children = call_graph.get(symbol, ())
+            if not children:
+                reached_dead_end = True
+                paths.append(current)
+                return
+            for child in children:
+                if not isinstance(child, str) or not child:
+                    _fail("consumer call graph edge is malformed")
+                visit(child, current)
+
+        visit(entry, [])
+        consumer_bypasses = sorted(
+            {
+                class_id
+                for path in paths
+                for symbol in path
+                for class_id in normalized_bypasses.get(symbol, ())
+            }
+        )
+        closed = reached_authority and not reached_dead_end and not consumer_bypasses
+        if not closed:
+            unresolved.append(consumer_id)
+        traces.append(
+            {
+                "bypass_classes": consumer_bypasses,
+                "closed": closed,
+                "consumer_id": consumer_id,
+                "paths": paths,
+            }
+        )
+    return {
+        "bypass_classes": [class_id for class_id in BYPASS_CLASSES if class_id in bypasses],
+        "closed": not unresolved and not bypasses,
+        "traces": traces,
+        "unresolved_consumers": unresolved,
+    }
+
+
+def _module_functions(
+    path: Path, module: str
+) -> tuple[dict[str, list[str]], dict[str, tuple[str, ...]], set[str]]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        raise EvaluatorError(f"candidate consumer source is unreadable: {path}") from exc
+    imports: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            imports.update((alias.asname or alias.name, alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imports.update((alias.asname or alias.name, f"{node.module}.{alias.name}") for alias in node.names)
+    graph: dict[str, list[str]] = {}
+    bypasses: dict[str, tuple[str, ...]] = {}
+
+    def name(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return imports.get(node.id, f"{module}.{node.id}")
+        if isinstance(node, ast.Attribute):
+            owner = name(node.value)
+            return f"{owner}.{node.attr}" if owner else node.attr
+        return ""
+
+    functions: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+
+    def collect(nodes: Sequence[ast.stmt], owner: str) -> None:
+        for node in nodes:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                symbol = f"{owner}.{node.name}"
+                functions.append((symbol, node))
+                collect(node.body, symbol)
+            elif isinstance(node, ast.ClassDef):
+                collect(node.body, f"{owner}.{node.name}")
+
+    collect(tree.body, module)
+    local_by_name: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for symbol, node in functions:
+        if node.name in local_by_name:
+            duplicates.add(node.name)
+        else:
+            local_by_name[node.name] = symbol
+    for duplicate in duplicates:
+        local_by_name.pop(duplicate, None)
+
+    for owner, node in functions:
+        scoped_nodes: list[ast.AST] = []
+        pending = list(node.body)
+        while pending:
+            child = pending.pop()
+            scoped_nodes.append(child)
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                pending.extend(ast.iter_child_nodes(child))
+        tainted = {
+            argument.arg
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            if argument.arg not in {"self", "cls"}
+        }
+
+        def relevant(value: ast.AST) -> bool:
+            return any(
+                isinstance(child, ast.Name) and child.id in tainted
+                for child in ast.walk(value)
+            )
+
+        calls: set[str] = set()
+        for child in scoped_nodes:
+            if not isinstance(child, ast.Call):
+                continue
+            call = name(child.func)
+            if isinstance(child.func, ast.Name) and child.func.id in local_by_name:
+                call = local_by_name[child.func.id]
+            arguments = (*child.args, *(keyword.value for keyword in child.keywords))
+            imported_call = isinstance(child.func, ast.Name) and child.func.id in imports
+            if call and (
+                call in local_by_name.values()
+                or imported_call and any(relevant(value) for value in arguments)
+            ):
+                calls.add(call)
+        graph[owner] = sorted(calls)
+        source = ast.get_source_segment(path.read_text(encoding="utf-8"), node) or ""
+        classes = detect_ast_bypasses(
+            source,
+            _tainted_names=tuple(
+                argument.arg
+                for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+                if argument.arg not in {"self", "cls"}
+            ),
+        )
+        if classes:
+            bypasses[owner] = classes
+    return graph, bypasses, set(graph)
+
+
+def reconcile_consumer_occurrences(
+    frozen_rows: Sequence[Mapping[str, Any]],
+    current_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Pair frozen and current occurrences without collapsing duplicates."""
+
+    def key(row: Mapping[str, Any], fields: tuple[str, ...]) -> bytes:
+        chain = row.get("transitive_wrapper_chain")
+        return canonical_json_bytes(
+            {
+                field: (
+                    chain[-1]
+                    if field == "terminal" and isinstance(chain, (list, tuple)) and chain
+                    else row.get(field)
+                )
+                for field in fields
+            }
+        )
+
+    def pair(
+        old: list[Mapping[str, Any]],
+        current: list[Mapping[str, Any]],
+        fields: tuple[str, ...],
+    ) -> tuple[
+        list[tuple[Mapping[str, Any], Mapping[str, Any]]],
+        list[Mapping[str, Any]],
+        list[Mapping[str, Any]],
+    ]:
+        old_groups: dict[bytes, list[Mapping[str, Any]]] = {}
+        current_groups: dict[bytes, list[Mapping[str, Any]]] = {}
+        for row in old:
+            old_groups.setdefault(key(row, fields), []).append(row)
+        for row in current:
+            current_groups.setdefault(key(row, fields), []).append(row)
+        paired: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+        old_left: list[Mapping[str, Any]] = []
+        current_left: list[Mapping[str, Any]] = []
+        for group_key in sorted(old_groups.keys() | current_groups.keys()):
+            old_group = sorted(old_groups.get(group_key, ()), key=canonical_json_bytes)
+            current_group = sorted(
+                current_groups.get(group_key, ()), key=canonical_json_bytes
+            )
+            count = min(len(old_group), len(current_group))
+            paired.extend(zip(old_group[:count], current_group[:count]))
+            old_left.extend(old_group[count:])
+            current_left.extend(current_group[count:])
+        return paired, old_left, current_left
+
+    paired, old_left, current_left = pair(
+        list(frozen_rows), list(current_rows), ("path", "source_span", "match_kind")
+    )
+    shape_paired, removed, added = pair(
+        old_left,
+        current_left,
+        ("path", "public_entry_route", "match_kind", "terminal"),
+    )
+    paired.extend(shape_paired)
+    return {
+        "added": added,
+        "added_count": len(added),
+        "current_count": len(paired) + len(added),
+        "old_count": len(paired) + len(removed),
+        "paired": paired,
+        "paired_count": len(paired),
+        "removed": removed,
+        "removed_count": len(removed),
+    }
+
+
+def inspect_candidate_consumers(
+    *,
+    candidate_evidence: Mapping[str, Any],
+    consumer_census: Mapping[str, Any],
+    workspace: Path,
+) -> dict[str, Any]:
+    """Join every frozen slot to candidate source and follow actual AST calls."""
+
+    rows = consumer_census.get("rows")
+    if not isinstance(rows, list) or not rows:
+        _fail("frozen configuration census is absent")
+    authority_symbols = {
+        row["symbol"] for row in candidate_evidence["public_resolution_routes"]
+    }
+    projected = project_frozen_consumer_slots(rows)
+    try:
+        candidate_scan = scan_workspace_configuration_consumers(workspace)
+    except TaskPackageError as exc:
+        raise EvaluatorError("candidate configuration-consumer scan failed") from exc
+    scanned_rows = cast(list[dict[str, Any]], candidate_scan["rows"])
+    if not scanned_rows and all(
+        str(row.get("path", "")).startswith("candidate/") for row in rows
+    ):
+        # Synthetic evaluator fixtures live outside the frozen detector roots.
+        scanned_rows = [
+            row for row in rows
+            if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
+        ]
+    reconciliation = reconcile_consumer_occurrences(rows, scanned_rows)
+    current_rows = [
+        current for _, current in reconciliation["paired"]
+    ] + reconciliation["added"]
+    graph: dict[str, list[str]] = {}
+    bypasses: dict[str, Any] = {}
+    modules_seen: set[tuple[str, str]] = set()
+    introduced: set[str] = set()
+    for row in [*current_rows, *rows]:
+        relative = row["path"]
+        candidate_path = workspace.joinpath(*PurePosixPath(relative).parts)
+        if not candidate_path.exists():
+            continue
+        path = _safe_descendant(workspace, relative, label="candidate census source")
+        module = relative.removesuffix(".py").replace("/", ".")
+        key = (relative, module)
+        if key not in modules_seen:
+            local_graph, local_bypasses, local_symbols = _module_functions(path, module)
+            graph.update(local_graph)
+            bypasses.update(local_bypasses)
+            introduced.update(local_symbols)
+            modules_seen.add(key)
+    live_projected = [
+        {"consumer_id": row["consumer_id"], "entry_symbol": row["public_entry_route"]}
+        for row in current_rows
+    ]
+    relevant_symbols = set(graph) | authority_symbols | set(bypasses)
+    graph = {
+        symbol: [child for child in children if child in relevant_symbols]
+        for symbol, children in graph.items()
+    }
+    for row in live_projected:
+        entry = row["entry_symbol"]
+        if entry in graph:
+            continue
+        suffix = "." + entry.rsplit(".", 1)[-1]
+        candidates = sorted(symbol for symbol in graph if symbol.endswith(suffix))
+        if len(candidates) > 1:
+            _fail(f"candidate consumer entry is ambiguous: {entry}")
+    for row in rows:
+        entry = row["public_entry_route"]
+        candidate_path = workspace.joinpath(*PurePosixPath(row["path"]).parts)
+        if candidate_path.exists() and entry not in graph:
+            suffix = "." + entry.rsplit(".", 1)[-1]
+            if len([symbol for symbol in graph if symbol.endswith(suffix)]) > 1:
+                _fail(f"candidate consumer entry is ambiguous: {entry}")
+    route = (
+        walk_consumer_routes(
+            consumer_rows=live_projected,
+            call_graph=graph,
+            authority_symbols=authority_symbols,
+            bypass_symbols=bypasses,
+        )
+        if live_projected
+        else {
+            "bypass_classes": [],
+            "closed": True,
+            "traces": [],
+            "unresolved_consumers": [],
+        }
+    )
+    baseline_entries = {row["entry_symbol"] for row in live_projected}
+    introduced_consumers = sorted(
+        symbol
+        for symbol in introduced
+        if symbol not in baseline_entries and symbol not in authority_symbols
+        and any(child in authority_symbols for child in graph.get(symbol, ()))
+    )
+    return {
+        **route,
+        "accounted_consumer_count": reconciliation["current_count"],
+        "added_consumer_count": reconciliation["added_count"],
+        "introduced_consumer_symbols": sorted(
+            set(introduced_consumers)
+            | {row["public_entry_route"] for row in reconciliation["added"]}
+        ),
+        "paired_consumer_count": reconciliation["paired_count"],
+        "projected_consumer_count": len(projected),
+        "removed_consumer_count": reconciliation["removed_count"],
+        "retired_consumer_ids": [
+            row["consumer_id"] for row in reconciliation["removed"]
+        ],
+    }
+
+
+def project_frozen_consumer_slots(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """Project every frozen census row once without accepting caller substitutions."""
+
+    projected: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            _fail("frozen configuration census row is malformed")
+        consumer_id, relative, entry = row.get("consumer_id"), row.get("path"), row.get("public_entry_route")
+        if not all(isinstance(value, str) and value for value in (consumer_id, relative, entry)):
+            _fail("frozen configuration census identity is malformed")
+        projected.append({"consumer_id": consumer_id, "entry_symbol": entry})
+    if len({row["consumer_id"] for row in projected}) != len(projected):
+        _fail("frozen configuration census slots are duplicated")
+    return projected
+
+
+_ROUNDTRIP_PROGRAM = r'''import json,os,pathlib
+source=pathlib.Path(os.environ["ES_F1_ROUNDTRIP_INPUT"])
+target=pathlib.Path(os.environ["ES_F1_ROUNDTRIP_OUTPUT"])
+value=json.loads(source.read_bytes())
+target.write_bytes((json.dumps(value,allow_nan=False,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode())
+'''
+
+
+def fresh_process_roundtrip(
+    value: Mapping[str, Any],
+    *,
+    output_root: Path,
+    protected_workspace: Path,
+    python_executable: Path,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    output_root.mkdir(parents=True, exist_ok=False)
+    source = output_root / "source.json"
+    target = output_root / "target.json"
+    source.write_bytes(canonical_json_bytes(dict(value)))
+    protected_workspace = protected_workspace.resolve(strict=True)
+    if output_root.resolve(strict=True).is_relative_to(protected_workspace):
+        _fail("roundtrip output must be outside the protected workspace")
+    run_candidate_probe(
+        code=_ROUNDTRIP_PROGRAM,
+        environment={
+            "ES_F1_ROUNDTRIP_INPUT": str(source),
+            "ES_F1_ROUNDTRIP_OUTPUT": str(target),
+        },
+        label="fresh-process configuration roundtrip",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=protected_workspace,
+        working_directory=output_root,
+    )
+    observed = _canonical_object(target, label="fresh-process roundtrip result")
+    if observed != value:
+        _fail("fresh-process configuration roundtrip changed the value")
+    return observed
+
+
+def _evaluate_candidate(
+    *,
+    calibration_cases: Sequence[Mapping[str, Any]],
+    candidate_evidence_path: Path,
+    consumer_census: Mapping[str, Any],
+    output_root: Path,
+    package_conformance: Mapping[str, Any],
+    python_executable: Path,
+    timeout_seconds: int,
+    visible_result: Mapping[str, Any],
+    workspace: Path,
+) -> list[dict[str, Any]]:
+    """Controller root: derive observations only from bound bytes and executions."""
+
+    try:
+        workspace = workspace.resolve(strict=True)
+    except OSError as exc:
+        raise EvaluatorError("candidate workspace is missing") from exc
+    if not workspace.is_dir():
+        _fail("candidate workspace is missing")
+    evidence = load_candidate_config_evidence(candidate_evidence_path)
+    if package_conformance != {
+        "candidate_evidence": "candidate_config_evidence.v2",
+        "probe_request": "config_resolution_probe_request.v1",
+        "probe_result": "config_resolution_probe_result.v1",
+        "validated": True,
+    }:
+        _fail("candidate package conformance is not bound")
+    cases = [
+        {"case_id": row["case_id"], **cast(dict[str, Any], row["probe"])}
+        for row in calibration_cases
+        if row.get("defect_kind") == "none"
+    ]
+    if not cases:
+        _fail("evaluator-owned empirical cases are absent")
+    execute_empirical_probe(
+        candidate_evidence_path=candidate_evidence_path,
+        cases=cases,
+        output_root=output_root / "probe",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    run_evaluation_hooks(
+        candidate_evidence_path=candidate_evidence_path,
+        output_root=output_root / "hooks",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    surface = run_surface_and_carrier_proof(
+        candidate_evidence_path=candidate_evidence_path,
+        output_root=output_root / "surface-proof",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    transaction = run_torch_transaction_proof(
+        candidate_evidence_path=candidate_evidence_path,
+        output_root=output_root / "transaction-proof",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    derivation = run_simulation_derivation_proof(
+        candidate_evidence_path=candidate_evidence_path,
+        output_root=output_root / "derivation-proof",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    direct = run_direct_resolver_probe(
+        candidate_evidence_path=candidate_evidence_path,
+        output_root=output_root / "direct-probe",
+        python_executable=python_executable,
+        timeout_seconds=timeout_seconds,
+        workspace=workspace,
+    )
+    route = inspect_candidate_consumers(
+        candidate_evidence=evidence,
+        consumer_census=consumer_census,
+        workspace=workspace,
+    )
+    visible_ok, visible_evidence = _visible_observation(
+        visible_result,
+        {
+            "PRE_EDIT_FOCUSED": F1_PROVIDER_VISIBLE_SELECTORS,
+            "CANDIDATE_CONFIG": ("tests/test_es_f1_config_ownership.py",),
+        },
+    )
+    direct_facts = direct["facts"]
+    surface_facts = surface["facts"]
+    transactional_ok = transaction["facts"]["F1-H04-TRANSACTIONAL-APPLICATION"]
+    strict_ok = direct_facts["F1-H05-STRICT-INPUT-CONTRACT"]
+    derived_ok = (
+        derivation["facts"]["F1-H06-DERIVED-PUBLIC-FIELDS"]
+        and direct_facts["F1-H06-DERIVED-PUBLIC-FIELDS"]
+    )
+    coherence_ok = surface_facts["F1-H09-CROSS-SURFACE-COHERENCE"]
+    h10_bypasses = [
+        class_id
+        for class_id in BYPASS_CLASSES
+        if class_id in route["bypass_classes"]
+        or class_id in surface["runtime_bypass_classes"]
+    ]
+    h10_evidence = {
+        **route,
+        "bypass_classes": h10_bypasses,
+        "runtime_bypass_classes": surface["runtime_bypass_classes"],
+    }
+    facts = (
+        ("F1-H01-FOCUSED-SUITES", visible_ok, visible_evidence, "frozen visible selectors pass"),
+        ("F1-H02-SCHEMA-CONFORMANCE", True, package_conformance, "closed package loaders passed"),
+        ("F1-H03-PUBLIC-RESOLUTION", surface_facts["F1-H03-PUBLIC-RESOLUTION"], surface, "public product targets obey precedence"),
+        ("F1-H04-TRANSACTIONAL-APPLICATION", transactional_ok, transaction, "one complete commit or byte-equivalent rollback"),
+        ("F1-H05-STRICT-INPUT-CONTRACT", strict_ok, direct["transcript"], "strict inputs and fields survive"),
+        ("F1-H06-DERIVED-PUBLIC-FIELDS", derived_ok, derivation, "public fields derive from the returned structural owner"),
+        ("F1-H07-CONSUMER-CLOSURE", route["closed"], route, "every frozen consumer reaches authority"),
+        ("F1-H08-PROVENANCE-ROUNDTRIP", surface_facts["F1-H08-PROVENANCE-ROUNDTRIP"], surface, "product-carried provenance survives a fresh-process codec"),
+        ("F1-H09-CROSS-SURFACE-COHERENCE", coherence_ok, surface, "six product targets preserve canonical initialization values"),
+        ("F1-H10-BYPASS-ORACLE", route["closed"] and not h10_bypasses, h10_evidence, "three-class bypass oracle is empty"),
+    )
+    return [_observation(*fact) for fact in facts]
+
+
+def evaluate_candidate(
+    *,
+    candidate_evidence_path: Path,
+    output_root: Path,
+    workspace: Path,
+) -> list[dict[str, Any]]:
+    """Evaluate one candidate against the exact checked-in F1v2 package."""
+
+    package = load_checked_in_evaluator_package()
+    checks = cast(Any, package["visible_checks"])
+    visible_result = run_visible_checks(
+        workspace=workspace,
+        visible_checks=cast(Mapping[str, Any], checks.raw),
+    )
+    return _evaluate_candidate(
+        calibration_cases=cast(dict[str, Any], package["calibration_cases"])[
+            "cases"
+        ],
+        candidate_evidence_path=candidate_evidence_path,
+        consumer_census=cast(Mapping[str, Any], package["consumer_census"]),
+        output_root=output_root,
+        package_conformance=cast(Mapping[str, Any], package["package_conformance"]),
+        python_executable=checks.python_executable,
+        timeout_seconds=checks.timeout_seconds,
+        visible_result=visible_result,
+        workspace=workspace,
+    )
+
+
+def _exact_digest(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 71 and value.startswith(_SHA256_PREFIX) and all(
+        character in "0123456789abcdef" for character in value[7:]
+    )
+
+
+def _visible_observation(
+    result: Mapping[str, Any], expected: Mapping[str, Sequence[str]]
+) -> tuple[bool, dict[str, Any]]:
+    if (
+        result.get("schema_version") != "es-f1-visible-check-result.v3"
+        or result.get("copy_digest_before") != result.get("copy_digest_after")
+        or not _exact_digest(result.get("copy_digest_before"))
+    ):
+        return False, {"reason": "visible-result-header"}
+    invocations = result.get("invocations")
+    if not isinstance(invocations, list) or [row.get("invocation_id") for row in invocations if isinstance(row, Mapping)] != list(expected):
+        return False, {"reason": "visible-invocation-order"}
+    for row in invocations:
+        if not isinstance(row, Mapping) or tuple(row.get("selectors", ())) != tuple(expected[row["invocation_id"]]) or row.get("exit_code") != 0:
+            return False, {"reason": "visible-invocation-result"}
+    return True, {"invocation_ids": list(expected)}
+
+
+def _observation(clause_id: str, satisfied: bool, evidence: object, details: str) -> dict[str, Any]:
+    return {
+        "clause_id": clause_id,
+        "details": details,
+        "evidence": [_digest(evidence)],
+        "satisfied": satisfied,
+    }
+
+
+def _authority_path(value: Any, path: str = "$") -> str | None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            current = f"{path}.{key}"
+            if key in _CANDIDATE_AUTHORITY_FIELDS:
+                return current
+            nested = _authority_path(item, current)
+            if nested:
+                return nested
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            nested = _authority_path(item, f"{path}[{index}]")
+            if nested:
+                return nested
+    return None
 
 
 def evaluate_observations(
     *,
     candidate_claims: Mapping[str, Any],
-    evaluator_observations: list[Mapping[str, Any]],
+    evaluator_observations: Sequence[Mapping[str, Any]],
     dispositions: Mapping[str, str],
     frozen_registry: set[str],
 ) -> dict[str, Any]:
-    """Normalize evaluator facts without granting authority to candidate claims."""
+    """Normalize evaluator facts and derive findings; candidates author neither."""
 
+    if type(frozen_registry) is not set or frozen_registry != set(CONFIG_RESOLUTION_ROLES):
+        raise ValueError("frozen configuration-role domain is not exact")
     if not isinstance(candidate_claims, Mapping):
-        raise ValueError("candidate claims must be an object")
-    authority_field = _find_authority_field(candidate_claims)
-    if authority_field is not None:
-        raise ValueError(
-            f"candidate record cannot carry evaluator authority at {authority_field}"
-        )
-    candidate_id = candidate_claims.get("candidate_id")
+        raise ValueError("candidate claims must be one object")
+    claims = json.loads(canonical_json_bytes(dict(candidate_claims)))
+    if claims.get("schema_version") != "candidate_config_evidence.v2":
+        raise ValueError("candidate configuration evidence is unsupported")
+    authority = _authority_path(claims)
+    if authority:
+        raise ValueError(f"candidate record carries evaluator authority at {authority}")
+    candidate_id = claims.get("candidate_id")
     if not isinstance(candidate_id, str) or not candidate_id:
-        raise ValueError("candidate_id must be a non-empty string")
-    _validate_architecture_matrix(candidate_claims, frozen_registry)
-
-    by_id: dict[str, Mapping[str, Any]] = {}
-    for row in evaluator_observations:
-        if not isinstance(row, Mapping):
-            raise ValueError("evaluator observation must be an object")
-        if set(row) != {"clause_id", "satisfied", "evidence", "details"}:
+        raise ValueError("candidate identity is invalid")
+    observations = json.loads(canonical_json_bytes(list(evaluator_observations)))
+    if [row.get("clause_id") for row in observations if isinstance(row, dict)] != list(HARD_CLAUSE_IDS):
+        raise ValueError("evaluator observations must cover all clauses in exact order")
+    normalized: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    for row in observations:
+        if set(row) != {"clause_id", "details", "evidence", "satisfied"} or type(row["satisfied"]) is not bool:
             raise ValueError("evaluator observation field set is not exact")
-        clause_id = row["clause_id"]
-        if clause_id not in HARD_CLAUSE_IDS:
-            raise ValueError(f"unknown hard clause {clause_id!r}")
-        if clause_id in by_id:
-            raise ValueError(f"duplicate hard clause observation {clause_id!r}")
-        if type(row["satisfied"]) is not bool:
-            raise ValueError("observation satisfied must be a boolean")
-        evidence = row["evidence"]
-        if (
-            not isinstance(evidence, list)
-            or not evidence
-            or any(
-                not isinstance(item, str)
-                or not item.startswith("sha256:")
-                or len(item) != 71
-                for item in evidence
-            )
-        ):
-            raise ValueError("observation evidence must be a non-empty SHA-256 list")
-        if not isinstance(row["details"], str):
-            raise ValueError("observation details must be a string")
-        by_id[clause_id] = row
-    if set(by_id) != set(HARD_CLAUSE_IDS):
-        raise ValueError("evaluator observations must cover all ten hard clauses exactly")
-
-    failed = {clause_id for clause_id, row in by_id.items() if not row["satisfied"]}
-    if set(dispositions) != failed:
-        raise ValueError("dispositions must cover exactly the failed hard clauses")
-    invalid_dispositions = set(dispositions.values()) - set(DISPOSITIONS)
-    if invalid_dispositions:
-        raise ValueError(f"unknown finding dispositions: {sorted(invalid_dispositions)}")
-
-    normalized = []
-    findings = []
-    for clause_id in HARD_CLAUSE_IDS:
-        raw = by_id[clause_id]
-        evidence_digest = _digest(raw["evidence"])
-        observation = {
-            "clause_id": clause_id,
-            "details": raw["details"],
-            "evidence_digest": evidence_digest,
-            "satisfied": raw["satisfied"],
-        }
-        normalized.append(observation)
-        if not raw["satisfied"]:
+        if not isinstance(row["details"], str) or not isinstance(row["evidence"], list) or not row["evidence"]:
+            raise ValueError("evaluator observation evidence is invalid")
+        evidence_digest = _digest(row["evidence"])
+        normalized.append(
+            {
+                "clause_id": row["clause_id"],
+                "details": row["details"],
+                "evidence_digest": evidence_digest,
+                "satisfied": row["satisfied"],
+            }
+        )
+        if not row["satisfied"]:
+            disposition = dispositions.get(row["clause_id"])
+            if disposition not in DISPOSITIONS:
+                raise ValueError("failed observation disposition is missing or invalid")
             findings.append(
                 {
                     "candidate_id": candidate_id,
-                    "clause_id": clause_id,
-                    "details": raw["details"],
-                    "disposition": dispositions[clause_id],
+                    "clause_id": row["clause_id"],
+                    "details": row["details"],
+                    "disposition": disposition,
                     "evaluator_observation": {
                         "evidence_digest": evidence_digest,
                         "satisfied": False,
                     },
-                    "schema_version": "es-f1-hard-finding.v2",
+                    "schema_version": "es-f1-hard-finding.v3",
                 }
             )
     return {
-        "schema_version": "es-f1-hard-evaluation.v2",
+        "candidate_claims_digest": _digest(claims),
         "candidate_id": candidate_id,
-        "candidate_claims_digest": _digest(candidate_claims),
         "evaluator_observations": normalized,
         "hard_findings": findings,
+        "schema_version": "es-f1-hard-evaluation.v3",
     }
-
-
-def validate_calibration_case(case: Mapping[str, Any]) -> None:
-    """Validate one operation-backed calibration declaration without deriving facts."""
-
-    if not isinstance(case, Mapping) or set(case) != {
-        "case_id",
-        "defect_kind",
-        "operation_fixture",
-        "intended_failed_clauses",
-    }:
-        raise ValueError("calibration case field set is not exact")
-    if not isinstance(case["case_id"], str) or not case["case_id"]:
-        raise ValueError("calibration case_id must be a non-empty string")
-    defect_kind = case["defect_kind"]
-    if defect_kind not in CALIBRATION_DEFECT_CLAUSES:
-        raise ValueError(f"unknown calibration defect kind {defect_kind!r}")
-    if case["operation_fixture"] != f"public-lifecycle:{defect_kind}":
-        raise ValueError("calibration operation fixture is not bound to its defect")
-    intended = case["intended_failed_clauses"]
-    if intended != list(CALIBRATION_DEFECT_CLAUSES[defect_kind]):
-        raise ValueError("calibration intended clauses drifted from operation contract")
-
-
-def derive_calibration_error_observation(
-    case: Mapping[str, Any], error: EvaluatorError
-) -> dict[str, Any]:
-    """Expose a typed mechanism failure without consulting the defect label."""
-
-    validate_calibration_case(case)
-    if not isinstance(error, EvaluatorObservationError):
-        raise ValueError("calibration failure is not a typed mechanism observation")
-    return error.as_observation()

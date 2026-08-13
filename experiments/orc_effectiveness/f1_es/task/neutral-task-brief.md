@@ -43,6 +43,11 @@ evaluator independently derives precedence, transactional behavior, strictness,
 consumer closure, provenance, cross-surface coherence, bypass classification,
 and pass/fail state.
 
+The candidate evidence also declares the four fixed evaluation hooks defined by
+its schema. Each hook accepts one JSON object and returns one JSON object; hooks
+expose product behavior and test seams only, never observations or verdicts.
+The evaluator invokes and audits the described product targets independently.
+
 Request paths are relative to the directory containing `request.json`; result
 paths are relative to the directory containing `result.json`. Do not assume a
 module name, class hierarchy, record nesting, file count, or internal

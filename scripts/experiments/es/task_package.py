@@ -73,6 +73,12 @@ F1_HARD_CLAUSE_IDS = (
     "F1-H09-CROSS-SURFACE-COHERENCE",
     "F1-H10-BYPASS-ORACLE",
 )
+F1_EVALUATION_HOOK_IDS = (
+    "CONFIG_SURFACE",
+    "CONFIG_CARRIER",
+    "TORCH_TRANSACTION",
+    "SIMULATION_DERIVATION",
+)
 
 _CONTROLLED_GIT_ENVIRONMENT_NAMES = frozenset(
     {
@@ -1408,6 +1414,14 @@ def load_candidate_config_evidence(path: Path) -> dict[str, object]:
             observed_roles,
             "public routes must partition every configuration role once in order",
         )
+    hooks = cast(list[dict[str, object]], payload["evaluation_hooks"])
+    hook_ids = tuple(str(row["hook_id"]) for row in hooks)
+    if hook_ids != F1_EVALUATION_HOOK_IDS:
+        raise TaskPackageError(
+            "candidate_evidence_hook_mismatch",
+            hook_ids,
+            "evaluation hooks must enumerate the exact four-hook ABI once in order",
+        )
     claims = cast(list[dict[str, object]], payload["claims"])
     claim_ids = tuple(str(row["clause_id"]) for row in claims)
     if claim_ids != F1_HARD_CLAUSE_IDS:
@@ -1487,11 +1501,12 @@ def load_config_resolution_probe_request(
             observed_ids,
             "probe cases must match the evaluator-derived order exactly",
         )
-    paths = tuple(
-        str(cast(dict[str, str], row[binding])["path"])
+    bindings = tuple(
+        cast(dict[str, str], row[binding])
         for row in rows
         for binding in ("file_mapping", "cli_patch")
     )
+    paths = tuple(str(binding["path"]) for binding in bindings)
     for bound_path in paths:
         _safe_relative_path(bound_path, label="probe input path is unsafe")
     if len(paths) != len(set(paths)):
@@ -1500,6 +1515,30 @@ def load_config_resolution_probe_request(
             paths,
             "probe input paths must be unique",
         )
+    request_root = request_path.parent.resolve(strict=True)
+    for binding in bindings:
+        input_path = request_root / binding["path"]
+        try:
+            resolved_input = input_path.resolve(strict=True)
+            resolved_input.relative_to(request_root)
+        except (OSError, ValueError) as exc:
+            raise TaskPackageError(
+                "config_resolution_probe_path_invalid",
+                binding["path"],
+                "probe input must resolve inside the request directory",
+            ) from exc
+        if input_path.is_symlink() or not resolved_input.is_file():
+            raise TaskPackageError(
+                "config_resolution_probe_path_invalid",
+                binding["path"],
+                "probe input must be one regular non-symlink file",
+            )
+        if _digest(resolved_input) != binding["sha256"]:
+            raise TaskPackageError(
+                "config_resolution_probe_input_digest_mismatch",
+                binding["path"],
+                "probe input digest disagrees with the request binding",
+            )
     return payload
 
 
@@ -1796,6 +1835,61 @@ def scan_configuration_consumers(
         "projection": {"commit": commit, "tree": tree},
         "rows": rows,
         "schema_version": "configuration_consumer_census.v1",
+    }
+
+
+def scan_workspace_configuration_consumers(repository: Path) -> dict[str, object]:
+    """Run the frozen configuration detector against one materialized candidate."""
+
+    root = Path(repository).resolve(strict=True)
+    if not root.is_dir() or root.is_symlink():
+        raise TaskPackageError(
+            "configuration_census_workspace_invalid",
+            str(root),
+            "candidate workspace must be one real directory",
+        )
+    all_rows: list[dict[str, object]] = []
+    responsibility_paths: set[str] = set()
+    physical_lines = 0
+    for candidate in sorted(root.rglob("*.py")):
+        relative = candidate.relative_to(root).as_posix()
+        if not relative.startswith(_CONFIGURATION_ROOTS) or relative.startswith(
+            "scripts/orchestration/"
+        ):
+            continue
+        try:
+            source = candidate.read_bytes()
+            tree_node = ast.parse(source, filename=relative)
+        except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+            raise TaskPackageError(
+                "configuration_census_parse_failed",
+                relative,
+                "candidate production Python could not be parsed",
+            ) from exc
+        blob_oid = _git_object_id("blob", source)
+        visitor = _ConfigurationConsumerVisitor(relative, blob_oid)
+        visitor.visit(tree_node)
+        if visitor.rows:
+            responsibility_paths.add(relative)
+            physical_lines += len(source.decode("utf-8").splitlines())
+            all_rows.extend(visitor.rows)
+    rows = sorted(
+        all_rows,
+        key=lambda row: (
+            str(row["path"]),
+            int(cast(dict[str, int], row["source_span"])["start_line"]),
+            int(cast(dict[str, int], row["source_span"])["start_col"]),
+            str(row["match_kind"]),
+            str(row["consumer_id"]),
+        ),
+    )
+    return {
+        "consumer_count": len(rows),
+        "detector": {"id": "python-ast-configuration-consumer", "version": "1"},
+        "production_responsibility_paths": sorted(responsibility_paths),
+        "production_responsibility_physical_lines": physical_lines,
+        "rows": rows,
+        "schema_version": "configuration_consumer_workspace_scan.v1",
     }
 
 

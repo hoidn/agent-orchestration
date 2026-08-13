@@ -10,6 +10,7 @@ import re
 from typing import Any, NoReturn
 
 from . import f1_evaluator
+from .task_package import F1_CONFIG_RESOLUTION_ROLES, F1_EVALUATION_HOOK_IDS
 
 
 PRIMARY_OUTCOMES = ("RICH", "DIRECT", "TIE", "INDETERMINATE")
@@ -388,14 +389,14 @@ class HardEvaluationFreeze:
             self.candidate_id
         ):
             _fail("ES hard evaluation candidate binding disagrees")
-        if evaluation.get("schema_version") != "es-f1-hard-evaluation.v2":
+        if evaluation.get("schema_version") != "es-f1-hard-evaluation.v3":
             _fail("ES hard evaluation schema is unsupported")
         findings = evaluation.get("hard_findings")
         if not isinstance(findings, list):
             _fail("ES hard evaluation findings are invalid")
         if any(
             not isinstance(row, dict)
-            or row.get("schema_version") != "es-f1-hard-finding.v2"
+            or row.get("schema_version") != "es-f1-hard-finding.v3"
             for row in findings
         ):
             _fail("ES hard finding schema is unsupported")
@@ -464,15 +465,28 @@ def derive_hard_evaluation(
     if not isinstance(candidate_claims, Mapping):
         _fail("ES hard candidate claims must be an object")
     claims = _canonical_copy(dict(candidate_claims))
+    hooks = claims.get("evaluation_hooks")
+    if (
+        not isinstance(hooks, list)
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {"hook_id", "symbol"}
+            or not isinstance(row["symbol"], str)
+            or not row["symbol"]
+            for row in hooks
+        )
+        or tuple(row["hook_id"] for row in hooks) != F1_EVALUATION_HOOK_IDS
+    ):
+        _fail("ES hard candidate evaluation hook table is not exact")
     candidate_id = claims.get("candidate_id")
     if not isinstance(candidate_id, str) or _OPAQUE_LABEL_RE.fullmatch(
         candidate_id
     ) is None:
         _fail("ES hard candidate_id must be one opaque E2 label")
-    if type(frozen_registry) is not set or any(
-        not isinstance(value, str) or not value for value in frozen_registry
+    if type(frozen_registry) is not set or frozen_registry != set(
+        F1_CONFIG_RESOLUTION_ROLES
     ):
-        _fail("ES hard frozen registry must be an exact nonempty string set")
+        _fail("ES hard frozen configuration-role registry is not exact")
     product_freeze = _require_digest(
         trusted_product_freeze_digest,
         field_name="trusted_product_freeze_digest",

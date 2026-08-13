@@ -15,22 +15,26 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY_ROOT))
 
-from scripts.experiments.es import task_package
+from scripts.experiments.es.task_package import (  # noqa: E402
+    F1_CONFIG_RESOLUTION_ROLES,
+    F1_EVALUATION_HOOK_IDS,
+)
 
-FAILED_CLAUSE = "F1-H09-CONSTRUCTION-REBUILD-EQUALITY"
-OTHER_FAILED_CLAUSE = "F1-H10-OWNERSHIP-BOUNDARY"
+FAILED_CLAUSE = "F1-H09-CROSS-SURFACE-COHERENCE"
+OTHER_FAILED_CLAUSE = "F1-H10-BYPASS-ORACLE"
 HARD_CLAUSE_IDS = (
     "F1-H01-FOCUSED-SUITES",
     "F1-H02-SCHEMA-CONFORMANCE",
-    "F1-H03-BUILTIN-SIGNATURES",
-    "F1-H04-ARTIFACT-ERA-COMPATIBILITY",
-    "F1-H05-FULL-ARCHITECTURE-LIFECYCLE",
-    "F1-H06-STRUCTURAL-ROUNDTRIP",
-    "F1-H07-STRUCTURAL-IDENTITY-REJECTION",
-    "F1-H08-STRUCTURAL-IDENTITY-SENSITIVITY",
+    "F1-H03-PUBLIC-RESOLUTION",
+    "F1-H04-TRANSACTIONAL-APPLICATION",
+    "F1-H05-STRICT-INPUT-CONTRACT",
+    "F1-H06-DERIVED-PUBLIC-FIELDS",
+    "F1-H07-CONSUMER-CLOSURE",
+    "F1-H08-PROVENANCE-ROUNDTRIP",
     FAILED_CLAUSE,
     OTHER_FAILED_CLAUSE,
 )
+FROZEN_CONFIG_ROLES = set(F1_CONFIG_RESOLUTION_ROLES)
 RICH_LABEL = "opaque-" + "1" * 64
 DIRECT_LABEL = "opaque-" + "2" * 64
 PRODUCT_FREEZE_DIGEST = "sha256:" + "3" * 64
@@ -60,67 +64,36 @@ def _digest(value: Any) -> str:
 
 
 def _candidate_claims(candidate_id: str) -> dict[str, Any]:
-    construction_route = "ptycho_torch.generators.registry.resolve_generator"
-    persisted_route = (
-        "ptycho_torch.application_factory.build_ptychopinn_application"
-    )
-
-    def builtin(architecture_id: str) -> dict[str, Any]:
-        return {
-            "construction_route": construction_route,
-            "persisted_rebuild_route": persisted_route,
-            "public_id": architecture_id,
-            "structural_fields": [
-                {
-                    "alternate_value": f"{architecture_id}-alternate",
-                    "baseline_value": architecture_id,
-                    "name": "architecture",
-                }
-            ],
-        }
-
     return {
-        "architecture_decision_path": "docs/architecture.md",
-        "builtin_architectures": [
-            builtin(architecture_id)
-            for architecture_id in task_package.F1_BUILTIN_ARCHITECTURES
-        ],
         "candidate_id": candidate_id,
-        "candidate_witness": {
-            "construction_route": construction_route,
-            "persisted_rebuild_route": persisted_route,
-            "public_id": "es_f1_witness",
-            "structural_fields": [
-                {
-                    "alternate_value": 3,
-                    "baseline_value": 2,
-                    "name": "es_f1_depth",
-                }
-            ],
+        "configuration_decision_path": "docs/adr/es-f1-config.md",
+        "migration_guide_path": "docs/guides/es-f1-config.md",
+        "fixed_outputs": {
+            "adapter_path": "scripts/es_f1_config_resolution_adapter.py",
+            "candidate_test_path": "tests/test_es_f1_config_ownership.py",
         },
+        "evaluation_hooks": [
+            {
+                "hook_id": hook_id,
+                "symbol": f"candidate.hooks.{hook_id.lower()}",
+            }
+            for hook_id in F1_EVALUATION_HOOK_IDS
+        ],
+        "public_resolution_routes": [
+            {
+                "roles": list(F1_CONFIG_RESOLUTION_ROLES),
+                "symbol": "ptycho.config.resolution.resolve_config",
+            }
+        ],
         "claims": [
             {
                 "clause_id": clause_id,
                 "evidence_paths": ["tests/control.json"],
                 "scope": "IMPLEMENTED",
             }
-            for clause_id in task_package.F1_HARD_CLAUSE_IDS
+            for clause_id in HARD_CLAUSE_IDS
         ],
-        "extension_author_guide_path": "docs/extension-guide.md",
-        "fixed_outputs": {
-            "candidate_test_path": "tests/torch/test_es_f1_extension_boundary.py",
-            "lifecycle_adapter_path": "scripts/es_f1_lifecycle_adapter.py",
-        },
-        "ownership": {
-            "excludes": ["PHYSICS", "LOSS", "SCALING", "DATA_OWNERSHIP"],
-            "owns": [
-                "ARCHITECTURE_IDENTITY",
-                "STRUCTURAL_CONFIGURATION",
-                "CONSTRUCTION",
-                "PERSISTENCE_MIGRATION",
-            ],
-        },
-        "schema_version": "candidate_extension_evidence.v2",
+        "schema_version": "candidate_config_evidence.v2",
     }
 
 
@@ -217,13 +190,98 @@ def _derive(
         candidate_claims=_candidate_claims(candidate_id),
         evaluator_observations=_observations(*failed_clauses),
         proof_rows=proof_rows or [],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
         fixture_identity_digest=FIXTURE_IDENTITY_DIGEST,
         frozen_proof_authority=authority,
     )
+
+
+@pytest.mark.parametrize(
+    "frozen_roles",
+    [
+        FROZEN_CONFIG_ROLES - {"INFERENCE"},
+        FROZEN_CONFIG_ROLES | {"EVALUATION"},
+    ],
+)
+def test_configuration_role_domain_is_exact_before_evaluator(
+    hard_contract: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    frozen_roles: set[str],
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def forbidden_evaluation(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        raise AssertionError("evaluate_observations must not be called")
+
+    monkeypatch.setattr(
+        hard_contract.f1_evaluator,
+        "evaluate_observations",
+        forbidden_evaluation,
+    )
+
+    with pytest.raises(hard_contract.HardContractError, match="role"):
+        hard_contract.derive_hard_evaluation(
+            candidate_claims=_candidate_claims(RICH_LABEL),
+            evaluator_observations=_observations(),
+            proof_rows=[],
+            frozen_registry=set(frozen_roles),
+            trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
+            evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
+            task_identity_digest=TASK_IDENTITY_DIGEST,
+            fixture_identity_digest=FIXTURE_IDENTITY_DIGEST,
+        )
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "hook_ids",
+    [
+        (),
+        F1_EVALUATION_HOOK_IDS[:-1],
+        tuple(reversed(F1_EVALUATION_HOOK_IDS)),
+        (*F1_EVALUATION_HOOK_IDS, "EXTRA"),
+    ],
+)
+def test_candidate_evidence_requires_exact_four_hooks_before_evaluator(
+    hard_contract: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    hook_ids: tuple[str, ...],
+) -> None:
+    claims = _candidate_claims(RICH_LABEL)
+    claims["evaluation_hooks"] = [
+        {"hook_id": hook_id, "symbol": f"candidate.hooks.{hook_id.lower()}"}
+        for hook_id in hook_ids
+    ]
+    calls: list[dict[str, Any]] = []
+
+    def forbidden_evaluation(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        raise AssertionError("evaluate_observations must not be called")
+
+    monkeypatch.setattr(
+        hard_contract.f1_evaluator,
+        "evaluate_observations",
+        forbidden_evaluation,
+    )
+
+    with pytest.raises(hard_contract.HardContractError, match="hook"):
+        hard_contract.derive_hard_evaluation(
+            candidate_claims=claims,
+            evaluator_observations=_observations(),
+            proof_rows=[],
+            frozen_registry=set(FROZEN_CONFIG_ROLES),
+            trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
+            evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
+            task_identity_digest=TASK_IDENTITY_DIGEST,
+            fixture_identity_digest=FIXTURE_IDENTITY_DIGEST,
+        )
+
+    assert calls == []
 
 
 @pytest.mark.parametrize("mutation", ["evaluation-predecessor", "finding-predecessor"])
@@ -236,15 +294,15 @@ def test_hard_freeze_rejects_predecessor_and_mixed_inner_versions(
         RICH_LABEL,
         failed_clauses=(FAILED_CLAUSE,),
     )
-    assert freeze.evaluation["schema_version"] == "es-f1-hard-evaluation.v2"
+    assert freeze.evaluation["schema_version"] == "es-f1-hard-evaluation.v3"
     assert {
         finding["schema_version"] for finding in freeze.evaluation["hard_findings"]
-    } == {"es-f1-hard-finding.v2"}
+    } == {"es-f1-hard-finding.v3"}
     evaluation = deepcopy(freeze.evaluation)
     if mutation == "evaluation-predecessor":
-        evaluation["schema_version"] = "es-f1-hard-evaluation.v1"
+        evaluation["schema_version"] = "es-f1-hard-evaluation.v2"
     else:
-        evaluation["hard_findings"][0]["schema_version"] = "es-f1-hard-finding.v1"
+        evaluation["hard_findings"][0]["schema_version"] = "es-f1-hard-finding.v2"
     evaluation_digest = _digest(evaluation)
     digest_record = {
         **freeze.record,
@@ -300,7 +358,7 @@ def test_controller_derives_default_and_exact_non_product_dispositions(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=rows,
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -351,7 +409,7 @@ def test_fabricated_well_formed_proof_digests_become_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -395,7 +453,7 @@ def test_tampered_proof_authority_key_becomes_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -427,7 +485,7 @@ def test_proof_authority_identity_must_match_current_controller_identity(
             candidate_claims=_candidate_claims(RICH_LABEL),
             evaluator_observations=observations,
             proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+            frozen_registry=set(FROZEN_CONFIG_ROLES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -455,7 +513,7 @@ def test_hard_evaluation_binds_canonical_proof_authority_digest(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -510,7 +568,7 @@ def test_missing_or_inexact_non_product_authority_becomes_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -544,7 +602,7 @@ def test_multiple_or_conflicting_non_product_proofs_become_unresolved(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=rows,
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -582,7 +640,7 @@ def test_candidate_or_provider_authored_disposition_is_rejected(
             candidate_claims=claims,
             evaluator_observations=observations,
             proof_rows=proof_rows,
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+            frozen_registry=set(FROZEN_CONFIG_ROLES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -620,7 +678,7 @@ def test_incomplete_or_malformed_clause_coverage_never_reaches_evaluator(
             candidate_claims=_candidate_claims(RICH_LABEL),
             evaluator_observations=observations,
             proof_rows=[],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+            frozen_registry=set(FROZEN_CONFIG_ROLES),
             trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
             evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
             task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -638,7 +696,7 @@ def test_hard_evaluation_freezes_canonical_input_bytes(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -747,7 +805,7 @@ def test_one_sided_product_or_unresolved_blocker_only_blocks_that_winner(
         candidate_claims=_candidate_claims(candidate_id),
         evaluator_observations=observations,
         proof_rows=proof_rows,
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -845,7 +903,7 @@ def test_exact_non_product_findings_do_not_become_primary_blockers(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,
@@ -900,7 +958,7 @@ def test_primary_override_rejects_cross_authority_freeze_pair(
         candidate_claims=_candidate_claims(DIRECT_LABEL),
         evaluator_observations=_observations(),
         proof_rows=[],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest="sha256:" + "c" * 64,
@@ -930,7 +988,7 @@ def test_primary_override_rejects_cross_proof_authority_catalog(
         candidate_claims=_candidate_claims(RICH_LABEL),
         evaluator_observations=observations,
         proof_rows=[proof],
-        frozen_registry=set(task_package.F1_BUILTIN_ARCHITECTURES),
+        frozen_registry=set(FROZEN_CONFIG_ROLES),
         trusted_product_freeze_digest=PRODUCT_FREEZE_DIGEST,
         evaluator_identity_digest=EVALUATOR_IDENTITY_DIGEST,
         task_identity_digest=TASK_IDENTITY_DIGEST,

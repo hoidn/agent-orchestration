@@ -69,6 +69,12 @@ BYPASSES = (
     "TOLERANT_OR_COMPATIBILITY_LOADER",
     "LEGACY_CONFIGURATION_STATE_MUTATION",
 )
+HOOKS = (
+    "CONFIG_SURFACE",
+    "CONFIG_CARRIER",
+    "TORCH_TRANSACTION",
+    "SIMULATION_DERIVATION",
+)
 
 
 def _evidence(*, split_routes: bool = True) -> dict[str, object]:
@@ -94,13 +100,17 @@ def _evidence(*, split_routes: bool = True) -> dict[str, object]:
             for clause in CLAUSES
         ],
         "configuration_decision_path": "docs/configuration-decision.md",
+        "evaluation_hooks": [
+            {"hook_id": hook_id, "symbol": f"candidate.hooks.{hook_id.lower()}"}
+            for hook_id in HOOKS
+        ],
         "fixed_outputs": {
             "adapter_path": "scripts/es_f1_config_resolution_adapter.py",
             "candidate_test_path": "tests/test_es_f1_config_ownership.py",
         },
         "migration_guide_path": "docs/configuration-migration.md",
         "public_resolution_routes": routes,
-        "schema_version": "candidate_config_evidence.v1",
+        "schema_version": "candidate_config_evidence.v2",
     }
 
 
@@ -152,6 +162,19 @@ def _write_evidence_and_request(tmp_path: Path, request: dict[str, object]) -> P
     request["candidate_evidence_sha256"] = (
         "sha256:" + hashlib.sha256(evidence_bytes).hexdigest()
     )
+    for row in cast(list[dict[str, object]], request["probe_cases"]):
+        for binding_name in ("file_mapping", "cli_patch"):
+            binding = cast(dict[str, str], row[binding_name])
+            bound_path = tmp_path / binding["path"]
+            bound_path.parent.mkdir(parents=True, exist_ok=True)
+            bound_path.write_bytes(
+                task_package.canonical_json_bytes(
+                    {"case_id": row["case_id"], "source": binding_name}
+                )
+            )
+            binding["sha256"] = "sha256:" + hashlib.sha256(
+                bound_path.read_bytes()
+            ).hexdigest()
     path = tmp_path / "request.json"
     path.write_bytes(task_package.canonical_json_bytes(request))
     return path
@@ -181,7 +204,7 @@ def test_checked_in_v3_visible_package_is_coherent() -> None:
     assert tuple(row["id"] for row in contract["hard_contract"]) == CLAUSES
     assert profile.required_task_seed_schema_version == "es_f1_task_seed.v3"
     assert contract["consumer_census"]["delivered_to_candidate"] is False
-    assert contract["probe_authority"] == "path-only-candidate-surface.v1"
+    assert contract["probe_authority"] == "path-only-adapter-plus-product-hooks.v2"
 
 
 def test_provider_visible_bytes_exclude_reference_and_scale_authority() -> None:
@@ -213,6 +236,21 @@ def test_candidate_evidence_accepts_one_or_multiple_public_routes(
     path.write_bytes(
         task_package.canonical_json_bytes(_evidence(split_routes=split_routes))
     )
+
+
+def test_candidate_evidence_requires_exact_ordered_four_hook_table(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "evidence.json"
+    payload = _evidence()
+    path.write_bytes(task_package.canonical_json_bytes(payload))
+
+    loaded = task_package.load_candidate_config_evidence(path)
+
+    assert loaded["evaluation_hooks"] == [
+        {"hook_id": hook_id, "symbol": f"candidate.hooks.{hook_id.lower()}"}
+        for hook_id in HOOKS
+    ]
     assert (
         task_package.load_candidate_config_evidence(path)["candidate_id"]
         == "candidate-a"
@@ -280,6 +318,28 @@ def test_probe_request_and_result_are_path_only_and_context_bound(
         and "observations" not in loaded
         and "provenance" not in loaded
     )
+
+
+@pytest.mark.parametrize("binding_name", ["file_mapping", "cli_patch"])
+def test_probe_request_rejects_bound_input_byte_tamper(
+    tmp_path: Path, binding_name: str
+) -> None:
+    case_ids = ("file_then_cli", "inference_file")
+    request = _request(case_ids)
+    request_path = _write_evidence_and_request(tmp_path, request)
+    first = cast(list[dict[str, object]], request["probe_cases"])[0]
+    binding = cast(dict[str, str], first[binding_name])
+    (tmp_path / binding["path"]).write_bytes(b"{}\n")
+
+    with pytest.raises(
+        task_package.TaskPackageError,
+        match="input.*digest|digest.*input",
+    ):
+        task_package.load_config_resolution_probe_request(
+            request_path,
+            expected_candidate_id="candidate-a",
+            expected_case_ids=case_ids,
+        )
 
 
 @pytest.mark.parametrize(
