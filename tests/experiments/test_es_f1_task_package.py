@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -25,6 +26,17 @@ SELECTORS = EVIDENCE_ROOT / "preedit-selector-manifest.json"
 PROJECTION = Path(
     "/home/ollie/.local/state/orchestrator/es-source-projections/"
     "git-sha1/8f191031f233d50a4d020d8a988036e99487f570"
+)
+TASK_SEED = F1_ROOT / "task-seed-manifest.json"
+PREDECESSOR_TASK_SEED_COMMIT = "4b5abddacacbf71eb508be94220dfd350ed5a5fb"
+PREDECESSOR_TASK_SEED = Path(
+    "/home/ollie/.local/state/orchestrator/es-task-seeds/"
+    f"git-sha1/{PREDECESSOR_TASK_SEED_COMMIT}"
+)
+LIVE_PTYCHOPINN = Path("/home/ollie/Documents/PtychoPINN")
+CAMPAIGN_COMMITS = (
+    "7d630bcc14191ec5f8206a9ceb097a62a1c011c6",
+    "015ca6e93d78c5f7f42adf0cae883d895de5f80c",
 )
 SELECTOR_PATHS = (
     "tests/test_simulation_config.py",
@@ -572,13 +584,136 @@ def test_selector_manifest_freezes_exact_green_projection_baseline() -> None:
     )
 
 
-def test_predecessor_seed_is_not_execution_ready_during_task1() -> None:
-    with pytest.raises(task_package.TaskPackageError) as caught:
-        task_package.load_execution_ready_task_profile(
-            PROFILE,
-            task_seed_manifest_path=F1_ROOT / "task-seed-manifest.json",
+def test_v3_seed_is_execution_ready_after_task3() -> None:
+    profile = task_package.load_execution_ready_task_profile(
+        PROFILE,
+        task_seed_manifest_path=F1_ROOT / "task-seed-manifest.json",
+    )
+    assert profile.required_task_seed_schema_version == "es_f1_task_seed.v3"
+
+
+def test_checked_in_v3_seed_is_one_exact_projection_child() -> None:
+    manifest = task_package.load_task_seed_manifest(TASK_SEED)
+
+    assert manifest.raw["schema_version"] == "es_f1_task_seed.v3"
+    assert manifest.raw["recipe"]["policy"] == "es-f1-task-seed.v3"
+    assert manifest.parent_commit == "8f191031f233d50a4d020d8a988036e99487f570"
+    assert manifest.parent_tree == "e64f3c05f5a0894f41c047d128a9040a2cda6764"
+    assert tuple(row.source_path for row in manifest.visible_assets) == (
+        "experiments/orc_effectiveness/f1_es/task/candidate-config-evidence.schema.json",
+        "experiments/orc_effectiveness/f1_es/task/config-resolution-probe-request.schema.json",
+        "experiments/orc_effectiveness/f1_es/task/config-resolution-probe-result.schema.json",
+        "experiments/orc_effectiveness/f1_es/task/neutral-task-brief.md",
+        "experiments/orc_effectiveness/f1_es/task/visible-check-manifest.json",
+        "experiments/orc_effectiveness/f1_es/task/visible-check-manifest.schema.json",
+        "experiments/orc_effectiveness/f1_es/task/visible-task-contract.json",
+        "experiments/orc_effectiveness/f1_es/task/visible-task-contract.schema.json",
+    )
+    history = subprocess.check_output(
+        ("git", "-C", str(manifest.locator), "rev-list", "--parents", "--all"),
+        text=True,
+    ).splitlines()
+    assert history == [
+        f"{manifest.commit} {manifest.parent_commit}",
+        manifest.parent_commit,
+    ]
+    for forbidden in (PREDECESSOR_TASK_SEED_COMMIT, *CAMPAIGN_COMMITS):
+        assert subprocess.run(
+            ("git", "-C", str(manifest.locator), "cat-file", "-e", forbidden),
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0
+
+
+def test_v3_seed_reproduces_twice_without_reading_the_live_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = task_package.load_task_seed_manifest(TASK_SEED)
+    parent_before = task_package.directory_snapshot_digest(manifest.parent_locator)
+    predecessor_before = task_package.directory_snapshot_digest(PREDECESSOR_TASK_SEED)
+    original_read_bytes = Path.read_bytes
+    original_run = subprocess.run
+    original_popen = subprocess.Popen
+
+    def reject_live_path(value: object) -> None:
+        if isinstance(value, (str, os.PathLike)):
+            assert not Path(value).resolve(strict=False).is_relative_to(LIVE_PTYCHOPINN)
+
+    def guarded_read_bytes(path: Path) -> bytes:
+        reject_live_path(path)
+        return original_read_bytes(path)
+
+    def guarded_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        command = args[0] if args else kwargs.get("args")
+        if isinstance(command, (tuple, list)):
+            for value in command:
+                reject_live_path(value)
+        reject_live_path(kwargs.get("cwd"))
+        return original_run(*args, **kwargs)  # type: ignore[return-value]
+
+    def guarded_popen(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        command = args[0] if args else kwargs.get("args")
+        if isinstance(command, (tuple, list)):
+            for value in command:
+                reject_live_path(value)
+        reject_live_path(kwargs.get("cwd"))
+        return original_popen(*args, **kwargs)  # type: ignore[return-value]
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+    monkeypatch.setattr(subprocess, "run", guarded_run)
+    monkeypatch.setattr(subprocess, "Popen", guarded_popen)
+    roots = tuple((tmp_path / name).resolve() for name in ("seed-a", "seed-b"))
+    created = tuple(
+        task_package.materialize_task_seed(manifest, storage_root=root)
+        for root in roots
+    )
+    verified = tuple(
+        task_package.verify_task_seed(result.locator, manifest) for result in created
+    )
+    assert all(not result.reused for result in created)
+    assert {
+        (result.commit, result.tree, result.object_count, result.unreachable_object_count)
+        for result in verified
+    } == {(manifest.commit, manifest.tree, manifest.object_count, 0)}
+    inventories = tuple(
+        subprocess.run(
+            (
+                "git", "-C", str(result.locator), "cat-file",
+                "--batch-all-objects", "--batch-check=%(objectname) %(objecttype)",
+            ),
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        for result in created
+    )
+    assert inventories[0] == inventories[1]
+    assert {
+        task_package.directory_snapshot_digest(result.locator) for result in created
+    } == {manifest.repository_snapshot_digest}
+
+    from orchestrator.workflow.run_ref.source import SourceRequest, materialize_source
+
+    materialized = tuple(
+        materialize_source(
+            SourceRequest(locator=str(result.locator), commit=manifest.commit),
+            run_ref_root=(tmp_path / f"run-ref-{index}").resolve(),
+            workspace=(tmp_path / f"workspace-{index}").resolve(),
         )
-    assert caught.value.code == "task_package_seed_not_ready"
+        for index, result in enumerate(created)
+    )
+    assert {result.resolved_commit_sha for result in materialized} == {manifest.commit}
+    assert {result.verified_git_tree.value for result in materialized} == {
+        f"git-tree:{manifest.tree}"
+    }
+    assert {result.source_tree_manifest.digest for result in materialized} == {
+        manifest.e1_source_manifest_digest
+    }
+    assert {result.post_setup_tree_manifest.digest for result in materialized} == {
+        manifest.e1_post_setup_manifest_digest
+    }
+    assert task_package.directory_snapshot_digest(manifest.parent_locator) == parent_before
+    assert task_package.directory_snapshot_digest(PREDECESSOR_TASK_SEED) == predecessor_before
 
 
 def test_all_task1_schemas_are_closed_and_valid() -> None:

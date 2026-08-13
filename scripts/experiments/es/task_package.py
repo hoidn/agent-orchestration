@@ -1318,7 +1318,7 @@ def load_task_seed_manifest(path: Path) -> TaskSeedManifest:
         "E-series F1 deterministic task seed\n\n"
         f"Projection-Commit: {parent['commit']}\n"
         f"Visible-Assets-SHA256: {rows_digest.removeprefix('sha256:')}\n"
-        "Task-Seed-Policy: es-f1-task-seed.v2\n"
+        "Task-Seed-Policy: es-f1-task-seed.v3\n"
     ).encode("utf-8")
     if message != expected_message:
         raise TaskPackageError(
