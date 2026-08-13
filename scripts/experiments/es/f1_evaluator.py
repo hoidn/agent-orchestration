@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 import base64
 import builtins
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import hashlib
 import importlib
 import json
@@ -2632,6 +2632,84 @@ def walk_consumer_routes(
     }
 
 
+def _is_plain_generated_dataclass(
+    node: ast.ClassDef,
+    resolve_name: Callable[[ast.AST], str | None],
+) -> bool:
+    """Return whether construction is the unwrapped stdlib-generated initializer."""
+
+    if node.bases or node.keywords or len(node.decorator_list) != 1:
+        return False
+    decorator = node.decorator_list[0]
+    if resolve_name(decorator.func if isinstance(decorator, ast.Call) else decorator) != (
+        "dataclasses.dataclass"
+    ):
+        return False
+    if isinstance(decorator, ast.Call):
+        if decorator.args or any(keyword.arg is None for keyword in decorator.keywords):
+            return False
+        init = [keyword.value for keyword in decorator.keywords if keyword.arg == "init"]
+        if len(init) > 1 or (
+            init
+            and not (
+                isinstance(init[0], ast.Constant) and init[0].value is True
+            )
+        ):
+            return False
+    if any(
+        not (
+            isinstance(child, ast.AnnAssign)
+            and isinstance(child.target, ast.Name)
+            and child.value is None
+            and child.simple == 1
+            or isinstance(child, ast.Pass)
+            or isinstance(child, ast.Expr)
+            and isinstance(child.value, ast.Constant)
+            and isinstance(child.value.value, str)
+        )
+        for child in node.body
+    ):
+        return False
+    return not any(
+        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and child.name in {"__new__", "__init__", "__post_init__", "__setattr__"}
+        for child in node.body
+    )
+
+
+def _has_module_class_attribute_mutation(
+    tree: ast.Module, node: ast.ClassDef
+) -> bool:
+    pending: list[ast.AST] = list(tree.body)
+    while pending:
+        child = pending.pop()
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(child, ast.Call) and (
+            isinstance(child.func, ast.Name)
+            and child.func.id == "setattr"
+            and child.args
+            and isinstance(child.args[0], ast.Name)
+            and child.args[0].id == node.name
+        ):
+            return True
+        if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
+            targets = (
+                child.targets
+                if isinstance(child, (ast.Assign, ast.Delete))
+                else (child.target,)
+            )
+            if any(
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == node.name
+                for target in targets
+            ):
+                return True
+        pending.extend(ast.iter_child_nodes(child))
+    return False
+
+
 def _module_functions(
     path: Path,
     module: str,
@@ -2790,9 +2868,14 @@ def _module_functions(
         if isinstance(decorator, ast.Call)
     ]
     class_base: dict[str, str | None] = {}
+    generated_dataclasses: set[str] = set()
     for symbol, node in classes:
         bases = tuple(filter(None, (name(base) for base in node.bases)))
         class_base[symbol] = bases[0] if len(bases) == 1 else None
+        if not _has_module_class_attribute_mutation(
+            tree, node
+        ) and _is_plain_generated_dataclass(node, name):
+            generated_dataclasses.add(symbol)
         initializer = next(
             (
                 f"{symbol}.__init__"
@@ -3032,7 +3115,7 @@ def _module_functions(
     exact_rows: list[tuple[Mapping[str, Any], str, ast.AST]] = []
     class_decorator_rows: list[tuple[Mapping[str, Any], ast.AST, ast.Call]] = []
     context_rows: list[tuple[str, str, set[str]]] = []
-    terminal_symbols: set[str] = {
+    terminal_symbols: set[str] = generated_dataclasses | {
         base
         for base in class_base.values()
         if base is not None and base in available_external_imports
@@ -3378,6 +3461,8 @@ def _module_functions(
                 )
             )
         )
+        if target in authority_symbols:
+            return target
         if not formals:
             return target
         context_symbol = f"@context:{target}:{','.join(formals)}"
@@ -3521,17 +3606,37 @@ def _module_functions(
             )
             if not any(relevant(value) for value in values):
                 continue
+            target = call_symbol(child, owner, binding_context)
+            if target in authority_symbols:
+                leaves.add(target)
+                continue
             callee = local_callee(child, owner, binding_context)
             if callee is None:
                 target = routed_call_symbol(
                     child, owner, relevant, binding_context
                 )
-                leaves.add(target)
                 arguments = (*child.args, *(item.value for item in child.keywords))
-                if not target.startswith("@") and (
+                tolerant = not target.startswith("@") and (
                     _is_tolerant_configuration_operation(target)
                     or _is_mapping_value_coercion(target, arguments)
-                ):
+                )
+                safe_dynamic_terminal = (
+                    isinstance(child.func, ast.Attribute)
+                    and relevant(child.func.value)
+                    and not tolerant
+                    and not has_imported_receiver(child, owner)
+                    and not (
+                        isinstance(child.func.value, ast.Name)
+                        and child.func.value.id in module_rebounds
+                    )
+                )
+                if safe_dynamic_terminal:
+                    target = (
+                        f"@terminal:{owner}:{child.lineno}:{child.col_offset}:{target}"
+                    )
+                    terminal_symbols.add(target)
+                leaves.add(target)
+                if tolerant:
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
                 continue
             formals = call_tainted_formals(
@@ -3738,9 +3843,36 @@ def _module_functions(
         calls: set[str] = set()
         contextual_bypasses: set[str] = set()
         for child in relevant_calls:
+            target = call_symbol(child, owner)
+            if target in authority_symbols:
+                calls.add(target)
+                continue
             callee = local_callee(child, owner)
             if callee is None:
-                calls.add(routed_call_symbol(child, owner, relevant))
+                target = routed_call_symbol(child, owner, relevant)
+                arguments = (*child.args, *(item.value for item in child.keywords))
+                tolerant = not target.startswith("@") and (
+                    _is_tolerant_configuration_operation(target)
+                    or _is_mapping_value_coercion(target, arguments)
+                )
+                if (
+                    isinstance(child.func, ast.Attribute)
+                    and (
+                        relevant(child.func.value)
+                        or isinstance(node, (ast.Attribute, ast.Subscript))
+                    )
+                    and not tolerant
+                    and not has_imported_receiver(child, owner)
+                    and not (
+                        isinstance(child.func.value, ast.Name)
+                        and child.func.value.id in module_rebounds
+                    )
+                ):
+                    target = (
+                        f"@terminal:{owner}:{child.lineno}:{child.col_offset}:{target}"
+                    )
+                    terminal_symbols.add(target)
+                calls.add(target)
                 continue
             formals = call_tainted_formals(
                 child,
@@ -3757,17 +3889,6 @@ def _module_functions(
             calls = {owner}
         graph[consumer_symbol] = sorted(filter(None, calls))
         terminal_symbols.update(calls & available_external_imports)
-        terminal_symbols.update(
-            call_symbol(child, owner)
-            for child in relevant_calls
-            if isinstance(child.func, ast.Attribute)
-            and local_callee(child, owner) is None
-            and not has_imported_receiver(child, owner)
-            and not (
-                isinstance(child.func.value, ast.Name)
-                and child.func.value.id in module_rebounds
-            )
-        )
 
         exact_bypasses: set[str] = set()
         for child in scoped_by_owner[owner]:
@@ -3823,6 +3944,15 @@ def _module_functions(
                 ):
                     exact_bypasses.add("LEGACY_CONFIGURATION_STATE_MUTATION")
         declared_bypasses = row.get("bypass_classes", ())
+        authority_bypasses = (
+            detect_ast_bypasses(
+                ast.get_source_segment(source, function_by_symbol[owner]) or "",
+                _tainted_names=tuple(origin_names),
+                _qualified_names=qualified_globals(owner),
+            )
+            if owner in authority_symbols
+            else ()
+        )
         classes = tuple(
             class_id
             for class_id in BYPASS_CLASSES
@@ -3830,6 +3960,7 @@ def _module_functions(
             or class_id in contextual_bypasses
             or class_id in module_bypasses
             or class_id in declared_bypasses
+            or class_id in authority_bypasses
         )
         if classes:
             bypasses[consumer_symbol] = classes
@@ -3897,7 +4028,7 @@ def _module_functions(
             for class_id in BYPASS_CLASSES
             if class_id in function_bypasses or class_id in module_bypasses
         )
-        if classes:
+        if classes and owner not in authority_symbols:
             bypasses[owner] = classes
     return (
         graph,
@@ -4097,6 +4228,12 @@ def _workspace_callable_index(
                     if owner == module and initializer_node is not None:
                         function_nodes[symbol] = (symbol, initializer_node, True)
                     elif owner == module:
+                        decorator = (
+                            "dataclasses.dataclass"
+                            if not _has_module_class_attribute_mutation(tree, node)
+                            and _is_plain_generated_dataclass(node, imported_symbol)
+                            else None
+                        )
                         base = (
                             imported_symbol(node.bases[0])
                             if len(node.bases) == 1
@@ -4106,7 +4243,11 @@ def _workspace_callable_index(
                             node.bases[0], ast.Name
                         ):
                             base = f"{module}.{node.bases[0].id}"
-                        function_nodes[symbol] = (base or symbol, None, True)
+                        function_nodes[symbol] = (
+                            decorator or base or symbol,
+                            None,
+                            True,
+                        )
                     collect(node.body, symbol)
 
         collect(tree.body, module)

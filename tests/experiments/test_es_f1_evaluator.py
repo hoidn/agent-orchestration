@@ -1152,6 +1152,271 @@ def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
     assert result["paired_consumer_count"] == 1
 
 
+def test_cross_module_context_treats_a_non_tolerant_value_method_as_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def helper(value): return value.as_dict()\n", encoding="utf-8"
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import helper\n"
+        "def consume(runtime_config):\n"
+        "    mode = runtime_config.mode\n"
+        "    return helper(mode)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "cross-module-context",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config.mode"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_declared_authority_is_not_reopened_as_a_tolerant_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return file_mapping\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "config.py").write_text(
+        "def resolve(file_mapping, cli_patch):\n"
+        "    return file_mapping.get('mode', 'strict')\n",
+        encoding="utf-8",
+    )
+    evidence = json.loads(evidence_path.read_bytes())
+    evidence["public_resolution_routes"] = [
+        {
+            "roles": ["SIMULATION", "TRAINING", "INFERENCE", "RUNTIME_EXECUTION"],
+            "symbol": "ptycho.config.resolve",
+        }
+    ]
+    evidence_path.write_bytes(evaluator.canonical_json_bytes(evidence))
+    path = package / "use_authority.py"
+    path.write_text(
+        "from ptycho.config import resolve\n"
+        "def helper(mapping): return resolve(mapping, {})\n"
+        "def consume(runtime_config):\n"
+        "    mapping = runtime_config.values\n"
+        "    return helper(mapping)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "authority-call",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/use_authority.py",
+        "public_entry_route": "ptycho.use_authority.consume",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 14,
+            "end_line": 4,
+            "end_col": 35,
+        },
+        "transitive_wrapper_chain": [
+            "ptycho.use_authority.consume",
+            "runtime_config.values",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_same_module_declared_authority_is_an_absorbing_sink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch):\n"
+            "    return file_mapping.get('mode', 'strict')\n"
+            "def helper(mapping): return resolve(mapping, {})\n"
+            "def consume(runtime_config):\n"
+            "    mapping = runtime_config.values\n"
+            "    return helper(mapping)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "authority-call",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 5,
+            "start_col": 14,
+            "end_line": 5,
+            "end_col": 35,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config.values"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_context_does_not_hide_a_dynamic_receiver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "def helper(adapter, value): return adapter.process(value)\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import helper\n"
+        "def consume(runtime_config, adapter):\n"
+        "    mode = runtime_config.mode\n"
+        "    return helper(adapter, mode)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "dynamic-receiver",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config.mode"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_dynamic_method_terminal_does_not_leak_between_consumers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "candidate/helper.py"
+    path.write_text(
+        "def first(value): return value.process()\n"
+        "def second(value, config): return value.process(config)\n",
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "consumer_id": "safe-receiver",
+            "match_kind": "CONFIGURATION_READ",
+            "path": "candidate/helper.py",
+            "public_entry_route": "candidate.helper.first",
+            "source_span": {
+                "start_line": 1,
+                "start_col": 25,
+                "end_line": 1,
+                "end_col": 30,
+            },
+            "transitive_wrapper_chain": ["candidate.helper.first", "value"],
+        },
+        {
+            "consumer_id": "dynamic-receiver",
+            "match_kind": "CONFIGURATION_READ",
+            "path": "candidate/helper.py",
+            "public_entry_route": "candidate.helper.second",
+            "source_span": {
+                "start_line": 2,
+                "start_col": 48,
+                "end_line": 2,
+                "end_col": 54,
+            },
+            "transitive_wrapper_chain": ["candidate.helper.second", "config"],
+        },
+    ]
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": rows},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": rows},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"] == ["dynamic-receiver"]
+
+
 def test_consumer_occurrences_reconcile_as_multisets() -> None:
     def row(consumer_id: str, line: int) -> dict[str, Any]:
         return {
@@ -2803,6 +3068,240 @@ def test_imported_external_terminal_consumes_a_resolved_value(
     )
 
     assert result["closed"] is True
+
+
+def test_workspace_dataclass_type_is_a_terminal_for_a_resolved_read(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
+            "def consume(runtime_config): return LocalRecord(runtime_config)\n"
+        ),
+    )
+    row = {
+        "consumer_id": "resolved-read",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": 6,
+            "start_col": 48,
+            "end_line": 6,
+            "end_col": 62,
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "record_source",
+    [
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "    def __new__(cls, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        return super().__new__(cls)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "    def __setattr__(self, name, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        object.__setattr__(self, name, value)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Base:\n"
+            "    def __post_init__(self):\n"
+            "        self.value.get('mode', 'default')\n"
+            "@dataclass\n"
+            "class LocalRecord(Base):\n"
+            "    value: object\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Base:\n"
+            "    def __init__(self, value):\n"
+            "        value.get('mode', 'default')\n"
+            "@dataclass(init=False)\n"
+            "class LocalRecord(Base):\n"
+            "    value: object\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "def wrapped(cls):\n"
+            "    def build(value):\n"
+            "        value.get('mode', 'default')\n"
+            "        return cls(value)\n"
+            "    return build\n"
+            "@wrapped\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Sink:\n"
+            "    def __set_name__(self, owner, name): self.name = '_' + name\n"
+            "    def __get__(self, instance, owner): return getattr(instance, self.name)\n"
+            "    def __set__(self, instance, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        setattr(instance, self.name, value)\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object = Sink()\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Sink:\n"
+            "    def __set_name__(self, owner, name): self.name = '_' + name\n"
+            "    def __get__(self, instance, owner): return getattr(instance, self.name)\n"
+            "    def __set__(self, instance, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        setattr(instance, self.name, value)\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "    value = Sink()\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Sink:\n"
+            "    def __set_name__(self, owner, name): self.name = '_' + name\n"
+            "    def __get__(self, instance, owner): return getattr(instance, self.name)\n"
+            "    def __set__(self, instance, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        setattr(instance, self.name, value)\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "LocalRecord.value = Sink()\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "class Sink:\n"
+            "    def __set_name__(self, owner, name): self.name = '_' + name\n"
+            "    def __get__(self, instance, owner): return getattr(instance, self.name)\n"
+            "    def __set__(self, instance, value):\n"
+            "        value.get('mode', 'default')\n"
+            "        setattr(instance, self.name, value)\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "if True:\n"
+            "    setattr(LocalRecord, 'value', Sink())\n"
+        ),
+    ],
+    ids=(
+        "new",
+        "setattr",
+        "inherited-post-init",
+        "init-false",
+        "wrapper",
+        "descriptor-default",
+        "descriptor-rebind",
+        "descriptor-post-definition-rebind",
+        "descriptor-conditional-setattr",
+    ),
+)
+def test_workspace_dataclass_construction_hooks_are_not_terminals(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    record_source: str,
+) -> None:
+    source = (
+        record_source
+        + "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
+        + "def consume(runtime_config): return LocalRecord(runtime_config)\n"
+    )
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=source,
+    )
+    consume_line = source.splitlines()[-1]
+    start_col = consume_line.rindex("runtime_config")
+    row = {
+        "consumer_id": "resolved-read",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "candidate/config.py",
+        "public_entry_route": "candidate.config.consume",
+        "source_span": {
+            "start_line": len(source.splitlines()),
+            "start_col": start_col,
+            "end_line": len(source.splitlines()),
+            "end_col": start_col + len("runtime_config"),
+        },
+        "transitive_wrapper_chain": ["candidate.config.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_workspace_dataclass_descriptor_is_caught_by_the_real_scanner(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "ptycho/consumer.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "from dataclasses import dataclass\n"
+        "class Sink:\n"
+        "    def __set_name__(self, owner, name): self.name = '_' + name\n"
+        "    def __get__(self, instance, owner): return getattr(instance, self.name)\n"
+        "    def __set__(self, instance, runtime_config):\n"
+        "        runtime_config.get('mode', 'default')\n"
+        "        setattr(instance, self.name, runtime_config)\n"
+        "@dataclass\n"
+        "class LocalRecord:\n"
+        "    value: object\n"
+        "if True:\n"
+        "    setattr(LocalRecord, 'value', Sink())\n"
+        "def consume(runtime_config): return LocalRecord(runtime_config)\n",
+        encoding="utf-8",
+    )
+    census = evaluator.scan_workspace_configuration_consumers(workspace)
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
 def test_class_decorator_call_and_argument_get_exact_external_routes(
