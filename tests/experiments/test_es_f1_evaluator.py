@@ -252,6 +252,34 @@ def _candidate_workspace(tmp_path: Path, *, resolver_body: str) -> tuple[Path, P
     return workspace, evidence_path
 
 
+def _inspect_added_consumer(
+    tmp_path: Path, relative: str, source: str
+) -> dict[str, Any]:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    path = workspace / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    return evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+
 def _conforming_protocol_workspace(tmp_path: Path) -> tuple[Path, Path]:
     return _candidate_workspace(
         tmp_path,
@@ -3107,6 +3135,631 @@ def test_workspace_dataclass_type_is_a_terminal_for_a_resolved_read(
     assert result["closed"] is True
 
 
+def test_plain_builtin_exception_subclass_is_a_terminal(tmp_path: Path) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/plain_exception.py",
+        "class ConfigError(ValueError):\n"
+        "    'Raised when configuration is invalid.'\n"
+        "    pass\n"
+        "def consume(runtime_config):\n"
+        "    return ConfigError(runtime_config)\n",
+    )
+
+    assert result["closed"] is True
+
+
+def test_cross_module_plain_exception_subclass_is_a_terminal(tmp_path: Path) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    package = workspace / "errors"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "types.py").write_text(
+        "class ConfigError(ValueError):\n    pass\n", encoding="utf-8"
+    )
+    (package / "consumer.py").write_text(
+        "from errors.types import ConfigError\n"
+        "def consume(runtime_config):\n"
+        "    return ConfigError(runtime_config)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "plain-exception",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "errors/consumer.py",
+        "public_entry_route": "errors.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 23,
+            "end_line": 3,
+            "end_col": 37,
+        },
+        "transitive_wrapper_chain": ["errors.consumer.consume", "runtime_config"],
+    }
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize("kind", ("exception", "dataclass"))
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "{name}.{hook} = sink\n",
+        "setattr({name}, '{hook}', sink)\n",
+        "Alias = {name}\nAlias.{hook} = sink\n",
+        (
+            "def mutate():\n"
+            "    {name}.{hook} = sink\n"
+            "mutate()\n"
+        ),
+        (
+            "def mutate(target):\n"
+            "    target.{hook} = sink\n"
+            "mutate({name})\n"
+        ),
+    ),
+    ids=("direct", "setattr", "alias", "closure-mutator", "argument-mutator"),
+)
+def test_cross_module_plain_class_mutation_fails_closed(
+    tmp_path: Path, kind: str, mutation: str
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    package = workspace / "records"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    if kind == "exception":
+        name, hook = "ConfigError", "__init__"
+        definition = "class ConfigError(ValueError):\n    pass\n"
+        sink = (
+            "def sink(self, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+        )
+    else:
+        name, hook = "ConfigRecord", "__setattr__"
+        definition = (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class ConfigRecord:\n"
+            "    value: object\n"
+        )
+        sink = (
+            "def sink(self, name, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+        )
+    (package / "types.py").write_text(definition, encoding="utf-8")
+    source = (
+        f"from records.types import {name}\n"
+        + sink
+        + mutation.format(name=name, hook=hook)
+        + "def consume(runtime_config):\n"
+        + f"    return {name}(runtime_config)\n"
+    )
+    (package / "consumer.py").write_text(source, encoding="utf-8")
+    consume_line = source.splitlines()[-1]
+    start_col = consume_line.index("runtime_config")
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": f"cross-module-{kind}",
+                "match_kind": "CONFIGURATION_READ",
+                "path": "records/consumer.py",
+                "public_entry_route": "records.consumer.consume",
+                "source_span": {
+                    "start_line": len(source.splitlines()),
+                    "start_col": start_col,
+                    "end_line": len(source.splitlines()),
+                    "end_col": start_col + len("runtime_config"),
+                },
+                "transitive_wrapper_chain": [
+                    "records.consumer.consume",
+                    "runtime_config",
+                ],
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_plain_exception_base_shadowed_by_local_alias_fails_closed(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/shadowed_exception.py",
+        "class UnsafeBase:\n"
+        "    def __init__(self, payload):\n"
+        "        payload.get('mode', 'fallback')\n"
+        "ValueError = UnsafeBase\n"
+        "class ConfigError(ValueError):\n"
+        "    pass\n"
+        "def consume(runtime_config):\n"
+        "    return ConfigError(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+def test_plain_exception_base_shadowed_by_workspace_import_fails_closed(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/custom_errors.py").write_text(
+        "class ValueError:\n"
+        "    def __init__(self, payload):\n"
+        "        payload.get('mode', 'fallback')\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/imported_exception.py").write_text(
+        "from scripts.custom_errors import ValueError\n"
+        "class ConfigError(ValueError):\n"
+        "    pass\n"
+        "def consume(runtime_config):\n"
+        "    return ConfigError(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "ConfigError.__init__ = sink\n",
+        "setattr(ConfigError, '__init__', sink)\n",
+    ),
+    ids=("attribute-assignment", "setattr"),
+)
+def test_plain_exception_mutated_after_declaration_fails_closed(
+    tmp_path: Path, mutation: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/mutated_exception.py",
+        "class ConfigError(ValueError):\n"
+        "    pass\n"
+        "def sink(self, payload):\n"
+        "    payload.get('mode', 'fallback')\n"
+        + mutation
+        + "def consume(runtime_config):\n"
+        "    return ConfigError(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        (
+            "class ConfigError(ValueError):\n"
+            "    def __init__(self, value):\n"
+            "        value.get('mode', 'default')\n"
+        ),
+        (
+            "def decorate(cls): return cls\n"
+            "@decorate\n"
+            "class ConfigError(ValueError):\n"
+            "    pass\n"
+        ),
+        "class ConfigError(ValueError, LookupError):\n    pass\n",
+        (
+            "class CustomError(Exception):\n"
+            "    pass\n"
+            "class ConfigError(CustomError):\n"
+            "    pass\n"
+        ),
+        "class ConfigError(ValueError):\n    code = 7\n",
+    ),
+    ids=("custom-init", "decorated", "multiple-base", "custom-base", "body-logic"),
+)
+def test_non_plain_exception_subclasses_fail_closed(
+    tmp_path: Path, declaration: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/custom_exception.py",
+        declaration
+        + "def consume(runtime_config):\n"
+        + "    return ConfigError(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+def test_plain_dataclass_allows_regular_methods_properties_and_literal_defaults(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/plain_dataclass.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class LocalRecord:\n"
+        "    value: object\n"
+        "    enabled: bool = True\n"
+        "    label: str = 'strict'\n"
+        "    limit: int = 3\n"
+        "    optional: object = None\n"
+        "    def describe(self):\n"
+        "        return self.label\n"
+        "    @property\n"
+        "    def ready(self):\n"
+        "        return self.enabled\n"
+        "def consume(runtime_config):\n"
+        "    return LocalRecord(runtime_config)\n",
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "field_or_hook",
+    (
+        "    values: tuple = ()\n",
+        "    values: list = field(default_factory=list)\n",
+        (
+            "    def __init__(self, value):\n"
+            "        value.get('mode', 'default')\n"
+        ),
+    ),
+    ids=("nonliteral-default", "default-factory", "custom-init"),
+)
+def test_dataclass_nonliteral_defaults_and_hooks_fail_closed(
+    tmp_path: Path, field_or_hook: str
+) -> None:
+    imports = (
+        "from dataclasses import dataclass, field\n"
+        if "field(" in field_or_hook
+        else "from dataclasses import dataclass\n"
+    )
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/non_plain_dataclass.py",
+        imports
+        + "@dataclass\n"
+        + "class LocalRecord:\n"
+        + "    value: object\n"
+        + field_or_hook
+        + "def consume(runtime_config):\n"
+        + "    return LocalRecord(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        (
+            "def sink(self, name, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "    object.__setattr__(self, name, payload)\n"
+            "Alias = LocalRecord\n"
+            "Alias.__setattr__ = sink\n"
+        ),
+        (
+            "class Sink:\n"
+            "    def __set__(self, instance, payload):\n"
+            "        payload.get('mode', 'fallback')\n"
+            "        object.__setattr__(instance, '_value', payload)\n"
+            "Alias = LocalRecord\n"
+            "Alias.value = Sink()\n"
+        ),
+    ),
+    ids=("setattr-alias", "descriptor-alias"),
+)
+def test_dataclass_mutated_through_class_alias_fails_closed(
+    tmp_path: Path, mutation: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/aliased_dataclass.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class LocalRecord:\n"
+        "    value: object\n"
+        + mutation
+        + "def consume(runtime_config):\n"
+        "    return LocalRecord(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        (
+            "class ConfigError(ValueError):\n"
+            "    pass\n"
+            "def sink(self, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "def mutate(target):\n"
+            "    target.__init__ = sink\n"
+            "mutate(ConfigError)\n"
+            "def consume(runtime_config):\n"
+            "    return ConfigError(runtime_config)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "def sink(self, name, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "def mutate(target):\n"
+            "    target.__setattr__ = sink\n"
+            "mutate(LocalRecord)\n"
+            "def consume(runtime_config):\n"
+            "    return LocalRecord(runtime_config)\n"
+        ),
+    ),
+    ids=("exception", "dataclass"),
+)
+def test_invoked_module_class_mutator_fails_closed(
+    tmp_path: Path, declaration: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path, "scripts/invoked_class_mutator.py", declaration
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        (
+            "class ConfigError(ValueError):\n"
+            "    pass\n"
+            "def sink(self, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "def mutate():\n"
+            "    ConfigError.__init__ = sink\n"
+            "mutate()\n"
+            "def consume(runtime_config):\n"
+            "    return ConfigError(runtime_config)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "def sink(self, name, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "def mutate():\n"
+            "    LocalRecord.__setattr__ = sink\n"
+            "mutate()\n"
+            "def consume(runtime_config):\n"
+            "    return LocalRecord(runtime_config)\n"
+        ),
+    ),
+    ids=("exception", "dataclass"),
+)
+def test_invoked_closure_class_mutator_fails_closed(
+    tmp_path: Path, declaration: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path, "scripts/invoked_closure_class_mutator.py", declaration
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        (
+            "class ConfigError(ValueError):\n"
+            "    pass\n"
+            "def sink(self, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "Alias, = (ConfigError,)\n"
+            "Alias.__init__ = sink\n"
+            "def consume(runtime_config):\n"
+            "    return ConfigError(runtime_config)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "def sink(self, name, payload):\n"
+            "    payload.get('mode', 'fallback')\n"
+            "Alias, = (LocalRecord,)\n"
+            "Alias.__setattr__ = sink\n"
+            "def consume(runtime_config):\n"
+            "    return LocalRecord(runtime_config)\n"
+        ),
+    ),
+    ids=("exception", "dataclass"),
+)
+def test_unpacked_class_alias_mutation_fails_closed(
+    tmp_path: Path, declaration: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path, "scripts/unpacked_class_alias.py", declaration
+    )
+
+    assert result["closed"] is False
+
+
+def test_verified_external_factory_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/logger_consumer.py",
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def consume(runtime_config):\n"
+        "    logger.info(runtime_config.mode)\n",
+    )
+
+    assert result["closed"] is True
+
+
+def test_reassigned_external_factory_receiver_fails_closed(tmp_path: Path) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/reassigned_factory.py",
+        "import logging\n"
+        "class Receiver:\n"
+        "    def info(self, payload):\n"
+        "        payload.get('mode', 'fallback')\n"
+        "def replacement(name):\n"
+        "    return Receiver()\n"
+        "logging.getLogger = replacement\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def consume(runtime_config):\n"
+        "    logger.info(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "logger.info = sink\n",
+        "setattr(logger, 'info', sink)\n",
+    ),
+    ids=("attribute-assignment", "setattr"),
+)
+def test_mutated_external_receiver_method_fails_closed(
+    tmp_path: Path, mutation: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/mutated_receiver.py",
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def sink(payload):\n"
+        "    payload.get('mode', 'fallback')\n"
+        + mutation
+        + "def consume(runtime_config):\n"
+        "    logger.info(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "alias = logger\nalias.info = sink\n",
+        "attribute = 'info'\nsetattr(logger, attribute, sink)\n",
+        "logging.Logger.info = sink\n",
+        "logging_alias = logging\nlogging_alias.getLogger = sink\n",
+    ),
+    ids=(
+        "receiver-alias",
+        "dynamic-setattr",
+        "receiver-class",
+        "module-alias-factory",
+    ),
+)
+def test_indirect_external_receiver_mutation_fails_closed(
+    tmp_path: Path, mutation: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/indirect_receiver_mutation.py",
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def sink(payload):\n"
+        "    payload.get('mode', 'fallback')\n"
+        + mutation
+        + "def consume(runtime_config):\n"
+        "    logger.info(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "import logging\n"
+            "runtime_config = object()\n"
+            "logger = logging.getLogger(runtime_config.name)\n"
+            "def consume(config):\n"
+            "    logger.info(config.mode)\n"
+        ),
+        (
+            "import logging\n"
+            "logger = logging.getLogger(__name__)\n"
+            "logger = object()\n"
+            "def consume(runtime_config):\n"
+            "    logger.info(runtime_config.mode)\n"
+        ),
+        (
+            "import logging\n"
+            "def make_logger(): return logging.getLogger(__name__)\n"
+            "logger = make_logger()\n"
+            "def consume(runtime_config):\n"
+            "    logger.info(runtime_config.mode)\n"
+        ),
+        (
+            "def consume(runtime_config, logger):\n"
+            "    logger.info(runtime_config.mode)\n"
+        ),
+    ),
+    ids=("config-argument", "rebound", "workspace-factory", "dynamic-receiver"),
+)
+def test_unverified_factory_receivers_fail_closed(
+    tmp_path: Path, source: str
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path, "scripts/unverified_receiver.py", source
+    )
+
+    assert result["closed"] is False
+
+
 @pytest.mark.parametrize(
     "record_source",
     [
@@ -5939,7 +6592,9 @@ def test_expression_derived_from_a_leaf_is_not_a_config_carrier(
     assert result["closed"] is True
 
 
-def test_dynamic_runtime_method_may_consume_a_typed_leaf(tmp_path: Path) -> None:
+def test_unverified_dynamic_runtime_method_cannot_consume_a_typed_leaf(
+    tmp_path: Path,
+) -> None:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
         resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
@@ -5963,7 +6618,7 @@ def test_dynamic_runtime_method_may_consume_a_typed_leaf(tmp_path: Path) -> None
         workspace=workspace,
     )
 
-    assert result["closed"] is True
+    assert result["closed"] is False
 
 
 def test_carrier_returned_from_identity_call_remains_tainted(tmp_path: Path) -> None:

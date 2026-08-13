@@ -2656,43 +2656,134 @@ def _is_plain_generated_dataclass(
             )
         ):
             return False
-    if any(
-        not (
-            isinstance(child, ast.AnnAssign)
-            and isinstance(child.target, ast.Name)
-            and child.value is None
-            and child.simple == 1
-            or isinstance(child, ast.Pass)
+    field_names = {
+        child.target.id
+        for child in node.body
+        if isinstance(child, ast.AnnAssign)
+        and isinstance(child.target, ast.Name)
+        and child.simple == 1
+    }
+    for child in node.body:
+        if isinstance(child, ast.AnnAssign):
+            if (
+                not isinstance(child.target, ast.Name)
+                or child.simple != 1
+                or child.value is not None
+                and not isinstance(child.value, ast.Constant)
+            ):
+                return False
+            continue
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if (
+                child.name
+                in {"__new__", "__init__", "__post_init__", "__setattr__"}
+                or child.name in field_names
+                or child.decorator_list
+                and not (
+                    len(child.decorator_list) == 1
+                    and isinstance(child.decorator_list[0], ast.Name)
+                    and child.decorator_list[0].id == "property"
+                )
+            ):
+                return False
+            continue
+        if isinstance(child, ast.Pass) or (
+            isinstance(child, ast.Expr)
+            and isinstance(child.value, ast.Constant)
+            and isinstance(child.value.value, str)
+        ):
+            continue
+        return False
+    return True
+
+
+_PLAIN_BUILTIN_EXCEPTION = "@plain-builtin-exception"
+
+
+def _is_plain_builtin_exception_subclass(
+    node: ast.ClassDef, shadowed_names: Mapping[str, object]
+) -> bool:
+    if node.decorator_list or node.keywords or len(node.bases) != 1:
+        return False
+    base = node.bases[0]
+    owner = getattr(builtins, base.id, None) if isinstance(base, ast.Name) else None
+    return (
+        isinstance(owner, type)
+        and issubclass(owner, BaseException)
+        and base.id not in shadowed_names
+        and all(
+            isinstance(child, ast.Pass)
             or isinstance(child, ast.Expr)
             and isinstance(child.value, ast.Constant)
             and isinstance(child.value.value, str)
+            for child in node.body
         )
-        for child in node.body
-    ):
-        return False
-    return not any(
-        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and child.name in {"__new__", "__init__", "__post_init__", "__setattr__"}
-        for child in node.body
     )
 
 
-def _has_module_class_attribute_mutation(
-    tree: ast.Module, node: ast.ClassDef
+def _has_module_object_mutation(
+    tree: ast.Module,
+    object_names: set[str],
+    *,
+    reject_argument_escape: bool,
 ) -> bool:
+    def root_name(value: ast.AST) -> str | None:
+        while isinstance(value, (ast.Attribute, ast.Subscript)):
+            value = value.value
+        return value.id if isinstance(value, ast.Name) else None
+
+    def aliases_object(value: ast.AST) -> bool:
+        if isinstance(value, ast.Name):
+            return value.id in object_names
+        if isinstance(value, ast.Attribute):
+            return root_name(value) in object_names
+        if isinstance(value, ast.Starred):
+            return aliases_object(value.value)
+        if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
+            return any(aliases_object(child) for child in value.elts)
+        if isinstance(value, ast.Dict):
+            return any(
+                child is not None and aliases_object(child)
+                for child in (*value.keys, *value.values)
+            )
+        return False
+
+    object_closures = {
+        node.name
+        for node in tree.body
+        if reject_argument_escape
+        and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            isinstance(child, ast.Name) and child.id in object_names
+            for child in ast.walk(node)
+        )
+    }
     pending: list[ast.AST] = list(tree.body)
     while pending:
         child = pending.pop()
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
             continue
-        if isinstance(child, ast.Call) and (
-            isinstance(child.func, ast.Name)
-            and child.func.id == "setattr"
-            and child.args
-            and isinstance(child.args[0], ast.Name)
-            and child.args[0].id == node.name
-        ):
-            return True
+        if isinstance(child, ast.Call):
+            if (
+                isinstance(child.func, ast.Name)
+                and child.func.id in object_closures
+            ):
+                return True
+            if (
+                isinstance(child.func, ast.Name)
+                and child.func.id == "setattr"
+                and child.args
+                and root_name(child.args[0]) in object_names
+            ):
+                return True
+            if reject_argument_escape and any(
+                aliases_object(value)
+                for value in (
+                    *child.args,
+                    *(keyword.value for keyword in child.keywords),
+                )
+            ):
+                return True
         if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
             targets = (
                 child.targets
@@ -2701,13 +2792,24 @@ def _has_module_class_attribute_mutation(
             )
             if any(
                 isinstance(target, ast.Attribute)
-                and isinstance(target.value, ast.Name)
-                and target.value.id == node.name
-                for target in targets
+                and root_name(target) in object_names
+                for root in targets
+                for target in ast.walk(root)
             ):
+                return True
+            value = getattr(child, "value", None)
+            if value is not None and aliases_object(value):
                 return True
         pending.extend(ast.iter_child_nodes(child))
     return False
+
+
+def _has_module_class_attribute_mutation(
+    tree: ast.Module, node: ast.ClassDef
+) -> bool:
+    return _has_module_object_mutation(
+        tree, {node.name}, reject_argument_escape=True
+    )
 
 
 def _module_functions(
@@ -2820,6 +2922,63 @@ def _module_functions(
             return f"{prefix}.{node.attr}" if prefix else node.attr
         return ""
 
+    def non_config_factory_value(node: ast.AST) -> bool:
+        return isinstance(node, ast.Constant) or (
+            isinstance(node, ast.Name) and node.id == "__name__"
+        )
+
+    reassigned_attributes = {
+        name(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+    }
+    reassigned_attributes.update(
+        f"{name(node.args[0])}.{node.args[1].value}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "setattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    )
+    verified_external_receivers = {
+        node.targets[0].id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and module_binding_counts.get(node.targets[0].id) == 1
+        and isinstance(node.value, ast.Call)
+        and (factory := name(node.value.func)) in available_external_imports
+        and factory not in reassigned_attributes
+        and not any(
+            attribute.startswith(f"{module}.{node.targets[0].id}.")
+            for attribute in reassigned_attributes
+        )
+        and factory.split(".", 1)[0] not in workspace_module_roots
+        and all(non_config_factory_value(value) for value in node.value.args)
+        and all(
+            keyword.arg is not None and non_config_factory_value(keyword.value)
+            for keyword in node.value.keywords
+        )
+        and not _has_module_object_mutation(
+            tree,
+            {node.targets[0].id},
+            reject_argument_escape=True,
+        )
+        and not _has_module_object_mutation(
+            tree,
+            {
+                local
+                for local, imported in imports.items()
+                if imported.split(".", 1)[0] == factory.split(".", 1)[0]
+            },
+            reject_argument_escape=False,
+        )
+    }
+
     for node in tree.body:
         if not (
             isinstance(node, ast.Assign)
@@ -2869,6 +3028,7 @@ def _module_functions(
     ]
     class_base: dict[str, str | None] = {}
     generated_dataclasses: set[str] = set()
+    plain_exceptions: set[str] = set()
     for symbol, node in classes:
         bases = tuple(filter(None, (name(base) for base in node.bases)))
         class_base[symbol] = bases[0] if len(bases) == 1 else None
@@ -2876,6 +3036,10 @@ def _module_functions(
             tree, node
         ) and _is_plain_generated_dataclass(node, name):
             generated_dataclasses.add(symbol)
+        if not _has_module_class_attribute_mutation(
+            tree, node
+        ) and _is_plain_builtin_exception_subclass(node, module_binding_counts):
+            plain_exceptions.add(symbol)
         initializer = next(
             (
                 f"{symbol}.__init__"
@@ -3115,7 +3279,7 @@ def _module_functions(
     exact_rows: list[tuple[Mapping[str, Any], str, ast.AST]] = []
     class_decorator_rows: list[tuple[Mapping[str, Any], ast.AST, ast.Call]] = []
     context_rows: list[tuple[str, str, set[str]]] = []
-    terminal_symbols: set[str] = generated_dataclasses | {
+    terminal_symbols: set[str] = generated_dataclasses | plain_exceptions | {
         base
         for base in class_base.values()
         if base is not None and base in available_external_imports
@@ -3435,7 +3599,30 @@ def _module_functions(
             and root.id in imports_by_owner[owner]
         )
 
+    def has_verified_external_receiver(call: ast.Call, owner: str) -> bool:
+        if not isinstance(call.func, ast.Attribute):
+            return False
+        root: ast.AST = call.func.value
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        return (
+            isinstance(root, ast.Name)
+            and root.id in verified_external_receivers
+            and root.id not in rebound_by_owner[owner]
+        )
+
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
+
+    def stable_plain_workspace_class(call: ast.Call, owner: str, target: str) -> bool:
+        if target in generated_dataclasses or target in plain_exceptions:
+            return True
+        return (
+            isinstance(call.func, ast.Name)
+            and imports_by_owner[owner].get(call.func.id) == target
+            and not _has_module_object_mutation(
+                tree, {call.func.id}, reject_argument_escape=True
+            )
+        )
 
     def routed_call_symbol(
         call: ast.Call,
@@ -3449,7 +3636,15 @@ def _module_functions(
             return target
         resolved_target, callee_node, bound = context
         if callee_node is None:
-            if resolved_target in available_external_imports:
+            plain_workspace_class = resolved_target in {
+                _PLAIN_BUILTIN_EXCEPTION,
+                "dataclasses.dataclass",
+            }
+            if plain_workspace_class and stable_plain_workspace_class(
+                call, owner, target
+            ):
+                return target
+            if not plain_workspace_class and resolved_target in available_external_imports:
                 return target
             context_symbol = f"@unresolved-context:{target}"
             context_requests[context_symbol] = (target, ())
@@ -3620,14 +3815,18 @@ def _module_functions(
                     _is_tolerant_configuration_operation(target)
                     or _is_mapping_value_coercion(target, arguments)
                 )
+                verified_receiver = has_verified_external_receiver(child, owner)
                 safe_dynamic_terminal = (
                     isinstance(child.func, ast.Attribute)
-                    and relevant(child.func.value)
+                    and (relevant(child.func.value) or verified_receiver)
                     and not tolerant
                     and not has_imported_receiver(child, owner)
-                    and not (
-                        isinstance(child.func.value, ast.Name)
-                        and child.func.value.id in module_rebounds
+                    and (
+                        verified_receiver
+                        or not (
+                            isinstance(child.func.value, ast.Name)
+                            and child.func.value.id in module_rebounds
+                        )
                     )
                 )
                 if safe_dynamic_terminal:
@@ -3855,17 +4054,21 @@ def _module_functions(
                     _is_tolerant_configuration_operation(target)
                     or _is_mapping_value_coercion(target, arguments)
                 )
+                verified_receiver = has_verified_external_receiver(child, owner)
                 if (
                     isinstance(child.func, ast.Attribute)
                     and (
                         relevant(child.func.value)
-                        or isinstance(node, (ast.Attribute, ast.Subscript))
+                        or verified_receiver
                     )
                     and not tolerant
                     and not has_imported_receiver(child, owner)
-                    and not (
-                        isinstance(child.func.value, ast.Name)
-                        and child.func.value.id in module_rebounds
+                    and (
+                        verified_receiver
+                        or not (
+                            isinstance(child.func.value, ast.Name)
+                            and child.func.value.id in module_rebounds
+                        )
                     )
                 ):
                     target = (
@@ -4244,7 +4447,16 @@ def _workspace_callable_index(
                         ):
                             base = f"{module}.{node.bases[0].id}"
                         function_nodes[symbol] = (
-                            decorator or base or symbol,
+                            (
+                                _PLAIN_BUILTIN_EXCEPTION
+                                if not _has_module_class_attribute_mutation(
+                                    tree, node
+                                )
+                                and _is_plain_builtin_exception_subclass(
+                                    node, module_binding_counts
+                                )
+                                else decorator or base or symbol
+                            ),
                             None,
                             True,
                         )
