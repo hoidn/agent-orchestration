@@ -3641,6 +3641,303 @@ def test_verified_external_factory_receiver_is_occurrence_terminal(
     assert result["closed"] is True
 
 
+def test_external_factory_accepts_stable_same_module_workspace_class(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/class_factory_consumer.py",
+        "from unittest.mock import Mock\n"
+        "class Schema:\n"
+        "    pass\n"
+        "receiver = Mock(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+    )
+
+    assert result["closed"] is True
+
+
+def test_external_factory_accepts_uniquely_imported_workspace_class(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "candidate/schema.py").write_text(
+        "class Schema:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    path = workspace / "scripts/imported_class_factory_consumer.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "from candidate.schema import Schema\n"
+        "from unittest.mock import Mock\n"
+        "receiver = Mock(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    "schema_source",
+    (
+        "class Schema:\n    pass\nSchema.marker = object()\n",
+        "class Schema:\n    pass\nescaped = Schema\n",
+        (
+            "class Schema:\n"
+            "    pass\n"
+            "def retain(value):\n"
+            "    return None\n"
+            "retain(Schema)\n"
+        ),
+    ),
+    ids=("origin-mutation", "origin-alias", "origin-argument-escape"),
+)
+def test_imported_workspace_class_origin_must_remain_stable(
+    tmp_path: Path,
+    schema_source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "candidate/schema.py").write_text(
+        schema_source,
+        encoding="utf-8",
+    )
+    path = workspace / "scripts/unstable_imported_class_consumer.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "from candidate.schema import Schema\n"
+        "from unittest.mock import Mock\n"
+        "receiver = Mock(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    ("mutate()\n", "indirect = mutate\nindirect()\n"),
+    ids=("original-name", "callable-alias"),
+)
+def test_same_module_factory_class_mutator_must_be_detectably_invoked(
+    tmp_path: Path,
+    invocation: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/invoked_factory_class_mutator.py",
+        "from unittest.mock import Mock\n"
+        "class Schema:\n"
+        "    pass\n"
+        "def mutate():\n"
+        "    Schema.marker = object()\n"
+        + invocation
+        + "receiver = Mock(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    ("mutate()\n", "indirect = mutate\nindirect()\n"),
+    ids=("original-name", "callable-alias"),
+)
+def test_imported_factory_class_mutator_must_be_detectably_invoked(
+    tmp_path: Path,
+    invocation: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "candidate/schema.py").write_text(
+        "class Schema:\n"
+        "    pass\n"
+        "def mutate():\n"
+        "    Schema.marker = object()\n"
+        + invocation,
+        encoding="utf-8",
+    )
+    path = workspace / "scripts/imported_invoked_factory_class_mutator.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "from candidate.schema import Schema\n"
+        "from unittest.mock import Mock\n"
+        "receiver = Mock(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "Schema = object\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "del Schema\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "from candidate.config import resolve as Schema\n"
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "if __name__:\n"
+            "    from candidate.config import resolve as Schema\n"
+            "else:\n"
+            "    from candidate.hooks import resolve_surface as Schema\n"
+            "from unittest.mock import Mock\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "def choose_schema():\n"
+            "    return Schema\n"
+            "receiver = Mock(choose_schema())\n"
+        ),
+        (
+            "from unittest.mock import Mock\n"
+            "runtime_schema = object()\n"
+            "receiver = Mock(runtime_schema)\n"
+        ),
+        (
+            "from unavailable_dependency import Factory\n"
+            "class Schema:\n"
+            "    pass\n"
+            "receiver = Factory(Schema)\n"
+        ),
+        (
+            "if __name__:\n"
+            "    from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "Schema.marker = object()\n"
+            "receiver = Mock(Schema)\n"
+        ),
+        (
+            "from unittest.mock import Mock\n"
+            "class Schema:\n"
+            "    pass\n"
+            "escaped = Schema\n"
+            "receiver = Mock(Schema)\n"
+        ),
+    ),
+    ids=(
+        "rebound",
+        "deleted",
+        "shadowed",
+        "ambiguous-import",
+        "dynamic-call",
+        "configuration-derived",
+        "unavailable-factory",
+        "non-dominating-factory-import",
+        "mutated",
+        "escaped",
+    ),
+)
+def test_external_factory_workspace_class_argument_must_be_statically_stable(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/unverified_class_factory_consumer.py",
+        source
+        + "def consume(runtime_config):\n"
+        "    return receiver.consume_payload(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
 def test_reassigned_external_factory_receiver_fails_closed(tmp_path: Path) -> None:
     result = _inspect_added_consumer(
         tmp_path,

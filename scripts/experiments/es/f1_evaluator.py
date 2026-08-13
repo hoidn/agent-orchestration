@@ -2726,6 +2726,7 @@ def _has_module_object_mutation(
     object_names: set[str],
     *,
     reject_argument_escape: bool,
+    allowed_argument_calls: frozenset[int] = frozenset(),
 ) -> bool:
     def root_name(value: ast.AST) -> str | None:
         while isinstance(value, (ast.Attribute, ast.Subscript)):
@@ -2758,6 +2759,17 @@ def _has_module_object_mutation(
             for child in ast.walk(node)
         )
     }
+    binding_counts = _module_binding_counts(tree)
+    object_closure_aliases = {
+        node.targets[0].id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and binding_counts.get(node.targets[0].id) == 1
+        and isinstance(node.value, ast.Name)
+        and node.value.id in object_closures
+    }
     pending: list[ast.AST] = list(tree.body)
     while pending:
         child = pending.pop()
@@ -2766,7 +2778,7 @@ def _has_module_object_mutation(
         if isinstance(child, ast.Call):
             if (
                 isinstance(child.func, ast.Name)
-                and child.func.id in object_closures
+                and child.func.id in object_closures | object_closure_aliases
             ):
                 return True
             if (
@@ -2776,11 +2788,15 @@ def _has_module_object_mutation(
                 and root_name(child.args[0]) in object_names
             ):
                 return True
-            if reject_argument_escape and any(
-                aliases_object(value)
-                for value in (
-                    *child.args,
-                    *(keyword.value for keyword in child.keywords),
+            if (
+                reject_argument_escape
+                and id(child) not in allowed_argument_calls
+                and any(
+                    aliases_object(value)
+                    for value in (
+                        *child.args,
+                        *(keyword.value for keyword in child.keywords),
+                    )
                 )
             ):
                 return True
@@ -2825,6 +2841,7 @@ def _module_functions(
         tuple[
             str,
             ast.FunctionDef | ast.AsyncFunctionDef | None,
+            bool,
             bool,
         ],
     ] | None = None,
@@ -2922,9 +2939,57 @@ def _module_functions(
             return f"{prefix}.{node.attr}" if prefix else node.attr
         return ""
 
-    def non_config_factory_value(node: ast.AST) -> bool:
-        return isinstance(node, ast.Constant) or (
-            isinstance(node, ast.Name) and node.id == "__name__"
+    def has_direct_import(local: str, target: str, before_line: int) -> bool:
+        return any(
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            and imported_names(node).get(local) == target
+            and node.lineno < before_line
+            for node in tree.body
+        )
+
+    def stable_workspace_class_argument(
+        value: ast.AST, factory_call: ast.Call
+    ) -> bool:
+        if not isinstance(value, ast.Name):
+            return False
+        target = name(value)
+        context = workspace_function_nodes.get(target)
+        if context is None or not context[2]:
+            return False
+        local = value.id
+        if module_binding_counts.get(local) != 1:
+            return False
+        same_module_declaration = any(
+            isinstance(node, ast.ClassDef)
+            and node.name == local
+            and node.lineno < factory_call.lineno
+            for node in tree.body
+        )
+        direct_import = has_direct_import(local, target, factory_call.lineno)
+        if not same_module_declaration and not (direct_import and context[3]):
+            return False
+        return not _has_module_object_mutation(
+            tree,
+            {local},
+            reject_argument_escape=True,
+            allowed_argument_calls=frozenset({id(factory_call)}),
+        )
+
+    def verified_factory_value(node: ast.AST, factory_call: ast.Call) -> bool:
+        return (
+            isinstance(node, ast.Constant)
+            or isinstance(node, ast.Name) and node.id == "__name__"
+            or stable_workspace_class_argument(node, factory_call)
+        )
+
+    def has_stable_external_factory(call: ast.Call) -> bool:
+        root: ast.AST = call.func
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        return (
+            isinstance(root, ast.Name)
+            and (target := imports.get(root.id)) is not None
+            and has_direct_import(root.id, target, call.lineno)
         )
 
     reassigned_attributes = {
@@ -2952,15 +3017,19 @@ def _module_functions(
         and module_binding_counts.get(node.targets[0].id) == 1
         and isinstance(node.value, ast.Call)
         and (factory := name(node.value.func)) in available_external_imports
+        and has_stable_external_factory(node.value)
         and factory not in reassigned_attributes
         and not any(
             attribute.startswith(f"{module}.{node.targets[0].id}.")
             for attribute in reassigned_attributes
         )
         and factory.split(".", 1)[0] not in workspace_module_roots
-        and all(non_config_factory_value(value) for value in node.value.args)
         and all(
-            keyword.arg is not None and non_config_factory_value(keyword.value)
+            verified_factory_value(value, node.value) for value in node.value.args
+        )
+        and all(
+            keyword.arg is not None
+            and verified_factory_value(keyword.value, node.value)
             for keyword in node.value.keywords
         )
         and not _has_module_object_mutation(
@@ -3745,7 +3814,7 @@ def _module_functions(
         context = workspace_function_nodes.get(target)
         if context is None:
             return target
-        resolved_target, callee_node, bound = context
+        resolved_target, callee_node, bound, _ = context
         if callee_node is None:
             plain_workspace_class = resolved_target in {
                 _PLAIN_BUILTIN_EXCEPTION,
@@ -4429,7 +4498,7 @@ def _workspace_callable_index(
     frozenset[str],
     dict[
         str,
-        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool],
+        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool, bool],
     ],
 ]:
     """Index functions and class constructors without importing candidate code."""
@@ -4438,7 +4507,7 @@ def _workspace_callable_index(
     imported_targets: set[str] = set()
     function_nodes: dict[
         str,
-        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool],
+        tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | None, bool, bool],
     ] = {}
     callable_aliases: dict[str, str] = {}
     for candidate in sorted(workspace.rglob("*.py")):
@@ -4516,7 +4585,7 @@ def _workspace_callable_index(
                         _fail(f"candidate callable is duplicated: {symbol}")
                     result[symbol] = (relative, symbol)
                     if owner == module:
-                        function_nodes[symbol] = (symbol, node, False)
+                        function_nodes[symbol] = (symbol, node, False, False)
                     collect(node.body, symbol)
                 elif isinstance(node, ast.ClassDef):
                     symbol = f"{owner}.{node.name}"
@@ -4539,8 +4608,21 @@ def _workspace_callable_index(
                     if symbol in result:
                         _fail(f"candidate callable is duplicated: {symbol}")
                     result[symbol] = (relative, initializer or symbol)
+                    stable_class = (
+                        module_binding_counts.get(node.name) == 1
+                        and not _has_module_object_mutation(
+                            tree,
+                            {node.name},
+                            reject_argument_escape=True,
+                        )
+                    )
                     if owner == module and initializer_node is not None:
-                        function_nodes[symbol] = (symbol, initializer_node, True)
+                        function_nodes[symbol] = (
+                            symbol,
+                            initializer_node,
+                            True,
+                            stable_class,
+                        )
                     elif owner == module:
                         decorator = (
                             "dataclasses.dataclass"
@@ -4570,6 +4652,7 @@ def _workspace_callable_index(
                             ),
                             None,
                             True,
+                            stable_class,
                         )
                     collect(node.body, symbol)
 
