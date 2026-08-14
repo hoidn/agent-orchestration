@@ -123,9 +123,10 @@ discriminant.
 
 Rejected alternatives:
 
-- A first-class `CondExpr` throughout the compiler and runtime adds parallel
-  traversal, lowering, state, and observability machinery without changing
-  behavior.
+- A `cond` node that survives typed frontend normalization adds parallel WCC,
+  lowering, state, and observability machinery without changing behavior. A
+  parser/elaboration-local clause container or missing-else marker is allowed
+  solely to support type-aware expansion and must be erased before WCC.
 - Generated predicates such as `(COMPLETED? attempt)` collide when unions reuse
   variant names.
 - A generic `(variant? attempt COMPLETED)` operator duplicates the existing
@@ -187,6 +188,14 @@ condition. An `else` clause is required unless a clause condition statically
 folds to true or typed variant facts prove the clauses exhaustive. Every result
 expression must have a compatible type.
 
+Exhaustiveness is resolved before final nested-`if` construction. When a
+no-`else` form's residual false environment is unreachable, the final proven
+clause becomes the nested chain's ordinary `else` expression and its redundant
+pure test is erased. If the residual environment remains reachable, compilation
+fails. No synthetic unreachable branch reaches WCC or runtime. A
+parser/elaboration-local clause container or missing-else marker may carry the
+form only until this type-aware rewrite.
+
 At target 2.26, `cond` is reserved as a frontend form. Targets below 2.26 retain
 their existing name-resolution behavior.
 
@@ -236,8 +245,9 @@ Rules:
 - skipped operands emit no effect node, checkpoint, provider attempt, command
   attempt, or result state.
 
-`cond` expansion occurs with clause-level source provenance and then uses this
-same normalization path. There is no separate cond-only evaluator.
+`cond` expansion retains clause-level source provenance and then uses this same
+normalization path. Its temporary frontend representation is erased before WCC;
+there is no cond-only evaluator or runtime node.
 
 ## Contextual Union Tags And Proof
 
@@ -273,23 +283,78 @@ variant. Proof authorizes variant-only fields only for a stable named subject,
 such as `attempt`. An arbitrary inline comparison may route without providing a
 name that later field access can use.
 
-Condition analysis carries `facts_when_true` and `facts_when_false`:
+### Closed Fact Algebra
 
-- `not` swaps the two sets;
-- `and` checks each later operand under prior true facts and retains only facts
-  true on every path to the final outcome;
-- `or` checks each later operand under prior false facts and retains only facts
-  true on every path to the final outcome; and
-- arbitrary Boolean expressions contribute no proof facts.
+Proof environments are keyed by resolved lexical binding identity, never by
+identifier spelling. For each union binding, an environment stores the closed
+set of variants still possible on that path. A fresh binding starts with every
+variant declared by its union. Shadowed bindings have distinct identities, and
+a `let*` alias is a distinct binding; first-tranche proof does not propagate
+between aliases.
 
-Each `cond` clause is checked under the false facts accumulated from prior
-clauses. A `cond` without `else` is exhaustive only when a clause condition
-statically folds to true or those typed facts prove that every member of a
-closed union is covered. General Boolean exhaustiveness is not guessed.
+An environment is unreachable when any binding's possible set becomes empty.
+Joining alternative reachable paths unions their possible sets per binding;
+unreachable alternatives do not participate. This join may discard useful
+cross-binding correlation, but it cannot invent proof. A field is statically
+available only when its binding's possible set is the singleton containing the
+field's declaring variant.
 
-Static proof does not replace runtime validation. Every variant-only reference
-retains the existing `requires_variant` guard and fails closed if runtime or
-persisted state contradicts the proof.
+Condition analysis is `analyze(condition, environment) -> (when_true,
+when_false)`:
+
+- literal `true` returns `(environment, unreachable)`;
+- literal `false` returns `(unreachable, environment)`;
+- `x.variant = V` intersects `x` with `{V}` on true and removes `V` on
+  false;
+- `x.variant != V` swaps those equality refinements;
+- an arbitrary Boolean expression returns `(environment, environment)` and
+  therefore routes without narrowing;
+- `not A` swaps `A`'s two results;
+- `A and B` analyzes `B` under `A`'s true environment, returns `B`'s true
+  environment for the whole true path, and joins `A`-false with `B`-false for
+  the whole false path; and
+- `A or B` analyzes `B` under `A`'s false environment, joins `A`-true with
+  `B`-true for the whole true path, and returns `B`'s false environment for the
+  whole false path.
+
+Variadic `and` and `or` apply those binary rules left to right. Later operands
+are typechecked under the environment in which short-circuit evaluation reaches
+them, so the second operand here admits the completed-only field:
+
+```lisp
+(and (= attempt.variant COMPLETED)
+     (valid? attempt.execution_report))
+```
+
+Joins, contradictions, remaining-variant inference, and exhaustiveness all
+follow from the same possible-set operations rather than separate heuristics.
+
+Each `cond` clause is analyzed under the residual false environment from all
+prior clauses. Its body is checked under its true environment. A no-`else`
+`cond` is exhaustive only when a pure statically true condition or typed
+variant refinement makes the final false environment unreachable. General
+Boolean exhaustiveness is not guessed.
+
+### Proof Carriage And Runtime Guards
+
+Typechecking acceptance is not sufficient proof carriage. The typed frontend
+must retain each branch's resolved binding identity, union identity, possible
+variant set, producer/discriminant identity, and source span until WCC lowering.
+The representation may be a compiler side table or an internal extension to
+the existing WCC conditional node; it is not a new public Semantic/Executable
+IR envelope or runtime form.
+
+When a branch reads a variant-only field under a singleton environment, WCC
+lowering uses the same producer/discriminant identity and guard-construction
+path as `match` to attach the existing `requires_variant` contract to the
+consuming runtime step. The corresponding lexical checkpoint retains the
+existing proof descriptor needed for resume. Proof ends at the branch boundary
+unless ordinary result typing exports a new value; it does not leak through the
+conditional join.
+
+Static proof does not replace runtime validation. A missing guard is a compiler
+error, and every emitted guard fails closed if runtime or persisted state
+contradicts the proof.
 
 ## Failure, State, And Resume Semantics
 
@@ -350,16 +415,35 @@ not a compiler-generated binding name.
 The existing manually desugared provider-Boolean branch and resume test proves
 that normal effects, typed Boolean refs, effectful branches, and resume already
 compose. Existing pure-operator typechecking also retains operand effect
-summaries. Implementation must prove the remaining generic mechanism with a
-minimal inline-condition fixture before claiming no runtime or IR change:
+summaries. It does not prove the accepted generic mechanism: current WCC
+pure-operator elaboration may prefix operand effects eagerly, and current WCC
+conditionals do not carry branch proof.
 
-1. recursively normalize an inline effect nested beneath `=`;
-2. lower the resulting Boolean through the existing structured `if` path;
-3. preserve effect/source-map/checkpoint identity; and
-4. show clean and resumed behavior equivalent to the authored `let*` form.
+The implementation plan therefore begins with four executable feasibility
+fixtures before claiming no runtime or public-IR change:
 
-If this fixture requires a condition-specific runtime node, a new IR envelope,
-or eager evaluation of short-circuited effects, stop and revise this design.
+1. **Linear extraction:** normalize an inline provider effect beneath `=`,
+   lower through existing structured `if`, preserve effect/source/checkpoint
+   identity, and show clean/resume equivalence with the authored `let*` form.
+2. **Short circuit:** place counted provider or command effects in later `and`
+   and `or` operands and prove skipped operands create no attempt, checkpoint,
+   or step state on clean execution or resume. This must bypass or correct any
+   eager WCC operand-effect prefixing.
+3. **Nested control value:** use an effectful nested `if` as an operand of a
+   larger Boolean expression and prove that only its selected effects execute
+   before the outer route.
+4. **Proof-to-guard carriage:** compile a discriminant predicate whose selected
+   branch consumes a variant-only field; prove the consuming step contains the
+   existing `requires_variant` guard, a contradictory runtime discriminant
+   fails closed, and resume restores the bound proof descriptor.
+
+A fifth compile fixture covers no-`else` exhaustive `cond` and proves its
+temporary frontend marker is erased into ordinary nested `if` before WCC.
+
+An internal WCC conditional proof field or compiler side table is within the
+accepted design. If the fixtures require a condition-specific runtime node, a
+new public IR envelope, a new state family, or eager evaluation of
+short-circuited effects, stop and revise this design.
 
 ## Verification Strategy
 
@@ -424,12 +508,15 @@ designed, not runnable.
 
 The implementation plan should keep one vertical path:
 
-1. target/version gating, `cond` elaboration, contextual tag typing, and
-   condition proof facts;
-2. recursive effect normalization with short-circuit lowering through existing
+1. run the five feasibility fixtures above and stop on a public-IR/runtime/state
+   gap;
+2. add target/version gating, type-aware `cond` erasure, contextual tag typing,
+   and binding-identity possible-set analysis;
+3. recursively normalize effects with short-circuit lowering through existing
    `let*`, projection, and structured-`if` machinery;
-3. runtime/resume/source-map integration evidence; and
-4. governing-doc and authoring-guide updates after implementation evidence.
+4. carry branch proof through WCC into existing runtime guards and resume proof
+   descriptors; and
+5. complete runtime/source-map evidence and governing-doc updates.
 
 Likely frontend owners include `expressions.py`, `typecheck_dispatch.py`,
 `typecheck_pure_ops.py`, `typecheck_proofs.py`, `conditionals.py`, and the WCC
@@ -437,9 +524,10 @@ control lowerers. The plan must first trace every `IfExpr`, `PureOpExpr`, and
 proof-scope traversal rather than adding a schema-1-only or workflow-specific
 branch.
 
-Do not introduce `CondExpr`, a new runtime execution form, a second proof graph,
-or a new state family unless the feasibility fixture disproves the accepted
-composition. Any such need reopens this design.
+No cond-specific node may survive typed frontend normalization. Do not
+introduce a new runtime execution form, a second proof graph, a public IR
+envelope change, or a new state family unless the feasibility fixtures disprove
+the accepted composition. Any such need reopens this design.
 
 ## Open Questions
 
