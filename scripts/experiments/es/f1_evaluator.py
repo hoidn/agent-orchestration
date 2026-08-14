@@ -2632,8 +2632,6 @@ def walk_consumer_routes(
         def visit(symbol: str, trail: list[str]) -> None:
             nonlocal reached_authority, reached_dead_end, reached_unresolved
             if symbol in trail:
-                reached_dead_end = True
-                reached_unresolved = True
                 paths.append([*trail, symbol])
                 return
             current = [*trail, symbol]

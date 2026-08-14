@@ -1139,6 +1139,68 @@ def test_constructor_route_accepts_analyzed_safe_siblings_but_not_unknown_ones()
     )["closed"] is False
 
 
+def test_analyzed_cycle_closes_resolved_read_but_not_unknown_or_bypass() -> None:
+    consumer = [{
+        "consumer_id": "read-a",
+        "entry_symbol": "read.a",
+        "requires_authority": False,
+    }]
+    cycle = {"read.a": ["read.b"], "read.b": ["read.a"]}
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph=cycle,
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+    assert result["closed"] is True
+    assert result["traces"][0]["paths"] == [["read.a", "read.b", "read.a"]]
+
+    unknown = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={**cycle, "read.b": ["read.a", "unknown"]},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+    assert unknown["closed"] is False
+    assert unknown["unresolved_consumers"] == ["read-a"]
+
+    bypass = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={**cycle, "read.b": ["read.a", "old.path"]},
+        authority_symbols={"authority"},
+        bypass_symbols={"old.path": "TOLERANT_OR_COMPATIBILITY_LOADER"},
+    )
+    assert bypass["closed"] is False
+    assert bypass["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def test_analyzed_cycle_does_not_replace_required_authority() -> None:
+    consumer = [{"consumer_id": "construct-a", "entry_symbol": "construct.a"}]
+    cycle = {"construct.a": ["construct.b"], "construct.b": ["construct.a"]}
+    missing = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph=cycle,
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+    assert missing["closed"] is False
+    assert missing["traces"][0]["paths"] == [
+        ["construct.a", "construct.b", "construct.a"]
+    ]
+
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=consumer,
+        call_graph={**cycle, "construct.a": ["authority", "construct.b"]},
+        authority_symbols={"authority"},
+        bypass_symbols={},
+    )
+    assert result["closed"] is True
+    assert result["traces"][0]["paths"] == [
+        ["construct.a", "authority"],
+        ["construct.a", "construct.b", "construct.a"],
+    ]
+
+
 def test_wrapper_deep_bypass_is_not_hidden_by_an_authority_sibling() -> None:
     result = evaluator.walk_consumer_routes(
         consumer_rows=[{"consumer_id": "consumer-a", "entry_symbol": "entry"}],
