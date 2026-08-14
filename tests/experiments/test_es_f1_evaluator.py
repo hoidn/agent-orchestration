@@ -3814,6 +3814,22 @@ def test_plain_dataclass_allows_regular_methods_properties_and_literal_defaults(
     assert result["closed"] is True
 
 
+def test_dataclass_decorator_ignores_class_body_binding(tmp_path: Path) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/class_binding_dataclass.py",
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class R:\n"
+        "    value: object\n"
+        "    dataclass: object = None\n"
+        "def consume(runtime_config):\n"
+        "    return R(runtime_config)\n",
+    )
+
+    assert result["closed"] is True
+
+
 @pytest.mark.parametrize(
     "field_or_hook",
     (
@@ -3847,6 +3863,30 @@ def test_dataclass_nonliteral_defaults_and_hooks_fail_closed(
     )
 
     assert result["closed"] is False
+
+
+def test_same_module_dataclass_field_factory_requires_stable_index(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.records",
+        owner="package.records.consume",
+        source=(
+            "from builtins import dict\n"
+            "from dataclasses import dataclass, field\n"
+            "@dataclass\n"
+            "class LocalRecord:\n"
+            "    value: object\n"
+            "    items: dict = field(default_factory=dict)\n"
+            "def consume(runtime_config):\n"
+            "    return LocalRecord(runtime_config)\n"
+        ),
+    )
+
+    assert calls == ["package.records.LocalRecord"]
+    assert "package.records.LocalRecord" not in terminals
+    assert closed is False
 
 
 @pytest.mark.parametrize(
@@ -5296,6 +5336,235 @@ def test_cross_module_generated_dataclass_traces_strict_post_init(
         for trace in result["traces"]
         for path in trace["paths"]
     )
+
+
+def _inspect_cross_module_resolved_records(
+    tmp_path: Path, record_source: str
+) -> dict[str, Any]:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/resolved_records.py").write_text(
+        record_source,
+        encoding="utf-8",
+    )
+    (workspace / "scripts/resolved_records_consumer.py").write_text(
+        "from scripts.resolved_records import ResolvedRecords\n"
+        "def consume(runtime_config):\n"
+        "    return ResolvedRecords(runtime_config)\n",
+        encoding="utf-8",
+    )
+    return evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+
+@pytest.mark.parametrize(
+    ("imports", "decorator", "field_name"),
+    (
+        ("from dataclasses import dataclass, field\n", "@dataclass\n", "field"),
+        ("import dataclasses as dc\n", "@dc.dataclass\n", "dc.field"),
+    ),
+    ids=("direct-alias", "module-alias"),
+)
+def test_cross_module_generated_dataclass_allows_stable_dict_factory(
+    tmp_path: Path,
+    imports: str,
+    decorator: str,
+    field_name: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        imports
+        + decorator
+        + "class ResolvedRecords:\n"
+        + "    primary: object\n"
+        + f"    by_name: dict[str, object] = {field_name}(default_factory=dict)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert result["traces"][0]["paths"][-1][-1] == (
+        "scripts.resolved_records.ResolvedRecords"
+    )
+
+
+def test_cross_module_generated_dataclass_dict_factory_traces_strict_post_init(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: str\n"
+        "    by_name: dict[str, object] = field(default_factory=dict)\n"
+        "    def __post_init__(self):\n"
+        "        if self.primary.strip() != self.primary:\n"
+        "            raise ValueError('primary must already be normalized')\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert any(
+        "@context:scripts.resolved_records.ResolvedRecords:self" in path
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("setup", "default_expression", "tail"),
+    (
+        ("", "field(default_factory=list)", ""),
+        (
+            "def make_records():\n"
+            "    return {}\n",
+            "field(default_factory=make_records)",
+            "",
+        ),
+        (
+            "def make_records():\n"
+            "    return {}\n"
+            "dict = make_records\n",
+            "field(default_factory=dict)",
+            "",
+        ),
+        (
+            "def make_records():\n"
+            "    return {}\n",
+            "field(default_factory=dict)",
+            "dict = make_records\n",
+        ),
+        (
+            "import builtins\n"
+            "class FakeDict:\n"
+            "    pass\n"
+            "builtins.dict = FakeDict\n",
+            "field(default_factory=dict)",
+            "",
+        ),
+        ("field.marker = object()\n", "field(default_factory=dict)", ""),
+        (
+            "def capture(value):\n"
+            "    return value\n"
+            "capture(field)\n",
+            "field(default_factory=dict)",
+            "",
+        ),
+        ("", "field(default_factory=dict, repr=False)", ""),
+        ("", "field(dict)", ""),
+        ("", "field(default_factory=dict, **{})", ""),
+        ("Factory = dict\n", "field(default_factory=Factory)", ""),
+        ("", "field(default_factory=dict())", ""),
+        ("import builtins\n", "field(default_factory=builtins.dict)", ""),
+        ("", "(field(default_factory=dict),)", ""),
+        ("", "((field(default_factory=dict),),)", ""),
+    ),
+    ids=(
+        "list-factory",
+        "custom-factory",
+        "shadowed-dict",
+        "rebound-dict",
+        "mutated-builtins-dict",
+        "mutated-field-alias",
+        "escaped-field-alias",
+        "extra-keyword",
+        "positional-argument",
+        "kwargs",
+        "aliased-factory",
+        "called-factory",
+        "qualified-factory",
+        "tuple-field",
+        "nested-tuple-field",
+    ),
+)
+def test_cross_module_generated_dataclass_dict_factory_hazards_fail_closed(
+    tmp_path: Path,
+    setup: str,
+    default_expression: str,
+    tail: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        + setup
+        + "@dataclass\n"
+        + "class ResolvedRecords:\n"
+        + "    primary: object\n"
+        + f"    by_name: dict[str, object] = {default_expression}\n"
+        + tail,
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+    assert any(
+        "@unresolved-context:scripts.resolved_records.ResolvedRecords" in path
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("imports", "decorator", "field_name", "before", "after"),
+    (
+        (
+            "from dataclasses import dataclass, field\n",
+            "@dataclass\n",
+            "field",
+            "    dict: object = None\n",
+            "",
+        ),
+        (
+            "from dataclasses import dataclass, field\n",
+            "@dataclass\n",
+            "field",
+            "",
+            "    field: object = None\n",
+        ),
+        (
+            "import dataclasses as dc\n",
+            "@dc.dataclass\n",
+            "dc.field",
+            "",
+            "    dc: object = None\n",
+        ),
+    ),
+    ids=("bare-dict", "direct-field-alias", "dataclasses-module-alias"),
+)
+def test_cross_module_generated_dataclass_class_bindings_fail_closed(
+    tmp_path: Path,
+    imports: str,
+    decorator: str,
+    field_name: str,
+    before: str,
+    after: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        imports
+        + decorator
+        + "class ResolvedRecords:\n"
+        + "    primary: object\n"
+        + before
+        + f"    by_name: dict[str, object] = {field_name}(default_factory=dict)\n"
+        + after,
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
 
 
 @pytest.mark.parametrize(

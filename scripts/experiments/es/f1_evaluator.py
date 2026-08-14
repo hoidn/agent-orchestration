@@ -2679,6 +2679,18 @@ def _is_plain_generated_dataclass(
             and all(immutable_default(element) for element in value.elts)
         )
 
+    def exact_dict_field(value: ast.AST) -> bool:
+        return (
+            isinstance(value, ast.Call)
+            and resolve_name(value.func) == "dataclasses.field"
+            and not value.args
+            and len(value.keywords) == 1
+            and value.keywords[0].arg == "default_factory"
+            and isinstance(value.keywords[0].value, ast.Name)
+            and value.keywords[0].value.id == "dict"
+            and resolve_name(value.keywords[0].value) == "builtins.dict"
+        )
+
     if node.bases or node.keywords or len(node.decorator_list) != 1:
         return False
     decorator = node.decorator_list[0]
@@ -2710,7 +2722,10 @@ def _is_plain_generated_dataclass(
                 not isinstance(child.target, ast.Name)
                 or child.simple != 1
                 or child.value is not None
-                and not immutable_default(child.value)
+                and not (
+                    immutable_default(child.value)
+                    or exact_dict_field(child.value)
+                )
             ):
                 return False
             continue
@@ -3184,6 +3199,11 @@ def _module_functions(
     function_by_symbol = dict(functions)
     class_by_symbol = dict(classes)
     rebound_by_owner: dict[str, set[str]] = {module: module_rebounds}
+
+    def literal_dataclass_name(node: ast.AST) -> str | None:
+        target = name(node)
+        return None if target in {"builtins.dict", "dataclasses.field"} else target
+
     class_decorators = [
         (symbol, decorator, {id(child) for child in ast.walk(decorator)})
         for symbol, class_node in classes
@@ -3196,9 +3216,16 @@ def _module_functions(
     for symbol, node in classes:
         bases = tuple(filter(None, (name(base) for base in node.bases)))
         class_base[symbol] = bases[0] if len(bases) == 1 else None
-        if not _has_module_class_attribute_mutation(
-            tree, node
-        ) and _is_plain_generated_dataclass(node, name):
+        indexed_plain_dataclass = workspace_function_nodes.get(symbol) == (
+            "dataclasses.dataclass",
+            None,
+            True,
+            True,
+        )
+        if not _has_module_class_attribute_mutation(tree, node) and (
+            indexed_plain_dataclass
+            or _is_plain_generated_dataclass(node, literal_dataclass_name)
+        ):
             generated_dataclasses.add(symbol)
         if not _has_module_class_attribute_mutation(
             tree, node
@@ -5198,8 +5225,62 @@ def _workspace_callable_index(
                 )
             ),
         )
+        parent_by_node = {
+            id(child): parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+
+        def has_enclosing_class_body_binding(node: ast.AST, name: str) -> bool:
+            while (parent := parent_by_node.get(id(node))) is not None:
+                if isinstance(parent, ast.ClassDef) and any(
+                    node is statement for statement in parent.body
+                ):
+                    return _module_binding_counts(
+                        ast.Module(body=list(parent.body), type_ignores=[])
+                    ).get(name, 0) > 0
+                node = parent
+            return False
 
         def stable_imported_symbol(node: ast.AST) -> str | None:
+            if isinstance(node, ast.Name) and node.id == "dict":
+                keyword = parent_by_node.get(id(node))
+                call = (
+                    parent_by_node.get(id(keyword))
+                    if isinstance(keyword, ast.keyword)
+                    else None
+                )
+                if not (
+                    module_binding_counts.get("dict", 0) == 0
+                    and not has_enclosing_class_body_binding(node, "dict")
+                    and isinstance(call, ast.Call)
+                    and not call.args
+                    and len(call.keywords) == 1
+                    and call.keywords[0] is keyword
+                    and keyword.arg == "default_factory"
+                    and stable_imported_symbol(call.func) == "dataclasses.field"
+                ):
+                    return None
+                builtin_aliases = {
+                    local
+                    for local, targets in imported_by_name.items()
+                    if targets & {"builtins", "builtins.dict"}
+                }
+                aliases = {"dict", *builtin_aliases}
+                if any(
+                    module_binding_counts.get(alias) != 1
+                    for alias in builtin_aliases
+                ) or any(
+                    _has_module_object_mutation(
+                        scope,
+                        aliases,
+                        reject_argument_escape=True,
+                        allowed_argument_calls=frozenset({id(call)}),
+                    )
+                    for scope in binding_scopes
+                ):
+                    return None
+                return "builtins.dict"
             root = node
             while isinstance(root, ast.Attribute):
                 root = root.value
@@ -5209,6 +5290,7 @@ def _workspace_callable_index(
                 and target is not None
                 and len(imported_by_name.get(root.id, ())) == 1
                 and module_binding_counts.get(root.id) == 1
+                and not has_enclosing_class_body_binding(node, root.id)
             ):
                 return None
             aliases = {
@@ -5333,7 +5415,9 @@ def _workspace_callable_index(
                         decorator = (
                             "dataclasses.dataclass"
                             if not _has_module_class_attribute_mutation(tree, node)
-                            and _is_plain_generated_dataclass(node, imported_symbol)
+                            and _is_plain_generated_dataclass(
+                                node, stable_imported_symbol
+                            )
                             else None
                         )
                         base = (
