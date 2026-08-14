@@ -188,13 +188,29 @@ condition. An `else` clause is required unless a clause condition statically
 folds to true or typed variant facts prove the clauses exhaustive. Every result
 expression must have a compatible type.
 
-Exhaustiveness is resolved before final nested-`if` construction. When a
-no-`else` form's residual false environment is unreachable, the final proven
-clause becomes the nested chain's ordinary `else` expression and its redundant
-pure test is erased. If the residual environment remains reachable, compilation
-fails. No synthetic unreachable branch reaches WCC or runtime. A
-parser/elaboration-local clause container or missing-else marker may carry the
-form only until this type-aware rewrite.
+Exhaustiveness is resolved during type-aware recursive condition normalization.
+When a no-`else` form's residual false environment is unreachable, all
+reachable effects and short-circuit branch boundaries in the final condition
+are retained. Only an effect-free condition, or a pure terminal test whose
+result is forced after its reachable effect prefixes, may be erased. The
+normalized true and impossible-false continuations then converge on the final
+clause's result expression through ordinary nested `if` structure. If the
+residual environment remains reachable, compilation fails. No synthetic
+unreachable branch reaches WCC or runtime. A parser/elaboration-local clause
+container or missing-else marker may carry the form only until this type-aware
+rewrite.
+
+For example, if prior facts already prove `attempt` is `BLOCKED`, this final
+condition is exhaustive but its provider call remains observable:
+
+```lisp
+(or (provider-result providers.last-check :returns Bool)
+    (= attempt.variant BLOCKED))
+```
+
+The compiler may omit the forced terminal equality after a false provider
+result, but it must still execute the provider once and preserve the `or`
+short-circuit boundary before entering the clause body.
 
 At target 2.26, `cond` is reserved as a frontend form. Targets below 2.26 retain
 their existing name-resolution behavior.
@@ -437,8 +453,11 @@ fixtures before claiming no runtime or public-IR change:
    existing `requires_variant` guard, a contradictory runtime discriminant
    fails closed, and resume restores the bound proof descriptor.
 
-A fifth compile fixture covers no-`else` exhaustive `cond` and proves its
-temporary frontend marker is erased into ordinary nested `if` before WCC.
+A fifth compile/runtime fixture covers no-`else` exhaustive `cond` with an
+observable provider or command effect before a proof-forced terminal test. It
+proves the effect still executes exactly once, short-circuit behavior is
+preserved on clean run and resume, and the temporary frontend marker is erased
+into ordinary nested `if` before WCC.
 
 An internal WCC conditional proof field or compiler side table is within the
 accepted design. If the fixtures require a condition-specific runtime node, a
@@ -453,7 +472,8 @@ Focused compile and typecheck coverage must prove:
   and nested conditionals are admitted exactly when their final type is `Bool`;
 - non-Boolean conditions remain rejected;
 - `cond` syntax, ordered evaluation, one-expression clauses, result typing,
-  `else`, and typed exhaustiveness;
+  `else`, typed exhaustiveness, and preservation of reachable effects in an
+  exhaustive no-`else` clause;
 - contextual tag resolution, lexical-binding precedence, unknown/mismatched
   tag rejection, and compatible discriminant equality;
 - positive and negative proof through `=`, `!=`, `and`, `or`, and `not`;
@@ -510,10 +530,11 @@ The implementation plan should keep one vertical path:
 
 1. run the five feasibility fixtures above and stop on a public-IR/runtime/state
    gap;
-2. add target/version gating, type-aware `cond` erasure, contextual tag typing,
-   and binding-identity possible-set analysis;
-3. recursively normalize effects with short-circuit lowering through existing
-   `let*`, projection, and structured-`if` machinery;
+2. add target/version gating, contextual tag typing, and binding-identity
+   possible-set analysis;
+3. recursively normalize effects through existing `let*`, projection, and
+   structured-`if` machinery, then erase temporary `cond` structure without
+   discarding reachable effect prefixes or short-circuit boundaries;
 4. carry branch proof through WCC into existing runtime guards and resume proof
    descriptors; and
 5. complete runtime/source-map evidence and governing-doc updates.
