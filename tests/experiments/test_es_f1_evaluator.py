@@ -6072,6 +6072,14 @@ def _inspect_cross_module_resolved_records(
             "    Payload = lambda value: value\n",
             False,
         ),
+        (
+            "Payload",
+            "Payload = Record\n"
+            "def rebind():\n"
+            "    global Record\n"
+            "    Record = lambda value: value\n",
+            False,
+        ),
         ("Payload", "Payload = Record\nPayload = lambda value: value\n", False),
         ("Record", "Payload = Record\nPayload.marker = object()\n", False),
         ("Payload", "Payload = Record\nRecord.marker = object()\n", False),
@@ -6081,6 +6089,7 @@ def _inspect_cross_module_resolved_records(
         "alias-name",
         "local-shadow",
         "nested-global-rebound",
+        "nested-global-class-rebound",
         "alias-rebound",
         "alias-mutated",
         "class-mutated",

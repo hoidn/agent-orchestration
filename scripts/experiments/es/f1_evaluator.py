@@ -3012,6 +3012,8 @@ def _has_module_class_attribute_mutation(
         if isinstance(child, ast.Global)
         for name in child.names
     }
+    if node.name in nested_global_names:
+        return True
     aliases = [
         child
         for child in tree.body
