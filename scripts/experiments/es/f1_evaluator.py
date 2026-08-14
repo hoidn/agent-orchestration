@@ -4472,6 +4472,47 @@ def _module_functions(
             )
         return stable_external_receiver_scopes[key]
 
+    def has_direct_local_external_receiver(call: ast.Call, owner: str) -> bool:
+        if not isinstance(call.func, ast.Attribute) or not isinstance(
+            call.func.value, ast.Name
+        ):
+            return False
+        receiver = call.func.value.id
+        function = function_by_symbol[owner]
+        assignments = [
+            statement for statement in function.body
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and statement.targets[0].id == receiver
+        ]
+        if len(assignments) != 1 or not isinstance(assignments[0].value, ast.Call):
+            return False
+        definition = assignments[0]
+        factory = definition.value
+        binding = active_name_binding(factory, owner)
+        if binding is None or binding[0] != "import" or (
+            call_symbol(factory, owner) not in available_external_imports
+        ):
+            return False
+        if len(binding_events_by_owner[owner].get(receiver, ())) != 1:
+            return False
+        if (definition.lineno, definition.col_offset) >= (call.lineno, call.col_offset):
+            return False
+        for load in scoped_by_owner[owner]:
+            if not isinstance(load, ast.Name) or not isinstance(load.ctx, ast.Load) or load.id != receiver:
+                continue
+            attribute = parent_by_node.get(id(load))
+            if attribute is None or not isinstance(attribute[0], ast.Attribute):
+                return False
+            if attribute[1] != "value":
+                return False
+            invocation = parent_by_node.get(id(attribute[0]))
+            if invocation is None or not isinstance(invocation[0], ast.Call):
+                return False
+            if invocation[1] != "func":
+                return False
+        return True
+
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
     binding_scopes = (
         tree,
@@ -5228,6 +5269,7 @@ def _module_functions(
         stable_receiver = (
             builtin_descriptor
             or builtin_literal_descriptor
+            or has_direct_local_external_receiver(call, owner)
             or has_stable_generated_dataclass_field_setattr(call, owner)
             or has_stable_local_builtin_container_receiver(call, owner)
             or has_stable_module_dict_literal_receiver(call, owner)

@@ -4880,6 +4880,64 @@ def test_synthetic_owner_keeps_dynamic_receiver_unresolved(
     assert "package.sink.receiver.info" not in terminals
 
 
+def test_direct_local_external_receiver_calls_are_occurrence_terminals(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = external.Target(**options)\n"
+            "    if runtime_config.enabled:\n"
+            "        receiver.open(runtime_config)\n"
+            "    else:\n"
+            "        receiver.close(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Target"}),
+    )
+
+    assert "dependency.Target" in calls
+    assert sum(call.startswith("@terminal:") for call in calls) == 2
+    assert set(calls) <= terminals
+    assert closed is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    receiver = external.Target()\n"
+        "    alias = receiver\n"
+        "    receiver.open(runtime_config)\n",
+        "    if runtime_config.enabled:\n"
+        "        receiver = external.Target()\n"
+        "    receiver.open(runtime_config)\n",
+    ),
+    ids=("non-receiver-load", "conditional-assignment"),
+)
+def test_other_local_external_receiver_shapes_remain_unresolved(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config):\n"
+            + body
+        ),
+        available_external_imports=frozenset({"dependency.Target"}),
+    )
+
+    assert calls == ["package.sink.receiver.open"]
+    assert not terminals
+    assert closed is False
+
+
 @pytest.mark.parametrize(
     ("receiver", "closed"),
     (
