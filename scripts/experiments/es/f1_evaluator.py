@@ -4560,13 +4560,44 @@ def _module_functions(
                     node,
                     (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
                 )
-                and any(
-                    isinstance(child, ast.Name)
-                    and child.id == object_name
-                    and isinstance(child.ctx, ast.Load)
-                    for child in ast.walk(node)
+                and (
+                    any(
+                        isinstance(child, ast.Name)
+                        and child.id == object_name
+                        for child in ast.walk(node)
+                    )
+                    or any(
+                        isinstance(child, (ast.Global, ast.Nonlocal))
+                        and object_name in child.names
+                        for child in ast.walk(node)
+                    )
                 )
                 for node in scoped_by_owner[owner]
+            )
+
+        def has_wrapped_carrier_use(object_name: str) -> bool:
+            return any(
+                any(
+                    isinstance(child, ast.Name) and child.id == object_name
+                    for child in ast.walk(node)
+                )
+                for node in ast.walk(function_scope)
+                if isinstance(
+                    node,
+                    (
+                        ast.IfExp,
+                        ast.BoolOp,
+                        ast.ListComp,
+                        ast.SetComp,
+                        ast.DictComp,
+                        ast.GeneratorExp,
+                        ast.Await,
+                        ast.JoinedStr,
+                        ast.FormattedValue,
+                        ast.UnaryOp,
+                        ast.BinOp,
+                    ),
+                )
             )
 
         if any(
@@ -4580,7 +4611,9 @@ def _module_functions(
         ) or any(
             has_subscript_mutation(scope, factory_root.id)
             for scope in (tree, function_scope)
-        ) or has_nested_capture(factory_root.id):
+        ) or has_nested_capture(factory_root.id) or has_wrapped_carrier_use(
+            factory_root.id
+        ):
             return False
         if _has_module_object_mutation(
             function_scope,
@@ -4592,6 +4625,7 @@ def _module_functions(
         return not (
             has_subscript_mutation(function_scope, receiver)
             or has_nested_capture(receiver)
+            or has_wrapped_carrier_use(receiver)
         )
 
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}

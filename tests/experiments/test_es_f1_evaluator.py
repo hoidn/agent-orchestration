@@ -5120,6 +5120,129 @@ def test_opaque_external_result_terminal_does_not_leak_to_sibling_receiver(
 
 
 @pytest.mark.parametrize(
+    "operation",
+    (
+        "    alias = receiver if flag else None\n",
+        "    return receiver or None\n",
+        "    alias = [receiver for _ in ()]\n",
+        "    alias = {receiver for _ in ()}\n",
+        "    alias = {str(i): receiver for i in ()}\n",
+        "    alias = (receiver for _ in ())\n",
+        "    alias = await receiver\n",
+        "    alias = f'{receiver}'\n",
+        "    alias = +receiver\n",
+        "    alias = receiver + 1\n",
+    ),
+    ids=(
+        "if-expression",
+        "boolean-expression",
+        "list-comprehension",
+        "set-comprehension",
+        "dict-comprehension",
+        "generator-expression",
+        "await",
+        "formatted-string",
+        "unary-operation",
+        "binary-operation",
+    ),
+)
+def test_opaque_external_result_wrapped_carrier_use_fails_closed(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "async def consume(runtime_config, options, flag):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+            + operation
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "nested",
+    (
+        (
+            "    def mutate():\n"
+            "        nonlocal receiver\n"
+            "        receiver = object()\n"
+        ),
+        (
+            "    def mutate():\n"
+            "        receiver = object()\n"
+        ),
+        (
+            "    def mutate():\n"
+            "        nonlocal receiver\n"
+            "        del receiver\n"
+        ),
+        (
+            "    def mutate():\n"
+            "        global Factory\n"
+            "        Factory = lambda value: value\n"
+        ),
+    ),
+    ids=(
+        "nonlocal-receiver-store",
+        "nested-receiver-store",
+        "nonlocal-receiver-delete",
+        "global-factory-store",
+    ),
+)
+def test_opaque_external_result_nested_binding_mutation_fails_closed(
+    tmp_path: Path,
+    nested: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            + nested
+            + "    mutate()\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+def test_opaque_external_result_ignores_unrelated_wrapped_values(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options, flag):\n"
+            "    receiver = Factory(options if flag else {})\n"
+            "    unrelated = [option for option in options]\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert any(call.startswith("@terminal-external-result:") for call in calls)
+    assert closed is True
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),
