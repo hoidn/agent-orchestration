@@ -4880,6 +4880,245 @@ def test_synthetic_owner_keeps_dynamic_receiver_unresolved(
     assert "package.sink.receiver.info" not in terminals
 
 
+def test_opaque_external_factory_result_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options, mode=runtime_config.mode)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    terminal = (
+        "@terminal-external-result:package.sink.consume:4:4:"
+        "package.sink.receiver.process"
+    )
+    assert terminal in calls
+    assert terminal in terminals
+    assert closed is True
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        "    receiver = object()\n",
+        "    del receiver\n",
+        "    alias = receiver\n",
+        "    escape(receiver)\n",
+        "    receiver.attribute = runtime_config\n",
+        "    receiver[0] = runtime_config\n",
+        "    setattr(receiver, 'attribute', runtime_config)\n",
+        "    method = receiver.process\n",
+    ),
+    ids=(
+        "rebind",
+        "delete",
+        "alias",
+        "argument-escape",
+        "attribute-mutation",
+        "subscript-mutation",
+        "setattr-mutation",
+        "method-extraction",
+    ),
+)
+def test_opaque_external_factory_result_receiver_mutation_fails_closed(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options, escape=lambda value: None):\n"
+            "    receiver = Factory(options)\n"
+            + operation
+            + "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert not any(
+        terminal.endswith(":package.sink.receiver.process")
+        for terminal in terminals
+    )
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "escape",
+    (
+        "    receiver.process(runtime_config)\n    return receiver\n",
+        "    receiver.process(runtime_config)\n    yield receiver\n",
+        (
+            "    def expose():\n"
+            "        return receiver\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+    ),
+    ids=("return", "yield", "closure"),
+)
+def test_opaque_external_factory_result_receiver_escape_fails_closed(
+    tmp_path: Path,
+    escape: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            + escape
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        (
+            "    if options:\n"
+            "        receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "    receiver = Factory(options)\n"
+            "    receiver = Factory(runtime_config)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "    for option in options:\n"
+            "        receiver = Factory(option)\n"
+            "        receiver.process(runtime_config)\n"
+        ),
+    ),
+    ids=("conditional-definition", "duplicate-definition", "loop-definition"),
+)
+def test_opaque_external_factory_result_requires_one_top_level_definition(
+    tmp_path: Path,
+    body: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            + body
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "def Factory(options):\n"
+            "    return options\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "from dependency import Factory\n"
+            "replacement = object()\n"
+            "Factory = replacement\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "import dependency\n"
+            "replacement = object()\n"
+            "dependency.Factory = replacement\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "import dependency\n"
+            "replacement = object()\n"
+            "dependency['Factory'] = replacement\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        (
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            "    def expose():\n"
+            "        return Factory\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+    ),
+    ids=(
+        "local-unprobed-factory",
+        "import-rebind",
+        "import-member-mutation",
+        "import-subscript-mutation",
+        "import-capture",
+    ),
+)
+def test_opaque_external_factory_result_requires_stable_external_import(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=source,
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+def test_opaque_external_result_terminal_does_not_leak_to_sibling_receiver(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options, sibling):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+            "    sibling.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert any(call.startswith("@terminal-external-result:") for call in calls)
+    assert "package.sink.sibling.process" in calls
+    assert "package.sink.sibling.process" not in terminals
+    assert closed is False
+
+
 @pytest.mark.parametrize(
     ("receiver", "closed"),
     (
