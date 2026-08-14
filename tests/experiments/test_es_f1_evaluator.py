@@ -3817,14 +3817,14 @@ def test_plain_dataclass_allows_regular_methods_properties_and_literal_defaults(
 @pytest.mark.parametrize(
     "field_or_hook",
     (
-        "    values: tuple = ()\n",
+        "    values: list = []\n",
         "    values: list = field(default_factory=list)\n",
         (
             "    def __init__(self, value):\n"
             "        value.get('mode', 'default')\n"
         ),
     ),
-    ids=("nonliteral-default", "default-factory", "custom-init"),
+    ids=("mutable-default", "default-factory", "custom-init"),
 )
 def test_dataclass_nonliteral_defaults_and_hooks_fail_closed(
     tmp_path: Path, field_or_hook: str
@@ -5264,6 +5264,7 @@ def test_cross_module_generated_dataclass_traces_strict_post_init(
         "@dataclass(frozen=True)\n"
         "class StrictRecord:\n"
         "    value: str\n"
+        "    notices: tuple[str, ...] = ()\n"
         "    def __post_init__(self):\n"
         "        if self.value.strip() != self.value:\n"
         "            raise ValueError('value must already be normalized')\n",
@@ -5290,6 +5291,68 @@ def test_cross_module_generated_dataclass_traces_strict_post_init(
 
     assert result["closed"] is True
     assert result["bypass_classes"] == []
+    assert any(
+        "@context:scripts.strict_record.StrictRecord:self" in path
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    "default_expression",
+    ("([],)", "(factory(),)"),
+    ids=("mutable-element", "call-element"),
+)
+def test_cross_module_generated_dataclass_tuple_default_hazards_fail_closed(
+    tmp_path: Path,
+    default_expression: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/tuple_default_hazard_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "def factory():\n"
+        "    return ()\n"
+        "@dataclass(frozen=True)\n"
+        "class Record:\n"
+        "    value: str\n"
+        f"    notices: tuple[object, ...] = {default_expression}\n"
+        "    def __post_init__(self):\n"
+        "        if self.value.strip() != self.value:\n"
+        "            raise ValueError('value must already be normalized')\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/tuple_default_hazard_consumer.py").write_text(
+        "from scripts.tuple_default_hazard_record import Record\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+    assert any(
+        "@unresolved-context:scripts.tuple_default_hazard_record.Record" in path
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
 
 
 def test_cross_module_generated_dataclass_post_init_tolerant_read_fails_closed(

@@ -2673,6 +2673,12 @@ def _is_plain_generated_dataclass(
 ) -> bool:
     """Return whether construction is the unwrapped stdlib-generated initializer."""
 
+    def immutable_default(value: ast.AST) -> bool:
+        return isinstance(value, ast.Constant) or (
+            isinstance(value, ast.Tuple)
+            and all(immutable_default(element) for element in value.elts)
+        )
+
     if node.bases or node.keywords or len(node.decorator_list) != 1:
         return False
     decorator = node.decorator_list[0]
@@ -2704,7 +2710,7 @@ def _is_plain_generated_dataclass(
                 not isinstance(child.target, ast.Name)
                 or child.simple != 1
                 or child.value is not None
-                and not isinstance(child.value, ast.Constant)
+                and not immutable_default(child.value)
             ):
                 return False
             continue
