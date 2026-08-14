@@ -280,6 +280,39 @@ def _inspect_added_consumer(
     )
 
 
+def _synthetic_owner_route(
+    tmp_path: Path,
+    *,
+    module: str,
+    owner: str,
+    source: str,
+    available_external_imports: frozenset[str] = frozenset(),
+) -> tuple[list[str], set[str], bool]:
+    path = tmp_path.joinpath(*module.split(".")).with_suffix(".py")
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        module,
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{"public_entry_route": owner}],
+        workspace_module_roots=frozenset({module.split(".", 1)[0]}),
+        available_external_imports=available_external_imports,
+    )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "synthetic-owner",
+            "entry_symbol": owner,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+    return graph[owner], terminals, result["closed"]
+
+
 def _conforming_protocol_workspace(tmp_path: Path) -> tuple[Path, Path]:
     return _candidate_workspace(
         tmp_path,
@@ -3740,6 +3773,88 @@ def test_verified_external_factory_receiver_is_occurrence_terminal(
     assert result["closed"] is True
 
 
+def test_synthetic_owner_reuses_verified_external_receiver_terminal_proof(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import logging\n"
+            "logger = logging.getLogger(__name__)\n"
+            "def consume(runtime_config):\n"
+            "    logger.debug('starting')\n"
+            "    logger.info(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"logging.getLogger"}),
+    )
+
+    assert closed is True
+    assert calls[0].startswith("@terminal:")
+
+
+def test_synthetic_owner_keeps_dynamic_receiver_unresolved(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, _ = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "def consume(runtime_config, receiver):\n"
+            "    receiver.info(runtime_config)\n"
+        ),
+    )
+
+    assert calls == ["package.sink.receiver.info"]
+    assert "package.sink.receiver.info" not in terminals
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "    alias = logger\n"
+        "    alias.info = runtime_config.sink\n",
+        "    setattr(logger, runtime_config.method_name, runtime_config.sink)\n",
+        "    mutate(logger)\n",
+        "    logger.__dict__.update({'info': runtime_config.sink})\n",
+        "    mutate((alias := logger))\n",
+    ),
+    ids=(
+        "local-alias",
+        "dynamic-setattr",
+        "argument-escape",
+        "callee-receiver",
+        "named-expression-escape",
+    ),
+)
+def test_synthetic_owner_mutated_external_receiver_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import logging\n"
+            "logger = logging.getLogger(__name__)\n"
+            "def consume(runtime_config, mutate):\n"
+            + mutation
+            + "    logger.info(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"logging.getLogger"}),
+    )
+
+    assert closed is False
+    assert "package.sink.logger.info" in calls
+    assert not any(
+        terminal.endswith(":package.sink.logger.info")
+        for terminal in terminals
+    )
+
+
 def test_stable_function_local_list_receiver_is_occurrence_terminal(
     tmp_path: Path,
 ) -> None:
@@ -3753,6 +3868,180 @@ def test_stable_function_local_list_receiver_is_occurrence_terminal(
     )
 
     assert result["closed"] is True
+
+
+def test_repeated_local_list_receiver_escape_fails_closed(tmp_path: Path) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "def consume(runtime_config, mutate):\n"
+            "    output = []\n"
+            "    for _ in range(2):\n"
+            "        output.append(runtime_config)\n"
+            "        mutate(output)\n"
+        ),
+    )
+
+    target = "package.sink.output.append"
+    assert closed is False
+    assert target in calls
+    assert not any(terminal.endswith(f":{target}") for terminal in terminals)
+
+
+def test_stable_initializer_attribute_external_collection_is_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.builder",
+        owner="package.builder.Builder.__init__",
+        source=(
+            "from dependency import Base, Collection\n"
+            "class Builder(Base):\n"
+            "    def __init__(self, runtime_config):\n"
+            "        super().__init__()\n"
+            "        self.encoder_blocks = Collection()\n"
+            "        self.downsample_layers = Collection()\n"
+            "        for block in runtime_config.blocks:\n"
+            "            self.encoder_blocks.append(block)\n"
+            "            self.downsample_layers.append(block)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Collection"}),
+    )
+
+    assert closed is True
+    assert len(calls) == 2
+    assert all(call.startswith("@terminal:") for call in calls)
+
+
+def test_rebound_initializer_attribute_receiver_fails_closed(
+    tmp_path: Path,
+) -> None:
+    _, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.builder",
+        owner="package.builder.Builder.__init__",
+        source=(
+            "from dependency import Collection\n"
+            "class Builder:\n"
+            "    def __init__(self, runtime_config):\n"
+            "        self.items = Collection()\n"
+            "        self.items = runtime_config.items\n"
+            "        self.items.append(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Collection"}),
+    )
+
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "class_source",
+    (
+        "class Builder:\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        alias = self\n"
+        "        alias.items = runtime_config.items\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder:\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        setattr(self, runtime_config.name, runtime_config.items)\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder:\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        self.__dict__['items'] = runtime_config.items\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder:\n"
+        "    @property\n"
+        "    def items(self):\n"
+        "        return self._dynamic\n"
+        "    @items.setter\n"
+        "    def items(self, value):\n"
+        "        self._discarded = value\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self._dynamic = runtime_config.items\n"
+        "        self.items = Collection()\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder:\n"
+        "    def reset(self):\n"
+        "        self.items = object()\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        self.reset()\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder:\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        self.__setattr__('items', runtime_config.items)\n"
+        "        self.items.append(runtime_config)\n",
+        "class Builder(Base):\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        super().__init__()\n"
+        "        self.items.append(runtime_config)\n",
+        "class Descriptor:\n"
+        "    pass\n"
+        "class Builder:\n"
+        "    def __init__(self, runtime_config):\n"
+        "        self.items = Collection()\n"
+        "        self.items.append(runtime_config)\n"
+        "Alias = Builder\n"
+        "Alias.items = Descriptor()\n",
+    ),
+    ids=(
+        "self-alias",
+        "dynamic-setattr",
+        "dict-rebind",
+        "descriptor",
+        "bound-self-call",
+        "bound-self-setattr",
+        "super-init-after-definition",
+        "class-alias-descriptor",
+    ),
+)
+def test_indirect_initializer_attribute_receiver_fails_closed(
+    tmp_path: Path,
+    class_source: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.builder",
+        owner="package.builder.Builder.__init__",
+        source="from dependency import Base, Collection\n" + class_source,
+        available_external_imports=frozenset({"dependency.Collection"}),
+    )
+    target = "package.builder.self.items.append"
+    assert closed is False
+    assert target in calls
+    assert not any(terminal.endswith(f":{target}") for terminal in terminals)
+
+
+def test_for_target_configuration_reaches_stable_initializer_collection(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.builder",
+        owner="package.builder.Builder.__init__",
+        source=(
+            "from dependency import Collection\n"
+            "class Builder:\n"
+            "    def __init__(self, runtime_config):\n"
+            "        self.items = Collection()\n"
+            "        for item in runtime_config.items:\n"
+            "            self.items.append(item)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Collection"}),
+    )
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
 
 
 @pytest.mark.parametrize(

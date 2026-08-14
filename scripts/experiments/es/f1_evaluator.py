@@ -2764,7 +2764,7 @@ def _has_module_object_mutation(
             return value.id in object_names
         if isinstance(value, ast.Attribute):
             return root_name(value) in object_names
-        if isinstance(value, ast.Starred):
+        if isinstance(value, (ast.Starred, ast.NamedExpr)):
             return aliases_object(value.value)
         if isinstance(value, (ast.Tuple, ast.List, ast.Set)):
             return any(aliases_object(child) for child in value.elts)
@@ -2812,6 +2812,17 @@ def _has_module_object_mutation(
                 and child.func.id == "setattr"
                 and child.args
                 and root_name(child.args[0]) in object_names
+            ):
+                return True
+            if (
+                reject_argument_escape
+                and id(child) not in allowed_argument_calls
+                and isinstance(child.func, ast.Attribute)
+                and aliases_object(child.func.value)
+                and (
+                    not isinstance(child.func.value, ast.Name)
+                    or child.func.attr in {"__setattr__", "__delattr__"}
+                )
             ):
                 return True
             if (
@@ -3034,6 +3045,33 @@ def _module_functions(
         and isinstance(node.args[1], ast.Constant)
         and isinstance(node.args[1].value, str)
     )
+
+    def verified_external_factory(call: ast.Call) -> str | None:
+        factory = name(call.func)
+        if not (
+            factory in available_external_imports
+            and has_stable_external_factory(call)
+            and factory not in reassigned_attributes
+            and factory.split(".", 1)[0] not in workspace_module_roots
+            and all(verified_factory_value(value, call) for value in call.args)
+            and all(
+                keyword.arg is not None
+                and verified_factory_value(keyword.value, call)
+                for keyword in call.keywords
+            )
+            and not _has_module_object_mutation(
+                tree,
+                {
+                    local
+                    for local, imported in imports.items()
+                    if imported.split(".", 1)[0] == factory.split(".", 1)[0]
+                },
+                reject_argument_escape=False,
+            )
+        ):
+            return None
+        return factory
+
     verified_external_receivers = {
         node.targets[0].id
         for node in tree.body
@@ -3042,35 +3080,15 @@ def _module_functions(
         and isinstance(node.targets[0], ast.Name)
         and module_binding_counts.get(node.targets[0].id) == 1
         and isinstance(node.value, ast.Call)
-        and (factory := name(node.value.func)) in available_external_imports
-        and has_stable_external_factory(node.value)
-        and factory not in reassigned_attributes
+        and (factory := verified_external_factory(node.value)) is not None
         and not any(
             attribute.startswith(f"{module}.{node.targets[0].id}.")
             for attribute in reassigned_attributes
-        )
-        and factory.split(".", 1)[0] not in workspace_module_roots
-        and all(
-            verified_factory_value(value, node.value) for value in node.value.args
-        )
-        and all(
-            keyword.arg is not None
-            and verified_factory_value(keyword.value, node.value)
-            for keyword in node.value.keywords
         )
         and not _has_module_object_mutation(
             tree,
             {node.targets[0].id},
             reject_argument_escape=True,
-        )
-        and not _has_module_object_mutation(
-            tree,
-            {
-                local
-                for local, imported in imports.items()
-                if imported.split(".", 1)[0] == factory.split(".", 1)[0]
-            },
-            reject_argument_escape=False,
         )
     }
 
@@ -3756,12 +3774,23 @@ def _module_functions(
                 result.add(callee_node.args.kwarg.arg)
         return result
 
+    def flow_binding(child: ast.AST) -> tuple[ast.AST | None, Sequence[ast.AST]]:
+        if isinstance(child, ast.Assign):
+            return child.value, child.targets
+        if isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
+            return child.value, (child.target,)
+        if isinstance(child, (ast.For, ast.AsyncFor)):
+            return child.iter, (child.target,)
+        return None, ()
+
     def returns_carrier(callee: str, seeds: set[str]) -> bool:
         aliases = set(seeds)
 
         def carrier_expression(value: ast.AST | None) -> bool:
             if isinstance(value, ast.Name):
                 return value.id in aliases
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return carrier_expression(value.value)
             if isinstance(value, ast.IfExp):
                 return carrier_expression(value.body) or carrier_expression(value.orelse)
             return isinstance(value, ast.BoolOp) and any(
@@ -3772,12 +3801,7 @@ def _module_functions(
         while changed:
             changed = False
             for child in scoped_by_owner[callee]:
-                value: ast.AST | None = None
-                targets: Sequence[ast.AST] = ()
-                if isinstance(child, ast.Assign):
-                    value, targets = child.value, child.targets
-                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
-                    value, targets = child.value, (child.target,)
+                value, targets = flow_binding(child)
                 if not carrier_expression(value):
                     continue
                 for target in targets:
@@ -3846,17 +3870,31 @@ def _module_functions(
             and root.id in imports_by_owner[owner]
         )
 
+    stable_external_receiver_scopes: dict[tuple[str, str], bool] = {}
+
     def has_verified_external_receiver(call: ast.Call, owner: str) -> bool:
         if not isinstance(call.func, ast.Attribute):
             return False
         root: ast.AST = call.func.value
         while isinstance(root, ast.Attribute):
             root = root.value
-        return (
+        if not (
             isinstance(root, ast.Name)
             and root.id in verified_external_receivers
             and root.id not in rebound_by_owner[owner]
-        )
+        ):
+            return False
+        key = (owner, root.id)
+        if key not in stable_external_receiver_scopes:
+            stable_external_receiver_scopes[key] = not _has_module_object_mutation(
+                ast.Module(
+                    body=list(function_by_symbol[owner].body),
+                    type_ignores=[],
+                ),
+                {root.id},
+                reject_argument_escape=True,
+            )
+        return stable_external_receiver_scopes[key]
 
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
 
@@ -3923,17 +3961,14 @@ def _module_functions(
                     return value.id in tainted
                 if isinstance(value, (ast.Starred, ast.NamedExpr)):
                     return relevant(value.value)
+                if isinstance(value, (ast.Attribute, ast.Subscript)):
+                    return relevant(value.value)
                 if isinstance(value, (ast.IfExp, ast.BoolOp, ast.Call)):
                     return any(relevant(child) for child in ast.iter_child_nodes(value))
                 return False
 
             for child in scoped_nodes:
-                value: ast.AST | None = None
-                targets: Sequence[ast.AST] = ()
-                if isinstance(child, ast.Assign):
-                    value, targets = child.value, child.targets
-                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
-                    value, targets = child.value, (child.target,)
+                value, targets = flow_binding(child)
                 carries_configuration = value is not None and relevant(value)
                 if isinstance(value, ast.Call):
                     carries_configuration = call_symbol(value, owner) in authority_symbols
@@ -4013,6 +4048,21 @@ def _module_functions(
             return False
         definition = definitions[0]
 
+        repeated_scopes = [
+            {id(child) for child in ast.walk(scope)}
+            for scope in ast.walk(function)
+            if isinstance(scope, (ast.For, ast.AsyncFor, ast.While))
+            and any(child is call for child in ast.walk(scope))
+        ]
+
+        def may_run_before_occurrence(node: ast.AST) -> bool:
+            return (
+                (definition.lineno, definition.col_offset)
+                < (getattr(node, "lineno", call.lineno), getattr(node, "col_offset", 0))
+                < (call.lineno, call.col_offset)
+                or any(id(node) in scope for scope in repeated_scopes)
+            )
+
         def contains_receiver(value: ast.AST | None) -> bool:
             return value is not None and any(
                 isinstance(child, ast.Name) and child.id == receiver
@@ -4020,10 +4070,7 @@ def _module_functions(
             )
 
         for node in scoped_by_owner[owner]:
-            if (getattr(node, "lineno", call.lineno), getattr(node, "col_offset", 0)) >= (
-                call.lineno,
-                call.col_offset,
-            ):
+            if not may_run_before_occurrence(node):
                 continue
             if isinstance(node, (ast.Global, ast.Nonlocal)) and receiver in node.names:
                 return False
@@ -4053,6 +4100,255 @@ def _module_functions(
                 return False
         return True
 
+    def has_plain_initializer_attribute(owner: str, attribute: str) -> bool:
+        class_symbol = owner.rsplit(".", 1)[0]
+        class_node = class_by_symbol.get(class_symbol)
+        if class_node is None or class_node.decorator_list or class_node.keywords:
+            return False
+        class_bindings = _module_binding_counts(
+            ast.Module(body=list(class_node.body), type_ignores=[])
+        )
+        intercepted = {
+            attribute,
+            "__getattr__",
+            "__getattribute__",
+            "__setattr__",
+        }
+        if intercepted & class_bindings.keys():
+            return False
+        if any(
+            reassigned == f"{class_symbol}.{name}"
+            for reassigned in reassigned_attributes
+            for name in intercepted
+        ):
+            return False
+        class_name = class_symbol.rsplit(".", 1)[-1]
+        if _has_module_object_mutation(
+            tree, {class_name}, reject_argument_escape=True
+        ):
+            return False
+        for base in class_node.bases:
+            root = base
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id == "object":
+                continue
+            if not (
+                isinstance(root, ast.Name)
+                and (imported := imports.get(root.id)) is not None
+                and imported.split(".", 1)[0] not in workspace_module_roots
+                and name(base) not in reassigned_attributes
+                and not _has_module_object_mutation(
+                    tree,
+                    {root.id},
+                    reject_argument_escape=False,
+                )
+            ):
+                return False
+        return True
+
+    def has_stable_initializer_attribute_receiver(
+        call: ast.Call, owner: str
+    ) -> bool:
+        if not (
+            owner.endswith(".__init__")
+            and isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Attribute)
+            and isinstance(call.func.value.value, ast.Name)
+        ):
+            return False
+        function = function_by_symbol[owner]
+        positional = (*function.args.posonlyargs, *function.args.args)
+        if not positional or call.func.value.value.id != positional[0].arg:
+            return False
+        receiver = call.func.value
+        owner_name = positional[0].arg
+        if not has_plain_initializer_attribute(owner, receiver.attr):
+            return False
+
+        def contains_owner(node: ast.AST | None) -> bool:
+            return node is not None and any(
+                isinstance(child, ast.Name) and child.id == owner_name
+                for child in ast.walk(node)
+            )
+
+        initializer_definitions: dict[
+            str, list[ast.Assign | ast.AnnAssign]
+        ] = {}
+        for statement in function.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                target, value = statement.targets[0], statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                target, value = statement.target, statement.value
+            else:
+                continue
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == owner_name
+                and isinstance(value, ast.Call)
+            ):
+                initializer_definitions.setdefault(target.attr, []).append(statement)
+        definitions = initializer_definitions.get(receiver.attr, [])
+        if len(definitions) != 1:
+            return False
+        definition = definitions[0]
+        value = definition.value
+        if not (
+            isinstance(value, ast.Call)
+            and (definition.lineno, definition.col_offset)
+            < (call.lineno, call.col_offset)
+            and (factory := verified_external_factory(value)) is not None
+            and call_symbol(value, owner) == factory
+        ):
+            return False
+        verified_initializer_attributes = {
+            attribute
+            for attribute, candidates in initializer_definitions.items()
+            if len(candidates) == 1
+            and has_plain_initializer_attribute(owner, attribute)
+            and isinstance(candidates[0].value, ast.Call)
+            and (
+                candidate_factory := verified_external_factory(candidates[0].value)
+            )
+            is not None
+            and call_symbol(candidates[0].value, owner) == candidate_factory
+        }
+
+        repeated_scopes = [
+            {id(child) for child in ast.walk(scope)}
+            for scope in ast.walk(function)
+            if isinstance(scope, (ast.For, ast.AsyncFor, ast.While))
+            and any(child is call for child in ast.walk(scope))
+        ]
+
+        def may_run_before_occurrence(node: ast.AST) -> bool:
+            return (
+                (definition.lineno, definition.col_offset)
+                < (node.lineno, node.col_offset)
+                < (call.lineno, call.col_offset)
+                or any(id(node) in scope for scope in repeated_scopes)
+            )
+
+        def mutates_owner_indirectly(node: ast.AST) -> bool:
+            return contains_owner(node) and not (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == owner_name
+                and node.attr != receiver.attr
+            )
+
+        for node in scoped_by_owner[owner]:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                if may_run_before_occurrence(node) and contains_owner(node):
+                    return False
+                continue
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+                if (
+                    node is not definition
+                    and may_run_before_occurrence(node)
+                    and (
+                        any(mutates_owner_indirectly(target) for target in targets)
+                        or contains_owner(node.value)
+                    )
+                ):
+                    return False
+            elif isinstance(node, (ast.AugAssign, ast.Delete)):
+                targets = node.targets if isinstance(node, ast.Delete) else (node.target,)
+                if may_run_before_occurrence(node) and any(
+                    mutates_owner_indirectly(target) for target in targets
+                ):
+                    return False
+            elif isinstance(node, ast.Call) and node is not call:
+                call_receiver = (
+                    node.func.value if isinstance(node.func, ast.Attribute) else None
+                )
+                distinct_verified_receiver = (
+                    isinstance(call_receiver, ast.Attribute)
+                    and isinstance(call_receiver.value, ast.Name)
+                    and call_receiver.value.id == owner_name
+                    and call_receiver.attr != receiver.attr
+                    and call_receiver.attr in verified_initializer_attributes
+                    and (
+                        initializer_definitions[call_receiver.attr][0].lineno,
+                        initializer_definitions[call_receiver.attr][0].col_offset,
+                    )
+                    < (node.lineno, node.col_offset)
+                )
+                if (
+                    may_run_before_occurrence(node)
+                    and (
+                        contains_owner(call_receiver)
+                        and not distinct_verified_receiver
+                        or isinstance(call_receiver, ast.Call)
+                        and isinstance(call_receiver.func, ast.Name)
+                        and call_receiver.func.id == "super"
+                        or any(
+                            contains_owner(argument)
+                            for argument in (
+                                *node.args,
+                                *(keyword.value for keyword in node.keywords),
+                            )
+                        )
+                    )
+                ):
+                    return False
+            elif (
+                isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom))
+                and may_run_before_occurrence(node)
+                and contains_owner(node.value)
+            ):
+                return False
+        return True
+
+    def occurrence_terminal_symbol(
+        call: ast.Call,
+        owner: str,
+        relevant: Any,
+        target: str,
+        *,
+        force_receiver_tainted: bool = False,
+        allow_tainted_receiver: bool = True,
+    ) -> tuple[str, bool]:
+        arguments = (*call.args, *(item.value for item in call.keywords))
+        receiver_tainted = force_receiver_tainted or (
+            isinstance(call.func, ast.Attribute)
+            and relevant(call.func.value)
+        )
+        tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
+            target,
+            arguments,
+            receiver_tainted=receiver_tainted,
+            call_tainted=receiver_tainted
+            or any(relevant(argument) for argument in arguments),
+        )
+        verified_receiver = has_verified_external_receiver(call, owner)
+        stable_receiver = has_stable_local_list_receiver(
+            call, owner
+        ) or has_stable_initializer_attribute_receiver(call, owner)
+        if (
+            isinstance(call.func, ast.Attribute)
+            and (
+                verified_receiver
+                or stable_receiver
+                or allow_tainted_receiver and receiver_tainted
+            )
+            and not tolerant
+            and not has_imported_receiver(call, owner)
+            and (
+                verified_receiver
+                or stable_receiver
+                or not (
+                    isinstance(call.func.value, ast.Name)
+                    and call.func.value.id in module_rebounds
+                )
+            )
+        ):
+            target = f"@terminal:{owner}:{call.lineno}:{call.col_offset}:{target}"
+            terminal_symbols.add(target)
+        return target, tolerant
+
     def contextual_route(
         owner: str,
         seeds: set[str],
@@ -4078,6 +4374,8 @@ def _module_functions(
         def carrier_expression(value: ast.AST | None) -> bool:
             if isinstance(value, ast.Name):
                 return value.id in tainted
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return carrier_expression(value.value)
             if isinstance(value, ast.BoolOp):
                 return any(carrier_expression(item) for item in value.values)
             if isinstance(value, ast.IfExp):
@@ -4101,12 +4399,7 @@ def _module_functions(
         while changed:
             changed = False
             for child in scoped_by_owner[owner]:
-                value: ast.AST | None = None
-                targets: Sequence[ast.AST] = ()
-                if isinstance(child, ast.Assign):
-                    value, targets = child.value, child.targets
-                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
-                    value, targets = child.value, (child.target,)
+                value, targets = flow_binding(child)
                 if not carrier_expression(value):
                     continue
                 for target in targets:
@@ -4143,43 +4436,9 @@ def _module_functions(
                 target = routed_call_symbol(
                     child, owner, relevant, binding_context
                 )
-                arguments = (*child.args, *(item.value for item in child.keywords))
-                receiver_tainted = (
-                    isinstance(child.func, ast.Attribute)
-                    and relevant(child.func.value)
+                target, tolerant = occurrence_terminal_symbol(
+                    child, owner, relevant, target
                 )
-                tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
-                    target,
-                    arguments,
-                    receiver_tainted=receiver_tainted,
-                    call_tainted=receiver_tainted
-                    or any(relevant(argument) for argument in arguments),
-                )
-                verified_receiver = has_verified_external_receiver(child, owner)
-                stable_local_receiver = has_stable_local_list_receiver(child, owner)
-                safe_dynamic_terminal = (
-                    isinstance(child.func, ast.Attribute)
-                    and (
-                        relevant(child.func.value)
-                        or verified_receiver
-                        or stable_local_receiver
-                    )
-                    and not tolerant
-                    and not has_imported_receiver(child, owner)
-                    and (
-                        verified_receiver
-                        or stable_local_receiver
-                        or not (
-                            isinstance(child.func.value, ast.Name)
-                            and child.func.value.id in module_rebounds
-                        )
-                    )
-                )
-                if safe_dynamic_terminal:
-                    target = (
-                        f"@terminal:{owner}:{child.lineno}:{child.col_offset}:{target}"
-                    )
-                    terminal_symbols.add(target)
                 leaves.add(target)
                 if tolerant:
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
@@ -4337,6 +4596,8 @@ def _module_functions(
         def carrier_expression(value: ast.AST | None) -> bool:
             if value is node or isinstance(value, ast.Name) and value.id in tainted:
                 return True
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return carrier_expression(value.value)
             if isinstance(value, ast.IfExp):
                 return carrier_expression(value.body) or carrier_expression(value.orelse)
             return isinstance(value, ast.BoolOp) and any(
@@ -4347,12 +4608,7 @@ def _module_functions(
         while changed:
             changed = False
             for child in scoped_by_owner[owner]:
-                value: ast.AST | None = None
-                targets: Sequence[ast.AST] = ()
-                if isinstance(child, ast.Assign):
-                    value, targets = child.value, child.targets
-                elif isinstance(child, (ast.AnnAssign, ast.NamedExpr)):
-                    value, targets = child.value, (child.target,)
+                value, targets = flow_binding(child)
                 carries_configuration = carrier_expression(value)
                 if isinstance(value, ast.Call):
                     carries_configuration = call_symbol(value, owner) in authority_symbols
@@ -4400,42 +4656,13 @@ def _module_functions(
             callee = local_callee(child, owner)
             if callee is None:
                 target = routed_call_symbol(child, owner, relevant)
-                arguments = (*child.args, *(item.value for item in child.keywords))
-                receiver_tainted = (
-                    isinstance(child.func, ast.Attribute)
-                    and relevant(child.func.value)
-                ) or child is node
-                tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
+                target, _ = occurrence_terminal_symbol(
+                    child,
+                    owner,
+                    relevant,
                     target,
-                    arguments,
-                    receiver_tainted=receiver_tainted,
-                    call_tainted=receiver_tainted
-                    or any(relevant(argument) for argument in arguments),
+                    force_receiver_tainted=child is node,
                 )
-                verified_receiver = has_verified_external_receiver(child, owner)
-                stable_local_receiver = has_stable_local_list_receiver(child, owner)
-                if (
-                    isinstance(child.func, ast.Attribute)
-                    and (
-                        relevant(child.func.value)
-                        or verified_receiver
-                        or stable_local_receiver
-                    )
-                    and not tolerant
-                    and not has_imported_receiver(child, owner)
-                    and (
-                        verified_receiver
-                        or stable_local_receiver
-                        or not (
-                            isinstance(child.func.value, ast.Name)
-                            and child.func.value.id in module_rebounds
-                        )
-                    )
-                ):
-                    target = (
-                        f"@terminal:{owner}:{child.lineno}:{child.col_offset}:{target}"
-                    )
-                    terminal_symbols.add(target)
                 calls.add(target)
                 continue
             formals = call_tainted_formals(
@@ -4562,7 +4789,16 @@ def _module_functions(
                 call in authority_symbols
                 or any(relevant(value) for value in values)
             ):
-                calls.add(call)
+                target = call
+                if call not in authority_symbols:
+                    target, _ = occurrence_terminal_symbol(
+                        child,
+                        owner,
+                        relevant,
+                        call,
+                        allow_tainted_receiver=False,
+                    )
+                calls.add(target)
                 root = child.func
                 while isinstance(root, ast.Attribute):
                     root = root.value
