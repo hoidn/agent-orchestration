@@ -5249,6 +5249,333 @@ def test_workspace_dataclass_construction_hooks_are_not_terminals(
     assert result["closed"] is False
 
 
+def test_cross_module_generated_dataclass_traces_strict_post_init(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/strict_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True)\n"
+        "class StrictRecord:\n"
+        "    value: str\n"
+        "    def __post_init__(self):\n"
+        "        if self.value.strip() != self.value:\n"
+        "            raise ValueError('value must already be normalized')\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/strict_consumer.py").write_text(
+        "from scripts.strict_record import StrictRecord\n"
+        "def consume(runtime_config):\n"
+        "    return StrictRecord(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_generated_dataclass_post_init_tolerant_read_fails_closed(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/tolerant_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class TolerantRecord:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.get('mode', 'default')\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/tolerant_consumer.py").write_text(
+        "from scripts.tolerant_record import TolerantRecord\n"
+        "def consume(runtime_config):\n"
+        "    return TolerantRecord(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
+    "hazard",
+    (
+        (
+            "    def __new__(cls, value):\n"
+            "        return super().__new__(cls)\n"
+        ),
+        (
+            "    def __setattr__(self, name, value):\n"
+            "        object.__setattr__(self, name, value)\n"
+        ),
+        "Record.value = property(lambda self: self._value)\n",
+        "Record = dataclass(Record)\n",
+    ),
+    ids=("custom-new", "custom-setattr", "descriptor", "class-rebound"),
+)
+def test_cross_module_generated_dataclass_post_init_hazards_fail_closed(
+    tmp_path: Path,
+    hazard: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/hazard_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n"
+        + hazard,
+        encoding="utf-8",
+    )
+    (workspace / "scripts/hazard_consumer.py").write_text(
+        "from scripts.hazard_record import Record\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "decorator_setup",
+    (
+        (
+            "import dataclasses\n"
+            "def mutate():\n"
+            "    dataclasses.dataclass = lambda cls: cls\n"
+            "@dataclasses.dataclass\n"
+        ),
+        (
+            "import dataclasses\n"
+            "def escape():\n"
+            "    sink(dataclasses.dataclass)\n"
+            "@dataclasses.dataclass\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "from dataclasses import dataclass as alternate\n"
+            "def escape():\n"
+            "    sink(alternate)\n"
+            "@dataclass\n"
+        ),
+    ),
+    ids=("attribute-mutation", "direct-escape", "duplicate-alias-escape"),
+)
+def test_generated_dataclass_post_init_decorator_hazards_fail_closed(
+    tmp_path: Path,
+    decorator_setup: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/decorator_hazard.py",
+        decorator_setup
+        + "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "alias_hazard",
+    (
+        "def mutate():\n    Alias.value = property(lambda self: None)\n",
+        "def escape():\n    sink(Alias)\n",
+    ),
+    ids=("mutation", "escape"),
+)
+def test_generated_dataclass_post_init_duplicate_import_alias_hazards_fail_closed(
+    tmp_path: Path,
+    alias_hazard: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/aliased_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/aliased_consumer.py").write_text(
+        "from scripts.aliased_record import Record\n"
+        "from scripts.aliased_record import Record as Alias\n"
+        + alias_hazard
+        + "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_generated_dataclass_post_init_qualified_decorator_alias_mutation_fails_closed(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/qualified_decorator_alias.py",
+        "import dataclasses as decorators\n"
+        "from dataclasses import dataclass as direct_decorator\n"
+        "def mutate():\n"
+        "    direct_decorator.marker = True\n"
+        "@decorators.dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
+def test_generated_dataclass_post_init_qualified_class_alias_escape_fails_closed(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "scripts/qualified_record.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/qualified_consumer.py").write_text(
+        "import scripts.qualified_record as records\n"
+        "from scripts.qualified_record import Record\n"
+        "def escape():\n"
+        "    sink(records.Record)\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+        encoding="utf-8",
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [{
+                "consumer_id": "authority",
+                "path": "candidate/config.py",
+                "public_entry_route": "candidate.config.resolve",
+            }]
+        },
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+
+
+def test_generated_dataclass_post_init_ambiguous_direct_module_alias_fails_closed(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/ambiguous_decorator_alias.py",
+        "import dataclasses as decorators\n"
+        "from dataclasses import dataclass as ambiguous\n"
+        "from dependency import decorator as ambiguous\n"
+        "@decorators.dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        "    def __post_init__(self):\n"
+        "        self.value.strip()\n"
+        "def consume(runtime_config):\n"
+        "    return Record(runtime_config)\n",
+    )
+
+    assert result["closed"] is False
+
+
 def test_workspace_dataclass_descriptor_is_caught_by_the_real_scanner(
     tmp_path: Path,
 ) -> None:

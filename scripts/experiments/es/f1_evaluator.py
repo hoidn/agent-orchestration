@@ -2668,6 +2668,8 @@ def walk_consumer_routes(
 def _is_plain_generated_dataclass(
     node: ast.ClassDef,
     resolve_name: Callable[[ast.AST], str | None],
+    *,
+    trace_post_init: bool = False,
 ) -> bool:
     """Return whether construction is the unwrapped stdlib-generated initializer."""
 
@@ -2707,6 +2709,21 @@ def _is_plain_generated_dataclass(
                 return False
             continue
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if child.name == "__post_init__" and trace_post_init:
+                if (
+                    isinstance(child, ast.AsyncFunctionDef)
+                    or child.decorator_list
+                    or child.args.posonlyargs
+                    or len(child.args.args) != 1
+                    or child.args.args[0].arg != "self"
+                    or child.args.vararg is not None
+                    or child.args.kwonlyargs
+                    or child.args.kwarg is not None
+                    or child.args.defaults
+                    or child.args.kw_defaults
+                ):
+                    return False
+                continue
             if (
                 child.name
                 in {"__new__", "__init__", "__post_init__", "__setattr__"}
@@ -3925,6 +3942,17 @@ def _module_functions(
         return stable_external_receiver_scopes[key]
 
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
+    binding_scopes = (
+        tree,
+        *(
+            ast.Module(body=list(function.body), type_ignores=[])
+            for _, function in functions
+        ),
+        *(
+            ast.Module(body=list(class_node.body), type_ignores=[])
+            for _, class_node in classes
+        ),
+    )
 
     def stable_plain_workspace_class(call: ast.Call, owner: str, target: str) -> bool:
         if target in generated_dataclasses or target in plain_exceptions:
@@ -3937,6 +3965,55 @@ def _module_functions(
             )
         )
 
+    def stable_generated_dataclass_hook_call(
+        call: ast.Call,
+        owner: str,
+        target: str,
+        *,
+        stable_class: bool,
+    ) -> bool:
+        if not (
+            stable_class
+            and isinstance(call.func, ast.Name)
+            and (
+                target in class_by_symbol
+                and name(call.func, owner) == target
+                or imports_by_owner[owner].get(call.func.id) == target
+            )
+        ):
+            return False
+        def names_target(imported: str) -> bool:
+            return imported == target or target.startswith(f"{imported}.")
+
+        aliases = {
+            local
+            for visible_imports in (imports, *imports_by_owner.values())
+            for local, imported in visible_imports.items()
+            if names_target(imported)
+        } | {
+            local
+            for local, targets in import_targets.items()
+            if any(names_target(imported) for imported in targets)
+        } | {
+            local
+            for events in binding_events_by_owner.values()
+            for local, local_events in events.items()
+            if any(
+                event[2] == "import" and names_target(event[3])
+                for event in local_events
+            )
+        } | {call.func.id}
+        return not any(
+            _module_binding_counts(scope).get(alias, 0) > 1
+            for scope in binding_scopes
+            for alias in aliases
+        ) and not any(
+            _has_module_object_mutation(
+                scope, aliases, reject_argument_escape=True
+            )
+            for scope in binding_scopes
+        )
+
     def routed_call_symbol(
         call: ast.Call,
         owner: str,
@@ -3947,7 +4024,7 @@ def _module_functions(
         context = workspace_function_nodes.get(target)
         if context is None:
             return target
-        resolved_target, callee_node, bound, _ = context
+        resolved_target, callee_node, bound, stable_class = context
         if callee_node is None:
             plain_workspace_class = resolved_target in {
                 _PLAIN_BUILTIN_EXCEPTION,
@@ -3962,13 +4039,28 @@ def _module_functions(
             context_symbol = f"@unresolved-context:{target}"
             context_requests[context_symbol] = (target, ())
             return context_symbol
-        formals = tuple(
-            sorted(
-                call_tainted_formals(
-                    call, callee_node, bound=bound, relevant=relevant
+        generated_post_init = (
+            bound
+            and stable_class
+            and callee_node.name == "__post_init__"
+            and resolved_target.endswith(".__post_init__")
+        )
+        if generated_post_init:
+            if not stable_generated_dataclass_hook_call(
+                call, owner, target, stable_class=stable_class
+            ):
+                context_symbol = f"@unresolved-context:{target}"
+                context_requests[context_symbol] = (target, ())
+                return context_symbol
+            formals = ("self",)
+        else:
+            formals = tuple(
+                sorted(
+                    call_tainted_formals(
+                        call, callee_node, bound=bound, relevant=relevant
+                    )
                 )
             )
-        )
         if target in authority_symbols:
             return target
         if not formals:
@@ -4030,17 +4122,6 @@ def _module_functions(
                     callee_tainted.add(argument_name)
                     changed = True
 
-    binding_scopes = (
-        tree,
-        *(
-            ast.Module(body=list(function.body), type_ignores=[])
-            for _, function in functions
-        ),
-        *(
-            ast.Module(body=list(class_node.body), type_ignores=[])
-            for _, class_node in classes
-        ),
-    )
     bound_builtin_container_constructors = {
         local
         for scope in binding_scopes
@@ -5100,6 +5181,50 @@ def _workspace_callable_index(
                         imported_targets.add(target)
 
         module_binding_counts = _module_binding_counts(tree)
+        binding_scopes = (
+            tree,
+            *(
+                ast.Module(body=list(scope.body), type_ignores=[])
+                for scope in ast.walk(tree)
+                if isinstance(
+                    scope,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+                )
+            ),
+        )
+
+        def stable_imported_symbol(node: ast.AST) -> str | None:
+            root = node
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            target = imported_symbol(node)
+            if not (
+                isinstance(root, ast.Name)
+                and target is not None
+                and len(imported_by_name.get(root.id, ())) == 1
+                and module_binding_counts.get(root.id) == 1
+            ):
+                return None
+            aliases = {
+                local
+                for local, targets in imported_by_name.items()
+                if any(
+                    imported == target
+                    or target.startswith(f"{imported}.")
+                    for imported in targets
+                )
+            }
+            if any(
+                module_binding_counts.get(alias) != 1
+                for alias in aliases
+            ) or any(
+                _has_module_object_mutation(
+                    scope, aliases, reject_argument_escape=True
+                )
+                for scope in binding_scopes
+            ):
+                return None
+            return target
 
         for node in tree.body:
             if not (
@@ -5144,9 +5269,17 @@ def _workspace_callable_index(
                         if initializer_node is not None
                         else None
                     )
+                    post_init_node = next(
+                        (
+                            child
+                            for child in node.body
+                            if isinstance(child, ast.FunctionDef)
+                            and child.name == "__post_init__"
+                        ),
+                        None,
+                    )
                     if symbol in result:
                         _fail(f"candidate callable is duplicated: {symbol}")
-                    result[symbol] = (relative, initializer or symbol)
                     stable_class = (
                         module_binding_counts.get(node.name) == 1
                         and not _has_module_object_mutation(
@@ -5155,10 +5288,38 @@ def _workspace_callable_index(
                             reject_argument_escape=True,
                         )
                     )
+                    traced_post_init = (
+                        post_init_node
+                        if owner == module
+                        and stable_class
+                        and not _has_module_class_attribute_mutation(tree, node)
+                        and _is_plain_generated_dataclass(
+                            node,
+                            stable_imported_symbol,
+                            trace_post_init=True,
+                        )
+                        else None
+                    )
+                    post_init_symbol = (
+                        f"{symbol}.__post_init__"
+                        if traced_post_init is not None
+                        else None
+                    )
+                    result[symbol] = (
+                        relative,
+                        initializer or post_init_symbol or symbol,
+                    )
                     if owner == module and initializer_node is not None:
                         function_nodes[symbol] = (
                             symbol,
                             initializer_node,
+                            True,
+                            stable_class,
+                        )
+                    elif owner == module and traced_post_init is not None:
+                        function_nodes[symbol] = (
+                            cast(str, post_init_symbol),
+                            traced_post_init,
                             True,
                             stable_class,
                         )
