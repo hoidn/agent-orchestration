@@ -9665,6 +9665,78 @@ def test_cross_module_destructured_identity_return_keeps_carrier_tainted(
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
+@pytest.mark.parametrize(
+    ("import_source", "call", "closed"),
+    (
+        ("from ptycho.helper import identity\n", "identity(runtime_config)", False),
+        (
+            "from candidate.config import resolve\n",
+            "resolve(runtime_config, {})",
+            True,
+        ),
+    ),
+    ids=("workspace-carrier", "declared-authority"),
+)
+def test_returned_alias_distinguishes_workspace_carrier_from_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    import_source: str,
+    call: str,
+    closed: bool,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "helper.py").write_text(
+        "def identity(value): return value\n", encoding="utf-8"
+    )
+    consumer_source = (
+        import_source
+        + "def consume(runtime_config):\n"
+        + f"    alias = {call}\n"
+        + "    return alias\n"
+    )
+    (package / "consumer.py").write_text(consumer_source, encoding="utf-8")
+    carrier = next(
+        node
+        for node in ast.walk(ast.parse(consumer_source))
+        if isinstance(node, ast.Name) and node.id == "runtime_config"
+    )
+    consumer_id = "returned-authority-alias" if closed else "returned-carrier-alias"
+    row = {
+        "consumer_id": consumer_id,
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": carrier.lineno,
+            "start_col": carrier.col_offset,
+            "end_line": carrier.end_lineno,
+            "end_col": carrier.end_col_offset,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == []
+    assert result["unresolved_consumers"] == ([] if closed else [consumer_id])
+
+
 def test_decorated_cross_module_return_is_opaque(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

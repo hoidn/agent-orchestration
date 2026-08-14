@@ -5190,6 +5190,7 @@ def _module_functions(
             and name_node.id not in imports_by_owner[owner]
         }
         tainted: set[str] = set()
+        unresolved_workspace_carrier_names: set[str] = set()
 
         def relevant(value: ast.AST | None) -> bool:
             if value is None:
@@ -5236,10 +5237,27 @@ def _module_functions(
                 carries_configuration = carrier_expression(value)
                 if not carries_configuration:
                     continue
+                unresolved_workspace_carrier = (
+                    isinstance(value, ast.Name)
+                    and value.id in unresolved_workspace_carrier_names
+                    or isinstance(value, ast.Call)
+                    and call_symbol(value, owner) not in authority_symbols
+                    and workspace_return_carrier(
+                        value, owner, carrier_expression
+                    ) is True
+                )
                 for target in targets:
                     for name_node in ast.walk(target):
-                        if isinstance(name_node, ast.Name) and name_node.id not in tainted:
+                        if not isinstance(name_node, ast.Name):
+                            continue
+                        if name_node.id not in tainted:
                             tainted.add(name_node.id)
+                            changed = True
+                        if (
+                            unresolved_workspace_carrier
+                            and name_node.id not in unresolved_workspace_carrier_names
+                        ):
+                            unresolved_workspace_carrier_names.add(name_node.id)
                             changed = True
 
         relevant_calls = [
@@ -5292,10 +5310,15 @@ def _module_functions(
         )
         if whole_carrier_origin and any(
             isinstance(child, ast.Return)
-            and isinstance(child.value, ast.Call)
-            and workspace_return_carrier(
-                child.value, owner, carrier_expression
-            ) is True
+            and (
+                isinstance(child.value, ast.Name)
+                and child.value.id in unresolved_workspace_carrier_names
+                or isinstance(child.value, ast.Call)
+                and call_symbol(child.value, owner) not in authority_symbols
+                and workspace_return_carrier(
+                    child.value, owner, carrier_expression
+                ) is True
+            )
             for child in scoped_by_owner[owner]
         ):
             calls.add(f"@unresolved-carrier-return:{consumer_id}")
