@@ -4394,6 +4394,10 @@ def _module_functions(
             and class_node is not None
             and class_symbol.rsplit(".", 1)[0] == module
             and call.args[0].id == "self"
+            and _module_binding_counts(
+                ast.Module(body=list(context[1].body), type_ignores=[])
+            ).get("self", 0)
+            == 0
             and call.args[1].value
             in {
                 child.target.id

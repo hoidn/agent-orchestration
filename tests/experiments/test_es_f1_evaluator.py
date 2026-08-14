@@ -5912,6 +5912,15 @@ def test_generated_dataclass_post_init_allows_declared_field_setattr(
             "class ResolvedRecords:\n"
             "    primary: object\n"
             "    def __post_init__(self):\n"
+            "        self = object()\n"
+            "        object.__setattr__(self, 'primary', None)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
             "        object.__setattr__(self, 'primary', value=self.primary)\n"
         ),
         (
@@ -5970,6 +5979,7 @@ def test_generated_dataclass_post_init_allows_declared_field_setattr(
         "dynamic-field",
         "undeclared-field",
         "non-self",
+        "rebound-self",
         "keyword",
         "extra-positional",
         "owner-shadow",
