@@ -4071,7 +4071,12 @@ def _module_functions(
         def carrier_expression(value: ast.AST | None) -> bool:
             if isinstance(value, ast.Name):
                 return value.id in aliases
-            if isinstance(value, (ast.Attribute, ast.Subscript)):
+            if isinstance(value, ast.Attribute):
+                return (
+                    _is_configuration_name(value.attr)
+                    and carrier_expression(value.value)
+                )
+            if isinstance(value, ast.Subscript):
                 return carrier_expression(value.value)
             if isinstance(value, ast.IfExp):
                 return carrier_expression(value.body) or carrier_expression(value.orelse)

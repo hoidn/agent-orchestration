@@ -9579,6 +9579,7 @@ def _inspect_cross_module_carrier_return(
     helper_source: str,
     imported_symbol: str,
     assign_result: bool,
+    return_assigned_result: bool = False,
 ) -> dict[str, Any]:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
@@ -9588,12 +9589,17 @@ def _inspect_cross_module_carrier_return(
     package.mkdir(exist_ok=True)
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "helper.py").write_text(helper_source, encoding="utf-8")
+    assigned_return = (
+        "    return alias\n"
+        if return_assigned_result
+        else "    return alias.get('mode', 'default')\n"
+    )
     consumer_source = (
         f"from ptycho.helper import {imported_symbol}\n"
         "def consume(runtime_config):\n"
         + (
             f"    alias = {imported_symbol}(runtime_config)\n"
-            "    return alias.get('mode', 'default')\n"
+            + assigned_return
             if assign_result
             else f"    return {imported_symbol}(runtime_config)\n"
         )
@@ -9873,6 +9879,24 @@ def test_cross_module_derived_return_does_not_taint_the_caller_result(
 
     assert result["closed"] is True
     assert result["bypass_classes"] == []
+
+
+def test_cross_module_attribute_leaf_return_does_not_taint_the_caller_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source="def output_dir(value): return value.output_dir\n",
+        imported_symbol="output_dir",
+        assign_result=True,
+        return_assigned_result=True,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert result["unresolved_consumers"] == []
 
 
 def test_cross_module_implicit_none_return_does_not_taint_the_caller_result(
