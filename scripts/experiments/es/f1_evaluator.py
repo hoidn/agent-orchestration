@@ -12,6 +12,7 @@ import builtins
 from collections.abc import Callable, Mapping, Sequence
 import hashlib
 import importlib
+import inspect
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -2340,8 +2341,36 @@ def _is_tolerant_configuration_operation(name: str) -> bool:
     )
 
 
+def _builtin_type_method_descriptor_receiver(call: ast.Call) -> str | None:
+    if not (
+        isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Name)
+    ):
+        return None
+    receiver = call.func.value.id
+    owner = getattr(builtins, receiver, None)
+    return receiver if (
+        isinstance(owner, type)
+        and owner not in {object, type}
+        and inspect.ismethoddescriptor(vars(owner).get(call.func.attr))
+    ) else None
+
+
+def _configuration_receiver_tainted(
+    call: ast.Call,
+    relevant: Callable[[ast.AST | None], bool],
+) -> bool:
+    return (
+        isinstance(call.func, ast.Attribute) and relevant(call.func.value)
+    ) or (
+        _builtin_type_method_descriptor_receiver(call) is not None
+        and bool(call.args)
+        and relevant(call.args[0])
+    )
+
+
 def _is_tolerant_mapping_operation(name: str) -> bool:
-    return name.endswith((".get", ".setdefault"))
+    return name.rsplit(".", 1)[-1] in {"get", "setdefault"}
 
 
 def _is_mapping_value_coercion(name: str, arguments: Sequence[ast.AST]) -> bool:
@@ -2486,9 +2515,8 @@ def detect_ast_bypasses(
                 if name in {"os.getenv", "os.environ.get", "environ.get"}:
                     classes.add("AMBIENT_CONFIGURATION_READ")
                 arguments = (*node.args, *(keyword.value for keyword in node.keywords))
-                receiver_tainted = (
-                    isinstance(node.func, ast.Attribute)
-                    and value_tainted(node.func.value)
+                receiver_tainted = _configuration_receiver_tainted(
+                    node, value_tainted
                 )
                 tainted_call = receiver_tainted or any(
                     value_tainted(argument) for argument in arguments
@@ -4317,6 +4345,27 @@ def _module_functions(
         for scope in binding_scopes
     )
 
+    def has_stable_builtin_type_method_descriptor(
+        call: ast.Call, owner: str
+    ) -> bool:
+        receiver = _builtin_type_method_descriptor_receiver(call)
+        if (
+            receiver is None
+            or module_binding_counts.get(receiver, 0) != 0
+            or not builtin_container_constructor_objects_stable
+            or any(
+                isinstance(node, ast.Global) and receiver in node.names
+                for node in ast.walk(tree)
+            )
+        ):
+            return False
+        scope = owner
+        while scope != module:
+            if binding_events_by_owner.get(scope, {}).get(receiver):
+                return False
+            scope = scope.rsplit(".", 1)[0]
+        return True
+
     def has_stable_local_builtin_container_receiver(
         call: ast.Call, owner: str
     ) -> bool:
@@ -4692,9 +4741,9 @@ def _module_functions(
         allow_tainted_receiver: bool = True,
     ) -> tuple[str, bool]:
         arguments = (*call.args, *(item.value for item in call.keywords))
-        receiver_tainted = force_receiver_tainted or (
-            isinstance(call.func, ast.Attribute)
-            and relevant(call.func.value)
+        builtin_descriptor = has_stable_builtin_type_method_descriptor(call, owner)
+        receiver_tainted = force_receiver_tainted or _configuration_receiver_tainted(
+            call, relevant
         )
         tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
             target,
@@ -4705,7 +4754,8 @@ def _module_functions(
         )
         verified_receiver = has_verified_external_receiver(call, owner)
         stable_receiver = (
-            has_stable_local_builtin_container_receiver(call, owner)
+            builtin_descriptor
+            or has_stable_local_builtin_container_receiver(call, owner)
             or has_stable_module_dict_literal_receiver(call, owner)
             or has_stable_initializer_attribute_receiver(call, owner)
         )
@@ -4937,10 +4987,8 @@ def _module_functions(
                 operation = child.func.id
             arguments = (*child.args, *(item.value for item in child.keywords))
             receiver_tainted = (
-                relevant(child.func.value)
-                if isinstance(child.func, ast.Attribute)
-                else False
-            ) or child is node
+                _configuration_receiver_tainted(child, relevant) or child is node
+            )
             tainted_call = receiver_tainted or child is node or any(
                 relevant(argument) for argument in arguments
             )
@@ -5095,10 +5143,9 @@ def _module_functions(
                     operation = child.func.id
                 arguments = (*child.args, *(item.value for item in child.keywords))
                 receiver_tainted = (
-                    relevant(child.func.value)
-                    if isinstance(child.func, ast.Attribute)
-                    else False
-                ) or child is node
+                    _configuration_receiver_tainted(child, relevant)
+                    or child is node
+                )
                 tainted_call = receiver_tainted or child is node or any(
                     relevant(argument) for argument in arguments
                 )

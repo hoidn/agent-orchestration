@@ -4259,6 +4259,125 @@ def test_stable_function_local_builtin_container_is_occurrence_terminal(
 
 
 @pytest.mark.parametrize(
+    ("setup", "operation"),
+    (
+        ("", "dict.items(runtime_config)"),
+        ("    output = []\n", "list.append(output, runtime_config)"),
+    ),
+    ids=("dict-items", "list-append"),
+)
+def test_direct_builtin_type_method_descriptor_is_occurrence_terminal(
+    tmp_path: Path,
+    setup: str,
+    operation: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "def consume(runtime_config):\n"
+            f"{setup}"
+            f"    {operation}\n"
+        ),
+    )
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
+@pytest.mark.parametrize(
+    ("owner", "source"),
+    (
+        (
+            "package.sink.consume",
+            "def consume(runtime_config, dict):\n"
+            "    dict.items(runtime_config)\n",
+        ),
+        (
+            "package.sink.outer.consume",
+            "def outer():\n"
+            "    dict = object()\n"
+            "    def consume(runtime_config):\n"
+            "        dict.items(runtime_config)\n",
+        ),
+        (
+            "package.sink.consume",
+            "dict = object()\n"
+            "def consume(runtime_config):\n"
+            "    dict.items(runtime_config)\n",
+        ),
+        (
+            "package.sink.consume",
+            "import builtins\n"
+            "class Fake: pass\n"
+            "builtins.dict = Fake\n"
+            "def consume(runtime_config):\n"
+            "    dict.items(runtime_config)\n",
+        ),
+        (
+            "package.sink.consume",
+            "import builtins as b\n"
+            "class Fake: pass\n"
+            "setattr(b, 'dict', Fake)\n"
+            "def consume(runtime_config):\n"
+            "    dict.items(runtime_config)\n",
+        ),
+        (
+            "package.sink.consume",
+            "def consume(runtime_config, value):\n"
+            "    object.__setattr__(runtime_config, 'x', value)\n",
+        ),
+        (
+            "package.sink.consume",
+            "def consume(runtime_config):\n"
+            "    type.__call__(runtime_config)\n",
+        ),
+    ),
+    ids=(
+        "owner-parameter",
+        "enclosing-lexical",
+        "module-shadow",
+        "direct-builtins-mutation",
+        "aliased-builtins-mutation",
+        "universal-object-owner",
+        "universal-type-owner",
+    ),
+)
+def test_unstable_builtin_type_method_descriptor_fails_closed(
+    tmp_path: Path,
+    owner: str,
+    source: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner=owner,
+        source=source,
+    )
+
+    assert closed is False
+    assert len(calls) == 1
+    assert not calls[0].startswith("@terminal:")
+    assert calls[0] not in terminals
+
+
+def test_direct_dict_get_remains_a_tolerant_unresolved_call(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/direct_dict_get.py",
+        "def consume(runtime_config):\n"
+        "    return dict.get(runtime_config, 'mode')\n",
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize(
     ("expression", "start_col", "end_col"),
     (
         ("LOOKUP.get(runtime_config)", 22, 36),
