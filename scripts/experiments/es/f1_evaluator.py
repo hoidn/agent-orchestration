@@ -3004,6 +3004,14 @@ def _has_module_class_attribute_mutation(
     *,
     allow_stable_alias: bool = False,
 ) -> bool:
+    nested_global_names = {
+        name
+        for scope in ast.walk(tree)
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        for child in ast.walk(scope)
+        if isinstance(child, ast.Global)
+        for name in child.names
+    }
     aliases = [
         child
         for child in tree.body
@@ -3014,6 +3022,7 @@ def _has_module_class_attribute_mutation(
         and isinstance(child.value, ast.Name)
         and child.value.id == node.name
         and _module_binding_counts(tree).get(child.targets[0].id) == 1
+        and child.targets[0].id not in nested_global_names
     ]
     object_names = {node.name}
     allowed_alias_assignments: frozenset[int] = frozenset()
