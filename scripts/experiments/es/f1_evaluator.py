@@ -2998,6 +2998,60 @@ def _has_module_object_mutation(
     return False
 
 
+def _allowed_native_isinstance_calls(
+    tree: ast.Module,
+    object_names: set[str],
+) -> frozenset[int]:
+    binding_scopes = (
+        tree,
+        *(
+            ast.Module(body=list(node.body), type_ignores=[])
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        ),
+    )
+    shadowed = any(
+        _module_binding_counts(scope).get("isinstance", 0)
+        for scope in binding_scopes
+    ) or any(
+        isinstance(node, ast.arg) and node.arg == "isinstance"
+        for node in ast.walk(tree)
+    )
+    builtins_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "builtins"
+    }
+    if shadowed or (
+        builtins_aliases
+        and any(
+            _has_module_object_mutation(
+                scope, builtins_aliases, reject_argument_escape=False
+            )
+            for scope in binding_scopes
+        )
+    ):
+        return frozenset()
+
+    return frozenset(
+        id(call)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "isinstance"
+        and len(call.args) == 2
+        and not call.keywords
+        and isinstance(call.args[1], ast.Name)
+        and call.args[1].id in object_names
+        and not any(
+            isinstance(node, ast.Name) and node.id in object_names
+            for node in ast.walk(call.args[0])
+        )
+    )
+
+
 def _has_module_class_attribute_mutation(
     tree: ast.Module,
     node: ast.ClassDef,
@@ -3036,6 +3090,7 @@ def _has_module_class_attribute_mutation(
         tree,
         object_names,
         reject_argument_escape=True,
+        allowed_argument_calls=_allowed_native_isinstance_calls(tree, object_names),
         allowed_alias_assignments=allowed_alias_assignments,
     )
 
@@ -4350,13 +4405,17 @@ def _module_functions(
                 for event in local_events
             )
         } | {call.func.id}
+        allowed_argument_calls = _allowed_native_isinstance_calls(tree, aliases)
         return not any(
             _module_binding_counts(scope).get(alias, 0) > 1
             for scope in binding_scopes
             for alias in aliases
         ) and not any(
             _has_module_object_mutation(
-                scope, aliases, reject_argument_escape=True
+                scope,
+                aliases,
+                reject_argument_escape=True,
+                allowed_argument_calls=allowed_argument_calls,
             )
             for scope in binding_scopes
         )

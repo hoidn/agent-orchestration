@@ -6021,6 +6021,7 @@ def _inspect_cross_module_resolved_records(
     record_source: str,
     *,
     imported_symbol: str = "ResolvedRecords",
+    consumer_prelude: str = "",
 ) -> dict[str, Any]:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
@@ -6035,7 +6036,8 @@ def _inspect_cross_module_resolved_records(
     )
     (workspace / "scripts/resolved_records_consumer.py").write_text(
         f"from scripts.resolved_records import {imported_symbol}\n"
-        "def consume(runtime_config):\n"
+        + consumer_prelude
+        + "def consume(runtime_config):\n"
         f"    return {imported_symbol}(runtime_config)\n",
         encoding="utf-8",
     )
@@ -6050,6 +6052,77 @@ def _inspect_cross_module_resolved_records(
         },
         workspace=workspace,
     )
+
+
+@pytest.mark.parametrize("cross_module", (False, True), ids=("same", "cross"))
+def test_generated_dataclass_allows_native_isinstance_class_info(
+    tmp_path: Path,
+    cross_module: bool,
+) -> None:
+    record_source = (
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __post_init__(self):\n"
+        "        pass\n"
+    )
+    observer = (
+        "def compatible(spec):\n"
+        "    return isinstance(spec, ResolvedRecords)\n"
+    )
+    result = (
+        _inspect_cross_module_resolved_records(
+            tmp_path,
+            record_source,
+            consumer_prelude=observer,
+        )
+        if cross_module
+        else _inspect_added_consumer(
+            tmp_path,
+            "scripts/resolved_records.py",
+            record_source
+            + observer
+            + "def consume(runtime_config):\n"
+            "    return ResolvedRecords(runtime_config)\n",
+        )
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+@pytest.mark.parametrize(
+    "observer",
+    (
+        (
+            "def compatible(spec, isinstance):\n"
+            "    return isinstance(spec, ResolvedRecords)\n"
+        ),
+        (
+            "def compatible(spec):\n"
+            "    return sink(ResolvedRecords)\n"
+        ),
+    ),
+    ids=("shadowed-builtin", "arbitrary-escape"),
+)
+def test_generated_dataclass_class_info_escape_hazards_fail_closed(
+    tmp_path: Path,
+    observer: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __post_init__(self):\n"
+        "        pass\n",
+        consumer_prelude=observer,
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
 
 
 @pytest.mark.parametrize(
