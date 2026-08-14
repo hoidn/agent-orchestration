@@ -2226,6 +2226,14 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "    return decorator\n"
         "@factory()\n"
         "def modern(config): return resolve(config, {})\n",
+        "from candidate.legacy import consume as legacy_call\n"
+        "def wrapper(fn):\n"
+        "    def nested(*args, **kwargs):\n"
+        "        legacy_call(fn)\n"
+        "        return fn(*args, **kwargs)\n"
+        "    return nested\n"
+        "@wrapper\n"
+        "def modern(config): return resolve(config, {})\n",
     ),
     ids=(
         "imported-retained-entry",
@@ -2235,6 +2243,7 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "sibling-class-decorator-direct-import",
         "sibling-class-decorator-module-alias",
         "local-decorator-factory",
+        "local-decorator-returning-nested-wrapper",
     ),
 )
 def test_live_decorator_dependency_cannot_reach_retained_root(
@@ -2285,7 +2294,7 @@ def test_live_decorator_dependency_cannot_reach_retained_root(
     assert result["disposed_consumer_count"] == 1
     expected_dependency = (
         "@unresolved-decorator:"
-        if "@factory()" in modern_source
+        if "@factory()" in modern_source or "    return nested\n" in modern_source
         else "ptycho.legacy.consume"
     )
     assert any(
@@ -2364,6 +2373,38 @@ def test_benign_local_decorator_factory_remains_unresolved(tmp_path: Path) -> No
             "    def decorator(fn): return fn\n"
             "    return decorator\n"
             "@factory()\n"
+            "def consume(config): return resolve(config, {})\n"
+        ),
+    )
+
+    assert observed is False
+    assert any(target.startswith("@unresolved-decorator:") for target in owner_graph)
+
+
+@pytest.mark.parametrize(
+    "wrapper_body",
+    (
+        "    def nested(*args, **kwargs): return fn(*args, **kwargs)\n"
+        "    return nested\n",
+        "    return lambda *args, **kwargs: fn(*args, **kwargs)\n",
+        "    def nested(*args, **kwargs): return fn(*args, **kwargs)\n"
+        "    return nested if USE_NESTED else fn\n",
+    ),
+    ids=("nested-name", "lambda", "conditional"),
+)
+def test_bare_local_decorator_unproven_returns_remain_unresolved(
+    tmp_path: Path,
+    wrapper_body: str,
+) -> None:
+    owner_graph, _, observed = _synthetic_owner_route(
+        tmp_path,
+        module="candidate.mod",
+        owner="candidate.mod.consume",
+        source=(
+            "from candidate.config import resolve\n"
+            "def wrapper(fn):\n"
+            + wrapper_body
+            + "@wrapper\n"
             "def consume(config): return resolve(config, {})\n"
         ),
     )

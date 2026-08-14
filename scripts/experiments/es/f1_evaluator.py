@@ -5850,6 +5850,37 @@ def _module_functions(
         )
         if classes and owner not in authority_symbols:
             bypasses[owner] = classes
+    def decorator_return_is_unproven(target: str) -> bool:
+        function = function_by_symbol.get(target)
+        if function is None:
+            context = workspace_function_nodes.get(target)
+            if context is None or context[2]:
+                return True
+            function = context[1]
+        if function is None or isinstance(function, ast.AsyncFunctionDef):
+            return True
+        positional = (*function.args.posonlyargs, *function.args.args)
+        decorated_parameter = positional[0].arg if positional else None
+        pending: list[ast.AST] = list(function.body)
+        while pending:
+            child = pending.pop()
+            if isinstance(
+                child,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+            ):
+                continue
+            if isinstance(child, ast.Return) and child.value is not None:
+                if (
+                    isinstance(child.value, ast.Name)
+                    and child.value.id == decorated_parameter
+                    or isinstance(child.value, ast.Constant)
+                    and not callable(child.value.value)
+                ):
+                    continue
+                return True
+            pending.extend(ast.iter_child_nodes(child))
+        return False
+
     decorator_dependencies_by_owner: dict[str, set[str]] = {}
     for owner, node in decorated_owners:
         for index, decorator in enumerate(node.decorator_list):
@@ -5887,7 +5918,9 @@ def _module_functions(
                 if stable_external:
                     terminal_symbols.add(target)
                 elif target in function_by_symbol or target in workspace_function_nodes:
-                    if isinstance(decorator, ast.Call):
+                    if isinstance(decorator, ast.Call) or decorator_return_is_unproven(
+                        target
+                    ):
                         target = f"@unresolved-decorator:{owner}:{index}"
                     else:
                         marker = f"@decorator:{owner}:{index}"
