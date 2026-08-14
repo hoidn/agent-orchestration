@@ -6053,12 +6053,14 @@ def _inspect_cross_module_resolved_records(
 
 
 @pytest.mark.parametrize(
-    ("imported_symbol", "tail", "closed"),
+    ("imported_symbol", "before", "tail", "closed"),
     (
-        ("Record", "Payload = Record\n", True),
-        ("Payload", "Payload = Record\n", True),
+        ("Record", "", "Payload = Record\n", True),
+        ("Payload", "", "Payload = Record\n", True),
+        ("Payload", "Payload = Record\n", "", False),
         (
             "Payload",
+            "",
             "Payload = Record\n"
             "def shadow():\n"
             "    Payload = lambda value: value\n",
@@ -6066,6 +6068,7 @@ def _inspect_cross_module_resolved_records(
         ),
         (
             "Payload",
+            "",
             "Payload = Record\n"
             "def rebind():\n"
             "    global Payload\n"
@@ -6074,19 +6077,21 @@ def _inspect_cross_module_resolved_records(
         ),
         (
             "Payload",
+            "",
             "Payload = Record\n"
             "def rebind():\n"
             "    global Record\n"
             "    Record = lambda value: value\n",
             False,
         ),
-        ("Payload", "Payload = Record\nPayload = lambda value: value\n", False),
-        ("Record", "Payload = Record\nPayload.marker = object()\n", False),
-        ("Payload", "Payload = Record\nRecord.marker = object()\n", False),
+        ("Payload", "", "Payload = Record\nPayload = lambda value: value\n", False),
+        ("Record", "", "Payload = Record\nPayload.marker = object()\n", False),
+        ("Payload", "", "Payload = Record\nRecord.marker = object()\n", False),
     ),
     ids=(
         "class-name",
         "alias-name",
+        "alias-before-class",
         "local-shadow",
         "nested-global-rebound",
         "nested-global-class-rebound",
@@ -6098,13 +6103,15 @@ def _inspect_cross_module_resolved_records(
 def test_cross_module_generated_dataclass_retains_stable_direct_alias(
     tmp_path: Path,
     imported_symbol: str,
+    before: str,
     tail: str,
     closed: bool,
 ) -> None:
     result = _inspect_cross_module_resolved_records(
         tmp_path,
         "from dataclasses import dataclass\n"
-        "@dataclass\n"
+        + before
+        + "@dataclass\n"
         "class Record:\n"
         "    value: object\n"
         + tail,

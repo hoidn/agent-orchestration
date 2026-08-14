@@ -3023,6 +3023,7 @@ def _has_module_class_attribute_mutation(
         and isinstance(child.targets[0], ast.Name)
         and isinstance(child.value, ast.Name)
         and child.value.id == node.name
+        and child.lineno > node.lineno
         and _module_binding_counts(tree).get(child.targets[0].id) == 1
         and child.targets[0].id not in nested_global_names
     ]
