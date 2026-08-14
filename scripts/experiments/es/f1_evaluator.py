@@ -2720,6 +2720,24 @@ def _is_plain_generated_dataclass(
             and resolve_name(value.keywords[0].value) == "builtins.dict"
         )
 
+    def metadata_only_required_field(value: ast.AST) -> bool:
+        return (
+            isinstance(value, ast.Call)
+            and resolve_name(value.func) == "dataclasses.field"
+            and not value.args
+            and bool(value.keywords)
+            and all(
+                keyword.arg in {"compare", "hash", "metadata", "repr"}
+                for keyword in value.keywords
+            )
+        )
+
+    def builtin_method_decorator(value: ast.AST) -> bool:
+        return resolve_name(value) in {
+            "builtins.classmethod",
+            "builtins.staticmethod",
+        }
+
     if node.bases or node.keywords or len(node.decorator_list) != 1:
         return False
     decorator = node.decorator_list[0]
@@ -2754,6 +2772,7 @@ def _is_plain_generated_dataclass(
                 and not (
                     immutable_default(child.value)
                     or exact_dict_field(child.value)
+                    or metadata_only_required_field(child.value)
                 )
             ):
                 return False
@@ -2781,8 +2800,11 @@ def _is_plain_generated_dataclass(
                 or child.decorator_list
                 and not (
                     len(child.decorator_list) == 1
-                    and isinstance(child.decorator_list[0], ast.Name)
-                    and child.decorator_list[0].id == "property"
+                    and (
+                        isinstance(child.decorator_list[0], ast.Name)
+                        and child.decorator_list[0].id == "property"
+                        or builtin_method_decorator(child.decorator_list[0])
+                    )
                 )
             ):
                 return False
@@ -5707,6 +5729,33 @@ def _workspace_callable_index(
             return False
 
         def stable_imported_symbol(node: ast.AST) -> str | None:
+            if (
+                isinstance(node, ast.Name)
+                and node.id in {"classmethod", "staticmethod"}
+                and node.id not in imported_by_name
+            ):
+                builtin_aliases = {
+                    local
+                    for local, targets in imported_by_name.items()
+                    if targets & {"builtins", f"builtins.{node.id}"}
+                }
+                aliases = {node.id, *builtin_aliases}
+                if (
+                    module_binding_counts.get(node.id, 0) != 0
+                    or has_enclosing_class_body_binding(node, node.id)
+                    or any(
+                        module_binding_counts.get(alias) != 1
+                        for alias in builtin_aliases
+                    )
+                    or any(
+                        _has_module_object_mutation(
+                            scope, aliases, reject_argument_escape=True
+                        )
+                        for scope in binding_scopes
+                    )
+                ):
+                    return None
+                return f"builtins.{node.id}"
             if isinstance(node, ast.Name) and node.id == "dict":
                 keyword = parent_by_node.get(id(node))
                 call = (

@@ -5968,6 +5968,48 @@ def _inspect_cross_module_resolved_records(
     )
 
 
+def test_cross_module_generated_dataclass_allows_builtin_method_decorators(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    @classmethod\n"
+        "    def describe(cls):\n"
+        "        return 'records'\n"
+        "    @staticmethod\n"
+        "    def label():\n"
+        "        return 'records'\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert result["traces"][0]["paths"][-1][-1] == (
+        "scripts.resolved_records.ResolvedRecords"
+    )
+
+
+def test_cross_module_generated_dataclass_allows_metadata_only_required_field(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object = field(repr=False)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert result["traces"][0]["paths"][-1][-1] == (
+        "scripts.resolved_records.ResolvedRecords"
+    )
+
+
 def test_generated_dataclass_post_init_allows_declared_field_setattr(
     tmp_path: Path,
 ) -> None:
