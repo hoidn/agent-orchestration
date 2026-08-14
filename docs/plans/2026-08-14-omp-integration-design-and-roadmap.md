@@ -101,32 +101,51 @@ omp's persistent, resumable session JSONL.
   and evidence wiring — exactly the copy-paste the procedure-first reuse
   contract bans — and the generated artifact would stop being
   self-contained if the CLI staged instead.
-- **X3b — Natural-language output intent becomes a pinned authored
+- **X3b — Natural-language output intent becomes one canonical authored
   contract, never model-written source.** `--output TEXT` and exact
-  `--returns JSON` are mutually exclusive; neither means the existing
-  single-`String` default. `--output` runs the checked-in generic
-  `infer-output-contract.orc` workflow as one ordinary typed provider call,
-  using the named provider/model without task conf. Its fixed
-  `OutputContractDraft` result contains only field names, field descriptions,
-  and types from the scalar/collection subset of the `--returns` grammar:
-  `String`, `Bool`, `Int`, `Float`, `Optional`, `List`, and
-  `Map[String, T]`. Local code validates and
-  canonicalizes that restricted IR, stores `output-contract.json`, and owns
-  all `.orc` syntax generation and escaping; model output is never parsed as
-  source. The user's text is preserved verbatim as the root result
-  description. Invalid or unsupported synthesis fails before the task call,
-  with no widening or silent `String` fallback. The first synthesis is a
-  model-assisted authoring step and is not byte-deterministic; generation
-  and reruns are deterministic from the pinned contract.
+  `--returns JSON` are mutually exclusive; neither means the existing direct
+  `String` default. `--output` runs checked-in
+  `infer-output-contract.orc` as one ordinary typed provider call using the
+  named provider/model without task conf. Its fixed `OutputContractDraft`
+  contains only ordered field names and type-expression strings; no source
+  and no prompt-visible prose. The scaffold derives the record name and
+  preserves the user's `--output` text verbatim as the sole result
+  description.
+
+  Inferred draft, exact JSON, default `String`, pinned reuse, and import all
+  normalize into one versioned `ScaffoldOutputContract` IR before codegen.
+  Type strings pass through the Workflow Lisp frontend's existing recursive
+  parser/canonical renderer, identifier rules, and string-atom encoder; the
+  scaffolder adds only the narrower scalar/collection admission policy
+  (`String`, `Bool`, `Int`, `Float`, `Optional`, `List`,
+  `Map[String,T]`). One deterministic renderer constructs only the known
+  `defrecord` and `:returns` syntax. The ordinary compiler must accept the
+  complete source and derive a return contract/guidance structurally equal to
+  the IR before the task provider starts. Invalid synthesis fails closed; no
+  second type grammar, source template parser, widening, or `String`
+  fallback is permitted.
+- **X3c — The small native phase-zero bridge is the self-hosting boundary.**
+  The inference workflow must compile before its provider can produce the
+  field set, so its active type environment cannot also contain the inferred
+  result. Native code may sequence inference → canonical IR → deterministic
+  rendering → fresh ordinary compilation; it may not interpret output intent,
+  invent language semantics, or dynamically install a type into the running
+  workflow. This is the bootstrap kernel, not a second runtime lane.
 - **X4 — Bidirectional session bridge.** Forward: the step's persisted
   session (under the staged agent dir, inside the step workspace) is
   evidence *and* a live omp artifact — `omp --resume <id>` with the same
   `PI_CODING_AGENT_DIR` reopens it interactively for post-hoc inspection.
-  Reverse: `import` of any omp session JSONL produces (a) typed evidence
-  (messages, usage, models) and (b) a regenerated scaffold (prompt from the
-  first user message, conf snapshot) so an interactive exploration becomes
-  a reproducible orc run. Neither direction makes prose an authority:
-  bundles remain the only result channel.
+  Orc-born session evidence also carries the compiler-derived
+  `ScaffoldOutputContract` (or a digest-bound sidecar reference), bound to
+  the generated-source and session identities.
+
+  Reverse: `import` produces typed message/usage/model evidence and
+  regenerates prompt/model/conf inputs. A matching contract sidecar restores
+  the exact return contract; transcript prose never reconstructs one. An
+  arbitrary omp session without a sidecar requires explicit `--output` or
+  `--returns`, or deliberately uses the documented direct-`String` default.
+  Import never fabricates a result bundle: bundles remain the only result
+  channel.
 - **X5 — Hermeticity + admission rule retained from the review, compressed.**
   Every omp invocation: relocated agent dir (`PI_CODING_AGENT_DIR` → staged
   conf), strict `--config` overlay, advisor tools pinned in `WATCHDOG.yml`
@@ -310,41 +329,90 @@ all required checks passed, and any unresolved problems"
 ```
 
 `--output TEXT` is the human-facing path: one ordinary typed provider
-preflight converts the intent into a restricted `OutputContractDraft`.
-`--returns JSON` is the exact, no-model-call path. They are mutually
-exclusive; omitting both produces the single-`String` default. Synthesis uses
-the requested provider/model without the task conf, in an isolated authoring
-workspace. It may emit only field names, supported scalar/collection type
-expressions, and field descriptions. Local codegen emits one record; the model
-cannot author nested records, enum/union/path declarations, DSL forms, or
-source.
+preflight converts the intent into an `OutputContractDraft` containing an
+ordered list of `{name, type_expression}` fields. `--returns JSON` is the
+exact, no-model-call path and accepts the canonical contract-root schema.
+They are mutually exclusive; omitting both constructs the direct-`String`
+root through the same normalizer. Synthesis uses the requested provider/model
+without task conf in an isolated authoring workspace.
 
-Local validation rejects invalid/reserved/duplicate names, unsupported types,
-and malformed descriptions before the final task starts. The canonical
-contract records the original intent, fields, provider/model, synthesis
-session and usage, and a digest of its intent-and-fields payload:
+Every path produces the same semantic artifact:
+
+```json
+{
+  "schema": "scaffold-output-contract.v1",
+  "contract": {
+    "target_dsl": "2.15",
+    "root": {
+      "kind": "record",
+      "name": "TaskResult",
+      "description": "A concise summary, repository-relative files changed, whether all required checks passed, and any unresolved problems",
+      "fields": [
+        {
+          "name": "summary",
+          "type": {"kind": "primitive", "name": "String"}
+        },
+        {
+          "name": "files-changed",
+          "type": {
+            "kind": "list",
+            "item": {"kind": "primitive", "name": "String"}
+          }
+        },
+        {
+          "name": "checks-passed",
+          "type": {"kind": "primitive", "name": "Bool"}
+        },
+        {
+          "name": "unresolved-problems",
+          "type": {
+            "kind": "list",
+            "item": {"kind": "primitive", "name": "String"}
+          }
+        }
+      ]
+    }
+  },
+  "semantic_digest": "<digest of schema + contract only>",
+  "provenance": {
+    "provider": "omp",
+    "model": "<resolved model>",
+    "session_id": "<synthesis session>",
+    "usage": {}
+  },
+  "generated_source": {
+    "renderer": "workflow-lisp-scaffold.v1",
+    "sha256": "<run.orc digest>"
+  }
+}
+```
+
+`contract` is the sole codegen/regeneration authority; ordered fields are
+semantic. `provenance` records the nondeterministic authoring call but is
+excluded from semantic equality and its digest. `generated_source` detects
+manual edits and renderer drift. The scaffolding component owns this stable
+external envelope. Workflow Lisp frontend APIs own recursive type parsing and
+canonical spelling, symbol admissibility, Lisp string-atom encoding, syntax
+construction, and the final compile check. The CLI only sequences those
+operations and publishes artifacts.
 
 ```
 workflows/generated/<slug>/
-├── run.orc               # ordinary defworkflow; typed guidance from contract
-├── output-contract.json  # canonical codegen input + synthesis provenance
+├── run.orc               # ordinary source rendered from canonical contract
+├── output-contract.json  # canonical contract + orthogonal provenance
 ├── providers.json        # {"providers.worker": "omp_conf"} (bare: requested provider)
 ├── prompts.json          # {"prompts.task": "task.md"}
 └── conf/                 # only with --conf; pinned and versionable
 ```
 
-For the command above, codegen emits ordinary typed guidance:
+For the command above, the deterministic renderer emits:
 
 ```lisp
 (defrecord TaskResult
-  (summary String
-    :description "Concise summary of the completed work.")
-  (files-changed (List String)
-    :description "Repository-relative paths changed by the task.")
-  (checks-passed Bool
-    :description "True only when every required check passed.")
-  (unresolved-problems (List String)
-    :description "Problems that remain unresolved; empty when none remain."))
+  (summary String)
+  (files-changed List[String])
+  (checks-passed Bool)
+  (unresolved-problems List[String]))
 
 ;; In the generated provider call:
 :returns
@@ -352,24 +420,28 @@ For the command above, codegen emits ordinary typed guidance:
     :description "A concise summary, repository-relative files changed, whether all required checks passed, and any unresolved problems")
 ```
 
-The root description is the user's `--output` text verbatim; generated field
-guidance supplements rather than replaces it. The scaffolder prints the
-canonical contract, writes the artifacts, compiles, immediately runs, streams
-the pane, and prints the bundle path and `tmux attach` command. The CLI itself
-stages nothing: `run.orc` calls `omp-attempt`, whose `stage-omp-conf` step
-mounts `conf/` → `.omp-conf/` at run time, so a later bare
-`orchestrator run run.orc` is the same execution. `--conf` selects
-`omp_conf` + the staging call; absent conf means a direct `provider-result`
-on the requested registry provider with no staging step.
+The only prompt-visible free prose is the user's verbatim `--output` text.
+The model selects structure; it does not supply field guidance. Source-safe
+serialization alone would not make model prose safe because result guidance
+is appended to the write-enabled task provider prompt.
 
-Generated files are ordinary artifacts: edit `run.orc` and it is simply a
-hand-authored workflow from then on. Exact `--returns` and default generation
-are byte-deterministic from their raw inputs. For `--output`, the first
-validated contract is the nondeterministic authoring boundary; a rerun with
-matching intent reuses it without another synthesis call, then regenerates in
-memory and compares. Identical bytes proceed as a no-op; changed intent,
-contract, or generated source refuses without `--force`. The scaffolder never
-silently overwrites authored content.
+The scaffolder prints the canonical contract, writes the artifacts, compiles,
+structurally compares the compiler-derived return contract/guidance with the
+IR, immediately runs, streams the pane, and prints the bundle path and
+`tmux attach` command. The CLI itself stages nothing: `run.orc` calls
+`omp-attempt`, whose `stage-omp-conf` step mounts `conf/` → `.omp-conf/`.
+Absent conf means a direct `provider-result` on the requested registry
+provider with no staging step.
+
+Generated files are ordinary artifacts. While `run.orc` matches
+`generated_source.sha256`, regeneration uses `contract`; after a manual edit,
+the `.orc` source and its compiled contract become execution authority and the
+sidecar is stale regeneration metadata. The command refuses a source/sidecar,
+intent, semantic-contract, or renderer mismatch without `--force`; force is
+an explicit destructive regeneration, never reconciliation. Exact/default
+generation is deterministic from raw inputs. The first `--output` synthesis
+is nondeterministic, but matching pinned-contract reruns make no second model
+call and reproduce identical source bytes.
 
 ### Observability (existing machinery, documented not built)
 
@@ -391,9 +463,12 @@ behind the same consumer gate as RPC `steer`.
   forking — without any orc involvement. Feasibility F1 (session files land
   under the relocated agent dir) is the one open prerequisite.
 - **omp → orc:** `orchestrator prompt import <session.jsonl>` emits typed
-  evidence (message/usage/model facts) and regenerates the scaffold inputs
-  (prompt, model, conf snapshot) so the run can be repeated as an orc step.
-  Import is evidence-only: it never fabricates a bundle for the original
+  message/usage/model evidence and regenerates prompt/model/conf inputs.
+  Orc-born sessions carry a digest-bound canonical-contract sidecar/reference,
+  so import routes that exact IR through the same renderer. Arbitrary sessions
+  without it require explicit output intent/exact contract or use the stated
+  direct-`String` default. Transcript prose is evidence, never a contract
+  authoring surface, and import never fabricates a bundle for the original
   interactive session.
 
 ## Contracts And Interfaces
@@ -401,14 +476,21 @@ behind the same consumer gate as RPC `steer`.
 - New enum member + codec: spec home `specs/providers.md` on landing;
   fixtures from the pinned build are the wire pin.
 - New CLI: `orchestrator prompt run|import` — spec home `specs/cli.md` on
-  landing. `prompt run` owns the mutually exclusive `--output TEXT`
-  (model-assisted contract) and `--returns JSON` (exact contract) modes,
-  canonical `output-contract.json`, immediate execution, and edit-safe
-  regeneration. It introduces no direct model client: synthesis is an
-  ordinary provider invocation.
-- Generic output-contract inference workflow and fixed
-  `OutputContractDraft`: owned by `workflows/library/scaffolding/`; the
-  model returns restricted data and local code alone emits `.orc`.
+  landing. `prompt run` owns mutually exclusive `--output TEXT`
+  (model-assisted draft) and `--returns JSON` (exact canonical root), immediate
+  execution, and edit-safe regeneration. `prompt import` carries a
+  digest-bound canonical contract when available and never infers it from
+  transcript prose. No direct model client: synthesis is an ordinary provider
+  invocation.
+- `ScaffoldOutputContract.v1` is the single public scaffold IR/envelope for
+  inferred, exact, default, cached, and imported contracts. The scaffolding
+  component owns its codec, policy subset, provenance split, and artifact
+  publication. Workflow Lisp frontend code owns or exposes the shared type,
+  identifier, string-atom, syntax-rendering, and compile-check primitives; the
+  CLI must not duplicate them.
+- Generic inference workflow and fixed `OutputContractDraft`: owned by
+  `workflows/library/scaffolding/`; the model returns ordered structural data
+  only.
 - Generic `omp` built-in: provider template table in `specs/providers.md`.
 - Library contracts (`ConfMount`, `OmpAttempt`, `AdvisorSettlement`,
   `omp-attempt`, `stage-omp-conf`): owned by `workflows/library/omp/`,
@@ -460,11 +542,13 @@ behind the same consumer gate as RPC `steer`.
   ordinary bash+edit worker task completes under `--approval-mode write`
   (else the lane's pinned mode is adjusted); stdin input composes with
   `--mode json` for the unrestricted variant.
-- **F8** [open]: `--output` returns a schema-valid
-  `OutputContractDraft` for representative intents through the ordinary
-  provider path; canonicalization produces compiling typed guidance; invalid
-  names/types/contracts fail before the task invocation; a matching pinned
-  contract rerun performs no second synthesis call.
+- **F8** [open]: `--output` returns a schema-valid structural
+  `OutputContractDraft` through the ordinary provider path; inferred, exact,
+  default, and imported inputs normalize to one `ScaffoldOutputContract.v1`;
+  the shared renderer emits compiling canonical type syntax and the compiler
+  derives the same contract/guidance; model-authored prose cannot enter task
+  guidance; invalid drafts fail before task invocation; matching pinned reruns
+  perform no second synthesis call.
 
 ## Roadmap
 
@@ -473,11 +557,12 @@ behind the same consumer gate as RPC `steer`.
   fixtures + `workflows/library/omp/` (`omp-attempt`, `stage-omp-conf`
   adapter, settlement contracts) + generic
   `workflows/library/scaffolding/infer-output-contract.orc` +
-  `OutputContractDraft` + conf presets
+  structural `OutputContractDraft` + versioned `ScaffoldOutputContract`
+  codec/checker/renderer + conf presets
   (`workflows/assets/omp_confs/`) + scaffolder (`run`/`import`,
-  `--output`/`--returns`, canonical contract artifact) + monitoring-doc
-  note + the two-arm bare-vs-advised trial: one `run.orc` on `omp_conf`,
-  arms differing only in the digest-pinned conf input (neutral
+  `--output`/`--returns`, canonical contract artifact and import sidecar) +
+  monitoring-doc note + the two-arm bare-vs-advised trial: one `run.orc` on
+  `omp_conf`, arms differing only in the digest-pinned conf input (neutral
   `advisor.enabled: false` conf vs `advised/`), plus one `fanout/` preset
   smoke (F6) and one bare-lane `omp` smoke (F7). Exit: F1–F8 resolved;
   canary scenario passes; codec unit + fake-child tests green; one real
@@ -499,30 +584,46 @@ behind the same consumer gate as RPC `steer`.
 Proposal invariants 1–5 bind unchanged. Added: conf digest + harness
 version are mandatory evidence for every omp step; advisor liveness
 (non-empty advisor transcript, usage > 0) is recorded per attempt so a
-silently dead advisor never silently narrows a treatment; hub/IRC state
-never outlives its step; memory stays explicitly disabled; generated
-workflows are ordinary workflows (no generated-only runtime path). Output
-intent is preserved verbatim in result guidance; synthesized contracts are
-validated data, never executable source; an invalid contract cannot reach
-the task invocation or silently widen to `String`.
+silently dead advisor never silently narrows a treatment; hub/IRC state never
+outlives its step; memory stays explicitly disabled; generated workflows are
+ordinary workflows (no generated-only runtime path).
+
+Output-contract invariants: one versioned canonical IR feeds every mode; the
+model emits structure, never source or prompt-visible guidance; only the
+user-authored output intent becomes free-form task guidance; shared frontend
+primitives remain the sole type/symbol/string syntax authority; ordinary
+compilation and structural equality are required before task invocation; no
+invalid contract widens to `String`. Matching generated source is
+contract-regenerable; edited `.orc` and its compiled contract are execution
+authority. Import restores a digest-bound contract or chooses an explicit
+mode—it never parses transcript prose into a contract.
 
 ## Verification Strategy
 
 Codec fixture tests (identity, terminal, resume boundary, usage, error
 mapping, malformed input — negative tests fail closed); fake-child process
 tests; output-contract tests covering valid synthesis, mutually exclusive
-flags, exact-`--returns` synthesis bypass, invalid/reserved/duplicate fields,
-unsupported types, source-safe escaping, and failure before task invocation;
-structural AST checks that the compiled return type and typed guidance match
-the canonical contract; regeneration tests proving pinned-contract reuse
-performs no second provider call and changed intent/source refuses;
-determinism tests from exact and pinned contracts; self-containment test
-(scaffolder run ≡ bare `orchestrator run` on generated `run.orc`); round-trip
-test (`run` → `import` → regenerated scaffold equals original modulo session
-facts); library-procedure staging and evidence-wiring coverage; the canary
-acceptance scenario as explicit negative tests; one real smoke run;
-behavioral assertions only, no prompt-text checks; `pytest --collect-only`
-on new test modules.
+flags, exact-mode synthesis bypass, invalid/reserved/duplicate fields,
+unsupported recursive types, and failure before task invocation; one
+table-driven normalization suite proving inferred, exact, default, cached, and
+imported inputs enter the same IR; canonical codec and semantic-digest tests
+show provenance changes do not alter contract identity; frontend
+type-expression, identifier, and string-atom round trips cover nested
+collections, Unicode, quotes, newlines, and control-character rejection.
+
+Renderer checks compile `List[String]`, `Optional[T]`, and
+`Map[String,T]` fixtures and structurally compare the compiler-derived return
+type/guidance with the IR. Prompt-contribution provenance proves no
+model-authored field prose reaches task guidance without asserting literal
+prompt wording. Regeneration proves matching pinned contracts make no second
+provider call; intent/source/contract/renderer mismatches refuse; manual
+source edits make the sidecar stale. Self-containment proves scaffolder run ≡
+bare `orchestrator run` on generated `run.orc`. Round-trip proves
+`run` → digest-bound sidecar → `import` preserves semantic IR/source modulo
+enumerated session provenance; arbitrary-session import follows the explicit
+or default contract path. Library staging/evidence coverage, canary negatives,
+one real smoke, behavioral assertions only, and `pytest --collect-only` on
+new modules complete the tranche check.
 
 ## Declarative Acceptance Scenario
 
@@ -530,38 +631,45 @@ Clean checkout; canaries planted in `~/.omp/agent/` and an ancestor
 `.claude/`; run `orchestrator prompt run --prompt task.md --conf
 workflows/assets/omp_confs/advised/ --provider omp --output "A concise
 summary, whether all checks passed, and unresolved problems"`. Expected: one
-typed contract-synthesis provider call; canonical `output-contract.json`
-records the exact intent, inferred fields/descriptions, provider/model,
-session/usage, and intent-and-fields digest; generated `.orc` parses with the
-inferred return
-type and guidance; the task then runs and completes with a schema-valid
-bundle. Evidence contains task session JSONL, non-empty advisor transcript,
-conf digest, `omp --version`, tokens/cost; the printed `tmux attach` target
-shows live assistant text during the run; `omp --resume` against the evidence
-agent dir reopens the task session. Forbidden: task invocation after an
-invalid synthesized contract; synthesis on an identical pinned-contract
-rerun; any canary influence; any result read from stdout; any difference
-between the generated workflow's execution and the same workflow run by hand
-with `orchestrator run`.
+typed contract-synthesis provider call returns ordered names/types only;
+canonical `output-contract.json` separates semantic contract from
+provider/model/session/usage provenance and generated-source identity;
+generated `.orc` uses canonical bracketed collection types, contains only the
+verbatim user intent as result guidance, and compiles to a structurally equal
+contract before the task starts. The task completes with a schema-valid
+bundle. Evidence contains the digest-bound canonical contract reference, task
+session JSONL, non-empty advisor transcript, conf digest, `omp --version`,
+tokens/cost; the printed `tmux attach` target shows live assistant text;
+`omp --resume` reopens the task session; `prompt import` reproduces the same
+contract/source without reading it from transcript prose.
+
+Forbidden: model-authored source or task guidance; a parallel type/identifier/
+string grammar in the CLI; task invocation after draft/render/compile/equality
+failure; synthesis on a matching pinned-contract rerun; stale-sidecar
+overwrite of edited source; canary influence; result reads from stdout; any
+execution difference between generated source and a bare `orchestrator run`.
 
 ## Stop / Revise Criteria
 
 F3 leak with no hermetic fix → revise isolation before adoption. F2/F5/F6
 failure for a preset → that preset is withheld (transport fallback for
-F2/F5 remains proposal option C). F8 failure, model-written source, or a
-task invocation after contract validation failure → tranche does not close;
-exact `--returns` is not accepted as a substitute for the approved
-human-facing path. Trial shows no advised-arm signal at material cost → conf
-pattern stays available, guidance does not become a default. Upstream
-`--mode json`/session-layout change under the pin → wire-contract break:
-re-record fixtures, re-review.
+F2/F5 remains proposal option C). F8 failure; model-written source or
+prompt-visible prose; a second CLI type/symbol/string grammar; or task
+invocation after normalization, rendering, compilation, or structural
+equality failure → tranche does not close. Exact `--returns` alone is not an
+acceptable substitute for the approved human-facing path. Trial shows no
+advised-arm signal at material cost → conf pattern stays available, guidance
+does not become a default. Upstream `--mode json`/session-layout change under
+the pin → wire-contract break: re-record fixtures, re-review.
 
 ## Documentation Impact
 
-On landing: `specs/providers.md` (mode, template), `specs/cli.md`
-(`prompt run|import`), capability-matrix rows (omp provider, codec,
-scaffolder; 2.16/2.17 annotation), `docs/workflow_monitoring.md` (attach
-runbook), index entry. Drafting-guide text waits for DP-A.
+On landing: `specs/providers.md` (mode, template); `specs/cli.md`
+(`prompt run|import`, exact canonical-root schema, sidecar and edit authority);
+one public `ScaffoldOutputContract.v1` schema/codec; capability-matrix rows
+(omp provider, codec, scaffolder; 2.16/2.17 annotation);
+`docs/workflow_monitoring.md` (attach runbook); index entry. Drafting-guide
+text waits for DP-A.
 
 ## Open Questions (owner)
 
