@@ -4219,6 +4219,32 @@ def test_control_flow_defined_invoked_receiver_user_is_checked(
     ) is (not closed)
 
 
+@pytest.mark.parametrize(
+    "escape",
+    (
+        "return receiver",
+        "yield receiver",
+        "yield from (receiver,)",
+    ),
+    ids=("return", "yield", "yield-from"),
+)
+def test_invoked_receiver_return_or_yield_escape_is_detected(
+    escape: str,
+) -> None:
+    tree = ast.parse(
+        "receiver = object()\n"
+        "def expose():\n"
+        f"    {escape}\n"
+        "expose()\n"
+    )
+
+    assert evaluator._has_module_object_mutation(
+        tree,
+        {"receiver"},
+        reject_argument_escape=True,
+    ) is True
+
+
 def test_synthetic_owner_reuses_verified_external_receiver_terminal_proof(
     tmp_path: Path,
 ) -> None:

@@ -2943,6 +2943,13 @@ def _has_module_object_mutation(
                 )
             ):
                 return True
+        if (
+            reject_argument_escape
+            and isinstance(child, (ast.Return, ast.Yield, ast.YieldFrom))
+            and child.value is not None
+            and aliases_object(child.value)
+        ):
+            return True
         if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
             targets = (
                 child.targets
