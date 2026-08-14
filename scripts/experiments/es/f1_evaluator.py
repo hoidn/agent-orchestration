@@ -5894,7 +5894,12 @@ def _module_functions(
                     target = f"@unresolved-decorator:{owner}:{index}"
             decorator_dependencies_by_owner.setdefault(owner, set()).add(target)
             graph[owner] = sorted(set((*graph.get(owner, ()), target)))
-    for row, owner, _ in exact_rows:
+    occurrence_owners = [(row, owner) for row, owner, _ in exact_rows]
+    occurrence_owners.extend(
+        (row, cast(str, row["public_entry_route"]))
+        for row, _, _ in class_decorator_rows
+    )
+    for row, owner in occurrence_owners:
         dependencies = set(decorator_dependencies_by_owner.get(owner, ()))
         for class_owner in class_by_symbol:
             if owner.startswith(f"{class_owner}."):

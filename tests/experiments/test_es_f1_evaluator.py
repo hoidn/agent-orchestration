@@ -2204,12 +2204,28 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "@legacy.consume\n"
         "class Modern:\n"
         "    def modern(self, config): return resolve(config, {})\n",
+        "from pydantic import with_config\n"
+        "from candidate.legacy import consume as legacy_decorator\n"
+        "_CONFIG = {}\n"
+        "@legacy_decorator\n"
+        "@with_config(_CONFIG)\n"
+        "class Modern:\n"
+        "    pass\n",
+        "from pydantic import with_config\n"
+        "import candidate.legacy as legacy\n"
+        "_CONFIG = {}\n"
+        "@legacy.consume\n"
+        "@with_config(_CONFIG)\n"
+        "class Modern:\n"
+        "    pass\n",
     ),
     ids=(
         "imported-retained-entry",
         "local-wrapper-reaching-retained-entry",
         "decorated-class-direct-import",
         "decorated-class-module-alias",
+        "sibling-class-decorator-direct-import",
+        "sibling-class-decorator-module-alias",
     ),
 )
 def test_live_decorator_dependency_cannot_reach_retained_root(
@@ -8482,8 +8498,12 @@ def test_canonical_dataclass_decorators_create_all_sixteen_exact_routes(
     assert result["accounted_consumer_count"] == 16
     assert result["closed"] is True
     assert all(
-        trace["paths"][0][0] == f"@consumer:{trace['consumer_id']}"
-        and trace["paths"][0][-1] == "pydantic.with_config"
+        all(
+            path[0] == f"@consumer:{trace['consumer_id']}"
+            for path in trace["paths"]
+        )
+        and {path[-1] for path in trace["paths"]}
+        == {"dataclasses.dataclass", "pydantic.with_config"}
         for trace in result["traces"]
     )
 
