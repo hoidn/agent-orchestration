@@ -5309,6 +5309,63 @@ def test_opaque_external_result_sibling_global_mutation_fails_closed(
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    (
+        "Alias.__new__ = replacement\n",
+        "setattr(Alias, method_name, replacement)\n",
+        "escape(Alias)\n",
+    ),
+    ids=("attribute-mutation", "dynamic-setattr", "argument-escape"),
+)
+def test_opaque_external_result_duplicate_import_alias_mutation_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "from dependency import Factory as Alias\n"
+            "replacement = object()\n"
+            "method_name = '__new__'\n"
+            "def escape(value):\n"
+            "    pass\n"
+            + mutation
+            + "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+def test_opaque_external_result_allows_unused_duplicate_import_alias(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "from dependency import Factory as Alias\n"
+            "def consume(runtime_config, options):\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert any(call.startswith("@terminal-external-result:") for call in calls)
+    assert closed is True
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),

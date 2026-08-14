@@ -4524,18 +4524,26 @@ def _module_functions(
             factory_root = factory_root.value
         binding = active_name_binding(factory_call, owner)
         factory = call_symbol(factory_call, owner)
+        factory_import_aliases = {
+            local
+            for local, imported in imports_by_owner[owner].items()
+            if imported == factory or factory.startswith(f"{imported}.")
+        }
         if not (
             isinstance(factory_root, ast.Name)
             and binding is not None
             and binding[0] == "import"
             and factory in available_external_imports
             and factory.split(".", 1)[0] not in workspace_module_roots
-            and factory not in reassigned_attributes
+            and not any(
+                attribute == factory or attribute.startswith(f"{factory}.")
+                for attribute in reassigned_attributes
+            )
         ):
             return False
         if any(
             isinstance(node, (ast.Global, ast.Nonlocal))
-            and {receiver, factory_root.id} & set(node.names)
+            and ({receiver} | factory_import_aliases) & set(node.names)
             for node in ast.walk(tree)
         ):
             return False
@@ -4610,16 +4618,18 @@ def _module_functions(
         if any(
             _has_module_object_mutation(
                 scope,
-                {factory_root.id},
+                factory_import_aliases,
                 reject_argument_escape=True,
                 allowed_argument_calls=frozenset({id(factory_call)}),
             )
             for scope in (tree, function_scope)
         ) or any(
-            has_subscript_mutation(scope, factory_root.id)
+            has_subscript_mutation(scope, alias)
             for scope in (tree, function_scope)
-        ) or has_nested_capture(factory_root.id) or has_wrapped_carrier_use(
-            factory_root.id
+            for alias in factory_import_aliases
+        ) or any(
+            has_nested_capture(alias) or has_wrapped_carrier_use(alias)
+            for alias in factory_import_aliases
         ):
             return False
         if _has_module_object_mutation(
