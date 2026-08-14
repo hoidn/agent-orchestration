@@ -6010,6 +6010,21 @@ def test_cross_module_generated_dataclass_allows_metadata_only_required_field(
     )
 
 
+def test_cross_module_generated_dataclass_duplicate_metadata_keywords_fail_closed(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object = field(repr=False, repr=True)\n",
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+
+
 def test_generated_dataclass_post_init_allows_declared_field_setattr(
     tmp_path: Path,
 ) -> None:

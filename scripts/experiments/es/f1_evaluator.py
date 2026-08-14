@@ -2726,6 +2726,7 @@ def _is_plain_generated_dataclass(
             and resolve_name(value.func) == "dataclasses.field"
             and not value.args
             and bool(value.keywords)
+            and len(value.keywords) == len({keyword.arg for keyword in value.keywords})
             and all(
                 keyword.arg in {"compare", "hash", "metadata", "repr"}
                 for keyword in value.keywords
