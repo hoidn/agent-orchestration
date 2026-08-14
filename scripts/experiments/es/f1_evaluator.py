@@ -146,6 +146,9 @@ def audit(event,args):
     elif event in child_events:
         events.append({"event":"unaudited_child_process","value":event})
         raise PermissionError("candidate child process is outside the evaluator audit boundary")
+import platform
+platform.processor()
+import numpy.testing
 sys.addaudithook(audit)
 sys.path.insert(0,str(workspace))
 os.chdir(cwd)

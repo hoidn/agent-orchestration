@@ -11533,6 +11533,62 @@ def test_audited_probe_rejects_forbidden_import_and_outside_project_origin(
         )
 
 
+def test_audited_probe_preloads_installed_hardware_probes(tmp_path: Path) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    evaluator.run_candidate_probe(
+        code="import platform\nplatform.processor()\nimport numpy.testing\n",
+        environment={},
+        label="installed-hardware-probes",
+        python_executable=Path(sys.executable),
+        timeout_seconds=30,
+        workspace=workspace,
+    )
+
+
+@pytest.mark.parametrize(
+    "code",
+    (
+        "import subprocess\nsubprocess.run(['true'], check=True)\n",
+        "import os\nos.system('true')\n",
+    ),
+    ids=("subprocess", "os-system"),
+)
+def test_audited_probe_still_rejects_candidate_children(
+    tmp_path: Path,
+    code: str,
+) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    with pytest.raises(evaluator.EvaluatorError, match="protected execution boundary"):
+        evaluator.run_candidate_probe(
+            code=code,
+            environment={},
+            label="candidate-child",
+            python_executable=Path(sys.executable),
+            timeout_seconds=30,
+            workspace=workspace,
+        )
+
+
+def test_audited_probe_preflight_cannot_load_candidate_modules(tmp_path: Path) -> None:
+    workspace = tmp_path / "candidate"
+    package = workspace / "ptycho"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "raise AssertionError('candidate module loaded during preflight')\n",
+        encoding="utf-8",
+    )
+    evaluator.run_candidate_probe(
+        code="import sys\nassert not any(name == 'ptycho' or name.startswith('ptycho.') for name in sys.modules)\n",
+        environment={},
+        label="preflight-isolation",
+        python_executable=Path(sys.executable),
+        timeout_seconds=30,
+        workspace=workspace,
+    )
+
+
 def test_visible_checks_use_one_audited_subprocess_route_and_v3_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
