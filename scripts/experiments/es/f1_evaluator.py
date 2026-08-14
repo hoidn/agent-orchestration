@@ -5368,7 +5368,7 @@ def _module_functions(
             callee = local_callee(child, owner)
             if callee is None:
                 target = routed_call_symbol(child, owner, relevant)
-                target, _ = occurrence_terminal_symbol(
+                target, tolerant = occurrence_terminal_symbol(
                     child,
                     owner,
                     relevant,
@@ -5376,6 +5376,8 @@ def _module_functions(
                     force_receiver_tainted=child is node,
                 )
                 calls.add(target)
+                if tolerant:
+                    contextual_bypasses.add("TOLERANT_OR_COMPATIBILITY_LOADER")
                 continue
             formals = call_tainted_formals(
                 child,

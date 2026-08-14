@@ -9820,6 +9820,29 @@ def test_cross_module_from_import_callable_forwards_to_external_terminal(
     ) is closed
 
 
+def test_cross_module_from_import_tolerant_callable_preserves_bypass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = "dependency.fallback_loader"
+    monkeypatch.setattr(
+        evaluator,
+        "_available_external_imports",
+        lambda targets, python_executable: frozenset({target} & targets),
+    )
+
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source="from dependency import fallback_loader as normalize\n",
+        imported_symbol="normalize",
+        assign_result=False,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
 def test_cross_module_identity_return_keeps_downstream_tolerant_read_tainted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
