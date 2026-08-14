@@ -4596,6 +4596,7 @@ def _module_functions(
                         ast.FormattedValue,
                         ast.UnaryOp,
                         ast.BinOp,
+                        ast.NamedExpr,
                     ),
                 )
             )

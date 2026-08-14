@@ -5243,6 +5243,38 @@ def test_opaque_external_result_ignores_unrelated_wrapped_values(
 
 
 @pytest.mark.parametrize(
+    ("before_definition", "after_definition"),
+    (
+        ("", "    if (alias := receiver):\n        pass\n"),
+        ("    if (alias := Factory):\n        pass\n", ""),
+    ),
+    ids=("receiver", "factory-root"),
+)
+def test_opaque_external_result_named_expression_alias_fails_closed(
+    tmp_path: Path,
+    before_definition: str,
+    after_definition: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from dependency import Factory\n"
+            "def consume(runtime_config, options):\n"
+            + before_definition
+            + "    receiver = Factory(options)\n"
+            + after_definition
+            + "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),
