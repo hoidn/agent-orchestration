@@ -4442,6 +4442,37 @@ def _module_functions(
                 leaves.add(target)
                 if tolerant:
                     classes.add("TOLERANT_OR_COMPATIBILITY_LOADER")
+                elif target in available_external_imports:
+                    root = child.func
+                    while isinstance(root, ast.Attribute):
+                        root = root.value
+                    visible_imports = imports_by_owner.get(owner, imports)
+                    if isinstance(root, ast.Name) and root.id in visible_imports:
+                        imported_target = visible_imports[root.id]
+                        import_aliases = {
+                            local
+                            for local, imported in visible_imports.items()
+                            if imported == imported_target
+                        }
+                        if (
+                            target not in reassigned_attributes
+                            and root.id not in rebound_by_owner[owner]
+                            and root.id not in module_rebounds
+                            and not _has_module_object_mutation(
+                                tree,
+                                import_aliases,
+                                reject_argument_escape=True,
+                            )
+                            and not _has_module_object_mutation(
+                                ast.Module(
+                                    body=list(function_by_symbol[owner].body),
+                                    type_ignores=[],
+                                ),
+                                import_aliases,
+                                reject_argument_escape=True,
+                            )
+                        ):
+                            terminal_symbols.add(target)
                 continue
             formals = call_tainted_formals(
                 child,
@@ -4561,7 +4592,6 @@ def _module_functions(
     for context_symbol, owner, formals in context_rows:
         calls, classes = contextual_route(owner, formals)
         graph[context_symbol] = sorted(filter(None, calls))
-        terminal_symbols.update(calls & available_external_imports)
         classes.update(module_bypasses)
         if classes:
             bypasses[context_symbol] = tuple(

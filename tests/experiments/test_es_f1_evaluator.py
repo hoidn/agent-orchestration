@@ -313,6 +313,207 @@ def _synthetic_owner_route(
     return graph[owner], terminals, result["closed"]
 
 
+@pytest.mark.parametrize(
+    ("import_source", "call", "target"),
+    (
+        ("from dataclasses import replace\n", "replace(value)", "dataclasses.replace"),
+        ("from pathlib import Path\n", "Path(value)", "pathlib.Path"),
+        ("import numpy as np\n", "np.asarray(value)", "numpy.asarray"),
+    ),
+    ids=("dataclasses", "pathlib", "numpy-like"),
+)
+def test_contextual_external_target_is_terminal(
+    tmp_path: Path,
+    import_source: str,
+    call: str,
+    target: str,
+) -> None:
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        import_source + "def adapt(value):\n" f"    return {call}\n",
+        encoding="utf-8",
+    )
+    context = "@context:package.sink.adapt:value"
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.sink.adapt",
+            "tainted_formals": ["value"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        available_external_imports=frozenset({target}),
+    )
+
+    assert graph[context] == [target]
+    assert target in terminals
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "contextual-external",
+            "entry_symbol": context,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is True
+
+
+def test_contextual_tolerant_external_loader_is_not_terminal(tmp_path: Path) -> None:
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "from dependency import fallback_loader\n"
+        "def adapt(value):\n"
+        "    return fallback_loader(value)\n",
+        encoding="utf-8",
+    )
+    context = "@context:package.sink.adapt:value"
+    target = "dependency.fallback_loader"
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.sink.adapt",
+            "tainted_formals": ["value"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        available_external_imports=frozenset({target}),
+    )
+
+    assert graph[context] == [target]
+    assert target not in terminals
+    assert bypasses[context] == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "contextual-tolerant-external",
+            "entry_symbol": context,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "json.dumps = replacement\n",
+        "setattr(json, 'dumps', replacement)\n",
+        "mutate(json)\n",
+        "other.dumps = replacement\n",
+        "setattr(other, 'dumps', replacement)\n",
+    ),
+    ids=(
+        "member-assignment",
+        "setattr",
+        "unknown-call-escape",
+        "second-alias-assignment",
+        "second-alias-setattr",
+    ),
+)
+def test_contextual_mutated_external_target_is_not_terminal(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "import json\n"
+        "import json as other\n"
+        "def replacement(value):\n"
+        "    return value\n"
+        "def mutate(value):\n"
+        "    return None\n"
+        + mutation
+        + "def adapt(value):\n"
+        + "    return json.dumps(value)\n",
+        encoding="utf-8",
+    )
+    context = "@context:package.sink.adapt:value"
+    target = "json.dumps"
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.sink.adapt",
+            "tainted_formals": ["value"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        available_external_imports=frozenset({target}),
+    )
+
+    assert target in graph[context]
+    assert target not in terminals
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "contextual-mutated-external",
+            "entry_symbol": context,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
+
+
+def test_contextual_zero_arg_helper_cannot_reassign_external_target(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "import json\n"
+        "def replacement(value):\n"
+        "    return value\n"
+        "def poison():\n"
+        "    json.dumps = replacement\n"
+        "def adapt(value):\n"
+        "    poison()\n"
+        "    return json.dumps(value)\n",
+        encoding="utf-8",
+    )
+    context = "@context:package.sink.adapt:value"
+    target = "json.dumps"
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.sink.adapt",
+            "tainted_formals": ["value"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        available_external_imports=frozenset({target}),
+    )
+
+    assert target in graph[context]
+    assert target not in terminals
+    assert evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "contextual-helper-reassigned-external",
+            "entry_symbol": context,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"] is False
+
+
 def _conforming_protocol_workspace(tmp_path: Path) -> tuple[Path, Path]:
     return _candidate_workspace(
         tmp_path,
