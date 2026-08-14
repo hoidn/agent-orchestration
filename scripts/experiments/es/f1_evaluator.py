@@ -4557,6 +4557,22 @@ def _module_functions(
                 reject_argument_escape=True,
             )
         }
+
+        def exact_name_alias(statement: ast.stmt) -> tuple[str, ast.AST] | None:
+            if (
+                isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+            ):
+                return statement.targets[0].id, statement.value
+            if (
+                isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                and statement.value is not None
+            ):
+                return statement.target.id, statement.value
+            return None
+
         callable_alias_targets = {
             symbol: targets[0]
             for symbol, targets in graph.items()
@@ -4564,13 +4580,11 @@ def _module_functions(
         }
         callable_alias_targets.update(
             {
-                f"{module}.{statement.targets[0].id}": target
+                f"{module}.{alias[0]}": target
                 for statement in tree.body
-                if isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and module_binding_counts.get(statement.targets[0].id) == 1
-                and (target := name(statement.value))
+                if (alias := exact_name_alias(statement)) is not None
+                and module_binding_counts.get(alias[0]) == 1
+                and (target := name(alias[1]))
             }
         )
         changed = True
@@ -4593,14 +4607,11 @@ def _module_functions(
                 module_factory_mutators.add(symbol)
                 changed = True
         owner_local_mutator_aliases = {
-            statement.targets[0].id: statement
+            alias[0]: statement
             for statement in function.body
-            if isinstance(statement, ast.Assign)
-            and len(statement.targets) == 1
-            and isinstance(statement.targets[0], ast.Name)
-            and _module_binding_counts(function_scope).get(statement.targets[0].id)
-            == 1
-            and name(statement.value, owner) in module_factory_mutators
+            if (alias := exact_name_alias(statement)) is not None
+            and _module_binding_counts(function_scope).get(alias[0]) == 1
+            and name(alias[1], owner) in module_factory_mutators
         }
         if any(
             isinstance(node, ast.Call)

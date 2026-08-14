@@ -5484,15 +5484,25 @@ def test_opaque_external_result_checks_transitive_module_mutator_helpers(
 
 
 @pytest.mark.parametrize(
-    "alias_scope",
-    ("alias = mutate\n", ""),
-    ids=("module-alias", "owner-local-alias"),
+    ("module_alias", "local_alias"),
+    (
+        ("alias = mutate\n", ""),
+        ("alias: object = mutate\n", ""),
+        ("", "    alias = mutate\n"),
+        ("", "    alias: object = mutate\n"),
+    ),
+    ids=(
+        "module-alias",
+        "annotated-module-alias",
+        "owner-local-alias",
+        "annotated-owner-local-alias",
+    ),
 )
 def test_opaque_external_result_checks_callable_aliases_to_mutator_helpers(
     tmp_path: Path,
-    alias_scope: str,
+    module_alias: str,
+    local_alias: str,
 ) -> None:
-    local_alias = "    alias = mutate\n" if not alias_scope else ""
     calls, _, closed = _synthetic_owner_route(
         tmp_path,
         module="package.sink",
@@ -5502,7 +5512,7 @@ def test_opaque_external_result_checks_callable_aliases_to_mutator_helpers(
             "replacement = object()\n"
             "def mutate(name):\n"
             "    setattr(dependency, name, replacement)\n"
-            + alias_scope
+            + module_alias
             + "def consume(runtime_config, options):\n"
             + local_alias
             + "    alias('Factory')\n"
@@ -5517,15 +5527,25 @@ def test_opaque_external_result_checks_callable_aliases_to_mutator_helpers(
 
 
 @pytest.mark.parametrize(
-    "alias_scope",
-    ("alias = mutate\n", ""),
-    ids=("module-alias", "owner-local-alias"),
+    ("module_alias", "local_alias"),
+    (
+        ("alias = mutate\n", ""),
+        ("alias: object = mutate\n", ""),
+        ("", "    alias = mutate\n"),
+        ("", "    alias: object = mutate\n"),
+    ),
+    ids=(
+        "module-alias",
+        "annotated-module-alias",
+        "owner-local-alias",
+        "annotated-owner-local-alias",
+    ),
 )
 def test_opaque_external_result_allows_alias_to_unrelated_helper(
     tmp_path: Path,
-    alias_scope: str,
+    module_alias: str,
+    local_alias: str,
 ) -> None:
-    local_alias = "    alias = mutate\n" if not alias_scope else ""
     calls, _, closed = _synthetic_owner_route(
         tmp_path,
         module="package.sink",
@@ -5536,7 +5556,7 @@ def test_opaque_external_result_allows_alias_to_unrelated_helper(
             "replacement = object()\n"
             "def mutate(name):\n"
             "    setattr(unrelated, name, replacement)\n"
-            + alias_scope
+            + module_alias
             + "def consume(runtime_config, options):\n"
             + local_alias
             + "    alias('Other')\n"
