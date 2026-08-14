@@ -2873,9 +2873,11 @@ def _has_module_object_mutation(
         for node in tree.body
         if reject_argument_escape
         and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and any(
-            isinstance(child, ast.Name) and child.id in object_names
-            for child in ast.walk(node)
+        and _has_module_object_mutation(
+            ast.Module(body=list(node.body), type_ignores=[]),
+            object_names,
+            reject_argument_escape=True,
+            allowed_argument_calls=allowed_argument_calls,
         )
     }
     binding_counts = _module_binding_counts(tree)

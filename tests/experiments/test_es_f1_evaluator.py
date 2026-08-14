@@ -4130,6 +4130,66 @@ def test_verified_external_factory_receiver_is_occurrence_terminal(
     assert result["closed"] is True
 
 
+def test_invoked_external_receiver_user_without_escape_is_terminal(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/invoked_receiver.py",
+        "import logging\n"
+        "receiver = logging.getLogger(__name__)\n"
+        "def main(runtime_config):\n"
+        "    receiver.info(runtime_config)\n"
+        "if __name__ == '__main__':\n"
+        "    main(object())\n",
+    )
+
+    assert result["closed"] is True
+    assert any(
+        path[-1].startswith(
+            "@terminal:scripts.invoked_receiver.main:4:4:"
+            "scripts.invoked_receiver.receiver.info"
+        )
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        "    mutate(receiver)\n",
+        "    alias = receiver\n",
+        "    receiver.info = runtime_config.sink\n",
+    ),
+    ids=("argument-escape", "alias", "attribute-mutation"),
+)
+def test_invoked_external_receiver_user_with_escape_fails_closed(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/invoked_receiver.py",
+        "import logging\n"
+        "receiver = logging.getLogger(__name__)\n"
+        "def main(runtime_config, mutate=lambda value: None):\n"
+        + operation
+        + "    receiver.info(runtime_config)\n"
+        "if __name__ == '__main__':\n"
+        "    main(object())\n",
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+    assert any(
+        not trace["closed"]
+        and path[-1] == "scripts.invoked_receiver.receiver.info"
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
 def test_synthetic_owner_reuses_verified_external_receiver_terminal_proof(
     tmp_path: Path,
 ) -> None:
