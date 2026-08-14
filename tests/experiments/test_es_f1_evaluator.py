@@ -5484,6 +5484,73 @@ def test_opaque_external_result_checks_transitive_module_mutator_helpers(
 
 
 @pytest.mark.parametrize(
+    "alias_scope",
+    ("alias = mutate\n", ""),
+    ids=("module-alias", "owner-local-alias"),
+)
+def test_opaque_external_result_checks_callable_aliases_to_mutator_helpers(
+    tmp_path: Path,
+    alias_scope: str,
+) -> None:
+    local_alias = "    alias = mutate\n" if not alias_scope else ""
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency\n"
+            "replacement = object()\n"
+            "def mutate(name):\n"
+            "    setattr(dependency, name, replacement)\n"
+            + alias_scope
+            + "def consume(runtime_config, options):\n"
+            + local_alias
+            + "    alias('Factory')\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "alias_scope",
+    ("alias = mutate\n", ""),
+    ids=("module-alias", "owner-local-alias"),
+)
+def test_opaque_external_result_allows_alias_to_unrelated_helper(
+    tmp_path: Path,
+    alias_scope: str,
+) -> None:
+    local_alias = "    alias = mutate\n" if not alias_scope else ""
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency\n"
+            "unrelated = object()\n"
+            "replacement = object()\n"
+            "def mutate(name):\n"
+            "    setattr(unrelated, name, replacement)\n"
+            + alias_scope
+            + "def consume(runtime_config, options):\n"
+            + local_alias
+            + "    alias('Other')\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert any(call.startswith("@terminal-external-result:") for call in calls)
+    assert closed is True
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),

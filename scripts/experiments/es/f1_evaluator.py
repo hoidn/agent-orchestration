@@ -4557,9 +4557,32 @@ def _module_functions(
                 reject_argument_escape=True,
             )
         }
+        callable_alias_targets = {
+            symbol: targets[0]
+            for symbol, targets in graph.items()
+            if len(targets) == 1
+        }
+        callable_alias_targets.update(
+            {
+                f"{module}.{statement.targets[0].id}": target
+                for statement in tree.body
+                if isinstance(statement, ast.Assign)
+                and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)
+                and module_binding_counts.get(statement.targets[0].id) == 1
+                and (target := name(statement.value))
+            }
+        )
         changed = True
         while changed:
             changed = False
+            for symbol, target in callable_alias_targets.items():
+                if (
+                    symbol not in module_factory_mutators
+                    and target in module_factory_mutators
+                ):
+                    module_factory_mutators.add(symbol)
+                    changed = True
             for symbol in module_local_functions:
                 if symbol in module_factory_mutators or not any(
                     isinstance(node, ast.Call)
@@ -4569,10 +4592,34 @@ def _module_functions(
                     continue
                 module_factory_mutators.add(symbol)
                 changed = True
+        owner_local_mutator_aliases = {
+            statement.targets[0].id: statement
+            for statement in function.body
+            if isinstance(statement, ast.Assign)
+            and len(statement.targets) == 1
+            and isinstance(statement.targets[0], ast.Name)
+            and _module_binding_counts(function_scope).get(statement.targets[0].id)
+            == 1
+            and name(statement.value, owner) in module_factory_mutators
+        }
         if any(
             isinstance(node, ast.Call)
             and node is not factory_call
-            and call_symbol(node, owner) in module_factory_mutators
+            and (
+                call_symbol(node, owner) in module_factory_mutators
+                or (
+                    isinstance(node.func, ast.Name)
+                    and (
+                        alias_definition := owner_local_mutator_aliases.get(
+                            node.func.id
+                        )
+                    )
+                    is not None
+                    and (alias_definition.lineno, alias_definition.col_offset)
+                    < (node.lineno, node.col_offset)
+                    < (call.lineno, call.col_offset)
+                )
+            )
             for node in scoped_by_owner[owner]
         ):
             return False
