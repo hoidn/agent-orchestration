@@ -5229,23 +5229,75 @@ def _module_functions(
             )
             return returns_carrier(callee, formals)
 
+        def unresolved_workspace_carrier_expression(
+            value: ast.AST | None,
+        ) -> bool:
+            if isinstance(value, ast.Name):
+                return value.id in unresolved_workspace_carrier_names
+            if isinstance(value, (ast.Attribute, ast.Subscript)):
+                return unresolved_workspace_carrier_expression(value.value)
+            if isinstance(value, ast.IfExp):
+                return unresolved_workspace_carrier_expression(
+                    value.body
+                ) or unresolved_workspace_carrier_expression(value.orelse)
+            if isinstance(value, ast.BoolOp):
+                return any(
+                    unresolved_workspace_carrier_expression(item)
+                    for item in value.values
+                )
+            if isinstance(value, (ast.List, ast.Set, ast.Tuple)):
+                return any(
+                    unresolved_workspace_carrier_expression(item)
+                    for item in value.elts
+                )
+            if isinstance(value, ast.Dict):
+                return any(
+                    unresolved_workspace_carrier_expression(item)
+                    for item in (*value.keys, *value.values)
+                )
+            if isinstance(value, (ast.Starred, ast.NamedExpr)):
+                return unresolved_workspace_carrier_expression(value.value)
+            if not isinstance(value, ast.Call):
+                return False
+            if call_symbol(value, owner) in authority_symbols:
+                return False
+            callee = local_callee(value, owner)
+            if callee is None:
+                return workspace_return_carrier(
+                    value, owner, unresolved_workspace_carrier_expression
+                ) is True
+            formals = call_tainted_formals(
+                value,
+                function_by_symbol[callee],
+                bound=is_bound_call(value, callee, owner),
+                relevant=unresolved_workspace_carrier_expression,
+            )
+            return returns_carrier(callee, formals)
+
+        def unresolved_workspace_carrier_value(
+            value: ast.AST | None,
+        ) -> bool:
+            return unresolved_workspace_carrier_expression(value) or (
+                isinstance(value, ast.Call)
+                and call_symbol(value, owner) not in authority_symbols
+                and workspace_return_carrier(
+                    value, owner, carrier_expression
+                ) is True
+            )
+
         changed = True
         while changed:
             changed = False
             for child in scoped_by_owner[owner]:
                 value, targets = flow_binding(child)
-                carries_configuration = carrier_expression(value)
+                unresolved_workspace_carrier = (
+                    unresolved_workspace_carrier_value(value)
+                )
+                carries_configuration = (
+                    carrier_expression(value) or unresolved_workspace_carrier
+                )
                 if not carries_configuration:
                     continue
-                unresolved_workspace_carrier = (
-                    isinstance(value, ast.Name)
-                    and value.id in unresolved_workspace_carrier_names
-                    or isinstance(value, ast.Call)
-                    and call_symbol(value, owner) not in authority_symbols
-                    and workspace_return_carrier(
-                        value, owner, carrier_expression
-                    ) is True
-                )
                 for target in targets:
                     for name_node in ast.walk(target):
                         if not isinstance(name_node, ast.Name):
@@ -5310,15 +5362,7 @@ def _module_functions(
         )
         if whole_carrier_origin and any(
             isinstance(child, ast.Return)
-            and (
-                isinstance(child.value, ast.Name)
-                and child.value.id in unresolved_workspace_carrier_names
-                or isinstance(child.value, ast.Call)
-                and call_symbol(child.value, owner) not in authority_symbols
-                and workspace_return_carrier(
-                    child.value, owner, carrier_expression
-                ) is True
-            )
+            and unresolved_workspace_carrier_value(child.value)
             for child in scoped_by_owner[owner]
         ):
             calls.add(f"@unresolved-carrier-return:{consumer_id}")

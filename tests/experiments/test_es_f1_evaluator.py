@@ -9666,22 +9666,53 @@ def test_cross_module_destructured_identity_return_keeps_carrier_tainted(
 
 
 @pytest.mark.parametrize(
-    ("import_source", "call", "closed"),
+    ("import_source", "call", "tail", "closed"),
     (
-        ("from ptycho.helper import identity\n", "identity(runtime_config)", False),
+        (
+            "from ptycho.helper import identity\n",
+            "identity(runtime_config)",
+            "    return alias\n",
+            False,
+        ),
         (
             "from candidate.config import resolve\n",
             "resolve(runtime_config, {})",
+            "    return alias\n",
+            True,
+        ),
+        (
+            "from ptycho.helper import identity\n",
+            "identity(runtime_config)",
+            "    return alias or {}\n",
+            False,
+        ),
+        (
+            "from ptycho.helper import identity\n",
+            "identity(runtime_config)",
+            "    wrapped = alias or {}\n    return wrapped\n",
+            False,
+        ),
+        (
+            "from candidate.config import resolve\n",
+            "resolve(runtime_config, {})",
+            "    return alias or {}\n",
             True,
         ),
     ),
-    ids=("workspace-carrier", "declared-authority"),
+    ids=(
+        "workspace-carrier",
+        "declared-authority",
+        "workspace-carrier-boolop",
+        "assigned-workspace-carrier-boolop",
+        "declared-authority-boolop",
+    ),
 )
 def test_returned_alias_distinguishes_workspace_carrier_from_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     import_source: str,
     call: str,
+    tail: str,
     closed: bool,
 ) -> None:
     workspace, evidence_path = _candidate_workspace(
@@ -9698,7 +9729,7 @@ def test_returned_alias_distinguishes_workspace_carrier_from_authority(
         import_source
         + "def consume(runtime_config):\n"
         + f"    alias = {call}\n"
-        + "    return alias\n"
+        + tail
     )
     (package / "consumer.py").write_text(consumer_source, encoding="utf-8")
     carrier = next(
@@ -9735,6 +9766,10 @@ def test_returned_alias_distinguishes_workspace_carrier_from_authority(
     assert result["closed"] is closed
     assert result["bypass_classes"] == []
     assert result["unresolved_consumers"] == ([] if closed else [consumer_id])
+    if closed:
+        assert result["traces"][0]["paths"] == [
+            [f"@consumer:{consumer_id}", "candidate.config.resolve"]
+        ]
 
 
 def test_decorated_cross_module_return_is_opaque(
