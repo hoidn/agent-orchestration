@@ -2324,11 +2324,18 @@ def _is_legacy_configuration_symbol(name: str) -> bool:
 
 def _is_tolerant_configuration_operation(name: str) -> bool:
     lowered = name.rsplit(".", 1)[-1].lower()
+    tokens = lowered.strip("_").split("_")
+    load_semantics = (
+        any(token in {"load", "loader"} for token in tokens)
+        or lowered.endswith(("load", "loader"))
+    )
+    configuration_semantics = load_semantics or any(
+        token in lowered for token in ("config", "adapter", "coerce")
+    )
     return (
-        "compat" in lowered
-        and any(token in lowered for token in ("adapter", "coerce", "fallback", "load"))
-        or "fallback" in lowered
-        or "legacy" in lowered and "load" in lowered
+        ("compat" in lowered or "fallback" in lowered)
+        and configuration_semantics
+        or "legacy" in lowered and load_semantics
         or name in {"getattr", "hasattr"}
     )
 

@@ -1280,6 +1280,53 @@ def test_data_loader_is_not_a_tolerant_configuration_loader() -> None:
 
 
 @pytest.mark.parametrize(
+    "callable_name",
+    (
+        "_FallbackSpectralConv2d",
+        "CompatFallbackSpectralConv2d",
+        "fallback_payload_projection",
+    ),
+)
+def test_compute_fallback_is_not_a_tolerant_configuration_loader(
+    callable_name: str,
+) -> None:
+    assert evaluator.detect_ast_bypasses(
+        "def consume(config):\n"
+        f"    return {callable_name}(\n"
+        "        config.channels, config.channels, config.modes\n"
+        "    )\n",
+        _tainted_names=("config",),
+    ) == ()
+
+
+def test_contextual_compute_fallback_is_not_a_tolerant_loader(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "package/compute.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "from dependency import _FallbackSpectralConv2d\n"
+        "def build(channels, modes):\n"
+        "    return _FallbackSpectralConv2d(channels, channels, modes)\n",
+        encoding="utf-8",
+    )
+    context = "@context:package.compute.build:channels,modes"
+
+    _, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "package.compute",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.compute.build",
+            "tainted_formals": ["channels", "modes"],
+        }],
+    )
+
+    assert context not in bypasses
+
+
+@pytest.mark.parametrize(
     ("imported", "expected"),
     (
         ("from package.dataloader import normalize_legacy_grouping_records", ()),
