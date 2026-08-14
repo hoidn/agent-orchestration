@@ -2376,9 +2376,12 @@ def _is_tolerant_mapping_operation(name: str) -> bool:
 
 def _is_mapping_value_coercion(name: str, arguments: Sequence[ast.AST]) -> bool:
     return name in {"bool", "bytes", "float", "int", "str"} and any(
-        isinstance(child, ast.Subscript)
+        isinstance(argument, ast.Subscript)
+        and not (
+            isinstance(argument.value, ast.Attribute)
+            and argument.value.attr == "shape"
+        )
         for argument in arguments
-        for child in ast.walk(argument)
     )
 
 

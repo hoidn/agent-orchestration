@@ -1605,6 +1605,28 @@ def test_config_tainted_bypass_forms_are_detected(
     )
 
 
+@pytest.mark.parametrize(
+    ("expression", "tolerant"),
+    (
+        ("str(config['mode'])", True),
+        ("float(config['physics']['value'])", True),
+        ("float(np.std(canvas[mask]))", False),
+        ("int(inputs.shape[0])", False),
+    ),
+    ids=("direct", "nested", "derived-compute", "tensor-shape"),
+)
+def test_mapping_value_coercion_requires_a_direct_mapping_subscript(
+    expression: str,
+    tolerant: bool,
+) -> None:
+    bypasses = evaluator.detect_ast_bypasses(
+        f"result = {expression}\n",
+        _tainted_names=("config", "canvas", "inputs"),
+    )
+
+    assert ("TOLERANT_OR_COMPATIBILITY_LOADER" in bypasses) is tolerant
+
+
 def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
