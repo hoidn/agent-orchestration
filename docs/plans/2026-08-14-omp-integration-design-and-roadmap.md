@@ -309,7 +309,11 @@ the same execution. The scaffolder selects the lane from its inputs:
 registry name) with no staging step. Generated files are ordinary
 artifacts: edit `run.orc` and it is simply a hand-authored workflow from
 then on — the scaffolder is an on-ramp, not a dialect. Omitting
-`--returns` defaults to a single `String` result field.
+`--returns` defaults to a single `String` result field. Regeneration is
+edit-safe by determinism: when the output directory exists, `prompt run`
+regenerates in memory and compares — identical bytes proceed as a no-op,
+differing bytes prove hand-editing and the command refuses without
+`--force`; it never silently overwrites authored content.
 
 ### Observability (existing machinery, documented not built)
 
