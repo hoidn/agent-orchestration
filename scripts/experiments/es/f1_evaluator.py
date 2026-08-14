@@ -3019,6 +3019,25 @@ def _module_functions(
         for local, targets in import_targets.items()
         if len(targets) == 1 and module_binding_counts.get(local) == 1
     }
+    direct_fields_imports = [
+        (node, alias)
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and node.module == "dataclasses"
+        for alias in node.names
+        if alias.name == "fields"
+    ]
+    stable_fields_import_line = (
+        direct_fields_imports[0][0].lineno
+        if len(direct_fields_imports) == 1
+        and direct_fields_imports[0][1].asname is None
+        and imports.get("fields") == "dataclasses.fields"
+        and not _has_module_object_mutation(
+            tree, {"fields"}, reject_argument_escape=True
+        )
+        else None
+    )
     module_rebounds = set(module_binding_counts) - set(imports)
     imports_by_owner: dict[str, dict[str, str]] = {}
     graph: dict[str, list[str]] = {}
@@ -3084,11 +3103,25 @@ def _module_functions(
         direct_import = has_direct_import(local, target, factory_call.lineno)
         if not same_module_declaration and not (direct_import and context[3]):
             return False
+        allowed_calls = {id(factory_call)}
+        if stable_fields_import_line is not None:
+            allowed_calls.update(
+                id(node)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "fields"
+                and len(node.args) == 1
+                and not node.keywords
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == local
+                and stable_fields_import_line < node.lineno < factory_call.lineno
+            )
         return not _has_module_object_mutation(
             tree,
             {local},
             reject_argument_escape=True,
-            allowed_argument_calls=frozenset({id(factory_call)}),
+            allowed_argument_calls=frozenset(allowed_calls),
         )
 
     def verified_factory_value(node: ast.AST, factory_call: ast.Call) -> bool:

@@ -4842,6 +4842,105 @@ def test_external_factory_accepts_uniquely_imported_workspace_class(
     assert result["closed"] is True
 
 
+def _inspect_imported_class_factory(
+    tmp_path: Path, fields_setup: str, fields_call: str
+) -> dict[str, Any]:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    (workspace / "candidate/schema.py").write_text(
+        "class Schema:\n"
+        "    pass\n"
+        "class OtherSchema:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    path = workspace / "scripts/imported_class_fields_consumer.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "from candidate.schema import OtherSchema, Schema\n"
+        "from pydantic import TypeAdapter\n"
+        + fields_setup
+        + f"declared_fields = {fields_call}\n"
+        + "receiver = TypeAdapter(Schema)\n"
+        "def consume(runtime_config):\n"
+        "    return receiver.validate_python(runtime_config)\n",
+        encoding="utf-8",
+    )
+    return evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={
+            "rows": [
+                {
+                    "consumer_id": "authority",
+                    "path": "candidate/config.py",
+                    "public_entry_route": "candidate.config.resolve",
+                }
+            ]
+        },
+        workspace=workspace,
+    )
+
+
+def test_external_factory_allows_direct_dataclass_fields_of_imported_class(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_imported_class_factory(
+        tmp_path,
+        "from dataclasses import fields\n",
+        "fields(Schema)",
+    )
+
+    assert result["closed"] is True
+
+
+@pytest.mark.parametrize(
+    ("fields_setup", "fields_call"),
+    (
+        ("import dataclasses\n", "dataclasses.fields(Schema)"),
+        ("from dataclasses import fields as inspect_fields\n", "inspect_fields(Schema)"),
+        ("def fields(value):\n    return ()\n", "fields(Schema)"),
+        ("from dataclasses import fields\nfields = lambda value: ()\n", "fields(Schema)"),
+        ("from dataclasses import fields\n", "fields(Schema, ())"),
+        ("from dataclasses import fields\n", "fields(class_or_instance=Schema)"),
+        ("from dataclasses import fields\n", "fields((OtherSchema, Schema))"),
+        ("from dataclasses import fields\nfields.marker = object()\n", "fields(Schema)"),
+        ("from dataclasses import fields\nfields_alias = fields\n", "fields(Schema)"),
+        (
+            "from dataclasses import fields\n"
+            "def retain(value):\n"
+            "    return None\n"
+            "retain(fields)\n",
+            "fields(Schema)",
+        ),
+    ),
+    ids=(
+        "qualified",
+        "aliased-import",
+        "custom",
+        "rebound",
+        "extra-positional",
+        "keyword",
+        "wrong-class",
+        "mutated",
+        "aliased-value",
+        "escaped",
+    ),
+)
+def test_external_factory_dataclass_fields_exception_fails_closed(
+    tmp_path: Path,
+    fields_setup: str,
+    fields_call: str,
+) -> None:
+    result = _inspect_imported_class_factory(tmp_path, fields_setup, fields_call)
+
+    assert result["closed"] is False
+
+
 @pytest.mark.parametrize(
     "schema_source",
     (
