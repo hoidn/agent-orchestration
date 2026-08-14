@@ -4259,6 +4259,113 @@ def test_stable_function_local_builtin_container_is_occurrence_terminal(
 
 
 @pytest.mark.parametrize(
+    ("expression", "start_col", "end_col"),
+    (
+        ("LOOKUP.get(runtime_config)", 22, 36),
+        ("LOOKUP.items()", 11, 25),
+    ),
+    ids=("get-config-derived-key", "items"),
+)
+def test_stable_module_dict_literal_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+    expression: str,
+    start_col: int,
+    end_col: int,
+) -> None:
+    source = (
+        "LOOKUP = {'default': 'label'}\n"
+        "def consume(runtime_config):\n"
+        f"    return {expression}\n"
+    )
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    row = {
+        "consumer_id": "module-dict-method",
+        "match_kind": "CONFIGURATION_READ",
+        "public_entry_route": "package.sink.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": start_col,
+            "end_line": 3,
+            "end_col": end_col,
+        },
+    }
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[row],
+        workspace_module_roots=frozenset({"package"}),
+    )
+    calls = graph["@consumer:module-dict-method"]
+    closed = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "module-dict-method",
+            "entry_symbol": "@consumer:module-dict-method",
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )["closed"]
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "def make_lookup(): return {}\n"
+            "LOOKUP = make_lookup()\n"
+            "def consume(runtime_config):\n"
+            "    return LOOKUP.get(runtime_config)\n"
+        ),
+        (
+            "LOOKUP = {}\n"
+            "def consume(runtime_config):\n"
+            "    LOOKUP = {}\n"
+            "    return LOOKUP.get(runtime_config)\n"
+        ),
+        (
+            "LOOKUP = {}\n"
+            "del LOOKUP\n"
+            "def consume(runtime_config):\n"
+            "    return LOOKUP.get(runtime_config)\n"
+        ),
+        (
+            "LOOKUP = {}\n"
+            "def replace(value):\n"
+            "    global LOOKUP\n"
+            "    LOOKUP = value\n"
+            "def consume(runtime_config):\n"
+            "    return LOOKUP.get(runtime_config)\n"
+        ),
+    ),
+    ids=("factory", "owner-rebound", "deleted", "global-rebound"),
+)
+def test_unverified_module_dict_receiver_fails_closed(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=source,
+    )
+
+    target = "package.sink.LOOKUP.get"
+    assert closed is False
+    assert target in calls
+    assert not any(terminal.endswith(f":{target}") for terminal in terminals)
+
+
+@pytest.mark.parametrize(
     "source",
     (
         (

@@ -4441,6 +4441,40 @@ def _module_functions(
                 return False
         return True
 
+    def has_stable_module_dict_literal_receiver(
+        call: ast.Call, owner: str
+    ) -> bool:
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr in {"get", "items"}
+            and isinstance(call.func.value, ast.Name)
+        ):
+            return False
+        receiver = call.func.value.id
+        if (
+            module_binding_counts.get(receiver) != 1
+            or receiver in rebound_by_owner[owner]
+            or any(
+                isinstance(node, ast.Global) and receiver in node.names
+                for node in ast.walk(tree)
+            )
+        ):
+            return False
+        owner_node = function_by_symbol[owner]
+        definitions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == receiver
+            and isinstance(node.value, ast.Dict)
+            and (node.lineno, node.col_offset)
+            < (owner_node.lineno, owner_node.col_offset)
+            < (call.lineno, call.col_offset)
+        ]
+        return len(definitions) == 1
+
     def has_plain_initializer_attribute(owner: str, attribute: str) -> bool:
         class_symbol = owner.rsplit(".", 1)[0]
         class_node = class_by_symbol.get(class_symbol)
@@ -4665,9 +4699,11 @@ def _module_functions(
             or any(relevant(argument) for argument in arguments),
         )
         verified_receiver = has_verified_external_receiver(call, owner)
-        stable_receiver = has_stable_local_builtin_container_receiver(
-            call, owner
-        ) or has_stable_initializer_attribute_receiver(call, owner)
+        stable_receiver = (
+            has_stable_local_builtin_container_receiver(call, owner)
+            or has_stable_module_dict_literal_receiver(call, owner)
+            or has_stable_initializer_attribute_receiver(call, owner)
+        )
         if (
             isinstance(call.func, ast.Attribute)
             and (
