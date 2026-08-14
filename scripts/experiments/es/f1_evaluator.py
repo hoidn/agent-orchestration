@@ -2849,6 +2849,7 @@ def _has_module_object_mutation(
     *,
     reject_argument_escape: bool,
     allowed_argument_calls: frozenset[int] = frozenset(),
+    allowed_alias_assignments: frozenset[int] = frozenset(),
 ) -> bool:
     def root_name(value: ast.AST) -> str | None:
         while isinstance(value, (ast.Attribute, ast.Subscript)):
@@ -2987,17 +2988,43 @@ def _has_module_object_mutation(
             ):
                 return True
             value = getattr(child, "value", None)
-            if value is not None and aliases_object(value):
+            if (
+                value is not None
+                and aliases_object(value)
+                and id(child) not in allowed_alias_assignments
+            ):
                 return True
         pending.extend(ast.iter_child_nodes(child))
     return False
 
 
 def _has_module_class_attribute_mutation(
-    tree: ast.Module, node: ast.ClassDef
+    tree: ast.Module,
+    node: ast.ClassDef,
+    *,
+    allow_stable_alias: bool = False,
 ) -> bool:
+    aliases = [
+        child
+        for child in tree.body
+        if allow_stable_alias
+        and isinstance(child, ast.Assign)
+        and len(child.targets) == 1
+        and isinstance(child.targets[0], ast.Name)
+        and isinstance(child.value, ast.Name)
+        and child.value.id == node.name
+        and _module_binding_counts(tree).get(child.targets[0].id) == 1
+    ]
+    object_names = {node.name}
+    allowed_alias_assignments: frozenset[int] = frozenset()
+    if len(aliases) == 1:
+        object_names.add(cast(ast.Name, aliases[0].targets[0]).id)
+        allowed_alias_assignments = frozenset({id(aliases[0])})
     return _has_module_object_mutation(
-        tree, {node.name}, reject_argument_escape=True
+        tree,
+        object_names,
+        reject_argument_escape=True,
+        allowed_alias_assignments=allowed_alias_assignments,
     )
 
 
@@ -3373,9 +3400,13 @@ def _module_functions(
             True,
             True,
         )
-        if not _has_module_class_attribute_mutation(tree, node) and (
-            indexed_plain_dataclass
-            or _is_plain_generated_dataclass(node, literal_dataclass_name)
+        plain_generated_dataclass = _is_plain_generated_dataclass(
+            node, literal_dataclass_name
+        )
+        if (
+            indexed_plain_dataclass or plain_generated_dataclass
+        ) and not _has_module_class_attribute_mutation(
+            tree, node, allow_stable_alias=True
         ):
             generated_dataclasses.add(symbol)
         if not _has_module_class_attribute_mutation(
@@ -4340,6 +4371,7 @@ def _module_functions(
             if plain_workspace_class and stable_plain_workspace_class(
                 call, owner, target
             ):
+                terminal_symbols.add(target)
                 return target
             if not plain_workspace_class and resolved_target in available_external_imports:
                 return resolved_target if not bound else target
@@ -5840,6 +5872,15 @@ def _workspace_callable_index(
                 return None
             return target
 
+        plain_generated_dataclass_names = {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and _is_plain_generated_dataclass(
+                node, stable_imported_symbol, trace_post_init=True
+            )
+        }
+
         for node in tree.body:
             if not (
                 isinstance(node, ast.ImportFrom)
@@ -5874,6 +5915,12 @@ def _workspace_callable_index(
             ):
                 continue
             target = imported_symbol(node.value)
+            if (
+                target is None
+                and isinstance(node.value, ast.Name)
+                and node.value.id in plain_generated_dataclass_names
+            ):
+                target = f"{module}.{node.value.id}"
             if target:
                 symbol = f"{module}.{node.targets[0].id}"
                 result[symbol] = (relative, symbol)
@@ -5924,24 +5971,23 @@ def _workspace_callable_index(
                     )
                     if symbol in result:
                         _fail(f"candidate callable is duplicated: {symbol}")
+                    plain_generated_dataclass = (
+                        owner == module
+                        and node.name in plain_generated_dataclass_names
+                    )
                     stable_class = (
                         module_binding_counts.get(node.name) == 1
-                        and not _has_module_object_mutation(
+                        and not _has_module_class_attribute_mutation(
                             tree,
-                            {node.name},
-                            reject_argument_escape=True,
+                            node,
+                            allow_stable_alias=plain_generated_dataclass,
                         )
                     )
                     traced_post_init = (
                         post_init_node
                         if owner == module
                         and stable_class
-                        and not _has_module_class_attribute_mutation(tree, node)
-                        and _is_plain_generated_dataclass(
-                            node,
-                            stable_imported_symbol,
-                            trace_post_init=True,
-                        )
+                        and plain_generated_dataclass
                         else None
                     )
                     post_init_symbol = (
@@ -5970,10 +6016,7 @@ def _workspace_callable_index(
                     elif owner == module:
                         decorator = (
                             "dataclasses.dataclass"
-                            if not _has_module_class_attribute_mutation(tree, node)
-                            and _is_plain_generated_dataclass(
-                                node, stable_imported_symbol
-                            )
+                            if stable_class and plain_generated_dataclass
                             else None
                         )
                         base = (

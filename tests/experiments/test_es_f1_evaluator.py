@@ -6017,7 +6017,10 @@ def test_cross_module_generated_dataclass_traces_strict_post_init(
 
 
 def _inspect_cross_module_resolved_records(
-    tmp_path: Path, record_source: str
+    tmp_path: Path,
+    record_source: str,
+    *,
+    imported_symbol: str = "ResolvedRecords",
 ) -> dict[str, Any]:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
@@ -6031,9 +6034,9 @@ def _inspect_cross_module_resolved_records(
         encoding="utf-8",
     )
     (workspace / "scripts/resolved_records_consumer.py").write_text(
-        "from scripts.resolved_records import ResolvedRecords\n"
+        f"from scripts.resolved_records import {imported_symbol}\n"
         "def consume(runtime_config):\n"
-        "    return ResolvedRecords(runtime_config)\n",
+        f"    return {imported_symbol}(runtime_config)\n",
         encoding="utf-8",
     )
     return evaluator.inspect_candidate_consumers(
@@ -6047,6 +6050,43 @@ def _inspect_cross_module_resolved_records(
         },
         workspace=workspace,
     )
+
+
+@pytest.mark.parametrize(
+    ("imported_symbol", "tail", "closed"),
+    (
+        ("Record", "Payload = Record\n", True),
+        ("Payload", "Payload = Record\n", True),
+        ("Payload", "Payload = Record\nPayload = lambda value: value\n", False),
+        ("Record", "Payload = Record\nPayload.marker = object()\n", False),
+        ("Payload", "Payload = Record\nRecord.marker = object()\n", False),
+    ),
+    ids=(
+        "class-name",
+        "alias-name",
+        "alias-rebound",
+        "alias-mutated",
+        "class-mutated",
+    ),
+)
+def test_cross_module_generated_dataclass_retains_stable_direct_alias(
+    tmp_path: Path,
+    imported_symbol: str,
+    tail: str,
+    closed: bool,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class Record:\n"
+        "    value: object\n"
+        + tail,
+        imported_symbol=imported_symbol,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == []
 
 
 def test_cross_module_generated_dataclass_allows_builtin_method_decorators(
