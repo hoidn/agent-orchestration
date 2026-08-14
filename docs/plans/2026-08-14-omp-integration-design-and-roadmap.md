@@ -163,6 +163,43 @@ generalizes: each preset names the evidence fact that proves its topology
 actually ran (a dead advisor, a fan-out that never spawned, a peer team
 that never messaged — all visible, never silent).
 
+Canonical `advised/` content (normative for the preset; asset files land
+with tranche 1):
+
+```yaml
+# config.yml — passed via strict --config overlay
+modelRoles:
+  # NO `default:` here — the template's `--model ${model}` is a runtime
+  # override and beats every config layer (verified precedence:
+  # defaults <- global <- project <- --config overlays <- runtime
+  # overrides). The primary model is the step's `:model` param, where orc
+  # records it as treatment identity; a preset `default:` would be
+  # silently shadowed dead config.
+  task: deepseek/deepseek-v4-pro:high          # consumed by fanout presets
+  plan: openai-codex/gpt-5.6-sol:xhigh
+  slow: openai-codex/gpt-5.6-sol:xhigh
+  advisor: openai-codex/gpt-5.6-sol:xhigh
+advisor:
+  enabled: true
+  syncBacklog: "1"     # string enum "off"|"1"|"3"|"5" (settings-schema.ts:471)
+memory:
+  enabled: false       # explicit pin — unset fields deep-merge from operator globals
+```
+
+```yaml
+# agent/WATCHDOG.yml — required companion; the read-only grant is an omp
+# DEFAULT, so the preset pins it explicitly
+advisors:
+  - name: Supervisor
+    enabled: true
+    tools: [read, grep, glob]
+```
+
+Preset rules distilled: every ambient-sensitive field set explicitly
+(`memory`, `advisor.*`, every consumed role); `modelRoles.default` omitted;
+advisor tool grants always pinned; an unresolvable advisor model surfaces
+as `no_model` + a failing liveness fact, never a silent bare run.
+
 ### The shared library procedure (`workflows/library/omp/`)
 
 ```lisp
@@ -269,6 +306,25 @@ behind the same consumer gate as RPC `steer`.
   the step closed on the existing typed transport-error surface; missing
   conf overlay is a hard process error; no fallback between json and text
   modes.
+- omp surfaces consumed — the complete contract-point inventory; everything
+  else in omp is opaque, version-pinned harness internals free to churn
+  under the pin:
+
+| Contract point | omp component | Our consumer | Pin |
+| --- | --- | --- | --- |
+| CLI argv: `-p`/`--mode json`, `--advisor`, `--config`, `--model`, `--resume <full-id>` | `cli/args.ts`, `cli/flag-tables.ts`, `modes/print-mode.ts` | provider template | template + upgrade review |
+| Config semantics: precedence, `PI_CODING_AGENT_DIR` relocation, `modelRoles`/`advisor.*`/`memory` fields | `config/settings-schema.ts`, config resolution | conf presets, hermeticity (X4) | canary tests (F3) |
+| stdout NDJSON events: session header, `message_update`/`message_end`, `turn_end`/`agent_end`, embedded `Usage`, `notice` | `packages/agent/src/types.ts`, `session/agent-session-events.ts`, `packages/catalog` `Usage` | `OMP_JSON_STDOUT` codec, panes | checked-in frame fixtures |
+| Session persistence: `SessionHeader.id`, append-only session JSONL, `__advisor.<slug>.jsonl`, resume | `session/session-manager.ts`, `session/session-entries.ts`, `advisor/transcript-recorder.ts` | identity check, evidence, bridge (`omp --resume`, import) | F1 + fixtures |
+| Advisor subsystem: headless `--advisor`, WATCHDOG discovery, emission guard, `syncBacklog` | `src/advisor/*` | `advised*` presets | preset pins + liveness fact |
+| Subagent system: `agents/*.md` frontmatter, schema-validated yields, worktree isolation, per-agent metering, `hub` tool | `src/task/*`, `discovery/helpers.ts`, `registry/agent-registry.ts`, `tools/hub` | `fanout/`/`peer-team/` presets | F6 + preset pins |
+| Version identity | `omp --version` | `provider_runtime_version` evidence | recorded per invocation |
+
+  Deliberately NOT consumed: RPC/ACP modes and the `omp-rpc` client
+  (phase-2 gate), collab/relay (ops trial only), metaharness (post-ES
+  spike), memory backends (banned), Agent Hub TUI/cross-step revival
+  (banned beyond step scope), extensions/hooks/skills/MCP (admissible
+  later as conf, not in the four presets).
 
 ## Feasibility Prerequisites (exit criteria for the tranche's first run)
 
