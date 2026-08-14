@@ -4886,13 +4886,22 @@ def _inspect_imported_class_factory(
     )
 
 
+@pytest.mark.parametrize(
+    "fields_call",
+    (
+        "fields(Schema)",
+        "frozenset(field.name for field in fields(Schema))",
+    ),
+    ids=("direct", "module-generator-iterable"),
+)
 def test_external_factory_allows_direct_dataclass_fields_of_imported_class(
     tmp_path: Path,
+    fields_call: str,
 ) -> None:
     result = _inspect_imported_class_factory(
         tmp_path,
         "from dataclasses import fields\n",
-        "fields(Schema)",
+        fields_call,
     )
 
     assert result["closed"] is True
@@ -4912,6 +4921,14 @@ def test_external_factory_allows_direct_dataclass_fields_of_imported_class(
         ("from dataclasses import fields\nfields_alias = fields\n", "fields(Schema)"),
         (
             "from dataclasses import fields\n"
+            "def inspect(\n"
+            "    value=[fields(Schema) for fields in (lambda value: (),)]\n"
+            "):\n"
+            "    return value\n",
+            "()",
+        ),
+        (
+            "from dataclasses import fields\n"
             "def retain(value):\n"
             "    return None\n"
             "retain(fields)\n",
@@ -4928,6 +4945,7 @@ def test_external_factory_allows_direct_dataclass_fields_of_imported_class(
         "wrong-class",
         "mutated",
         "aliased-value",
+        "nested-shadow",
         "escaped",
     ),
 )

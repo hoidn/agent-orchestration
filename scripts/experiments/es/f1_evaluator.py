@@ -2974,6 +2974,15 @@ def _module_functions(
             if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION"
             and isinstance((span := row.get("source_span")), Mapping)
         )
+    parent_by_node: dict[int, tuple[ast.AST, str, bool]] = {}
+    for parent in ast.walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if isinstance(value, ast.AST):
+                parent_by_node[id(value)] = (parent, field, False)
+            elif isinstance(value, list):
+                for child in value:
+                    if isinstance(child, ast.AST):
+                        parent_by_node[id(child)] = (parent, field, True)
     workspace_root = path.parents[len(module.split(".")) - 1]
     package = module.rsplit(".", 1)[0] if "." in module else ""
     def imported_names(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
@@ -3082,6 +3091,31 @@ def _module_functions(
             for node in tree.body
         )
 
+    def uses_module_fields_binding(node: ast.AST, class_name: str) -> bool:
+        while (parent := parent_by_node.get(id(node))) is not None:
+            owner = parent[0]
+            if isinstance(
+                owner,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+            ):
+                return False
+            if isinstance(
+                owner, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+            ):
+                bound = {
+                    child.id
+                    for generator in owner.generators
+                    for child in ast.walk(generator.target)
+                    if isinstance(child, ast.Name)
+                    and isinstance(child.ctx, ast.Store)
+                }
+                if bound & {"fields", class_name}:
+                    return False
+            if isinstance(owner, ast.Module):
+                return True
+            node = owner
+        return False
+
     def stable_workspace_class_argument(
         value: ast.AST, factory_call: ast.Call
     ) -> bool:
@@ -3116,6 +3150,7 @@ def _module_functions(
                 and isinstance(node.args[0], ast.Name)
                 and node.args[0].id == local
                 and stable_fields_import_line < node.lineno < factory_call.lineno
+                and uses_module_fields_binding(node, local)
             )
         return not _has_module_object_mutation(
             tree,
@@ -3290,16 +3325,6 @@ def _module_functions(
             graph[symbol] = [initializer]
         elif len(bases) == 1:
             graph[symbol] = [bases[0]]
-
-    parent_by_node: dict[int, tuple[ast.AST, str, bool]] = {}
-    for parent in ast.walk(tree):
-        for field, value in ast.iter_fields(parent):
-            if isinstance(value, ast.AST):
-                parent_by_node[id(value)] = (parent, field, False)
-            elif isinstance(value, list):
-                for child in value:
-                    if isinstance(child, ast.AST):
-                        parent_by_node[id(child)] = (parent, field, True)
 
     def enclosing_suites(node: ast.AST) -> set[tuple[int, str]]:
         suites: set[tuple[int, str]] = set()
