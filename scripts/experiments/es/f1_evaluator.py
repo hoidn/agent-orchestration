@@ -2782,6 +2782,26 @@ def _has_module_object_mutation(
             )
         return False
 
+    def eager_definition_nodes(
+        node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda,
+    ) -> tuple[ast.AST, ...]:
+        type_params = tuple(getattr(node, "type_params", ()))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return (
+                *node.decorator_list,
+                node.args,
+                *((node.returns,) if node.returns is not None else ()),
+                *type_params,
+            )
+        if isinstance(node, ast.ClassDef):
+            return (
+                *node.decorator_list,
+                *node.bases,
+                *(keyword.value for keyword in node.keywords),
+                *type_params,
+            )
+        return (node.args,)
+
     object_closures = {
         node.name
         for node in tree.body
@@ -2807,6 +2827,7 @@ def _has_module_object_mutation(
     while pending:
         child = pending.pop()
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            pending.extend(eager_definition_nodes(child))
             continue
         if isinstance(child, ast.Call):
             if (
@@ -4009,13 +4030,71 @@ def _module_functions(
                     callee_tainted.add(argument_name)
                     changed = True
 
-    def has_stable_local_list_receiver(call: ast.Call, owner: str) -> bool:
+    binding_scopes = (
+        tree,
+        *(
+            ast.Module(body=list(function.body), type_ignores=[])
+            for _, function in functions
+        ),
+        *(
+            ast.Module(body=list(class_node.body), type_ignores=[])
+            for _, class_node in classes
+        ),
+    )
+    bound_builtin_container_constructors = {
+        local
+        for scope in binding_scopes
+        for local in _module_binding_counts(scope)
+        if local in {"dict", "set"}
+    }
+    builtins_module_aliases = {
+        alias.asname or "builtins"
+        for child in ast.walk(tree)
+        if isinstance(child, ast.Import)
+        for alias in child.names
+        if alias.name == "builtins"
+    }
+    builtin_container_constructor_objects_stable = not any(
+        _has_module_object_mutation(
+            scope,
+            builtins_module_aliases,
+            reject_argument_escape=True,
+        )
+        for scope in binding_scopes
+    )
+
+    def has_stable_local_builtin_container_receiver(
+        call: ast.Call, owner: str
+    ) -> bool:
         if not (
             isinstance(call.func, ast.Attribute)
-            and call.func.attr in {"append", "extend"}
+            and call.func.attr in {"append", "extend", "update"}
             and isinstance(call.func.value, ast.Name)
         ):
             return False
+
+        def supports_operation(value: ast.AST) -> bool:
+            if isinstance(value, ast.List):
+                kind = "list"
+            elif isinstance(value, ast.Dict):
+                kind = "dict"
+            elif isinstance(value, ast.Set):
+                kind = "set"
+            elif (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id in {"dict", "set"}
+                and value.func.id not in bound_builtin_container_constructors
+                and active_name_binding(value, owner) is None
+                and builtin_container_constructor_objects_stable
+            ):
+                kind = value.func.id
+            else:
+                return False
+            return call.func.attr in (
+                {"append", "extend"} if kind == "list" else {"update"}
+            )
+
         receiver = call.func.value.id
         function = function_by_symbol[owner]
         formals = {
@@ -4042,11 +4121,12 @@ def _module_functions(
                 and len(statement.targets) == 1
                 and isinstance(statement.targets[0], ast.Name)
                 and statement.targets[0].id == receiver
-                and isinstance(statement.value, ast.List)
+                and supports_operation(statement.value)
                 or isinstance(statement, ast.AnnAssign)
                 and isinstance(statement.target, ast.Name)
                 and statement.target.id == receiver
-                and isinstance(statement.value, ast.List)
+                and statement.value is not None
+                and supports_operation(statement.value)
             )
             and (statement.lineno, statement.col_offset)
             < (call.lineno, call.col_offset)
@@ -4331,7 +4411,7 @@ def _module_functions(
             or any(relevant(argument) for argument in arguments),
         )
         verified_receiver = has_verified_external_receiver(call, owner)
-        stable_receiver = has_stable_local_list_receiver(
+        stable_receiver = has_stable_local_builtin_container_receiver(
             call, owner
         ) or has_stable_initializer_attribute_receiver(call, owner)
         if (

@@ -4118,6 +4118,292 @@ def test_stable_function_local_list_receiver_is_occurrence_terminal(
     assert result["closed"] is True
 
 
+@pytest.mark.parametrize(
+    ("definition", "operation"),
+    (
+        ("output = {}", "output.update(runtime_config)"),
+        ("output = dict()", "output.update(runtime_config)"),
+        ("output = {0}", "output.update(runtime_config)"),
+        ("output = set()", "output.update(runtime_config)"),
+    ),
+    ids=("dict-literal", "dict-call", "set-literal", "set-call"),
+)
+def test_stable_function_local_builtin_container_is_occurrence_terminal(
+    tmp_path: Path,
+    definition: str,
+    operation: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "def consume(runtime_config):\n"
+            f"    {definition}\n"
+            f"    {operation}\n"
+        ),
+    )
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "def consume(runtime_config, output):\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = runtime_config.values\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    alias = output\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def retain(value):\n"
+            "    return None\n"
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    retain(output)\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    output = runtime_config.values\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    del output\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    def capture():\n"
+            "        return output\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config, mutate):\n"
+            "    output = {}\n"
+            "    for _ in range(2):\n"
+            "        output.update(runtime_config)\n"
+            "        mutate(output)\n"
+        ),
+        (
+            "def make_output():\n"
+            "    return {}\n"
+            "def consume(runtime_config):\n"
+            "    output = make_output()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config, dict):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "dict = object\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def poison():\n"
+            "    global dict\n"
+            "    dict = object\n"
+            "poison()\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def poison():\n"
+            "    global set\n"
+            "    set = object\n"
+            "def consume(runtime_config):\n"
+            "    poison()\n"
+            "    output = set()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def poison():\n"
+            "    global dict\n"
+            "    import collections as dict\n"
+            "poison()\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "def consume(runtime_config, candidate):\n"
+            "    match candidate:\n"
+            "        case {\"factory\": set}:\n"
+            "            pass\n"
+            "    output = set()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "class Poison:\n"
+            "    global dict\n"
+            "    from collections import Counter as dict\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "import builtins\n"
+            "class Fake:\n"
+            "    pass\n"
+            "builtins.dict = Fake\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "import builtins as b\n"
+            "class Fake:\n"
+            "    pass\n"
+            "setattr(b, \"set\", Fake)\n"
+            "def consume(runtime_config):\n"
+            "    output = set()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "import builtins\n"
+            "class Fake:\n"
+            "    pass\n"
+            "def poison(value=setattr(builtins, \"dict\", Fake)):\n"
+            "    return value\n"
+            "def consume(runtime_config):\n"
+            "    output = dict()\n"
+            "    output.update(runtime_config)\n"
+        ),
+        (
+            "import builtins as b\n"
+            "def decorate(value):\n"
+            "    return lambda function: function\n"
+            "@decorate(b)\n"
+            "def poison():\n"
+            "    pass\n"
+            "def consume(runtime_config):\n"
+            "    output = set()\n"
+            "    output.update(runtime_config)\n"
+        ),
+    ),
+    ids=(
+        "formal",
+        "configuration-derived",
+        "alias",
+        "argument-escape",
+        "rebound",
+        "deleted",
+        "nested-capture",
+        "loop-escape",
+        "helper-returned",
+        "formal-constructor",
+        "module-rebound-constructor",
+        "module-invoked-global-constructor-poison",
+        "owner-invoked-global-constructor-poison",
+        "nested-global-import-alias-constructor-poison",
+        "match-binder-constructor-poison",
+        "class-global-import-alias-constructor-poison",
+        "direct-builtins-attribute-constructor-poison",
+        "aliased-builtins-setattr-constructor-poison",
+        "default-expression-builtins-mutation",
+        "decorator-builtins-escape",
+    ),
+)
+def test_unverified_function_local_builtin_container_fails_closed(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=source,
+    )
+
+    target = "package.sink.output.update"
+    assert closed is False
+    assert target in calls
+    assert not any(terminal.endswith(f":{target}") for terminal in terminals)
+
+
+def test_local_container_literal_ignores_rebound_constructor_name(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "dict = object\n"
+            "def consume(runtime_config):\n"
+            "    output = {}\n"
+            "    output.update(runtime_config)\n"
+        ),
+    )
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
+@pytest.mark.parametrize(
+    ("poison", "definition"),
+    (
+        (
+            "import builtins\n"
+            "class Fake:\n"
+            "    pass\n"
+            "builtins.dict = Fake\n",
+            "output = {}",
+        ),
+        (
+            "import builtins as b\n"
+            "class Fake:\n"
+            "    pass\n"
+            "setattr(b, \"set\", Fake)\n",
+            "output = {0}",
+        ),
+    ),
+    ids=("dict", "set"),
+)
+def test_local_container_literal_ignores_mutated_builtin_object(
+    tmp_path: Path,
+    poison: str,
+    definition: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            poison
+            + "def consume(runtime_config):\n"
+            + f"    {definition}\n"
+            + "    output.update(runtime_config)\n"
+        ),
+    )
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
 def test_repeated_local_list_receiver_escape_fails_closed(tmp_path: Path) -> None:
     calls, terminals, closed = _synthetic_owner_route(
         tmp_path,
