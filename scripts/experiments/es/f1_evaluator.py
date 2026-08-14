@@ -4405,7 +4405,27 @@ def _module_functions(
                 for event in local_events
             )
         } | {call.func.id}
-        allowed_argument_calls = _allowed_native_isinstance_calls(tree, aliases)
+        exact_aliases = {
+            local
+            for visible_imports in (imports, *imports_by_owner.values())
+            for local, imported in visible_imports.items()
+            if imported == target
+        } | {
+            local
+            for local, targets in import_targets.items()
+            if target in targets
+        } | {
+            local
+            for events in binding_events_by_owner.values()
+            for local, local_events in events.items()
+            if any(
+                event[2] == "import" and event[3] == target
+                for event in local_events
+            )
+        } | {call.func.id}
+        allowed_argument_calls = _allowed_native_isinstance_calls(
+            tree, exact_aliases
+        )
         return not any(
             _module_binding_counts(scope).get(alias, 0) > 1
             for scope in binding_scopes

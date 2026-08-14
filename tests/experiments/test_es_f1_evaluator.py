@@ -6123,6 +6123,11 @@ def test_generated_dataclass_allows_native_isinstance_class_info(
             "def compatible(spec):\n"
             "    return isinstance(spec, ResolvedRecords)\n"
         ),
+        (
+            "import scripts.resolved_records as records\n"
+            "def compatible(spec):\n"
+            "    return isinstance(spec, records)\n"
+        ),
     ),
     ids=(
         "shadowed-builtin",
@@ -6131,6 +6136,7 @@ def test_generated_dataclass_allows_native_isinstance_class_info(
         "class-first-argument",
         "tuple-class-info",
         "builtins-escape",
+        "qualified-module-class-info",
     ),
 )
 def test_generated_dataclass_class_info_escape_hazards_fail_closed(
