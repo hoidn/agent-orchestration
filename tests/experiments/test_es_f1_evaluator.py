@@ -7633,7 +7633,9 @@ def test_external_import_probe_handles_nested_ml_attribute_targets(
     ) == frozenset({tensorflow_target, tensordict_target})
 
 
-def test_simple_module_callable_alias_is_a_static_graph_edge(tmp_path: Path) -> None:
+def test_simple_module_callable_alias_cannot_hide_a_carrier_escape(
+    tmp_path: Path,
+) -> None:
     workspace, evidence_path = _candidate_workspace(
         tmp_path,
         resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
@@ -7664,7 +7666,8 @@ def test_simple_module_callable_alias_is_a_static_graph_edge(tmp_path: Path) -> 
         workspace=workspace,
     )
 
-    assert result["closed"] is True
+    assert result["closed"] is False
+    assert result["bypass_classes"] == []
 
 
 def test_simple_module_callable_alias_may_target_an_external_callable(
@@ -9567,6 +9570,176 @@ def test_carrier_returned_from_identity_call_remains_tainted(tmp_path: Path) -> 
 
     assert result["closed"] is False
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+def _inspect_cross_module_carrier_return(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    helper_source: str,
+    imported_symbol: str,
+    assign_result: bool,
+) -> dict[str, Any]:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "helper.py").write_text(helper_source, encoding="utf-8")
+    consumer_source = (
+        f"from ptycho.helper import {imported_symbol}\n"
+        "def consume(runtime_config):\n"
+        + (
+            f"    alias = {imported_symbol}(runtime_config)\n"
+            "    return alias.get('mode', 'default')\n"
+            if assign_result
+            else f"    return {imported_symbol}(runtime_config)\n"
+        )
+    )
+    (package / "consumer.py").write_text(consumer_source, encoding="utf-8")
+    carrier = next(
+        node
+        for node in ast.walk(ast.parse(consumer_source))
+        if isinstance(node, ast.Name) and node.id == "runtime_config"
+    )
+    row = {
+        "consumer_id": "cross-module-carrier-return",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": carrier.lineno,
+            "start_col": carrier.col_offset,
+            "end_line": carrier.end_lineno,
+            "end_col": carrier.end_col_offset,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+    return evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+
+def test_cross_module_identity_return_keeps_downstream_tolerant_read_tainted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source="def identity(value): return value\n",
+        imported_symbol="identity",
+        assign_result=True,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
+@pytest.mark.parametrize("expression", ("value == {}", "value * 2"))
+def test_cross_module_derived_return_does_not_taint_the_caller_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=f"def derive(value): return {expression}\n",
+        imported_symbol="derive",
+        assign_result=True,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_implicit_none_return_does_not_taint_the_caller_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source="def derive(value):\n    value == {}\n",
+        imported_symbol="derive",
+        assign_result=True,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+@pytest.mark.parametrize(
+    ("expression", "closed"),
+    (
+        ("(value,)", False),
+        ("[value]", False),
+        ("{value}", False),
+        ("{'value': value}", False),
+        ("(value == {},)", True),
+        ("[value == {}]", True),
+        ("{value == {}}", True),
+        ("{'value': value == {}}", True),
+    ),
+)
+def test_cross_module_returned_containers_preserve_only_carriers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    expression: str,
+    closed: bool,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=f"def wrap(value): return {expression}\n",
+        imported_symbol="wrap",
+        assign_result=True,
+    )
+
+    assert result["closed"] is closed
+    assert result["bypass_classes"] == (
+        [] if closed else ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("helper_source", "imported_symbol"),
+    (
+        ("def identity(value): return value\n", "identity"),
+        (
+            "def identity(value): return value\n"
+            "def facade(value): return identity(value)\n",
+            "facade",
+        ),
+    ),
+)
+def test_direct_consumer_return_of_cross_module_carrier_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    helper_source: str,
+    imported_symbol: str,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=helper_source,
+        imported_symbol=imported_symbol,
+        assign_result=False,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == []
+    assert result["unresolved_consumers"] == ["cross-module-carrier-return"]
 
 
 def test_nested_multiline_flow_is_parsed_for_exact_bypasses(tmp_path: Path) -> None:

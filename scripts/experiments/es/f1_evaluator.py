@@ -4048,8 +4048,24 @@ def _module_functions(
             return child.iter, (child.target,)
         return None, ()
 
-    def returns_carrier(callee: str, seeds: set[str]) -> bool:
+    def returns_carrier(
+        callee: str | ast.FunctionDef | ast.AsyncFunctionDef,
+        seeds: set[str],
+    ) -> bool:
         aliases = set(seeds)
+        if isinstance(callee, str):
+            scoped_nodes = scoped_by_owner[callee]
+        else:
+            scoped_nodes = []
+            pending = list(callee.body)
+            while pending:
+                child = pending.pop()
+                scoped_nodes.append(child)
+                if not isinstance(
+                    child,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
+                ):
+                    pending.extend(ast.iter_child_nodes(child))
 
         def carrier_expression(value: ast.AST | None) -> bool:
             if isinstance(value, ast.Name):
@@ -4058,14 +4074,32 @@ def _module_functions(
                 return carrier_expression(value.value)
             if isinstance(value, ast.IfExp):
                 return carrier_expression(value.body) or carrier_expression(value.orelse)
-            return isinstance(value, ast.BoolOp) and any(
-                carrier_expression(item) for item in value.values
-            )
+            if isinstance(value, ast.BoolOp):
+                return any(carrier_expression(item) for item in value.values)
+            if isinstance(value, (ast.List, ast.Set, ast.Tuple)):
+                return any(carrier_expression(item) for item in value.elts)
+            if isinstance(value, ast.Dict):
+                return any(
+                    carrier_expression(item)
+                    for item in (*value.keys, *value.values)
+                )
+            if isinstance(value, (ast.Starred, ast.NamedExpr)):
+                return carrier_expression(value.value)
+            if isinstance(value, ast.Call):
+                return any(
+                    carrier_expression(item)
+                    for item in (
+                        *((value.func.value,) if isinstance(value.func, ast.Attribute) else ()),
+                        *value.args,
+                        *(keyword.value for keyword in value.keywords),
+                    )
+                )
+            return False
 
         changed = True
         while changed:
             changed = False
-            for child in scoped_by_owner[callee]:
+            for child in scoped_nodes:
                 value, targets = flow_binding(child)
                 if not carrier_expression(value):
                     continue
@@ -4076,7 +4110,7 @@ def _module_functions(
         return any(
             isinstance(child, ast.Return)
             and carrier_expression(child.value)
-            for child in scoped_by_owner[callee]
+            for child in scoped_nodes
         )
 
     def is_bound_call(call: ast.Call, callee: str, owner: str) -> bool:
@@ -4123,6 +4157,27 @@ def _module_functions(
         if local is not None:
             target = local
         return target
+
+    def workspace_return_carrier(
+        call: ast.Call,
+        owner: str,
+        relevant: Any,
+        binding_context: tuple[str, int] = ("runtime", 0),
+    ) -> bool | None:
+        if local_callee(call, owner, binding_context) is not None:
+            return None
+        context = workspace_function_nodes.get(
+            call_symbol(call, owner, binding_context)
+        )
+        if context is None or context[1] is None:
+            return None
+        _, callee_node, bound, _ = context
+        return returns_carrier(
+            callee_node,
+            call_tainted_formals(
+                call, callee_node, bound=bound, relevant=relevant
+            ),
+        )
 
     def has_imported_receiver(call: ast.Call, owner: str) -> bool:
         if not isinstance(call.func, ast.Attribute):
@@ -4318,6 +4373,12 @@ def _module_functions(
                         carries_configuration = returns_carrier(
                             callee, callee_tainted
                         )
+                    elif (
+                        workspace_result := workspace_return_carrier(
+                            value, owner, relevant
+                        )
+                    ) is not None:
+                        carries_configuration = workspace_result
                 if carries_configuration:
                     for target in targets:
                         for name_node in ast.walk(target):
@@ -4906,7 +4967,9 @@ def _module_functions(
                 return True
             callee = local_callee(value, owner, binding_context)
             if callee is None:
-                return False
+                return workspace_return_carrier(
+                    value, owner, carrier_expression, binding_context
+                ) is True
             formals = call_tainted_formals(
                 value,
                 function_by_symbol[callee],
@@ -5144,9 +5207,24 @@ def _module_functions(
                 return carrier_expression(value.value)
             if isinstance(value, ast.IfExp):
                 return carrier_expression(value.body) or carrier_expression(value.orelse)
-            return isinstance(value, ast.BoolOp) and any(
-                carrier_expression(item) for item in value.values
+            if isinstance(value, ast.BoolOp):
+                return any(carrier_expression(item) for item in value.values)
+            if not isinstance(value, ast.Call):
+                return False
+            if call_symbol(value, owner) in authority_symbols:
+                return True
+            callee = local_callee(value, owner)
+            if callee is None:
+                return workspace_return_carrier(
+                    value, owner, carrier_expression
+                ) is True
+            formals = call_tainted_formals(
+                value,
+                function_by_symbol[callee],
+                bound=is_bound_call(value, callee, owner),
+                relevant=carrier_expression,
             )
+            return returns_carrier(callee, formals)
 
         changed = True
         while changed:
@@ -5154,18 +5232,6 @@ def _module_functions(
             for child in scoped_by_owner[owner]:
                 value, targets = flow_binding(child)
                 carries_configuration = carrier_expression(value)
-                if isinstance(value, ast.Call):
-                    carries_configuration = call_symbol(value, owner) in authority_symbols
-                    callee = local_callee(value, owner)
-                    if callee is not None:
-                        callee_node = function_by_symbol[callee]
-                        formals = call_tainted_formals(
-                            value,
-                            callee_node,
-                            bound=is_bound_call(value, callee, owner),
-                            relevant=relevant,
-                        )
-                        carries_configuration = returns_carrier(callee, formals)
                 if not carries_configuration:
                     continue
                 for target in targets:
@@ -5218,6 +5284,15 @@ def _module_functions(
             nested_calls, nested_bypasses = contextual_route(callee, formals)
             calls.update(nested_calls)
             contextual_bypasses.update(nested_bypasses)
+        if isinstance(node, ast.Name) and any(
+            isinstance(child, ast.Return)
+            and isinstance(child.value, ast.Call)
+            and workspace_return_carrier(
+                child.value, owner, carrier_expression
+            ) is True
+            for child in scoped_by_owner[owner]
+        ):
+            calls.add(f"@unresolved-carrier-return:{consumer_id}")
         if owner in authority_symbols:
             calls = {owner}
         graph[consumer_symbol] = sorted(filter(None, calls))
