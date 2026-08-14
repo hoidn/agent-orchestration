@@ -15,9 +15,12 @@
 Four small pieces, each general rather than omp-shaped, replace the
 proposal's phase machinery:
 
-1. **One generic `omp` provider template** (registry built-in, pure data) —
-   multiagent topologies (advisors, subagent fan-out, peer teams) are
-   configuration files, never orc concepts.
+1. **One omp template family** (registry built-ins, pure data) with two
+   lanes: `omp` / `omp_unrestricted_workspace` as **general providers
+   exactly like the codex family** (bare workers, no conf), and `omp_conf`
+   as the **introspective lane** where multiagent topologies (advisors,
+   subagent fan-out, peer teams) are configuration files, never orc
+   concepts.
 2. **One session codec** (`OMP_JSON_STDOUT`) behind the existing
    `create_session_transport_accumulator` seam — which automatically feeds
    the existing run-scoped tmux observation panes, giving live
@@ -52,12 +55,21 @@ omp's persistent, resumable session JSONL.
 
 ## Decision
 
-- **X1 — One generic template.** A single registry built-in `omp`
-  (`registry.py:_load_builtin_providers`, ~15 lines): hermetic argv wrapper,
-  `--mode json`, fixed conf mount point. Topology identity is data (a conf
-  directory) plus evidence (conf digest + `omp --version`), not a template
-  per topology. Calibrated workflows that need identity-by-name may still
-  pin dedicated named templates; that is a naming convention, not machinery.
+- **X1 — One template family, two lanes.** Registry built-ins
+  (`registry.py:_load_builtin_providers`, pure data), all sharing the
+  codec, session persistence, panes, and bridge:
+  - *General-provider lane* (`omp`, `omp_unrestricted_workspace`): omp as
+    a codex-class worker — externs-manifest name, `${model}` param,
+    `${PROMPT}` in, bundle out, resume via `${SESSION_ID}`. No conf mount:
+    a hermetic empty agent dir (missing config is defined as empty →
+    schema defaults), `--no-extensions --no-title`, pinned approval mode.
+    Usable anywhere `codex` is usable, including as a drop-in externs
+    swap.
+  - *Introspective lane* (`omp_conf`): the strict conf mount
+    (`.omp-conf/`) carrying a preset topology. Topology identity is data
+    (conf digest + `omp --version`), not a template per topology.
+  Calibrated workflows that need identity-by-name may still pin dedicated
+  named templates; that is a naming convention, not machinery.
 - **X2 — One codec, panes for free.** `OMP_JSON_STDOUT` parses
   `omp --mode json` stdout (session header id → fail-closed identity;
   `message_update`/`message_end` → assistant text; `turn_end`/`agent_end` →
@@ -122,14 +134,18 @@ omp's persistent, resumable session JSONL.
 
 ## Design Details
 
-### The generic template (all omp-specific runtime knowledge, in one place)
+### The template family (all omp-specific runtime knowledge, in one place)
 
 ```python
+# General-provider lane — omp as a codex-class worker; no conf.
+# Missing agent-dir config is defined as empty (schema defaults);
+# --no-extensions/--no-title cut ambient surface and a wasted title call.
 "omp": ProviderTemplate(
     name="omp",
-    command=["env", "PI_CODING_AGENT_DIR=.omp-conf/agent",
+    command=["env", "PI_CODING_AGENT_DIR=.omp-agent",
              "omp", "--mode", "json",
-             "--config", ".omp-conf/config.yml",
+             "--no-extensions", "--no-title",
+             "--approval-mode", "write",
              "--model", "${model}", "${PROMPT}"],
     defaults={"model": "deepseek/deepseek-v4"},
     input_mode=InputMode.ARGV,
@@ -140,9 +156,40 @@ omp's persistent, resumable session JSONL.
         turn_boundary_resume=True,
     ),
 )
+
+# Trusted-workspace variant, parallel to codex/claude *_unrestricted_workspace:
+# same argv with --yolo instead of --approval-mode write; no defaults,
+# stdin input mode (piped stdin auto-enables print mode), per the existing
+# unrestricted-profile conventions in specs/providers.md.
+"omp_unrestricted_workspace": ProviderTemplate(...)
+
+# Introspective lane — strict conf mount; used by every preset.
+# Topology (advisor on/off, agents, roles, tool grants) lives entirely in
+# the conf; the argv is preset-independent.
+"omp_conf": ProviderTemplate(
+    name="omp_conf",
+    command=["env", "PI_CODING_AGENT_DIR=.omp-conf/agent",
+             "omp", "--mode", "json",
+             "--no-extensions", "--no-title",
+             "--approval-mode", "write",
+             "--config", ".omp-conf/config.yml",
+             "--model", "${model}", "${PROMPT}"],
+    defaults={"model": "deepseek/deepseek-v4"},
+    input_mode=InputMode.ARGV,
+    session_support=ProviderSessionSupport(... as above ...),
+)
 ```
 
-`.omp-conf/` is the fixed mount point in the step workspace. Whatever the
+Approval mode is pinned in argv (a runtime override) on both lanes so it
+is evidence-visible and cannot drift via config; `write` is the
+conservative default and F7 verifies it suffices for ordinary worker
+tasks, else the template adjusts before landing. The advised presets do
+not need an `--advisor` flag: `advisor.enabled: true` in the mounted
+`config.yml` owns topology, keeping one conf template for all four
+presets.
+
+`.omp-conf/` is `omp_conf`'s fixed mount point in the step workspace.
+Whatever the
 conf contains — advisor roster, subagent definitions, peer-team tool
 grants, model roles, skills — is invisible to orc and fully recorded: conf
 digest, `omp --version`, per-agent metering, and the session JSONL land in
@@ -247,7 +294,7 @@ Deterministic generation (same inputs → byte-identical outputs) under
 ```
 workflows/generated/<slug>/
 ├── run.orc            # defworkflow calling omp-attempt; :returns from --returns
-├── providers.json     # {"providers.worker": "omp"}
+├── providers.json     # {"providers.worker": "omp_conf"} (bare runs: "omp")
 ├── prompts.json       # {"prompts.task": "task.md"}
 └── conf/              # pinned copy of --conf (self-contained, versionable)
 ```
@@ -256,11 +303,13 @@ then compiles, runs, streams the pane, and prints the bundle path and
 `tmux attach` command. The CLI itself stages nothing: `run.orc` calls
 `omp-attempt`, whose `stage-omp-conf` step mounts `conf/` → `.omp-conf/`
 at run time, so a later bare `orchestrator run run.orc` is byte-for-byte
-the same execution. Generated files are ordinary artifacts: edit `run.orc`
-and it is simply a hand-authored workflow from then on — the scaffolder is
-an on-ramp, not a dialect. Omitting `--returns` defaults to a single
-`String` result field; omitting `--conf` generates a direct
-`provider-result` call with no staging step (bare worker, any provider).
+the same execution. The scaffolder selects the lane from its inputs:
+`--conf` present → `omp_conf` + the staging call; absent → a direct
+`provider-result` on the named provider (`omp`, `codex_gpt55`, any
+registry name) with no staging step. Generated files are ordinary
+artifacts: edit `run.orc` and it is simply a hand-authored workflow from
+then on — the scaffolder is an on-ramp, not a dialect. Omitting
+`--returns` defaults to a single `String` result field.
 
 ### Observability (existing machinery, documented not built)
 
@@ -312,7 +361,7 @@ behind the same consumer gate as RPC `steer`.
 
 | Contract point | omp component | Our consumer | Pin |
 | --- | --- | --- | --- |
-| CLI argv: `-p`/`--mode json`, `--advisor`, `--config`, `--model`, `--resume <full-id>` | `cli/args.ts`, `cli/flag-tables.ts`, `modes/print-mode.ts` | provider template | template + upgrade review |
+| CLI argv: `-p`/`--mode json`, `--config`, `--model`, `--resume <full-id>`, `--approval-mode`, `--no-extensions`, `--no-title` | `cli/args.ts`, `cli/flag-tables.ts`, `modes/print-mode.ts` | provider templates (both lanes) | template + upgrade review |
 | Config semantics: precedence, `PI_CODING_AGENT_DIR` relocation, `modelRoles`/`advisor.*`/`memory` fields | `config/settings-schema.ts`, config resolution | conf presets, hermeticity (X4) | canary tests (F3) |
 | stdout NDJSON events: session header, `message_update`/`message_end`, `turn_end`/`agent_end`, embedded `Usage`, `notice` | `packages/agent/src/types.ts`, `session/agent-session-events.ts`, `packages/catalog` `Usage` | `OMP_JSON_STDOUT` codec, panes | checked-in frame fixtures |
 | Session persistence: `SessionHeader.id`, append-only session JSONL, `__advisor.<slug>.jsonl`, resume | `session/session-manager.ts`, `session/session-entries.ts`, `advisor/transcript-recorder.ts` | identity check, evidence, bridge (`omp --resume`, import) | F1 + fixtures |
@@ -340,15 +389,24 @@ behind the same consumer gate as RPC `steer`.
 - **F6** [open]: task-subagent activity under `--mode json` is observable
   in evidence (per-agent metering, yields in the primary session, worktree
   cleanup on step end).
+- **F7** [open]: bare-lane neutrality and headless completion — a fresh
+  empty agent dir yields schema defaults with memory/advisor off; an
+  ordinary bash+edit worker task completes under `--approval-mode write`
+  (else the lane's pinned mode is adjusted); stdin input composes with
+  `--mode json` for the unrestricted variant.
 
 ## Roadmap
 
-- **Tranche 1 (one reviewed change):** generic `omp` built-in + codec +
+- **Tranche 1 (one reviewed change):** the omp template family (`omp`,
+  `omp_unrestricted_workspace`, `omp_conf`) + codec +
   fixtures + `workflows/library/omp/` (`omp-attempt`, `stage-omp-conf`
   adapter, settlement contracts) + conf presets
   (`workflows/assets/omp_confs/`) + scaffolder (`run`/`import`) +
-  monitoring-doc note + the two-arm bare-vs-advised trial run via manifest
-  swap plus one `fanout/` preset smoke (F6). Exit: F1–F6
+  monitoring-doc note + the two-arm bare-vs-advised trial: one `run.orc`
+  on `omp_conf`, arms differing only in the digest-pinned conf input
+  (neutral `advisor.enabled: false` conf vs `advised/`), plus one
+  `fanout/` preset smoke (F6) and one bare-lane `omp` smoke (F7).
+  Exit: F1–F7
   resolved; canary scenario passes; codec unit + fake-child tests green;
   one real orchestrator smoke; cost and wall-time (advisor drain ≤10 min,
   `syncBacklog` stalls) measured and reported.
