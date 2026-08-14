@@ -2702,6 +2702,10 @@ def _is_plain_generated_dataclass(
 ) -> bool:
     """Return whether construction is the unwrapped stdlib-generated initializer."""
 
+    class_binding_counts = _module_binding_counts(
+        ast.Module(body=list(node.body), type_ignores=[])
+    )
+
     def immutable_default(value: ast.AST) -> bool:
         return isinstance(value, ast.Constant) or (
             isinstance(value, ast.Tuple)
@@ -2734,10 +2738,16 @@ def _is_plain_generated_dataclass(
         )
 
     def builtin_method_decorator(value: ast.AST) -> bool:
-        return resolve_name(value) in {
+        resolved = resolve_name(value)
+        return resolved in {
             "builtins.classmethod",
             "builtins.staticmethod",
-        }
+        } or (
+            resolved == ""
+            and isinstance(value, ast.Name)
+            and value.id in {"classmethod", "staticmethod"}
+            and class_binding_counts.get(value.id, 0) == 0
+        )
 
     if node.bases or node.keywords or len(node.decorator_list) != 1:
         return False

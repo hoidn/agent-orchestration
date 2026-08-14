@@ -6353,6 +6353,48 @@ def test_frozen_custom_dataclass_init_allows_declared_field_setattr(
     assert result["bypass_classes"] == []
 
 
+def test_frozen_custom_dataclass_allows_native_classmethod_factory(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, init=False, slots=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        object.__setattr__(self, 'primary', primary)\n"
+        "    @classmethod\n"
+        "    def from_primary(cls, primary):\n"
+        "        return cls(primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_frozen_custom_dataclass_rejects_class_body_classmethod_shadow(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, init=False, slots=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        object.__setattr__(self, 'primary', primary)\n"
+        "    def classmethod(fn):\n"
+        "        return fn\n"
+        "    @classmethod\n"
+        "    def from_primary(cls, primary):\n"
+        "        return cls(primary)\n",
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+
+
 @pytest.mark.parametrize(
     "record_source",
     (
