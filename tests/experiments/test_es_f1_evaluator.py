@@ -5443,6 +5443,47 @@ def test_opaque_external_result_checks_called_module_mutator_helpers(
 
 
 @pytest.mark.parametrize(
+    ("wrappers", "entry"),
+    (
+        ("def wrapper(name):\n    mutate(name)\n", "wrapper"),
+        (
+            "def wrapper(name):\n"
+            "    mutate(name)\n"
+            "def wrapper_two(name):\n"
+            "    wrapper(name)\n",
+            "wrapper_two",
+        ),
+    ),
+    ids=("one-level", "two-level"),
+)
+def test_opaque_external_result_checks_transitive_module_mutator_helpers(
+    tmp_path: Path,
+    wrappers: str,
+    entry: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency\n"
+            "replacement = object()\n"
+            "def mutate(name):\n"
+            "    setattr(dependency, name, replacement)\n"
+            + wrappers
+            + "def consume(runtime_config, options):\n"
+            f"    {entry}('Factory')\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),

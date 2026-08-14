@@ -4543,16 +4543,32 @@ def _module_functions(
             )
         ):
             return False
-        module_factory_mutators = {
-            f"{module}.{node.name}"
+        module_local_functions = {
+            f"{module}.{node.name}": node
             for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and _has_module_object_mutation(
+        }
+        module_factory_mutators = {
+            symbol
+            for symbol, node in module_local_functions.items()
+            if _has_module_object_mutation(
                 ast.Module(body=list(node.body), type_ignores=[]),
                 factory_import_aliases,
                 reject_argument_escape=True,
             )
         }
+        changed = True
+        while changed:
+            changed = False
+            for symbol in module_local_functions:
+                if symbol in module_factory_mutators or not any(
+                    isinstance(node, ast.Call)
+                    and call_symbol(node, symbol) in module_factory_mutators
+                    for node in scoped_by_owner[symbol]
+                ):
+                    continue
+                module_factory_mutators.add(symbol)
+                changed = True
         if any(
             isinstance(node, ast.Call)
             and node is not factory_call
