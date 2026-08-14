@@ -2698,6 +2698,7 @@ def _is_plain_generated_dataclass(
     resolve_name: Callable[[ast.AST], str | None],
     *,
     trace_post_init: bool = False,
+    trace_frozen_custom_init: bool = False,
 ) -> bool:
     """Return whether construction is the unwrapped stdlib-generated initializer."""
 
@@ -2748,14 +2749,37 @@ def _is_plain_generated_dataclass(
     if isinstance(decorator, ast.Call):
         if decorator.args or any(keyword.arg is None for keyword in decorator.keywords):
             return False
-        init = [keyword.value for keyword in decorator.keywords if keyword.arg == "init"]
-        if len(init) > 1 or (
-            init
-            and not (
-                isinstance(init[0], ast.Constant) and init[0].value is True
-            )
-        ):
-            return False
+        if trace_frozen_custom_init:
+            options = {keyword.arg: keyword.value for keyword in decorator.keywords}
+            if len(options) != len(decorator.keywords) or set(options) != {
+                "frozen",
+                "init",
+                "slots",
+            } or any(
+                not isinstance(options[name], ast.Constant)
+                or options[name].value is not expected
+                for name, expected in {
+                    "frozen": True,
+                    "init": False,
+                    "slots": True,
+                }.items()
+            ):
+                return False
+        else:
+            init = [
+                keyword.value
+                for keyword in decorator.keywords
+                if keyword.arg == "init"
+            ]
+            if len(init) > 1 or (
+                init
+                and not (
+                    isinstance(init[0], ast.Constant) and init[0].value is True
+                )
+            ):
+                return False
+    elif trace_frozen_custom_init:
+        return False
     field_names = {
         child.target.id
         for child in node.body
@@ -2763,6 +2787,7 @@ def _is_plain_generated_dataclass(
         and isinstance(child.target, ast.Name)
         and child.simple == 1
     }
+    custom_initializer_count = 0
     for child in node.body:
         if isinstance(child, ast.AnnAssign):
             if (
@@ -2778,6 +2803,17 @@ def _is_plain_generated_dataclass(
                 return False
             continue
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if child.name == "__init__" and trace_frozen_custom_init:
+                if (
+                    isinstance(child, ast.AsyncFunctionDef)
+                    or child.decorator_list
+                    or child.args.posonlyargs
+                    or not child.args.args
+                    or child.args.args[0].arg != "self"
+                ):
+                    return False
+                custom_initializer_count += 1
+                continue
             if child.name == "__post_init__" and trace_post_init:
                 if (
                     isinstance(child, ast.AsyncFunctionDef)
@@ -2816,7 +2852,7 @@ def _is_plain_generated_dataclass(
         ):
             continue
         return False
-    return True
+    return not trace_frozen_custom_init or custom_initializer_count == 1
 
 
 _PLAIN_BUILTIN_EXCEPTION = "@plain-builtin-exception"
@@ -4619,11 +4655,44 @@ def _module_functions(
         class_symbol = owner.rsplit(".", 1)[0]
         context = workspace_function_nodes.get(class_symbol)
         class_node = class_by_symbol.get(class_symbol)
+        custom_initializer = (
+            context is not None
+            and context[0] == class_symbol
+            and context[1] is not None
+            and context[1].name == "__init__"
+            and class_node is not None
+            and _is_plain_generated_dataclass(
+                class_node,
+                literal_dataclass_name,
+                trace_frozen_custom_init=True,
+            )
+            and all(
+                len(targets) == 1
+                and module_binding_counts.get(alias) == 1
+                for alias, targets in import_targets.items()
+                if targets & {"dataclasses", "dataclasses.dataclass"}
+            )
+            and not any(
+                _has_module_object_mutation(
+                    scope,
+                    {
+                        alias
+                        for alias, targets in import_targets.items()
+                        if targets & {"dataclasses", "dataclasses.dataclass"}
+                    },
+                    reject_argument_escape=True,
+                )
+                for scope in binding_scopes
+            )
+        )
         if not (
             context is not None
-            and context[0] == owner
             and context[1] is not None
-            and context[1].name == "__post_init__"
+            and (
+                context[0] == owner
+                and context[1].name == "__post_init__"
+                or custom_initializer
+            )
             and context[2]
             and context[3]
             and class_node is not None

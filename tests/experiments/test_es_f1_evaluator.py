@@ -6336,6 +6336,87 @@ def test_generated_dataclass_post_init_allows_declared_field_setattr(
     )
 
 
+def test_frozen_custom_dataclass_init_allows_declared_field_setattr(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True, init=False, slots=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        object.__setattr__(self, 'primary', primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+@pytest.mark.parametrize(
+    "record_source",
+    (
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True, init=False)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __init__(self, primary):\n"
+            "        object.__setattr__(self, 'primary', primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True, init=False, slots=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __init__(self, primary, field_name):\n"
+            "        object.__setattr__(self, field_name, primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True, init=False, slots=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __init__(self, primary):\n"
+            "        object.__setattr__(self, 'missing', primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True, init=False, slots=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __init__(self, primary):\n"
+            "        other = self\n"
+            "        object.__setattr__(other, 'primary', primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True, init=False, slots=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __init__(self, primary):\n"
+            "        self = object()\n"
+            "        object.__setattr__(self, 'primary', primary)\n"
+        ),
+    ),
+    ids=(
+        "missing-slots",
+        "dynamic-field",
+        "undeclared-field",
+        "non-self",
+        "rebound-self",
+    ),
+)
+def test_unverified_frozen_custom_dataclass_init_setattr_fails_closed(
+    tmp_path: Path,
+    record_source: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(tmp_path, record_source)
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+
+
 @pytest.mark.parametrize(
     "record_source",
     (
