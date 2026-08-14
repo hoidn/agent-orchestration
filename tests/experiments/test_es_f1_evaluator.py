@@ -5366,6 +5366,45 @@ def test_opaque_external_result_allows_unused_duplicate_import_alias(
 
 
 @pytest.mark.parametrize(
+    ("module_hazard", "local_hazard"),
+    (
+        (
+            "replacement = object()\n"
+            "def mutate():\n"
+            "    global Factory\n"
+            "    Factory = replacement\n",
+            "    mutate()\n",
+        ),
+        ("replacement = object()\n", "    Factory['value'] = replacement\n"),
+    ),
+    ids=("sibling-global", "subscript-mutation"),
+)
+def test_opaque_external_result_same_local_reimport_hazard_fails_closed(
+    tmp_path: Path,
+    module_hazard: str,
+    local_hazard: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            module_hazard
+            + "def consume(runtime_config, options):\n"
+            "    from dependency import Factory\n"
+            "    from dependency import Factory\n"
+            + local_hazard
+            + "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),

@@ -4524,7 +4524,9 @@ def _module_functions(
             factory_root = factory_root.value
         binding = active_name_binding(factory_call, owner)
         factory = call_symbol(factory_call, owner)
-        factory_import_aliases = {
+        factory_import_aliases = (
+            {factory_root.id} if isinstance(factory_root, ast.Name) else set()
+        ) | {
             local
             for local, imported in imports_by_owner[owner].items()
             if imported == factory or factory.startswith(f"{imported}.")
