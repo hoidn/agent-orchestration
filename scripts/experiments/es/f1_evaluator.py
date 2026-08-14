@@ -4543,6 +4543,23 @@ def _module_functions(
             )
         ):
             return False
+        module_factory_mutators = {
+            f"{module}.{node.name}"
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and _has_module_object_mutation(
+                ast.Module(body=list(node.body), type_ignores=[]),
+                factory_import_aliases,
+                reject_argument_escape=True,
+            )
+        }
+        if any(
+            isinstance(node, ast.Call)
+            and node is not factory_call
+            and call_symbol(node, owner) in module_factory_mutators
+            for node in scoped_by_owner[owner]
+        ):
+            return False
         if any(
             isinstance(node, (ast.Global, ast.Nonlocal))
             and ({receiver} | factory_import_aliases) & set(node.names)

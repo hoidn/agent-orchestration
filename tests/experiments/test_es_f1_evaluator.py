@@ -5405,6 +5405,44 @@ def test_opaque_external_result_same_local_reimport_hazard_fails_closed(
 
 
 @pytest.mark.parametrize(
+    ("helper_body", "closed"),
+    (
+        ("    setattr(dependency, name, replacement)\n", False),
+        ("    setattr(unrelated, name, replacement)\n", True),
+    ),
+    ids=("factory-root-mutator", "unrelated-mutator"),
+)
+def test_opaque_external_result_checks_called_module_mutator_helpers(
+    tmp_path: Path,
+    helper_body: str,
+    closed: bool,
+) -> None:
+    calls, _, actual = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency\n"
+            "replacement = object()\n"
+            "unrelated = object()\n"
+            "def mutate(name):\n"
+            + helper_body
+            + "def consume(runtime_config, options):\n"
+            "    mutate('Factory')\n"
+            "    receiver = dependency.Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    if closed:
+        assert any(call.startswith("@terminal-external-result:") for call in calls)
+    else:
+        assert "package.sink.receiver.process" in calls
+    assert actual is closed
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),
