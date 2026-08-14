@@ -5703,6 +5703,14 @@ def _workspace_callable_index(
                         imported_targets.add(target)
 
         module_binding_counts = _module_binding_counts(tree)
+        nested_global_names = {
+            name
+            for scope in ast.walk(tree)
+            if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            for child in ast.walk(scope)
+            if isinstance(child, ast.Global)
+            for name in child.names
+        }
         binding_scopes = (
             tree,
             *(
@@ -5845,6 +5853,7 @@ def _workspace_callable_index(
                     or target.split(".", 1)[0] in module_roots
                     or imported_by_name.get(local) != {target}
                     or module_binding_counts.get(local) != 1
+                    or local in nested_global_names
                     or _has_module_object_mutation(
                         tree, {local}, reject_argument_escape=True
                     )

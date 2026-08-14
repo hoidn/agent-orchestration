@@ -9782,8 +9782,21 @@ def _inspect_cross_module_carrier_return(
             "normalize = lambda value: value\n",
             False,
         ),
+        (
+            "from math import sqrt as normalize\n"
+            "def shadow():\n"
+            "    normalize = lambda value: value\n",
+            True,
+        ),
+        (
+            "from math import sqrt as normalize\n"
+            "def rebind():\n"
+            "    global normalize\n"
+            "    normalize = lambda value: value\n",
+            False,
+        ),
     ),
-    ids=("stable", "rebound"),
+    ids=("stable", "rebound", "local-shadow", "nested-global-rebound"),
 )
 def test_cross_module_from_import_callable_forwards_to_external_terminal(
     tmp_path: Path,
