@@ -5036,6 +5036,13 @@ def _module_functions(
     ) -> tuple[str, bool]:
         arguments = (*call.args, *(item.value for item in call.keywords))
         builtin_descriptor = has_stable_builtin_type_method_descriptor(call, owner)
+        builtin_literal_descriptor = (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Constant)
+            and inspect.ismethoddescriptor(
+                vars(type(call.func.value.value)).get(call.func.attr)
+            )
+        )
         bypass_receiver_tainted = (
             force_receiver_tainted
             or _configuration_receiver_tainted(call, relevant)
@@ -5058,6 +5065,7 @@ def _module_functions(
         verified_receiver = has_verified_external_receiver(call, owner)
         stable_receiver = (
             builtin_descriptor
+            or builtin_literal_descriptor
             or has_stable_generated_dataclass_field_setattr(call, owner)
             or has_stable_local_builtin_container_receiver(call, owner)
             or has_stable_module_dict_literal_receiver(call, owner)

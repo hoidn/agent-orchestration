@@ -4365,6 +4365,33 @@ def test_synthetic_owner_keeps_dynamic_receiver_unresolved(
 
 
 @pytest.mark.parametrize(
+    ("receiver", "closed"),
+    (
+        ("','", True),
+        ("separator", False),
+    ),
+    ids=("literal", "variable"),
+)
+def test_builtin_literal_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+    receiver: str,
+    closed: bool,
+) -> None:
+    result = _inspect_added_consumer(
+        tmp_path,
+        "scripts/literal_receiver.py",
+        (
+            "separator = ','\n"
+            "def consume(runtime_config):\n"
+            f"    return {receiver}.join(runtime_config.values)\n"
+        ),
+    )
+
+    assert result["closed"] is closed
+    assert bool(result["unresolved_consumers"]) is not closed
+
+
+@pytest.mark.parametrize(
     "mutation",
     (
         "    alias = logger\n"
