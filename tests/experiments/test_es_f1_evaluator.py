@@ -9669,6 +9669,67 @@ def test_decorated_cross_module_return_is_opaque(
     assert result["unresolved_consumers"] == ["cross-module-carrier-return"]
 
 
+def test_direct_return_of_configuration_attribute_carrier_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "helper.py").write_text(
+        "def identity(value): return value\n", encoding="utf-8"
+    )
+    consumer_source = (
+        "from ptycho.helper import identity\n"
+        "class Owner:\n"
+        "    def consume(self):\n"
+        "        return identity(self.runtime_config)\n"
+    )
+    (package / "consumer.py").write_text(consumer_source, encoding="utf-8")
+    carrier = next(
+        node
+        for node in ast.walk(ast.parse(consumer_source))
+        if isinstance(node, ast.Attribute) and node.attr == "runtime_config"
+    )
+    row = {
+        "consumer_id": "configuration-attribute-carrier-return",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.Owner.consume",
+        "source_span": {
+            "start_line": carrier.lineno,
+            "start_col": carrier.col_offset,
+            "end_line": carrier.end_lineno,
+            "end_col": carrier.end_col_offset,
+        },
+        "transitive_wrapper_chain": [
+            "ptycho.consumer.Owner.consume",
+            "self.runtime_config",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == []
+    assert result["unresolved_consumers"] == [
+        "configuration-attribute-carrier-return"
+    ]
+
+
 @pytest.mark.parametrize("expression", ("value == {}", "value * 2"))
 def test_cross_module_derived_return_does_not_taint_the_caller_result(
     tmp_path: Path,

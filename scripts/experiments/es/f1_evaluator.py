@@ -30,6 +30,7 @@ from scripts.experiments.es.task_package import (
     F1_PROVIDER_VISIBLE_SELECTORS,
     F1_REQUIRED_OUTCOMES,
     TaskPackageError,
+    _is_configuration_name,
     load_candidate_config_evidence,
     load_configuration_consumer_census,
     load_config_resolution_probe_request,
@@ -5284,7 +5285,11 @@ def _module_functions(
             nested_calls, nested_bypasses = contextual_route(callee, formals)
             calls.update(nested_calls)
             contextual_bypasses.update(nested_bypasses)
-        if isinstance(node, ast.Name) and any(
+        whole_carrier_origin = isinstance(node, ast.Name) or (
+            isinstance(node, ast.Attribute)
+            and _is_configuration_name(node.attr)
+        )
+        if whole_carrier_origin and any(
             isinstance(child, ast.Return)
             and isinstance(child.value, ast.Call)
             and workspace_return_carrier(
