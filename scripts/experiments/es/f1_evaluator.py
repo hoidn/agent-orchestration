@@ -2964,6 +2964,7 @@ def _has_module_object_mutation(
     reject_argument_escape: bool,
     allowed_argument_calls: frozenset[int] = frozenset(),
     allowed_alias_assignments: frozenset[int] = frozenset(),
+    allowed_return_escapes: frozenset[int] = frozenset(),
 ) -> bool:
     def root_name(value: ast.AST) -> str | None:
         while isinstance(value, (ast.Attribute, ast.Subscript)):
@@ -3086,6 +3087,7 @@ def _has_module_object_mutation(
             and isinstance(child, (ast.Return, ast.Yield, ast.YieldFrom))
             and child.value is not None
             and aliases_object(child.value)
+            and id(child) not in allowed_return_escapes
         ):
             return True
         if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
@@ -5861,6 +5863,18 @@ def _module_functions(
             return True
         positional = (*function.args.posonlyargs, *function.args.args)
         decorated_parameter = positional[0].arg if positional else None
+        if decorated_parameter is None:
+            return True
+
+        def rooted_in_parameter(value: ast.AST) -> bool:
+            while isinstance(value, (ast.Attribute, ast.Subscript)):
+                value = value.value
+            return isinstance(value, ast.Name) and value.id == decorated_parameter
+
+        scope = ast.Module(body=list(function.body), type_ignores=[])
+        if _module_binding_counts(scope).get(decorated_parameter, 0):
+            return True
+        passthrough_returns: set[int] = set()
         pending: list[ast.AST] = list(function.body)
         while pending:
             child = pending.pop()
@@ -5868,18 +5882,52 @@ def _module_functions(
                 child,
                 (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
             ):
+                if any(
+                    isinstance(descendant, ast.Name)
+                    and descendant.id == decorated_parameter
+                    for descendant in ast.walk(child)
+                ):
+                    return True
                 continue
             if isinstance(child, ast.Return) and child.value is not None:
                 if (
                     isinstance(child.value, ast.Name)
                     and child.value.id == decorated_parameter
-                    or isinstance(child.value, ast.Constant)
+                ):
+                    passthrough_returns.add(id(child))
+                    continue
+                if (
+                    isinstance(child.value, ast.Constant)
                     and not callable(child.value.value)
                 ):
                     continue
                 return True
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, (ast.Attribute, ast.Subscript))
+                and rooted_in_parameter(child.func)
+            ):
+                return True
+            if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
+                targets = (
+                    child.targets
+                    if isinstance(child, (ast.Assign, ast.Delete))
+                    else (child.target,)
+                )
+                if any(
+                    isinstance(target, ast.Subscript)
+                    and rooted_in_parameter(target)
+                    for root in targets
+                    for target in ast.walk(root)
+                ):
+                    return True
             pending.extend(ast.iter_child_nodes(child))
-        return False
+        return _has_module_object_mutation(
+            scope,
+            {decorated_parameter},
+            reject_argument_escape=True,
+            allowed_return_escapes=frozenset(passthrough_returns),
+        )
 
     decorator_dependencies_by_owner: dict[str, set[str]] = {}
     for owner, node in decorated_owners:

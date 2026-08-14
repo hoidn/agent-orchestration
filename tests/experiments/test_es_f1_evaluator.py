@@ -2234,6 +2234,12 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "    return nested\n"
         "@wrapper\n"
         "def modern(config): return resolve(config, {})\n",
+        "from candidate.legacy import consume as legacy\n"
+        "def wrapper(fn):\n"
+        "    fn.__code__ = legacy.__code__\n"
+        "    return fn\n"
+        "@wrapper\n"
+        "def modern(config): return resolve(config, {})\n",
     ),
     ids=(
         "imported-retained-entry",
@@ -2244,6 +2250,7 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "sibling-class-decorator-module-alias",
         "local-decorator-factory",
         "local-decorator-returning-nested-wrapper",
+        "local-decorator-replacing-code",
     ),
 )
 def test_live_decorator_dependency_cannot_reach_retained_root(
@@ -2294,7 +2301,10 @@ def test_live_decorator_dependency_cannot_reach_retained_root(
     assert result["disposed_consumer_count"] == 1
     expected_dependency = (
         "@unresolved-decorator:"
-        if "@factory()" in modern_source or "    return nested\n" in modern_source
+        if "@factory()" in modern_source
+        or "    return nested\n" in modern_source
+        or "legacy_call(fn)" in modern_source
+        or "fn.__code__" in modern_source
         else "ptycho.legacy.consume"
     )
     assert any(
@@ -2411,6 +2421,35 @@ def test_bare_local_decorator_unproven_returns_remain_unresolved(
 
     assert observed is False
     assert any(target.startswith("@unresolved-decorator:") for target in owner_graph)
+
+
+@pytest.mark.parametrize(
+    ("wrapper_body", "dependency_prefix"),
+    (
+        ("    return fn\n", "@decorator:"),
+        ("    alias = fn\n    return fn\n", "@unresolved-decorator:"),
+    ),
+    ids=("pure-passthrough", "aliased"),
+)
+def test_bare_local_decorator_passthrough_requires_unescaped_parameter(
+    tmp_path: Path,
+    wrapper_body: str,
+    dependency_prefix: str,
+) -> None:
+    owner_graph, _, _ = _synthetic_owner_route(
+        tmp_path,
+        module="candidate.mod",
+        owner="candidate.mod.consume",
+        source=(
+            "from candidate.config import resolve\n"
+            "def wrapper(fn):\n"
+            + wrapper_body
+            + "@wrapper\n"
+            "def consume(config): return resolve(config, {})\n"
+        ),
+    )
+
+    assert any(target.startswith(dependency_prefix) for target in owner_graph)
 
 
 def test_fresh_added_consumer_occurrence_is_evaluated(
