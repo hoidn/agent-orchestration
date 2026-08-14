@@ -6103,8 +6103,35 @@ def test_generated_dataclass_allows_native_isinstance_class_info(
             "def compatible(spec):\n"
             "    return sink(ResolvedRecords)\n"
         ),
+        (
+            "isinstance = lambda value, class_info: True\n"
+            "def compatible(spec):\n"
+            "    return isinstance(spec, ResolvedRecords)\n"
+        ),
+        (
+            "def compatible(spec):\n"
+            "    return isinstance(ResolvedRecords, object)\n"
+        ),
+        (
+            "def compatible(spec):\n"
+            "    return isinstance(spec, (ResolvedRecords,))\n"
+        ),
+        (
+            "import builtins\n"
+            "def expose():\n"
+            "    capture(builtins)\n"
+            "def compatible(spec):\n"
+            "    return isinstance(spec, ResolvedRecords)\n"
+        ),
     ),
-    ids=("shadowed-builtin", "arbitrary-escape"),
+    ids=(
+        "shadowed-builtin",
+        "arbitrary-escape",
+        "module-shadow",
+        "class-first-argument",
+        "tuple-class-info",
+        "builtins-escape",
+    ),
 )
 def test_generated_dataclass_class_info_escape_hazards_fail_closed(
     tmp_path: Path,

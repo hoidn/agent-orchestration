@@ -3028,7 +3028,7 @@ def _allowed_native_isinstance_calls(
         builtins_aliases
         and any(
             _has_module_object_mutation(
-                scope, builtins_aliases, reject_argument_escape=False
+                scope, builtins_aliases, reject_argument_escape=True
             )
             for scope in binding_scopes
         )
