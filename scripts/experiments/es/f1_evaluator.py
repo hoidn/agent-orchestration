@@ -4366,6 +4366,61 @@ def _module_functions(
             scope = scope.rsplit(".", 1)[0]
         return True
 
+    def has_stable_generated_dataclass_field_setattr(
+        call: ast.Call, owner: str
+    ) -> bool:
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__setattr__"
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "object"
+            and len(call.args) == 3
+            and not call.keywords
+            and isinstance(call.args[0], ast.Name)
+            and isinstance(call.args[1], ast.Constant)
+            and isinstance(call.args[1].value, str)
+        ):
+            return False
+        class_symbol = owner.rsplit(".", 1)[0]
+        context = workspace_function_nodes.get(class_symbol)
+        class_node = class_by_symbol.get(class_symbol)
+        if not (
+            context is not None
+            and context[0] == owner
+            and context[1] is not None
+            and context[1].name == "__post_init__"
+            and context[2]
+            and context[3]
+            and class_node is not None
+            and class_symbol.rsplit(".", 1)[0] == module
+            and call.args[0].id == "self"
+            and call.args[1].value
+            in {
+                child.target.id
+                for child in class_node.body
+                if isinstance(child, ast.AnnAssign)
+                and isinstance(child.target, ast.Name)
+                and child.simple == 1
+            }
+            and _module_binding_counts(
+                ast.Module(body=list(class_node.body), type_ignores=[])
+            ).get("object", 0)
+            == 0
+            and module_binding_counts.get("object", 0) == 0
+            and builtin_container_constructor_objects_stable
+            and not any(
+                isinstance(node, ast.Global) and "object" in node.names
+                for node in ast.walk(tree)
+            )
+        ):
+            return False
+        scope = owner
+        while scope != module:
+            if binding_events_by_owner.get(scope, {}).get("object"):
+                return False
+            scope = scope.rsplit(".", 1)[0]
+        return True
+
     def has_stable_local_builtin_container_receiver(
         call: ast.Call, owner: str
     ) -> bool:
@@ -4764,6 +4819,7 @@ def _module_functions(
         verified_receiver = has_verified_external_receiver(call, owner)
         stable_receiver = (
             builtin_descriptor
+            or has_stable_generated_dataclass_field_setattr(call, owner)
             or has_stable_local_builtin_container_receiver(call, owner)
             or has_stable_module_dict_literal_receiver(call, owner)
             or has_stable_initializer_attribute_receiver(call, owner)

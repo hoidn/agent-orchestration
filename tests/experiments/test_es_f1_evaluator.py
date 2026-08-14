@@ -5853,6 +5853,142 @@ def _inspect_cross_module_resolved_records(
     )
 
 
+def test_generated_dataclass_post_init_allows_declared_field_setattr(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __post_init__(self):\n"
+        "        object.__setattr__(self, 'primary', self.primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+    assert any(
+        path[-1].startswith(
+            "@terminal:scripts.resolved_records.ResolvedRecords.__post_init__"
+        )
+        for trace in result["traces"]
+        for path in trace["paths"]
+    )
+
+
+@pytest.mark.parametrize(
+    "record_source",
+    (
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        name = 'primary'\n"
+            "        object.__setattr__(self, name, self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'missing', self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        other = self\n"
+            "        object.__setattr__(other, 'primary', self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', value=self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', self.primary, None)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object = None\n"
+            "        object.__setattr__(self, 'primary', self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    object: object = None\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "object = None\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', self.primary)\n"
+        ),
+        (
+            "from dataclasses import dataclass\n"
+            "import builtins\n"
+            "builtins.object = None\n"
+            "@dataclass(frozen=True)\n"
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', self.primary)\n"
+        ),
+        (
+            "class ResolvedRecords:\n"
+            "    primary: object\n"
+            "    def __post_init__(self):\n"
+            "        object.__setattr__(self, 'primary', self.primary)\n"
+        ),
+    ),
+    ids=(
+        "dynamic-field",
+        "undeclared-field",
+        "non-self",
+        "keyword",
+        "extra-positional",
+        "owner-shadow",
+        "class-shadow",
+        "module-shadow",
+        "builtins-mutation",
+        "non-dataclass",
+    ),
+)
+def test_unverified_generated_dataclass_setattr_fails_closed(
+    tmp_path: Path,
+    record_source: str,
+) -> None:
+    result = _inspect_cross_module_resolved_records(tmp_path, record_source)
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
+
+
 @pytest.mark.parametrize(
     ("imports", "decorator", "field_name"),
     (
