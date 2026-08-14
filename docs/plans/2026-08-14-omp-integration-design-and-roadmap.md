@@ -6,7 +6,7 @@
 - **Status:** proposed
 - **Kind:** architecture decision + roadmap extension
 - **Owner:** repository owner (decision holder)
-- **Created:** 2026-08-14 (**Last material update:** 2026-08-14, lightened and generalized to multiagent conf presets per owner direction)
+- **Created:** 2026-08-14 (**Last material update:** 2026-08-14, lightened and generalized to multiagent conf presets; canonical output-contract and self-contained prompt materialization added after owner review)
 - **Related:** extends [`2026-08-14-omp-integration-proposal.md`](2026-08-14-omp-integration-proposal.md); spec home on landing [`specs/providers.md`](../../specs/providers.md); authoring home [`docs/lisp_workflow_drafting_guide.md`](../lisp_workflow_drafting_guide.md); omp checkout `~/Documents/oh-my-pi`
 - **Implementation target:** one thin tranche + one gated follow-on; nothing touches the frozen ES apparatus
 
@@ -25,12 +25,13 @@ proposal's phase machinery:
    `create_session_transport_accumulator` seam — which automatically feeds
    the existing run-scoped tmux observation panes, giving live
    `tmux attach` observability with zero new machinery.
-3. **One scaffolder** — write a prompt, describe the desired output in
-   prose (or supply an exact return schema), optionally add a conf, and get
-   the corresponding `.orc` written and executed. Provider-agnostic: omp
-   is just the case where the conf is an ensemble directory. The generated
-   workflow calls the same shared library procedure hand-authored workflows
-   use.
+3. **One scaffolder** — supply the task prompt inline or from a file; the
+   system materializes it as an ordinary workflow-owned prompt asset and
+   canonical prompt extern. Describe the desired output in prose (or supply an
+   exact return schema), optionally add a conf, and get the corresponding
+   `.orc` written and executed. Provider-agnostic: omp is just the case where
+   the conf is an ensemble directory. The generated workflow calls the same
+   shared library procedure hand-authored workflows use.
 4. **One bidirectional session bridge** — an orc step's session evidence is
    a real omp session (reopen it interactively with `omp --resume`); an
    ad-hoc interactive omp session imports back into orc as evidence plus a
@@ -82,14 +83,19 @@ omp's persistent, resumable session JSONL.
   The RPC stack (client, driver, `steer`) stays out entirely, gated on a
   named consumer needing mid-turn control; recorded fallback if
   `--mode json` proves insufficient (F2/F5) is the proposal's original C.
-- **X3 — Scaffolder: prompt + output contract + optional conf → generated
-  `.orc` → run.** A CLI entry that generates a minimal one-step workflow,
-  its externs manifests, a canonical output-contract artifact, and an
-  optional pinned conf copy, then compiles and runs it — writing the
-  generated `.orc` to disk as an ordinary, editable, versionable artifact.
-  The generated workflow *contains* its staging (it calls the shared library
-  procedure), so a bare `orchestrator run` on `run.orc` behaves identically
-  to the scaffolder — the CLI performs no staging of its own. General:
+- **X3 — Scaffolder: prompt artifact + output contract + optional conf →
+  generated `.orc` → run.** A CLI entry requires exactly one of
+  `--prompt TEXT` and `--prompt-file PATH`. One materializer validates
+  non-empty UTF-8, writes the exact bytes as workflow-owned `prompt.md`, and
+  emits the canonical `{"prompts.task":{"asset_file":"prompt.md"}}` binding
+  in `prompts.json`; it performs no model rewrite or path auto-detection. The
+  existing prompt-extern normalizer produces the ordinary `PromptExtern`.
+  The CLI then generates a minimal one-step workflow, its remaining externs
+  manifest, a canonical output-contract artifact, and an optional pinned conf
+  copy, compiles, and runs it — writing every generated input as an ordinary,
+  editable, versionable source artifact. The generated workflow *contains*
+  its staging, so a bare `orchestrator run` on `run.orc` behaves identically
+  without the original CLI working directory or prompt-file path. General:
   `--provider codex_gpt55` works identically; the conf argument is simply
   absent.
 - **X3a — Shared library procedure, not per-workflow glue.** One
@@ -140,12 +146,13 @@ omp's persistent, resumable session JSONL.
   the generated-source and session identities.
 
   Reverse: `import` produces typed message/usage/model evidence and
-  regenerates prompt/model/conf inputs. A matching contract sidecar restores
-  the exact return contract; transcript prose never reconstructs one. An
-  arbitrary omp session without a sidecar requires explicit `--output` or
-  `--returns`, or deliberately uses the documented direct-`String` default.
-  Import never fabricates a result bundle: bundles remain the only result
-  channel.
+  regenerates the recorded originating task prompt through the same
+  `prompt.md` + canonical prompt-extern materializer, alongside model/conf
+  inputs. A matching contract sidecar restores the exact return contract;
+  transcript prose never reconstructs one. An arbitrary omp session without a
+  sidecar requires explicit `--output` or `--returns`, or deliberately uses
+  the documented direct-`String` default. Import never fabricates a result
+  bundle: bundles remain the only result channel.
 - **X5 — Hermeticity + admission rule retained from the review, compressed.**
   Every omp invocation: relocated agent dir (`PI_CODING_AGENT_DIR` → staged
   conf), strict `--config` overlay, advisor tools pinned in `WATCHDOG.yml`
@@ -321,12 +328,32 @@ forms only; nothing here is compiler-visible.
 
 ```bash
 orchestrator prompt run \
-  --prompt task.md \
+  --prompt "Implement the requested repository change and run its required checks." \
   --conf workflows/assets/omp_confs/ds_fable_advised/ \
   --provider omp \
   --output "A concise summary, repository-relative files changed, whether \
 all required checks passed, and any unresolved problems"
 ```
+
+Task-prompt authoring and result-contract authoring are separate. Exactly one
+of `--prompt TEXT` and `--prompt-file PATH` is required. The former encodes
+the literal argument as UTF-8; the latter strictly validates UTF-8 and copies
+the source bytes. Neither trims, normalizes, summarizes, templates, or sends
+the prompt through a model. Both write `prompt.md` beside `run.orc` and emit:
+
+```json
+{
+  "prompts.task": {
+    "asset_file": "prompt.md"
+  }
+}
+```
+
+`asset_file` is the existing source-owned prompt surface: the generated
+workflow tree now owns the prompt. Build normalization turns the manifest
+entry into the existing `PromptExtern`; there is no new prompt IR or runtime
+object model. `--prompt-file` is an ingestion convenience, not a retained
+reference to the caller's path.
 
 `--output TEXT` is the human-facing path: one ordinary typed provider
 preflight converts the intent into an `OutputContractDraft` containing an
@@ -399,9 +426,10 @@ operations and publishes artifacts.
 ```
 workflows/generated/<slug>/
 ├── run.orc               # ordinary source rendered from canonical contract
+├── prompt.md             # exact literal/file/imported task prompt bytes
+├── prompts.json          # {"prompts.task":{"asset_file":"prompt.md"}}
 ├── output-contract.json  # canonical contract + orthogonal provenance
 ├── providers.json        # {"providers.worker": "omp_conf"} (bare: requested provider)
-├── prompts.json          # {"prompts.task": "task.md"}
 └── conf/                 # only with --conf; pinned and versionable
 ```
 
@@ -420,10 +448,11 @@ For the command above, the deterministic renderer emits:
     :description "A concise summary, repository-relative files changed, whether all required checks passed, and any unresolved problems")
 ```
 
-The only prompt-visible free prose is the user's verbatim `--output` text.
-The model selects structure; it does not supply field guidance. Source-safe
-serialization alone would not make model prose safe because result guidance
-is appended to the write-enabled task provider prompt.
+The task prompt is the exact user-authored `prompt.md`; independently, the
+only free-form output-contract guidance is the user's verbatim `--output`
+text. The model selects result structure but supplies no field guidance.
+Source-safe serialization alone would not make model prose safe because
+result guidance is appended to the write-enabled task provider prompt.
 
 The scaffolder prints the canonical contract, writes the artifacts, compiles,
 structurally compares the compiler-derived return contract/guidance with the
@@ -433,15 +462,18 @@ IR, immediately runs, streams the pane, and prints the bundle path and
 Absent conf means a direct `provider-result` on the requested registry
 provider with no staging step.
 
-Generated files are ordinary artifacts. While `run.orc` matches
-`generated_source.sha256`, regeneration uses `contract`; after a manual edit,
-the `.orc` source and its compiled contract become execution authority and the
-sidecar is stale regeneration metadata. The command refuses a source/sidecar,
-intent, semantic-contract, or renderer mismatch without `--force`; force is
-an explicit destructive regeneration, never reconciliation. Exact/default
-generation is deterministic from raw inputs. The first `--output` synthesis
-is nondeterministic, but matching pinned-contract reruns make no second model
-call and reproduce identical source bytes.
+Generated files are ordinary source artifacts. While `run.orc` matches
+`generated_source.sha256`, regeneration uses `contract`; after a manual
+`.orc` edit, its compiled contract becomes execution authority and the
+sidecar is stale regeneration metadata. `prompt.md` is independently authored
+source: a matching literal or file may reuse it, but differing existing bytes
+cannot be overwritten silently. The output-contract sidecar never owns the
+task prompt. The command refuses a generated-source, prompt-asset, sidecar,
+output-intent, semantic-contract, or renderer mismatch without `--force`;
+force is explicit destructive regeneration, never reconciliation.
+Exact/default generation is deterministic from raw inputs. The first
+`--output` synthesis is nondeterministic, but matching pinned-contract reruns
+make no second model call and reproduce identical source bytes.
 
 ### Observability (existing machinery, documented not built)
 
@@ -476,12 +508,15 @@ behind the same consumer gate as RPC `steer`.
 - New enum member + codec: spec home `specs/providers.md` on landing;
   fixtures from the pinned build are the wire pin.
 - New CLI: `orchestrator prompt run|import` — spec home `specs/cli.md` on
-  landing. `prompt run` owns mutually exclusive `--output TEXT`
-  (model-assisted draft) and `--returns JSON` (exact canonical root), immediate
-  execution, and edit-safe regeneration. `prompt import` carries a
-  digest-bound canonical contract when available and never infers it from
-  transcript prose. No direct model client: synthesis is an ordinary provider
-  invocation.
+  landing. `prompt run` requires exactly one of literal `--prompt TEXT` and
+  explicit `--prompt-file PATH`; both publish the same source-owned
+  `prompt.md` and canonical `asset_file` prompt-extern binding with no model
+  transformation. It independently owns mutually exclusive `--output TEXT`
+  (model-assisted draft) and `--returns JSON` (exact canonical root),
+  immediate execution, and edit-safe regeneration. `prompt import` uses the
+  same prompt materializer, carries a digest-bound canonical contract when
+  available, and never infers that contract from transcript prose. No direct
+  model client: synthesis is an ordinary provider invocation.
 - `ScaffoldOutputContract.v1` is the single public scaffold IR/envelope for
   inferred, exact, default, cached, and imported contracts. The scaffolding
   component owns its codec, policy subset, provenance split, and artifact
@@ -542,13 +577,16 @@ behind the same consumer gate as RPC `steer`.
   ordinary bash+edit worker task completes under `--approval-mode write`
   (else the lane's pinned mode is adjusted); stdin input composes with
   `--mode json` for the unrestricted variant.
-- **F8** [open]: `--output` returns a schema-valid structural
-  `OutputContractDraft` through the ordinary provider path; inferred, exact,
-  default, and imported inputs normalize to one `ScaffoldOutputContract.v1`;
-  the shared renderer emits compiling canonical type syntax and the compiler
-  derives the same contract/guidance; model-authored prose cannot enter task
-  guidance; invalid drafts fail before task invocation; matching pinned reruns
-  perform no second synthesis call.
+- **F8** [open]: literal and file prompt inputs pass through one exact,
+  source-owned prompt materializer; flag ambiguity, invalid UTF-8, empty
+  prompts, external-path retention, and silent overwrite fail closed.
+  `--output` returns a schema-valid structural `OutputContractDraft` through
+  the ordinary provider path; inferred, exact, default, and imported inputs
+  normalize to one `ScaffoldOutputContract.v1`; the shared renderer emits
+  compiling canonical type syntax and the compiler derives the same
+  contract/guidance; model-authored prose cannot enter task guidance; invalid
+  drafts fail before task invocation; matching pinned reruns perform no
+  second synthesis call.
 
 ## Roadmap
 
@@ -560,6 +598,7 @@ behind the same consumer gate as RPC `steer`.
   structural `OutputContractDraft` + versioned `ScaffoldOutputContract`
   codec/checker/renderer + conf presets
   (`workflows/assets/omp_confs/`) + scaffolder (`run`/`import`,
+  `--prompt`/`--prompt-file` → owned `prompt.md` + canonical prompt extern,
   `--output`/`--returns`, canonical contract artifact and import sidecar) +
   monitoring-doc note + the two-arm bare-vs-advised trial: one `run.orc` on
   `omp_conf`, arms differing only in the digest-pinned conf input (neutral
@@ -588,6 +627,13 @@ silently dead advisor never silently narrows a treatment; hub/IRC state never
 outlives its step; memory stays explicitly disabled; generated workflows are
 ordinary workflows (no generated-only runtime path).
 
+Prompt-input invariants: exactly one explicit literal/file mode; one
+materializer; non-empty UTF-8 bytes preserved without model transformation;
+one source-owned `prompt.md` bound through the existing `asset_file`
+`PromptExtern`; no dependency on the ingestion file's original path.
+Matching inputs regenerate identically, while edited `prompt.md` is authored
+authority and cannot be silently overwritten. Import uses the same route.
+
 Output-contract invariants: one versioned canonical IR feeds every mode; the
 model emits structure, never source or prompt-visible guidance; only the
 user-authored output intent becomes free-form task guidance; shared frontend
@@ -611,14 +657,24 @@ show provenance changes do not alter contract identity; frontend
 type-expression, identifier, and string-atom round trips cover nested
 collections, Unicode, quotes, newlines, and control-character rejection.
 
+Prompt-materialization tests cover mutual exclusion and requiredness,
+byte-identical literal/file outputs, strict UTF-8 and empty-input rejection,
+the canonical `asset_file` manifest object, no model call, no silent overwrite,
+and no generated reference to the ingestion path. A compile/run integration
+check resolves `prompts.task`, removes or relocates the original
+`--prompt-file`, and runs the generated workflow successfully; import enters
+the same materializer. Existing final-composed-prompt audit evidence remains
+the runtime observation surface.
+
 Renderer checks compile `List[String]`, `Optional[T]`, and
 `Map[String,T]` fixtures and structurally compare the compiler-derived return
 type/guidance with the IR. Prompt-contribution provenance proves no
 model-authored field prose reaches task guidance without asserting literal
 prompt wording. Regeneration proves matching pinned contracts make no second
-provider call; intent/source/contract/renderer mismatches refuse; manual
-source edits make the sidecar stale. Self-containment proves scaffolder run ≡
-bare `orchestrator run` on generated `run.orc`. Round-trip proves
+provider call; prompt/output-intent/source/contract/renderer mismatches refuse;
+manual source edits make the sidecar stale. Self-containment proves scaffolder
+run ≡ bare `orchestrator run` on generated `run.orc`.
+Round-trip proves
 `run` → digest-bound sidecar → `import` preserves semantic IR/source modulo
 enumerated session provenance; arbitrary-session import follows the explicit
 or default contract path. Library staging/evidence coverage, canary negatives,
@@ -628,36 +684,44 @@ new modules complete the tranche check.
 ## Declarative Acceptance Scenario
 
 Clean checkout; canaries planted in `~/.omp/agent/` and an ancestor
-`.claude/`; run `orchestrator prompt run --prompt task.md --conf
+`.claude/`; run `orchestrator prompt run --prompt "Implement the requested
+repository change and run its required checks." --conf
 workflows/assets/omp_confs/advised/ --provider omp --output "A concise
-summary, whether all checks passed, and unresolved problems"`. Expected: one
-typed contract-synthesis provider call returns ordered names/types only;
-canonical `output-contract.json` separates semantic contract from
-provider/model/session/usage provenance and generated-source identity;
-generated `.orc` uses canonical bracketed collection types, contains only the
-verbatim user intent as result guidance, and compiles to a structurally equal
-contract before the task starts. The task completes with a schema-valid
-bundle. Evidence contains the digest-bound canonical contract reference, task
-session JSONL, non-empty advisor transcript, conf digest, `omp --version`,
-tokens/cost; the printed `tmux attach` target shows live assistant text;
-`omp --resume` reopens the task session; `prompt import` reproduces the same
-contract/source without reading it from transcript prose.
+summary, whether all checks passed, and unresolved problems"`. Expected:
+`prompt.md` contains the exact literal bytes and `prompts.json` binds
+`prompts.task` through canonical `asset_file`; no task-prompt transformation
+call or external source path exists. One typed contract-synthesis provider
+returns ordered names/types only; canonical `output-contract.json` separates
+semantic contract from provider/model/session/usage provenance and
+generated-source identity; generated `.orc` uses canonical bracketed
+collection types, contains only the verbatim user output intent as result
+guidance, and compiles to a structurally equal contract before the task
+starts. The task completes with a schema-valid bundle. Evidence contains the
+digest-bound canonical contract reference, task session JSONL, non-empty
+advisor transcript, conf digest, `omp --version`, tokens/cost; the printed
+`tmux attach` target shows live assistant text; `omp --resume` reopens the
+task session; `prompt import` reproduces the same owned prompt artifact and
+contract/source without deriving a contract from transcript prose.
 
-Forbidden: model-authored source or task guidance; a parallel type/identifier/
-string grammar in the CLI; task invocation after draft/render/compile/equality
-failure; synthesis on a matching pinned-contract rerun; stale-sidecar
-overwrite of edited source; canary influence; result reads from stdout; any
+Forbidden: path-vs-text auto-detection; model rewriting of the task prompt;
+retaining the ingestion path instead of owning `prompt.md`; model-authored
+source or result guidance; a parallel type/identifier/string grammar in the
+CLI; task invocation after prompt/draft/render/compile/equality failure;
+synthesis on a matching pinned-contract rerun; silent overwrite of edited
+prompt or source artifacts; canary influence; result reads from stdout; any
 execution difference between generated source and a bare `orchestrator run`.
 
 ## Stop / Revise Criteria
 
 F3 leak with no hermetic fix → revise isolation before adoption. F2/F5/F6
 failure for a preset → that preset is withheld (transport fallback for
-F2/F5 remains proposal option C). F8 failure; model-written source or
-prompt-visible prose; a second CLI type/symbol/string grammar; or task
-invocation after normalization, rendering, compilation, or structural
-equality failure → tranche does not close. Exact `--returns` alone is not an
-acceptable substitute for the approved human-facing path. Trial shows no
+F2/F5 remains proposal option C). F8 prompt materialization, contract
+synthesis, or self-containment failure; model rewriting of task prompts;
+model-written source or prompt-visible field prose; a second CLI
+type/symbol/string grammar; or task invocation after prompt normalization,
+contract normalization, rendering, compilation, or structural equality
+failure → tranche does not close. Exact `--returns` alone is not an acceptable
+substitute for the approved human-facing output-contract path. Trial shows no
 advised-arm signal at material cost → conf pattern stays available, guidance
 does not become a default. Upstream `--mode json`/session-layout change under
 the pin → wire-contract break: re-record fixtures, re-review.
@@ -665,7 +729,8 @@ the pin → wire-contract break: re-record fixtures, re-review.
 ## Documentation Impact
 
 On landing: `specs/providers.md` (mode, template); `specs/cli.md`
-(`prompt run|import`, exact canonical-root schema, sidecar and edit authority);
+(`prompt run|import`, literal/file prompt materialization and overwrite
+authority, exact canonical-root schema, contract sidecar and edit authority);
 one public `ScaffoldOutputContract.v1` schema/codec; capability-matrix rows
 (omp provider, codec, scaffolder; 2.16/2.17 annotation);
 `docs/workflow_monitoring.md` (attach runbook); index entry. Drafting-guide
