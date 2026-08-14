@@ -2218,6 +2218,14 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "@with_config(_CONFIG)\n"
         "class Modern:\n"
         "    pass\n",
+        "from candidate.legacy import consume as legacy_call\n"
+        "def factory():\n"
+        "    def decorator(fn):\n"
+        "        legacy_call(fn)\n"
+        "        return fn\n"
+        "    return decorator\n"
+        "@factory()\n"
+        "def modern(config): return resolve(config, {})\n",
     ),
     ids=(
         "imported-retained-entry",
@@ -2226,6 +2234,7 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "decorated-class-module-alias",
         "sibling-class-decorator-direct-import",
         "sibling-class-decorator-module-alias",
+        "local-decorator-factory",
     ),
 )
 def test_live_decorator_dependency_cannot_reach_retained_root(
@@ -2274,11 +2283,17 @@ def test_live_decorator_dependency_cannot_reach_retained_root(
 
     assert result["closed"] is False
     assert result["disposed_consumer_count"] == 1
+    expected_dependency = (
+        "@unresolved-decorator:"
+        if "@factory()" in modern_source
+        else "ptycho.legacy.consume"
+    )
     assert any(
-        "ptycho.legacy.consume" in path
+        expected_dependency in symbol
         for trace in result["traces"]
         if trace["consumer_id"] in {row["consumer_id"] for row in modern_rows}
         for path in trace["paths"]
+        for symbol in path
     )
 
 
@@ -2336,6 +2351,25 @@ def test_live_owner_decorator_resolution_is_fail_closed(
     )
 
     assert observed is closed
+
+
+def test_benign_local_decorator_factory_remains_unresolved(tmp_path: Path) -> None:
+    owner_graph, _, observed = _synthetic_owner_route(
+        tmp_path,
+        module="candidate.mod",
+        owner="candidate.mod.consume",
+        source=(
+            "from candidate.config import resolve\n"
+            "def factory():\n"
+            "    def decorator(fn): return fn\n"
+            "    return decorator\n"
+            "@factory()\n"
+            "def consume(config): return resolve(config, {})\n"
+        ),
+    )
+
+    assert observed is False
+    assert any(target.startswith("@unresolved-decorator:") for target in owner_graph)
 
 
 def test_fresh_added_consumer_occurrence_is_evaluated(

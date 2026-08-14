@@ -5887,9 +5887,12 @@ def _module_functions(
                 if stable_external:
                     terminal_symbols.add(target)
                 elif target in function_by_symbol or target in workspace_function_nodes:
-                    marker = f"@decorator:{owner}:{index}"
-                    context_requests[marker] = (target, ("@trace-all",))
-                    target = marker
+                    if isinstance(decorator, ast.Call):
+                        target = f"@unresolved-decorator:{owner}:{index}"
+                    else:
+                        marker = f"@decorator:{owner}:{index}"
+                        context_requests[marker] = (target, ("@trace-all",))
+                        target = marker
                 elif not target.startswith("@unresolved"):
                     target = f"@unresolved-decorator:{owner}:{index}"
             decorator_dependencies_by_owner.setdefault(owner, set()).add(target)
