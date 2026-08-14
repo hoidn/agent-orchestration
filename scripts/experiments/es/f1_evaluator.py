@@ -2937,6 +2937,7 @@ def _module_functions(
     *,
     authority_symbols: set[str],
     consumer_rows: Sequence[Mapping[str, Any]],
+    current_construction_spans: frozenset[tuple[object, ...]] | None = None,
     workspace_module_roots: frozenset[str] = frozenset(),
     available_external_imports: frozenset[str] = frozenset(),
     workspace_function_nodes: Mapping[
@@ -2961,6 +2962,18 @@ def _module_functions(
     except (OSError, UnicodeError, SyntaxError) as exc:
         raise EvaluatorError(f"candidate consumer source is unreadable: {path}") from exc
     workspace_function_nodes = workspace_function_nodes or {}
+    if current_construction_spans is None:
+        current_construction_spans = frozenset(
+            (
+                span.get("start_line"),
+                span.get("start_col"),
+                span.get("end_line"),
+                span.get("end_col"),
+            )
+            for row in consumer_rows
+            if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION"
+            and isinstance((span := row.get("source_span")), Mapping)
+        )
     workspace_root = path.parents[len(module.split(".")) - 1]
     package = module.rsplit(".", 1)[0] if "." in module else ""
     def imported_names(node: ast.Import | ast.ImportFrom) -> dict[str, str]:
@@ -3676,7 +3689,7 @@ def _module_functions(
 
     scoped_by_owner: dict[str, list[ast.AST]] = {}
     tainted_by_owner: dict[str, set[str]] = {owner: set() for owner, _ in functions}
-    forced_calls_by_owner: dict[str, set[str]] = {
+    forced_call_occurrences_by_owner: dict[str, set[int]] = {
         owner: set() for owner, _ in functions
     }
     exact_rows: list[tuple[Mapping[str, Any], str, ast.AST]] = []
@@ -3836,9 +3849,13 @@ def _module_functions(
         if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION":
             if not isinstance(node, ast.Call):
                 _fail("candidate construction census row is not a call")
-            forced_calls_by_owner[owner].add(
-                local_callee(node, owner) or name(node.func, owner)
-            )
+            if (
+                node.lineno,
+                node.col_offset,
+                node.end_lineno,
+                node.end_col_offset,
+            ) in current_construction_spans:
+                forced_call_occurrences_by_owner[owner].add(id(node))
 
     def qualified_globals(owner: str) -> dict[str, str]:
         function = function_by_symbol[owner]
@@ -4811,10 +4828,6 @@ def _module_functions(
             )
             calls.update(nested_calls)
             contextual_bypasses.update(nested_bypasses)
-        if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION" and isinstance(
-            node, ast.Call
-        ):
-            calls.add(call_symbol(node, module, binding_context))
         graph[consumer_symbol] = sorted(filter(None, calls))
         terminal_symbols.update(calls & available_external_imports)
 
@@ -4970,8 +4983,6 @@ def _module_functions(
             nested_calls, nested_bypasses = contextual_route(callee, formals)
             calls.update(nested_calls)
             contextual_bypasses.update(nested_bypasses)
-        if row.get("match_kind") == "CONFIGURATION_CONSTRUCTION" and isinstance(node, ast.Call):
-            calls.add(call_symbol(node, owner))
         if owner in authority_symbols:
             calls = {owner}
         graph[consumer_symbol] = sorted(filter(None, calls))
@@ -5070,7 +5081,7 @@ def _module_functions(
                 return any(relevant(child) for child in ast.iter_child_nodes(value))
             return False
 
-        calls = set(forced_calls_by_owner[owner])
+        calls: set[str] = set()
         for child in scoped_nodes:
             if not isinstance(child, ast.Call):
                 continue
@@ -5082,7 +5093,8 @@ def _module_functions(
                 *(keyword.value for keyword in child.keywords),
             )
             if call and (
-                call in authority_symbols
+                id(child) in forced_call_occurrences_by_owner[owner]
+                or call in authority_symbols
                 or any(relevant(value) for value in values)
             ):
                 target = call
@@ -5627,6 +5639,23 @@ def inspect_candidate_consumers(
             row for row in rows
             if workspace.joinpath(*PurePosixPath(row["path"]).parts).exists()
         ]
+    construction_spans_by_path: dict[str, set[tuple[object, ...]]] = {}
+    for row in scanned_rows:
+        relative, span = row.get("path"), row.get("source_span")
+        if (
+            row.get("match_kind") != "CONFIGURATION_CONSTRUCTION"
+            or not isinstance(relative, str)
+            or not isinstance(span, Mapping)
+        ):
+            continue
+        construction_spans_by_path.setdefault(relative, set()).add(
+            (
+                span.get("start_line"),
+                span.get("start_col"),
+                span.get("end_line"),
+                span.get("end_col"),
+            )
+        )
     reconciliation = reconcile_consumer_occurrences(rows, scanned_rows)
     span_cache: dict[str, dict[tuple[object, ...], int]] = {}
 
@@ -5739,6 +5768,9 @@ def inspect_candidate_consumers(
                 module,
                 authority_symbols=authority_symbols,
                 consumer_rows=[*rows_by_path.get(relative, ()), *synthetic_rows],
+                current_construction_spans=frozenset(
+                    construction_spans_by_path.get(relative, ())
+                ),
                 workspace_module_roots=workspace_shadow_roots,
                 available_external_imports=available_external_imports,
                 workspace_function_nodes=workspace_function_nodes,

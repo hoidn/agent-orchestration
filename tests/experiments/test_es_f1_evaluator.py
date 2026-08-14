@@ -1971,6 +1971,75 @@ def test_accounted_count_includes_paired_added_and_surviving_occurrences(
     }
 
 
+def test_stale_construction_span_cannot_force_a_current_nonconstruction_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    path = workspace / "scripts/consumer.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def consume(runtime_config):\n"
+        "    logger.info('unchanged')\n"
+        "    return runtime_config.mode\n"
+        "def build(mapping):\n"
+        "    return build_config(mapping)\n",
+        encoding="utf-8",
+    )
+    current = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
+    current_construction = next(
+        row for row in current
+        if row["match_kind"] == "CONFIGURATION_CONSTRUCTION"
+        and row["public_entry_route"] == "scripts.consumer.build"
+    )
+    current_read = next(
+        row for row in current
+        if row["match_kind"] == "CONFIGURATION_READ"
+        and row["public_entry_route"] == "scripts.consumer.consume"
+    )
+    stale_construction = {
+        **current_construction,
+        "consumer_id": "stale-construction",
+        "public_entry_route": "scripts.consumer.consume",
+        "source_span": {
+            "start_line": 4,
+            "start_col": 4,
+            "end_line": 4,
+            "end_col": 28,
+        },
+        "transitive_wrapper_chain": [
+            "scripts.consumer.consume",
+            "build_config",
+        ],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": current},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [current_construction, stale_construction]},
+        workspace=workspace,
+    )
+
+    traces = {trace["consumer_id"]: trace for trace in result["traces"]}
+    assert traces[current_construction["consumer_id"]]["closed"] is False
+    assert traces[current_read["consumer_id"]]["closed"] is True
+    assert traces["stale-construction"]["closed"] is False
+    assert not any(
+        symbol == "scripts.consumer.logger.info"
+        for route in traces["stale-construction"]["paths"]
+        for symbol in route
+    )
+    assert result["removed_consumer_count"] == 0
+
+
 def test_accounted_count_counts_occurrences_not_fanout_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
