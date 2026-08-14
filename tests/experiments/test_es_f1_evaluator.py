@@ -9645,6 +9645,30 @@ def test_cross_module_identity_return_keeps_downstream_tolerant_read_tainted(
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
+def test_decorated_cross_module_return_is_opaque(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=(
+            "def passthrough(function):\n"
+            "    def wrapped(value): return value\n"
+            "    return wrapped\n"
+            "\n"
+            "@passthrough\n"
+            "def derive(value): return value == {}\n"
+        ),
+        imported_symbol="derive",
+        assign_result=True,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == []
+    assert result["unresolved_consumers"] == ["cross-module-carrier-return"]
+
+
 @pytest.mark.parametrize("expression", ("value == {}", "value * 2"))
 def test_cross_module_derived_return_does_not_taint_the_caller_result(
     tmp_path: Path,

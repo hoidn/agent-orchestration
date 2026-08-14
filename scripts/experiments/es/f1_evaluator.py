@@ -5723,7 +5723,12 @@ def _workspace_callable_index(
                         _fail(f"candidate callable is duplicated: {symbol}")
                     result[symbol] = (relative, symbol)
                     if owner == module:
-                        function_nodes[symbol] = (symbol, node, False, False)
+                        function_nodes[symbol] = (
+                            symbol,
+                            None if node.decorator_list else node,
+                            False,
+                            False,
+                        )
                     collect(node.body, symbol)
                 elif isinstance(node, ast.ClassDef):
                     symbol = f"{owner}.{node.name}"
