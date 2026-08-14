@@ -4105,9 +4105,10 @@ def _module_functions(
                 if not carrier_expression(value):
                     continue
                 for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in aliases:
-                        aliases.add(target.id)
-                        changed = True
+                    for name_node in ast.walk(target):
+                        if isinstance(name_node, ast.Name) and name_node.id not in aliases:
+                            aliases.add(name_node.id)
+                            changed = True
         return any(
             isinstance(child, ast.Return)
             and carrier_expression(child.value)

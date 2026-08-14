@@ -9645,6 +9645,26 @@ def test_cross_module_identity_return_keeps_downstream_tolerant_read_tainted(
     assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
 
 
+def test_cross_module_destructured_identity_return_keeps_carrier_tainted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=(
+            "def identity(value):\n"
+            "    alias, = (value,)\n"
+            "    return alias\n"
+        ),
+        imported_symbol="identity",
+        assign_result=True,
+    )
+
+    assert result["closed"] is False
+    assert result["bypass_classes"] == ["TOLERANT_OR_COMPATIBILITY_LOADER"]
+
+
 def test_decorated_cross_module_return_is_opaque(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
