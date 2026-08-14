@@ -958,6 +958,10 @@ def test_checked_in_evaluator_assets_are_one_coherent_successor() -> None:
         "policy": "path-only.v1",
         "sha256": evaluator.file_sha256(FIXTURE_ADAPTER),
     }
+    dispositions = fixtures["retained_root_dispositions"]
+    assert len(dispositions) == 12
+    assert sum(len(row["consumer_ids"]) for row in dispositions) == 24
+    assert all(row["disposition"] == "RETAINED_LEGACY_ROOT" for row in dispositions)
     positives = [row for row in calibration["cases"] if row["defect_kind"] == "none"]
     assert [row["case_id"] for row in positives] == list(
         evaluator.CALIBRATION_POSITIVE_CASE_IDS
@@ -1003,6 +1007,9 @@ def test_frozen_evaluator_package_binds_the_task1_census_and_selectors() -> None
     assert tuple(package["visible_checks"].pre_edit_selectors) == tuple(
         package["visible_contract"]["focused_selectors"]
     )
+    assert package["retained_root_dispositions"] == package["fixture_manifest"][
+        "retained_root_dispositions"
+    ]
 
 
 def test_mixed_predecessor_evaluator_package_rejects_before_execution(
@@ -1956,6 +1963,350 @@ def test_consumer_occurrences_reconcile_as_multisets() -> None:
     assert result["added_count"] == 0
     assert result["old_count"] == result["paired_count"] + result["removed_count"]
     assert result["current_count"] == result["paired_count"] + result["added_count"]
+
+
+def _legacy_read(
+    consumer_id: str = "legacy-a",
+    *,
+    path: str = "ptycho/legacy.py",
+    route: str = "ptycho.legacy.consume",
+) -> dict[str, Any]:
+    return {
+        "consumer_id": consumer_id,
+        "match_kind": "CONFIGURATION_READ",
+        "path": path,
+        "public_entry_route": route,
+        "responsibility_ids": ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"],
+        "source_span": {
+            "start_line": 2,
+            "start_col": 11,
+            "end_line": 2,
+            "end_col": 17,
+        },
+        "transitive_wrapper_chain": [route, "config"],
+    }
+
+
+def _retained_root_disposition(
+    *consumer_ids: str,
+    path: str = "ptycho/legacy.py",
+    route: str = "ptycho.legacy.consume",
+) -> dict[str, Any]:
+    return {
+        "consumer_ids": list(consumer_ids),
+        "disposition": "RETAINED_LEGACY_ROOT",
+        "path": path,
+        "public_entry_route": route,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    (
+        (lambda rows, dispositions: None, "nonempty"),
+        (lambda rows, dispositions: dispositions[0].update(extra=True), "keys"),
+        (lambda rows, dispositions: dispositions[0].update(disposition="KEEP"), "disposition"),
+        (lambda rows, dispositions: dispositions[0].update(path="../legacy.py"), "path"),
+        (lambda rows, dispositions: dispositions[0].update(public_entry_route=""), "route"),
+        (lambda rows, dispositions: dispositions[0].update(consumer_ids=["z", "a"]), "sorted"),
+        (lambda rows, dispositions: dispositions[0].update(consumer_ids=["legacy-a", "legacy-a"]), "unique"),
+        (lambda rows, dispositions: dispositions[0].update(consumer_ids=["missing"]), "unknown"),
+        (lambda rows, dispositions: rows.append(_legacy_read("legacy-b")), "complete"),
+        (
+            lambda rows, dispositions: dispositions.append(
+                _retained_root_disposition("legacy-a")
+            ),
+            "duplicated",
+        ),
+        (lambda rows, dispositions: rows[0].update(match_kind="CONFIGURATION_CONSTRUCTION"), "read"),
+        (lambda rows, dispositions: rows[0].update(responsibility_ids=["CONSUMER_MIGRATION"]), "responsibilit"),
+    ),
+    ids=(
+        "empty",
+        "extra-key",
+        "wrong-disposition",
+        "unsafe-path",
+        "empty-route",
+        "unsorted-ids",
+        "duplicate-id",
+        "unknown-id",
+        "partial-group",
+        "cross-row-duplicate-id",
+        "wrong-kind",
+        "wrong-responsibilities",
+    ),
+)
+def test_retained_root_dispositions_fail_closed(
+    mutate: Any,
+    match: str,
+) -> None:
+    rows = [_legacy_read()]
+    dispositions = [_retained_root_disposition("legacy-a")]
+    if match == "nonempty":
+        dispositions.clear()
+    else:
+        mutate(rows, dispositions)
+
+    with pytest.raises(evaluator.EvaluatorError, match=match):
+        evaluator._validate_retained_root_dispositions(dispositions, rows)
+
+
+def test_retained_root_excludes_only_reconciled_frozen_occurrences(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    (workspace / "ptycho").mkdir()
+    (workspace / "ptycho/__init__.py").write_text("", encoding="utf-8")
+    (workspace / "ptycho/legacy.py").write_text(
+        "def consume(config): return config, config.get('mode', 'legacy')\n",
+        encoding="utf-8",
+    )
+    scanned = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
+    current = [row for row in scanned if row["public_entry_route"] == "ptycho.legacy.consume"]
+    assert len(current) == 2
+    frozen = dict(current[0], consumer_id="legacy-a")
+    frozen["responsibility_ids"] = ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": current},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [frozen]},
+        retained_root_dispositions=[
+            _retained_root_disposition(
+                "legacy-a",
+                path="ptycho/legacy.py",
+                route="ptycho.legacy.consume",
+            )
+        ],
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["disposed_consumer_ids"] == [current[0]["consumer_id"]]
+    assert result["live_consumer_ids"] == [current[1]["consumer_id"]]
+    assert result["accounted_consumer_count"] == 2
+    assert result["disposed_consumer_count"] + result["live_consumer_count"] == 2
+    assert [trace["consumer_id"] for trace in result["traces"]] == [
+        current[1]["consumer_id"]
+    ]
+
+
+def test_retained_root_route_drift_stays_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n"
+            "def consume(config): return config\n"
+        ),
+    )
+    (workspace / "ptycho").mkdir()
+    (workspace / "ptycho/__init__.py").write_text("", encoding="utf-8")
+    (workspace / "ptycho/legacy.py").write_text(
+        "def consume(config): return config\n", encoding="utf-8"
+    )
+    current = evaluator.scan_workspace_configuration_consumers(workspace)["rows"][0]
+    frozen = dict(current, consumer_id="legacy-a", public_entry_route="ptycho.legacy.old")
+    frozen["responsibility_ids"] = ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
+    current = dict(current, consumer_id="current-a")
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [current]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [frozen]},
+        retained_root_dispositions=[
+            _retained_root_disposition(
+                "legacy-a", path="ptycho/legacy.py", route="ptycho.legacy.old"
+            )
+        ],
+        workspace=workspace,
+    )
+
+    assert result["disposed_consumer_ids"] == []
+    assert result["live_consumer_ids"] == ["current-a"]
+    assert [trace["consumer_id"] for trace in result["traces"]] == ["current-a"]
+
+
+def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    (workspace / "ptycho").mkdir()
+    (workspace / "ptycho/__init__.py").write_text("", encoding="utf-8")
+    (workspace / "ptycho/legacy.py").write_text(
+        "def consume(config): return config\n", encoding="utf-8"
+    )
+    frozen = evaluator.scan_workspace_configuration_consumers(workspace)["rows"][0]
+    frozen = dict(frozen, consumer_id="legacy-a")
+    frozen["responsibility_ids"] = ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
+    disposition = _retained_root_disposition("legacy-a")
+    monkeypatch.setattr(
+        evaluator, "scan_workspace_configuration_consumers", lambda workspace: {"rows": []}
+    )
+
+    surviving = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [frozen]},
+        retained_root_dispositions=[disposition],
+        workspace=workspace,
+    )
+    assert surviving["disposed_consumer_ids"] == ["legacy-a"]
+    assert surviving["retired_consumer_ids"] == []
+    assert surviving["traces"] == []
+
+    (workspace / "ptycho/legacy.py").unlink()
+    deleted = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [frozen]},
+        retained_root_dispositions=[disposition],
+        workspace=workspace,
+    )
+    assert deleted["disposed_consumer_ids"] == []
+    assert deleted["retired_consumer_ids"] == ["legacy-a"]
+    assert deleted["accounted_consumer_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "modern_source",
+    (
+        "from candidate.legacy import consume as legacy_decorator\n"
+        "@legacy_decorator\n"
+        "def modern(config): return resolve(config, {})\n",
+        "from candidate.legacy import consume as legacy_call\n"
+        "def wrapper(fn):\n"
+        "    legacy_call(fn)\n"
+        "    return fn\n"
+        "@wrapper\n"
+        "def modern(config): return resolve(config, {})\n",
+    ),
+    ids=("imported-retained-entry", "local-wrapper-reaching-retained-entry"),
+)
+def test_live_decorator_dependency_cannot_reach_retained_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modern_source: str,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    (workspace / "ptycho").mkdir()
+    (workspace / "ptycho/__init__.py").write_text("", encoding="utf-8")
+    legacy = workspace / "ptycho/legacy.py"
+    legacy.write_text("def consume(config): return config\n", encoding="utf-8")
+    modern = workspace / "ptycho/modern.py"
+    modern.write_text(
+        "from candidate.config import resolve\n" + modern_source.replace("candidate.legacy", "ptycho.legacy"),
+        encoding="utf-8",
+    )
+    scanned = evaluator.scan_workspace_configuration_consumers(workspace)["rows"]
+    legacy_rows = [row for row in scanned if row["path"] == "ptycho/legacy.py"]
+    assert len(legacy_rows) == 1
+    frozen = dict(legacy_rows[0], consumer_id="legacy-a")
+    frozen["responsibility_ids"] = ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
+    scanned.append({
+        "consumer_id": "modern-a",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/modern.py",
+        "public_entry_route": "ptycho.modern.modern",
+        "transitive_wrapper_chain": ["ptycho.modern.modern", "config"],
+    })
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": scanned},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [frozen]},
+        retained_root_dispositions=[
+            _retained_root_disposition(
+                "legacy-a",
+                path="ptycho/legacy.py",
+                route="ptycho.legacy.consume",
+            )
+        ],
+        workspace=workspace,
+    )
+
+    assert result["closed"] is False
+    assert result["disposed_consumer_count"] == 1
+    assert any("ptycho.legacy.consume" in path for trace in result["traces"] for path in trace["paths"])
+
+
+@pytest.mark.parametrize(
+    ("source", "available", "closed"),
+    (
+        (
+            "from candidate.config import resolve\n"
+            "@missing\n"
+            "def consume(config): return resolve(config, {})\n",
+            frozenset(),
+            False,
+        ),
+        (
+            "if FLAG:\n"
+            "    from functools import cache as wrapper\n"
+            "else:\n"
+            "    from functools import lru_cache as wrapper\n"
+            "from candidate.config import resolve\n"
+            "@wrapper\n"
+            "def consume(config): return resolve(config, {})\n",
+            frozenset({"functools.cache", "functools.lru_cache"}),
+            False,
+        ),
+        (
+            "from candidate.config import resolve\n"
+            "@staticmethod\n"
+            "def consume(config): return resolve(config, {})\n",
+            frozenset(),
+            True,
+        ),
+        (
+            "from functools import cache\n"
+            "from candidate.config import resolve\n"
+            "@cache\n"
+            "def consume(config): return resolve(config, {})\n",
+            frozenset({"functools.cache"}),
+            True,
+        ),
+    ),
+    ids=("unresolved", "ambiguous", "builtin", "external"),
+)
+def test_live_owner_decorator_resolution_is_fail_closed(
+    tmp_path: Path,
+    source: str,
+    available: frozenset[str],
+    closed: bool,
+) -> None:
+    _, _, observed = _synthetic_owner_route(
+        tmp_path,
+        module="candidate.mod",
+        owner="candidate.mod.consume",
+        source=source,
+        available_external_imports=available,
+    )
+
+    assert observed is closed
 
 
 def test_fresh_added_consumer_occurrence_is_evaluated(
@@ -7901,7 +8252,8 @@ def test_class_decorator_occurrence_is_not_absorbed_by_explicit_init(
     )
 
     assert graph["ptycho.config.ExampleConfig"] == [
-        "ptycho.config.ExampleConfig.__init__"
+        "ptycho.config.ExampleConfig.__init__",
+        "pydantic.with_config",
     ]
     assert all(
         graph[f"@consumer:{row['consumer_id']}"] == ["pydantic.with_config"]

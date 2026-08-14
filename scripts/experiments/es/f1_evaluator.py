@@ -680,6 +680,66 @@ def _validate_calibration_cases(cases: object) -> list[Mapping[str, Any]]:
     return rows
 
 
+def _validate_retained_root_dispositions(
+    dispositions: object,
+    frozen_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    if not isinstance(dispositions, list) or not dispositions:
+        _fail("retained root dispositions must be a nonempty list")
+    groups: dict[tuple[object, object], list[Mapping[str, Any]]] = {}
+    rows_by_id: dict[object, Mapping[str, Any]] = {}
+    for row in frozen_rows:
+        groups.setdefault((row.get("path"), row.get("public_entry_route")), []).append(row)
+        consumer_id = row.get("consumer_id")
+        if consumer_id in rows_by_id:
+            _fail("frozen configuration census slots are duplicated")
+        rows_by_id[consumer_id] = row
+    claimed: set[str] = set()
+    validated: list[Mapping[str, Any]] = []
+    for disposition in dispositions:
+        if not isinstance(disposition, Mapping) or set(disposition) != {
+            "consumer_ids", "disposition", "path", "public_entry_route"
+        }:
+            _fail("retained root disposition keys are malformed")
+        if disposition.get("disposition") != "RETAINED_LEGACY_ROOT":
+            _fail("retained root disposition is unsupported")
+        relative = _safe_relative(
+            disposition.get("path"), label="retained root disposition path"
+        )
+        route = disposition.get("public_entry_route")
+        if not isinstance(route, str) or not route:
+            _fail("retained root disposition route is malformed")
+        consumer_ids = disposition.get("consumer_ids")
+        if (
+            not isinstance(consumer_ids, list)
+            or not consumer_ids
+            or any(not isinstance(consumer_id, str) or not consumer_id for consumer_id in consumer_ids)
+        ):
+            _fail("retained root disposition consumer IDs are malformed")
+        if consumer_ids != sorted(consumer_ids):
+            _fail("retained root disposition consumer IDs are not sorted")
+        if len(consumer_ids) != len(set(consumer_ids)):
+            _fail("retained root disposition consumer IDs are not unique")
+        if claimed.intersection(consumer_ids):
+            _fail("retained root disposition consumer IDs are duplicated")
+        if any(consumer_id not in rows_by_id for consumer_id in consumer_ids):
+            _fail("retained root disposition names an unknown consumer ID")
+        group = groups.get((relative, route), ())
+        if sorted(row.get("consumer_id") for row in group) != consumer_ids:
+            _fail("retained root disposition does not cover one complete frozen group")
+        if any(row.get("match_kind") != "CONFIGURATION_READ" for row in group):
+            _fail("retained root disposition must cover configuration reads only")
+        if any(
+            row.get("responsibility_ids")
+            != ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
+            for row in group
+        ):
+            _fail("retained root disposition responsibilities are malformed")
+        claimed.update(consumer_ids)
+        validated.append(disposition)
+    return validated
+
+
 def load_frozen_evaluator_package(
     *,
     calibration_cases_path: Path,
@@ -743,7 +803,8 @@ def load_frozen_evaluator_package(
         _fail("evaluator consumer census binding drifted")
     expected_fixture_fields = {
         "bypass_classes", "calibration_cases", "configuration_roles",
-        "fixture_adapter", "hard_clause_ids", "schema_version", "versions",
+        "fixture_adapter", "hard_clause_ids", "retained_root_dispositions",
+        "schema_version", "versions",
     }
     calibration_binding = fixtures.get("calibration_cases")
     if (
@@ -792,6 +853,9 @@ def load_frozen_evaluator_package(
         or adapter_binding.get("sha256") != file_sha256(_F1_FIXTURE_ADAPTER)
     ):
         _fail("evaluator fixture adapter binding drifted")
+    retained_root_dispositions = _validate_retained_root_dispositions(
+        fixtures.get("retained_root_dispositions"), census["rows"]
+    )
     return {
         "calibration_cases": calibration,
         "consumer_census": census,
@@ -802,6 +866,7 @@ def load_frozen_evaluator_package(
             "probe_result": versions["probe_result"],
             "validated": True,
         },
+        "retained_root_dispositions": retained_root_dispositions,
         "reviewer_perspectives": perspectives,
         "task_profile": profile,
         "visible_checks": checks,
@@ -3481,6 +3546,7 @@ def _module_functions(
                 collect(node.body, symbol)
 
     collect(tree.body, module)
+    decorated_owners = (*functions, *classes)
     local_by_name: dict[str, str] = {}
     duplicates: set[str] = set()
     for symbol, node in functions:
@@ -3967,6 +4033,7 @@ def _module_functions(
     forced_call_occurrences_by_owner: dict[str, set[int]] = {
         owner: set() for owner, _ in functions
     }
+    force_all_calls_by_owner: set[str] = set()
     exact_rows: list[tuple[Mapping[str, Any], str, ast.AST]] = []
     class_decorator_rows: list[tuple[Mapping[str, Any], ast.AST, ast.Call]] = []
     context_rows: list[tuple[str, str, set[str]]] = []
@@ -4077,6 +4144,17 @@ def _module_functions(
             continue
         if node is None:
             function = function_by_symbol[owner]
+            if row.get("trace_all_calls") is True:
+                force_all_calls_by_owner.add(owner)
+                tainted_by_owner[owner].update(
+                    argument.arg
+                    for argument in (
+                        *function.args.posonlyargs,
+                        *function.args.args,
+                        *function.args.kwonlyargs,
+                    )
+                )
+                continue
             context_symbol = row.get("context_symbol")
             tainted_formals = row.get("tainted_formals")
             if context_symbol is not None or tainted_formals is not None:
@@ -5720,6 +5798,8 @@ def _module_functions(
                 *(keyword.value for keyword in child.keywords),
             )
             if call and (
+                owner in force_all_calls_by_owner
+                or
                 id(child) in forced_call_occurrences_by_owner[owner]
                 or call in authority_symbols
                 or any(relevant(value) for value in values)
@@ -5770,6 +5850,49 @@ def _module_functions(
         )
         if classes and owner not in authority_symbols:
             bypasses[owner] = classes
+    for owner, node in decorated_owners:
+        for index, decorator in enumerate(node.decorator_list):
+            factory = decorator.func if isinstance(decorator, ast.Call) else decorator
+            call = decorator if isinstance(decorator, ast.Call) else ast.copy_location(
+                ast.Call(func=factory, args=[], keywords=[]), decorator
+            )
+            if call is not decorator:
+                parent_by_node[id(call)] = parent_by_node[id(decorator)]
+            binding = active_name_binding(
+                call, module, ("source", decorator.lineno)
+            )
+            if (
+                isinstance(factory, ast.Name)
+                and binding is None
+                and module_binding_counts.get(factory.id, 0) == 0
+                and hasattr(builtins, factory.id)
+            ):
+                target = f"builtins.{factory.id}"
+                terminal_symbols.add(target)
+            else:
+                target = call_symbol(call, module, ("source", decorator.lineno))
+                root = factory
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                stable_external = (
+                    target in available_external_imports
+                    and binding is not None
+                    and binding[0] == "import"
+                    and isinstance(root, ast.Name)
+                    and not _has_module_object_mutation(
+                        tree, {root.id}, reject_argument_escape=True
+                    )
+                )
+                if stable_external:
+                    terminal_symbols.add(target)
+                elif target in function_by_symbol or target in workspace_function_nodes:
+                    marker = f"@decorator:{owner}:{index}"
+                    context_requests[marker] = (target, ("@trace-all",))
+                    target = marker
+                elif not target.startswith("@unresolved"):
+                    target = f"@unresolved-decorator:{owner}:{index}"
+            graph[owner] = sorted(set((*graph.get(owner, ()), target)))
+
     return (
         graph,
         bypasses,
@@ -6357,6 +6480,7 @@ def inspect_candidate_consumers(
     *,
     candidate_evidence: Mapping[str, Any],
     consumer_census: Mapping[str, Any],
+    retained_root_dispositions: Sequence[Mapping[str, Any]] = (),
     workspace: Path,
     python_executable: Path | None = None,
 ) -> dict[str, Any]:
@@ -6365,6 +6489,16 @@ def inspect_candidate_consumers(
     rows = consumer_census.get("rows")
     if not isinstance(rows, list) or not rows:
         _fail("frozen configuration census is absent")
+    disposition_rows = (
+        _validate_retained_root_dispositions(retained_root_dispositions, rows)
+        if retained_root_dispositions
+        else []
+    )
+    disposed_frozen_ids = {
+        consumer_id
+        for disposition in disposition_rows
+        for consumer_id in cast(Sequence[str], disposition["consumer_ids"])
+    }
     authority_symbols = {
         row["symbol"] for row in candidate_evidence["public_resolution_routes"]
     }
@@ -6440,13 +6574,31 @@ def inspect_candidate_consumers(
     surviving_removed = [
         row for row in reconciliation["removed"] if occurrence_survives(row)
     ]
+    paired_rows = cast(
+        list[tuple[Mapping[str, Any], Mapping[str, Any]]],
+        reconciliation["paired"],
+    )
     current_rows = (
-        [current for _, current in reconciliation["paired"]]
+        [current for _, current in paired_rows]
         + reconciliation["added"]
         + surviving_removed
     )
     retired_rows = [
         row for row in reconciliation["removed"] if row not in surviving_removed
+    ]
+    disposed_rows = [
+        current
+        for frozen, current in paired_rows
+        if frozen["consumer_id"] in disposed_frozen_ids
+        and current.get("path") == frozen.get("path")
+        and current.get("public_entry_route") == frozen.get("public_entry_route")
+    ] + [
+        row for row in surviving_removed
+        if row["consumer_id"] in disposed_frozen_ids
+    ]
+    disposed_ids = {cast(str, row["consumer_id"]) for row in disposed_rows}
+    live_rows = [
+        row for row in current_rows if cast(str, row["consumer_id"]) not in disposed_ids
     ]
     graph: dict[str, list[str]] = {}
     graph_paths: dict[str, str] = {}
@@ -6478,6 +6630,7 @@ def inspect_candidate_consumers(
         python_executable,
     )
     synthetic_owners: dict[str, set[str]] = {}
+    synthetic_decorator_owners: dict[str, set[str]] = {}
     synthetic_contexts: dict[
         str, dict[str, tuple[str, tuple[str, ...]]]
     ] = {}
@@ -6489,6 +6642,9 @@ def inspect_candidate_consumers(
         synthetic_rows = [
             {"public_entry_route": owner}
             for owner in sorted(synthetic_owners.get(relative, ()))
+        ] + [
+            {"public_entry_route": owner, "trace_all_calls": True}
+            for owner in sorted(synthetic_decorator_owners.get(relative, ()))
         ] + [
             {
                 "context_symbol": context_symbol,
@@ -6553,7 +6709,18 @@ def inspect_candidate_consumers(
                 relative, owner = target
                 if symbol in graph and graph_paths.get(symbol) == graph_paths.get(parent):
                     continue
-                if context is not None and not context[1] and owner is not None:
+                if (
+                    context is not None
+                    and context[1] == ("@trace-all",)
+                    and owner is not None
+                ):
+                    if symbol not in graph:
+                        graph[symbol] = [target_symbol]
+                        graph_paths[symbol] = relative
+                    if owner not in synthetic_decorator_owners.setdefault(relative, set()):
+                        synthetic_decorator_owners[relative].add(owner)
+                        changed_paths.add(relative)
+                elif context is not None and not context[1] and owner is not None:
                     if symbol not in graph:
                         graph[symbol] = [
                             target_symbol,
@@ -6580,6 +6747,12 @@ def inspect_candidate_consumers(
         for relative in sorted(changed_paths):
             analyze(relative)
             analyzed_paths.add(relative)
+    for entry in sorted(
+        {cast(str, row["public_entry_route"]) for row in disposed_rows}
+    ):
+        graph[entry] = sorted(
+            set((*graph.get(entry, ()), f"@retained-legacy-root:{entry}"))
+        )
     for row in current_rows:
         classes = row.get("bypass_classes", ())
         if not classes:
@@ -6608,7 +6781,7 @@ def inspect_candidate_consumers(
             ),
             "requires_authority": _requires_resolution_authority(row),
         }
-        for row in current_rows
+        for row in live_rows
     ]
     for row in live_projected:
         entry = row["entry_symbol"]
@@ -6655,6 +6828,12 @@ def inspect_candidate_consumers(
         "introduced_consumer_symbols": sorted(
             set(introduced_consumers)
             | {row["public_entry_route"] for row in reconciliation["added"]}
+        ),
+        "disposed_consumer_count": len(disposed_rows),
+        "disposed_consumer_ids": sorted(disposed_ids),
+        "live_consumer_count": len(live_rows),
+        "live_consumer_ids": sorted(
+            cast(str, row["consumer_id"]) for row in live_rows
         ),
         "paired_consumer_count": reconciliation["paired_count"],
         "projected_consumer_count": len(projected),
@@ -6730,6 +6909,7 @@ def _evaluate_candidate(
     output_root: Path,
     package_conformance: Mapping[str, Any],
     python_executable: Path,
+    retained_root_dispositions: Sequence[Mapping[str, Any]] = (),
     timeout_seconds: int,
     visible_result: Mapping[str, Any],
     workspace: Path,
@@ -6803,6 +6983,7 @@ def _evaluate_candidate(
     route = inspect_candidate_consumers(
         candidate_evidence=evidence,
         consumer_census=consumer_census,
+        retained_root_dispositions=retained_root_dispositions,
         workspace=workspace,
         python_executable=python_executable,
     )
@@ -6875,6 +7056,9 @@ def evaluate_candidate(
         output_root=output_root,
         package_conformance=cast(Mapping[str, Any], package["package_conformance"]),
         python_executable=checks.python_executable,
+        retained_root_dispositions=cast(
+            Sequence[Mapping[str, Any]], package["retained_root_dispositions"]
+        ),
         timeout_seconds=checks.timeout_seconds,
         visible_result=visible_result,
         workspace=workspace,
