@@ -3404,7 +3404,7 @@ def _module_functions(
                     and len({event[4] for event in imports_for_local}) > 1
                 )
                 local_events[:] = [
-                    (event[0], event[1], "invalid_import", "", event[4])
+                    (event[0], event[1], "invalid_import", event[3], event[4])
                     if event[2] == "import"
                     and (conflicting_suites or event[:2] >= conflict_position)
                     else event
@@ -3459,6 +3459,56 @@ def _module_functions(
             class_owner = class_owner.rsplit(".", 1)[0]
         return class_base.get(class_owner)
 
+    def stable_reimport_alias(
+        local: str,
+        owner: str,
+        binding_scope: str,
+    ) -> bool:
+        def eager_class_bodies(body: ast.Module) -> list[ast.Module]:
+            classes: list[ast.Module] = []
+            pending = list(body.body)
+            while pending:
+                child = pending.pop()
+                if isinstance(
+                    child,
+                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda),
+                ):
+                    continue
+                if isinstance(child, ast.ClassDef):
+                    classes.append(
+                        ast.Module(body=list(child.body), type_ignores=[])
+                    )
+                    pending.extend(child.body)
+                    continue
+                pending.extend(ast.iter_child_nodes(child))
+            return classes
+
+        scope = owner
+        checked: list[ast.Module] = []
+        while scope.startswith(module):
+            if scope == module:
+                body = tree
+            elif node := function_by_symbol.get(scope):
+                body = ast.Module(body=list(node.body), type_ignores=[])
+            else:
+                body = None
+            if body is not None:
+                checked.append(body)
+                checked.extend(eager_class_bodies(body))
+            if scope == binding_scope:
+                return not any(
+                    _has_module_object_mutation(
+                        body,
+                        {local},
+                        reject_argument_escape=True,
+                    )
+                    for body in checked
+                )
+            if scope == module:
+                break
+            scope = scope.rsplit(".", 1)[0]
+        return False
+
     def active_name_binding(
         call: ast.Call,
         owner: str,
@@ -3502,7 +3552,22 @@ def _module_functions(
                 ]
             if active:
                 _, _, kind, target, _ = max(active, key=lambda event: event[:2])
-                return ("unknown", "") if kind == "invalid_import" else (kind, target)
+                if kind == "invalid_import":
+                    imports = [
+                        event
+                        for event in active
+                        if event[2] in {"import", "invalid_import"}
+                    ]
+                    if (
+                        len(imports) == len(active)
+                        and len(imports) >= 2
+                        and target
+                        and len({(event[3], event[4]) for event in imports}) == 1
+                        and stable_reimport_alias(local, owner, scope)
+                    ):
+                        return "import", target
+                    return "unknown", ""
+                return kind, target
             if events:
                 return "unknown", ""
             if scope == module:

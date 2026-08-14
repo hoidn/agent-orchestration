@@ -7259,6 +7259,193 @@ def test_deleted_module_import_is_not_an_external_terminal(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "import candidate.config as backend\n"
+            "import candidate.config as backend\n"
+            "import candidate.config as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    import candidate.config as backend\n"
+            "    import candidate.config as backend\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+    ),
+    ids=("module-triple", "function-double"),
+)
+def test_same_suite_same_target_reimports_remain_definite(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.reimports",
+        owner="package.reimports.consume",
+        source=source,
+    )
+
+    assert calls == ["candidate.config.resolve"]
+    assert closed is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "import candidate.config as backend\n"
+            "import candidate.config as backend\n"
+            "backend.resolve = replacement\n"
+            "def consume(runtime_config):\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "import candidate.config as backend\n"
+            "import candidate.config as backend\n"
+            "capture(backend)\n"
+            "def consume(runtime_config):\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    import candidate.config as backend\n"
+            "    import candidate.config as backend\n"
+            "    backend.resolve = replacement\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    import candidate.config as backend\n"
+            "    import candidate.config as backend\n"
+            "    capture(backend)\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "import candidate.config as backend\n"
+            "import candidate.config as backend\n"
+            "class MutateBackend:\n"
+            "    backend.resolve = replacement\n"
+            "def consume(runtime_config):\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+        (
+            "def consume(runtime_config):\n"
+            "    import candidate.config as backend\n"
+            "    import candidate.config as backend\n"
+            "    class Outer:\n"
+            "        class LeakBackend:\n"
+            "            capture(backend)\n"
+            "    return backend.resolve(runtime_config, {})\n"
+        ),
+    ),
+    ids=(
+        "module-attribute-mutation",
+        "module-argument-escape",
+        "function-attribute-mutation",
+        "function-argument-escape",
+        "module-class-attribute-mutation",
+        "function-class-argument-escape",
+    ),
+)
+def test_authority_reimport_recovery_rejects_mutation_or_escape(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.reimports",
+        owner="package.reimports.consume",
+        source=source,
+    )
+
+    assert calls == ["package.reimports.backend"]
+    assert closed is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        (
+            "import json as backend\n"
+            "import pathlib as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "if enabled:\n"
+            "    import json as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "try:\n"
+            "    import json as backend\n"
+            "except ImportError:\n"
+            "    pass\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "backend = replacement\n"
+            "import json as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "del backend\n"
+            "import json as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "import json as backend\n"
+            "backend.dumps = replacement\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+        (
+            "import json as backend\n"
+            "import json as backend\n"
+            "capture(backend)\n"
+            "def consume(runtime_config):\n"
+            "    return backend.dumps(runtime_config)\n"
+        ),
+    ),
+    ids=(
+        "different-target",
+        "branch",
+        "try",
+        "assignment",
+        "delete",
+        "object-mutation",
+        "argument-escape",
+    ),
+)
+def test_reimport_recovery_rejects_ambiguous_or_unsafe_bindings(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.reimports",
+        owner="package.reimports.consume",
+        source=source,
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+
+    assert calls != ["json.dumps"] or "json.dumps" not in terminals
+    assert closed is False
+
+
+@pytest.mark.parametrize(
     "imports",
     (
         "    from json import dumps as read\n"
