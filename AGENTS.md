@@ -27,7 +27,6 @@ Repo expectations:
 
 Do not assume success from inspection alone when runnable checks are available.
 Do not weaken verification just to make a failure disappear.
-Do not create worktrees, especially not when executing plans or implementing features
 When a workflow run has already passed an approval/review gate and later fails downstream, prefer `orchestrator resume <run_id>` over launching a fresh run unless you intentionally want to redo the earlier gated stages.
 
 Development rules:
