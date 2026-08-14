@@ -4365,6 +4365,28 @@ def test_unverified_module_dict_receiver_fails_closed(
     assert not any(terminal.endswith(f":{target}") for terminal in terminals)
 
 
+def test_enclosing_scope_shadowed_module_dict_receiver_fails_closed(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.outer.consume",
+        source=(
+            "LOOKUP = {}\n"
+            "def outer():\n"
+            "    LOOKUP = object()\n"
+            "    def consume(runtime_config):\n"
+            "        return LOOKUP.get(runtime_config)\n"
+        ),
+    )
+
+    target = "package.sink.LOOKUP.get"
+    assert closed is False
+    assert target in calls
+    assert not any(terminal.endswith(f":{target}") for terminal in terminals)
+
+
 @pytest.mark.parametrize(
     "source",
     (

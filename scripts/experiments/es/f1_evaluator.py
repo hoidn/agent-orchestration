@@ -4451,6 +4451,11 @@ def _module_functions(
         ):
             return False
         receiver = call.func.value.id
+        scope = owner
+        while scope != module:
+            if binding_events_by_owner.get(scope, {}).get(receiver):
+                return False
+            scope = scope.rsplit(".", 1)[0]
         if (
             module_binding_counts.get(receiver) != 1
             or receiver in rebound_by_owner[owner]
