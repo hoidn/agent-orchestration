@@ -2868,11 +2868,21 @@ def _has_module_object_mutation(
             )
         return (node.args,)
 
+    runtime_functions: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+    pending_functions: list[ast.AST] = list(tree.body)
+    while pending_functions:
+        node = pending_functions.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            runtime_functions.append(node)
+            continue
+        if isinstance(node, (ast.ClassDef, ast.Lambda)):
+            continue
+        pending_functions.extend(ast.iter_child_nodes(node))
+
     object_closures = {
         node.name
-        for node in tree.body
+        for node in runtime_functions
         if reject_argument_escape
-        and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and _has_module_object_mutation(
             ast.Module(body=list(node.body), type_ignores=[]),
             object_names,

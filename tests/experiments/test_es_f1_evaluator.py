@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from copy import deepcopy
 import hashlib
 import inspect
@@ -4188,6 +4189,34 @@ def test_invoked_external_receiver_user_with_escape_fails_closed(
         for trace in result["traces"]
         for path in trace["paths"]
     )
+
+
+@pytest.mark.parametrize(
+    ("operation", "closed"),
+    (
+        ("        receiver.info(runtime_config)\n", True),
+        ("        mutate(receiver)\n", False),
+    ),
+    ids=("safe-method-use", "argument-escape"),
+)
+def test_control_flow_defined_invoked_receiver_user_is_checked(
+    operation: str,
+    closed: bool,
+) -> None:
+    tree = ast.parse(
+        "import logging\n"
+        "receiver = logging.getLogger(__name__)\n"
+        "if True:\n"
+        "    def main(runtime_config, mutate=lambda value: None):\n"
+        + operation
+        + "main(object())\n",
+    )
+
+    assert evaluator._has_module_object_mutation(
+        tree,
+        {"receiver"},
+        reject_argument_escape=True,
+    ) is (not closed)
 
 
 def test_synthetic_owner_reuses_verified_external_receiver_terminal_proof(
