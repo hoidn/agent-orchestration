@@ -4472,272 +4472,6 @@ def _module_functions(
             )
         return stable_external_receiver_scopes[key]
 
-    def has_opaque_external_result_receiver(call: ast.Call, owner: str) -> bool:
-        if not (
-            isinstance(call.func, ast.Attribute)
-            and isinstance(call.func.value, ast.Name)
-        ):
-            return False
-        receiver = call.func.value.id
-        function = function_by_symbol[owner]
-        if receiver in {
-            argument.arg
-            for argument in (
-                *function.args.posonlyargs,
-                *function.args.args,
-                *function.args.kwonlyargs,
-                *((function.args.vararg,) if function.args.vararg is not None else ()),
-                *((function.args.kwarg,) if function.args.kwarg is not None else ()),
-            )
-        }:
-            return False
-        function_scope = ast.Module(body=list(function.body), type_ignores=[])
-        if _module_binding_counts(function_scope).get(receiver) != 1:
-            return False
-        definitions: list[ast.Assign | ast.AnnAssign] = []
-        for statement in function.body:
-            if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-                and statement.targets[0].id == receiver
-                and isinstance(statement.value, ast.Call)
-            ) or (
-                isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
-                and statement.target.id == receiver
-                and isinstance(statement.value, ast.Call)
-            ):
-                definitions.append(statement)
-        if len(definitions) != 1:
-            return False
-        definition = definitions[0]
-        factory_call = definition.value
-        assert isinstance(factory_call, ast.Call)
-        if (definition.lineno, definition.col_offset) >= (
-            call.lineno,
-            call.col_offset,
-        ):
-            return False
-        factory_root: ast.AST = factory_call.func
-        while isinstance(factory_root, ast.Attribute):
-            factory_root = factory_root.value
-        binding = active_name_binding(factory_call, owner)
-        factory = call_symbol(factory_call, owner)
-        factory_import_aliases = (
-            {factory_root.id} if isinstance(factory_root, ast.Name) else set()
-        ) | {
-            local
-            for local, imported in imports_by_owner[owner].items()
-            if imported == factory or factory.startswith(f"{imported}.")
-        }
-        if not (
-            isinstance(factory_root, ast.Name)
-            and binding is not None
-            and binding[0] == "import"
-            and factory in available_external_imports
-            and factory.split(".", 1)[0] not in workspace_module_roots
-            and not any(
-                attribute == factory or attribute.startswith(f"{factory}.")
-                for attribute in reassigned_attributes
-            )
-        ):
-            return False
-        module_local_functions = {
-            f"{module}.{node.name}": node
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
-        module_factory_mutators = {
-            symbol
-            for symbol, node in module_local_functions.items()
-            if _has_module_object_mutation(
-                ast.Module(body=list(node.body), type_ignores=[]),
-                factory_import_aliases,
-                reject_argument_escape=True,
-            )
-        }
-
-        def exact_name_alias(statement: ast.stmt) -> tuple[str, ast.AST] | None:
-            if (
-                isinstance(statement, ast.Assign)
-                and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)
-            ):
-                return statement.targets[0].id, statement.value
-            if (
-                isinstance(statement, ast.AnnAssign)
-                and isinstance(statement.target, ast.Name)
-                and statement.value is not None
-            ):
-                return statement.target.id, statement.value
-            return None
-
-        callable_alias_targets = {
-            symbol: targets[0]
-            for symbol, targets in graph.items()
-            if len(targets) == 1
-        }
-        callable_alias_targets.update(
-            {
-                f"{module}.{alias[0]}": target
-                for statement in tree.body
-                if (alias := exact_name_alias(statement)) is not None
-                and module_binding_counts.get(alias[0]) == 1
-                and (target := name(alias[1]))
-            }
-        )
-        changed = True
-        while changed:
-            changed = False
-            for symbol, target in callable_alias_targets.items():
-                if (
-                    symbol not in module_factory_mutators
-                    and target in module_factory_mutators
-                ):
-                    module_factory_mutators.add(symbol)
-                    changed = True
-            for symbol in module_local_functions:
-                if symbol in module_factory_mutators or not any(
-                    isinstance(node, ast.Call)
-                    and call_symbol(node, symbol) in module_factory_mutators
-                    for node in scoped_by_owner[symbol]
-                ):
-                    continue
-                module_factory_mutators.add(symbol)
-                changed = True
-        owner_local_mutator_aliases = {
-            alias[0]: statement
-            for statement in function.body
-            if (alias := exact_name_alias(statement)) is not None
-            and _module_binding_counts(function_scope).get(alias[0]) == 1
-            and name(alias[1], owner) in module_factory_mutators
-        }
-        if any(
-            isinstance(node, ast.Call)
-            and node is not factory_call
-            and (
-                call_symbol(node, owner) in module_factory_mutators
-                or (
-                    isinstance(node.func, ast.Name)
-                    and (
-                        alias_definition := owner_local_mutator_aliases.get(
-                            node.func.id
-                        )
-                    )
-                    is not None
-                    and (alias_definition.lineno, alias_definition.col_offset)
-                    < (node.lineno, node.col_offset)
-                    < (call.lineno, call.col_offset)
-                )
-            )
-            for node in scoped_by_owner[owner]
-        ):
-            return False
-        if any(
-            isinstance(node, (ast.Global, ast.Nonlocal))
-            and ({receiver} | factory_import_aliases) & set(node.names)
-            for node in ast.walk(tree)
-        ):
-            return False
-
-        def rooted_at(value: ast.AST, object_name: str) -> bool:
-            while isinstance(value, (ast.Attribute, ast.Subscript)):
-                value = value.value
-            return isinstance(value, ast.Name) and value.id == object_name
-
-        def has_subscript_mutation(scope: ast.Module, object_name: str) -> bool:
-            return any(
-                rooted_at(target, object_name)
-                for node in ast.walk(scope)
-                if isinstance(
-                    node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)
-                )
-                for target in (
-                    node.targets
-                    if isinstance(node, (ast.Assign, ast.Delete))
-                    else (node.target,)
-                )
-                if isinstance(target, ast.Subscript)
-            )
-
-        def has_nested_capture(object_name: str) -> bool:
-            return any(
-                isinstance(
-                    node,
-                    (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
-                )
-                and (
-                    any(
-                        isinstance(child, ast.Name)
-                        and child.id == object_name
-                        for child in ast.walk(node)
-                    )
-                    or any(
-                        isinstance(child, (ast.Global, ast.Nonlocal))
-                        and object_name in child.names
-                        for child in ast.walk(node)
-                    )
-                )
-                for node in scoped_by_owner[owner]
-            )
-
-        def has_wrapped_carrier_use(object_name: str) -> bool:
-            return any(
-                any(
-                    isinstance(child, ast.Name) and child.id == object_name
-                    for child in ast.walk(node)
-                )
-                for node in ast.walk(function_scope)
-                if isinstance(
-                    node,
-                    (
-                        ast.IfExp,
-                        ast.BoolOp,
-                        ast.ListComp,
-                        ast.SetComp,
-                        ast.DictComp,
-                        ast.GeneratorExp,
-                        ast.Await,
-                        ast.JoinedStr,
-                        ast.FormattedValue,
-                        ast.UnaryOp,
-                        ast.BinOp,
-                        ast.NamedExpr,
-                    ),
-                )
-            )
-
-        if any(
-            _has_module_object_mutation(
-                scope,
-                factory_import_aliases,
-                reject_argument_escape=True,
-                allowed_argument_calls=frozenset({id(factory_call)}),
-            )
-            for scope in (tree, function_scope)
-        ) or any(
-            has_subscript_mutation(scope, alias)
-            for scope in (tree, function_scope)
-            for alias in factory_import_aliases
-        ) or any(
-            has_nested_capture(alias) or has_wrapped_carrier_use(alias)
-            for alias in factory_import_aliases
-        ):
-            return False
-        if _has_module_object_mutation(
-            function_scope,
-            {receiver},
-            reject_argument_escape=True,
-        ):
-            return False
-
-        return not (
-            has_subscript_mutation(function_scope, receiver)
-            or has_nested_capture(receiver)
-            or has_wrapped_carrier_use(receiver)
-        )
-
     context_requests: dict[str, tuple[str, tuple[str, ...]]] = {}
     binding_scopes = (
         tree,
@@ -5491,9 +5225,6 @@ def _module_functions(
             or any(relevant(argument) for argument in arguments),
         )
         verified_receiver = has_verified_external_receiver(call, owner)
-        external_result_receiver = (
-            not tolerant and has_opaque_external_result_receiver(call, owner)
-        )
         stable_receiver = (
             builtin_descriptor
             or builtin_literal_descriptor
@@ -5506,7 +5237,6 @@ def _module_functions(
             isinstance(call.func, ast.Attribute)
             and (
                 verified_receiver
-                or external_result_receiver
                 or stable_receiver
                 or allow_tainted_receiver and receiver_tainted
             )
@@ -5514,7 +5244,6 @@ def _module_functions(
             and not has_imported_receiver(call, owner)
             and (
                 verified_receiver
-                or external_result_receiver
                 or stable_receiver
                 or not (
                     isinstance(call.func.value, ast.Name)
@@ -5522,12 +5251,7 @@ def _module_functions(
                 )
             )
         ):
-            prefix = (
-                "@terminal-external-result"
-                if external_result_receiver
-                else "@terminal"
-            )
-            target = f"{prefix}:{owner}:{call.lineno}:{call.col_offset}:{target}"
+            target = f"@terminal:{owner}:{call.lineno}:{call.col_offset}:{target}"
             terminal_symbols.add(target)
         return target, tolerant
 
