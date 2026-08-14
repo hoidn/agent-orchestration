@@ -5275,6 +5275,40 @@ def test_opaque_external_result_named_expression_alias_fails_closed(
 
 
 @pytest.mark.parametrize(
+    "mutation",
+    (
+        "    Factory = replacement\n",
+        "    del Factory\n",
+    ),
+    ids=("rebind", "delete"),
+)
+def test_opaque_external_result_sibling_global_mutation_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "replacement = object()\n"
+            "def mutate():\n"
+            "    global Factory\n"
+            + mutation
+            + "def consume(runtime_config, options):\n"
+            "    from dependency import Factory\n"
+            "    mutate()\n"
+            "    receiver = Factory(options)\n"
+            "    receiver.process(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert "package.sink.receiver.process" in calls
+    assert closed is False
+
+
+@pytest.mark.parametrize(
     ("receiver", "closed"),
     (
         ("','", True),

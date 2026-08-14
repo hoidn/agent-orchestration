@@ -4533,6 +4533,12 @@ def _module_functions(
             and factory not in reassigned_attributes
         ):
             return False
+        if any(
+            isinstance(node, (ast.Global, ast.Nonlocal))
+            and {receiver, factory_root.id} & set(node.names)
+            for node in ast.walk(tree)
+        ):
+            return False
 
         def rooted_at(value: ast.AST, object_name: str) -> bool:
             while isinstance(value, (ast.Attribute, ast.Subscript)):
