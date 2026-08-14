@@ -2196,8 +2196,21 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
         "    return fn\n"
         "@wrapper\n"
         "def modern(config): return resolve(config, {})\n",
+        "from candidate.legacy import consume as legacy_decorator\n"
+        "@legacy_decorator\n"
+        "class Modern:\n"
+        "    def modern(self, config): return resolve(config, {})\n",
+        "import candidate.legacy as legacy\n"
+        "@legacy.consume\n"
+        "class Modern:\n"
+        "    def modern(self, config): return resolve(config, {})\n",
     ),
-    ids=("imported-retained-entry", "local-wrapper-reaching-retained-entry"),
+    ids=(
+        "imported-retained-entry",
+        "local-wrapper-reaching-retained-entry",
+        "decorated-class-direct-import",
+        "decorated-class-module-alias",
+    ),
 )
 def test_live_decorator_dependency_cannot_reach_retained_root(
     tmp_path: Path,

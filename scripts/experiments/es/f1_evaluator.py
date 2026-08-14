@@ -5895,7 +5895,12 @@ def _module_functions(
             decorator_dependencies_by_owner.setdefault(owner, set()).add(target)
             graph[owner] = sorted(set((*graph.get(owner, ()), target)))
     for row, owner, _ in exact_rows:
-        dependencies = decorator_dependencies_by_owner.get(owner, ())
+        dependencies = set(decorator_dependencies_by_owner.get(owner, ()))
+        for class_owner in class_by_symbol:
+            if owner.startswith(f"{class_owner}."):
+                dependencies.update(
+                    decorator_dependencies_by_owner.get(class_owner, ())
+                )
         if dependencies:
             consumer = f"@consumer:{row['consumer_id']}"
             graph[consumer] = sorted(set((*graph.get(consumer, ()), *dependencies)))
