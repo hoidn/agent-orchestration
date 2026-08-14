@@ -135,7 +135,13 @@ from ..phase_family_boundary import (
 from ..macros import collect_macro_catalog, expand_module_forms
 from ..reader import SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
-from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
+from ..syntax import (
+    WorkflowLispSyntaxModule,
+    build_syntax_module,
+    syntax_head_name,
+    syntax_node_datum,
+    target_dsl_supports_trial,
+)
 from ..type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,
@@ -1755,7 +1761,7 @@ def _inline_output_refs_for_expr(
             getattr(context.signature, "compiler_direct_result_contract_digest", None),
             str,
         )
-        and context.type_env.target_dsl_version == "2.25"
+        and target_dsl_supports_trial(context.type_env.target_dsl_version)
     )
     fields = (
         derive_workflow_boundary_fields(

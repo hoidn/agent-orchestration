@@ -32,6 +32,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.23",
         "2.24",
         "2.25",
+        "2.26",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -46,6 +47,7 @@ PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
 RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
 NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
 TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
+STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION = "2.26"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -228,6 +230,24 @@ def target_dsl_supports_trial(target_dsl_version: str) -> bool:
         target = tuple(int(part) for part in target_dsl_version.split("."))
         minimum = tuple(
             int(part) for part in TRIAL_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_strict_boolean_control_flow(
+    target_dsl_version: str,
+) -> bool:
+    """Return whether a validated target includes strict Boolean `if`/`cond`."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION.split(
+                "."
+            )
         )
     except (AttributeError, TypeError, ValueError):
         return False

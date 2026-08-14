@@ -311,6 +311,49 @@ def test_validate_pure_function_expr_allows_pure_loop_state_children() -> None:
     functions._validate_pure_function_expr(expr, function_def=function_def)
 
 
+def test_find_purity_violation_allows_pure_cond_body() -> None:
+    functions = _functions_module()
+    parse_tree = read_sexpr_text(
+        '(cond (true "yes") (else "no"))',
+        source_path="cond_function.orc",
+    )
+    datum = parse_tree.items[0]
+    expr = functions.elaborate_expression(
+        SyntaxNode(
+            datum=datum,
+            span=datum.span,
+            module_path="cond_function.orc",
+            form_path=("workflow-lisp", "defun", "summarize"),
+        ),
+        bound_names=frozenset(),
+        target_dsl_version="2.26",
+    )
+
+    assert functions._find_purity_violation(expr) is None
+
+
+def test_find_purity_violation_flags_effectful_cond_clause_child() -> None:
+    functions = _functions_module()
+    parse_tree = read_sexpr_text(
+        '(cond (true (dispatch)) (else "no"))',
+        source_path="cond_function.orc",
+    )
+    datum = parse_tree.items[0]
+    expr = functions.elaborate_expression(
+        SyntaxNode(
+            datum=datum,
+            span=datum.span,
+            module_path="cond_function.orc",
+            form_path=("workflow-lisp", "defun", "summarize"),
+        ),
+        bound_names=frozenset(),
+        procedure_names=frozenset({"dispatch"}),
+        target_dsl_version="2.26",
+    )
+
+    assert functions._find_purity_violation(expr) == "defproc"
+
+
 def test_compile_stage3_rejects_helper_cycles(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(INVALID_FIXTURES / "defun_cycle.orc", tmp_path=tmp_path)

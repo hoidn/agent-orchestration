@@ -13,6 +13,7 @@ from .expressions import (
     CallExpr,
     CommandResultExpr,
     CompilerListNonemptyHeadExpr,
+    CondExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -1173,6 +1174,16 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
     if isinstance(expr, IfExpr):
         for nested in (expr.condition_expr, expr.then_expr, expr.else_expr):
             violation = _find_purity_violation(nested)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, CondExpr):
+        for clause in expr.clauses:
+            if clause.condition_expr is not None:
+                violation = _find_purity_violation(clause.condition_expr)
+                if violation is not None:
+                    return violation
+            violation = _find_purity_violation(clause.result_expr)
             if violation is not None:
                 return violation
         return None

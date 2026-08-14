@@ -385,6 +385,18 @@ _FORM_SPECS = (
         rationale="Conditionals remain macro-bindable while elaborating through the core expression path.",
     ),
     _spec(
+        "cond",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_strict_boolean_control_flow",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="cond",
+        rationale="Target-2.26 cond is a reserved frontend form erased into nested if before WCC.",
+        min_target_dsl_version="2.26",
+    ),
+    _spec(
         "match",
         kind=FormKind.CORE_SPECIAL,
         owner_module="expressions",

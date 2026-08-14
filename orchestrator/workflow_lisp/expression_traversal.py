@@ -15,6 +15,7 @@ from .expressions import (
     ExprNode,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
+    CondExpr,
     FunctionCallExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
@@ -145,6 +146,13 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(binding_expr for _, binding_expr in expr.bindings) + (expr.body,)
     if isinstance(expr, IfExpr):
         return (expr.condition_expr, expr.then_expr, expr.else_expr)
+    if isinstance(expr, CondExpr):
+        children: list[ExprNode] = []
+        for clause in expr.clauses:
+            if clause.condition_expr is not None:
+                children.append(clause.condition_expr)
+            children.append(clause.result_expr)
+        return tuple(children)
     if isinstance(expr, MatchExpr):
         return (expr.subject,) + tuple(arm.body for arm in expr.arms)
     if isinstance(expr, CallExpr):

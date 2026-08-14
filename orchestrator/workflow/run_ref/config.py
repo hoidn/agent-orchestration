@@ -13,7 +13,6 @@ from typing import Any, TypeAlias
 from orchestrator.workflow.type_descriptor import (
     validate_compiler_normalized_type_descriptor,
 )
-
 from .contracts import canonical_json_bytes, canonical_sha256
 from .result_contract import (
     RUN_REF_RESULT_CONTRACT_SCHEMA,
@@ -26,7 +25,7 @@ from .source import SourceRequest, canonical_source_request, source_request_from
 RUN_REF_STATIC_CONFIG_SCHEMA = "run_ref_static_config.v1"
 RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA = "run_ref_bundle_capsule_binding.v1"
 _DEFAULT_TARGET_DSL_VERSION = "2.24"
-_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25"})
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26"})
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
 _PATH_ENVIRONMENT = "deterministic-effect-free"
@@ -39,6 +38,16 @@ _STATIC_NAME_RE = re.compile(
 _REFERENCE_RE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*\Z"
 )
+
+
+def _supports_nested_structural_transport(target_dsl_version: str) -> bool:
+    """Return whether one validated target admits nested record/union transport."""
+
+    from orchestrator.workflow_lisp.syntax import (
+        target_dsl_supports_nested_structural_transport,
+    )
+
+    return target_dsl_supports_nested_structural_transport(target_dsl_version)
 
 
 @dataclass(frozen=True)
@@ -457,7 +466,9 @@ def build_run_ref_static_config(
         or target_dsl_version not in _SUPPORTED_TARGET_DSL_VERSIONS
     ):
         raise ValueError("run-ref target DSL version is unsupported")
-    allow_nested_structures = target_dsl_version == "2.25"
+    allow_nested_structures = _supports_nested_structural_transport(
+        target_dsl_version
+    )
     generated_result_type = f"RunRefResult${site_digest[:16]}"
     if not isinstance(source, SourceRequest):
         raise TypeError("run-ref source must be a SourceRequest")
@@ -597,7 +608,9 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
         or row["target_dsl_version"] not in _SUPPORTED_TARGET_DSL_VERSIONS
     ):
         raise ValueError("run-ref static config target_dsl_version is invalid")
-    allow_nested_structures = row["target_dsl_version"] == "2.25"
+    allow_nested_structures = _supports_nested_structural_transport(
+        row["target_dsl_version"]
+    )
     fixed = (
         ("schema_version", RUN_REF_STATIC_CONFIG_SCHEMA),
         ("lowering_route", _LOWERING_ROUTE),

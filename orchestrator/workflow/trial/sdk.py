@@ -301,6 +301,8 @@ def _compile_trial_entry(
             "trial_entry_compile_failed",
             _bounded_text(detail, _FAILURE_MESSAGE_LIMIT, fallback="trial compile failed"),
         ) from exc
+    # Intentionally version-specific: the public trial entry accepts exactly
+    # 2.25 even though the compiler admits 2.26. Widening is a separate change.
     if built.validated_bundle.surface.version != "2.25":
         raise TrialEntryRequestError(
             "trial_entry_target_unsupported",

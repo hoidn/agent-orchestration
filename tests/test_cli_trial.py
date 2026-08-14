@@ -342,6 +342,7 @@ def _write_plain_entry(workspace: Path, *, target: str) -> Path:
     ("target", "code"),
     (
         ("2.24", "trial_entry_target_unsupported"),
+        ("2.26", "trial_entry_target_unsupported"),
         ("2.25", "trial_entry_result_required"),
     ),
 )

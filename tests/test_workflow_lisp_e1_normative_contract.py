@@ -47,11 +47,21 @@ def test_ordinary_target_2_24_library_module_compiles_through_the_full_frontend(
     assert result.validated_bundles_by_name == {}
 
 
-def test_target_2_26_remains_fail_closed(
+def test_target_2_26_is_admitted(
+    tmp_path: Path,
+) -> None:
+    result = _compile(tmp_path, "2.26")
+
+    assert result.entry_result.module.target_dsl_version == "2.26"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
+
+
+def test_target_2_27_remains_fail_closed(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "2.26")
+        _compile(tmp_path, "2.27")
 
     assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 

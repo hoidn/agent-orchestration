@@ -22,7 +22,10 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import ReusableArtifactRequirement
 from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
-from .syntax import target_dsl_supports_nested_structural_transport
+from .syntax import (
+    target_dsl_supports_nested_structural_transport,
+    target_dsl_supports_trial,
+)
 from .type_env import (
     ListTypeRef,
     MapTypeRef,
@@ -466,7 +469,9 @@ def derive_workflow_signature_contracts(
     if isinstance(direct_result_digest, str):
         from .trial_result_contract import derive_trial_result_contract
 
-        if getattr(type_env, "target_dsl_version", None) != "2.25":
+        if not target_dsl_supports_trial(
+            getattr(type_env, "target_dsl_version", None)
+        ):
             raise ValueError("compiler direct result requires target DSL 2.25")
         contract = derive_trial_result_contract(
             signature.return_type_ref,

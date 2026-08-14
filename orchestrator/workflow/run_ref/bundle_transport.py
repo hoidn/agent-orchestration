@@ -44,6 +44,9 @@ from orchestrator.workflow.semantic_ir import (
     workflow_semantic_ir_to_json,
 )
 from orchestrator.workflow_lisp.wcc.route import LOWERING_SCHEMA_WCC
+from orchestrator.workflow_lisp.syntax import (
+    target_dsl_supports_nested_structural_transport,
+)
 
 from .contracts import canonical_json_bytes, canonical_sha256
 from .config import BundleProgram, RunRefBundleCapsuleBinding
@@ -60,7 +63,7 @@ _PICKLE_PROTOCOL = 5
 _MAPPING_PROXY_TYPE = type(MappingProxyType({}))
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _CLOSURE_ROLES = frozenset({"orc", "prompt_asset", "workflow_asset"})
-_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25"})
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26"})
 
 
 class BundleCapsuleValidationError(ValueError):
@@ -360,8 +363,8 @@ def _result_contract_digests(bundle: LoadedWorkflowBundle) -> dict[str, str]:
         for config_id, run_ref_config in configs:
             validate_run_ref_result_descriptor(
                 run_ref_config.run_ref.result_descriptor,
-                allow_nested_structures=(
-                    run_ref_config.run_ref.target_dsl_version == "2.25"
+                allow_nested_structures=target_dsl_supports_nested_structural_transport(
+                    run_ref_config.run_ref.target_dsl_version
                 ),
             )
             digests[config_id] = run_ref_config.run_ref.result_digest

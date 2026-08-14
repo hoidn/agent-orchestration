@@ -57,12 +57,96 @@ def test_ordinary_targets_through_2_25_compile_without_trial_behavior(
     assert result.validated_bundles_by_name == {}
 
 
-def test_target_2_26_remains_fail_closed(tmp_path: Path) -> None:
+def test_target_2_26_is_admitted(tmp_path: Path) -> None:
+    result = _compile(tmp_path, "2.26")
+
+    assert result.entry_result.module.target_dsl_version == "2.26"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
+
+
+def test_target_2_27_remains_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "2.26")
+        _compile(tmp_path, "2.27")
 
     assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 
+
+def test_trial_compiles_and_lowers_at_inherited_target_2_26(tmp_path: Path) -> None:
+    """A 2.26 workflow lowers its trial with the parent target, not a 2.25 pin."""
+
+    from tests.test_workflow_lisp_trial_lowering import (
+        _compile_trial_source,
+        _write_trial_module,
+    )
+
+    source_path = _write_trial_module(tmp_path)
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8").replace(
+            '(:target-dsl "2.25")',
+            '(:target-dsl "2.26")',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    result = _compile_trial_source(source_path, workspace=tmp_path)
+
+    trial_nodes = [
+        node
+        for node in result.validated_bundle.ir.nodes.values()
+        if node.kind.value == "trial"
+    ]
+    assert len(trial_nodes) == 1
+    static_config = trial_nodes[0].execution_config.trial
+    assert static_config.target_dsl_version == "2.26"
+    assert all(
+        arm.run_ref.target_dsl_version == "2.26" for arm in static_config.arms
+    )
+
+
+def test_trial_config_rejects_unsupported_2_27() -> None:
+    """The trial static config rejects a target above the admitted catalog."""
+
+    from orchestrator.workflow.trial.config import build_trial_static_config
+
+    with pytest.raises(ValueError, match="target DSL"):
+        build_trial_static_config(
+            compiler_runtime_identity_digest="sha256:" + "0" * 64,
+            site_digest="0" * 64,
+            arms=(),
+            reps=1,
+            max_concurrency=1,
+            evaluation={},
+            budget={},
+            result_descriptor={},
+            result_digest="sha256:" + "0" * 64,
+            target_dsl_version="2.27",
+        )
+
+
+def test_trial_config_rejects_mixed_parent_and_arm_targets(tmp_path: Path) -> None:
+    """The trial static config requires the parent target to equal every arm."""
+
+    from tests.test_workflow_lisp_trial_lowering import _build_trial, _trial_node
+    from orchestrator.workflow.trial.config import build_trial_static_config
+
+    _, result = _build_trial(tmp_path)
+    static = _trial_node(result).execution_config.trial
+
+    with pytest.raises(ValueError, match="match"):
+        build_trial_static_config(
+            compiler_runtime_identity_digest=static.compiler_runtime_identity_digest,
+            site_digest=static.site_digest,
+            arms=static.arms,
+            reps=static.reps,
+            max_concurrency=static.max_concurrency,
+            evaluation=static.evaluation,
+            budget=static.budget,
+            result_descriptor=static.result_descriptor,
+            result_digest=static.result_digest,
+            target_dsl_version="2.26",
+        )
 
 def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
     dsl = _spec("dsl.md")

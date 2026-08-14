@@ -1018,6 +1018,74 @@ def test_trial_static_config_decoder_rejects_noncanonical_and_forged_bytes(
         decode_trial_static_config(b" " + canonical)
 
 
+def test_trial_static_config_decoder_accepts_matching_target_2_26(
+    tmp_path: Path,
+) -> None:
+    """A canonical 2.26 config with matching arm targets decodes round-trip."""
+
+    source_path = _write_trial_module(tmp_path)
+    source_path.write_text(
+        source_path.read_text(encoding="utf-8").replace(
+            '(:target-dsl "2.25")',
+            '(:target-dsl "2.26")',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    result = _compile_trial_source(source_path, workspace=tmp_path)
+    config = _trial_node(result).execution_config.trial
+
+    assert config.target_dsl_version == "2.26"
+    assert all(arm.run_ref.target_dsl_version == "2.26" for arm in config.arms)
+
+    canonical = encode_trial_static_config(config)
+    decoded = decode_trial_static_config(canonical)
+    assert decoded == config
+    assert decoded.target_dsl_version == "2.26"
+    assert encode_trial_static_config(decoded) == canonical
+
+
+def test_trial_static_config_decoder_rejects_unsupported_2_27(
+    tmp_path: Path,
+) -> None:
+    """The decoder rejects a target above the admitted catalog (2.27)."""
+
+    _, result = _build_trial(tmp_path)
+    config = _trial_node(result).execution_config.trial
+
+    forged = deepcopy(config.record)
+    forged["target_dsl_version"] = "2.27"
+    forged_bytes = json.dumps(
+        forged,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    with pytest.raises(ValueError, match="target DSL"):
+        decode_trial_static_config(forged_bytes)
+
+
+def test_trial_static_config_decoder_rejects_mixed_parent_and_arm_targets(
+    tmp_path: Path,
+) -> None:
+    """The decoder requires the parent target to equal every arm target."""
+
+    _, result = _build_trial(tmp_path)
+    config = _trial_node(result).execution_config.trial
+    assert config.target_dsl_version == "2.25"
+
+    forged = deepcopy(config.record)
+    forged["target_dsl_version"] = "2.26"
+    forged_bytes = json.dumps(
+        forged,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    with pytest.raises(ValueError, match="match"):
+        decode_trial_static_config(forged_bytes)
+
+
 def test_persisted_trial_rejects_tampered_static_config(
     tmp_path: Path,
 ) -> None:

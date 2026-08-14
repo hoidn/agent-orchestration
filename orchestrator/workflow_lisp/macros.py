@@ -99,44 +99,30 @@ def collect_macro_catalog_with_imports(
     imported_names = set(definitions_by_name)
     local_names: set[str] = set()
     diagnostics: list[LispFrontendDiagnostic] = []
-    if (
-        target_dsl_supports_provider_peer_messaging(
-            module_syntax.target_dsl_version
-        )
-        and "with-live-provider-peers" in imported_names
+    reserved_names = reserved_macro_names(
+        target_dsl_version=module_syntax.target_dsl_version
+    )
+    if not target_dsl_supports_provider_peer_messaging(
+        module_syntax.target_dsl_version
     ):
-        imported_peer_macro = definitions_by_name[
-            "with-live-provider-peers"
-        ]
+        reserved_names = reserved_names - {"with-live-provider-peers"}
+    if not target_dsl_supports_list_traversal(
+        module_syntax.target_dsl_version
+    ):
+        reserved_names = reserved_names - list_traversal_authored_heads()
+    for imported_name in sorted(imported_names & reserved_names):
+        imported_macro = definitions_by_name[imported_name]
         diagnostics.append(
             LispFrontendDiagnostic(
                 code="macro_reserved_name",
                 message=(
                     "imported macro may not bind reserved head "
-                    "`with-live-provider-peers`"
+                    f"`{imported_name}`"
                 ),
-                span=imported_peer_macro.span,
-                form_path=imported_peer_macro.form_path,
+                span=imported_macro.span,
+                form_path=imported_macro.form_path,
             )
         )
-    if target_dsl_supports_list_traversal(
-        module_syntax.target_dsl_version
-    ):
-        for imported_name in sorted(
-            imported_names & list_traversal_authored_heads()
-        ):
-            imported_macro = definitions_by_name[imported_name]
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="macro_reserved_name",
-                    message=(
-                        "imported macro may not bind reserved head "
-                        f"`{imported_name}`"
-                    ),
-                    span=imported_macro.span,
-                    form_path=imported_macro.form_path,
-                )
-            )
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
         if syntax_head_name(datum) != "defmacro":
@@ -146,19 +132,6 @@ def collect_macro_catalog_with_imports(
         except LispFrontendCompileError as error:
             diagnostics.extend(error.diagnostics)
             continue
-        reserved_names = _RESERVED_MACRO_NAMES
-        if not target_dsl_supports_provider_peer_messaging(
-            module_syntax.target_dsl_version
-        ):
-            reserved_names = (
-                reserved_names - {"with-live-provider-peers"}
-            )
-        if not target_dsl_supports_list_traversal(
-            module_syntax.target_dsl_version
-        ):
-            reserved_names = (
-                reserved_names - list_traversal_authored_heads()
-            )
         if macro_def.name in reserved_names:
             diagnostics.append(
                 LispFrontendDiagnostic(

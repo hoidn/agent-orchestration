@@ -30,6 +30,9 @@ from orchestrator.workflow_lisp.normalized_type_descriptor import (
     compiler_normalized_type_descriptor,
 )
 from orchestrator.workflow_lisp.workflows import TypedWorkflowDef
+from orchestrator.workflow_lisp.syntax import (
+    target_dsl_supports_nested_structural_transport,
+)
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 from .config import (
@@ -263,7 +266,9 @@ def _signature_mismatch_causes(
     *,
     target_dsl_version: str = "2.24",
 ) -> tuple[str, ...]:
-    allow_nested_structures = target_dsl_version == "2.25"
+    allow_nested_structures = target_dsl_supports_nested_structural_transport(
+        target_dsl_version
+    )
     expected_rows = signature["inputs"]
     if not isinstance(expected_rows, list):
         return ("signature_inputs_malformed",)

@@ -70,6 +70,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_supports_trial,
 )
 from .type_env import (
     FrontendTypeEnvironment,
@@ -2671,7 +2672,7 @@ def typecheck_workflow_definitions(
             clear_active_reusable_state_producer_context(compiler_session.typecheck)
             clear_active_workflow_signature(compiler_session.typecheck)
         if (
-            type_env.target_dsl_version == "2.25"
+            target_dsl_supports_trial(type_env.target_dsl_version)
             and workflow_def.return_type_name == "Value"
             and isinstance(body_expr, TrialExpr)
             and isinstance(typed_body.type_ref, RecordTypeRef)

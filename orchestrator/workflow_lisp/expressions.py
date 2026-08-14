@@ -292,6 +292,28 @@ class IfExpr:
 
 
 @dataclass(frozen=True)
+class CondClause:
+    """One `cond` clause: an optional condition paired with one result."""
+
+    condition_expr: "ExprNode" | None
+    result_expr: "ExprNode"
+    is_else: bool
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class CondExpr:
+    """One target-2.26 `cond` form, erased into nested `if` before WCC."""
+
+    clauses: tuple["CondClause", ...]
+    has_else: bool
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+@dataclass(frozen=True)
 class MatchArm:
     """One `match` variant arm."""
 
@@ -873,6 +895,7 @@ ExprNode = (
     | UnionVariantExpr
     | LetStarExpr
     | IfExpr
+    | CondExpr
     | MatchExpr
     | CallExpr
     | RunRefExpr
@@ -1517,6 +1540,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "variant": _elaborate_variant,
         "let_star": _elaborate_letstar,
         "if": _elaborate_if,
+        "cond": _elaborate_cond,
         "match": _elaborate_match,
         "loop_recur": _elaborate_loop_recur,
         "loop_fn_guard": _guard_loop_fn_route,
@@ -3709,6 +3733,98 @@ def _elaborate_if(
             procedure_names=procedure_names,
             session_state=session_state,
         ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_cond(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> CondExpr:
+    if len(datum.items) < 2:
+        _raise_error(
+            "`cond` requires at least one clause",
+            code="cond_clause_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_clauses = datum.items[1:]
+
+    # First pass: validate clause shape and `else` placement before elaborating
+    # any child, so a non-final `else` is reported at the else clause even when
+    # its own result contains invalid nested syntax.
+    else_clause: SyntaxList | None = None
+    for raw_clause in raw_clauses:
+        if not isinstance(raw_clause, SyntaxList) or len(raw_clause.items) != 2:
+            _raise_error(
+                "`cond` clauses must be two-element lists of `(condition result)`",
+                code="cond_clause_invalid",
+                span=raw_clause.span,
+                form_path=form_path,
+                expansion_stack=raw_clause.expansion_stack,
+            )
+        head = syntax_head(raw_clause)
+        is_else = head is not None and head.resolved_name == "else"
+        if is_else:
+            if else_clause is not None:
+                _raise_error(
+                    "`cond` may contain at most one `else` clause",
+                    code="cond_else_invalid",
+                    span=raw_clause.span,
+                    form_path=form_path,
+                    expansion_stack=raw_clause.expansion_stack,
+                )
+            else_clause = raw_clause
+        elif else_clause is not None:
+            _raise_error(
+                "`cond` `else` must be the final clause",
+                code="cond_else_invalid",
+                span=else_clause.span,
+                form_path=form_path,
+                expansion_stack=else_clause.expansion_stack,
+            )
+
+    # Second pass: elaborate each clause's condition and result.
+    clauses: list[CondClause] = []
+    for raw_clause in raw_clauses:
+        head = syntax_head(raw_clause)
+        is_else = head is not None and head.resolved_name == "else"
+        condition_expr = None
+        if not is_else:
+            condition_expr = _elaborate(
+                raw_clause.items[0],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+                session_state=session_state,
+            )
+        result_expr = _elaborate(
+            raw_clause.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
+        clauses.append(
+            CondClause(
+                condition_expr=condition_expr,
+                result_expr=result_expr,
+                is_else=is_else,
+                span=raw_clause.span,
+                form_path=form_path,
+                expansion_stack=raw_clause.expansion_stack,
+            )
+        )
+    return CondExpr(
+        clauses=tuple(clauses),
+        has_else=else_clause is not None,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
