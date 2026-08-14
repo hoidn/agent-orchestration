@@ -5864,6 +5864,44 @@ def _workspace_callable_index(
                 node = parent
             return False
 
+        allowed_dict_factory_calls: set[int] = set()
+        for factory in ast.walk(tree):
+            if not (isinstance(factory, ast.Name) and factory.id == "dict"):
+                continue
+            keyword = parent_by_node.get(id(factory))
+            call = (
+                parent_by_node.get(id(keyword))
+                if isinstance(keyword, ast.keyword)
+                else None
+            )
+            if not isinstance(call, ast.Call):
+                continue
+            assignment = parent_by_node.get(id(call))
+            owner = (
+                parent_by_node.get(id(assignment))
+                if isinstance(assignment, ast.AnnAssign)
+                else None
+            )
+            field_root = call.func
+            while isinstance(field_root, ast.Attribute):
+                field_root = field_root.value
+            if (
+                not call.args
+                and len(call.keywords) == 1
+                and call.keywords[0] is keyword
+                and keyword.arg == "default_factory"
+                and isinstance(assignment, ast.AnnAssign)
+                and assignment.value is call
+                and isinstance(owner, ast.ClassDef)
+                and any(assignment is statement for statement in owner.body)
+                and isinstance(field_root, ast.Name)
+                and not has_enclosing_class_body_binding(
+                    call.func, field_root.id
+                )
+                and imported_symbol(call.func) == "dataclasses.field"
+            ):
+                allowed_dict_factory_calls.add(id(call))
+
         def stable_imported_symbol(node: ast.AST) -> str | None:
             if (
                 isinstance(node, ast.Name)
@@ -5924,7 +5962,9 @@ def _workspace_callable_index(
                         scope,
                         aliases,
                         reject_argument_escape=True,
-                        allowed_argument_calls=frozenset({id(call)}),
+                        allowed_argument_calls=frozenset(
+                            allowed_dict_factory_calls
+                        ),
                     )
                     for scope in binding_scopes
                 ):

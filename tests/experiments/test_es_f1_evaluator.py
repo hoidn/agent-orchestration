@@ -6461,6 +6461,53 @@ def test_cross_module_generated_dataclass_allows_stable_dict_factory(
     )
 
 
+@pytest.mark.parametrize(
+    ("imported_symbol", "tail", "closed"),
+    (
+        ("TrainingPayload", "", True),
+        ("InferencePayload", "", True),
+        ("TrainingPayload", "capture(dict)\n", False),
+        (
+            "TrainingPayload",
+            "def expose(field):\n"
+            "    return field(default_factory=dict)\n",
+            False,
+        ),
+    ),
+    ids=(
+        "training-alias",
+        "inference-alias",
+        "dict-escape",
+        "local-field-shadow",
+    ),
+)
+def test_cross_module_generated_dataclass_sibling_dict_factories(
+    tmp_path: Path,
+    imported_symbol: str,
+    tail: str,
+    closed: bool,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass\n"
+        "class ResolvedTrainingRecords:\n"
+        "    primary: object\n"
+        "    by_name: dict[str, object] = field(default_factory=dict)\n"
+        "TrainingPayload = ResolvedTrainingRecords\n"
+        "@dataclass\n"
+        "class ResolvedInferenceRecords:\n"
+        "    primary: object\n"
+        "    by_name: dict[str, object] = field(default_factory=dict)\n"
+        "InferencePayload = ResolvedInferenceRecords\n"
+        + tail,
+        imported_symbol=imported_symbol,
+    )
+
+    assert result["closed"] is closed
+    assert bool(result["unresolved_consumers"]) is not closed
+
+
 def test_cross_module_generated_dataclass_dict_factory_traces_strict_post_init(
     tmp_path: Path,
 ) -> None:
