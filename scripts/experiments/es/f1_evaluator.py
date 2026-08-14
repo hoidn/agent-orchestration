@@ -5850,6 +5850,7 @@ def _module_functions(
         )
         if classes and owner not in authority_symbols:
             bypasses[owner] = classes
+    decorator_dependencies_by_owner: dict[str, set[str]] = {}
     for owner, node in decorated_owners:
         for index, decorator in enumerate(node.decorator_list):
             factory = decorator.func if isinstance(decorator, ast.Call) else decorator
@@ -5891,7 +5892,13 @@ def _module_functions(
                     target = marker
                 elif not target.startswith("@unresolved"):
                     target = f"@unresolved-decorator:{owner}:{index}"
+            decorator_dependencies_by_owner.setdefault(owner, set()).add(target)
             graph[owner] = sorted(set((*graph.get(owner, ()), target)))
+    for row, owner, _ in exact_rows:
+        dependencies = decorator_dependencies_by_owner.get(owner, ())
+        if dependencies:
+            consumer = f"@consumer:{row['consumer_id']}"
+            graph[consumer] = sorted(set((*graph.get(consumer, ()), *dependencies)))
 
     return (
         graph,

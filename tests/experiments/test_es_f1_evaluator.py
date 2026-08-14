@@ -2222,13 +2222,8 @@ def test_live_decorator_dependency_cannot_reach_retained_root(
     assert len(legacy_rows) == 1
     frozen = dict(legacy_rows[0], consumer_id="legacy-a")
     frozen["responsibility_ids"] = ["LEGACY_STATE_ISOLATION", "CONSUMER_MIGRATION"]
-    scanned.append({
-        "consumer_id": "modern-a",
-        "match_kind": "CONFIGURATION_READ",
-        "path": "ptycho/modern.py",
-        "public_entry_route": "ptycho.modern.modern",
-        "transitive_wrapper_chain": ["ptycho.modern.modern", "config"],
-    })
+    modern_rows = [row for row in scanned if row["path"] == "ptycho/modern.py"]
+    assert modern_rows and all("source_span" in row for row in modern_rows)
     monkeypatch.setattr(
         evaluator,
         "scan_workspace_configuration_consumers",
@@ -2250,7 +2245,12 @@ def test_live_decorator_dependency_cannot_reach_retained_root(
 
     assert result["closed"] is False
     assert result["disposed_consumer_count"] == 1
-    assert any("ptycho.legacy.consume" in path for trace in result["traces"] for path in trace["paths"])
+    assert any(
+        "ptycho.legacy.consume" in path
+        for trace in result["traces"]
+        if trace["consumer_id"] in {row["consumer_id"] for row in modern_rows}
+        for path in trace["paths"]
+    )
 
 
 @pytest.mark.parametrize(
