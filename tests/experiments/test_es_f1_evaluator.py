@@ -4363,6 +4363,54 @@ def test_unstable_builtin_type_method_descriptor_fails_closed(
     assert calls[0] not in terminals
 
 
+def test_shadowed_builtin_descriptor_argument_span_stays_unresolved(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "def consume(runtime_config, list):\n"
+        "    list.append(runtime_config)\n"
+    )
+    path = tmp_path / "package/sink.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    line = source.splitlines()[1]
+    start_col = line.index("runtime_config")
+    consumer = "@consumer:shadowed-list-descriptor"
+    row = {
+        "consumer_id": "shadowed-list-descriptor",
+        "public_entry_route": "package.sink.consume",
+        "source_span": {
+            "start_line": 2,
+            "start_col": start_col,
+            "end_line": 2,
+            "end_col": start_col + len("runtime_config"),
+        },
+    }
+
+    graph, bypasses, _, terminals, _ = evaluator._module_functions(
+        path,
+        "package.sink",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[row],
+        workspace_module_roots=frozenset({"package"}),
+    )
+    result = evaluator.walk_consumer_routes(
+        consumer_rows=[{
+            "consumer_id": "shadowed-list-descriptor",
+            "entry_symbol": consumer,
+            "requires_authority": False,
+        }],
+        call_graph=graph,
+        authority_symbols={"candidate.config.resolve"},
+        bypass_symbols=bypasses,
+        terminal_symbols=terminals,
+    )
+
+    assert graph[consumer] == ["append"]
+    assert graph[consumer][0] not in terminals
+    assert result["closed"] is False
+
+
 def test_direct_dict_get_remains_a_tolerant_unresolved_call(
     tmp_path: Path,
 ) -> None:

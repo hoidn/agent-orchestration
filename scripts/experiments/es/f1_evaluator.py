@@ -4742,14 +4742,23 @@ def _module_functions(
     ) -> tuple[str, bool]:
         arguments = (*call.args, *(item.value for item in call.keywords))
         builtin_descriptor = has_stable_builtin_type_method_descriptor(call, owner)
-        receiver_tainted = force_receiver_tainted or _configuration_receiver_tainted(
-            call, relevant
+        bypass_receiver_tainted = (
+            force_receiver_tainted
+            or _configuration_receiver_tainted(call, relevant)
+        )
+        receiver_tainted = force_receiver_tainted or (
+            isinstance(call.func, ast.Attribute)
+            and relevant(call.func.value)
+        ) or (
+            builtin_descriptor
+            and bool(call.args)
+            and relevant(call.args[0])
         )
         tolerant = not target.startswith("@") and _is_tolerant_configuration_call(
             target,
             arguments,
-            receiver_tainted=receiver_tainted,
-            call_tainted=receiver_tainted
+            receiver_tainted=bypass_receiver_tainted,
+            call_tainted=bypass_receiver_tainted
             or any(relevant(argument) for argument in arguments),
         )
         verified_receiver = has_verified_external_receiver(call, owner)
