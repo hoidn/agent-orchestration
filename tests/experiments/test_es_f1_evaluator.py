@@ -9773,6 +9773,40 @@ def _inspect_cross_module_carrier_return(
     )
 
 
+@pytest.mark.parametrize(
+    ("helper_source", "closed"),
+    (
+        ("from math import sqrt as normalize\n", True),
+        (
+            "from math import sqrt as normalize\n"
+            "normalize = lambda value: value\n",
+            False,
+        ),
+    ),
+    ids=("stable", "rebound"),
+)
+def test_cross_module_from_import_callable_forwards_to_external_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    helper_source: str,
+    closed: bool,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=helper_source,
+        imported_symbol="normalize",
+        assign_result=False,
+    )
+
+    assert result["closed"] is closed
+    assert any(
+        path[-1] == "math.sqrt"
+        for trace in result["traces"]
+        for path in trace["paths"]
+    ) is closed
+
+
 def test_cross_module_identity_return_keeps_downstream_tolerant_read_tainted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

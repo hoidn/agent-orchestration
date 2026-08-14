@@ -4328,6 +4328,9 @@ def _module_functions(
         context = workspace_function_nodes.get(target)
         if context is None:
             return target
+        binding = active_name_binding(call, owner, binding_context)
+        if binding is not None and binding[0] == "unknown":
+            return target
         resolved_target, callee_node, bound, stable_class = context
         if callee_node is None:
             plain_workspace_class = resolved_target in {
@@ -4339,7 +4342,7 @@ def _module_functions(
             ):
                 return target
             if not plain_workspace_class and resolved_target in available_external_imports:
-                return target
+                return resolved_target if not bound else target
             context_symbol = f"@unresolved-context:{target}"
             context_requests[context_symbol] = (target, ())
             return context_symbol
@@ -5826,6 +5829,30 @@ def _workspace_callable_index(
             ):
                 return None
             return target
+
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.ImportFrom)
+                and node.level == 0
+                and node.module
+            ):
+                continue
+            for alias in node.names:
+                local = alias.asname or alias.name
+                target = f"{node.module}.{alias.name}"
+                if (
+                    alias.name == "*"
+                    or target.split(".", 1)[0] in module_roots
+                    or imported_by_name.get(local) != {target}
+                    or module_binding_counts.get(local) != 1
+                    or _has_module_object_mutation(
+                        tree, {local}, reject_argument_escape=True
+                    )
+                ):
+                    continue
+                symbol = f"{module}.{local}"
+                result[symbol] = (relative, symbol)
+                function_nodes[symbol] = (target, None, False, False)
 
         for node in tree.body:
             if not (
