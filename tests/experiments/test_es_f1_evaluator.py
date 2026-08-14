@@ -1451,6 +1451,25 @@ def test_resolved_typed_configuration_access_is_not_a_tolerant_loader() -> None:
     ) == ("TOLERANT_OR_COMPATIBILITY_LOADER",)
 
 
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    (
+        ("config, 'mode'", ()),
+        (
+            "config, 'mode', 'default'",
+            ("TOLERANT_OR_COMPATIBILITY_LOADER",),
+        ),
+    ),
+)
+def test_builtin_getattr_tolerance_requires_a_default(
+    arguments: str, expected: tuple[str, ...]
+) -> None:
+    assert evaluator.detect_ast_bypasses(
+        f"def consume(config):\n    return getattr({arguments})\n",
+        _tainted_names=("config",),
+    ) == expected
+
+
 @pytest.mark.parametrize("method", ("get", "setdefault"))
 def test_mapping_tolerance_depends_on_the_receiver_not_the_default(
     method: str,

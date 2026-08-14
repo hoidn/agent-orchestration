@@ -2394,6 +2394,7 @@ def _is_tolerant_configuration_call(
         or call_tainted
         and (
             _is_tolerant_configuration_operation(name)
+            and not (name == "getattr" and len(arguments) == 2)
             or _is_mapping_value_coercion(name, arguments)
         )
     )
