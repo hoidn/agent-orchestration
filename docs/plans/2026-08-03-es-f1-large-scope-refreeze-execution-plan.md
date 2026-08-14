@@ -212,7 +212,9 @@ The owner-directed amendment binds these requirements:
    coercive fallbacks), and legacy configuration-state mutation. It follows
    every public consumer transitively through facades and wrappers to the
    actual authority; a facade that leaves a reachable bypass does not close a
-   consumer.
+   consumer. Closure proofs are positive-only local syntax. Anything outside
+   the bounded allowlist remains unresolved rather than triggering general
+   Python alias, escape, mutation, or call-graph analysis.
 5. Resolution provenance distinguishes file mappings from CLI patches and
    survives a fresh-process round trip. Torch-side application is
    transactional: a rejected resolution leaves no partially applied or
@@ -1721,7 +1723,7 @@ pytest -q \
   tests/experiments/test_es_hard_contract.py
 ```
 
-- [ ] **Step 2: Implement the minimum generic consumer evaluator**
+- [ ] **Step 2: Implement the minimum fail-closed consumer evaluator**
 
 Reuse the audited subprocess, protected-root, forbidden-import, path-safety,
 and fresh-process mechanisms. Replace the architecture loop with one loop over
@@ -1729,6 +1731,13 @@ the digest-bound Task-1 consumer rows and one exact hard-clause table. The
 transitive walk continues until the resolved authority or a classified bypass;
 stopping at a facade is a failure. Keep clause logic in the evaluator and path
 materialization in the adapter.
+
+Use only positive, locally auditable syntax shapes for route closure. Do not
+grow a blacklist of Python AST hazards, mutation propagation, wrapper fixed
+points, or a general alias/escape proof. An unrecognized shape remains
+unresolved; if the reference product needs it, simplify or remove that product
+route. Repeated adversarial holes invalidate the proof boundary and require
+rollback rather than another exception.
 
 Advance only the task-specific fixture, calibration, hard-finding/evaluation,
 visible-result, and probe record versions needed to reject the old F1 package;

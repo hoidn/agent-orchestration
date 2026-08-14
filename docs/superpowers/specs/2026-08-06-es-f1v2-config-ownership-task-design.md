@@ -134,6 +134,14 @@ in any reachable callee is a hard bypass failure. Negative calibration must
 include both a facade-only resolver and a one-wrapper-deep surviving legacy
 access so a shared shim cannot satisfy the consumer census by shape alone.
 
+Consumer closure is a fail-closed outcome, not a mandate to model arbitrary
+Python dataflow. The evaluator may recognize only small, positive syntactic
+proofs whose complete shape is locally auditable; every alias, escape, helper,
+wrapper, or factory-result shape outside that allowlist remains unresolved.
+When such a route is required by the reference product, prefer deleting or
+simplifying the product route over expanding the evaluator into an
+alias/escape/call-graph analyzer.
+
 ## 5. Reference product: adapt, don't author
 
 The Task 3A analogue becomes **adapt-and-measure**: derive the reference
