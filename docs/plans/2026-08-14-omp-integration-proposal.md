@@ -1,9 +1,12 @@
 # OMP Integration Proposal: Worker Harness, Advised Steps, Session Transport
 
-**Status:** Proposed; owner decision required. Creates no gate, no review
-obligation, and no roadmap-level unit. Nothing here touches the frozen ES
-apparatus; all accepted work lands as new capability beside it, after the
-study unless stated otherwise.
+**Status:** Grounding and option history; implementation shape and routing are
+superseded by the
+[`2026-08-14-omp-integration-design-and-roadmap.md`](2026-08-14-omp-integration-design-and-roadmap.md)
+extension. Owner direction on 2026-08-14 incorporated that design into the
+active E-series roadmap as pending, unselected off-spine item `OMP-I1`. This
+creates no gate or review obligation for the frozen ES apparatus, and no OMP
+work executes against it before hand-back.
 **Date:** 2026-08-14
 **Author:** assistant session (orchestration supervision), at owner request
 **Repo references:** symbol/path-based as of HEAD `54d3d1bb`; the omp
@@ -289,6 +292,10 @@ provider-template quick reference gains the omp entries. No changes to
   study's arms.
 
 ## 9. Open decisions for the owner
+
+These questions are retained as proposal history. The design extension owns
+current tranche names and decisions; roadmap incorporation does not itself
+approve or select tranche 1.
 
 1. Approve phase 0 (pinned omp provider + advised-step trial in one
    low-stakes workflow)?

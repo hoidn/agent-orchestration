@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** OMP integration — generic worker template, JSON session codec, prompt scaffolder, multiagent conf presets, bidirectional session bridge
-- **Status:** proposed
+- **Status:** proposed; incorporated into the active E-series roadmap as pending, unselected off-spine item `OMP-I1`
 - **Kind:** architecture decision + roadmap extension
 - **Owner:** repository owner (decision holder)
 - **Created:** 2026-08-14 (**Last material update:** 2026-08-14, lightened and generalized to multiagent conf presets; canonical output-contract and self-contained prompt materialization added after owner review)
@@ -589,6 +589,13 @@ behind the same consumer gate as RPC `steer`.
   second synthesis call.
 
 ## Roadmap
+
+- **Active-roadmap route:** `OMP-I1` is tracked from
+  [`2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
+  It becomes eligible only after hand-back of the frozen ES apparatus and
+  separate owner approval of tranche 1. Incorporation does not select it.
+  Its F1–F8 checks close only OMP-I1 and cannot gate ES, E3, E-program
+  completion, or the P-series successor route.
 
 - **Tranche 1 (one reviewed change):** the omp template family (`omp`,
   `omp_unrestricted_workspace`, `omp_conf`) + codec +

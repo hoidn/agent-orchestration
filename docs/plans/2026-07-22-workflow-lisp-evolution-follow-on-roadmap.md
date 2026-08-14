@@ -15,7 +15,7 @@ document is the detailed historical reference.
 
 Created: 2026-07-22
 
-Last materially updated: 2026-08-04
+Last materially updated: 2026-08-14
 
 Current implementation status: the recovered E0/C1 designs passed ordered
 `E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`. ML closure and
@@ -155,6 +155,15 @@ final review remain pending. Phase ME remains plan- and
 review-gated. C1, C2,
 C3, E2O, the historical execution-registry substrate, and security work remain
 unselected.
+
+The [OMP integration design and roadmap extension](2026-08-14-omp-integration-design-and-roadmap.md)
+is incorporated by owner direction on 2026-08-14 as one tracked off-spine
+item, **OMP-I1**. It remains pending and unselected. Its earliest eligibility
+is after hand-back of the frozen ES apparatus and a separate owner approval of
+its tranche 1; incorporation alone supplies neither. OMP-I1 cannot execute
+against, modify, or consume the frozen ES arms or evidence, and it cannot gate
+the ES exit, E3 review, E-program completion, or the P-series successor route.
+Its F1–F8 checks govern only OMP-I1's own first-run closure.
 Selection does not waive the feasibility, spec-first, ordered-review,
 focused, broad non-security, end-to-end, or exit gates attached to
 roadmap-level units: E exits, ES component tasks, and owner adoptions.
@@ -207,6 +216,22 @@ Canonical tranche mapping:
 The historical ledger below is provenance only and cannot redefine or select
 these tranches. C1 is a companion design; C2/C3 from that companion remain
 deferred unless separately incorporated.
+
+Tracked off-spine integration (owner-directed 2026-08-14):
+
+- **OMP-I1 — generic OMP harness integration:** the exact scope is owned by
+  [`2026-08-14-omp-integration-design-and-roadmap.md`](2026-08-14-omp-integration-design-and-roadmap.md):
+  generic provider-template family, `OMP_JSON_STDOUT` codec, self-contained
+  prompt/output-contract scaffolder, named multiagent conf presets, shared
+  staging procedure, and bidirectional session bridge.
+- **State:** pending, unselected. ES hand-back and explicit tranche-1 approval
+  are entry conditions; F1–F8 are item-local exit criteria, not new E/ES/P
+  gates.
+- **Ordering effect:** none on the selected spine. The ES F1 refreeze remains
+  the current unit; OMP-I1 does not interpose between ES and E3 or between
+  E-program closure and the P-series. The metaharness spike, RPC interactive
+  lane, and supervision-as-variable study remain separately gated follow-ons,
+  not implied OMP-I1 scope.
 
 Sequencing prerequisites (owner-directed 2026-07-30):
 

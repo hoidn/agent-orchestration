@@ -170,6 +170,9 @@ LANGUAGE_SERVER_L6_PLAN_REVIEW_SHA256 = (
 EVOLUTION_FOLLOW_ON_ROADMAP_PATH = (
     "docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md"
 )
+OMP_INTEGRATION_DESIGN_PATH = (
+    "docs/plans/2026-08-14-omp-integration-design-and-roadmap.md"
+)
 E0_DIRECT_CONTROL_PLAN_PATH = (
     "docs/plans/2026-07-31-workflow-lisp-e0-direct-control-component-plan.md"
 )
@@ -1423,6 +1426,7 @@ def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_address
         ES_TASK5_PLAN_REVIEW_PATH,
         ES_TASK5_FINAL_REVIEW_PATH,
         ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH,
+        OMP_INTEGRATION_DESIGN_PATH,
         DESIGN_INDEX_PATH,
         "docs/index.md",
         "docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md",
@@ -1441,6 +1445,8 @@ def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_address
     assert Path(ES_COMPONENT_PLAN_PATH).name in index
     assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in roadmap
     assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in es_plan
+    assert Path(OMP_INTEGRATION_DESIGN_PATH).name in roadmap
+    assert Path(OMP_INTEGRATION_DESIGN_PATH).name in index
     assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
 
     # Both capability rows remain routed (row lookup raises when missing).
