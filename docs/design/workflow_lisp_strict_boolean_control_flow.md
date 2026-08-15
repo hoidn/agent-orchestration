@@ -25,10 +25,14 @@ enclosing context. Authors do not have to bind an effect result before using it
 as part of a condition.
 
 Effects in conditions execute left to right and at most once. `and` and `or`
-short-circuit, so skipped operands do not execute or create state. The compiler
-recursively normalizes effectful conditions into existing effect nodes,
-recorded Boolean projections, and structured `if` nodes. `cond` is frontend
-sugar for nested `if`; no new runtime control form is introduced.
+short-circuit, so skipped operands do not execute. A statically eliminated
+operand has no runtime node or state row. A dynamically skipped operand lowered
+through structured `if` retains the ordinary durable `status: skipped` marker
+and descendant rows required by state 2.1, but has no visit, effect attempt,
+checkpoint, or execution-value payload. The compiler recursively normalizes
+effectful conditions into existing effect nodes, recorded Boolean projections,
+and structured `if` nodes. `cond` is frontend sugar for nested `if`; no new
+runtime control form is introduced.
 
 Union values expose their canonical read-only `.variant` discriminant.
 Comparisons such as `(= attempt.variant COMPLETED)` contextually resolve the
@@ -258,8 +262,10 @@ Rules:
 - `or` evaluates each later operand only after all prior operands are false;
 - `not` evaluates its operand once and inverts the result;
 - nested `if` and `cond` retain their own branch boundaries; and
-- skipped operands emit no effect node, checkpoint, provider attempt, command
-  attempt, or result state.
+- statically eliminated skipped operands emit no node or state row; and
+- dynamically skipped operands use standard structured-`if` nodes and durable
+  `status: skipped` settlement rows, but create no visit, provider attempt,
+  command attempt, checkpoint, or execution-value payload.
 
 `cond` expansion retains clause-level source provenance and then uses this same
 normalization path. Its temporary frontend representation is erased before WCC;
@@ -385,7 +391,11 @@ contradicts the proof.
 - The final Boolean is recorded before branch selection. Resume reuses completed
   effects and the recorded/provably replayable Boolean rather than choosing a
   different branch.
-- Untaken branches and short-circuited operands have no runtime state.
+- Projected nodes in untaken branches and dynamically short-circuited operands
+  retain the ordinary durable `status: skipped` settlement rows required by
+  `specs/state.md` and `specs/acceptance/index.md`. They have no visit,
+  provider or command invocation, effect attempt, checkpoint, or execution-value
+  payload. A statically eliminated operand has no node or row.
 - Existing effect declarations, provider/command contracts, permissions,
   security boundaries, and failure routing remain authoritative.
 
@@ -441,10 +451,13 @@ fixtures before claiming no runtime or public-IR change:
 1. **Linear extraction:** normalize an inline provider effect beneath `=`,
    lower through existing structured `if`, preserve effect/source/checkpoint
    identity, and show clean/resume equivalence with the authored `let*` form.
-2. **Short circuit:** place counted provider or command effects in later `and`
-   and `or` operands and prove skipped operands create no attempt, checkpoint,
-   or step state on clean execution or resume. This must bypass or correct any
-   eager WCC operand-effect prefixing.
+2. **Short circuit:** place counted provider or command effects in the first
+   and later `and` and `or` operands. Prove the dynamically skipped later
+   operand is not invoked and retains only its ordinary durable
+   `status: skipped` settlement row: no visit, attempt, checkpoint, or
+   execution-value payload appears on clean execution or resume. A statically
+   eliminated operand, if an optimizer removes one, has no node or row. This
+   must bypass or correct any eager WCC operand-effect prefixing.
 3. **Nested control value:** use an effectful nested `if` as an operand of a
    larger Boolean expression and prove that only its selected effects execute
    before the outer route.

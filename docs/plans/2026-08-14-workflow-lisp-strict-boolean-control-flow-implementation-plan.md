@@ -259,16 +259,23 @@ implementation. Do not silently limit `.variant` proof to provider results.
         :argv ("python" "scripts/revise.py")
         :returns Bool))
 
-  ;; Later effects must be absent when short-circuited.
-  (and false
-       (command-result must-not-run
-         :argv ("python" "scripts/must_not_run.py")
-         :returns Bool))
-  (or true
-      (provider-result providers.must-not-run
-        :prompt prompts.must-not-run
-        :inputs ()
-        :returns Bool))
+  ;; Later effects must not execute when dynamically short-circuited.
+  (and
+    (command-result stop-after-false
+      :argv ("python" "scripts/return_false.py")
+      :returns Bool)
+    (command-result must-not-run
+      :argv ("python" "scripts/must_not_run.py")
+      :returns Bool))
+  (or
+    (provider-result providers.stop-after-true
+      :prompt prompts.stop-after-true
+      :inputs ()
+      :returns Bool)
+    (provider-result providers.must-not-run
+      :prompt prompts.must-not-run
+      :inputs ()
+      :returns Bool))
 
   ;; A nested control value remains branch-local.
   (= (if (command-result choose-left
@@ -283,10 +290,13 @@ implementation. Do not silently limit `.variant` proof to provider results.
      1)
   ```
 
-  Assert authored evaluation order, one invocation per reached effect, no step,
-  attempt, or checkpoint for skipped operands, selected outer branch only, and
-  clean/resume equivalence. Force a failure after the condition settles and
-  prove resume does not repeat it.
+  Assert authored evaluation order and one invocation per reached effect.
+  Dynamically skipped projected nodes must retain the ordinary durable
+  `status: skipped` settlement row required by state 2.1, with no visit,
+  provider/command attempt, checkpoint, or execution-value payload. A
+  statically eliminated operand has no node or row. Assert the selected outer
+  branch only and clean/resume equivalence. Force a failure after the condition
+  settles and prove resume does not repeat it.
 
 - [ ] Add strictness/failure RED tests: a direct provider/procedure/workflow
   call returning `Bool` is accepted; `Int`, `String`, enum, record, union, and
