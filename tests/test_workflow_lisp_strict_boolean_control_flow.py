@@ -12,7 +12,10 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
     compile_stage3_module,
 )
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import (
+    LispFrontendCompileError,
+    serialize_diagnostic,
+)
 from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs, walk_expr
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
@@ -1434,3 +1437,144 @@ def test_strict_loop_body_match_arm_binding_stays_inside(tmp_path: Path) -> None
     # never escapes into the loop-body prefix or the sibling arm.
     assert _command_nodes(arm_a.body) == 1
     assert _command_nodes(match.arms[1].body) == 0
+
+
+_EFFECTFUL_IF_FORMS = (
+    "(defpath WorkReport",
+    '  :kind relpath',
+    '  :under "artifacts/work"',
+    "  :must-exist true)",
+    "(defrecord ReadyResult",
+    "  (ready Bool))",
+    "(defrecord ImplementationSummary",
+    "  (report WorkReport))",
+    "(defworkflow invalid-if-condition-effectful",
+    "  ((report_path WorkReport)",
+    "   (fallback_path WorkReport))",
+    "  -> ImplementationSummary",
+    "  (if",
+    "    (let* ((ready-result",
+    "             (command-result run_checks",
+    '               :argv ("python" "scripts/run_checks.py" report_path)',
+    "               :returns ReadyResult)))",
+    "      ready-result.ready)",
+    "    (record ImplementationSummary",
+    "      :report report_path)",
+    "    (record ImplementationSummary",
+    "      :report fallback_path)))",
+)
+_NONPROJECTABLE_IF_FORMS = (
+    "(defpath WorkReport",
+    '  :kind relpath',
+    '  :under "artifacts/work"',
+    "  :must-exist true)",
+    "(defrecord ImplementationSummary",
+    "  (report WorkReport))",
+    "(defun identity-bool",
+    "  ((value Bool))",
+    "  -> Bool",
+    "  value)",
+    "(defworkflow invalid-if-condition-not-projectable",
+    "  ((ready Bool)",
+    "   (report_path WorkReport)",
+    "   (fallback_path WorkReport))",
+    "  -> ImplementationSummary",
+    "  (if (identity-bool ready)",
+    "    (record ImplementationSummary",
+    "      :report report_path)",
+    "    (record ImplementationSummary",
+    "      :report fallback_path)))",
+)
+
+
+def _module_for_target(target_dsl: str, forms: tuple[str, ...]) -> str:
+    return "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            f'  (:target-dsl "{target_dsl}")',
+            *(f"  {form}" for form in forms),
+            ")",
+        )
+    )
+
+
+def _serialized_if_diagnostic(
+    tmp_path: Path,
+    target_dsl: str,
+    forms: tuple[str, ...],
+) -> str:
+    import json
+
+    path = tmp_path / "if_diagnostic.orc"
+    path.write_text(_module_for_target(target_dsl, forms), encoding="utf-8")
+    boundaries = {
+        "run_checks": ExternalToolBinding(
+            name="run_checks",
+            stable_command=("python", "scripts/run_checks.py"),
+        )
+    }
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            command_boundaries=boundaries,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+    return json.dumps(
+        serialize_diagnostic(excinfo.value.diagnostics[0]),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def test_target_225_effectful_if_diagnostic_bytes_unchanged(
+    tmp_path: Path,
+) -> None:
+    """Target 2.25 keeps the pre-change effectful-`if` diagnostic byte-for-byte."""
+
+    golden = _serialized_if_diagnostic(
+        tmp_path, "2.14", _EFFECTFUL_IF_FORMS
+    )
+    current = _serialized_if_diagnostic(
+        tmp_path, "2.25", _EFFECTFUL_IF_FORMS
+    )
+    assert '"if_condition_has_effect"' in current
+    assert current == golden
+
+
+def test_target_225_nonprojectable_if_diagnostic_bytes_unchanged(
+    tmp_path: Path,
+) -> None:
+    """Target 2.25 keeps the pre-change nonprojectable-`if` bytes identical."""
+
+    golden = _serialized_if_diagnostic(
+        tmp_path, "2.14", _NONPROJECTABLE_IF_FORMS
+    )
+    current = _serialized_if_diagnostic(
+        tmp_path, "2.25", _NONPROJECTABLE_IF_FORMS
+    )
+    assert '"if_condition_not_projectable"' in current
+    assert current == golden
+
+
+def test_target_226_admits_effectful_and_nonprojectable_if(
+    tmp_path: Path,
+) -> None:
+    """Target 2.26 admits an effectful and a nonprojectable `if` condition."""
+
+    for forms in (_EFFECTFUL_IF_FORMS, _NONPROJECTABLE_IF_FORMS):
+        path = tmp_path / "if_admitted.orc"
+        path.write_text(_module_for_target("2.26", forms), encoding="utf-8")
+        result = compile_stage3_module(
+            path,
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+        assert result.typed_workflows

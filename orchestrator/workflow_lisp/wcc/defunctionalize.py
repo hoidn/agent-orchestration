@@ -4189,20 +4189,28 @@ def _materialize_member_conditional_preludes(
 
     prelude_steps: list[dict[str, Any]] = []
     refs: dict[str, str] = {}
+    mutable_locals: dict[str, Any] = dict(local_values)
+    mutable_context = context
     for binding_name, ifexpr, type_ref in preludes:
         step_name = f"{member_step_name}__{binding_name}"
         step_id = lowering_core._normalize_generated_step_id(step_name)
         lowered = lower_pure_projection_step(
             ifexpr,
             result_type=type_ref,
-            context=context,
-            local_values=local_values,
+            context=mutable_context,
+            local_values=mutable_locals,
             step_name=step_name,
             step_id=step_id,
             stable_target="binding_projection",
         )
         prelude_steps.append(lowered.step)
         refs[binding_name] = lowered.output_refs["return"]
+        mutable_locals[binding_name] = lowered.output_refs["return"]
+        mutable_context = _context_with_local_type_binding(
+            mutable_context,
+            binding_name=binding_name,
+            binding_type=type_ref,
+        )
     return prelude_steps, refs
 
 

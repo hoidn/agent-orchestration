@@ -887,3 +887,133 @@ def test_list_map_effect_cardinality_preserved_in_condition(tmp_path: Path) -> N
     assert count_files[0].read_text(encoding="utf-8") == "xxx"
     assert _marker_files(tmp_path, "yes")
     assert _marker_files(tmp_path, "no") == []
+
+
+def test_loop_untaken_done_branch_effect_stays_unexecuted(tmp_path: Path) -> None:
+    """An untaken loop `done` branch never runs its effect; the reached branch
+    runs at most once."""
+
+    module_path = tmp_path / "loop_done_effect.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule loop_done_effect)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (loop/recur",
+                "          :max 1",
+                "          :state (loop-state (count Int 0))",
+                "          :on-exhausted false",
+                "          (fn (state)",
+                "            (if (= state.count 0)",
+                "                (continue",
+                "                  (let* ((marker (command-result reached",
+                '                          :argv ("python" "scripts/reached.py")',
+                "                          :returns Bool)))",
+                "                    (loop-state :like state :count 1)))",
+                "                (done (command-result untaken",
+                '                        :argv ("python" "scripts/untaken.py")',
+                "                        :returns Bool)))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="loop_done_effect",
+        command_boundaries={
+            "reached": _command(tmp_path, "reached", "true"),
+            "untaken": _command(tmp_path, "untaken", "true"),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
+        },
+    )
+    result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert result["status"] == "completed"
+    # The reached `continue` branch runs its marker effect exactly once; the
+    # untaken `done` branch effect is never invoked.
+    assert len(_marker_files(tmp_path, "reached")) == 1
+    assert _marker_files(tmp_path, "untaken") == []
+
+
+def test_loop_match_selected_arm_consumes_binding(tmp_path: Path) -> None:
+    """The selected match arm consumes its bound value; the sibling arm stays
+    unexecuted."""
+
+    module_path = tmp_path / "loop_match_arm.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule loop_match_arm)",
+                "  (export gate)",
+                "  (defunion Subject (A (flag Bool)) (B (flag Bool)))",
+                "  (defworkflow gate () -> Bool",
+                "    (if (loop/recur",
+                "          :max 1",
+                "          :state (loop-state (count Int 0))",
+                "          :on-exhausted false",
+                "          (fn (state)",
+                "            (match (command-result subject",
+                '                     :argv ("python" "scripts/subject.py")',
+                "                     :returns Subject)",
+                "              ((A a)",
+                "               (done a.flag))",
+                "              ((B b)",
+                "               (continue",
+                "                 (let* ((marker (command-result must_not_run",
+                '                         :argv ("python" "scripts/must_not_run.py")',
+                "                         :returns Bool)))",
+                "                   (loop-state :like state :count 1)))))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="loop_match_arm",
+        command_boundaries={
+            "subject": _command(
+                tmp_path, "subject", '{"variant": "A", "flag": true}'
+            ),
+            "must_not_run": _command(tmp_path, "must_not_run", "true"),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
+        },
+    )
+    result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert result["status"] == "completed"
+    assert result["workflow_outputs"] == {"__result__": True}
+    # The selected `A` arm consumed `a.flag` as its `done` result; the untaken
+    # `B` arm's effect never runs.
+    assert len(_marker_files(tmp_path, "subject")) == 1
+    assert _marker_files(tmp_path, "must_not_run") == []
+    assert len(_marker_files(tmp_path, "yes")) == 1
+    assert _marker_files(tmp_path, "no") == []

@@ -2807,7 +2807,7 @@ def _elaborate_if_to_value(
                 expr=expr,
             ),
         )
-    condition = _elaborate_atomic_value(
+    condition_prefix, condition = _elaborate_expr_to_value(
         expr.condition_expr,
         scope=scope.child_scope("select-condition"),
         type_env=type_env,
@@ -2844,7 +2844,7 @@ def _elaborate_if_to_value(
         active_phase_scope=active_phase_scope,
     )
     return (
-        (),
+        condition_prefix,
         WccSelect(
             metadata=scope.value_metadata(
                 role="select",

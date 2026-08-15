@@ -4828,6 +4828,128 @@ def _pre_provider_bundle(result):
     return bundle.ir.nodes
 
 
+def test_closed_member_nested_post_provider_selection_no_arm_node(
+    tmp_path: Path,
+) -> None:
+    """A nested post-provider selection stays one settlement ``kind: "if"``."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") "accept" '
+            '(if (= raw "other") "revise" "fallback")))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    # Exactly one node: the supervision owner. The nested selection is fully
+    # inlined into the settlement payload; no arm-specific node or row exists.
+    config = _task12b_supervision_config(result)
+    payload = dict(config.settlement_payload)
+    assert payload["expr"]["kind"] == "if"
+    assert payload["expr"]["else"]["kind"] == "if"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "accept"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "revise"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "unexpected",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "fallback"
+
+
+def test_pre_provider_projection_lineage_matches_authored_selection(
+    tmp_path: Path,
+) -> None:
+    """The lifted projection and owning group retain authored source lineage."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defproc branching-input-worker ((a Bool) (b Bool)) -> String "
+            ":effects ((uses-provider providers.worker)) "
+            ":lowering inline "
+            "(let* ((flag (if a b false))) "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs (flag) "
+            ":timeout-sec 30 :returns String)))"
+        ),
+        (
+            "(defworkflow orchestrate ((a Bool) (b Bool)) -> String "
+            "(with-live-providers "
+            "((worker (branching-input-worker a b)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    nodes = _pre_provider_bundle(result)
+    projection = next(
+        node
+        for node in nodes.values()
+        if node.kind is ExecutableNodeKind.PURE_PROJECTION
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    origin = lowered.origin_map.step_spans[projection.presentation_name]
+    source_text = (tmp_path / "strict_boolean_member.orc").read_text(
+        encoding="utf-8"
+    )
+    owned = source_text[origin.span.start.offset : origin.span.end.offset]
+    assert owned == "(if a b false)"
+    assert origin.form_path == (
+        "workflow-lisp",
+        "defproc",
+        "branching-input-worker",
+    )
+    assert origin.expansion_stack == ()
+    # The member binding is a recorded supervision owner origin.
+    member_owner = next(
+        origin
+        for key, origin in lowered.origin_map.provider_supervision_origins.items()
+        if key.startswith("wcc-node:wcc_m4:")
+    )
+    assert member_owner.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "orchestrate",
+    )
+
+
 def test_pre_provider_input_lifts_whole_selection_to_pure_projection(
     tmp_path: Path,
 ) -> None:
@@ -4929,3 +5051,85 @@ def test_pre_provider_input_authored_and_or_reaches_same_path(
         typed_inputs = supervision[0].execution_config.worker.provider_config.typed_prompt_inputs
         assert len(typed_inputs) == 1
         assert typed_inputs[0]["value_source"]["kind"] == "typed_binding_ref"
+
+
+def test_pre_provider_input_chained_selections_thread_prior_ref(
+    tmp_path: Path,
+) -> None:
+    """Two chained pre-provider selections lower to two ordered projections."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defproc branching-input-worker ((a Bool) (b Bool) (c Bool)) -> String "
+            ":effects ((uses-provider providers.worker)) "
+            ":lowering inline "
+            "(let* ((first (if a b false)) "
+            "(second (if first c false))) "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs (second) "
+            ":timeout-sec 30 :returns String)))"
+        ),
+        (
+            "(defworkflow orchestrate ((a Bool) (b Bool) (c Bool)) -> String "
+            "(with-live-providers "
+            "((worker (branching-input-worker a b c)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    nodes = _pre_provider_bundle(result)
+
+    projections = {
+        node.step_id: node
+        for node in nodes.values()
+        if node.kind is ExecutableNodeKind.PURE_PROJECTION
+    }
+    supervision = [
+        node
+        for node in nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    ]
+    assert len(projections) == 2
+    assert len(supervision) == 1
+
+    first_id = next(step_id for step_id in projections if step_id.endswith("__first"))
+    second_id = next(step_id for step_id in projections if step_id.endswith("__second"))
+    first_node = projections[first_id]
+    second_node = projections[second_id]
+    first_ref = f"root.steps.{first_node.presentation_name}.artifacts.__result__"
+    second_ref = f"root.steps.{second_node.presentation_name}.artifacts.__result__"
+
+    first_binding_refs = dict(
+        first_node.execution_config.pure_projection["binding_refs"]
+    )
+    second_binding_refs = dict(
+        second_node.execution_config.pure_projection["binding_refs"]
+    )
+    # The second selection consumes the first selection's typed result.
+    first_dependency = next(
+        ref for name, ref in second_binding_refs.items() if name.endswith("__first")
+    )
+    assert first_dependency["ref"] == first_ref
+    # The first selection does not depend on the second.
+    assert not any(name.endswith("__second") for name in first_binding_refs)
+
+    second_payload = dict(second_node.execution_config.pure_projection["payload"])
+    assert second_payload["expr"]["kind"] == "if"
+    assert second_payload["expr"]["condition"]["kind"] == "binding"
+    assert second_payload["expr"]["condition"]["name"].endswith("__first")
+
+    typed_inputs = (
+        supervision[0].execution_config.worker.provider_config.typed_prompt_inputs
+    )
+    assert len(typed_inputs) == 1
+    entry = typed_inputs[0]
+    assert entry["binding_name"].endswith("__second")
+    assert entry["value_source"]["kind"] == "typed_binding_ref"
+    assert entry["value_source"]["binding"]["ref"] == second_ref

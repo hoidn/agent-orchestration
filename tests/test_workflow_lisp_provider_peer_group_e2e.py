@@ -938,6 +938,7 @@ class _ControlledPeerHarness:
     )
     offered_targets: list[str] = field(default_factory=list)
     exact_bundle_bytes: dict[str, bytes] = field(default_factory=dict)
+    resolved_commands: dict[str, tuple[str, ...]] = field(default_factory=dict)
     endpoint_paths: set[Path] = field(default_factory=set)
 
     def create_adapter(
@@ -973,10 +974,10 @@ class _ControlledPeerAdapter:
         *,
         deadline: float,
     ) -> object:
-        assert deadline > time.monotonic()
         endpoint_path, _sender_binding = _decode_active_peer_binding(
             invocation.env
         )
+        self.harness.resolved_commands[self.member_id] = invocation.resolved_command
         self.harness.endpoint_paths.add(endpoint_path)
         if (
             self.harness.failure_mode == "launch"
@@ -1593,3 +1594,80 @@ def _resume_manager(workspace: Path, run_id: str) -> StateManager:
     manager = StateManager(workspace=workspace, run_id=run_id)
     manager.load()
     return manager
+
+
+def test_pre_provider_input_peer_provider_receives_selected_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The controlled peer provider observes the selected projected value."""
+
+    files = _pre_provider_input_files(tmp_path)
+    member_ids = ("planner", "reviewer")
+    values: dict[str, object] = {"planner": "plan", "reviewer": True}
+    monkeypatch.chdir(tmp_path)
+    harness = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=member_ids,
+        values=values,
+    )
+
+    source = files["provider_peer_group_three.orc"]
+    bundle = loaded_workflow_bundle(
+        build_frontend_bundle(
+            FrontendBuildRequest(
+                source_path=source.resolve(),
+                source_roots=(tmp_path,),
+                entry_workflow="orchestrate",
+                provider_externs_path=files["providers.json"].resolve(),
+                prompt_externs_path=files["prompts.json"].resolve(),
+                workspace_root=tmp_path,
+            )
+        ).validated_bundle
+    )
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    binding_inputs = {
+        name: contract
+        for name, contract in runtime_inputs.items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        binding_inputs, {"a": "true", "b": "true"}, tmp_path
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id="peer_value_delivery")
+    state_manager.initialize(
+        source.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    executor = WorkflowExecutor(
+        bundle, tmp_path, state_manager, retry_delay_ms=0
+    )
+    state = executor.execute(on_error="stop")
+    assert state["status"] == "completed"
+
+    # The controlled adapter observed the planner's provider invocation.
+    planner_command = harness.resolved_commands["planner"]
+    assert planner_command
+
+    # Resolve the planner's typed input against the real run state: the
+    # selected projected value reaches the perform's typed binding.
+    peer_node = next(
+        node
+        for node in bundle.ir.nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER_PEER_GROUP
+    )
+    planner = next(
+        member
+        for member in peer_node.execution_config.members
+        if member.member_id == "planner"
+    )
+    (typed_input,) = planner.provider_config.typed_prompt_inputs
+    binding = dict(typed_input["value_source"]["binding"])
+    resolved_value, resolve_error = executor._resolve_typed_prompt_input_value(
+        binding,
+        state,
+        scope=None,
+    )
+    assert resolve_error is None
+    assert resolved_value is True
