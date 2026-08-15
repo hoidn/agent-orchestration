@@ -13,17 +13,25 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expression_traversal import walk_expr
+from orchestrator.workflow_lisp.expression_traversal import iter_child_exprs, walk_expr
 from orchestrator.workflow_lisp.expressions import (
+    CallExpr,
     CommandResultExpr,
     EnumMemberExpr,
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
+    ListMapEffectExpr,
+    ListMapExpr,
     LiteralExpr,
+    LoopRecurExpr,
+    MatchExpr,
     NameExpr,
     ProviderResultExpr,
     PureOpExpr,
+    WithLiveProviderPeersExpr,
+    WithLiveProvidersExpr,
+    WithPhaseExpr,
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -246,7 +254,6 @@ def test_cond_non_final_else_with_invalid_nested_result_reports_else_clause() ->
     assert diagnostic.code == "cond_else_invalid"
     assert diagnostic.span == else_clause.span
 
-
 def _typed_body(
     source: str,
     tmp_path: Path,
@@ -360,6 +367,8 @@ def test_short_circuit_and_normalizes_to_nested_if(tmp_path: Path) -> None:
 
     assert isinstance(body, LetStarExpr)
     assert _cond_pure_ops(body) == []
+    # The nested short-circuit boundary is a structured IfExpr whose then
+    # branch carries the later operand; the terminal condition is a ref.
     outer = body.body
     assert isinstance(outer, IfExpr)
     assert isinstance(outer.condition_expr, NameExpr)
@@ -440,16 +449,10 @@ def test_nested_control_value_binds_once(tmp_path: Path) -> None:
 
     assert isinstance(body, LetStarExpr)
     assert _cond_pure_ops(body) == []
-    assert (
-        len(
-            [
-                n
-                for n in walk_expr(body)
-                if isinstance(n, CommandResultExpr) and n.step_name == "choose"
-            ]
-        )
-        == 1
-    )
+    # The condition effect is bound exactly once as a command; the nested
+    # control value is bound once (remaining bindings are pure aliases).
+    assert len([n for n in walk_expr(body) if isinstance(n, CommandResultExpr) and n.step_name == "choose"]) == 1
+    assert _cond_pure_ops(body) == []
     outer = body.body
     assert isinstance(outer, IfExpr)
     assert isinstance(outer.condition_expr, PureOpExpr)
@@ -496,6 +499,7 @@ def test_strict_non_bool_conditions_rejected(
             command_boundaries={},
             provider_externs={},
             prompt_externs={},
+            lowering_route="legacy",
             validate_shared=False,
             workspace_root=tmp_path,
         )
@@ -539,39 +543,736 @@ def test_strict_direct_workflow_bool_admitted(tmp_path: Path) -> None:
     assert _cond_pure_ops(body) == []
 
 
-def test_target_225_preserves_legacy_if_rejections(tmp_path: Path) -> None:
-    """Below 2.26 the legacy pure/effect refusals are byte-for-byte unchanged."""
+def test_short_circuit_helper_argument_effectful_and_normalized(tmp_path: Path) -> None:
+    """An effectful `and` inside a helper argument is normalized, not eager."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule helper_arg)",
+                "  (export outer)",
+                "  (defun identity-bool",
+                "    ((value Bool))",
+                "    -> Bool",
+                "    value)",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (identity-bool",
+                "          (and false",
+                "               (command-result must_not_run",
+                '                 :argv ("python" "scripts/must_not_run.py")',
+                "                 :returns Bool)))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("must_not_run", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+
+
+def test_short_circuit_match_arm_effectful_and_normalized(tmp_path: Path) -> None:
+    """An effectful `and` inside a `match` arm body is normalized, not eager."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule match_arm)",
+                "  (export outer)",
+                "  (defunion Subject",
+                "    (A (flag Bool))",
+                "    (B (flag Bool)))",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (match (command-result subject",
+                '                 :argv ("python" "scripts/subject.py")',
+                "                 :returns Subject)",
+                "          ((A a)",
+                "           (and false",
+                "                (command-result must_not_run",
+                '                  :argv ("python" "scripts/must_not_run.py")',
+                "                  :returns Bool)))",
+                "          ((B b) false))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("subject", "must_not_run", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+
+
+def test_strict_macro_cloned_effect_distinct_bindings(tmp_path: Path) -> None:
+    """Macro-cloned equal-provenance effects get distinct operand-path names."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule macro_clone)",
+                "  (export outer)",
+                "  (defmacro twice (x)",
+                "    (and x x))",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (twice (command-result probe",
+                '                 :argv ("python" "scripts/probe.py")',
+                "                 :returns Bool))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("probe", "yes", "no"),
+    )
+
+    assert isinstance(body, LetStarExpr)
+    assert _cond_pure_ops(body) == []
+    effect_bindings = [
+        name
+        for node in walk_expr(body)
+        if isinstance(node, LetStarExpr)
+        for name, _ in node.bindings
+        if name.startswith("__cond_effect_")
+    ]
+    assert len(effect_bindings) == 2
+    assert len(set(effect_bindings)) == 2
+
+
+def test_strict_no_effectful_and_or_reaches_pure_op(tmp_path: Path) -> None:
+    """The normalized union carries no residual ``and``/``or`` pure operator."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule invariant)",
+                "  (export outer)",
+                "  (defun identity-bool",
+                "    ((value Bool))",
+                "    -> Bool",
+                "    value)",
+                "  (defunion Subject",
+                "    (A (flag Bool))",
+                "    (B (flag Bool)))",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (and (= (command-result probe",
+                '                  :argv ("python" "scripts/probe.py")',
+                "                  :returns Bool)",
+                "                true)",
+                "             (or (identity-bool",
+                "                   (and false",
+                "                        (command-result must_not_run",
+                '                          :argv ("python" "scripts/must_not_run.py")',
+                "                          :returns Bool)))",
+                "                 (match (command-result subject",
+                '                          :argv ("python" "scripts/subject.py")',
+                "                          :returns Subject)",
+                "                   ((A a) false)",
+                "                   ((B b) true))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("probe", "must_not_run", "subject", "yes", "no"),
+    )
+
+    assert isinstance(body, LetStarExpr)
+    assert _cond_pure_ops(body) == []
+
+
+def test_strict_helper_body_and_or_normalized(tmp_path: Path) -> None:
+    """A pure `and`/`or` authored in a helper body is normalized after expansion."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule helper_body)",
+                "  (export outer)",
+                "  (defun both",
+                "    ((a Bool) (b Bool))",
+                "    -> Bool",
+                "    (and a b))",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (both true false)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+
+
+def test_strict_direct_procedure_bool_admitted(tmp_path: Path) -> None:
+    """A same-file procedure returning ``Bool`` is admitted as a condition."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule direct_proc)",
+                "  (export outer)",
+                "  (defproc ready-proc",
+                "    ()",
+                "    -> Bool",
+                "    :effects ((uses-command probe))",
+                "    (command-result probe",
+                '      :argv ("python" "scripts/probe.py")',
+                "      :returns Bool))",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (ready-proc)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("probe", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+
+
+def test_strict_effectful_not_normalized(tmp_path: Path) -> None:
+    """`not` over an effectful operand evaluates the operand once and inverts."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule not_effect)",
+                "  (export outer)",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (not (command-result probe",
+                '               :argv ("python" "scripts/probe.py")',
+                "               :returns Bool))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("probe", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    assert isinstance(body, LetStarExpr)
+    assert any(isinstance(v, CommandResultExpr) for _, v in body.bindings)
+    assert isinstance(body.body, IfExpr)
+    assert isinstance(body.body.condition_expr, PureOpExpr)
+    assert body.body.condition_expr.operator == "not"
+
+
+@pytest.mark.parametrize(
+    ("condition", "prelude"),
+    [
+        ("(variant Subject A :flag true)", "(defunion Subject (A (flag Bool)) (B (flag Bool)))"),
+    ],
+)
+def test_strict_union_value_rejected(
+    tmp_path: Path,
+    condition: str,
+    prelude: str,
+) -> None:
+    """Union and Value conditions are rejected with ``if_condition_not_bool``."""
 
     source = "\n".join(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.25")',
-            "  (defmodule legacy)",
-            "  (defworkflow gate",
+            '  (:target-dsl "2.26")',
+            "  (defmodule reject)",
+            "  (export reject)",
+            f"  {prelude}",
+            "  (defworkflow reject",
             "    ()",
             "    -> Bool",
-            "    (if (command-result probe",
-            '          :argv ("python" "scripts/probe.py")',
-            "          :returns Bool)",
+            f"    (if {condition}",
             "        true",
             "        false)))",
         ]
     )
-    path = tmp_path / "legacy.orc"
+    path = tmp_path / "reject.orc"
     path.write_text(source, encoding="utf-8")
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             path,
-            command_boundaries={
-                "probe": ExternalToolBinding(
-                    name="probe",
-                    stable_command=("python", "scripts/probe.py"),
-                )
-            },
+            command_boundaries={},
             provider_externs={},
             prompt_externs={},
             validate_shared=False,
             workspace_root=tmp_path,
         )
-    assert excinfo.value.diagnostics[0].code == "if_condition_has_effect"
+    assert excinfo.value.diagnostics[0].code == "if_condition_not_bool"
+
+
+def test_strict_value_condition_rejected(tmp_path: Path) -> None:
+    """A ``Value``-typed condition is rejected with ``if_condition_not_bool``."""
+
+    source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            "  (defmodule reject_value)",
+            "  (export reject)",
+            "  (defworkflow reject ((payload Value)) -> Bool",
+            "    (if payload",
+            "        true",
+            "        false)))",
+        ]
+    )
+    path = tmp_path / "reject_value.orc"
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            command_boundaries={},
+            provider_externs={},
+            prompt_externs={},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+    assert excinfo.value.diagnostics[0].code == "if_condition_not_bool"
+
+
+def test_strict_with_live_provider_peers_member_scope_preserved(tmp_path: Path) -> None:
+    """Peer members stay provider performs; the group is bound exactly once."""
+
+    (tmp_path / "prompts").mkdir()
+    for name in ("planner", "reviewer"):
+        (tmp_path / "prompts" / f"{name}.md").write_text("Prompt.\n", encoding="utf-8")
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule peers)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (with-live-provider-peers",
+                "          ((planner",
+                "             (provider-result providers.planner",
+                "               :prompt prompts.planner :inputs ()",
+                "               :timeout-sec 30 :returns String))",
+                "           (reviewer",
+                "             (provider-result providers.reviewer",
+                "               :prompt prompts.reviewer :inputs ()",
+                "               :timeout-sec 20 :returns Bool)))",
+                "          reviewer)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("yes", "no"),
+        provider_externs={
+            "providers.planner": "planner-provider",
+            "providers.reviewer": "reviewer-provider",
+        },
+        prompt_externs={
+            "prompts.planner": "prompts/planner.md",
+            "prompts.reviewer": "prompts/reviewer.md",
+        },
+    )
+
+    assert _cond_pure_ops(body) == []
+    peer_nodes = [
+        node for node in walk_expr(body) if isinstance(node, WithLiveProviderPeersExpr)
+    ]
+    assert len(peer_nodes) == 1
+    members = [binding.value_expr for binding in peer_nodes[0].bindings]
+    assert all(isinstance(member, ProviderResultExpr) for member in members)
+    assert isinstance(peer_nodes[0].body, NameExpr)
+
+
+def test_strict_with_live_providers_member_scope_preserved(tmp_path: Path) -> None:
+    """Supervision members stay provider performs; the group is bound once."""
+
+    (tmp_path / "prompts").mkdir()
+    for name in ("worker", "supervisor"):
+        (tmp_path / "prompts" / f"{name}.md").write_text("Prompt.\n", encoding="utf-8")
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule supervision)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (with-live-providers",
+                "          ((worker",
+                "             (provider-result providers.worker",
+                "               :prompt prompts.worker :inputs ()",
+                "               :timeout-sec 30 :returns Value))",
+                "           (supervisor",
+                "             (provider-result providers.supervisor",
+                "               :prompt prompts.supervisor :inputs ()",
+                "               :timeout-sec 20 :returns ProviderSteeringDirective)",
+                "             :observes worker))",
+                "          true)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("yes", "no"),
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+    )
+
+    assert _cond_pure_ops(body) == []
+    supervision_nodes = [
+        node for node in walk_expr(body) if isinstance(node, WithLiveProvidersExpr)
+    ]
+    assert len(supervision_nodes) == 1
+    members = [binding.value_expr for binding in supervision_nodes[0].bindings]
+    assert all(isinstance(member, ProviderResultExpr) for member in members)
+    assert isinstance(supervision_nodes[0].body, LiteralExpr)
+
+
+def test_strict_nested_let_shadowing_preserved(tmp_path: Path) -> None:
+    """A nested authored ``let*`` keeps its bindings in the nested scope."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule shadow)",
+                "  (export decide)",
+                "  (defworkflow decide () -> Bool",
+                "    (if (let* ((outer (command-result first",
+                '                        :argv ("python" "scripts/first.py")',
+                "                        :returns Bool)))",
+                "          (let* ((outer (command-result second",
+                '                          :argv ("python" "scripts/second.py")',
+                "                          :returns Bool)))",
+                "            outer))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("first", "second", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    assert isinstance(body, LetStarExpr)
+    # The authored `outer` names stay nested, never flattened into the outer
+    # condition prefix.
+    assert all(not name.startswith("outer") for name, _ in body.bindings)
+    first_count = sum(
+        1
+        for node in walk_expr(body)
+        if isinstance(node, CommandResultExpr) and node.step_name == "first"
+    )
+    second_count = sum(
+        1
+        for node in walk_expr(body)
+        if isinstance(node, CommandResultExpr) and node.step_name == "second"
+    )
+    assert first_count == 1 and second_count == 1
+    outer_lets = [
+        node
+        for node in walk_expr(body)
+        if isinstance(node, LetStarExpr)
+        and any(name == "outer" for name, _ in node.bindings)
+    ]
+    assert len(outer_lets) == 2
+
+
+def test_strict_list_map_binder_scope_preserved(tmp_path: Path) -> None:
+    """A ``list/map`` body ``and`` folds inside the binder scope, not hoisted."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule list_scope)",
+                "  (export gate)",
+                "  (defworkflow gate ((bools List[Bool])) -> Bool",
+                "    (if (let* ((flags (list/map ((f bools)) (and f true)))",
+                "               (probe (command-result probe",
+                '                        :argv ("python" "scripts/probe.py")',
+                "                        :returns Bool)))",
+                "          probe)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("probe", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    list_maps = [node for node in walk_expr(body) if isinstance(node, ListMapExpr)]
+    assert len(list_maps) == 1
+    # The folded short-circuit binding stays inside the list-map body.
+    assert isinstance(list_maps[0].body_expr, LetStarExpr)
+
+
+def test_strict_effectful_callee_body_and_or_stays_atomic(tmp_path: Path) -> None:
+    """A Bool workflow whose body is effectful ``and``, called as a condition,
+    binds the call atomically and leaves the callee's ``and`` as its return."""
+
+    source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            "  (defmodule callee_and)",
+            "  (export outer)",
+            "  (defworkflow gate () -> Bool",
+            "    (and (command-result a",
+            '           :argv ("python" "scripts/a.py")',
+            "           :returns Bool)",
+            "         (command-result b",
+            '           :argv ("python" "scripts/b.py")',
+            "           :returns Bool)))",
+            "  (defworkflow outer () -> Bool",
+            "    (if (call gate)",
+            "        (command-result yes",
+            '          :argv ("python" "scripts/yes.py")',
+            "          :returns Bool)",
+            "        (command-result no",
+            '          :argv ("python" "scripts/no.py")',
+            "          :returns Bool))))",
+        ]
+    )
+    path = tmp_path / "callee_and.orc"
+    path.write_text(source, encoding="utf-8")
+    boundaries = {
+        name: ExternalToolBinding(
+            name=name,
+            stable_command=("python", f"scripts/{name}.py"),
+        )
+        for name in ("a", "b", "yes", "no")
+    }
+    result = compile_stage3_module(
+        path,
+        command_boundaries=boundaries,
+        provider_externs={},
+        prompt_externs={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    gate = next(w for w in result.typed_workflows if w.definition.name == "gate")
+    outer = next(w for w in result.typed_workflows if w.definition.name == "outer")
+    # The outer condition binds the workflow call exactly once (atomic).
+    calls = [
+        node
+        for node in walk_expr(outer.typed_body.expr)
+        if isinstance(node, CallExpr)
+    ]
+    assert len(calls) == 1
+    # The callee body keeps its effectful `and` as the workflow return, not
+    # folded into a raw-effect `if` (outside Task 2's condition scope).
+    assert _cond_pure_ops(gate.typed_body.expr) != []
+
+
+def test_strict_loop_body_and_exhaustion_normalize_in_scope(tmp_path: Path) -> None:
+    """A Bool ``loop/recur`` folds state-dependent body/exhaustion ``and`` in
+    scope, preserving the ``done``/``continue`` spine."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule loop_bool)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (loop/recur",
+                "          :max 1",
+                "          :state (loop-state (count Int 0) (done Bool false))",
+                "          :on-exhausted (and false false)",
+                "          (fn (state)",
+                "            (if (and (= state.count 0) (= state.done false))",
+                "                (done true)",
+                "                (continue (loop-state :like state :count 1 :done true)))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    loops = [node for node in walk_expr(body) if isinstance(node, LoopRecurExpr)]
+    assert len(loops) == 1
+    # Exhaustion `and` folds inside the exhaustion branch, not the prefix.
+    assert isinstance(loops[0].on_exhausted_result_expr, LetStarExpr)
+    # Body `and` folds inside the loop body.
+    assert isinstance(loops[0].body_expr, LetStarExpr)
+
+
+def test_strict_command_traversal_includes_adapter_inputs() -> None:
+    """The generic traversal covers certified adapter inputs, not only argv."""
+
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(command-result normalize_scalars"
+            "  :adapter normalize_scalars"
+            "  :inputs ((flag (and a b)) (count 1))"
+            "  :returns NormalizedPayload)"
+        ),
+        bound_names=frozenset({"a", "b"}),
+    )
+    children = iter_child_exprs(expr)
+    assert any(
+        isinstance(child, PureOpExpr) and child.operator == "and"
+        for child in children
+    )
+
+
+def test_strict_with_phase_body_normalizes_in_scope(tmp_path: Path) -> None:
+    """A direct exact-Bool ``with-phase`` folds its body ``and`` inside the
+    phase scope and binds the complete wrapper once."""
+
+    source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            "  (defmodule phase_bool)",
+            "  (import std/phase :only (with-phase))",
+            "  (export gate)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defworkflow gate ((phase-ctx PhaseCtx) (a Bool) (b Bool)) -> Bool",
+            "    (if (with-phase phase-ctx implementation",
+            "          (and a b))",
+            "        (command-result yes",
+            '          :argv ("python" "scripts/yes.py")',
+            "          :returns Bool)",
+            "        (command-result no",
+            '          :argv ("python" "scripts/no.py")',
+            "          :returns Bool))))",
+        ]
+    )
+    path = tmp_path / "phase_bool.orc"
+    path.write_text(source, encoding="utf-8")
+    boundaries = {
+        name: ExternalToolBinding(
+            name=name,
+            stable_command=("python", f"scripts/{name}.py"),
+        )
+        for name in ("yes", "no")
+    }
+    result = compile_stage3_module(
+        path,
+        command_boundaries=boundaries,
+        provider_externs={},
+        prompt_externs={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    body = result.typed_workflows[-1].typed_body.expr
+    assert _cond_pure_ops(body) == []
+    phases = [node for node in walk_expr(body) if isinstance(node, WithPhaseExpr)]
+    assert len(phases) == 1
+    # The folded body `and` stays inside the phase body.
+    assert isinstance(phases[0].body, LetStarExpr)

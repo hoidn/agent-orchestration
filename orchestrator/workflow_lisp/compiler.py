@@ -1861,6 +1861,7 @@ def _run_stage3_validation_pipeline(
                 typed_body=normalize_function_calls(
                     procedure.typed_body,
                     typed_functions_by_name=typed_functions_by_name,
+                    target_dsl_version=module.target_dsl_version,
                 ),
             )
             for procedure in typed_procedures
@@ -1871,6 +1872,7 @@ def _run_stage3_validation_pipeline(
                 typed_body=normalize_function_calls(
                     workflow.typed_body,
                     typed_functions_by_name=typed_functions_by_name,
+                    target_dsl_version=module.target_dsl_version,
                 ),
             )
             for workflow in typed_workflows
@@ -2658,6 +2660,7 @@ def _compile_stage3_graph(
                 typed_body=normalize_function_calls(
                     function.typed_body,
                     typed_functions_by_name=combined_typed_functions,
+                    target_dsl_version=definition_module.target_dsl_version,
                 ),
             )
             for function in typed_functions
@@ -2701,6 +2704,7 @@ def _compile_stage3_graph(
                 typed_body=normalize_function_calls(
                     procedure.typed_body,
                     typed_functions_by_name=combined_typed_functions,
+                    target_dsl_version=definition_module.target_dsl_version,
                 ),
             )
             for procedure in typed_procedures
@@ -2711,6 +2715,7 @@ def _compile_stage3_graph(
                 typed_body=normalize_function_calls(
                     workflow.typed_body,
                     typed_functions_by_name=combined_typed_functions,
+                    target_dsl_version=definition_module.target_dsl_version,
                 ),
             )
             for workflow in typed_workflows

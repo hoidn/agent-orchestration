@@ -355,15 +355,22 @@ def normalize_function_calls(
     node: TypedExpr | ExprNode,
     *,
     typed_functions_by_name: Mapping[str, TypedFunctionDef],
+    target_dsl_version: str | None = None,
 ) -> TypedExpr | ExprNode:
     """Rewrite helper calls into `let*` plus existing pure expression nodes."""
 
-    if isinstance(node, TypedExpr):
-        return replace(
-            node,
-            expr=_normalize_expr(node.expr, typed_functions_by_name=typed_functions_by_name),
+    from .conditionals import normalize_expanded_conditions
+
+    def _rewrite(expr: ExprNode) -> ExprNode:
+        expanded = _normalize_expr(expr, typed_functions_by_name=typed_functions_by_name)
+        return normalize_expanded_conditions(
+            expanded,
+            target_dsl_version=target_dsl_version,
         )
-    return _normalize_expr(node, typed_functions_by_name=typed_functions_by_name)
+
+    if isinstance(node, TypedExpr):
+        return replace(node, expr=_rewrite(node.expr))
+    return _rewrite(node)
 
 
 def _normalize_expr(
@@ -577,6 +584,16 @@ def _normalize_expr(
             argv=tuple(
                 _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name)
                 for arg in expr.argv
+            ),
+            adapter_inputs=tuple(
+                (
+                    field_name,
+                    _normalize_expr(
+                        value_expr,
+                        typed_functions_by_name=typed_functions_by_name,
+                    ),
+                )
+                for field_name, value_expr in expr.adapter_inputs
             ),
         )
     if isinstance(expr, ProviderResultExpr):

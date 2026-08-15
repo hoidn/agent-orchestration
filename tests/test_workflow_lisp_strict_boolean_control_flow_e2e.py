@@ -605,71 +605,285 @@ def test_failure_before_routing_never_selects_branch(tmp_path: Path) -> None:
     assert _marker_files(tmp_path, "no") == []
 
 
-def test_pre_provider_input_peer_group_runtime_and_resume(tmp_path: Path) -> None:
-    """A peer-group member input selection lowers to one projection prelude
-    with an ordinary pure-projection checkpoint resume policy."""
+def test_invalid_contract_condition_effect_fails_before_routing(tmp_path: Path) -> None:
+    """A condition effect returning an invalid Bool contract fails before routing."""
 
-    (tmp_path / "prompts").mkdir()
-    (tmp_path / "prompts" / "planner.md").write_text("Plan.\n", encoding="utf-8")
-    (tmp_path / "prompts" / "reviewer.md").write_text("Review.\n", encoding="utf-8")
-    module_path = tmp_path / "peer_input.orc"
+    module_path = tmp_path / "invalid_contract.orc"
     module_path.write_text(
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.26")',
-                "  (defmodule peer_input)",
-                "  (export orchestrate)",
-                "  (defworkflow orchestrate ((a Bool) (b Bool)) -> String",
-                "    (with-live-provider-peers",
-                "      ((planner",
-                "         (let* ((flag (if a b false)))",
-                "           (provider-result providers.planner",
-                "             :prompt prompts.planner :inputs (flag)",
-                "             :timeout-sec 30 :returns String)))",
-                "       (reviewer",
-                "         (provider-result providers.reviewer",
-                "           :prompt prompts.reviewer :inputs ()",
-                "           :timeout-sec 20 :returns Bool)))",
-                "      planner)))",
+                "  (defmodule invalid_contract)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (command-result bad_check",
+                '          :argv ("python" "scripts/bad_check.py")',
+                "          :returns Bool)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
             ]
         ),
         encoding="utf-8",
     )
 
-    from orchestrator.workflow_lisp.compiler import compile_stage3_module
-
-    compiled = compile_stage3_module(
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
         module_path,
-        entry_workflow="orchestrate",
-        provider_externs={
-            "providers.planner": "fake-planner",
-            "providers.reviewer": "fake-reviewer",
+        run_id="invalid_contract",
+        command_boundaries={
+            # Exits 0 but writes a JSON string, not a Bool: contract failure.
+            "bad_check": _command(tmp_path, "bad_check", '"not-a-bool"'),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
         },
-        prompt_externs={
-            "prompts.planner": "prompts/planner.md",
-            "prompts.reviewer": "prompts/reviewer.md",
-        },
-        command_boundaries={},
-        validate_shared=True,
-        workspace_root=tmp_path,
     )
-    lowered = next(
-        workflow
-        for workflow in compiled.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
+    first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
     )
-    steps = lowered.authored_mapping["steps"]
-    assert len(steps) == 2
-    projection_step = steps[0]
-    peer_group_step = steps[1]
-    assert "provider_peer_group" in peer_group_step
-    payload = projection_step["pure_projection"]["payload"]
-    assert payload["expr"]["kind"] == "if"
 
-    # The whole selection is a single existing pure_projection whose ordinary
-    # step-level resume policy reuses the completed projection on resume.
-    effect_boundary = projection_step["pure_projection"].get("effect_boundary")
-    if effect_boundary is not None:
-        assert effect_boundary["effect_kind"] == "pure_projection"
+    assert first["status"] == "failed"
+    assert _marker_files(tmp_path, "yes") == []
+    assert _marker_files(tmp_path, "no") == []
+
+
+def test_nested_let_shadowing_routes(tmp_path: Path) -> None:
+    """A nested ``let*`` shadow routes on the inner binding, not the outer one."""
+
+    module_path = tmp_path / "shadow.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule shadow)",
+                "  (export decide)",
+                "  (defworkflow decide () -> Bool",
+                "    (if (let* ((outer (command-result first",
+                '                        :argv ("python" "scripts/first.py")',
+                "                        :returns Bool)))",
+                "          (let* ((outer (command-result second",
+                '                          :argv ("python" "scripts/second.py")',
+                "                          :returns Bool)))",
+                "            outer))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="shadow",
+        command_boundaries={
+            "first": _command(tmp_path, "first", "true"),
+            "second": _command(tmp_path, "second", "false"),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
+        },
+    )
+    result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert result["status"] == "completed"
+    # The inner `outer` (second = false) shadows the outer (first = true).
+    assert result["workflow_outputs"] == {"__result__": False}
+    assert _marker_files(tmp_path, "first")
+    assert _marker_files(tmp_path, "second")
+    assert _marker_files(tmp_path, "no")
+    assert _marker_files(tmp_path, "yes") == []
+
+
+def test_effectful_not_inverts_and_runs_once(tmp_path: Path) -> None:
+    """``not`` over a false effect inverts and invokes the effect once."""
+
+    module_path = tmp_path / "not_invert.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule not_invert)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (not (command-result probe",
+                '               :argv ("python" "scripts/probe.py")',
+                "               :returns Bool))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="not_invert",
+        command_boundaries={
+            "probe": _command(tmp_path, "probe", "false"),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
+        },
+    )
+    result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert result["status"] == "completed"
+    assert result["workflow_outputs"] == {"__result__": True}
+    assert len(_marker_files(tmp_path, "probe")) == 1
+    assert _marker_files(tmp_path, "yes")
+    assert _marker_files(tmp_path, "no") == []
+
+
+def test_effectful_not_forced_failure_resumes_without_repeating(tmp_path: Path) -> None:
+    """A forced branch failure after an inverted condition is not re-run on resume."""
+
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "gate.md").write_text("Gate.\n", encoding="utf-8")
+    module_path = tmp_path / "not_fail.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule not_fail)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (not (provider-result providers.gate",
+                "               :prompt prompts.gate",
+                "               :inputs ()",
+                "               :returns Bool))",
+                "        (command-result accept",
+                '          :argv ("python" "scripts/accept.py")',
+                "          :returns Bool)",
+                "        (command-result revise",
+                '          :argv ("python" "scripts/revise.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    counter: list = []
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="not_fail",
+        command_boundaries={
+            "accept": _failing_command(tmp_path, "accept"),
+            "revise": _command(tmp_path, "revise", "false"),
+        },
+        provider_externs={"providers.gate": "fake-gate"},
+        prompt_externs={"prompts.gate": {"input_file": "prompts/gate.md"}},
+    )
+    p1, p2 = _provider_patches(tmp_path, "false", counter)
+    with p1, p2:
+        first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert first["status"] == "failed"
+    assert len(counter) == 1
+    assert _marker_files(tmp_path, "revise") == []
+
+    with p1, p2:
+        resumed = WorkflowExecutor(
+            bundle, tmp_path, _resume_manager(tmp_path, "not_fail"), retry_delay_ms=0
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert len(counter) == 1
+
+
+def _counting_command(workspace: Path, name: str) -> ExternalToolBinding:
+    """A command that emits ``true`` and appends one marker per invocation."""
+
+    scripts = workspace / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / f"{name}.py").write_text(
+        "import os, pathlib\n"
+        "bundle = pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
+        "bundle.parent.mkdir(parents=True, exist_ok=True)\n"
+        "bundle.write_text('true', encoding='utf-8')\n"
+        f"with open(bundle.parent / '{name}.count', 'a') as f: f.write('x')\n",
+        encoding="utf-8",
+    )
+    return ExternalToolBinding(name=name, stable_command=("python", f"scripts/{name}.py"))
+
+
+def test_list_map_effect_cardinality_preserved_in_condition(tmp_path: Path) -> None:
+    """A list-map-effect body inside a condition runs once per source item."""
+
+    module_path = tmp_path / "list_card.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule list_card)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (let* ((flags (list/map-effect",
+                "                        ((x (list 1 2 3))) :max 10",
+                "                        (command-result probe",
+                '                          :argv ("python" "scripts/probe.py")',
+                "                          :returns Bool)))",
+                "               (ok (command-result final",
+                '                     :argv ("python" "scripts/final.py")',
+                "                     :returns Bool)))",
+                "          ok)",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="list_card",
+        command_boundaries={
+            "probe": _counting_command(tmp_path, "probe"),
+            "final": _command(tmp_path, "final", "true"),
+            "yes": _command(tmp_path, "yes", "true"),
+            "no": _command(tmp_path, "no", "false"),
+        },
+    )
+    result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+        on_error="stop"
+    )
+
+    assert result["status"] == "completed"
+    assert result["workflow_outputs"] == {"__result__": True}
+    count_files = list(tmp_path.rglob("probe.count"))
+    assert len(count_files) == 1
+    assert count_files[0].read_text(encoding="utf-8") == "xxx"
+    assert _marker_files(tmp_path, "yes")
+    assert _marker_files(tmp_path, "no") == []

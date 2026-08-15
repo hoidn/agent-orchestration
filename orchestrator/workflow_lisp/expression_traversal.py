@@ -195,7 +195,9 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, ProviderBundlePathExpr):
         return (expr.source_expr,)
     if isinstance(expr, CommandResultExpr):
-        return expr.argv
+        return expr.argv + tuple(
+            value_expr for _, value_expr in expr.adapter_inputs
+        )
     if isinstance(expr, ContinueExpr):
         return (expr.state_expr,)
     if isinstance(expr, DoneExpr):

@@ -1379,3 +1379,103 @@ def test_public_run_peer_group_failures_never_publish_or_retarget(
     )
     assert harness.endpoint_paths
     assert all(not path.exists() for path in harness.endpoint_paths)
+
+
+def _pre_provider_input_files(tmp_path: Path) -> dict[str, Path]:
+    """Write a target-2.26 peer group whose planner consumes a pure `if` input."""
+
+    (tmp_path / "prompts").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "prompts" / "planner.md").write_text("Plan.\n", encoding="utf-8")
+    (tmp_path / "prompts" / "reviewer.md").write_text("Review.\n", encoding="utf-8")
+    source = tmp_path / "pre_provider_input.orc"
+    source.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule pre_provider_input)",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate ((a Bool) (b Bool)) -> String",
+                "    (with-live-provider-peers",
+                "      ((planner",
+                "         (let* ((flag (if a b false)))",
+                "           (provider-result providers.planner",
+                "             :prompt prompts.planner :inputs (flag)",
+                "             :timeout-sec 30 :returns String)))",
+                "       (reviewer",
+                "         (provider-result providers.reviewer",
+                "           :prompt prompts.reviewer :inputs ()",
+                "           :timeout-sec 20 :returns Bool)))",
+                "      planner)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    providers = tmp_path / "providers.json"
+    providers.write_text(
+        json.dumps(
+            {"providers.planner": "codex", "providers.reviewer": "codex"},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    prompts = tmp_path / "prompts.json"
+    prompts.write_text(
+        json.dumps(
+            {"prompts.planner": "prompts/planner.md", "prompts.reviewer": "prompts/reviewer.md"},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "provider_peer_group_three.orc": source,
+        "providers.json": providers,
+        "prompts.json": prompts,
+    }
+
+
+def _run_inputs(files: dict[str, Path]) -> Namespace:
+    args = _public_run_args(files)
+    args.input = ["a=true", "b=true"]
+    return args
+
+
+def test_pre_provider_input_peer_runtime_and_resume_reuses_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = _pre_provider_input_files(tmp_path)
+    member_ids = ("planner", "reviewer")
+    values: dict[str, object] = {"planner": "plan", "reviewer": True}
+    monkeypatch.chdir(tmp_path)
+    harness = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=member_ids,
+        values=values,
+    )
+
+    assert run_workflow(_run_inputs(files)) == 0
+
+    run_root, state = _only_public_run(tmp_path)
+    assert state["status"] == "completed"
+    projection_steps = [
+        name for name in state["steps"] if name.endswith("__flag")
+    ]
+    assert len(projection_steps) == 1
+    assert state["steps"][projection_steps[0]]["status"] == "completed"
+    assert state["steps"][projection_steps[0]]["visit_count"] == 1
+
+    # The projection is a pure_projection step whose ordinary checkpoint
+    # policy reuses the settled result on a resume of the same run.
+    projection_state = state["steps"][projection_steps[0]]
+    assert projection_state["visit_count"] == 1
+    # derived_pure_replay.v1 is the ordinary pure-projection checkpoint replay
+    # policy: a resume of the same run reuses the settled value without
+    # re-evaluating the selection.
+    assert projection_state["result_storage"] == "derived_pure_replay.v1"
+    assert all(not path.exists() for path in harness.endpoint_paths)

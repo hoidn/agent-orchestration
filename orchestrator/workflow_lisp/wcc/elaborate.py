@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
-from ..conditionals import classify_condition_expr, fold_pure_short_circuit
+from ..conditionals import _contains_effect, classify_condition_expr, fold_pure_short_circuit
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import walk_expr
@@ -2580,8 +2580,11 @@ def _elaborate_expr_to_value(
             ),
         )
     if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
-        if target_dsl_supports_strict_boolean_control_flow(
-            getattr(type_env, "target_dsl_version", "") or ""
+        if (
+            target_dsl_supports_strict_boolean_control_flow(
+                getattr(type_env, "target_dsl_version", "") or ""
+            )
+            and not _contains_effect(expr)
         ):
             return _elaborate_if_to_value(
                 fold_pure_short_circuit(expr),
