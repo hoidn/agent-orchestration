@@ -16,6 +16,18 @@ import pytest
 
 import orchestrator.providers.interactive_terminal as interactive_terminal_module
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import (
+    workflow_bundle as loaded_workflow_bundle,
+    workflow_runtime_input_contracts,
+)
+from orchestrator.workflow.pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
+from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow_lisp.build import (
+    FrontendBuildRequest,
+    build_frontend_bundle,
+)
+from tests.workflow_bundle_helpers import bundle_context_dict
 from orchestrator.providers.interactive_terminal import (
     CloseOfferReceipt,
     FailedCleanupProof,
@@ -1479,3 +1491,105 @@ def test_pre_provider_input_peer_runtime_and_resume_reuses_projection(
     # re-evaluating the selection.
     assert projection_state["result_storage"] == "derived_pure_replay.v1"
     assert all(not path.exists() for path in harness.endpoint_paths)
+
+
+def test_pre_provider_input_peer_downstream_failure_resume_reuses_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forced settlement failure downstream of the prelude is resumed and the
+    prelude projection is replayed rather than re-evaluated."""
+
+    files = _pre_provider_input_files(tmp_path)
+    member_ids = ("planner", "reviewer")
+    values: dict[str, object] = {"planner": "plan", "reviewer": True}
+    monkeypatch.chdir(tmp_path)
+
+    # Build the bundle directly so the same run can be resumed at the executor.
+    source = files["provider_peer_group_three.orc"]
+    bundle = loaded_workflow_bundle(
+        build_frontend_bundle(
+            FrontendBuildRequest(
+                source_path=source.resolve(),
+                source_roots=(tmp_path,),
+                entry_workflow="orchestrate",
+                provider_externs_path=files["providers.json"].resolve(),
+                prompt_externs_path=files["prompts.json"].resolve(),
+                workspace_root=tmp_path,
+            )
+        ).validated_bundle
+    )
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    binding_inputs = {
+        name: contract
+        for name, contract in runtime_inputs.items()
+        if not name.startswith("__write_root__")
+    }
+    bound_inputs = bind_workflow_inputs(
+        binding_inputs, {"a": "true", "b": "true"}, tmp_path
+    )
+
+    harness = _install_controlled_public_adapters(
+        monkeypatch,
+        member_ids=member_ids,
+        values=values,
+    )
+
+    def fail_settlement(_self, *, resolved_bindings):
+        del resolved_bindings
+        raise ValueError("injected settlement failure")
+
+    monkeypatch.setattr(
+        WorkflowProviderPeerGroupBindings,
+        "evaluate_settlement",
+        fail_settlement,
+    )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="peer_downstream_fail")
+    state_manager.initialize(
+        source.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+        result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+    )
+    first = WorkflowExecutor(
+        bundle, tmp_path, state_manager, retry_delay_ms=0
+    ).execute(on_error="stop")
+    assert first["status"] == "failed"
+    (projection_name,) = [
+        name for name in first["steps"] if name.endswith("__flag")
+    ]
+    projection = first["steps"][projection_name]
+    assert projection["status"] == "completed"
+    assert projection["visit_count"] == 1
+    # The selected typed input (`if a b false` with a=b=true) is the
+    # projection's durable result.
+    assert projection["artifacts"]["__result__"] is True
+
+    # Resume the same run with the settlement failure still in place. The
+    # non-idempotent peer group re-runs and fails again, but the prelude
+    # projection is replayed from its durable result instead of re-evaluated.
+    resumed = WorkflowExecutor(
+        bundle,
+        tmp_path,
+        _resume_manager(tmp_path, "peer_downstream_fail"),
+        retry_delay_ms=0,
+    ).execute(resume=True)
+    assert resumed["status"] == "failed"
+    # No repeated prelude work: the projection's visit count is unchanged and
+    # its durable value is replayed rather than re-computed.
+    assert resumed["steps"][projection_name]["visit_count"] == 1
+    assert (
+        resumed["steps"][projection_name]["result_storage"]
+        == "derived_pure_replay.v1"
+    )
+    (peer_name,) = [
+        name for name in resumed["steps"] if name.endswith("__result")
+    ]
+    assert resumed["steps"][peer_name]["visit_count"] == 2
+
+
+def _resume_manager(workspace: Path, run_id: str) -> StateManager:
+    manager = StateManager(workspace=workspace, run_id=run_id)
+    manager.load()
+    return manager

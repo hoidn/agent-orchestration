@@ -290,6 +290,12 @@ def _cond_pure_ops(expr) -> list[PureOpExpr]:
     ]
 
 
+def _command_nodes(expr) -> int:
+    return sum(
+        1 for node in walk_expr(expr) if isinstance(node, CommandResultExpr)
+    )
+
+
 def test_strict_linear_extraction_normalizes(tmp_path: Path) -> None:
     """An inline enum comparison hoists its effect into one compiler binding."""
 
@@ -1008,6 +1014,60 @@ def test_strict_with_live_providers_member_scope_preserved(tmp_path: Path) -> No
     assert all(isinstance(member, ProviderResultExpr) for member in members)
     assert isinstance(supervision_nodes[0].body, LiteralExpr)
 
+def test_strict_non_condition_live_member_projection_stays_straight_line(
+    tmp_path: Path,
+) -> None:
+    """An authored non-condition pure ``and``/``or`` live-member projection is
+    not post-folded into ``IfExpr`` (exact helper-clone provenance only)."""
+
+    (tmp_path / "prompts").mkdir()
+    for name in ("worker", "supervisor"):
+        (tmp_path / "prompts" / f"{name}.md").write_text("Prompt.\n", encoding="utf-8")
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule projection)",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate () -> Bool",
+                "    (with-live-providers",
+                "      ((worker",
+                "         (provider-result providers.worker",
+                "           :prompt prompts.worker :inputs ()",
+                "           :timeout-sec 30 :returns Bool))",
+                "       (supervisor",
+                "         (provider-result providers.supervisor",
+                "           :prompt prompts.supervisor :inputs ()",
+                "           :timeout-sec 20 :returns ProviderSteeringDirective)",
+                "         :observes worker))",
+                "      (and worker true))))",
+            ]
+        ),
+        tmp_path,
+        provider_externs={
+            "providers.worker": "worker-provider",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+    )
+
+    live = next(
+        node for node in walk_expr(body) if isinstance(node, WithLiveProvidersExpr)
+    )
+    # The settlement projection stays a straight-line pure `and` (no `IfExpr`).
+    assert isinstance(live.body, PureOpExpr)
+    assert live.body.operator == "and"
+    assert not [
+        node for node in walk_expr(body) if isinstance(node, IfExpr)
+    ]
+
+
+
 
 def test_strict_nested_let_shadowing_preserved(tmp_path: Path) -> None:
     """A nested authored ``let*`` keeps its bindings in the nested scope."""
@@ -1320,6 +1380,11 @@ def test_strict_loop_body_if_branch_effect_stays_inside(tmp_path: Path) -> None:
     assert isinstance(loop.body_expr, IfExpr)
     then_body = loop.body_expr.then_expr
     assert isinstance(then_body, LetStarExpr)
+    # Effect-count: the `done` branch holds exactly one command; neither the
+    # spine condition nor the untaken `continue` branch carries one.
+    assert _command_nodes(then_body) == 1
+    assert _command_nodes(loop.body_expr.condition_expr) == 0
+    assert _command_nodes(loop.body_expr.else_expr) == 0
 
 
 def test_strict_loop_body_match_arm_binding_stays_inside(tmp_path: Path) -> None:
@@ -1360,9 +1425,12 @@ def test_strict_loop_body_match_arm_binding_stays_inside(tmp_path: Path) -> None
         tmp_path,
         command_names=("subject", "must_not_run", "yes", "no"),
     )
-
     assert _cond_pure_ops(body) == []
     loop = next(node for node in walk_expr(body) if isinstance(node, LoopRecurExpr))
     match = next(node for node in walk_expr(loop.body_expr) if isinstance(node, MatchExpr))
     arm_a = match.arms[0]
     assert isinstance(arm_a.body, LetStarExpr)
+    # Effect-count: the `A` arm holds exactly one command (`must_not_run`); it
+    # never escapes into the loop-body prefix or the sibling arm.
+    assert _command_nodes(arm_a.body) == 1
+    assert _command_nodes(match.arms[1].body) == 0
