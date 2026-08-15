@@ -1299,17 +1299,7 @@ def _evaluate_expr(
         condition_type, condition_value = evaluate_child(node["condition"])
         _require_primitive(condition_type, "Bool", operator="if")
         branch_key = "then" if condition_value else "else"
-        branch_type, branch_value = evaluate_child(node[branch_key])
-        other_type, _ = evaluate_child(
-            node["else" if branch_key == "then" else "then"]
-        )
-        if not _descriptors_match(branch_type, other_type):
-            _raise(
-                "pure_expr_operand_type_mismatch",
-                "`if` branches must return the same type",
-                metadata={"then_type": branch_type, "else_type": other_type},
-            )
-        return branch_type, branch_value
+        return evaluate_child(node[branch_key])
 
     if kind == "record":
         descriptor = node["type"]

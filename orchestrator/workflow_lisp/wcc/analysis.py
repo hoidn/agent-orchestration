@@ -37,6 +37,7 @@ from .model import (
     WccPureOp,
     WccRecJoin,
     WccRecordAtom,
+    WccSelect,
 )
 
 
@@ -161,6 +162,7 @@ _WCC_VALUE_TYPES = (
     WccOpaqueFrontendValue,
     WccInject,
     WccPureOp,
+    WccSelect,
 )
 
 
@@ -603,6 +605,12 @@ def _referenced_wcc_names(value: object) -> set[str]:
             for arg in value.args
             for name in _referenced_wcc_names(arg)
         }
+    if isinstance(value, WccSelect):
+        return (
+            _referenced_wcc_names(value.condition)
+            | _referenced_wcc_names(value.then_value)
+            | _referenced_wcc_names(value.else_value)
+        )
     if isinstance(
         value,
         (
@@ -780,6 +788,12 @@ def _disqualifying_member_control_metadata(value: object):
     if isinstance(value, WccPureOp):
         for arg in value.args:
             metadata = _disqualifying_member_control_metadata(arg)
+            if metadata is not None:
+                return metadata
+        return None
+    if isinstance(value, WccSelect):
+        for child in (value.condition, value.then_value, value.else_value):
+            metadata = _disqualifying_member_control_metadata(child)
             if metadata is not None:
                 return metadata
         return None

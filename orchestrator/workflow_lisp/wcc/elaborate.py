@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
-from ..conditionals import classify_condition_expr
+from ..conditionals import classify_condition_expr, fold_pure_short_circuit
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import walk_expr
@@ -83,7 +83,10 @@ from ..lowering.pure_projection import is_pure_projection_expr
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import derive_run_ref_result_contract
 from ..trial_result_contract import derive_trial_result_contract
-from ..syntax import target_dsl_supports_nested_structural_transport
+from ..syntax import (
+    target_dsl_supports_nested_structural_transport,
+    target_dsl_supports_strict_boolean_control_flow,
+)
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
 from ..workflow_refs import ResolvedWorkflowRef
@@ -118,6 +121,7 @@ from .model import (
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
+    WccSelect,
     WccResumeOrStartPayload,
     WccRunRefPayload,
     WccTrialArmPayload,
@@ -1267,6 +1271,13 @@ def _substitute_wcc_value(
                 for arg in value.args
             ),
         )
+    if isinstance(value, WccSelect):
+        return replace(
+            value,
+            condition=_substitute_wcc_value(value.condition, substitutions),
+            then_value=_substitute_wcc_value(value.then_value, substitutions),
+            else_value=_substitute_wcc_value(value.else_value, substitutions),
+        )
     return value
 
 
@@ -1287,6 +1298,7 @@ def _substitute_wcc_payload(
             WccOpaqueFrontendValue,
             WccInject,
             WccPureOp,
+            WccSelect,
         ),
     ):
         return _substitute_wcc_value(value, substitutions)
@@ -2567,6 +2579,22 @@ def _elaborate_expr_to_value(
                 fields=tuple(fields),
             ),
         )
+    if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
+        if target_dsl_supports_strict_boolean_control_flow(
+            getattr(type_env, "target_dsl_version", "") or ""
+        ):
+            return _elaborate_if_to_value(
+                fold_pure_short_circuit(expr),
+                scope=scope,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
     if isinstance(expr, PureOpExpr):
         result_type = _infer_expr_type(
             expr,
@@ -2716,18 +2744,59 @@ def _elaborate_expr_to_value(
         )
         return prefix, value
     if isinstance(expr, IfExpr):
+        return _elaborate_if_to_value(
+            expr,
+            scope=scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+    raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+
+
+
+def _elaborate_if_to_value(
+    expr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], WccValue]:
+    """Elaborate one effect-free `IfExpr` in value position.
+
+    Below target 2.26 a pure conditional value stays an opaque frontend value
+    (preserving the legacy closed-member handling). At 2.26 it becomes an
+    internal `WccSelect` whose three children are ordinary `WccValue` terms so
+    the dependency/scope/substitution walks can recurse through them.
+    """
+
+    result_type = _infer_expr_type(
+        expr,
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+    )
+    if not target_dsl_supports_strict_boolean_control_flow(
+        getattr(type_env, "target_dsl_version", "") or ""
+    ):
         return (
             (),
             WccOpaqueFrontendValue(
                 metadata=scope.value_metadata(
                     role="opaque:IfExpr",
-                    type_ref=_infer_expr_type(
-                        expr,
-                        type_env=type_env,
-                        value_env=value_env,
-                        workflow_return_types=workflow_return_types,
-                        procedure_return_types=procedure_return_types,
-                    ),
+                    type_ref=result_type,
                     source_span=expr.span,
                     form_path=expr.form_path,
                     expansion_stack=expr.expansion_stack,
@@ -2735,7 +2804,57 @@ def _elaborate_expr_to_value(
                 expr=expr,
             ),
         )
-    raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+    condition = _elaborate_atomic_value(
+        expr.condition_expr,
+        scope=scope.child_scope("select-condition"),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    then_value = _elaborate_atomic_value(
+        expr.then_expr,
+        scope=scope.child_scope("select-then"),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    else_value = _elaborate_atomic_value(
+        expr.else_expr,
+        scope=scope.child_scope("select-else"),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    return (
+        (),
+        WccSelect(
+            metadata=scope.value_metadata(
+                role="select",
+                type_ref=result_type,
+                source_span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            condition=condition,
+            then_value=then_value,
+            else_value=else_value,
+        ),
+    )
 
 
 def _elaborate_constructor_field_matches_to_body(
@@ -3057,6 +3176,7 @@ def _elaborate_if_to_body(
     condition_shape = classify_condition_expr(
         expr.condition_expr,
         type_ref=PrimitiveTypeRef(name="Bool"),
+        allow_pure_projection=True,
     )
     if_body = WccIf(
         metadata=scope.body_metadata(

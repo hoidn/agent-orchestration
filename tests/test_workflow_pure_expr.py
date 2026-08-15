@@ -227,3 +227,33 @@ def test_enum_equality_golden_vector_keeps_existing_operator_and_schema_contract
     args = row["payload"]["expr"]["args"]
     assert [arg["type"]["kind"] for arg in args] == ["enum", "enum"]
     assert [arg["value"] for arg in args] == ["missing_resource", "missing_resource"]
+
+
+def test_evaluate_kind_if_untaken_branch_is_not_evaluated() -> None:
+    pure_expr = _module()
+    payload = {
+        "pure_expr_schema_version": 1,
+        "result_type": {"kind": "primitive", "name": "String"},
+        "bindings": {
+            "gone": {"type": {"kind": "primitive", "name": "String"}},
+        },
+        "expr": {
+            "kind": "if",
+            "condition": {
+                "kind": "literal",
+                "type": {"kind": "primitive", "name": "Bool"},
+                "value": True,
+            },
+            "then": {
+                "kind": "literal",
+                "type": {"kind": "primitive", "name": "String"},
+                "value": "selected",
+            },
+            "else": {"kind": "binding", "name": "gone"},
+        },
+    }
+
+    # The untaken `else` branch references a binding with no runtime value;
+    # evaluating it would raise pure_expr_binding_missing. Selection must
+    # return the `then` value without touching the untaken branch.
+    assert pure_expr.evaluate_pure_expr(payload) == "selected"

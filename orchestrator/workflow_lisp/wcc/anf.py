@@ -31,6 +31,7 @@ from .model import (
     WccPureOp,
     WccRecJoin,
     WccRecordAtom,
+    WccSelect,
     WccValue,
 )
 
@@ -282,6 +283,11 @@ def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
 
 def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue]:
     if isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom, WccPhaseTargetAtom, WccOpaqueFrontendValue)):
+        return (), value
+    if isinstance(value, WccSelect):
+        # Non-hoisting value barrier: neither arm is externalized ahead of
+        # selection. Its children defunctionalize into a pure-projection
+        # `IfExpr`, so they are left structurally intact here.
         return (), value
     if isinstance(value, WccRecordAtom):
         pending: list[_PendingLet] = []

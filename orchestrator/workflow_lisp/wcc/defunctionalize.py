@@ -160,6 +160,7 @@ from .model import (
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
+    WccSelect,
     WccResumeOrStartPayload,
     WccRunRefPayload,
     WccTrialPayload,
@@ -3905,12 +3906,13 @@ def _record_provider_peer_group_origin(
 
 def _provider_peer_group_member_projection(
     member: WccProviderPeerGroupMember,
-) -> tuple[WccPerform, Mapping[str, object], object]:
+) -> tuple[WccPerform, Mapping[str, object], object, tuple[tuple[str, IfExpr, TypeRef], ...]]:
     """Extract one provider perform and its pure projected peer value."""
 
     env: dict[str, object] = {}
     provider_perform: WccPerform | None = None
     provider_env: dict[str, object] | None = None
+    preludes: list[tuple[str, IfExpr, TypeRef]] = []
     current = member.normalized_body
     while isinstance(current, WccLet):
         if isinstance(current.bound_value, WccPerform):
@@ -3927,6 +3929,23 @@ def _provider_peer_group_member_projection(
             provider_env = dict(env)
             env[current.bound_name] = NameExpr(
                 name=member.binding_name,
+                span=current.metadata.source_span,
+                form_path=current.metadata.form_path,
+                expansion_stack=current.metadata.expansion_stack,
+            )
+        elif isinstance(current.bound_value, WccSelect) and provider_perform is None:
+            preludes.append(
+                (
+                    current.bound_name,
+                    _frontend_expr_from_wcc_value_with_env(
+                        current.bound_value,
+                        env,
+                    ),
+                    current.bound_value.metadata.type_ref,
+                )
+            )
+            env[current.bound_name] = NameExpr(
+                name=current.bound_name,
                 span=current.metadata.source_span,
                 form_path=current.metadata.form_path,
                 expansion_stack=current.metadata.expansion_stack,
@@ -3954,6 +3973,7 @@ def _provider_peer_group_member_projection(
         provider_perform,
         provider_env,
         _frontend_expr_from_wcc_value_with_env(current.result, env),
+        tuple(preludes),
     )
 
 
@@ -4080,12 +4100,13 @@ def _record_provider_supervision_origin(
 
 def _provider_supervision_member_projection(
     member: WccProviderSupervisionMember,
-) -> tuple[WccPerform, Mapping[str, object], object]:
+) -> tuple[WccPerform, Mapping[str, object], object, tuple[tuple[str, IfExpr, TypeRef], ...]]:
     """Extract one provider perform and its pure projected member value."""
 
     env: dict[str, object] = {}
     provider_perform: WccPerform | None = None
     provider_env: dict[str, object] | None = None
+    preludes: list[tuple[str, IfExpr, TypeRef]] = []
     current = member.normalized_body
     while isinstance(current, WccLet):
         if isinstance(current.bound_value, WccPerform):
@@ -4102,6 +4123,23 @@ def _provider_supervision_member_projection(
             provider_env = dict(env)
             env[current.bound_name] = NameExpr(
                 name=member.binding_name,
+                span=current.metadata.source_span,
+                form_path=current.metadata.form_path,
+                expansion_stack=current.metadata.expansion_stack,
+            )
+        elif isinstance(current.bound_value, WccSelect) and provider_perform is None:
+            preludes.append(
+                (
+                    current.bound_name,
+                    _frontend_expr_from_wcc_value_with_env(
+                        current.bound_value,
+                        env,
+                    ),
+                    current.bound_value.metadata.type_ref,
+                )
+            )
+            env[current.bound_name] = NameExpr(
+                name=current.bound_name,
                 span=current.metadata.source_span,
                 form_path=current.metadata.form_path,
                 expansion_stack=current.metadata.expansion_stack,
@@ -4129,7 +4167,45 @@ def _provider_supervision_member_projection(
         provider_perform,
         provider_env,
         _frontend_expr_from_wcc_value_with_env(current.result, env),
+        tuple(preludes),
     )
+
+
+def _materialize_member_conditional_preludes(
+    preludes: tuple[tuple[str, IfExpr, TypeRef], ...],
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    member_step_name: str,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Materialize pre-provider pure conditional member inputs once.
+
+    Each authored pure conditional selection consumed as a member perform input
+    becomes exactly one owner-scope ``pure_projection`` step. The returned ref
+    mapping keys the authored binding name to the projection's
+    ``root.steps.*`` output ref, which the existing ``typed_binding_ref`` input
+    source then targets.
+    """
+
+    prelude_steps: list[dict[str, Any]] = []
+    refs: dict[str, str] = {}
+    for binding_name, ifexpr, type_ref in preludes:
+        step_name = f"{member_step_name}__{binding_name}"
+        step_id = lowering_core._normalize_generated_step_id(step_name)
+        lowered = lower_pure_projection_step(
+            ifexpr,
+            result_type=type_ref,
+            context=context,
+            local_values=local_values,
+            step_name=step_name,
+            step_id=step_id,
+            stable_target="binding_projection",
+        )
+        prelude_steps.append(lowered.step)
+        refs[binding_name] = lowered.output_refs["return"]
+    return prelude_steps, refs
+
+
 
 
 def _positive_provider_supervision_timeout(
@@ -4407,8 +4483,8 @@ def _lower_provider_peer_group_member(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     group_step_name: str,
-) -> tuple[ProviderPeerGroupMemberConfig, object, TypeRef]:
-    perform, provider_env, projection = (
+) -> tuple[ProviderPeerGroupMemberConfig, object, TypeRef, list[dict[str, Any]]]:
+    perform, provider_env, projection, preludes = (
         _provider_peer_group_member_projection(member)
     )
     timeout_sec = _positive_provider_peer_group_timeout(
@@ -4425,6 +4501,23 @@ def _lower_provider_peer_group_member(
         context,
         step_name_prefix=member_step_name,
     )
+    prelude_steps, prelude_refs = _materialize_member_conditional_preludes(
+        preludes,
+        context=context,
+        local_values=local_values,
+        member_step_name=member_step_name,
+    )
+    for binding_name, _ifexpr, type_ref in preludes:
+        member_context = _context_with_local_type_binding(
+            member_context,
+            binding_name=binding_name,
+            binding_type=type_ref,
+        )
+    member_local_values = {
+        **dict(local_values),
+        **dict(provider_env),
+        **prelude_refs,
+    }
     member_steps, _terminal = _lower_provider_result_operation(
         LowerableProviderResult(
             provider_name=perform.target_name,
@@ -4490,7 +4583,7 @@ def _lower_provider_peer_group_member(
         ),
         result_type=perform.metadata.type_ref,
         context=member_context,
-        local_values={**dict(local_values), **dict(provider_env)},
+        local_values=member_local_values,
         step_name=member_step_name,
     )
     if (
@@ -4651,6 +4744,7 @@ def _lower_provider_peer_group_member(
         ),
         projection,
         perform.metadata.type_ref,
+        prelude_steps,
     )
 
 
@@ -4660,8 +4754,8 @@ def _lower_provider_supervision_member(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     group_step_name: str,
-) -> tuple[ProviderSupervisionMemberConfig, object, TypeRef]:
-    perform, provider_env, projection = (
+) -> tuple[ProviderSupervisionMemberConfig, object, TypeRef, list[dict[str, Any]]]:
+    perform, provider_env, projection, preludes = (
         _provider_supervision_member_projection(member)
     )
     timeout_sec = _positive_provider_supervision_timeout(
@@ -4680,6 +4774,23 @@ def _lower_provider_supervision_member(
         context,
         step_name_prefix=member_step_name,
     )
+    prelude_steps, prelude_refs = _materialize_member_conditional_preludes(
+        preludes,
+        context=context,
+        local_values=local_values,
+        member_step_name=member_step_name,
+    )
+    for binding_name, _ifexpr, type_ref in preludes:
+        member_context = _context_with_local_type_binding(
+            member_context,
+            binding_name=binding_name,
+            binding_type=type_ref,
+        )
+    member_local_values = {
+        **dict(local_values),
+        **dict(provider_env),
+        **prelude_refs,
+    }
     member_steps, _terminal = _lower_provider_result_operation(
         LowerableProviderResult(
             provider_name=perform.target_name,
@@ -4745,7 +4856,7 @@ def _lower_provider_supervision_member(
         ),
         result_type=perform.metadata.type_ref,
         context=member_context,
-        local_values={**dict(local_values), **dict(provider_env)},
+        local_values=member_local_values,
         step_name=member_step_name,
     )
     if (
@@ -4908,6 +5019,7 @@ def _lower_provider_supervision_member(
         ),
         projection,
         perform.metadata.type_ref,
+        prelude_steps,
     )
 
 
@@ -4988,6 +5100,9 @@ def _lower_provider_peer_group_binding(
         )
         for member in group.members
     )
+    member_prelude_steps = [
+        step for lowered in lowered_members for step in lowered[3]
+    ]
     member_configs = tuple(item[0] for item in lowered_members)
     member_projections = {
         member.binding_name: lowered[1]
@@ -5141,12 +5256,13 @@ def _lower_provider_peer_group_binding(
     )
     return (
         [
+            *member_prelude_steps,
             {
                 "name": group_step_name,
                 "id": group_step_id,
                 "timeout_sec": whole_timeout,
                 "provider_peer_group": config,
-            }
+            },
         ],
         _TerminalResult(
             step_name=group_step_name,
@@ -5218,7 +5334,7 @@ def _lower_provider_supervision_binding(
             owner_key=owner_key,
             metadata=metadata,
         )
-    worker, worker_projection, worker_raw_type = (
+    worker, worker_projection, worker_raw_type, worker_preludes = (
         _lower_provider_supervision_member(
             worker_member,
             context=context,
@@ -5226,7 +5342,7 @@ def _lower_provider_supervision_binding(
             group_step_name=group_step_name,
         )
     )
-    supervisor, supervisor_projection, supervisor_raw_type = (
+    supervisor, supervisor_projection, supervisor_raw_type, supervisor_preludes = (
         _lower_provider_supervision_member(
             supervisor_member,
             context=context,
@@ -5234,6 +5350,7 @@ def _lower_provider_supervision_binding(
             group_step_name=group_step_name,
         )
     )
+    member_prelude_steps = [*worker_preludes, *supervisor_preludes]
     settlement_expr = _pure_wcc_body_expr(
         group.settlement_body,
         env={
@@ -5375,12 +5492,13 @@ def _lower_provider_supervision_binding(
     )
     return (
         [
+            *member_prelude_steps,
             {
                 "name": group_step_name,
                 "id": group_step_id,
                 "timeout_sec": whole_timeout,
                 "provider_supervision": config,
-            }
+            },
         ],
         _TerminalResult(
             step_name=group_step_name,
@@ -6374,6 +6492,15 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
         )
+    if isinstance(value, WccSelect):
+        return IfExpr(
+            condition_expr=_frontend_expr_from_wcc_value_with_env(value.condition, env),
+            then_expr=_frontend_expr_from_wcc_value_with_env(value.then_value, env),
+            else_expr=_frontend_expr_from_wcc_value_with_env(value.else_value, env),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
     return _frontend_expr_from_wcc_value(value)
 
 
@@ -6683,6 +6810,15 @@ def _frontend_expr_from_wcc_value(value: WccValue):
                 (field_name, _frontend_expr_from_wcc_value(field_value))
                 for field_name, field_value in value.fields
             ),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccSelect):
+        return IfExpr(
+            condition_expr=_frontend_expr_from_wcc_value(value.condition),
+            then_expr=_frontend_expr_from_wcc_value(value.then_value),
+            else_expr=_frontend_expr_from_wcc_value(value.else_value),
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,

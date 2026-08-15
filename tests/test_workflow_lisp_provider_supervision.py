@@ -4754,3 +4754,178 @@ def test_recursive_live_provider_member_is_rejected_by_procedure_cycle_gate(
         source[diagnostic.span.start.offset : diagnostic.span.end.offset]
         == "(recursive-worker)"
     )
+
+
+def _compile_strict_boolean_member(tmp_path: Path, source: str):
+    path = _write_module(tmp_path / "strict_boolean_member.orc", source)
+    for prompt_path in ("prompts/worker.md", "prompts/supervisor.md"):
+        target = tmp_path / prompt_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+    return compile_stage3_module(
+        path,
+        entry_workflow="orchestrate",
+        provider_externs={
+            "providers.worker": "codex",
+            "providers.supervisor": "supervisor-provider",
+        },
+        prompt_externs={
+            "prompts.worker": "prompts/worker.md",
+            "prompts.supervisor": "prompts/supervisor.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+
+def test_closed_member_post_provider_selection_lowers_through_settlement(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") "accept" "revise"))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    # The member-local `if` selection is inlined into the settlement projection
+    # as a pure-projection `kind: "if"` value (not a disqualifying control form
+    # nor an arm-specific node). `worker` is the raw provider result.
+    assert config.settlement_payload["expr"]["kind"] == "if"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "accept"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "revise"
+
+
+def _pre_provider_bundle(result):
+    bundle = result.validated_bundles["orchestrate"]
+    return bundle.ir.nodes
+
+
+def test_pre_provider_input_lifts_whole_selection_to_pure_projection(
+    tmp_path: Path,
+) -> None:
+    source = _module_source(
+        "2.26",
+        (
+            "(defproc branching-input-worker ((a Bool) (b Bool)) -> String "
+            ":effects ((uses-provider providers.worker)) "
+            ":lowering inline "
+            "(let* ((flag (if a b false))) "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs (flag) "
+            ":timeout-sec 30 :returns String)))"
+        ),
+        (
+            "(defworkflow orchestrate ((a Bool) (b Bool)) -> String "
+            "(with-live-providers "
+            "((worker (branching-input-worker a b)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    nodes = _pre_provider_bundle(result)
+
+    projections = {
+        nid: node for nid, node in nodes.items()
+        if node.kind is ExecutableNodeKind.PURE_PROJECTION
+    }
+    supervision = {
+        nid: node for nid, node in nodes.items()
+        if node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    }
+    assert len(projections) == 1
+    assert len(supervision) == 1
+    (projection_node,) = projections.values()
+    (supervision_node,) = supervision.values()
+
+    projection_payload = dict(projection_node.execution_config.pure_projection["payload"])
+    assert projection_payload["expr"]["kind"] == "if"
+
+    typed_inputs = supervision_node.execution_config.worker.provider_config.typed_prompt_inputs
+    assert len(typed_inputs) == 1
+    entry = typed_inputs[0]
+    assert entry["binding_name"].endswith("__flag")
+    assert entry["value_source"]["kind"] == "typed_binding_ref"
+    ref = entry["value_source"]["binding"]["ref"]
+    assert ref.endswith(".artifacts.__result__")
+    assert ref.startswith("root.steps.")
+
+
+def test_pre_provider_input_authored_and_or_reaches_same_path(
+    tmp_path: Path,
+) -> None:
+    for operator in ("and", "or"):
+        source = _module_source(
+            "2.26",
+            (
+                "(defproc branching-input-worker ((a Bool) (b Bool)) -> String "
+                ":effects ((uses-provider providers.worker)) "
+                ":lowering inline "
+                f"(let* ((flag ({operator} a b))) "
+                "(provider-result providers.worker "
+                ":prompt prompts.worker :inputs (flag) "
+                ":timeout-sec 30 :returns String)))"
+            ),
+            (
+                "(defworkflow orchestrate ((a Bool) (b Bool)) -> String "
+                "(with-live-providers "
+                "((worker (branching-input-worker a b)) "
+                "(supervisor "
+                "(provider-result providers.supervisor "
+                ":prompt prompts.supervisor :inputs () "
+                ":timeout-sec 20 "
+                ":returns ProviderSteeringDirective) "
+                ":observes worker)) "
+                "worker))"
+            ),
+        )
+        result = _compile_strict_boolean_member(tmp_path, source)
+        nodes = _pre_provider_bundle(result)
+        projections = [
+            node for node in nodes.values()
+            if node.kind is ExecutableNodeKind.PURE_PROJECTION
+        ]
+        supervision = [
+            node for node in nodes.values()
+            if node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+        ]
+        assert len(projections) == 1
+        assert len(supervision) == 1
+        payload = dict(projections[0].execution_config.pure_projection["payload"])
+        assert payload["expr"]["kind"] == "if"
+        typed_inputs = supervision[0].execution_config.worker.provider_config.typed_prompt_inputs
+        assert len(typed_inputs) == 1
+        assert typed_inputs[0]["value_source"]["kind"] == "typed_binding_ref"

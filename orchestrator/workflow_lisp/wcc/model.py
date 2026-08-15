@@ -269,7 +269,17 @@ class WccInject:
     fields: tuple[tuple[str, WccValue], ...]
 
 
-WccValue = WccAtom | WccInject | WccPureOp
+@dataclass(frozen=True)
+class WccSelect:
+    """Internal pure conditional value: condition selects one of two arms."""
+
+    metadata: WccNodeMetadata
+    condition: "WccValue"
+    then_value: "WccValue"
+    else_value: "WccValue"
+
+
+WccValue = WccAtom | WccInject | WccPureOp | WccSelect
 
 
 @dataclass(frozen=True, init=False)
