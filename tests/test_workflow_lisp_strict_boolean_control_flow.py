@@ -1276,3 +1276,93 @@ def test_strict_with_phase_body_normalizes_in_scope(tmp_path: Path) -> None:
     assert len(phases) == 1
     # The folded body `and` stays inside the phase body.
     assert isinstance(phases[0].body, LetStarExpr)
+
+
+def test_strict_loop_body_if_branch_effect_stays_inside(tmp_path: Path) -> None:
+    """An effectful `if` branch inside a loop body keeps its binding inside the
+    branch, so an untaken `done`/`continue` branch never executes the effect."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule loop_branch)",
+                "  (export gate)",
+                "  (defworkflow gate () -> Bool",
+                "    (if (loop/recur",
+                "          :max 1",
+                "          :state (loop-state (count Int 0) (done Bool false))",
+                "          :on-exhausted false",
+                "          (fn (state)",
+                "            (if (= state.done false)",
+                "                (done (command-result done_effect",
+                '                        :argv ("python" "scripts/done_effect.py")',
+                "                        :returns Bool))",
+                "                (continue (loop-state :like state :count 1 :done true)))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("done_effect", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    loop = next(node for node in walk_expr(body) if isinstance(node, LoopRecurExpr))
+    # The effect binding is wrapped inside the `done` branch, not hoisted to the
+    # loop-body prefix.
+    assert isinstance(loop.body_expr, IfExpr)
+    then_body = loop.body_expr.then_expr
+    assert isinstance(then_body, LetStarExpr)
+
+
+def test_strict_loop_body_match_arm_binding_stays_inside(tmp_path: Path) -> None:
+    """A loop-body `match` arm effect stays inside its arm, never escaping."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule loop_match)",
+                "  (export gate)",
+                "  (defunion Subject (A (flag Bool)) (B (flag Bool)))",
+                "  (defworkflow gate () -> Bool",
+                "    (if (loop/recur",
+                "          :max 1",
+                "          :state (loop-state (count Int 0))",
+                "          :on-exhausted false",
+                "          (fn (state)",
+                "            (match (command-result subject",
+                '                     :argv ("python" "scripts/subject.py")',
+                "                     :returns Subject)",
+                "              ((A a)",
+                "               (done (command-result must_not_run",
+                '                      :argv ("python" "scripts/must_not_run.py")',
+                "                      :returns Bool)))",
+                "              ((B b)",
+                "               (continue (loop-state :like state :count 1))))))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("subject", "must_not_run", "yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    loop = next(node for node in walk_expr(body) if isinstance(node, LoopRecurExpr))
+    match = next(node for node in walk_expr(loop.body_expr) if isinstance(node, MatchExpr))
+    arm_a = match.arms[0]
+    assert isinstance(arm_a.body, LetStarExpr)

@@ -678,14 +678,95 @@ def _normalize_loop_body(
         return _normalize_effect_operand(expr, path=path)
     if isinstance(expr, _LEAF_EXPRS):
         return (), expr
+    if isinstance(expr, IfExpr):
+        return _normalize_loop_body_if(expr, path=path)
+    if isinstance(expr, MatchExpr):
+        return _normalize_loop_body_match(expr, path=path)
+    if isinstance(expr, LetStarExpr):
+        return _normalize_loop_body_let(expr, path=path)
     if isinstance(expr, _LOOP_SPINE_EXPRS) or isinstance(
         expr, _COMPOSITE_VALUE_EXPRS
     ):
         return _normalize_loop_body_composite(expr, path=path)
-    raise TypeError(
-        f"unhandled loop-body operand variant {type(expr).__name__}; "
-        "add an explicit scope-preserving handler"
+
+
+def _normalize_loop_body_if(
+    expr: IfExpr,
+    *,
+    path: tuple[int, ...],
+) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    condition_bindings, condition_terminal = _normalize_loop_body(
+        expr.condition_expr,
+        path=path + (0,),
     )
+    then_bindings, then_terminal = _normalize_loop_body(expr.then_expr, path=path + (1,))
+    else_bindings, else_terminal = _normalize_loop_body(expr.else_expr, path=path + (2,))
+    rebuilt = IfExpr(
+        condition_expr=condition_terminal,
+        then_expr=_wrap_bindings(then_bindings, then_terminal, expr.then_expr),
+        else_expr=_wrap_bindings(else_bindings, else_terminal, expr.else_expr),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    return condition_bindings, rebuilt
+
+
+def _normalize_loop_body_match(
+    expr: MatchExpr,
+    *,
+    path: tuple[int, ...],
+) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    subject_bindings, subject_terminal = _normalize_loop_body(
+        expr.subject,
+        path=path + (0,),
+    )
+    arms: list[MatchArm] = []
+    for index, arm in enumerate(expr.arms):
+        arm_bindings, arm_terminal = _normalize_loop_body(arm.body, path=path + (1 + index,))
+        arms.append(
+            MatchArm(
+                variant_name=arm.variant_name,
+                binding_name=arm.binding_name,
+                body=_wrap_bindings(arm_bindings, arm_terminal, arm.body),
+                span=arm.span,
+                form_path=arm.form_path,
+                expansion_stack=arm.expansion_stack,
+            )
+        )
+    rebuilt = MatchExpr(
+        subject=subject_terminal,
+        arms=tuple(arms),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    return subject_bindings, rebuilt
+
+
+def _normalize_loop_body_let(
+    expr: LetStarExpr,
+    *,
+    path: tuple[int, ...],
+) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    new_bindings: list[tuple[str, ExprNode]] = []
+    for index, (binding_name, binding_expr) in enumerate(expr.bindings):
+        bindings, terminal = _normalize_loop_body(binding_expr, path=path + (index,))
+        new_bindings.append(
+            (binding_name, _wrap_bindings(bindings, terminal, binding_expr))
+        )
+    body_bindings, body_terminal = _normalize_loop_body(
+        expr.body,
+        path=path + (len(expr.bindings),),
+    )
+    rebuilt = LetStarExpr(
+        bindings=tuple(new_bindings),
+        body=_wrap_bindings(body_bindings, body_terminal, expr.body),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    return (), rebuilt
 
 
 def _normalize_loop_body_composite(
@@ -708,6 +789,7 @@ def _normalize_loop_body_composite(
         hoisted.extend(child_bindings)
         replacements[id(child)] = child_terminal
     return tuple(hoisted), _rebuild_with_replacements(expr, replacements)
+
 
 def _normalize_with_phase(
     expr: WithPhaseExpr,
