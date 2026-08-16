@@ -5283,9 +5283,8 @@ def test_public_wcc_route_settlement_nested_local_field_alias_keeps_owner(
             ":prompt prompts.supervisor :inputs () "
             ":timeout-sec 20 :returns ProviderSteeringDirective) "
             ":observes worker)) "
-            "(let* ((payload (record Payload :flag true)) "
-            "(payload payload.flag)) "
-            "payload)))"
+            "(let* ((payload (record Payload :flag true))) "
+            "(let* ((payload payload.flag)) payload))))"
         ),
     )
     result = _compile_strict_boolean_member(tmp_path, source)
