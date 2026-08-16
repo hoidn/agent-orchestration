@@ -28,6 +28,7 @@ from orchestrator.workflow_lisp.expressions import (
     ListMapEffectExpr,
     ListMapExpr,
     LiteralExpr,
+    LoopBodyFnExpr,
     LoopRecurExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -1153,6 +1154,117 @@ def test_expression_traversal_walk_expr_is_preorder() -> None:
         "ProcedureCallExpr",
         "NameExpr",
     ]
+
+
+def test_map_expr_resolves_free_names_and_respects_let_star_shadowing() -> None:
+    traversal = _traversal_module()
+    rename = lambda node: NameExpr(
+        name=f"outer-{node.name}",
+        span=node.span,
+        form_path=node.form_path,
+        expansion_stack=node.expansion_stack,
+    )
+    expr = LetStarExpr(
+        bindings=(("raw", ListExpr(
+            items=(_name("raw"), _name("raw")),
+            element_type_ref=None,
+            span=_test_span("list"),
+            form_path=FORM_PATH,
+        )),),
+        body=PureOpExpr(
+            operator="list/length",
+            args=(_name("raw"),),
+            span=_test_span("length"),
+            form_path=FORM_PATH,
+        ),
+        span=_test_span("let"),
+        form_path=FORM_PATH,
+    )
+    rewritten = traversal.map_expr(expr, rename)
+    assert [item.name for item in rewritten.bindings[0][1].items] == [
+        "outer-raw",
+        "outer-raw",
+    ]
+    assert rewritten.body.args[0].name == "raw"
+    assert traversal.free_expr_names(expr) == {"raw"}
+
+
+def test_map_expr_respects_list_map_and_match_binders() -> None:
+    traversal = _traversal_module()
+    rename = lambda node: NameExpr(
+        name=f"outer-{node.name}",
+        span=node.span,
+        form_path=node.form_path,
+        expansion_stack=node.expansion_stack,
+    )
+    list_map = ListMapExpr(
+        binder_name="item",
+        source_expr=_name("raw"),
+        body_expr=_name("item"),
+        source_item_type_ref=None,
+        result_item_type_ref=None,
+        span=_test_span("list-map"),
+        form_path=FORM_PATH,
+    )
+    rewritten = traversal.map_expr(list_map, rename)
+    assert rewritten.source_expr.name == "outer-raw"
+    assert rewritten.body_expr.name == "item"
+
+    match = MatchExpr(
+        subject=_name("raw"),
+        arms=(
+            MatchArm(
+                variant_name="V",
+                binding_name="bound",
+                body=_name("bound"),
+                span=_test_span("arm"),
+                form_path=FORM_PATH,
+            ),
+        ),
+        span=_test_span("match"),
+        form_path=FORM_PATH,
+    )
+    rewritten = traversal.map_expr(match, rename)
+    assert rewritten.subject.name == "outer-raw"
+    assert rewritten.arms[0].body.name == "bound"
+
+
+def test_map_expr_respects_loop_binders() -> None:
+    traversal = _traversal_module()
+    rename = lambda node: NameExpr(
+        name=f"outer-{node.name}",
+        span=node.span,
+        form_path=node.form_path,
+        expansion_stack=node.expansion_stack,
+    )
+    loop_body = LoopBodyFnExpr(
+        binding_name="state",
+        body_expr=_name("state"),
+        span=_test_span("loop-body-fn"),
+        form_path=FORM_PATH,
+    )
+    rewritten = traversal.map_expr(loop_body, rename)
+    assert rewritten.body_expr.name == "state"
+
+    loop_recur = LoopRecurExpr(
+        max_iterations_expr=_name("n"),
+        initial_state_expr=_name("raw"),
+        binding_name="state",
+        body_expr=_name("state"),
+        span=_test_span("loop-recur"),
+        form_path=FORM_PATH,
+        on_exhausted_result_expr=_name("raw"),
+    )
+    rewritten = traversal.map_expr(loop_recur, rename)
+    assert rewritten.max_iterations_expr.name == "outer-n"
+    assert rewritten.initial_state_expr.name == "outer-raw"
+    assert rewritten.body_expr.name == "state"
+    assert rewritten.on_exhausted_result_expr.name == "outer-raw"
+
+
+def test_map_expr_returns_class_objects_unchanged() -> None:
+    traversal = _traversal_module()
+    assert traversal.map_expr(NameExpr, lambda node: node) is NameExpr
 
 
 def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, fields as dataclass_fields, is_datacl
 from ..conditionals import _contains_effect, classify_condition_expr, fold_pure_short_circuit
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
-from ..expression_traversal import walk_expr
+from ..expression_traversal import map_expr, walk_expr
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -1221,6 +1221,32 @@ def _substitute_wcc_binding_value(
     return _substitute_wcc_value(value, substitutions)
 
 
+def _substitute_wcc_opaque_expr(
+    expr: object,
+    substitutions: Mapping[str, WccValue],
+) -> object:
+    """Substitute free names inside one opaque frontend expression.
+
+    A bind-site rename keeps the authored reference span; any non-name
+    substitution value is materialized through the shared WCC-to-frontend
+    reconstruction so the opaque child stays a closed frontend term.
+    """
+
+    from .defunctionalize import _frontend_expr_from_wcc_value
+
+    def on_name(node: NameExpr):
+        replacement = substitutions.get(node.name)
+        if replacement is None:
+            return node
+        if isinstance(replacement, WccNameAtom):
+            if replacement.name == node.name:
+                return node
+            return replace(node, name=replacement.name)
+        return _frontend_expr_from_wcc_value(replacement)
+
+    return map_expr(expr, on_name)
+
+
 def _substitute_wcc_value(
     value: WccValue,
     substitutions: Mapping[str, WccValue],
@@ -1278,6 +1304,11 @@ def _substitute_wcc_value(
             condition=_substitute_wcc_value(value.condition, substitutions),
             then_arm=_substitute_wcc_select_arm(value.then_arm, substitutions),
             else_arm=_substitute_wcc_select_arm(value.else_arm, substitutions),
+        )
+    if isinstance(value, WccOpaqueFrontendValue):
+        return replace(
+            value,
+            expr=_substitute_wcc_opaque_expr(value.expr, substitutions),
         )
     return value
 

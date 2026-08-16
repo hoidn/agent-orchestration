@@ -15,7 +15,7 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..compiler_session import LoweringSessionState
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..expression_traversal import iter_child_exprs
+from ..expression_traversal import iter_child_exprs, map_expr
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
@@ -6509,6 +6509,11 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccOpaqueFrontendValue):
+        return map_expr(
+            _frontend_expr_from_wcc_value(value),
+            lambda node: env.get(node.name, node),
         )
     return _frontend_expr_from_wcc_value(value)
 

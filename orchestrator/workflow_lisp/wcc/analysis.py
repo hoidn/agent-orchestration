@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..expression_traversal import free_expr_names
 from ..expressions import IfExpr
 from ..syntax import MAX_STATIC_LIVE_PROVIDER_PEERS
 from ..type_env import TypeRef
@@ -617,10 +618,11 @@ def _referenced_wcc_names(value: object) -> set[str]:
         (
             WccLiteralAtom,
             WccPhaseTargetAtom,
-            WccOpaqueFrontendValue,
         ),
     ):
         return set()
+    if isinstance(value, WccOpaqueFrontendValue):
+        return free_expr_names(value.expr)
     if isinstance(value, WccPerform):
         referenced = {
             name

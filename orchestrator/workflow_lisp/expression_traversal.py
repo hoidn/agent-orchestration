@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import fields as dataclass_fields, is_dataclass, replace
 
 from .expressions import (
     BindProcExpr,
@@ -26,6 +27,7 @@ from .expressions import (
     ListMapExpr,
     LiteralExpr,
     MaterializeViewExpr,
+    LoopBodyFnExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
@@ -239,3 +241,223 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
     yield expr
     for child in iter_child_exprs(expr):
         yield from walk_expr(child)
+
+def map_expr(
+    expr: object,
+    on_name: Callable[[NameExpr], ExprNode],
+    *,
+    bound: frozenset[str] = frozenset(),
+) -> object:
+    """Rebuild one expression, applying ``on_name`` to each free ``NameExpr``.
+
+    ``on_name`` receives every ``NameExpr`` whose name is not locally bound
+    and returns its replacement expression.  Binder forms thread their bound
+    names so locally-scoped references are left untouched: sequential
+    ``let*`` bindings, ``list/map`` binder names, per-arm ``match`` binding
+    names, loop body binders, and local procedure parameter scopes all shadow
+    outer references independently.  Nested containers and dataclass fields
+    are traversed structurally; the original node is returned unchanged
+    whenever no child was rewritten.
+    """
+
+    if isinstance(expr, NameExpr):
+        if expr.name in bound:
+            return expr
+        return on_name(expr)
+    if isinstance(expr, FieldAccessExpr):
+        rewritten_base = map_expr(expr.base, on_name, bound=bound)
+        if rewritten_base is expr.base:
+            return expr
+        return replace(expr, base=rewritten_base)
+    if isinstance(expr, LetStarExpr):
+        local_bound = set(bound)
+        rewritten_bindings: list[tuple[str, ExprNode]] = []
+        changed = False
+        for binding_name, binding_expr in expr.bindings:
+            rewritten_binding = map_expr(
+                binding_expr,
+                on_name,
+                bound=frozenset(local_bound),
+            )
+            rewritten_bindings.append((binding_name, rewritten_binding))
+            changed = changed or rewritten_binding is not binding_expr
+            local_bound.add(binding_name)
+        rewritten_body = map_expr(
+            expr.body,
+            on_name,
+            bound=frozenset(local_bound),
+        )
+        changed = changed or rewritten_body is not expr.body
+        if not changed:
+            return expr
+        return replace(
+            expr,
+            bindings=tuple(rewritten_bindings),
+            body=rewritten_body,
+        )
+    if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
+        rewritten_source = map_expr(expr.source_expr, on_name, bound=bound)
+        rewritten_body = map_expr(
+            expr.body_expr,
+            on_name,
+            bound=bound | {expr.binder_name},
+        )
+        if (
+            rewritten_source is expr.source_expr
+            and rewritten_body is expr.body_expr
+        ):
+            return expr
+        return replace(
+            expr,
+            source_expr=rewritten_source,
+            body_expr=rewritten_body,
+        )
+    if isinstance(expr, MatchExpr):
+        rewritten_subject = map_expr(expr.subject, on_name, bound=bound)
+        changed = rewritten_subject is not expr.subject
+        rewritten_arms: list[object] = []
+        for arm in expr.arms:
+            rewritten_arm_body = map_expr(
+                arm.body,
+                on_name,
+                bound=bound | {arm.binding_name},
+            )
+            changed = changed or rewritten_arm_body is not arm.body
+            if rewritten_arm_body is arm.body:
+                rewritten_arms.append(arm)
+            else:
+                rewritten_arms.append(replace(arm, body=rewritten_arm_body))
+        if not changed:
+            return expr
+        return replace(
+            expr,
+            subject=rewritten_subject,
+            arms=tuple(rewritten_arms),
+        )
+    if isinstance(expr, LoopBodyFnExpr):
+        rewritten_body = map_expr(
+            expr.body_expr,
+            on_name,
+            bound=bound | {expr.binding_name},
+        )
+        if rewritten_body is expr.body_expr:
+            return expr
+        return replace(expr, body_expr=rewritten_body)
+    if isinstance(expr, LoopRecurExpr):
+        rewritten_body = map_expr(
+            expr.body_expr,
+            on_name,
+            bound=bound | {expr.binding_name},
+        )
+        changed = rewritten_body is not expr.body_expr
+        changed_updates: dict[str, object] = {}
+        if changed:
+            changed_updates["body_expr"] = rewritten_body
+        for field_name in ("max_iterations_expr", "initial_state_expr"):
+            current = getattr(expr, field_name)
+            rewritten = map_expr(current, on_name, bound=bound)
+            changed = changed or rewritten is not current
+            if rewritten is not current:
+                changed_updates[field_name] = rewritten
+        if expr.on_exhausted_result_expr is not None:
+            current = expr.on_exhausted_result_expr
+            rewritten = map_expr(current, on_name, bound=bound)
+            changed = changed or rewritten is not current
+            if rewritten is not current:
+                changed_updates["on_exhausted_result_expr"] = rewritten
+        if not changed:
+            return expr
+        return replace(expr, **changed_updates)
+    if isinstance(expr, LetProcExpr):
+        proc_bound = bound | {expr.binding.local_name} | {
+            param.name for param in expr.binding.params
+        }
+        rewritten_local_body = map_expr(
+            expr.binding.local_body,
+            on_name,
+            bound=frozenset(proc_bound),
+        )
+        rewritten_body = map_expr(
+            expr.body,
+            on_name,
+            bound=bound | {expr.binding.local_name},
+        )
+        if (
+            rewritten_local_body is expr.binding.local_body
+            and rewritten_body is expr.body
+        ):
+            return expr
+        return replace(
+            expr,
+            binding=replace(expr.binding, local_body=rewritten_local_body),
+            body=rewritten_body,
+        )
+    if isinstance(expr, tuple):
+        rewritten_items = tuple(
+            map_expr(item, on_name, bound=bound) for item in expr
+        )
+        if all(
+            rewritten is original
+            for rewritten, original in zip(
+                rewritten_items,
+                expr,
+                strict=True,
+            )
+        ):
+            return expr
+        return rewritten_items
+    if isinstance(expr, list):
+        rewritten_items = [
+            map_expr(item, on_name, bound=bound) for item in expr
+        ]
+        if all(
+            rewritten is original
+            for rewritten, original in zip(
+                rewritten_items,
+                expr,
+                strict=True,
+            )
+        ):
+            return expr
+        return rewritten_items
+    if isinstance(expr, Mapping):
+        rewritten_items = {
+            key: map_expr(item, on_name, bound=bound)
+            for key, item in expr.items()
+        }
+        if all(
+            rewritten_items[key] is item
+            for key, item in expr.items()
+        ):
+            return expr
+        return rewritten_items
+    if is_dataclass(expr) and not isinstance(expr, type):
+        changed_updates: dict[str, object] = {}
+        for field in dataclass_fields(expr):
+            if not field.init:
+                continue
+            current = getattr(expr, field.name)
+            rewritten = map_expr(current, on_name, bound=bound)
+            if rewritten is not current:
+                changed_updates[field.name] = rewritten
+        if changed_updates:
+            return replace(expr, **changed_updates)
+        return expr
+    return expr
+
+
+def free_expr_names(
+    expr: ExprNode,
+    *,
+    bound: frozenset[str] = frozenset(),
+) -> set[str]:
+    """Return the free ``NameExpr`` names referenced by one expression."""
+
+    names: set[str] = set()
+
+    def collect(node: NameExpr) -> NameExpr:
+        names.add(node.name)
+        return node
+
+    map_expr(expr, collect, bound=bound)
+    return names

@@ -8012,6 +8012,11 @@ class WorkflowExecutor:
                 step.compiler_prompt_fragment_contract,
                 step.compiled_prompt_fragment_identity,
             )
+        if isinstance(step, Mapping):
+            return (
+                step.get("compiler_prompt_fragment_contract"),
+                step.get("compiled_prompt_fragment_identity"),
+            )
         return None, None
 
     def _validated_runtime_prompt_fragment_pair(
@@ -10229,18 +10234,127 @@ class WorkflowExecutor:
                     ), None
                 resolved_typed_values[binding_name] = resolved_value
 
-        def finish(candidate_prompt: str) -> str:
-            if resolved_typed_values:
-                candidate_prompt, _typed_evidence = (
-                    composer.apply_typed_prompt_input_injection(
-                        step,
-                        candidate_prompt,
-                        typed_prompt_inputs=typed_prompt_inputs,
-                        resolved_typed_values=resolved_typed_values,
-                        workflow_name=self.workflow_name or '',
-                        step_id=runtime_step_id or self._step_id(step),
+        fragment_contract, _fragment_identity = (
+            self._compiler_prompt_fragment_pair(step)
+        )
+        if isinstance(step, RuntimeStep):
+            prompt_attempt_identity_version = (
+                step.prompt_attempt_identity_version
+            )
+            binding_plan = step.compiler_prompt_attempt_binding_plan
+            target_dsl_version = step.target_dsl_version
+        else:
+            prompt_attempt_identity_version = step.get(
+                "prompt_attempt_identity_version"
+            )
+            binding_plan = step.get("compiler_prompt_attempt_binding_plan")
+            target_dsl_version = (
+                self.executable_ir.version
+                if self.executable_ir is not None
+                else self.workflow_version
+            )
+        fragment_owned = (
+            fragment_contract is not None
+            and prompt_attempt_identity_version is not None
+            and binding_plan is not None
+        )
+        fragment_render_result: PromptFragmentRenderResult | None = None
+        if fragment_owned:
+            resolved_fragment_values: dict[str, Any] = {}
+            for slot in fragment_contract.rendered_slots:
+                binding = slot.value_source.get("binding")
+                if isinstance(binding, Mapping):
+                    binding = dict(binding)
+                resolved_value, resolve_error = (
+                    self._resolve_typed_prompt_input_value(
+                        binding,
+                        state,
+                        scope=None,
                     )
                 )
+                if resolve_error is not None:
+                    return None, self._contract_violation_result(
+                        "Provider prompt fragment rendering failed",
+                        {
+                            "reason": (
+                                "prompt_fragment_slot_value_unavailable"
+                            ),
+                            "slot": slot.name,
+                        },
+                    ), None
+                resolved_fragment_values[slot.name] = resolved_value
+            try:
+                rendered_fragment = render_prompt_fragment_base(
+                    fragment_contract,
+                    resolved_slot_values=resolved_fragment_values,
+                    target_dsl_version=target_dsl_version,
+                    compiler_prompt_attempt_binding_plan=binding_plan,
+                )
+            except (TypeError, ValueError) as exc:
+                return None, self._contract_violation_result(
+                    "Provider prompt fragment rendering failed",
+                    {
+                        "reason": "prompt_fragment_render_invalid",
+                        "error": str(exc),
+                    },
+                ), None
+            if type(rendered_fragment) is not PromptFragmentRenderResult:
+                return None, self._contract_violation_result(
+                    "Provider prompt fragment rendering failed",
+                    {
+                        "reason": "prompt_fragment_render_invalid",
+                        "error": "target-2.22 render trace is missing",
+                    },
+                ), None
+            fragment_render_result = rendered_fragment
+            prompt = rendered_fragment.rendered_base
+        def finish(candidate_prompt: str) -> str:
+            if isinstance(
+                typed_prompt_inputs, (list, tuple)
+            ) and typed_prompt_inputs:
+                if fragment_owned:
+                    from ..workflow_lisp.typed_prompt_inputs import (
+                        render_typed_prompt_inputs,
+                        validate_typed_prompt_input_composition,
+                    )
+
+                    (
+                        _unused_rendered_block,
+                        typed_prompt_input_evidence,
+                    ) = render_typed_prompt_inputs(
+                        typed_prompt_inputs,
+                        resolved_typed_values=resolved_typed_values,
+                        workflow_name=self.workflow_name or "",
+                        step_id=runtime_step_id or self._step_id(step),
+                        fragment_render_result=fragment_render_result,
+                        compiler_prompt_attempt_binding_plan=binding_plan,
+                    )
+                    typed_prompt_input_evidence = (
+                        validate_typed_prompt_input_composition(
+                            typed_prompt_inputs,
+                            resolved_typed_values=resolved_typed_values,
+                            evidence=typed_prompt_input_evidence,
+                            workflow_name=self.workflow_name or "",
+                            step_id=runtime_step_id or self._step_id(step),
+                            fragment_render_result=fragment_render_result,
+                            compiler_prompt_attempt_binding_plan=binding_plan,
+                        )
+                    )
+                    self._write_typed_prompt_input_evidence(
+                        step_id=runtime_step_id or self._step_id(step),
+                        evidence=typed_prompt_input_evidence,
+                    )
+                elif resolved_typed_values:
+                    candidate_prompt, _typed_evidence = (
+                        composer.apply_typed_prompt_input_injection(
+                            step,
+                            candidate_prompt,
+                            typed_prompt_inputs=typed_prompt_inputs,
+                            resolved_typed_values=resolved_typed_values,
+                            workflow_name=self.workflow_name or '',
+                            step_id=runtime_step_id or self._step_id(step),
+                        )
+                    )
             candidate_prompt = composer.apply_consumes_prompt_injection(
                 step,
                 candidate_prompt,

@@ -500,6 +500,138 @@ def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
     )
 
 
+def _shared_composition_executor(
+    tmp_path: Path,
+    resolved_by_name: dict[str, object],
+) -> tuple[WorkflowExecutor, list[dict[str, object]]]:
+    from orchestrator.workflow.prompting import PromptComposer
+
+    evidence_capture: list[dict[str, object]] = []
+    executor = object.__new__(WorkflowExecutor)
+    executor.workspace = tmp_path
+    executor.asset_resolver = None
+    executor.prompt_composer = PromptComposer(
+        workspace=tmp_path,
+        asset_resolver=None,
+    )
+    executor.current_step = 0
+    executor.workflow_name = "shared-composition"
+    executor.workflow_version = "2.25"
+    executor.executable_ir = SimpleNamespace(version="2.25")
+
+    def _resolve(
+        value: object,
+        _state: object,
+        *,
+        scope: object = None,
+    ) -> tuple[object, None]:
+        if isinstance(value, dict) and set(value) == {"ref"}:
+            name = str(value["ref"]).rsplit(".", 1)[-1]
+            return resolved_by_name[name], None
+        return value, None
+
+    executor._resolve_typed_prompt_input_value = _resolve  # type: ignore[method-assign]
+    executor._write_typed_prompt_input_evidence = (  # type: ignore[method-assign]
+        lambda *, step_id, evidence: evidence_capture.extend(evidence)
+    )
+    return executor, evidence_capture
+
+
+def test_shared_attempt_composer_renders_fragment_owned_inputs_without_legacy_block(
+    tmp_path: Path,
+) -> None:
+    from tests.test_workflow_lisp_prompt_identity_render_trace import (
+        _IDENTITY,
+        _contract,
+        _plan,
+        _resolved_values,
+        _typed_entries,
+    )
+
+    executor, evidence_capture = _shared_composition_executor(
+        tmp_path,
+        _resolved_values(),
+    )
+    step = {
+        "name": "planner",
+        "step_id": "root.planner",
+        "provider": "extern",
+        "timeout_sec": 10,
+        "inject_consumes": False,
+        "inject_output_contract": False,
+        "compiler_prompt_fragment_contract": _contract(),
+        "compiled_prompt_fragment_identity": _IDENTITY,
+        "prompt_attempt_identity_version": "workflow_prompt_attempt_identity.v2",
+        "compiler_prompt_attempt_binding_plan": _plan(),
+        "typed_prompt_inputs": _typed_entries(),
+    }
+
+    prompt, error, _debug = executor._compose_provider_attempt_for_step(
+        step,
+        {},
+        {},
+        runtime_step_id="root.planner",
+    )
+
+    assert error is None
+    assert prompt is not None
+    assert "## Typed Prompt Input" not in prompt
+    assert "Inspect" in prompt
+    assert "score" in prompt
+    assert evidence_capture
+    assert {row["binding_name"] for row in evidence_capture} == {
+        "payload",
+        "report_path",
+    }
+
+
+def test_shared_attempt_composer_keeps_single_legacy_block_for_plain_inputs(
+    tmp_path: Path,
+) -> None:
+    executor, _evidence = _shared_composition_executor(
+        tmp_path,
+        {"flag": True},
+    )
+    step = {
+        "name": "planner",
+        "step_id": "root.planner",
+        "provider": "extern",
+        "timeout_sec": 10,
+        "inject_consumes": False,
+        "inject_output_contract": False,
+        "typed_prompt_inputs": [
+            {
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "binding_name": "flag",
+                "renderer": {
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "accepted_shape": "any_pure_value",
+                },
+                "value_source": {
+                    "kind": "typed_binding_ref",
+                    "ref": "inputs.flag",
+                },
+                "value_type_name": "Value",
+                "source_map_origin_key": "shared-composition::flag",
+                "injection_order": 0,
+            }
+        ],
+    }
+
+    prompt, error, _debug = executor._compose_provider_attempt_for_step(
+        step,
+        {},
+        {},
+        runtime_step_id="root.planner",
+    )
+
+    assert error is None
+    assert prompt is not None
+    assert prompt.count("## Typed Prompt Input") == 1
+    assert "true" in prompt
+
+
 def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
     module = _typed_prompt_inputs_module()
     entries = [

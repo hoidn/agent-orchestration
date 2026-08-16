@@ -4939,6 +4939,95 @@ def test_closed_member_nested_arm_with_let_prefix_compiles(
     ) == "revise"
 
 
+def test_closed_member_opaque_list_captures_outer_member_binding(
+    tmp_path: Path,
+) -> None:
+    """An opaque list child resolves the outer member binding in settlement."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> Int "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") 1 '
+            '(let* ((xs (list raw raw))) (list/length xs))))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert config.settlement_payload["expr"]["kind"] == "if"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 1
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 2
+
+
+def test_closed_member_opaque_list_same_name_shadow_resolves_rhs_then_terminal(
+    tmp_path: Path,
+) -> None:
+    """A same-name arm binding shadows only after its RHS is resolved."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> Int "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") 1 '
+            '(let* ((raw (list raw raw))) (list/length raw))))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 1
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 2
+
+
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

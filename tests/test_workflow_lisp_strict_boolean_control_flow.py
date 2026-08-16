@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow_lisp.compiler import (
     compile_stage1_module,
     compile_stage3_entrypoint,
@@ -1499,11 +1500,11 @@ def _module_for_target(target_dsl: str, forms: tuple[str, ...]) -> str:
     )
 
 
-def _serialized_if_diagnostic_payload(
+def _serialized_if_diagnostic_bytes(
     tmp_path: Path,
     target_dsl: str,
     forms: tuple[str, ...],
-) -> dict:
+) -> bytes:
     path = tmp_path / "if_diagnostic.orc"
     path.write_text(_module_for_target(target_dsl, forms), encoding="utf-8")
     boundaries = {
@@ -1520,48 +1521,34 @@ def _serialized_if_diagnostic_payload(
             workspace_root=tmp_path,
         )
     payload = serialize_diagnostic(excinfo.value.diagnostics[0])
-    # The absolute source path is machine-specific; pin the remaining envelope
-    # (message, span, form path, expansion stack, phase, validation pass) to a
-    # stable committed literal.
-    payload["path"] = "if_diagnostic.orc"
-    return payload
+    # The retained source path is the machine-specific absolute form of the
+    # generated file; assert it resolves to the exact generated path, then
+    # normalize away only the verified workspace prefix.
+    assert Path(payload["path"]).resolve() == path.resolve()
+    payload["path"] = path.relative_to(tmp_path).as_posix()
+    return canonical_json_bytes(payload)
 
 
-_EFFECTFUL_IF_DIAGNOSTIC_GOLDEN = {
-    "authority_layer": "frontend",
-    "code": "if_condition_has_effect",
-    "column": 7,
-    "diagnostic_kind": "validation",
-    "expansion_stack": [],
-    "form_path": ["workflow-lisp", "defworkflow", "invalid-if-condition-effectful"],
-    "line": 17,
-    "message": "`if` condition must be pure",
-    "notes": [],
-    "path": "if_diagnostic.orc",
-    "phase": "typecheck",
-    "severity": "error",
-    "validation_pass": "type",
-}
+_EFFECTFUL_IF_DIAGNOSTIC_GOLDEN = (
+    b'{"authority_layer":"frontend","code":"if_condition_has_effect",'
+    b'"column":7,"diagnostic_kind":"validation","expansion_stack":[],'
+    b'"form_path":["workflow-lisp","defworkflow",'
+    b'"invalid-if-condition-effectful"],"line":17,'
+    b'"message":"`if` condition must be pure","notes":[],'
+    b'"path":"if_diagnostic.orc","phase":"typecheck",'
+    b'"severity":"error","validation_pass":"type"}'
+)
 
-_NONPROJECTABLE_IF_DIAGNOSTIC_GOLDEN = {
-    "authority_layer": "frontend",
-    "code": "if_condition_not_projectable",
-    "column": 9,
-    "diagnostic_kind": "validation",
-    "expansion_stack": [],
-    "form_path": [
-        "workflow-lisp",
-        "defworkflow",
-        "invalid-if-condition-not-projectable",
-    ],
-    "line": 19,
-    "message": "`if` condition must lower from a Bool literal or already-typed Bool ref",
-    "notes": [],
-    "path": "if_diagnostic.orc",
-    "phase": "read",
-    "severity": "error",
-    "validation_pass": "parse",
-}
+_NONPROJECTABLE_IF_DIAGNOSTIC_GOLDEN = (
+    b'{"authority_layer":"frontend","code":"if_condition_not_projectable",'
+    b'"column":9,"diagnostic_kind":"validation","expansion_stack":[],'
+    b'"form_path":["workflow-lisp","defworkflow",'
+    b'"invalid-if-condition-not-projectable"],"line":19,'
+    b'"message":"`if` condition must lower from a Bool literal or '
+    b'already-typed Bool ref","notes":[],'
+    b'"path":"if_diagnostic.orc","phase":"read",'
+    b'"severity":"error","validation_pass":"parse"}'
+)
 
 
 def test_target_225_effectful_if_diagnostic_bytes_unchanged(
@@ -1569,7 +1556,7 @@ def test_target_225_effectful_if_diagnostic_bytes_unchanged(
 ) -> None:
     """Target 2.25 keeps the pre-change effectful-`if` diagnostic byte-for-byte."""
 
-    current = _serialized_if_diagnostic_payload(
+    current = _serialized_if_diagnostic_bytes(
         tmp_path, "2.25", _EFFECTFUL_IF_FORMS
     )
     assert current == _EFFECTFUL_IF_DIAGNOSTIC_GOLDEN
@@ -1580,7 +1567,7 @@ def test_target_225_nonprojectable_if_diagnostic_bytes_unchanged(
 ) -> None:
     """Target 2.25 keeps the pre-change nonprojectable-`if` bytes identical."""
 
-    current = _serialized_if_diagnostic_payload(
+    current = _serialized_if_diagnostic_bytes(
         tmp_path, "2.25", _NONPROJECTABLE_IF_FORMS
     )
     assert current == _NONPROJECTABLE_IF_DIAGNOSTIC_GOLDEN
