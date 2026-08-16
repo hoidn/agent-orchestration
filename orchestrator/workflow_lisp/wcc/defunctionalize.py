@@ -5107,7 +5107,10 @@ def _pure_wcc_body_expr(
             current.bound_value,
             resolved,
         )
-        if bound_name in resolved:
+        if bound_name in resolved and not isinstance(
+            bound_value,
+            (NameExpr, FieldAccessExpr),
+        ):
             generated = (
                 f"__wcc_settlement_{bound_name}_"
                 f"{current.metadata.node_id.rsplit(':', 1)[-1]}"
