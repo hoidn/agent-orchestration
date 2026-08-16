@@ -7,14 +7,11 @@ from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING
 
-from .conditionals import classify_condition_expr, normalize_condition_expr
-from .syntax import target_dsl_supports_strict_boolean_control_flow
 from .compiler_session import CompilerSession, TypecheckSessionState
 from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
     EffectSummary,
-    effect_summary_contains_runs_ref,
     merge_effect_summaries,
 )
 from .expressions import (
@@ -89,7 +86,6 @@ from .typecheck_context import (
     _type_label,
     _type_refs_compatible,
     _typed,
-    _unify_loop_control_types,
 )
 from .typecheck_drain_phase import (
     typecheck_phase_target_expr,
@@ -116,12 +112,10 @@ from .typecheck_trial import typecheck_trial_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
     BindingIdentity,
-    PossibleVariants,
     ProofScope,
-    UNREACHABLE,
     _allocate_binding_identity,
-    analyze_condition,
     typecheck_field_access_expr as _typecheck_field_access_expr,
+    typecheck_if_expr as _typecheck_if_expr,
     typecheck_match_expr as _typecheck_match_expr,
 )
 from .type_env import (
@@ -908,170 +902,12 @@ def _typecheck(
             type_label=_type_label,
         )
     if isinstance(expr, IfExpr):
-        typed_condition = check(
-            expr.condition_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            prompt_catalog=prompt_catalog,
-        )
-        supports_strict = target_dsl_supports_strict_boolean_control_flow(
-            type_env.target_dsl_version or ""
-        )
-        true_proof_facts: dict | None = None
-        false_proof_facts: dict | None = None
-        if supports_strict:
-            if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
-                _raise_error(
-                    "`if` condition must resolve to exact `Bool`",
-                    code="if_condition_not_bool",
-                    span=expr.condition_expr.span,
-                    form_path=expr.condition_expr.form_path,
-                )
-            true_env, false_env = analyze_condition(
-                typed_condition.expr,
-                binding_env=binding_env,
-                facts=proof_scope.facts,
-            )
-            true_proof_facts = dict(true_env) if true_env is not UNREACHABLE else {}
-            false_proof_facts = dict(false_env) if false_env is not UNREACHABLE else {}
-            normalized_condition = normalize_condition_expr(
-                typed_condition.expr,
-                type_ref=typed_condition.type_ref,
-                effect_summary=typed_condition.effect_summary,
-            )
-        else:
-            if effect_summary_contains_runs_ref(typed_condition.effect_summary):
-                raise_run_ref_placement_invalid(
-                    typed_condition.expr,
-                    reason="is not permitted in an `if` condition",
-                    effect_summary=typed_condition.effect_summary,
-                )
-            if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
-                _raise_error(
-                    "`if` condition must resolve to exact `Bool`",
-                    code="if_condition_not_bool",
-                    span=expr.condition_expr.span,
-                    form_path=expr.condition_expr.form_path,
-                )
-            if typed_condition.effect_summary != EMPTY_EFFECT_SUMMARY:
-                _raise_error(
-                    "`if` condition must be pure",
-                    code="if_condition_has_effect",
-                    span=expr.condition_expr.span,
-                    form_path=expr.condition_expr.form_path,
-                )
-            classify_condition_expr(
-                typed_condition.expr,
-                type_ref=typed_condition.type_ref,
-            )
-        then_proof_scope = (
-            ProofScope(facts=true_proof_facts) if true_proof_facts is not None else proof_scope
-        )
-        else_proof_scope = (
-            ProofScope(facts=false_proof_facts) if false_proof_facts is not None else proof_scope
-        )
-        typed_then = check(
-            expr.then_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=then_proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            prompt_catalog=prompt_catalog,
+        return _typecheck_if_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
             expected_type=expected_type,
-        )
-        typed_else = check(
-            expr.else_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=else_proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            prompt_catalog=prompt_catalog,
-            expected_type=expected_type,
-        )
-        result_type = _unify_loop_control_types(typed_then.type_ref, typed_else.type_ref)
-        if result_type is None:
-            if isinstance(typed_then.type_ref, LoopControlTypeRef) and isinstance(
-                typed_else.type_ref,
-                LoopControlTypeRef,
-            ):
-                _raise_error(
-                    f"`done` expected `{_type_label(typed_then.type_ref.result_type_ref)}` but got `{_type_label(typed_else.type_ref.result_type_ref)}`",
-                    code="loop_recur_done_type_mismatch",
-                    span=expr.else_expr.span,
-                    form_path=expr.else_expr.form_path,
-                )
-            if typed_then.type_ref != typed_else.type_ref:
-                _raise_error(
-                    f"`if` branches must return the same type; got `{_type_label(typed_then.type_ref)}` and `{_type_label(typed_else.type_ref)}`",
-                    code="type_mismatch",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            result_type = typed_then.type_ref
-        if supports_strict:
-            normalized_if = replace(
-                expr,
-                condition_expr=normalized_condition.terminal,
-                then_expr=typed_then.expr,
-                else_expr=typed_else.expr,
-                true_proof_context=true_proof_facts,
-                false_proof_context=false_proof_facts,
-            )
-            if normalized_condition.bindings:
-                result_expr: ExprNode = LetStarExpr(
-                    bindings=normalized_condition.bindings,
-                    body=normalized_if,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                )
-            else:
-                result_expr = normalized_if
-            return _typed(
-                expr=result_expr,
-                type_ref=result_type,
-                effect=merge_effect_summaries(
-                    normalized_condition.effect_summary,
-                    typed_then.effect_summary,
-                    typed_else.effect_summary,
-                ),
-            )
-        return _typed(
-            expr=replace(
-                expr,
-                condition_expr=typed_condition.expr,
-                then_expr=typed_then.expr,
-                else_expr=typed_else.expr,
-            ),
-            type_ref=result_type,
-            effect=merge_effect_summaries(
-                typed_condition.effect_summary,
-                typed_then.effect_summary,
-                typed_else.effect_summary,
-            ),
         )
     if type(expr) is MatchExpr:
         return _typecheck_match_expr(
