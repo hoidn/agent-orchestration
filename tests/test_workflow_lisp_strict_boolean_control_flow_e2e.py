@@ -13,6 +13,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -44,6 +46,22 @@ def _failing_command(workspace: Path, name: str) -> ExternalToolBinding:
     scripts.mkdir(exist_ok=True)
     (scripts / f"{name}.py").write_text(
         "import sys\n"
+        "sys.exit(3)\n",
+        encoding="utf-8",
+    )
+    return ExternalToolBinding(name=name, stable_command=("python", f"scripts/{name}.py"))
+
+
+def _marking_failing_command(workspace: Path, name: str) -> ExternalToolBinding:
+    """A command that records a marker then exits nonzero (forced downstream failure)."""
+
+    scripts = workspace / "scripts"
+    scripts.mkdir(exist_ok=True)
+    (scripts / f"{name}.py").write_text(
+        "import os, pathlib, sys\n"
+        "bundle = pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
+        "bundle.parent.mkdir(parents=True, exist_ok=True)\n"
+        f"(bundle.parent / '{name}.ran').write_text('1', encoding='utf-8')\n"
         "sys.exit(3)\n",
         encoding="utf-8",
     )
@@ -1223,3 +1241,222 @@ def test_proof_resume_restores_variant_proof_descriptor(tmp_path: Path) -> None:
 
     assert resumed["status"] == "failed"
     assert len(counter) == 1
+
+
+def _cond_exhaustive_module() -> str:
+    """The fifth accepted fixture: exhaustive no-`else` cond with an observable
+    provider before a proof-forced terminal test."""
+
+    return "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            "  (defmodule cond_exhaustive)",
+            "  (export decide)",
+            '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+            "  (defunion ImplementationState",
+            "    (COMPLETED (execution_report WorkReport))",
+            "    (BLOCKED (blocker_reason WorkReport)))",
+            "  (defworkflow decide () -> Bool",
+            "    (let* ((attempt",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.execute",
+            "               :inputs ()",
+            "               :returns ImplementationState)))",
+            "      (cond",
+            "        ((= attempt.variant COMPLETED)",
+            "         (command-result consume-completed",
+            '           :argv ("python" "scripts/consume_completed.py" attempt.execution_report)',
+            "           :returns Bool))",
+            "        ((or (provider-result providers.last-check",
+            "              :prompt prompts.last-check",
+            "              :inputs ()",
+            "              :returns Bool)",
+            "             (= attempt.variant BLOCKED))",
+            "         (command-result consume-blocked",
+            '           :argv ("python" "scripts/consume_blocked.py" attempt.blocker_reason)',
+            "           :returns Bool))))))",
+        ]
+    )
+
+
+def _cond_exhaustive_workspace(tmp_path: Path) -> Path:
+    (tmp_path / "prompts").mkdir(exist_ok=True)
+    (tmp_path / "prompts" / "execute.md").write_text("EXECUTE_PROVIDER\n", encoding="utf-8")
+    (tmp_path / "prompts" / "last-check.md").write_text("LAST_CHECK_PROVIDER\n", encoding="utf-8")
+    (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "work" / "blocker_reason.md").write_text(
+        "# blocker\n", encoding="utf-8"
+    )
+    module_path = tmp_path / "cond_exhaustive.orc"
+    module_path.write_text(_cond_exhaustive_module(), encoding="utf-8")
+    return module_path
+
+
+def _union_bool_provider_patches(
+    workspace: Path,
+    union_document: str,
+    bool_document: str,
+    union_counter: list,
+    bool_counter: list,
+):
+    def _prepare_invocation(_self, *args, **kwargs):
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=kwargs.get("prompt_content", ""),
+                env=kwargs.get("env") or {},
+            ),
+            None,
+        )
+
+    def _execute(_self, invocation, **_kwargs):
+        bundle_path = workspace / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        if "EXECUTE_PROVIDER" in (invocation.prompt or ""):
+            document = union_document
+            union_counter.append(str(bundle_path))
+        else:
+            document = bool_document
+            bool_counter.append(str(bundle_path))
+        bundle_path.write_text(document + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    return (
+        patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation),
+        patch.object(ProviderExecutor, "execute", _execute),
+    )
+
+
+def test_cond_exhaustive_terminal_carries_requires_variant_guards(
+    tmp_path: Path,
+) -> None:
+    """Each clause's field-consuming command carries its variant guard."""
+
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    module_path = _cond_exhaustive_workspace(tmp_path)
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.last-check": "fake-last-check",
+        },
+        prompt_externs={
+            "prompts.execute": "prompts/execute.md",
+            "prompts.last-check": "prompts/last-check.md",
+        },
+        command_boundaries={
+            "consume-completed": ExternalToolBinding(
+                name="consume-completed",
+                stable_command=("python", "scripts/consume_completed.py"),
+            ),
+            "consume-blocked": ExternalToolBinding(
+                name="consume-blocked",
+                stable_command=("python", "scripts/consume_blocked.py"),
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    steps = result.lowered_workflows[0].authored_mapping["steps"]
+    if_step = next(step for step in steps if "if" in step)
+    completed_cmd = next(
+        step
+        for step in if_step["then"]["steps"]
+        if step.get("name", "").endswith("consume-completed")
+    )
+    blocked_cmd = next(
+        step
+        for step in if_step["else"]["steps"]
+        if step.get("name", "").endswith("consume-blocked")
+    )
+    assert completed_cmd["requires_variant"] == {
+        "step": "decide__attempt",
+        "value": "COMPLETED",
+    }
+    assert blocked_cmd["requires_variant"] == {
+        "step": "decide__attempt",
+        "value": "BLOCKED",
+    }
+    # The forced terminal equality is erased: the short-circuit projection's
+    # inner test is a literal, never a runtime discriminant comparison.
+    short_circuit = next(
+        step
+        for step in if_step["else"]["steps"]
+        if "pure_projection" in step
+    )
+    inner_expr = short_circuit["pure_projection"]["payload"]["expr"]["else"]
+    assert inner_expr["condition"]["kind"] == "literal"
+    assert inner_expr["condition"]["value"] is True
+
+
+@pytest.mark.parametrize("last_check_document", ['"true"', '"false"'])
+def test_cond_exhaustive_terminal_routes_and_resumes(
+    tmp_path: Path,
+    last_check_document: str,
+) -> None:
+    """The exhaustive terminal runs its provider once and its body in both
+    valid paths, resuming without repeating the provider."""
+
+    module_path = _cond_exhaustive_workspace(tmp_path)
+    union_counter: list = []
+    bool_counter: list = []
+    bundle, state_manager = _compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="cond_runtime",
+        command_boundaries={
+            "consume-completed": _command(tmp_path, "consume_completed", "true"),
+            "consume-blocked": _marking_failing_command(tmp_path, "consume_blocked"),
+        },
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.last-check": "fake-last-check",
+        },
+        prompt_externs={
+            "prompts.execute": {"input_file": "prompts/execute.md"},
+            "prompts.last-check": {"input_file": "prompts/last-check.md"},
+        },
+    )
+    union_document = '{"variant": "BLOCKED", "blocker_reason": "artifacts/work/blocker_reason.md"}'
+    p1, p2 = _union_bool_provider_patches(
+        tmp_path, union_document, last_check_document, union_counter, bool_counter
+    )
+    with p1, p2:
+        first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    # The BLOCKED body is selected and executed (then forced to fail); the
+    # COMPLETED body is skipped. Both providers execute exactly once.
+    assert first["status"] == "failed"
+    assert len(union_counter) == 1
+    assert len(bool_counter) == 1
+    assert len(_marker_files(tmp_path, "consume_blocked")) == 1
+    assert _marker_files(tmp_path, "consume_completed") == []
+
+    with p1, p2:
+        resumed = WorkflowExecutor(
+            bundle, tmp_path, _resume_manager(tmp_path, "cond_runtime"), retry_delay_ms=0
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    # Resume neither repeats the providers nor changes the selected result.
+    assert len(union_counter) == 1
+    assert len(bool_counter) == 1
+    assert len(_marker_files(tmp_path, "consume_blocked")) == 1
+    assert _marker_files(tmp_path, "consume_completed") == []

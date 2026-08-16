@@ -5,9 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from .conditionals import classify_condition_expr, normalize_condition_expr
+from .conditionals import (
+    CondClauseRewrite,
+    classify_condition_expr,
+    normalize_condition_expr,
+    rewrite_cond_clauses,
+)
+
 from .effects import EMPTY_EFFECT_SUMMARY, effect_summary_contains_runs_ref, merge_effect_summaries
 from .expressions import (
+    CondExpr,
     FieldAccessExpr,
     IfExpr,
     LetStarExpr,
@@ -584,6 +591,179 @@ def typecheck_if_expr(
     )
 
 
+def typecheck_cond_expr(
+    expr: CondExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+    expected_type: TypeRef | None = None,
+):
+    """Typecheck and erase one target-2.26 ``cond`` form.
+
+    Clauses are checked in authored order: each condition is analyzed under the
+    residual false environment of all earlier clauses, and each body is checked
+    under its own true environment. Reachable body result types unify exactly as
+    ``if`` does. Ordinary clauses fold into nested normalized ``IfExpr``; a
+    no-``else`` form is exhaustive only when a pure condition statically folds
+    true or possible-set refinement makes the final false environment
+    unreachable. An effect-free exhaustive terminal test is erased; an effectful
+    one binds its normalized condition once and continues to its body.
+    """
+
+    condition_clauses = [clause for clause in expr.clauses if not clause.is_else]
+    final_else_clause = next(
+        (clause for clause in expr.clauses if clause.is_else),
+        None,
+    )
+    no_else = final_else_clause is None
+    if no_else:
+        fold_clauses = condition_clauses[:-1]
+        terminal_clause = condition_clauses[-1]
+    else:
+        fold_clauses = condition_clauses
+        terminal_clause = None
+
+    residual_facts: dict = dict(context.proof_scope.facts)
+    rewritten: list[CondClauseRewrite] = []
+    effect_summaries: list = []
+    result_type: TypeRef | LoopControlTypeRef | None = None
+    last_false_unreachable = False
+    terminal_rewrite: CondClauseRewrite | None = None
+    terminal_effect_summary = EMPTY_EFFECT_SUMMARY
+
+    def unify_result(new_type, *, span, form_path):
+        nonlocal result_type
+        if result_type is None:
+            result_type = new_type
+            return
+        unified = _unify_loop_control_types(result_type, new_type)
+        if unified is not None:
+            result_type = unified
+            return
+        if isinstance(result_type, LoopControlTypeRef) and isinstance(
+            new_type,
+            LoopControlTypeRef,
+        ):
+            raise_error(
+                f"`done` expected `{_type_label(result_type.result_type_ref)}` but got `{_type_label(new_type.result_type_ref)}`",
+                code="loop_recur_done_type_mismatch",
+                span=span,
+                form_path=form_path,
+            )
+        if result_type != new_type:
+            raise_error(
+                f"`cond` clauses must return the same type; got `{_type_label(result_type)}` and `{_type_label(new_type)}`",
+                code="type_mismatch",
+                span=span,
+                form_path=form_path,
+            )
+        result_type = new_type
+
+    for clause in condition_clauses:
+        clause_facts = dict(residual_facts)
+        typed_condition = recurse(
+            clause.condition_expr,
+            proof_scope=ProofScope(facts=residual_facts),
+        )
+        if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
+            raise_error(
+                "`cond` clause condition must resolve to exact `Bool`",
+                code="cond_condition_not_bool",
+                span=clause.condition_expr.span,
+                form_path=clause.condition_expr.form_path,
+                expansion_stack=clause.condition_expr.expansion_stack,
+            )
+        true_env, false_env = analyze_condition(
+            typed_condition.expr,
+            binding_env=context.binding_env,
+            facts=residual_facts,
+        )
+        true_proof_facts = dict(true_env) if true_env is not UNREACHABLE else {}
+        false_proof_facts = dict(false_env) if false_env is not UNREACHABLE else {}
+        typed_result = recurse(
+            clause.result_expr,
+            proof_scope=ProofScope(facts=true_proof_facts),
+            expected_type=expected_type,
+        )
+        normalized_condition = normalize_condition_expr(
+            typed_condition.expr,
+            type_ref=typed_condition.type_ref,
+            effect_summary=typed_condition.effect_summary,
+        )
+        effect_summaries.append(typed_condition.effect_summary)
+        effect_summaries.append(typed_result.effect_summary)
+        if true_env is not UNREACHABLE:
+            unify_result(
+                typed_result.type_ref,
+                span=clause.result_expr.span,
+                form_path=clause.result_expr.form_path,
+            )
+        rewrite = CondClauseRewrite(
+            condition_bindings=normalized_condition.bindings,
+            condition_terminal=normalized_condition.terminal,
+            result_expr=typed_result.expr,
+            true_proof_context=true_proof_facts,
+            false_proof_context=false_proof_facts,
+            span=clause.span,
+            form_path=clause.form_path,
+            expansion_stack=clause.expansion_stack,
+        )
+        if clause is terminal_clause:
+            terminal_rewrite = rewrite
+            terminal_effect_summary = typed_condition.effect_summary
+            terminal_facts = clause_facts
+        else:
+            rewritten.append(rewrite)
+        residual_facts = false_proof_facts
+        last_false_unreachable = false_env is UNREACHABLE
+
+    if final_else_clause is not None:
+        typed_else = recurse(
+            final_else_clause.result_expr,
+            proof_scope=ProofScope(facts=residual_facts),
+            expected_type=expected_type,
+        )
+        effect_summaries.append(typed_else.effect_summary)
+        if not last_false_unreachable:
+            unify_result(
+                typed_else.type_ref,
+                span=final_else_clause.result_expr.span,
+                form_path=final_else_clause.result_expr.form_path,
+            )
+        final_expr = typed_else.expr
+    else:
+        if not last_false_unreachable:
+            raise_error(
+                "`cond` requires a final `else` clause unless the clauses are provably exhaustive",
+                code="cond_non_exhaustive",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        assert terminal_rewrite is not None
+        if terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
+            final_expr = terminal_rewrite.result_expr
+        elif terminal_rewrite.condition_bindings:
+            final_expr = LetStarExpr(
+                bindings=tuple(
+                    (name, _fold_forced_terminal_tests(binding_expr, binding_env=context.binding_env, facts=terminal_facts))
+                    for name, binding_expr in terminal_rewrite.condition_bindings
+                ),
+                body=terminal_rewrite.result_expr,
+                span=terminal_rewrite.span,
+                form_path=terminal_rewrite.form_path,
+                expansion_stack=terminal_rewrite.expansion_stack,
+            )
+        else:
+            final_expr = terminal_rewrite.result_expr
+
+    return typed_factory(
+        expr=rewrite_cond_clauses(rewritten, final_expr=final_expr),
+        type_ref=result_type,
+        effect=merge_effect_summaries(*effect_summaries),
+    )
+
 def analyze_condition(
     expr,
     *,
@@ -698,3 +878,67 @@ def _reachable(facts: dict):
         if len(possible.variants) == 0:
             return UNREACHABLE
     return facts
+
+
+def _fold_forced_terminal_tests(expr, *, binding_env, facts):
+    """Fold statically-decided discriminant tests inside a normalized terminal.
+
+    An exhaustive no-``else`` terminal condition is provably true under
+    ``facts``. Its pure discriminant comparisons (``(= x.variant TAG)`` /
+    ``(!= x.variant TAG)``) whose result ``facts`` already decides are replaced
+    with a literal so WCC never elaborates ``x.variant`` under a narrowed
+    :class:`VariantCaseTypeRef`. Only the comparison and its reachable effect
+    prefixes remain, preserving the normalized short-circuit structure.
+    """
+    from dataclasses import replace
+
+    if isinstance(expr, PureOpExpr) and expr.operator in {"=", "!="}:
+        true_f, false_f = analyze_condition(expr, binding_env=binding_env, facts=facts)
+        if false_f is UNREACHABLE:
+            return LiteralExpr(
+                value=True,
+                literal_kind="bool",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if true_f is UNREACHABLE:
+            return LiteralExpr(
+                value=False,
+                literal_kind="bool",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return expr
+    if isinstance(expr, PureOpExpr):
+        return replace(
+            expr,
+            args=tuple(
+                _fold_forced_terminal_tests(arg, binding_env=binding_env, facts=facts)
+                for arg in expr.args
+            ),
+        )
+    if isinstance(expr, IfExpr):
+        return replace(
+            expr,
+            condition_expr=_fold_forced_terminal_tests(
+                expr.condition_expr, binding_env=binding_env, facts=facts
+            ),
+            then_expr=_fold_forced_terminal_tests(
+                expr.then_expr, binding_env=binding_env, facts=facts
+            ),
+            else_expr=_fold_forced_terminal_tests(
+                expr.else_expr, binding_env=binding_env, facts=facts
+            ),
+        )
+    if isinstance(expr, LetStarExpr):
+        return replace(
+            expr,
+            bindings=tuple(
+                (name, _fold_forced_terminal_tests(binding_expr, binding_env=binding_env, facts=facts))
+                for name, binding_expr in expr.bindings
+            ),
+            body=_fold_forced_terminal_tests(expr.body, binding_env=binding_env, facts=facts),
+        )
+    return expr

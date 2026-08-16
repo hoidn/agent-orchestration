@@ -22,6 +22,7 @@ from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     CommandResultExpr,
     EnumMemberExpr,
+    FieldAccessExpr,
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
@@ -2166,3 +2167,97 @@ def test_strict_shadowed_union_binding_stale_proof_skipped(tmp_path: Path) -> No
 
     result = _compile_variant_proof_module(tmp_path, _SHADOWED_ATTEMPT_MODULE)
     assert result.lowered_workflows
+
+
+# ---------------------------------------------------------------------------
+# Task 4: cond erasure with typed exhaustiveness
+# ---------------------------------------------------------------------------
+
+def test_cond_ordered_clauses_fold_to_nested_if(tmp_path: Path) -> None:
+    """Ordinary clauses erase to nested `if` in authored order."""
+
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(cond (a r) (b r) (else r))",
+        {"a": flag, "b": flag, "r": report},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    outer = typed.expr
+    assert isinstance(outer, IfExpr)
+    assert isinstance(outer.condition_expr, NameExpr) and outer.condition_expr.name == "a"
+    assert isinstance(outer.then_expr, NameExpr) and outer.then_expr.name == "r"
+    inner = outer.else_expr
+    assert isinstance(inner, IfExpr)
+    assert isinstance(inner.condition_expr, NameExpr) and inner.condition_expr.name == "b"
+    assert isinstance(inner.else_expr, NameExpr) and inner.else_expr.name == "r"
+
+
+def test_cond_clause_result_types_must_match(tmp_path: Path) -> None:
+    """Incompatible reachable clause result types fail with `type_mismatch`."""
+
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            '(cond (a "yes") (else 5))',
+            {"a": flag},
+        )
+    assert _diagnostic_code(excinfo) == "type_mismatch"
+
+
+def test_cond_requires_final_else_when_false_reachable(tmp_path: Path) -> None:
+    """A no-`else` cond with a reachable false env fails `cond_non_exhaustive`."""
+
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(cond ((= attempt.variant COMPLETED) attempt.execution_report))",
+            {"attempt": attempt},
+        )
+    assert _diagnostic_code(excinfo) == "cond_non_exhaustive"
+
+
+def test_cond_pure_static_true_terminal_is_exhaustive(tmp_path: Path) -> None:
+    """A pure `true` terminal clause makes a no-`else` cond exhaustive."""
+
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(cond (a r) (true r))",
+        {"a": flag, "r": report},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    assert isinstance(typed.expr, IfExpr)
+    # The terminal `true` is erased; the false continuation is the final body.
+    assert isinstance(typed.expr.else_expr, NameExpr) and typed.expr.else_expr.name == "r"
+
+
+def test_cond_closed_union_terminal_is_exhaustive(tmp_path: Path) -> None:
+    """Covering every union variant makes a no-`else` cond exhaustive."""
+
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    typed = _check_226(
+        type_env,
+        "(cond"
+        "  ((= attempt.variant COMPLETED) attempt.execution_report)"
+        "  ((= attempt.variant BLOCKED) attempt.progress_report))",
+        {"attempt": attempt},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    outer = typed.expr
+    assert isinstance(outer, IfExpr)
+    assert _variant_set(outer.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(outer.false_proof_context, "attempt") == {"BLOCKED"}
+    # The exhaustive terminal condition is erased; the BLOCKED body is the
+    # outer false continuation.
+    assert isinstance(outer.else_expr, FieldAccessExpr)
+    assert outer.else_expr.fields == ("progress_report",)

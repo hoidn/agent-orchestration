@@ -18,6 +18,7 @@ from .expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    CondExpr,
     ContinueExpr,
     DoneExpr,
     EnumMemberExpr,
@@ -43,18 +44,18 @@ from .expressions import (
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RecordExpr,
     RecordUpdateExpr,
     ResourceTransitionExpr,
-    RecordExpr,
     ResumeOrStartExpr,
+    RunProviderPhaseExpr,
     RunRefExpr,
     TrialExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
-    WorkflowRefLiteralExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
+    WorkflowRefLiteralExpr,
 )
 from .loops import LoopControlTypeRef
 from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
@@ -114,6 +115,7 @@ from .typecheck_proofs import (
     BindingIdentity,
     ProofScope,
     _allocate_binding_identity,
+    typecheck_cond_expr as _typecheck_cond_expr,
     typecheck_field_access_expr as _typecheck_field_access_expr,
     typecheck_if_expr as _typecheck_if_expr,
     typecheck_match_expr as _typecheck_match_expr,
@@ -903,6 +905,14 @@ def _typecheck(
         )
     if isinstance(expr, IfExpr):
         return _typecheck_if_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+            expected_type=expected_type,
+        )
+    if type(expr) is CondExpr:
+        return _typecheck_cond_expr(
             expr,
             context=context,
             recurse=recurse,

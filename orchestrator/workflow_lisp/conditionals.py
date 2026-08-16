@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -1121,3 +1121,64 @@ def _condition_binding_name(
     )
     digest = hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
     return f"__cond_{safe_role}_{digest}"
+
+
+@dataclass(frozen=True)
+class CondClauseRewrite:
+    """One typechecked ``cond`` clause prepared for nested-``if`` erasure.
+
+    ``condition_bindings``/``condition_terminal`` are the normalized condition
+    (bindings plus pure terminal), ``result_expr`` is the already-typechecked
+    clause body, and ``true_proof_context``/``false_proof_context`` carry the
+    branch proof facts the same way ``IfExpr`` does. ``span``/``form_path``/
+    ``expansion_stack`` are the authored clause's provenance, retained on every
+    generated node.
+    """
+
+    condition_bindings: tuple[tuple[str, ExprNode], ...]
+    condition_terminal: ExprNode
+    result_expr: ExprNode
+    true_proof_context: object | None
+    false_proof_context: object | None
+    span: Any
+    form_path: tuple[str, ...]
+    expansion_stack: Any
+
+
+def rewrite_cond_clauses(
+    clauses: Sequence["CondClauseRewrite"],
+    *,
+    final_expr: ExprNode,
+) -> ExprNode:
+    """Fold ordered ``cond`` clauses into nested normalized ``IfExpr``.
+
+    ``final_expr`` is the already-typechecked continuation (an ``else`` body, or
+    the final exhaustive clause's body, possibly wrapped with its normalized
+    condition bindings). Clauses fold right-to-left so each earlier clause's
+    false continuation is the nested remainder; each clause's condition bindings
+    wrap its own generated ``if`` inside a ``let*``.
+    """
+
+    result = final_expr
+    for clause in reversed(clauses):
+        nested_if = IfExpr(
+            condition_expr=clause.condition_terminal,
+            then_expr=clause.result_expr,
+            else_expr=result,
+            span=clause.span,
+            form_path=clause.form_path,
+            expansion_stack=clause.expansion_stack,
+            true_proof_context=clause.true_proof_context,
+            false_proof_context=clause.false_proof_context,
+        )
+        if clause.condition_bindings:
+            result = LetStarExpr(
+                bindings=clause.condition_bindings,
+                body=nested_if,
+                span=clause.span,
+                form_path=clause.form_path,
+                expansion_stack=clause.expansion_stack,
+            )
+        else:
+            result = nested_if
+    return result
