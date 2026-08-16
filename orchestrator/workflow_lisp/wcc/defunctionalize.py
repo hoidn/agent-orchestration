@@ -6522,12 +6522,12 @@ def _frontend_opaque_value_with_env(
 ):
     """Reconstruct one opaque frontend value against the member/local env.
 
-    ``NameExpr`` and ``FieldAccessExpr`` env replacements are inlined (or
-    flattened) directly. Any other replacement (a compile-time record, union,
-    etc.) is retained as a surrounding ``let*`` binding and left name-rooted in
-    the opaque body, so a field access on such a name keeps its ``NameExpr``
-    base while the owner stays bound. Retained bindings deduplicate by name in
-    first-use order; env values here are pure, so no effect is duplicated.
+    ``NameExpr``, ``FieldAccessExpr``, ``RecordExpr``, and ``UnionVariantExpr``
+    env replacements are inlined (records/unions statically project field
+    accesses; names and field accesses flatten). Any other replacement is
+    retained as a surrounding ``let*`` binding and left name-rooted in the
+    opaque body. Retained bindings deduplicate by name in first-use order; env
+    values here are pure, so no effect is duplicated.
     """
 
     reconstructed = _frontend_expr_from_wcc_value(value)
@@ -6537,7 +6537,10 @@ def _frontend_opaque_value_with_env(
         replacement = env.get(node.name)
         if replacement is None:
             return node
-        if isinstance(replacement, (NameExpr, FieldAccessExpr)):
+        if isinstance(
+            replacement,
+            (NameExpr, FieldAccessExpr, RecordExpr, UnionVariantExpr),
+        ):
             return replacement
         retained.setdefault(node.name, replacement)
         return node

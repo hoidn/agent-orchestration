@@ -243,6 +243,53 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
     for child in iter_child_exprs(expr):
         yield from walk_expr(child)
 
+
+def _project_field_access(
+    base_value,
+    fields,
+    *,
+    span,
+    form_path,
+    expansion_stack,
+):
+    """Statically project ``fields`` through a record/union value.
+
+    Returns the selected expression when the chain resolves, a flattened
+    ``FieldAccessExpr`` when it reaches a name or field access, or ``None``
+    when the path cannot be projected.
+    """
+
+    current = base_value
+    for index, field_name in enumerate(fields):
+        if isinstance(current, (RecordExpr, UnionVariantExpr)):
+            field_value = next(
+                (value for name, value in current.fields if name == field_name),
+                None,
+            )
+            if field_value is None:
+                return None
+            current = field_value
+        elif isinstance(current, NameExpr):
+            return FieldAccessExpr(
+                base=current,
+                fields=fields[index:],
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        elif isinstance(current, FieldAccessExpr):
+            return FieldAccessExpr(
+                base=current.base,
+                fields=(*current.fields, *fields[index:]),
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        else:
+            return None
+    return current
+
+
 def map_expr(
     expr: object,
     on_name: Callable[[NameExpr], ExprNode],
@@ -277,10 +324,20 @@ def map_expr(
             )
         if isinstance(rewritten_base, NameExpr):
             return replace(expr, base=rewritten_base)
+        if isinstance(rewritten_base, (RecordExpr, UnionVariantExpr)):
+            projected = _project_field_access(
+                rewritten_base,
+                expr.fields,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            if projected is not None:
+                return projected
         # A field access is only ever name-rooted. When the base resolved to a
-        # non-name value, keep the original NameExpr base rather than emitting
-        # an invalid non-Name-rooted FieldAccessExpr; the caller owns how a
-        # non-name substitution is handled.
+        # non-projectable value, keep the original NameExpr base rather than
+        # emitting an invalid non-Name-rooted FieldAccessExpr; the caller owns
+        # how a non-name substitution is handled.
         return expr
     if isinstance(expr, LetStarExpr):
         local_bound = set(bound)

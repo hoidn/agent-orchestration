@@ -1304,6 +1304,52 @@ def test_map_expr_flattens_field_access_base_substitution() -> None:
     assert kept.fields == ("flag",)
 
 
+def test_map_expr_projects_record_field_access_base() -> None:
+    traversal = _traversal_module()
+    record = RecordExpr(
+        type_name="Wrapper",
+        fields=(
+            (
+                "payload",
+                RecordExpr(
+                    type_name="Payload",
+                    fields=(("flag", _literal(True)),),
+                    span=_test_span("payload"),
+                    form_path=FORM_PATH,
+                ),
+            ),
+        ),
+        span=_test_span("wrapper"),
+        form_path=FORM_PATH,
+    )
+
+    def substitute(node):
+        if node.name == "wrapper":
+            return record
+        return node
+
+    expr = FieldAccessExpr(
+        base=_name("wrapper"),
+        fields=("payload", "flag"),
+        span=_test_span("wrapper.payload.flag"),
+        form_path=FORM_PATH,
+    )
+    projected = traversal.map_expr(expr, substitute)
+    assert isinstance(projected, LiteralExpr)
+    assert projected.value is True
+
+    missing = FieldAccessExpr(
+        base=_name("wrapper"),
+        fields=("unknown",),
+        span=_test_span("wrapper.unknown"),
+        form_path=FORM_PATH,
+    )
+    kept = traversal.map_expr(missing, substitute)
+    assert isinstance(kept, FieldAccessExpr)
+    assert isinstance(kept.base, NameExpr)
+    assert kept.base.name == "wrapper"
+
+
 def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(
