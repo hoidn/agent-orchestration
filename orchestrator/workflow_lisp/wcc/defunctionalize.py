@@ -5096,9 +5096,11 @@ def _pure_wcc_body_expr(
         raise TypeError(
             "provider supervision settlement must be a pure linear WCC body"
         )
-    return _frontend_expr_from_wcc_value_with_env(
-        current.result,
+    result = _frontend_expr_from_wcc_value_with_env(current.result, resolved)
+    return _wrap_free_env_owner_names(
+        result,
         resolved,
+        metadata=current.result.metadata,
     )
 
 
@@ -6399,11 +6401,19 @@ def _frontend_expr_from_wcc_loop_result_body(body: WccBody):
     env: dict[str, object] = {}
     current = body
     while isinstance(current, WccLet):
-        env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(current.bound_value, env)
+        env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(
+            current.bound_value,
+            env,
+        )
         current = current.body
     if not isinstance(current, WccHalt):
         return _frontend_expr_from_wcc_loop_body(body)
-    return _frontend_expr_from_wcc_value_with_env(current.result, env)
+    result = _frontend_expr_from_wcc_value_with_env(current.result, env)
+    return _wrap_free_env_owner_names(
+        result,
+        env,
+        metadata=current.result.metadata,
+    )
 
 
 def _frontend_expr_from_wcc_join_binding(

@@ -5162,6 +5162,41 @@ def test_closed_member_opaque_list_conditional_record_field(
     ) == [False]
 
 
+def test_public_wcc_route_settlement_record_field_chain_retains_binding(
+    tmp_path: Path,
+) -> None:
+    """A settlement record field-chain retains its collapsed owner binding."""
+
+    source = _module_source(
+        "2.26",
+        "(defrecord Payload (flag Bool))",
+        (
+            "(defworkflow orchestrate () -> List[Bool] "
+            "(with-live-providers "
+            "((worker "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String)) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 :returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "(let* ((payload (record Payload :flag true))) "
+            "(list payload.flag))))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == [True]
+
+
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
