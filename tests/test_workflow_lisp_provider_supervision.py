@@ -5072,6 +5072,50 @@ def test_closed_member_inline_opaque_field_chain_flattens(
     ) == 1
 
 
+def test_closed_member_opaque_list_record_field_chain_retains_binding(
+    tmp_path: Path,
+) -> None:
+    """An opaque list field-chain on a member-local record retains its owner binding."""
+
+    source = _module_source(
+        "2.26",
+        "(defrecord Payload (flag Bool))",
+        (
+            "(defworkflow orchestrate () -> Int "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((payload (record Payload :flag true)) "
+            "(raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") (list/length (list payload.flag)) 0))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 :returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 1
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 0
+
+
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
