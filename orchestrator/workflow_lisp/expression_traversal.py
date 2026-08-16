@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import fields as dataclass_fields, is_dataclass, replace
+from typing import cast
 
 from .expressions import (
     BindProcExpr,
@@ -276,10 +277,10 @@ def map_expr(
             )
         if isinstance(rewritten_base, NameExpr):
             return replace(expr, base=rewritten_base)
-        # The base resolved to a non-name value (e.g. a record the name was
-        # bound to). Keep the original name-rooted base and let the lowering
-        # machinery resolve/static-evaluate the field access, matching the
-        # existing WccFieldAccessAtom fall-through.
+        # A field access is only ever name-rooted. When the base resolved to a
+        # non-name value, keep the original NameExpr base rather than emitting
+        # an invalid non-Name-rooted FieldAccessExpr; the caller owns how a
+        # non-name substitution is handled.
         return expr
     if isinstance(expr, LetStarExpr):
         local_bound = set(bound)
@@ -291,7 +292,7 @@ def map_expr(
                 on_name,
                 bound=frozenset(local_bound),
             )
-            rewritten_bindings.append((binding_name, rewritten_binding))
+            rewritten_bindings.append((binding_name, cast(ExprNode, rewritten_binding)))
             changed = changed or rewritten_binding is not binding_expr
             local_bound.add(binding_name)
         rewritten_body = map_expr(
