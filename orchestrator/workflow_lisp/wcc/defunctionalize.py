@@ -3954,44 +3954,12 @@ def _wrap_free_env_owner_names(
     )
 
 
-def _collapse_let_owner(
-    *,
-    env: dict[str, object],
-    collapsed: dict[str, object],
-    bound_name: str,
-    bound_value,
-    metadata,
-    prefix: str,
-) -> None:
-    """Record one collapsed let binding, alpha-renaming shadowed names.
-
-    A shadowed name keeps the authored spelling in ``env`` mapped to an
-    identity ``NameExpr`` of a generated name, so the reconstructed RHS keeps
-    referencing the outer owner while later references resolve through the
-    generated binding.
-    """
-
-    if bound_name in env:
-        generated = f"{prefix}_{bound_name}_{metadata.node_id.rsplit(':', 1)[-1]}"
-        collapsed[generated] = bound_value
-        env[bound_name] = NameExpr(
-            name=generated,
-            span=metadata.source_span,
-            form_path=metadata.form_path,
-            expansion_stack=metadata.expansion_stack,
-        )
-    else:
-        collapsed[bound_name] = bound_value
-        env[bound_name] = bound_value
-
-
 def _provider_peer_group_member_projection(
     member: WccProviderPeerGroupMember,
 ) -> tuple[WccPerform, Mapping[str, object], object, tuple[tuple[str, IfExpr, TypeRef], ...]]:
     """Extract one provider perform and its pure projected peer value."""
 
     env: dict[str, object] = {}
-    collapsed: dict[str, object] = {}
     provider_perform: WccPerform | None = None
     provider_env: dict[str, object] | None = None
     preludes: list[tuple[str, IfExpr, TypeRef]] = []
@@ -4033,19 +4001,10 @@ def _provider_peer_group_member_projection(
                 expansion_stack=current.metadata.expansion_stack,
             )
         else:
-            bound_value = _frontend_expr_from_wcc_value_with_env(
+            env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(
                 current.bound_value,
                 env,
             )
-            _collapse_let_owner(
-                env=env,
-                collapsed=collapsed,
-                bound_name=current.bound_name,
-                bound_value=bound_value,
-                metadata=current.metadata,
-                prefix="__wcc_member",
-            )
-        current = current.body
     if (
         provider_perform is None
         or provider_env is None
@@ -4062,7 +4021,7 @@ def _provider_peer_group_member_projection(
     result = _frontend_expr_from_wcc_value_with_env(current.result, env)
     result = _wrap_free_env_owner_names(
         result,
-        collapsed,
+        env,
         metadata=current.result.metadata,
     )
     return (
@@ -4200,7 +4159,6 @@ def _provider_supervision_member_projection(
     """Extract one provider perform and its pure projected member value."""
 
     env: dict[str, object] = {}
-    collapsed: dict[str, object] = {}
     provider_perform: WccPerform | None = None
     provider_env: dict[str, object] | None = None
     preludes: list[tuple[str, IfExpr, TypeRef]] = []
@@ -4242,19 +4200,10 @@ def _provider_supervision_member_projection(
                 expansion_stack=current.metadata.expansion_stack,
             )
         else:
-            bound_value = _frontend_expr_from_wcc_value_with_env(
+            env[current.bound_name] = _frontend_expr_from_wcc_value_with_env(
                 current.bound_value,
                 env,
             )
-            _collapse_let_owner(
-                env=env,
-                collapsed=collapsed,
-                bound_name=current.bound_name,
-                bound_value=bound_value,
-                metadata=current.metadata,
-                prefix="__wcc_member",
-            )
-        current = current.body
     if (
         provider_perform is None
         or provider_env is None
@@ -4271,7 +4220,7 @@ def _provider_supervision_member_projection(
     result = _frontend_expr_from_wcc_value_with_env(current.result, env)
     result = _wrap_free_env_owner_names(
         result,
-        collapsed,
+        env,
         metadata=current.result.metadata,
     )
     return (

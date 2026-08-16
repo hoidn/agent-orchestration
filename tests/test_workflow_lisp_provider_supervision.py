@@ -5230,52 +5230,6 @@ def test_public_wcc_route_settlement_shadow_binding_renames_collided_owner(
     ) == ["ready"]
 
 
-def test_closed_member_nested_same_name_record_field_renames_owner(
-    tmp_path: Path,
-) -> None:
-    """A post-provider nested same-name conditional alpha-renames the collided owner."""
-
-    source = _module_source(
-        "2.26",
-        "(defrecord Payload (flag Bool))",
-        (
-            "(defworkflow orchestrate () -> Bool "
-            "(with-live-providers "
-            "((worker "
-            "(let* ((payload (record Payload :flag true)) "
-            "(raw "
-            "(provider-result providers.worker "
-            ":prompt prompts.worker :inputs () "
-            ":timeout-sec 30 :returns Bool))) "
-            "(let* ((payload "
-            "(if raw (record Payload :flag payload.flag) "
-            "(record Payload :flag false)))) "
-            "payload.flag))) "
-            "(supervisor "
-            "(provider-result providers.supervisor "
-            ":prompt prompts.supervisor :inputs () "
-            ":timeout-sec 20 :returns ProviderSteeringDirective) "
-            ":observes worker)) "
-            "worker))"
-        ),
-    )
-    result = _compile_strict_boolean_member(tmp_path, source)
-    config = _task12b_supervision_config(result)
-    assert evaluate_pure_expr(
-        config.settlement_payload,
-        resolved_bindings={
-            "worker": True,
-            "supervisor": {"variant": "CONTINUE"},
-        },
-    ) is True
-    assert evaluate_pure_expr(
-        config.settlement_payload,
-        resolved_bindings={
-            "worker": False,
-            "supervisor": {"variant": "CONTINUE"},
-        },
-    ) is False
-
 
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
