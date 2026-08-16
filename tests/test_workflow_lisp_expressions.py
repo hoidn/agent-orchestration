@@ -47,6 +47,7 @@ from orchestrator.workflow_lisp.expressions import (
     TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -820,11 +821,11 @@ def test_expression_traversal_module_exports_locked_surface() -> None:
 
 def test_expression_traversal_leaf_classification_matches_exprnode_union() -> None:
     expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
-
     leaf_expr_types = {
         NameExpr,
         LiteralExpr,
         EnumMemberExpr,
+        UnionVariantTagExpr,
         FieldAccessExpr,
         PhaseTargetExpr,
         GeneratedRelpathSeedExpr,
@@ -842,6 +843,7 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         NameExpr,
         LiteralExpr,
         EnumMemberExpr,
+        UnionVariantTagExpr,
         FieldAccessExpr,
         PhaseTargetExpr,
         GeneratedRelpathSeedExpr,

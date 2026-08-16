@@ -1281,6 +1281,53 @@ def test_restore_selector_rejects_self_consistent_proof_variant_drift(tmp_path: 
     assert "lexical_restore_proof_mismatch" in decision.diagnostics
 
 
+def test_predicate_proof_revalidates_producer_discriminant_artifact() -> None:
+    """A predicate proof revalidates against the producer's persisted variant."""
+
+    restore = _restore_module()
+    proof = {
+        "proof_id": "proof:gate:gate__attempt:predicate:COMPLETED",
+        "proof_kind": "predicate",
+        "variant": "COMPLETED",
+        "variant_name": "COMPLETED",
+        "producer_step_name": "gate__attempt",
+        "proof_source": "gate__attempt",
+    }
+    state = {
+        "steps": {
+            "gate__attempt": {
+                "status": "completed",
+                "artifacts": {"variant": "COMPLETED"},
+            }
+        }
+    }
+    assert (
+        restore._proof_matches_current_selector_variant(
+            proof=proof,
+            executable_workflow=None,
+            state=state,
+        )
+        is True
+    )
+
+    drifted = {
+        "steps": {
+            "gate__attempt": {
+                "status": "completed",
+                "artifacts": {"variant": "BLOCKED"},
+            }
+        }
+    }
+    assert (
+        restore._proof_matches_current_selector_variant(
+            proof=proof,
+            executable_workflow=None,
+            state=drifted,
+        )
+        is False
+    )
+
+
 def test_restore_selector_accepts_private_artifact_ref_binding_with_validated_bundle(tmp_path: Path) -> None:
     restore = _restore_module()
     bundle, state_manager, _ = _materialize_restore_sidecars(

@@ -38,6 +38,7 @@ from ..expressions import (
     RecordExpr,
     RecordUpdateExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
 )
 from ..expression_traversal import walk_expr
 from ..normalized_type_descriptor import (
@@ -592,6 +593,17 @@ def _payload_expr(
             ),
             "value": expr.member_name,
         }, type_ref
+    if isinstance(expr, UnionVariantTagExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        return {
+            "kind": "literal",
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
+            "value": expr.variant_name,
+        }, type_ref
     if isinstance(expr, FieldAccessExpr):
         if expr.base.name in lexical_bindings:
             bound = lexical_bindings[expr.base.name]
@@ -975,6 +987,8 @@ def _infer_expr_type(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    if isinstance(expr, UnionVariantTagExpr):
+        return PrimitiveTypeRef(name=expr.union_name, allowed_values=expr.variant_names)
     if isinstance(expr, NameExpr):
         return lexical_types.get(expr.name) or context.local_type_bindings[expr.name]
     if isinstance(expr, FieldAccessExpr):
@@ -1070,6 +1084,8 @@ def _field_type(type_ref: TypeRef, field_name: str, *, type_env: FrontendTypeEnv
             if field.name == field_name:
                 return type_env.resolve_type(field.type_name, span=field.span, form_path=())
     if isinstance(type_ref, UnionTypeRef):
+        if field_name == "variant":
+            return PrimitiveTypeRef(name="String")
         for variant in type_ref.definition.variants:
             resolved = type_ref.variant_field_types.get(variant.name, {}).get(field_name)
             if resolved is not None:

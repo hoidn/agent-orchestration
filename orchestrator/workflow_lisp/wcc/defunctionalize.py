@@ -2909,21 +2909,10 @@ def _attach_branch_proof_guards(
     for triple in proof_context:
         binding_name, union_name, variant_name = triple
         producer_step_name = _local_value_source_step_name(local_values.get(binding_name))
-        if not isinstance(producer_step_name, str):
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="variant_guard_producer_missing",
-                        message=(
-                            f"variant proof for `{binding_name}` could not resolve "
-                            "a producer step identity"
-                        ),
-                        span=span,
-                        form_path=form_path,
-                        phase="lowering",
-                    ),
-                )
-            )
+        if not isinstance(producer_step_name, str) or not producer_step_name:
+            # Input/local-union bindings have no persisted producer discriminant
+            # artifact to guard; skip them rather than failing the compile.
+            continue
         field_names = _variant_field_names(
             context,
             union_name=union_name,
@@ -2944,6 +2933,23 @@ def _attach_branch_proof_guards(
             continue
         for step in guarded:
             if _step_references_any_prefix(step, prefixes):
+                existing = step.get("requires_variant")
+                if isinstance(existing, dict) and existing != guard:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="variant_guard_consumer_conflict",
+                                message=(
+                                    f"step consumes variant fields from two "
+                                    f"producer unions; a single `requires_variant` "
+                                    f"guard cannot protect both (`{existing}` vs `{guard}`)"
+                                ),
+                                span=span,
+                                form_path=form_path,
+                                phase="lowering",
+                            ),
+                        )
+                    )
                 step.setdefault("requires_variant", guard)
                 break
     return guarded

@@ -1135,7 +1135,7 @@ def _predicate_proof_descriptors(bundle, state_manager, tmp_path: Path) -> list[
 
 
 def test_contradiction_mutated_discriminant_fails_closed(tmp_path: Path) -> None:
-    """A singleton predicate proof revalidates the producer discriminant."""
+    """Mutating the persisted producer discriminant fails the guard closed."""
 
     module_path = _variant_proof_workspace(tmp_path, "contradiction")
     counter: list = []
@@ -1147,16 +1147,48 @@ def test_contradiction_mutated_discriminant_fails_closed(tmp_path: Path) -> None
     )
     document = '{"variant": "COMPLETED", "execution_report": "artifacts/work/execution_report.md"}'
     p1, p2 = _provider_patches(tmp_path, document, counter)
-    with p1, p2:
+
+    original_run = WorkflowExecutor._run_top_level_step
+
+    def _mutate_discriminant_then_run(
+        self,
+        step,
+        state,
+        *,
+        step_name,
+        resume_current_step=False,
+    ):
+        requires_variant = step.get("requires_variant") if hasattr(step, "get") else None
+        if isinstance(requires_variant, dict):
+            producer = requires_variant.get("step")
+            producer_result = state.get("steps", {}).get(producer)
+            if isinstance(producer_result, dict):
+                artifacts = producer_result.setdefault("artifacts", {})
+                artifacts["variant"] = "BLOCKED"
+                artifacts["return__variant"] = "BLOCKED"
+        return original_run(
+            self,
+            step,
+            state,
+            step_name=step_name,
+            resume_current_step=resume_current_step,
+        )
+
+    with p1, p2, patch.object(
+        WorkflowExecutor, "_run_top_level_step", _mutate_discriminant_then_run
+    ):
         first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
             on_error="stop"
         )
 
     assert first["status"] == "failed"
-    proofs = _predicate_proof_descriptors(bundle, state_manager, tmp_path)
-    assert [proof["variant"] for proof in proofs] == ["COMPLETED"]
-    assert all(proof["producer_step_name"].endswith("__attempt") for proof in proofs)
-    assert all(proof["subject_binding"] == "attempt" for proof in proofs)
+    state = state_manager.load().to_dict()
+    send_result = next(
+        result
+        for name, result in state["steps"].items()
+        if name.endswith("__then__send")
+    )
+    assert send_result["error"]["type"] == "variant_unavailable"
 
 
 def test_proof_resume_restores_variant_proof_descriptor(tmp_path: Path) -> None:

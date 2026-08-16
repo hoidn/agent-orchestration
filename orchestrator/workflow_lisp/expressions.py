@@ -906,6 +906,7 @@ ExprNode = (
     NameExpr
     | LiteralExpr
     | EnumMemberExpr
+    | FieldAccessExpr
     | UnionVariantTagExpr
     | RecordExpr
     | PureOpExpr

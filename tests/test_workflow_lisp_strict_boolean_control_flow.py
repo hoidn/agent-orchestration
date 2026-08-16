@@ -1968,3 +1968,161 @@ def test_strict_variant_discriminant_equality_proves_no_variant(tmp_path: Path) 
             {"attempt": attempt, "other": attempt, "r": report},
         )
     assert _diagnostic_code(excinfo) == "variant_ref_unproved"
+
+
+# ---------------------------------------------------------------------------
+# Task 3B runtime carriage: guard attachment, pure projection, union conflicts
+# ---------------------------------------------------------------------------
+
+_LOCAL_UNION_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule local_union_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defworkflow gate ((report WorkReport)) -> Bool",
+        "    (let* ((attempt",
+        "             (variant ImplementationState COMPLETED :execution_report report)))",
+        "      (if (= attempt.variant COMPLETED)",
+        "          (command-result send",
+        '            :argv ("python" "scripts/send.py" attempt.execution_report)',
+        "            :returns Bool)",
+        "          (command-result skip",
+        '            :argv ("python" "scripts/skip.py")',
+        "            :returns Bool)))))",
+    ]
+)
+
+_COMPOSED_CONDITION_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule composed_condition_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defworkflow gate () -> Bool",
+        "    (let* ((attempt",
+        "             (provider-result providers.execute",
+        "               :prompt prompts.execute",
+        "               :inputs ()",
+        "               :returns ImplementationState)))",
+        "      (if (not (= attempt.variant BLOCKED))",
+        "          (command-result send",
+        '            :argv ("python" "scripts/send.py" attempt.execution_report)',
+        "            :returns Bool)",
+        "          (command-result skip",
+        '            :argv ("python" "scripts/skip.py")',
+        "            :returns Bool)))))",
+    ]
+)
+
+_TWO_UNION_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule two_union_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defunion ReviewOutcome",
+        "    (APPROVED (approval_report WorkReport))",
+        "    (REJECTED (rejection_report WorkReport)))",
+        "  (defworkflow gate () -> Bool",
+        "    (let* ((attempt",
+        "             (provider-result providers.execute",
+        "               :prompt prompts.execute",
+        "               :inputs ()",
+        "               :returns ImplementationState))",
+        "           (outcome",
+        "             (provider-result providers.review",
+        "               :prompt prompts.review",
+        "               :inputs ()",
+        "               :returns ReviewOutcome)))",
+        "      (if (and (= attempt.variant COMPLETED) (= outcome.variant APPROVED))",
+        "          (command-result send",
+        '            :argv ("python" "scripts/send.py" attempt.execution_report outcome.approval_report)',
+        "            :returns Bool)",
+        "          (command-result skip",
+        '            :argv ("python" "scripts/skip.py")',
+        "            :returns Bool)))))",
+    ]
+)
+
+
+def _compile_variant_proof_module(
+    tmp_path: Path,
+    source: str,
+    *,
+    provider_externs: dict[str, str] | None = None,
+    prompt_externs: dict[str, dict[str, str]] | None = None,
+):
+    path = tmp_path / "variant_lowering.orc"
+    path.write_text(source, encoding="utf-8")
+    return compile_stage3_module(
+        path,
+        provider_externs=provider_externs or {},
+        prompt_externs=prompt_externs or {},
+        command_boundaries={
+            "send": ExternalToolBinding(
+                name="send", stable_command=("python", "scripts/send.py")
+            ),
+            "skip": ExternalToolBinding(
+                name="skip", stable_command=("python", "scripts/skip.py")
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+
+def test_strict_local_union_effectful_branch_lowers(tmp_path: Path) -> None:
+    """A let*-bound union narrowed and consumed in an effectful branch lowers."""
+
+    result = _compile_variant_proof_module(tmp_path, _LOCAL_UNION_MODULE)
+    assert result.lowered_workflows
+
+
+def test_strict_composed_discriminant_condition_lowers(tmp_path: Path) -> None:
+    """A `not`-composed discriminant condition lowers and guards its leaf."""
+
+    result = _compile_variant_proof_module(
+        tmp_path,
+        _COMPOSED_CONDITION_MODULE,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={"prompts.execute": {"input_file": "prompts/execute.md"}},
+    )
+    steps = result.lowered_workflows[0].authored_mapping["steps"]
+    if_step = next(step for step in steps if "if" in step)
+    send_step = next(
+        step for step in if_step["then"]["steps"] if step.get("name", "").endswith("__send")
+    )
+    assert send_step["requires_variant"] == {"step": "gate__attempt", "value": "COMPLETED"}
+
+
+def test_strict_two_union_shared_consumer_raises(tmp_path: Path) -> None:
+    """A leaf consuming two narrowed unions raises a guard conflict."""
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_variant_proof_module(
+            tmp_path,
+            _TWO_UNION_MODULE,
+            provider_externs={"providers.execute": "fake", "providers.review": "fake"},
+            prompt_externs={
+                "prompts.execute": {"input_file": "prompts/execute.md"},
+                "prompts.review": {"input_file": "prompts/review.md"},
+            },
+        )
+    assert excinfo.value.diagnostics[0].code == "variant_guard_consumer_conflict"

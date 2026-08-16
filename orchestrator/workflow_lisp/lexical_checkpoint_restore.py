@@ -1205,6 +1205,18 @@ def _match_join_node_for_proof_source(
     return None
 
 
+def _selected_variant_from_step_artifacts(state: Mapping[str, Any], step_name: str) -> str | None:
+    """Re-read a producer's persisted discriminant artifact from state."""
+
+    step_result = _mapping(_mapping(state.get("steps")).get(step_name))
+    artifacts = _mapping(step_result.get("artifacts"))
+    for fallback_name in ("return__variant", "variant"):
+        selected_variant = artifacts.get(fallback_name)
+        if isinstance(selected_variant, str) and selected_variant:
+            return selected_variant
+    return None
+
+
 def _proof_matches_current_selector_variant(
     *,
     proof: Mapping[str, Any],
@@ -1214,6 +1226,12 @@ def _proof_matches_current_selector_variant(
     expected_variant = _proof_variant_name(proof)
     if not isinstance(expected_variant, str) or not expected_variant:
         return False
+    if proof.get("proof_kind") == "predicate":
+        producer_step_name = proof.get("producer_step_name") or proof.get("source_step_name")
+        if not isinstance(producer_step_name, str) or not producer_step_name:
+            return False
+        current_variant = _selected_variant_from_step_artifacts(state, producer_step_name)
+        return current_variant == expected_variant
     node = _match_join_node_for_proof_source(executable_workflow=executable_workflow, proof=proof)
     if node is None:
         return False

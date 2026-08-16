@@ -10,7 +10,15 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PathTypeRef
+from orchestrator.workflow_lisp.type_env import (
+    DiscriminantTypeRef,
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    UnionTypeRef,
+    VariantCaseTypeRef,
+    type_refs_compatible,
+)
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
 
 
@@ -283,3 +291,41 @@ def test_typecheck_if_does_not_create_variant_proof() -> None:
         )
 
     _assert_diagnostic_code(excinfo, "variant_ref_unproved")
+
+def test_type_refs_compatible_discriminant_rejects_non_discriminant() -> None:
+    """A discriminant operand is only compatible with another discriminant."""
+
+    type_env = _build_type_env()
+    syntax = _expression_syntax('"probe"')
+    union = type_env.resolve_type(
+        "ImplementationState",
+        span=syntax.span,
+        form_path=syntax.form_path,
+    )
+    assert isinstance(union, UnionTypeRef)
+    completed = type_env.union_variant(
+        union,
+        "COMPLETED",
+        span=syntax.span,
+        form_path=syntax.form_path,
+    )
+    assert isinstance(completed, VariantCaseTypeRef)
+    discriminant = DiscriminantTypeRef(
+        union_name="ImplementationState",
+        variant_names=("COMPLETED", "BLOCKED"),
+    )
+
+    # A non-discriminant actual must return False, not raise.
+    assert type_refs_compatible(discriminant, PrimitiveTypeRef(name="String")) is False
+    # A same-union variant case is not the discriminant type.
+    assert type_refs_compatible(discriminant, completed) is False
+    # A same-union discriminant is compatible.
+    assert type_refs_compatible(
+        discriminant,
+        DiscriminantTypeRef(union_name="ImplementationState", variant_names=("COMPLETED", "BLOCKED")),
+    ) is True
+    # A different union basename is incompatible.
+    assert type_refs_compatible(
+        discriminant,
+        DiscriminantTypeRef(union_name="ReviewOutcome", variant_names=("APPROVED", "REJECTED")),
+    ) is False

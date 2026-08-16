@@ -1252,6 +1252,8 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
             and expected.definition == actual.definition
         )
     if isinstance(expected, DiscriminantTypeRef):
+        if not isinstance(actual, DiscriminantTypeRef):
+            return False
         return _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
     if isinstance(expected, WorkflowRefTypeRef):
         return (
