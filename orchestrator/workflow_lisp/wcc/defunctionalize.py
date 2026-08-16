@@ -3921,7 +3921,22 @@ def _wrap_free_env_owner_names(
     ``let*`` so the owner stays bound. Bindings follow env order.
     """
 
-    free_names = free_expr_names(result)
+    free_names = set(free_expr_names(result))
+    # Reverse closure: a retained owner may reference an earlier collapsed
+    # owner by name; pull those in so every retained replacement stays bound.
+    changed = True
+    while changed:
+        changed = False
+        for name in tuple(free_names):
+            if name not in env or isinstance(
+                env[name],
+                (NameExpr, FieldAccessExpr),
+            ):
+                continue
+            for dependency in free_expr_names(env[name]):
+                if dependency in env and dependency not in free_names:
+                    free_names.add(dependency)
+                    changed = True
     retained = [
         name
         for name in env
@@ -5087,11 +5102,25 @@ def _pure_wcc_body_expr(
     current = body
     while isinstance(current, WccLet):
         bound_name = current.bound_name
-        resolved[bound_name] = _frontend_expr_from_wcc_value_with_env(
+        bound_value = _frontend_expr_from_wcc_value_with_env(
             current.bound_value,
             resolved,
         )
-        collapsed[bound_name] = resolved[bound_name]
+        if bound_name in resolved:
+            generated = (
+                f"__wcc_settlement_{bound_name}_"
+                f"{current.metadata.node_id.rsplit(':', 1)[-1]}"
+            )
+            collapsed[generated] = bound_value
+            resolved[bound_name] = NameExpr(
+                name=generated,
+                span=current.metadata.source_span,
+                form_path=current.metadata.form_path,
+                expansion_stack=current.metadata.expansion_stack,
+            )
+        else:
+            collapsed[bound_name] = bound_value
+            resolved[bound_name] = bound_value
         current = current.body
     if not isinstance(current, WccHalt):
         raise TypeError(

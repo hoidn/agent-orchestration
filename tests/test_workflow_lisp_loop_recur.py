@@ -436,13 +436,13 @@ def test_loop_recur_on_exhausted_opaque_list_record_field_compiles(
                 "  (defrecord Payload",
                 "    (flag Bool))",
                 "  (defworkflow loop-recur-on-exhausted-opaque-field",
-                "    ()",
+                "    ((fallback List[Bool]))",
                 "    -> List[Bool]",
                 '    (loop/recur :max 1 :state "seed"',
                 "      :on-exhausted (let* ((payload (record Payload :flag true)))",
                 "                     (list payload.flag))",
                 "      (fn (state)",
-                "        (continue state)))))",
+                '        (if (= state "finish") (done fallback) (continue state))))))',
             ]
         ),
     )
