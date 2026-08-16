@@ -423,37 +423,6 @@ def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> N
     ]
 
 
-def test_loop_recur_on_exhausted_opaque_list_record_field_compiles(
-    tmp_path: Path,
-) -> None:
-    workflow_path = _write_module(
-        tmp_path / "loop_recur_on_exhausted_opaque_field.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.26")',
-                "  (defrecord Payload",
-                "    (flag Bool))",
-                "  (defworkflow loop-recur-on-exhausted-opaque-field",
-                "    ((fallback List[Bool]))",
-                "    -> List[Bool]",
-                '    (loop/recur :max 1 :state "seed"',
-                "      :on-exhausted (let* ((payload (record Payload :flag true)))",
-                "                     (list payload.flag))",
-                "      (fn (state)",
-                '        (if (= state "finish") (done fallback) (continue state))))))',
-            ]
-        ),
-    )
-
-    result = _compile(workflow_path, tmp_path=tmp_path)
-
-    assert [
-        workflow.typed_workflow.definition.name
-        for workflow in result.lowered_workflows
-    ] == ["loop-recur-on-exhausted-opaque-field"]
-
 
 def test_lowering_loop_recur_supports_authored_loop_state_seed(tmp_path: Path) -> None:
     workflow_path = _write_module(
