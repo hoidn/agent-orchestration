@@ -47,6 +47,7 @@ from ..expressions import (
     TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -1221,7 +1222,18 @@ def _validate_wcc_m4_expr_supported(
                 workflow_ref_value_names=workflow_ref_value_names,
             )
         return
-    if isinstance(expr, (LiteralExpr, EnumMemberExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr, GeneratedRelpathSeedExpr)):
+    if isinstance(
+        expr,
+        (
+            LiteralExpr,
+            EnumMemberExpr,
+            UnionVariantTagExpr,
+            NameExpr,
+            PhaseTargetExpr,
+            ProcRefLiteralExpr,
+            GeneratedRelpathSeedExpr,
+        ),
+    ):
         return
     raise _unsupported_route(
         workflow_name=workflow_name,

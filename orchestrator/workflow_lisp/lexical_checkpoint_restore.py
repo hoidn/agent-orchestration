@@ -495,7 +495,12 @@ def capture_restore_payload(
         bindings.append(binding_payload)
 
     for descriptor in proof_descriptors:
-        step_name = descriptor.get("source_step_name")
+        proof_kind = descriptor.get("proof_kind", "match_branch")
+        step_name = (
+            descriptor.get("producer_step_name")
+            if proof_kind == "predicate"
+            else descriptor.get("source_step_name")
+        )
         proof_id = descriptor.get("proof_id")
         if not isinstance(step_name, str) or not step_name or not isinstance(proof_id, str) or not proof_id:
             continue
@@ -503,6 +508,27 @@ def capture_restore_payload(
             continue
         result = _mapping(steps.get(step_name))
         if result.get("status") != "completed":
+            continue
+        if proof_kind == "predicate":
+            artifacts = _mapping(result.get("artifacts"))
+            selected_case = executor._selected_variant_from_artifacts(artifacts, None)
+            if not isinstance(selected_case, str) or not selected_case:
+                continue
+            proof_payload = {
+                "proof_id": proof_id,
+                "proof_kind": "predicate",
+                "subject_binding": descriptor.get("subject_binding"),
+                "union_type": descriptor.get("union_type"),
+                "variant": selected_case,
+                "variant_name": selected_case,
+                "producer_step_name": step_name,
+                "proof_source": descriptor.get("proof_source"),
+                "source_map_origin_key": descriptor.get("source_map_origin_key"),
+                "discriminant_digest": "",
+            }
+            proof_payload["discriminant_digest"] = _proof_discriminant_digest(proof_payload)
+            proofs.append(proof_payload)
+            seen_proofs.add(proof_id)
             continue
         structured_match = _mapping(_mapping(result.get("debug")).get("structured_match"))
         selected_case = structured_match.get("selected_case")

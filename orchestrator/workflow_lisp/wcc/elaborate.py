@@ -49,6 +49,7 @@ from ..expressions import (
     TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -63,6 +64,7 @@ from ..prompts import PromptApplicationExpr
 from ..procedure_refs import ResolvedProcRefValue
 from ..spans import SourceSpan
 from ..type_env import (
+    DiscriminantTypeRef,
     FrontendTypeEnvironment,
     ListTypeRef,
     OptionalTypeRef,
@@ -2516,6 +2518,26 @@ def _elaborate_expr_to_value(
                 literal_kind="enum",
             ),
         )
+    if isinstance(expr, UnionVariantTagExpr):
+        return (
+            (),
+            WccOpaqueFrontendValue(
+                metadata=scope.value_metadata(
+                    role=f"variant-tag:{expr.variant_name}",
+                    type_ref=_infer_expr_type(
+                        expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                expr=expr,
+            ),
+        )
     if isinstance(expr, NameExpr):
         return (
             (),
@@ -3250,6 +3272,20 @@ def _elaborate_if_to_body(
         type_ref=PrimitiveTypeRef(name="Bool"),
         allow_pure_projection=True,
     )
+    then_proof, then_value_env = _branch_proof_narrowing(
+        expr.true_proof_context,
+        type_env=type_env,
+        value_env=value_env,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    else_proof, else_value_env = _branch_proof_narrowing(
+        expr.false_proof_context,
+        type_env=type_env,
+        value_env=value_env,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
     if_body = WccIf(
         metadata=scope.body_metadata(
             role="if",
@@ -3266,7 +3302,7 @@ def _elaborate_if_to_body(
             expr.then_expr,
             scope=scope.child_scope("if-then"),
             type_env=type_env,
-            value_env=value_env,
+            value_env=then_value_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             effect_summary=effect_summary,
@@ -3278,7 +3314,7 @@ def _elaborate_if_to_body(
             expr.else_expr,
             scope=scope.child_scope("if-else"),
             type_env=type_env,
-            value_env=value_env,
+            value_env=else_value_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             effect_summary=effect_summary,
@@ -3286,8 +3322,44 @@ def _elaborate_if_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         ),
+        then_proof_context=then_proof,
+        else_proof_context=else_proof,
     )
     return _wrap_prefix_lets(condition_prefix, if_body)
+
+
+def _branch_proof_narrowing(
+    proof_context,
+    *,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    span,
+    form_path: tuple[str, ...],
+) -> tuple[tuple[tuple[str, str, str], ...], Mapping[str, TypeRef]]:
+    """Convert branch proof facts to WCC triples and narrow ``value_env``."""
+    if not proof_context:
+        return (), value_env
+    triples: list[tuple[str, str, str]] = []
+    narrowed = dict(value_env)
+    for identity, possible in proof_context.items():
+        variants = getattr(possible, "variants", ())
+        if len(variants) != 1:
+            continue
+        variant_name = next(iter(variants))
+        binding_name = getattr(identity, "name", "")
+        union_name = getattr(possible, "union_name", "")
+        if not binding_name:
+            continue
+        triples.append((binding_name, union_name, variant_name))
+        current = narrowed.get(binding_name)
+        if isinstance(current, UnionTypeRef):
+            narrowed[binding_name] = type_env.union_variant(
+                current,
+                variant_name,
+                span=span,
+                form_path=form_path,
+            )
+    return tuple(triples), narrowed
 
 
 def _elaborate_case_arm(
@@ -5087,7 +5159,6 @@ def _require_name_expr(expr) -> str:
         raise TypeError(f"expected name expression, found `{type(expr).__name__}`")
     return expr.name
 
-
 def _infer_expr_type(
     expr,
     *,
@@ -5096,6 +5167,11 @@ def _infer_expr_type(
     workflow_return_types: Mapping[str, TypeRef],
     procedure_return_types: Mapping[str, TypeRef],
 ) -> TypeRef:
+    if isinstance(expr, UnionVariantTagExpr):
+        return DiscriminantTypeRef(
+            union_name=expr.union_name,
+            variant_names=expr.variant_names,
+        )
     if isinstance(expr, LiteralExpr):
         return {
             "string": PrimitiveTypeRef(name="String"),
@@ -5193,6 +5269,12 @@ def _infer_expr_type(
     if isinstance(expr, FieldAccessExpr):
         current: TypeRef = value_env[expr.base.name]
         for field_name in expr.fields:
+            if isinstance(current, UnionTypeRef) and field_name == "variant":
+                current = DiscriminantTypeRef(
+                    union_name=current.name,
+                    variant_names=tuple(variant.name for variant in current.definition.variants),
+                )
+                continue
             if not isinstance(current, (RecordTypeRef, VariantCaseTypeRef)):
                 raise TypeError(f"expected record type while resolving `{expr.base.name}.{'.'.join(expr.fields)}`")
             current = type_env.record_field(
@@ -5200,7 +5282,6 @@ def _infer_expr_type(
                 field_name,
                 span=expr.span,
                 form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
             )
         return current
     if isinstance(expr, RecordExpr):

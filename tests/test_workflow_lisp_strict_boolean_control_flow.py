@@ -33,6 +33,7 @@ from orchestrator.workflow_lisp.expressions import (
     NameExpr,
     ProviderResultExpr,
     PureOpExpr,
+    UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -40,6 +41,8 @@ from orchestrator.workflow_lisp.expressions import (
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.typecheck import typecheck_expression
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -1637,3 +1640,331 @@ def test_target_226_admits_effectful_and_nonprojectable_if(
             workspace_root=tmp_path,
         )
         assert result.typed_workflows
+
+
+# ---------------------------------------------------------------------------
+# Task 3A: contextual union tags and discriminant-derived proof
+# ---------------------------------------------------------------------------
+
+_PROOF_TYPES_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule proof)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defenum BlockerClass missing_resource unavailable_hardware)",
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport) (blocker_class BlockerClass)))",
+        "  (defunion ReviewOutcome",
+        "    (APPROVED (approval_report WorkReport))",
+        "    (REJECTED (rejection_report WorkReport))))",
+    ]
+)
+
+
+def _proof_env(tmp_path: Path) -> FrontendTypeEnvironment:
+    path = tmp_path / "proof_types.orc"
+    path.write_text(_PROOF_TYPES_MODULE, encoding="utf-8")
+    return FrontendTypeEnvironment.from_module(compile_stage1_module(path))
+
+
+def _proof_type(tmp_path: Path, name: str):
+    probe = _expression_syntax('"seed"')
+    return _proof_env(tmp_path).resolve_type(name, span=probe.span, form_path=probe.form_path)
+
+
+def _check_226(type_env: FrontendTypeEnvironment, source: str, value_env: dict):
+    expr = elaborate_expression(
+        _expression_syntax(source),
+        bound_names=frozenset(value_env),
+        target_dsl_version="2.26",
+    )
+    return typecheck_expression(expr, type_env=type_env, value_env=value_env)
+
+
+def _find_if(expr) -> IfExpr:
+    return next(
+        node
+        for node in walk_expr(expr)
+        if isinstance(node, IfExpr) and node.true_proof_context is not None
+    )
+
+
+def _variant_set(context, name: str) -> frozenset:
+    for identity, possible in (context or {}).items():
+        if identity.name == name:
+            return frozenset(possible.variants)
+    return frozenset()
+
+
+def _diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) -> str:
+    return excinfo.value.diagnostics[0].code
+
+
+def test_strict_requires_variant_local_union_branch_narrows(tmp_path: Path) -> None:
+    """A let*-bound union narrowed by `=` authorizes a variant-only field."""
+    type_env = _proof_env(tmp_path)
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(let* ((attempt (variant ImplementationState COMPLETED :execution_report r)))"
+        "  (if (= attempt.variant COMPLETED) attempt.execution_report attempt.progress_report))",
+        {"r": report},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    if_expr = _find_if(typed.expr)
+    assert _variant_set(if_expr.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(if_expr.false_proof_context, "attempt") == {"BLOCKED"}
+
+
+def test_strict_input_union_parameter_branch_narrows(tmp_path: Path) -> None:
+    """A workflow-input/ordinary-local union narrows and is consumed in branch."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(if (= attempt.variant COMPLETED) attempt.execution_report attempt.progress_report)",
+        {"attempt": attempt},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    if_expr = _find_if(typed.expr)
+    assert _variant_set(if_expr.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(if_expr.false_proof_context, "attempt") == {"BLOCKED"}
+
+
+def test_strict_multi_union_leaf_consumes_two_narrowed_fields(tmp_path: Path) -> None:
+    """One branch narrows two independent unions and consumes a field of each."""
+    type_env = _proof_env(tmp_path)
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(let* ((attempt (variant ImplementationState COMPLETED :execution_report r))"
+        "       (outcome (variant ReviewOutcome APPROVED :approval_report r)))"
+        "  (if (and (= attempt.variant COMPLETED) (= outcome.variant APPROVED))"
+        "      (let* ((a attempt.execution_report) (b outcome.approval_report)) a)"
+        "      r))",
+        {"r": report},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    if_expr = _find_if(typed.expr)
+    assert _variant_set(if_expr.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(if_expr.true_proof_context, "outcome") == {"APPROVED"}
+
+
+def test_strict_variant_proof_equality_symmetric_tag(tmp_path: Path) -> None:
+    """`(= COMPLETED attempt.variant)` resolves the tag on either side."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(if (= COMPLETED attempt.variant) attempt.execution_report attempt.progress_report)",
+        {"attempt": attempt},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    if_expr = _find_if(typed.expr)
+    assert _variant_set(if_expr.true_proof_context, "attempt") == {"COMPLETED"}
+    assert any(
+        isinstance(node, UnionVariantTagExpr) and node.variant_name == "COMPLETED"
+        for node in walk_expr(typed.expr)
+    )
+
+
+def test_strict_variant_proof_inequality_excludes_to_singleton(tmp_path: Path) -> None:
+    """`(!= attempt.variant BLOCKED)` proves the remaining singleton on true."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(if (!= attempt.variant BLOCKED) attempt.execution_report attempt.progress_report)",
+        {"attempt": attempt},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    if_expr = _find_if(typed.expr)
+    assert _variant_set(if_expr.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(if_expr.false_proof_context, "attempt") == {"BLOCKED"}
+
+
+def test_strict_variant_proof_and_or_not_composition(tmp_path: Path) -> None:
+    """`and`, `or`, and `not` compose the closed fact algebra."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+
+    and_typed = _check_226(
+        type_env,
+        "(if (and (= attempt.variant COMPLETED) ready)"
+        "    attempt.execution_report r)",
+        {
+            "attempt": attempt,
+            "ready": _proof_type(tmp_path, "Bool"),
+            "r": report,
+        },
+    )
+    and_if = _find_if(and_typed.expr)
+    assert _variant_set(and_if.true_proof_context, "attempt") == {"COMPLETED"}
+
+    or_typed = _check_226(
+        type_env,
+        "(if (or (!= attempt.variant BLOCKED) (= attempt.variant COMPLETED))"
+        "    attempt.execution_report attempt.progress_report)",
+        {"attempt": attempt},
+    )
+    or_if = _find_if(or_typed.expr)
+    # The joined true path is still the COMPLETED singleton.
+    assert _variant_set(or_if.true_proof_context, "attempt") == {"COMPLETED"}
+    assert _variant_set(or_if.false_proof_context, "attempt") == {"BLOCKED"}
+
+    not_typed = _check_226(
+        type_env,
+        "(if (not (= attempt.variant BLOCKED))"
+        "    attempt.execution_report attempt.progress_report)",
+        {"attempt": attempt},
+    )
+    not_if = _find_if(not_typed.expr)
+    assert _variant_set(not_if.true_proof_context, "attempt") == {"COMPLETED"}
+
+
+def test_strict_variant_proof_contradiction_unreachable(tmp_path: Path) -> None:
+    """A contradictory conjunction makes the true path unreachable."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(if (and (= attempt.variant COMPLETED) (= attempt.variant BLOCKED))"
+        "    r r)",
+        {"attempt": attempt, "r": report},
+    )
+    if_expr = _find_if(typed.expr)
+    # Unreachable true path stores no facts.
+    assert if_expr.true_proof_context == {}
+
+
+def test_strict_variant_proof_non_recognized_routes_without_narrowing(
+    tmp_path: Path,
+) -> None:
+    """A non-discriminant condition routes without authorizing variant fields."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    ready = _proof_type(tmp_path, "Bool")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(if ready attempt.execution_report r)",
+            {"attempt": attempt, "ready": ready, "r": report},
+        )
+    assert _diagnostic_code(excinfo) == "variant_ref_unproved"
+
+
+def test_strict_variant_shadow_same_spelling_distinct_identity(tmp_path: Path) -> None:
+    """Shadowed let* binders receive distinct ordinals, never colliding by name."""
+    type_env = _proof_env(tmp_path)
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(let* ((attempt (variant ImplementationState COMPLETED :execution_report r)))"
+        "  (let* ((attempt (variant ImplementationState BLOCKED :progress_report r"
+        "                     :blocker_class BlockerClass.missing_resource)))"
+        "    (if (= attempt.variant BLOCKED) attempt.progress_report r)))",
+        {"r": report},
+    )
+    if_expr = _find_if(typed.expr)
+    identities = list(if_expr.true_proof_context)
+    assert len(identities) == 1
+    assert identities[0].name == "attempt"
+    assert identities[0].ordinal == 1
+
+
+def test_strict_variant_alias_receives_no_proof(tmp_path: Path) -> None:
+    """A let* alias is a fresh identity; proof does not propagate to the source."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(let* ((alias attempt))"
+            "  (if (= alias.variant COMPLETED) attempt.execution_report r))",
+            {"attempt": attempt, "r": report},
+        )
+    assert _diagnostic_code(excinfo) == "variant_ref_unproved"
+
+
+def test_strict_variant_lexical_binding_wins_over_contextual_tag(
+    tmp_path: Path,
+) -> None:
+    """A bound `COMPLETED` name beats contextual tag lookup."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    flag = _proof_type(tmp_path, "Bool")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(let* ((COMPLETED ready))"
+            "  (if (= attempt.variant COMPLETED) attempt.execution_report r))",
+            {
+                "attempt": attempt,
+                "ready": flag,
+                "r": _proof_type(tmp_path, "WorkReport"),
+            },
+        )
+    assert _diagnostic_code(excinfo) == "pure_expr_operand_type_mismatch"
+
+
+def test_strict_variant_contextual_tag_unknown_fails(tmp_path: Path) -> None:
+    """An undeclared tag fails with a dedicated diagnostic."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(= attempt.variant MISSING)",
+            {"attempt": attempt},
+        )
+    assert _diagnostic_code(excinfo) == "variant_tag_unknown"
+
+
+def test_strict_variant_contextual_tag_no_context_fails(tmp_path: Path) -> None:
+    """A bare tag paired with a union (not a discriminant) lacks a context."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(= attempt COMPLETED)",
+            {"attempt": attempt},
+        )
+    assert _diagnostic_code(excinfo) == "variant_tag_context_missing"
+
+
+def test_strict_variant_contextual_cross_union_fails(tmp_path: Path) -> None:
+    """A tag declared by a different union is rejected."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(= attempt.variant APPROVED)",
+            {"attempt": attempt},
+        )
+    assert _diagnostic_code(excinfo) == "variant_tag_unknown"
+
+
+def test_strict_variant_discriminant_equality_proves_no_variant(tmp_path: Path) -> None:
+    """Compatible discriminant-to-discriminant equality routes but proves nothing."""
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(if (= attempt.variant other.variant) attempt.execution_report r)",
+            {"attempt": attempt, "other": attempt, "r": report},
+        )
+    assert _diagnostic_code(excinfo) == "variant_ref_unproved"

@@ -207,6 +207,22 @@ class VariantCaseTypeRef:
 
 
 @dataclass(frozen=True)
+class DiscriminantTypeRef:
+    """Compiler-internal nominal discriminant type tied to its union.
+
+    ``.variant`` on a union value resolves to this read-only type. It is not a
+    source-nameable type: it exists only so equality typing can recognize a
+    discriminant operand and resolve the opposite contextual tag against the
+    owning union's declared variants. ``union_name`` preserves union identity
+    (``PrimitiveTypeRef.allowed_values`` alone cannot, since two unions may
+    declare the same variant spellings).
+    """
+
+    union_name: str
+    variant_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class WorkflowRefTypeRef:
     """One compile-time-only workflow reference type."""
 
@@ -262,6 +278,7 @@ TypeRef = (
     | RecordTypeRef
     | UnionTypeRef
     | VariantCaseTypeRef
+    | DiscriminantTypeRef
     | WorkflowRefTypeRef
     | ProcRefTypeRef
     | TypeParamRef
@@ -1122,6 +1139,8 @@ def render_type_ref(type_ref: TypeRef) -> str:
         return type_ref.name
     if isinstance(type_ref, VariantCaseTypeRef):
         return type_ref.union_name
+    if isinstance(type_ref, DiscriminantTypeRef):
+        return type_ref.union_name
     if isinstance(type_ref, WorkflowRefTypeRef):
         params = " ".join(render_type_ref(param_type) for param_type in type_ref.param_type_refs)
         params_label = f"({params})" if params else "()"
@@ -1232,6 +1251,8 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
             and expected.variant_name == actual.variant_name
             and expected.definition == actual.definition
         )
+    if isinstance(expected, DiscriminantTypeRef):
+        return _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
     if isinstance(expected, WorkflowRefTypeRef):
         return (
             len(expected.param_type_refs) == len(actual.param_type_refs)

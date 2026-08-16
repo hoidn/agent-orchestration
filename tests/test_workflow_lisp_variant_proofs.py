@@ -57,9 +57,11 @@ def test_variant_proof_owner_split_moves_proof_types_out_of_typecheck_facade() -
     typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
 
     assert proof_path.is_file()
-    assert inspect.getsourcefile(typecheck_module.ProofFact) == str(proof_path)
+    assert inspect.getsourcefile(typecheck_module.BindingIdentity) == str(proof_path)
+    assert inspect.getsourcefile(typecheck_module.PossibleVariants) == str(proof_path)
     assert inspect.getsourcefile(typecheck_module.ProofScope) == str(proof_path)
-    assert "ProofFact" not in _typecheck_top_level_names()
+    assert "BindingIdentity" not in _typecheck_top_level_names()
+    assert "PossibleVariants" not in _typecheck_top_level_names()
     assert "ProofScope" not in _typecheck_top_level_names()
     assert "def _resolve_field_access(" not in dispatch_source
     assert "if isinstance(expr, MatchExpr):" not in dispatch_source

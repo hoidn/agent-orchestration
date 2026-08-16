@@ -115,7 +115,12 @@ from .typecheck_run_ref import typecheck_run_ref_expr
 from .typecheck_trial import typecheck_trial_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
+    BindingIdentity,
+    PossibleVariants,
     ProofScope,
+    UNREACHABLE,
+    _allocate_binding_identity,
+    analyze_condition,
     typecheck_field_access_expr as _typecheck_field_access_expr,
     typecheck_match_expr as _typecheck_match_expr,
 )
@@ -135,13 +140,12 @@ if TYPE_CHECKING:
     from .functions import FunctionCatalog
     from .procedures import ProcedureCatalog
     from .workflows import CommandBoundaryEnvironment, ExternEnvironment, WorkflowCatalog
-
-
 def typecheck_expression(
     expr: ExprNode,
     *,
     type_env: FrontendTypeEnvironment,
     value_env: ValueEnvironment,
+    binding_env: Mapping[str, BindingIdentity] | None = None,
     proof_scope: ProofScope | None = None,
     workflow_catalog: "WorkflowCatalog | None" = None,
     procedure_catalog: "ProcedureCatalog | None" = None,
@@ -161,6 +165,12 @@ def typecheck_expression(
     """Typecheck one supported Workflow Lisp expression."""
 
     active_proof = proof_scope or ProofScope(facts={})
+    active_binding_env: dict[str, BindingIdentity] = dict(binding_env or {})
+    for name in value_env:
+        active_binding_env.setdefault(
+            name,
+            BindingIdentity(path=expr.form_path, kind="root", name=name, ordinal=0),
+        )
     compiler_session = compiler_session or CompilerSession()
     session_state = compiler_session.typecheck
     previous_session_state = snapshot_session_state(session_state)
@@ -179,6 +189,7 @@ def typecheck_expression(
             expr,
             type_env=type_env,
             value_env=dict(value_env),
+            binding_env=active_binding_env,
             proof_scope=active_proof,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
@@ -224,6 +235,7 @@ def _typecheck(
     *,
     type_env: FrontendTypeEnvironment,
     value_env: dict[str, TypeRef],
+    binding_env: Mapping[str, BindingIdentity],
     proof_scope: ProofScope,
     workflow_catalog: "WorkflowCatalog | None",
     procedure_catalog: "ProcedureCatalog | None",
@@ -241,6 +253,7 @@ def _typecheck(
     context = TypecheckContext(
         type_env=type_env,
         value_env=value_env,
+        binding_env=binding_env,
         proof_scope=proof_scope,
         workflow_catalog=workflow_catalog,
         procedure_catalog=procedure_catalog,
@@ -259,6 +272,7 @@ def _typecheck(
         _typecheck,
         session_state=session_state,
         compiler_session=compiler_session,
+        binding_env=binding_env,
     )
 
     def recurse(
@@ -266,6 +280,7 @@ def _typecheck(
         **overrides,
     ) -> TypedExpr:
         recurse_value_env = overrides.pop("value_env", value_env)
+        recurse_binding_env = overrides.pop("binding_env", binding_env)
         recurse_proof_scope = overrides.pop("proof_scope", proof_scope)
         recurse_workflow_catalog = overrides.pop("workflow_catalog", workflow_catalog)
         recurse_procedure_catalog = overrides.pop("procedure_catalog", procedure_catalog)
@@ -303,6 +318,7 @@ def _typecheck(
                 node,
                 type_env=type_env,
                 value_env=dict(recurse_value_env),
+                binding_env=recurse_binding_env,
                 proof_scope=recurse_proof_scope,
                 workflow_catalog=recurse_workflow_catalog,
                 procedure_catalog=recurse_procedure_catalog,
@@ -820,6 +836,7 @@ def _typecheck(
         )
     if isinstance(expr, LetStarExpr):
         local_env = dict(value_env)
+        local_binding_env = dict(binding_env)
         local_proc_ref_env = dict(session_state.proc_ref_value_env)
         local_value_expr_env = dict(session_state.value_expr_env)
         seen_names: set[str] = set()
@@ -836,12 +853,19 @@ def _typecheck(
             typed_binding = recurse(
                 binding_expr,
                 value_env=local_env,
+                binding_env=local_binding_env,
                 proc_ref_value_env=local_proc_ref_env,
                 value_expr_env=local_value_expr_env,
             )
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
+            local_binding_env[name] = _allocate_binding_identity(
+                local_binding_env,
+                form_path=binding_expr.form_path,
+                kind="let",
+                name=name,
+            )
             local_value_expr_env[name] = typed_binding.expr
             rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
@@ -856,6 +880,7 @@ def _typecheck(
         typed_body = recurse(
             expr.body,
             value_env=local_env,
+            binding_env=local_binding_env,
             proc_ref_value_env=local_proc_ref_env,
             value_expr_env=local_value_expr_env,
         )
@@ -901,6 +926,8 @@ def _typecheck(
         supports_strict = target_dsl_supports_strict_boolean_control_flow(
             type_env.target_dsl_version or ""
         )
+        true_proof_facts: dict | None = None
+        false_proof_facts: dict | None = None
         if supports_strict:
             if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
                 _raise_error(
@@ -909,6 +936,13 @@ def _typecheck(
                     span=expr.condition_expr.span,
                     form_path=expr.condition_expr.form_path,
                 )
+            true_env, false_env = analyze_condition(
+                typed_condition.expr,
+                binding_env=binding_env,
+                facts=proof_scope.facts,
+            )
+            true_proof_facts = dict(true_env) if true_env is not UNREACHABLE else {}
+            false_proof_facts = dict(false_env) if false_env is not UNREACHABLE else {}
             normalized_condition = normalize_condition_expr(
                 typed_condition.expr,
                 type_ref=typed_condition.type_ref,
@@ -939,11 +973,17 @@ def _typecheck(
                 typed_condition.expr,
                 type_ref=typed_condition.type_ref,
             )
+        then_proof_scope = (
+            ProofScope(facts=true_proof_facts) if true_proof_facts is not None else proof_scope
+        )
+        else_proof_scope = (
+            ProofScope(facts=false_proof_facts) if false_proof_facts is not None else proof_scope
+        )
         typed_then = check(
             expr.then_expr,
             type_env=type_env,
             value_env=value_env,
-            proof_scope=proof_scope,
+            proof_scope=then_proof_scope,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
@@ -959,7 +999,7 @@ def _typecheck(
             expr.else_expr,
             type_env=type_env,
             value_env=value_env,
-            proof_scope=proof_scope,
+            proof_scope=else_proof_scope,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
@@ -997,6 +1037,8 @@ def _typecheck(
                 condition_expr=normalized_condition.terminal,
                 then_expr=typed_then.expr,
                 else_expr=typed_else.expr,
+                true_proof_context=true_proof_facts,
+                false_proof_context=false_proof_facts,
             )
             if normalized_condition.bindings:
                 result_expr: ExprNode = LetStarExpr(

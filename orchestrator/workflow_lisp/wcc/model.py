@@ -693,7 +693,12 @@ class WccIf:
     condition_shape: object
     then_body: "WccBody"
     else_body: "WccBody"
-
+    # Private branch proof facts carried from the typed frontend. Each entry is
+    # a ``(binding_name, union_name, variant_name)`` triple authorizing one
+    # variant-only field access inside that branch. Empty when the branch
+    # carries no narrowing.
+    then_proof_context: tuple[object, ...] = ()
+    else_proof_context: tuple[object, ...] = ()
 
 @dataclass(frozen=True)
 class WccJoinParam:

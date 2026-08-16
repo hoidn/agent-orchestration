@@ -6,10 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from .effects import effect_summary_contains_runs_ref, merge_effect_summaries
-from .expressions import FieldAccessExpr, MatchExpr, NameExpr
+from .expressions import FieldAccessExpr, LiteralExpr, MatchExpr, NameExpr, PureOpExpr, UnionVariantTagExpr
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
 from .type_env import (
+    DiscriminantTypeRef,
     FrontendTypeEnvironment,
     RecordTypeRef,
     TypeRef,
@@ -27,19 +28,116 @@ from .typecheck_context import (
 
 
 @dataclass(frozen=True)
-class ProofFact:
-    """One proven union narrowing fact in scope."""
+class BindingIdentity:
+    """Stable identity for one lexical binding, independent of spelling.
 
-    subject_name: str
-    variant_name: str
-    variant_type: VariantCaseTypeRef
+    ``path`` is the enclosing authored form path, ``kind`` distinguishes the
+    binder family (root, param, arm, let), ``name`` is the binder spelling, and
+    ``ordinal`` disambiguates same-spelling binders in nested scopes. Shadowed
+    binders receive distinct ordinals so facts keyed by identity never collide
+    merely because two binders share a name.
+    """
+
+    path: tuple[str, ...]
+    kind: str
+    name: str
+    ordinal: int = 0
+
+
+@dataclass(frozen=True)
+class PossibleVariants:
+    """Closed set of variants still possible for one union binding.
+
+    ``variants`` is the frozenset of variant names still reachable on this
+    path. An empty set is unreachable; only a singleton authorizes a
+    variant-only field. ``union_name`` preserves the owning union's identity so
+    facts remain self-contained through WCC carriage and restore descriptors.
+    """
+
+    union_name: str
+    variants: frozenset[str]
 
 
 @dataclass(frozen=True)
 class ProofScope:
-    """Frontend-local proof facts for the current checking scope."""
+    """Frontend-local proof facts for the current checking scope.
 
-    facts: Mapping[str, ProofFact]
+    Facts are keyed by stable lexical :class:`BindingIdentity`, never by
+    identifier spelling. A binding absent from ``facts`` is unconstrained (all
+    declared variants possible).
+    """
+
+    facts: Mapping[BindingIdentity, PossibleVariants]
+
+
+class _Unreachable:
+    """Sentinel marking a statically unreachable branch path."""
+
+
+UNREACHABLE = _Unreachable()
+
+
+def join_possible_variants(
+    left: PossibleVariants | None,
+    right: PossibleVariants | None,
+) -> PossibleVariants | None:
+    """Union two possible sets for the same binding identity.
+
+    ``None`` means "no fact established" (all variants possible). The union of
+    an unconstrained path and a narrowed path is unconstrained.
+    """
+    if left is None or right is None:
+        return None
+    if left.union_name != right.union_name:
+        return None
+    return PossibleVariants(
+        union_name=left.union_name,
+        variants=left.variants | right.variants,
+    )
+
+
+def join_fact_maps(
+    left: Mapping[BindingIdentity, PossibleVariants],
+    right: Mapping[BindingIdentity, PossibleVariants],
+) -> dict[BindingIdentity, PossibleVariants]:
+    """Join two fact maps per binding identity."""
+    merged: dict[BindingIdentity, PossibleVariants] = {}
+    for identity in set(left) | set(right):
+        joined = join_possible_variants(left.get(identity), right.get(identity))
+        if joined is not None:
+            merged[identity] = joined
+    return merged
+
+
+def intersect_variant(
+    current: PossibleVariants | None,
+    *,
+    union_name: str,
+    variant: str,
+) -> PossibleVariants:
+    """Refine one binding's possible set to a single variant."""
+    if current is None:
+        return PossibleVariants(union_name=union_name, variants=frozenset({variant}))
+    return PossibleVariants(
+        union_name=current.union_name,
+        variants=current.variants & frozenset({variant}),
+    )
+
+
+def exclude_variant(
+    current: PossibleVariants | None,
+    *,
+    union_name: str,
+    variant: str,
+    full_variants: frozenset[str],
+) -> PossibleVariants:
+    """Refine one binding's possible set by excluding one variant."""
+    if current is None:
+        return PossibleVariants(union_name=union_name, variants=full_variants - {variant})
+    return PossibleVariants(
+        union_name=current.union_name,
+        variants=current.variants - {variant},
+    )
 
 
 def _variant_has_field(variant_type: VariantCaseTypeRef, field_name: str) -> bool:
@@ -50,10 +148,17 @@ def _union_has_any_field(union_type: UnionTypeRef, field_name: str) -> bool:
     return any(field.name == field_name for variant in union_type.definition.variants for field in variant.fields)
 
 
+def _singleton_variant(possible: PossibleVariants | None) -> str | None:
+    if possible is None or len(possible.variants) != 1:
+        return None
+    return next(iter(possible.variants))
+
+
 def resolve_field_access(
     base_type: TypeRef,
     *,
     base_name: str,
+    binding_identity: BindingIdentity | None,
     field_name: str,
     span,
     form_path: tuple[str, ...],
@@ -68,6 +173,11 @@ def resolve_field_access(
     )
     if capability_type is not None:
         return capability_type
+    if isinstance(base_type, UnionTypeRef) and field_name == "variant":
+        return DiscriminantTypeRef(
+            union_name=base_type.name,
+            variant_names=tuple(variant.name for variant in base_type.definition.variants),
+        )
     if isinstance(base_type, RecordTypeRef):
         return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
     if isinstance(base_type, VariantCaseTypeRef):
@@ -87,8 +197,9 @@ def resolve_field_access(
             form_path=form_path,
         )
     if isinstance(base_type, UnionTypeRef):
-        proof_fact = proof_scope.facts.get(base_name)
-        if proof_fact is None:
+        possible = proof_scope.facts.get(binding_identity) if binding_identity is not None else None
+        variant_name = _singleton_variant(possible)
+        if variant_name is None:
             if _union_has_any_field(base_type, field_name):
                 raise_error(
                     f"field `{field_name}` requires variant proof for `{base_type.name}`",
@@ -102,16 +213,22 @@ def resolve_field_access(
                 span=span,
                 form_path=form_path,
             )
-        if _variant_has_field(proof_fact.variant_type, field_name):
+        variant_type = type_env.union_variant(
+            base_type,
+            variant_name,
+            span=span,
+            form_path=form_path,
+        )
+        if _variant_has_field(variant_type, field_name):
             return type_env.record_field(
-                proof_fact.variant_type,
+                variant_type,
                 field_name,
                 span=span,
                 form_path=form_path,
             )
-        if type_env.field_exists_in_other_variant(proof_fact.variant_type, field_name):
+        if type_env.field_exists_in_other_variant(variant_type, field_name):
             raise_error(
-                f"field `{field_name}` is not available under proven variant `{proof_fact.variant_name}`",
+                f"field `{field_name}` is not available under proven variant `{variant_name}`",
                 code="variant_ref_wrong_variant",
                 span=span,
                 form_path=form_path,
@@ -140,10 +257,12 @@ def typecheck_field_access_expr(
     typed_base = recurse(expr.base)
     current_type = typed_base.type_ref
     base_name = expr.base.name if isinstance(expr.base, NameExpr) else ""
+    binding_identity = context.binding_env.get(base_name) if base_name else None
     for field_name in expr.fields:
         current_type = resolve_field_access(
             current_type,
             base_name=base_name,
+            binding_identity=binding_identity,
             field_name=field_name,
             span=expr.span,
             form_path=expr.form_path,
@@ -168,6 +287,19 @@ def _shared_union_field_type(
         if isinstance(base_type, TypeParamRef) and capability.type_param_name == base_type.name:
             return capability.field_type_ref
     return None
+
+
+def _allocate_binding_identity(
+    binding_env: Mapping[str, BindingIdentity],
+    *,
+    form_path: tuple[str, ...],
+    kind: str,
+    name: str,
+) -> BindingIdentity:
+    """Allocate a stable identity for one new binder, shadow-aware."""
+    parent = binding_env.get(name)
+    ordinal = (parent.ordinal + 1) if parent is not None else 0
+    return BindingIdentity(path=form_path, kind=kind, name=name, ordinal=ordinal)
 
 
 def typecheck_match_expr(
@@ -207,6 +339,11 @@ def typecheck_match_expr(
     arm_result_type: TypeRef | LoopControlTypeRef | None = None
     arm_summaries = [typed_subject.effect_summary]
     rewritten_arms = []
+    subject_identity = (
+        context.binding_env.get(expr.subject.name)
+        if isinstance(expr.subject, NameExpr)
+        else None
+    )
     for arm in expr.arms:
         if arm.variant_name in seen_variants:
             raise_error(
@@ -224,16 +361,23 @@ def typecheck_match_expr(
         )
         arm_env = dict(context.value_env)
         arm_env[arm.binding_name] = variant_type
+        arm_binding_env = dict(context.binding_env)
+        arm_binding_env[arm.binding_name] = _allocate_binding_identity(
+            arm_binding_env,
+            form_path=arm.form_path,
+            kind="arm",
+            name=arm.binding_name,
+        )
         arm_facts = dict(context.proof_scope.facts)
-        if isinstance(expr.subject, NameExpr):
-            arm_facts[expr.subject.name] = ProofFact(
-                subject_name=expr.subject.name,
-                variant_name=arm.variant_name,
-                variant_type=variant_type,
+        if subject_identity is not None:
+            arm_facts[subject_identity] = PossibleVariants(
+                union_name=union_type.name,
+                variants=frozenset({arm.variant_name}),
             )
         typed_body = recurse(
             arm.body,
             value_env=arm_env,
+            binding_env=arm_binding_env,
             proof_scope=ProofScope(facts=arm_facts),
             expected_type=expected_type,
         )
@@ -281,3 +425,119 @@ def typecheck_match_expr(
         type_ref=arm_result_type,
         effect=merge_effect_summaries(*arm_summaries),
     )
+
+
+def analyze_condition(
+    expr,
+    *,
+    binding_env: Mapping[str, BindingIdentity],
+    facts: Mapping[BindingIdentity, PossibleVariants],
+):
+    """Return ``(when_true, when_false)`` proof environments for a condition.
+
+    Each result is either ``UNREACHABLE`` or a fresh facts dict. Literals,
+    ``=``/``!=`` discriminant comparisons, and ``and``/``or``/``not``
+    composition refine the incoming facts. Any other Boolean expression routes
+    without narrowing (``(facts, facts)``).
+    """
+    if isinstance(expr, LiteralExpr) and expr.literal_kind == "bool":
+        if expr.value is True:
+            return (dict(facts), UNREACHABLE)
+        return (UNREACHABLE, dict(facts))
+    if isinstance(expr, PureOpExpr):
+        if expr.operator == "not":
+            true_f, false_f = analyze_condition(
+                expr.args[0], binding_env=binding_env, facts=facts
+            )
+            return (false_f, true_f)
+        if expr.operator == "and":
+            return _analyze_conjunction(expr.args, binding_env=binding_env, facts=facts)
+        if expr.operator == "or":
+            return _analyze_disjunction(expr.args, binding_env=binding_env, facts=facts)
+        if expr.operator in {"=", "!="}:
+            return _analyze_equality(expr, binding_env=binding_env, facts=facts)
+    return (dict(facts), dict(facts))
+
+
+def _analyze_conjunction(args, *, binding_env, facts):
+    """``and``: analyze each later operand under the prior true environment."""
+    true_env = dict(facts)
+    false_envs: list = []
+    for arg in args:
+        if true_env is UNREACHABLE:
+            break
+        true_f, false_f = analyze_condition(arg, binding_env=binding_env, facts=true_env)
+        false_envs.append(false_f)
+        true_env = true_f
+    return (true_env, _join_envs(false_envs))
+
+
+def _analyze_disjunction(args, *, binding_env, facts):
+    """``or``: analyze each later operand under the prior false environment."""
+    false_env = dict(facts)
+    true_envs: list = []
+    for arg in args:
+        if false_env is UNREACHABLE:
+            break
+        true_f, false_f = analyze_condition(arg, binding_env=binding_env, facts=false_env)
+        true_envs.append(true_f)
+        false_env = false_f
+    return (_join_envs(true_envs), false_env)
+
+
+def _join_envs(envs):
+    """Conservatively join reachable fact maps; unreachable paths drop out."""
+    merged = None
+    reachable = False
+    for env in envs:
+        if env is UNREACHABLE:
+            continue
+        reachable = True
+        merged = env if merged is None else join_fact_maps(merged, env)
+    return merged if reachable else UNREACHABLE
+
+
+def _analyze_equality(expr, *, binding_env, facts):
+    left, right = expr.args
+    if isinstance(left, UnionVariantTagExpr) and _is_variant_access(right):
+        tag, discriminant = left, right
+    elif isinstance(right, UnionVariantTagExpr) and _is_variant_access(left):
+        tag, discriminant = right, left
+    else:
+        # Discriminant-to-discriminant equality proves no variant.
+        return (dict(facts), dict(facts))
+
+    identity = binding_env.get(discriminant.base.name)
+    if identity is None:
+        return (dict(facts), dict(facts))
+
+    union_name = tag.union_name
+    variant = tag.variant_name
+    full_variants = frozenset(tag.variant_names)
+    current = facts.get(identity)
+    if expr.operator == "=":
+        true_fact = intersect_variant(current, union_name=union_name, variant=variant)
+        false_fact = exclude_variant(
+            current, union_name=union_name, variant=variant, full_variants=full_variants
+        )
+    else:
+        true_fact = exclude_variant(
+            current, union_name=union_name, variant=variant, full_variants=full_variants
+        )
+        false_fact = intersect_variant(current, union_name=union_name, variant=variant)
+    return (
+        _reachable({**facts, identity: true_fact}),
+        _reachable({**facts, identity: false_fact}),
+    )
+
+
+def _is_variant_access(expr) -> bool:
+    return isinstance(expr, FieldAccessExpr) and expr.fields == ("variant",)
+
+
+def _reachable(facts: dict):
+    """Mark a fact map unreachable when any binding's possible set is empty."""
+    for possible in facts.values():
+        if len(possible.variants) == 0:
+            return UNREACHABLE
+    return facts

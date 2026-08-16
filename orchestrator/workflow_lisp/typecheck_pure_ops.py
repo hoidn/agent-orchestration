@@ -6,8 +6,9 @@ from dataclasses import replace
 
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
-from .expressions import PureOpExpr, RecordUpdateExpr
+from .expressions import NameExpr, PureOpExpr, RecordUpdateExpr, UnionVariantTagExpr
 from .type_env import (
+    DiscriminantTypeRef,
     ListTypeRef,
     OptionalTypeRef,
     PathTypeRef,
@@ -18,6 +19,135 @@ from .type_env import (
 )
 from .typecheck_context import raise_error, _type_label
 
+
+def _typecheck_equality(
+    expr: PureOpExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    """Type one ``=``/``!=`` comparison, resolving contextual variant tags.
+
+    An otherwise-unbound identifier paired with a union discriminant resolves
+    against that union's declared variants. Discriminant-to-discriminant
+    equality routes as an ordinary Bool comparison but proves no variant.
+    """
+    left_expr, right_expr = expr.args
+    left_is_bare = isinstance(left_expr, NameExpr) and left_expr.name not in context.value_env
+    right_is_bare = isinstance(right_expr, NameExpr) and right_expr.name not in context.value_env
+
+    if left_is_bare != right_is_bare:
+        bare_expr = left_expr if left_is_bare else right_expr
+        other_expr = right_expr if left_is_bare else left_expr
+        typed_other = recurse(other_expr)
+        discriminant = (
+            typed_other.type_ref
+            if isinstance(typed_other.type_ref, DiscriminantTypeRef)
+            else None
+        )
+        if discriminant is not None:
+            if bare_expr.name not in discriminant.variant_names:
+                raise_error(
+                    f"tag `{bare_expr.name}` is not a variant of `{discriminant.union_name}`",
+                    code="variant_tag_unknown",
+                    span=bare_expr.span,
+                    form_path=bare_expr.form_path,
+                    expansion_stack=bare_expr.expansion_stack,
+                )
+            tag_expr = UnionVariantTagExpr(
+                union_name=discriminant.union_name,
+                variant_name=bare_expr.name,
+                variant_names=discriminant.variant_names,
+                span=bare_expr.span,
+                form_path=bare_expr.form_path,
+                expansion_stack=bare_expr.expansion_stack,
+            )
+            new_args = (tag_expr, typed_other.expr) if left_is_bare else (typed_other.expr, tag_expr)
+            return typed_factory(
+                expr=replace(expr, args=new_args),
+                type_ref=PrimitiveTypeRef(name="Bool"),
+                effect=typed_other.effect_summary,
+            )
+        if _is_union_like(typed_other.type_ref):
+            raise_error(
+                f"contextual variant tag `{bare_expr.name}` lacks a union discriminant context",
+                code="variant_tag_context_missing",
+                span=bare_expr.span,
+                form_path=bare_expr.form_path,
+                expansion_stack=bare_expr.expansion_stack,
+            )
+        # A bare identifier with no union context is a plain unbound name:
+        # recurse to raise the standard `name_unknown` diagnostic.
+        return _typecheck_ordinary_equality(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=typed_factory,
+        )
+
+    return _typecheck_ordinary_equality(
+        expr,
+        context=context,
+        recurse=recurse,
+        typed_factory=typed_factory,
+    )
+
+def _typecheck_ordinary_equality(
+    expr: PureOpExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    typed_left = recurse(expr.args[0])
+    typed_right = recurse(expr.args[1])
+    left, right = typed_left.type_ref, typed_right.type_ref
+    if _is_union_like(left) or _is_union_like(right):
+        raise_error(
+            "union equality is forbidden in the pure expression core",
+            code="pure_expr_union_equality_forbidden",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(left, DiscriminantTypeRef) or isinstance(right, DiscriminantTypeRef):
+        if not (isinstance(left, DiscriminantTypeRef) and isinstance(right, DiscriminantTypeRef)):
+            _raise_operand_mismatch(
+                expr=expr,
+                message=f"operator `{expr.operator}` requires equal comparable operand types",
+            )
+        if not type_refs_compatible(left, right):
+            raise_error(
+                f"discriminant operands belong to incompatible unions `{left.union_name}` and `{right.union_name}`",
+                code="variant_tag_union_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return typed_factory(
+            expr=replace(expr, args=(typed_left.expr, typed_right.expr)),
+            type_ref=PrimitiveTypeRef(name="Bool"),
+            effect=merge_effect_summaries(typed_left.effect_summary, typed_right.effect_summary),
+        )
+    if _is_primitive(left, "Float") or _is_primitive(right, "Float"):
+        raise_error(
+            "float equality is forbidden in the pure expression core",
+            code="pure_expr_float_equality_forbidden",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if left != right or not _supports_equality(left):
+        _raise_operand_mismatch(
+            expr=expr,
+            message=f"operator `{expr.operator}` requires equal comparable operand types",
+        )
+    return typed_factory(
+        expr=replace(expr, args=(typed_left.expr, typed_right.expr)),
+        type_ref=PrimitiveTypeRef(name="Bool"),
+        effect=merge_effect_summaries(typed_left.effect_summary, typed_right.effect_summary),
+    )
 
 def typecheck_pure_expr(
     expr: PureOpExpr | RecordUpdateExpr,
@@ -45,40 +175,19 @@ def typecheck_pure_expr(
                     f"{spec.max_arity if spec.max_arity is not None else 'many'} operands"
                 ),
             )
+        if expr.operator in {"=", "!="}:
+            return _typecheck_equality(
+                expr,
+                context=context,
+                recurse=recurse,
+                typed_factory=typed_factory,
+            )
         typed_args = [recurse(arg) for arg in expr.args]
         rewritten = replace(expr, args=tuple(typed_arg.expr for typed_arg in typed_args))
         summaries = [typed_arg.effect_summary for typed_arg in typed_args]
         arg_types = [typed_arg.type_ref for typed_arg in typed_args]
         operator = expr.operator
 
-        if operator in {"=", "!="}:
-            left, right = arg_types
-            if _is_union_like(left) or _is_union_like(right):
-                raise_error(
-                    "union equality is forbidden in the pure expression core",
-                    code="pure_expr_union_equality_forbidden",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                )
-            if _is_primitive(left, "Float") or _is_primitive(right, "Float"):
-                raise_error(
-                    "float equality is forbidden in the pure expression core",
-                    code="pure_expr_float_equality_forbidden",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                )
-            if left != right or not _supports_equality(left):
-                _raise_operand_mismatch(
-                    expr=expr,
-                    message=f"operator `{operator}` requires equal comparable operand types",
-                )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
 
         if operator in {"<", "<=", ">", ">="}:
             left, right = arg_types

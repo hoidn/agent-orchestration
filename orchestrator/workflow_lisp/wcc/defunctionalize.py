@@ -46,6 +46,7 @@ from ..expressions import (
     RecordExpr,
     ResourceTransitionExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
 )
 from ..phase_stdlib import ProduceOneOfProducerSpec
 from ..prompts import PromptApplicationExpr
@@ -1440,6 +1441,7 @@ def _origin_key_for_step(
         ).origin_key
     return f"{context.workflow_name}::step_id::{step_id}"
 
+_ACTIVE_VARIANT_PROOFS_KEY = "__active_variant_proofs__"
 
 def _collect_restore_match_descriptors(
     *,
@@ -1515,8 +1517,39 @@ def _collect_restore_match_descriptors(
         )
         seen_proof_sources.add(source_step_id)
 
-    return tuple(binding_descriptors), tuple(proof_descriptors)
+    active_proofs = local_values.get(_ACTIVE_VARIANT_PROOFS_KEY)
+    if isinstance(active_proofs, tuple):
+        for triple in active_proofs:
+            binding_name, union_name, variant_name = triple
+            producer_step_name = _local_value_source_step_name(local_values.get(binding_name))
+            if not isinstance(producer_step_name, str) or not producer_step_name:
+                continue
+            source_step_id = lowering_core._normalize_generated_step_id(producer_step_name)
+            proof_id = f"proof:{context.workflow_name}:{source_step_id}:predicate:{variant_name}"
+            if proof_id in seen_proof_sources:
+                continue
+            proof_descriptors.append(
+                {
+                    "proof_id": proof_id,
+                    "proof_kind": "predicate",
+                    "subject_binding": binding_name,
+                    "union_type": union_name,
+                    "variant": variant_name,
+                    "variant_name": variant_name,
+                    "producer_step_name": producer_step_name,
+                    "proof_source": source_step_id,
+                    "source_step_name": producer_step_name,
+                    "source_step_id": source_step_id,
+                    "source_map_origin_key": _origin_key_for_step(
+                        context=context,
+                        step_name=producer_step_name,
+                        step_id=source_step_id,
+                    ),
+                }
+            )
+            seen_proof_sources.add(proof_id)
 
+    return tuple(binding_descriptors), tuple(proof_descriptors)
 
 def _binding_restore_value_document(local_value: Any) -> Any | None:
     if isinstance(local_value, ProjectedPathRef):
@@ -2744,6 +2777,18 @@ def _context_with_wcc_phase_scope(
     return _copy_context_with_phase_scope(context, resolved_phase_scope)
 
 
+def _requires_variant_guard(
+    *,
+    producer_step_name: str,
+    required_variant: str,
+) -> dict[str, str]:
+    """Build the existing runtime ``requires_variant`` contract."""
+    return {
+        "step": producer_step_name,
+        "value": required_variant,
+    }
+
+
 def _guard_hoisted_case_steps(
     steps: list[dict[str, Any]],
     *,
@@ -2759,10 +2804,10 @@ def _guard_hoisted_case_steps(
             "right": required_variant,
         }
     }
-    outer_requires_variant = {
-        "step": producer_step_name,
-        "value": required_variant,
-    }
+    outer_requires_variant = _requires_variant_guard(
+        producer_step_name=producer_step_name,
+        required_variant=required_variant,
+    )
     guarded_steps: list[dict[str, Any]] = []
     for step in steps:
         guarded_step = dict(step)
@@ -2777,6 +2822,132 @@ def _guard_hoisted_case_steps(
             guarded_step.setdefault("requires_variant", outer_requires_variant)
         guarded_steps.append(guarded_step)
     return guarded_steps
+
+def _render_discriminant_condition(
+    condition_expr,
+    *,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Render a discriminant comparison predicate, or ``None``.
+
+    Recognizes ``(= x.variant TAG)`` and ``(!= x.variant TAG)`` where ``TAG`` is
+    a compiler-owned ``UnionVariantTagExpr`` and resolves the discriminant to
+    the producer's ``variant`` artifact ref.
+    """
+    if not isinstance(condition_expr, PureOpExpr) or condition_expr.operator not in ("=", "!="):
+        return None
+    left, right = condition_expr.args
+    if (
+        isinstance(left, UnionVariantTagExpr)
+        and isinstance(right, FieldAccessExpr)
+        and right.fields == ("variant",)
+    ):
+        tag, variant_access = left, right
+    elif (
+        isinstance(right, UnionVariantTagExpr)
+        and isinstance(left, FieldAccessExpr)
+        and left.fields == ("variant",)
+    ):
+        tag, variant_access = right, left
+    else:
+        return None
+    variant_ref = _resolve_inline_expr_value(variant_access, local_values=local_values)
+    if not isinstance(variant_ref, str):
+        return None
+    return {
+        "compare": {
+            "left": {"ref": variant_ref},
+            "op": "eq" if condition_expr.operator == "=" else "ne",
+            "right": tag.variant_name,
+        }
+    }
+
+
+def _variant_field_names(
+    context: _LoweringContext,
+    *,
+    union_name: str,
+    variant_name: str,
+    span,
+    form_path: tuple[str, ...],
+) -> tuple[str, ...]:
+    union_type = context.type_env.resolve_type(union_name, span=span, form_path=form_path)
+    if not isinstance(union_type, UnionTypeRef):
+        return ()
+    variant_type = context.type_env.union_variant(
+        union_type,
+        variant_name,
+        span=span,
+        form_path=form_path,
+    )
+    return tuple(field.name for field in variant_type.definition.fields)
+
+
+def _step_references_any_prefix(value: Any, prefixes: tuple[str, ...]) -> bool:
+    if isinstance(value, str):
+        return any(prefix in value for prefix in prefixes)
+    if isinstance(value, (list, tuple)):
+        return any(_step_references_any_prefix(item, prefixes) for item in value)
+    if isinstance(value, Mapping):
+        return any(_step_references_any_prefix(item, prefixes) for item in value.values())
+    return False
+
+
+def _attach_branch_proof_guards(
+    steps: list[dict[str, Any]],
+    *,
+    proof_context: tuple[object, ...],
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    span,
+    form_path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Attach ``requires_variant`` to the first consumer of each narrowed field."""
+    if not proof_context:
+        return steps
+    guarded = [dict(step) for step in steps]
+    for triple in proof_context:
+        binding_name, union_name, variant_name = triple
+        producer_step_name = _local_value_source_step_name(local_values.get(binding_name))
+        if not isinstance(producer_step_name, str):
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="variant_guard_producer_missing",
+                        message=(
+                            f"variant proof for `{binding_name}` could not resolve "
+                            "a producer step identity"
+                        ),
+                        span=span,
+                        form_path=form_path,
+                        phase="lowering",
+                    ),
+                )
+            )
+        field_names = _variant_field_names(
+            context,
+            union_name=union_name,
+            variant_name=variant_name,
+            span=span,
+            form_path=form_path,
+        )
+        guard = _requires_variant_guard(
+            producer_step_name=producer_step_name,
+            required_variant=variant_name,
+        )
+        prefixes = tuple(
+            f"{scope}steps.{producer_step_name}.artifacts.{field_name}"
+            for scope in ("root.", "self.", "parent.")
+            for field_name in field_names
+        )
+        if not prefixes:
+            continue
+        for step in guarded:
+            if _step_references_any_prefix(step, prefixes):
+                step.setdefault("requires_variant", guard)
+                break
+    return guarded
+
 
 
 _STRUCTURED_CONTROL_CASE_STEP_KEYS = frozenset({"if"})
@@ -3062,6 +3233,13 @@ def _defunctionalize_if(
     step_id = lowering_core._normalize_generated_step_id(step_name)
     condition_steps: list[dict[str, Any]] = []
     condition_expr = _frontend_expr_from_wcc_value(body.condition)
+    condition_shape = body.condition_shape
+    discriminant_condition = None
+    if isinstance(condition_shape, PureExprCondition):
+        discriminant_condition = _render_discriminant_condition(
+            condition_shape.expr,
+            local_values=local_values,
+        )
     resolved_condition_expr = _resolve_inline_expr_value(
         condition_expr,
         local_values=local_values,
@@ -3079,7 +3257,9 @@ def _defunctionalize_if(
         )
         else None
     )
-    if pure_condition_expr is not None:
+    if discriminant_condition is not None:
+        condition = discriminant_condition
+    elif pure_condition_expr is not None:
         static_condition = try_evaluate_static_pure_expr(
             pure_condition_expr,
             result_type=PrimitiveTypeRef(name="Bool"),
@@ -3130,10 +3310,20 @@ def _defunctionalize_if(
     )
     then_step_name = f"{step_name}__then"
     else_step_name = f"{step_name}__else"
+    then_local_values = (
+        {**dict(local_values), _ACTIVE_VARIANT_PROOFS_KEY: body.then_proof_context}
+        if body.then_proof_context
+        else local_values
+    )
+    else_local_values = (
+        {**dict(local_values), _ACTIVE_VARIANT_PROOFS_KEY: body.else_proof_context}
+        if body.else_proof_context
+        else local_values
+    )
     then_steps, then_terminal = _defunctionalize_body(
         body.then_body,
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=then_step_name),
-        local_values=local_values,
+        local_values=then_local_values,
         scope_analysis=scope_analysis,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
@@ -3145,7 +3335,7 @@ def _defunctionalize_if(
     else_steps, else_terminal = _defunctionalize_body(
         body.else_body,
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
-        local_values=local_values,
+        local_values=else_local_values,
         scope_analysis=scope_analysis,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
@@ -3188,6 +3378,22 @@ def _defunctionalize_if(
                 span=body.else_body.metadata.source_span,
             )
         ]
+    then_steps = _attach_branch_proof_guards(
+        then_steps,
+        proof_context=body.then_proof_context,
+        context=context,
+        local_values=local_values,
+        span=body.then_body.metadata.source_span,
+        form_path=body.then_body.metadata.form_path,
+    )
+    else_steps = _attach_branch_proof_guards(
+        else_steps,
+        proof_context=body.else_proof_context,
+        context=context,
+        local_values=local_values,
+        span=body.else_body.metadata.source_span,
+        form_path=body.else_body.metadata.form_path,
+    )
     step_origin = LoweringOrigin(
         span=body.metadata.source_span,
         form_path=body.metadata.form_path,

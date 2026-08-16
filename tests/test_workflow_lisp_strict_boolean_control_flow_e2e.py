@@ -1017,3 +1017,177 @@ def test_loop_match_selected_arm_consumes_binding(tmp_path: Path) -> None:
     assert _marker_files(tmp_path, "must_not_run") == []
     assert len(_marker_files(tmp_path, "yes")) == 1
     assert _marker_files(tmp_path, "no") == []
+
+
+def _variant_proof_module(module_name: str) -> str:
+    """The shared provider-produced union narrowing workflow source."""
+
+    return "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            f"  (defmodule {module_name})",
+            "  (export gate)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion ImplementationState",
+            "    (COMPLETED (execution_report WorkReport))",
+            "    (BLOCKED (progress_report WorkReport)))",
+            "  (defworkflow gate () -> Bool",
+            "    (let* ((attempt",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.execute",
+            "               :inputs ()",
+            "               :returns ImplementationState)))",
+            "      (if (= attempt.variant COMPLETED)",
+            "          (command-result send",
+            '            :argv ("python" "scripts/send.py" attempt.execution_report)',
+            "            :returns Bool)",
+            "          (command-result skip",
+            '            :argv ("python" "scripts/skip.py")',
+            "            :returns Bool)))))",
+        ]
+    )
+
+
+def _variant_proof_workspace(tmp_path: Path, module_name: str) -> Path:
+    (tmp_path / "prompts").mkdir(exist_ok=True)
+    (tmp_path / "prompts" / "execute.md").write_text("Produce.\n", encoding="utf-8")
+    (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text(
+        "# report\n", encoding="utf-8"
+    )
+    module_path = tmp_path / f"{module_name}.orc"
+    module_path.write_text(_variant_proof_module(module_name), encoding="utf-8")
+    return module_path
+
+
+def _variant_proof_compile_and_bind(
+    workspace: Path,
+    module_path: Path,
+    *,
+    run_id: str,
+    send_binding: ExternalToolBinding,
+):
+    return _compile_and_bind(
+        workspace,
+        module_path,
+        run_id=run_id,
+        command_boundaries={
+            "send": send_binding,
+            "skip": _command(workspace, "skip", "false"),
+        },
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={"prompts.execute": {"input_file": "prompts/execute.md"}},
+    )
+
+
+def test_proof_guard_consuming_leaf_carries_requires_variant(tmp_path: Path) -> None:
+    """A provider union narrowed by `=` attaches ``requires_variant`` to its
+    first consuming leaf."""
+
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    module_path = _variant_proof_workspace(tmp_path, "proof_guard")
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.execute": "prompts/execute.md"},
+        command_boundaries={
+            "send": ExternalToolBinding(
+                name="send", stable_command=("python", "scripts/send.py")
+            ),
+            "skip": ExternalToolBinding(
+                name="skip", stable_command=("python", "scripts/skip.py")
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    steps = result.lowered_workflows[0].authored_mapping["steps"]
+    if_step = next(step for step in steps if "if" in step)
+    send_step = next(
+        step for step in if_step["then"]["steps"] if step.get("name", "").endswith("__send")
+    )
+    assert send_step["requires_variant"] == {"step": "gate__attempt", "value": "COMPLETED"}
+    assert "when" not in send_step
+
+
+def _predicate_proof_descriptors(bundle, state_manager, tmp_path: Path) -> list[dict]:
+    from tests.test_workflow_lisp_lexical_checkpoint_restore import (
+        _checkpoint_point_by_step_suffix,
+        _latest_checkpoint_record,
+    )
+
+    send_point = _checkpoint_point_by_step_suffix(bundle, "__then__send")
+    record = _latest_checkpoint_record(
+        tmp_path=tmp_path, state_manager=state_manager, point=send_point
+    )
+    return [
+        proof
+        for proof in record["restore_payload"]["active_variant_proofs"]
+        if proof.get("proof_kind") == "predicate"
+    ]
+
+
+def test_contradiction_mutated_discriminant_fails_closed(tmp_path: Path) -> None:
+    """A singleton predicate proof revalidates the producer discriminant."""
+
+    module_path = _variant_proof_workspace(tmp_path, "contradiction")
+    counter: list = []
+    bundle, state_manager = _variant_proof_compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="contradiction",
+        send_binding=_failing_command(tmp_path, "send"),
+    )
+    document = '{"variant": "COMPLETED", "execution_report": "artifacts/work/execution_report.md"}'
+    p1, p2 = _provider_patches(tmp_path, document, counter)
+    with p1, p2:
+        first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert first["status"] == "failed"
+    proofs = _predicate_proof_descriptors(bundle, state_manager, tmp_path)
+    assert [proof["variant"] for proof in proofs] == ["COMPLETED"]
+    assert all(proof["producer_step_name"].endswith("__attempt") for proof in proofs)
+    assert all(proof["subject_binding"] == "attempt" for proof in proofs)
+
+
+def test_proof_resume_restores_variant_proof_descriptor(tmp_path: Path) -> None:
+    """Resume inside the branch restores a proof descriptor binding producer
+    and variant."""
+
+    module_path = _variant_proof_workspace(tmp_path, "proof_resume")
+    counter: list = []
+    bundle, state_manager = _variant_proof_compile_and_bind(
+        tmp_path,
+        module_path,
+        run_id="proof_resume",
+        send_binding=_failing_command(tmp_path, "send"),
+    )
+    document = '{"variant": "COMPLETED", "execution_report": "artifacts/work/execution_report.md"}'
+    p1, p2 = _provider_patches(tmp_path, document, counter)
+    with p1, p2:
+        first = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    assert first["status"] == "failed"
+    assert len(counter) == 1
+    proofs = _predicate_proof_descriptors(bundle, state_manager, tmp_path)
+    assert [proof["variant"] for proof in proofs] == ["COMPLETED"]
+    assert all(proof["producer_step_name"].endswith("__attempt") for proof in proofs)
+
+    with p1, p2:
+        resumed = WorkflowExecutor(
+            bundle, tmp_path, _resume_manager(tmp_path, "proof_resume"), retry_delay_ms=0
+        ).execute(resume=True)
+
+    assert resumed["status"] == "failed"
+    assert len(counter) == 1

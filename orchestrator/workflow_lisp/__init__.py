@@ -91,7 +91,14 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
 )
-from .typecheck import ProofFact, ProofScope, TypedExpr, ValueEnvironment, typecheck_expression
+from .typecheck import (
+    BindingIdentity,
+    PossibleVariants,
+    ProofScope,
+    TypedExpr,
+    ValueEnvironment,
+    typecheck_expression,
+)
 from .validation import (
     VALIDATION_PASS_CATALOG,
     ValidationPassResult,
@@ -178,8 +185,9 @@ __all__ = [
     "PublishEffect",
     "ProviderExtern",
     "ProviderResultExpr",
-    "ProofFact",
+    "BindingIdentity",
     "ProofScope",
+    "PossibleVariants",
     "ReadEffect",
     "RecordDef",
     "RecordExpr",

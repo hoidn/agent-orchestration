@@ -69,6 +69,7 @@ class TypecheckContext:
 
     type_env: object
     value_env: ValueEnvironment
+    binding_env: Mapping[str, object]
     proof_scope: object
     workflow_catalog: object | None
     procedure_catalog: object | None

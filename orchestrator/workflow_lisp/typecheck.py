@@ -28,13 +28,14 @@ from .typecheck_effects import (
     validate_semantic_command_adapter_usage as _validate_semantic_command_adapter_usage,
 )
 from .typecheck_proofs import (
-    ProofFact,
+    BindingIdentity,
+    PossibleVariants,
     ProofScope,
     resolve_field_access as _resolve_field_access,
 )
-
 __all__ = [
-    "ProofFact",
+    "BindingIdentity",
+    "PossibleVariants",
     "ProofScope",
     "TypedExpr",
     "ValueEnvironment",

@@ -116,6 +116,26 @@ class EnumMemberExpr:
         return f"{self.enum_name}.{self.member_name}"
 
 
+
+@dataclass(frozen=True)
+class UnionVariantTagExpr:
+    """Compiler-owned literal for one contextual union-variant tag.
+
+    Produced when equality typing resolves an otherwise-unbound identifier
+    against a union discriminant (``(= attempt.variant COMPLETED)``). It is not
+    source-nameable: the identifier is rewritten to this node only inside a
+    discriminant comparison. ``union_name`` preserves the owning union identity
+    and ``variant_names`` the full declared variant set so proof analysis can
+    infer a remaining singleton after exclusion.
+    """
+
+    union_name: str
+    variant_name: str
+    variant_names: tuple[str, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
 @dataclass(frozen=True)
 class FieldAccessExpr:
     """One dotted field-access chain rooted at a lexical name."""
@@ -289,6 +309,11 @@ class IfExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Private branch proof facts keyed by binding identity, carried to WCC for
+    # runtime `requires_variant` guards. Excluded from source-level equality:
+    # two structurally identical `if` forms remain equal regardless of proof.
+    true_proof_context: object = field(default=None, compare=False, repr=False)
+    false_proof_context: object = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -881,7 +906,7 @@ ExprNode = (
     NameExpr
     | LiteralExpr
     | EnumMemberExpr
-    | FieldAccessExpr
+    | UnionVariantTagExpr
     | RecordExpr
     | PureOpExpr
     | ListExpr
