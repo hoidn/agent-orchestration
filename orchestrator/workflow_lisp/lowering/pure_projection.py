@@ -593,19 +593,23 @@ def _payload_expr(
             "value": expr.member_name,
         }, type_ref
     if isinstance(expr, FieldAccessExpr):
-        base_expr: Any = expr.base
         if expr.base.name in lexical_bindings:
-            base_expr = lexical_bindings[expr.base.name]
-            for field_name in expr.fields:
-                base_expr = FieldAccessExpr(
-                    base=base_expr if isinstance(base_expr, NameExpr) else _name_expr(expr.base.name, expr),
-                    fields=(field_name,) if isinstance(base_expr, NameExpr) else (field_name,),
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=getattr(expr, "expansion_stack", ()),
+            bound = lexical_bindings[expr.base.name]
+            if bound is _LEXICAL_LOCAL_BINDING:
+                base_node: Any = {"kind": "binding", "name": expr.base.name}
+                base_type = lexical_types[expr.base.name]
+            else:
+                base_node, base_type = _payload_expr(
+                    bound,
+                    context=context,
+                    local_values=local_values,
+                    lexical_bindings=lexical_bindings,
+                    lexical_types=lexical_types,
+                    bindings=bindings,
+                    binding_refs=binding_refs,
                 )
-        if not isinstance(base_expr, FieldAccessExpr):
-            base_node, _ = _payload_expr(
+        else:
+            base_node, base_type = _payload_expr(
                 expr.base,
                 context=context,
                 local_values=local_values,
@@ -614,23 +618,16 @@ def _payload_expr(
                 bindings=bindings,
                 binding_refs=binding_refs,
             )
-        else:
-            base_node, _ = _payload_expr(
-                base_expr,
-                context=context,
-                local_values=local_values,
-                lexical_bindings=lexical_bindings,
-                lexical_types=lexical_types,
-                bindings=bindings,
-                binding_refs=binding_refs,
-            )
         node = base_node
-        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
-        base_type = _infer_expr_type(expr.base, context=context, lexical_types=lexical_types)
+        type_ref = _infer_expr_type(
+            expr, context=context, lexical_types=lexical_types
+        )
         current_type = base_type
         for field_name in expr.fields:
             node = {"kind": "field_access", "base": node, "field": field_name}
-            current_type = _field_type(current_type, field_name, type_env=context.type_env)
+            current_type = _field_type(
+                current_type, field_name, type_env=context.type_env
+            )
         return node, type_ref
     if isinstance(expr, RecordExpr):
         type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
@@ -1304,11 +1301,3 @@ def _raise_pure_expr_error(
         )
     )
 
-
-def _name_expr(name: str, source_expr: Any) -> NameExpr:
-    return NameExpr(
-        name=name,
-        span=source_expr.span,
-        form_path=source_expr.form_path,
-        expansion_stack=getattr(source_expr, "expansion_stack", ()),
-    )

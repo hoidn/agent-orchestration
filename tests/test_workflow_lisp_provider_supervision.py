@@ -5116,6 +5116,52 @@ def test_closed_member_opaque_list_record_field_chain_retains_binding(
     ) == 0
 
 
+def test_closed_member_opaque_list_conditional_record_field(
+    tmp_path: Path,
+) -> None:
+    """An opaque list field on a post-provider conditional record retains its binding."""
+
+    source = _module_source(
+        "2.26",
+        "(defrecord Payload (flag Bool))",
+        (
+            "(defworkflow orchestrate () -> List[Bool] "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String)) "
+            "(chosen (if (= raw \"ready\") "
+            "(record Payload :flag true) "
+            "(record Payload :flag false)))) "
+            "(list chosen.flag))) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 :returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == [True]
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == [False]
+
+
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
