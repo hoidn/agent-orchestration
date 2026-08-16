@@ -40,6 +40,7 @@ from orchestrator.providers.interactive_terminal import (
 from orchestrator.workflow_lisp.wcc import defunctionalize as defunctionalize_module
 from orchestrator.providers.types import (
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+    extract_provider_command_placeholders,
 )
 from orchestrator.workflow.executable_ir import (
     PROVIDER_PEER_GROUP_MESSAGING_POLICY,
@@ -101,6 +102,17 @@ _PUBLIC_FIXTURE_FILES = (
     "real_adapter_prompt.md",
 )
 _PUBLIC_MESSAGE = "Review this literal 🌍 payload.\nSecond line: Ω"
+
+
+def _invocation_prompt_token(invocation: InteractiveMemberInvocation) -> str:
+    """Return the exact prompt-bearing token of one prepared invocation."""
+
+    prompt_token_index = next(
+        index
+        for index, token in enumerate(invocation.support.command)
+        if "PROMPT" in extract_provider_command_placeholders(token)
+    )
+    return invocation.resolved_command[prompt_token_index]
 
 
 def _peer_group_source() -> str:
@@ -941,6 +953,7 @@ class _ControlledPeerHarness:
     resolved_commands: dict[str, list[tuple[str, ...]]] = field(
         default_factory=dict
     )
+    prompt_tokens: dict[str, list[str]] = field(default_factory=dict)
     endpoint_paths: set[Path] = field(default_factory=set)
 
     def create_adapter(
@@ -981,6 +994,9 @@ class _ControlledPeerAdapter:
         )
         self.harness.resolved_commands.setdefault(self.member_id, []).append(
             invocation.resolved_command
+        )
+        self.harness.prompt_tokens.setdefault(self.member_id, []).append(
+            _invocation_prompt_token(invocation)
         )
         self.harness.endpoint_paths.add(endpoint_path)
         if (
@@ -1582,10 +1598,13 @@ def test_pre_provider_input_peer_downstream_failure_resume_reuses_projection(
     ).execute(resume=True)
     assert resumed["status"] == "failed"
     # No repeated prelude work: the projection's visit count is unchanged and
-    # its durable value is replayed rather than re-computed.
+    # its durable value is replayed rather than re-computed. The on-demand
+    # replay that supplies the provider prompt leaves the persisted value-free
+    # shell intact, so the replay marker is read from the durable state.
     assert resumed["steps"][projection_name]["visit_count"] == 1
+    persisted = _resume_manager(tmp_path, "peer_downstream_fail").state
     assert (
-        resumed["steps"][projection_name]["result_storage"]
+        persisted.steps[projection_name]["result_storage"]
         == "derived_pure_replay.v1"
     )
     (peer_name,) = [
@@ -1595,8 +1614,14 @@ def test_pre_provider_input_peer_downstream_failure_resume_reuses_projection(
 
     # The planner received a fresh provider invocation on the resumed attempt,
     # captured in order after the initial attempt.
-    planner_commands = harness.resolved_commands["planner"]
-    assert len(planner_commands) == 2
+    # The selected canonical Boolean value reaches the provider-visible prompt
+    # on both the initial and resumed attempts. Both delivered values are the
+    # same canonical `true`; only the output-contract visit path differs.
+    planner_prompts = harness.prompt_tokens["planner"]
+    assert len(planner_prompts) == 2
+    typed_block = "## Typed Prompt Input: flag\ntrue"
+    assert typed_block in planner_prompts[0]
+    assert typed_block in planner_prompts[1]
 
 
 def _resume_manager(workspace: Path, run_id: str) -> StateManager:
@@ -1655,31 +1680,11 @@ def test_pre_provider_input_peer_provider_receives_selected_value(
     state = executor.execute(on_error="stop")
     assert state["status"] == "completed"
 
-    # The controlled adapter observed the planner's provider invocation, in
-    # order. The selected value is proven below via the same typed-binding
-    # resolution the runtime composition performs for this attempt.
+    # The controlled adapter observed the planner's provider invocation at the
+    # actual prepared provider boundary. The selected canonical Boolean value
+    # reaches the provider-visible prompt directly, not through resolver replay.
     planner_commands = harness.resolved_commands["planner"]
     assert len(planner_commands) == 1
     assert planner_commands[0]
-
-    # Resolve the planner's typed input against the real run state: the
-    # selected projected value reaches the perform's typed binding.
-    peer_node = next(
-        node
-        for node in bundle.ir.nodes.values()
-        if node.kind is ExecutableNodeKind.PROVIDER_PEER_GROUP
-    )
-    planner = next(
-        member
-        for member in peer_node.execution_config.members
-        if member.member_id == "planner"
-    )
-    (typed_input,) = planner.provider_config.typed_prompt_inputs
-    binding = dict(typed_input["value_source"]["binding"])
-    resolved_value, resolve_error = executor._resolve_typed_prompt_input_value(
-        binding,
-        state,
-        scope=None,
-    )
-    assert resolve_error is None
-    assert resolved_value is True
+    (planner_prompt,) = harness.prompt_tokens["planner"]
+    assert "## Typed Prompt Input: flag\ntrue" in planner_prompt

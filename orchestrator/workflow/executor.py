@@ -10175,7 +10175,72 @@ class WorkflowExecutor:
 
         resolved_consumes = state.get('_resolved_consumes', {})
 
+        typed_prompt_inputs = step.get('typed_prompt_inputs')
+        resolved_typed_values: dict[str, Any] = {}
+        if isinstance(typed_prompt_inputs, (list, tuple)) and typed_prompt_inputs:
+            for typed_prompt_input in typed_prompt_inputs:
+                if not isinstance(typed_prompt_input, dict):
+                    return None, self._contract_violation_result(
+                        'Provider prompt composition failed',
+                        {'reason': 'typed_prompt_input_invalid'},
+                    ), None
+                value_source = typed_prompt_input.get('value_source')
+                if not isinstance(value_source, dict):
+                    return None, self._contract_violation_result(
+                        'Provider prompt composition failed',
+                        {'reason': 'typed_prompt_input_invalid'},
+                    ), None
+                binding_value = value_source.get('binding')
+                if binding_value is None and isinstance(
+                    value_source.get('ref'), str
+                ):
+                    binding_value = {'ref': value_source['ref']}
+                if binding_value is None and isinstance(
+                    value_source.get('binding_ref'), str
+                ):
+                    binding_value = {'ref': value_source['binding_ref']}
+                if binding_value is None:
+                    return None, self._contract_violation_result(
+                        'Provider prompt composition failed',
+                        {'reason': 'typed_prompt_input_invalid'},
+                    ), None
+                resolved_value, resolve_error = (
+                    self._resolve_typed_prompt_input_value(
+                        binding_value,
+                        state,
+                        scope=None,
+                    )
+                )
+                if resolve_error is not None:
+                    return None, self._contract_violation_result(
+                        'Provider prompt composition failed',
+                        {
+                            'reason': 'typed_prompt_input_value_unavailable',
+                            'binding_name': typed_prompt_input.get(
+                                'binding_name'
+                            ),
+                        },
+                    ), None
+                binding_name = typed_prompt_input.get('binding_name')
+                if not isinstance(binding_name, str) or not binding_name:
+                    return None, self._contract_violation_result(
+                        'Provider prompt composition failed',
+                        {'reason': 'typed_prompt_input_invalid'},
+                    ), None
+                resolved_typed_values[binding_name] = resolved_value
+
         def finish(candidate_prompt: str) -> str:
+            if resolved_typed_values:
+                candidate_prompt, _typed_evidence = (
+                    composer.apply_typed_prompt_input_injection(
+                        step,
+                        candidate_prompt,
+                        typed_prompt_inputs=typed_prompt_inputs,
+                        resolved_typed_values=resolved_typed_values,
+                        workflow_name=self.workflow_name or '',
+                        step_id=runtime_step_id or self._step_id(step),
+                    )
+                )
             candidate_prompt = composer.apply_consumes_prompt_injection(
                 step,
                 candidate_prompt,
