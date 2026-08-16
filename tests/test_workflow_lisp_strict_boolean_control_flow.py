@@ -2060,6 +2060,39 @@ _TWO_UNION_MODULE = "\n".join(
     ]
 )
 
+_SHADOWED_ATTEMPT_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule shadowed_attempt_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defunion ReviewOutcome",
+        "    (APPROVED (approval_report WorkReport))",
+        "    (REJECTED (rejection_report WorkReport)))",
+        "  (defworkflow gate ((ready Bool) (report WorkReport)) -> Bool",
+        "    (let* ((review (variant ReviewOutcome APPROVED :approval_report report))",
+        "           (attempt",
+        "             (variant ImplementationState COMPLETED :execution_report report)))",
+        "      (if (= attempt.variant COMPLETED)",
+        "          (let* ((attempt review))",
+        "            (if ready",
+        "                (command-result send",
+        '                  :argv ("python" "scripts/send.py")',
+        "                  :returns Bool)",
+        "                (command-result skip",
+        '                  :argv ("python" "scripts/skip.py")',
+        "                  :returns Bool)))",
+        "          (command-result skip",
+        '            :argv ("python" "scripts/skip.py")',
+        "            :returns Bool)))))",
+    ]
+)
+
 
 def _compile_variant_proof_module(
     tmp_path: Path,
@@ -2126,3 +2159,10 @@ def test_strict_two_union_shared_consumer_raises(tmp_path: Path) -> None:
             },
         )
     assert excinfo.value.diagnostics[0].code == "variant_guard_consumer_conflict"
+
+
+def test_strict_shadowed_union_binding_stale_proof_skipped(tmp_path: Path) -> None:
+    """A shadowed union binding ignores a stale outer-identity singleton fact."""
+
+    result = _compile_variant_proof_module(tmp_path, _SHADOWED_ATTEMPT_MODULE)
+    assert result.lowered_workflows

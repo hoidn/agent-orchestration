@@ -3350,15 +3350,20 @@ def _branch_proof_narrowing(
         union_name = getattr(possible, "union_name", "")
         if not binding_name:
             continue
-        triples.append((binding_name, union_name, variant_name))
         current = narrowed.get(binding_name)
-        if isinstance(current, UnionTypeRef):
-            narrowed[binding_name] = type_env.union_variant(
-                current,
-                variant_name,
-                span=span,
-                form_path=form_path,
-            )
+        if not isinstance(current, UnionTypeRef) or current.name != union_name:
+            # The fact belongs to a shadowed outer binding identity; the
+            # binding now in scope is a different union. Applying it would
+            # either raise ``union_variant_unknown`` or silently narrow the
+            # wrong union, so emit no guard/descriptor triple for it.
+            continue
+        triples.append((binding_name, union_name, variant_name))
+        narrowed[binding_name] = type_env.union_variant(
+            current,
+            variant_name,
+            span=span,
+            form_path=form_path,
+        )
     return tuple(triples), narrowed
 
 
@@ -5282,6 +5287,7 @@ def _infer_expr_type(
                 field_name,
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         return current
     if isinstance(expr, RecordExpr):
