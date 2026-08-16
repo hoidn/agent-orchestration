@@ -5083,14 +5083,15 @@ def _pure_wcc_body_expr(
     env: Mapping[str, object],
 ) -> object:
     resolved = dict(env)
+    collapsed: dict[str, object] = {}
     current = body
     while isinstance(current, WccLet):
-        resolved[current.bound_name] = (
-            _frontend_expr_from_wcc_value_with_env(
-                current.bound_value,
-                resolved,
-            )
+        bound_name = current.bound_name
+        resolved[bound_name] = _frontend_expr_from_wcc_value_with_env(
+            current.bound_value,
+            resolved,
         )
+        collapsed[bound_name] = resolved[bound_name]
         current = current.body
     if not isinstance(current, WccHalt):
         raise TypeError(
@@ -5099,7 +5100,7 @@ def _pure_wcc_body_expr(
     result = _frontend_expr_from_wcc_value_with_env(current.result, resolved)
     return _wrap_free_env_owner_names(
         result,
-        resolved,
+        collapsed,
         metadata=current.result.metadata,
     )
 

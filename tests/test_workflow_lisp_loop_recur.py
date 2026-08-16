@@ -442,7 +442,7 @@ def test_loop_recur_on_exhausted_opaque_list_record_field_compiles(
                 "      :on-exhausted (let* ((payload (record Payload :flag true)))",
                 "                     (list payload.flag))",
                 "      (fn (state)",
-                "        (done (list true))))))",
+                "        (continue state))))))",
             ]
         ),
     )
