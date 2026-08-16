@@ -15,7 +15,7 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..compiler_session import LoweringSessionState
 from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..expression_traversal import iter_child_exprs, map_expr
+from ..expression_traversal import free_expr_names, iter_child_exprs, map_expr
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
@@ -3906,6 +3906,38 @@ def _record_provider_peer_group_origin(
     context.provider_peer_group_origins[owner_key] = resolved
 
 
+
+def _wrap_free_env_owner_names(
+    result,
+    env: Mapping[str, object],
+    *,
+    metadata,
+):
+    """Re-bind still-free names whose env values are non-name replacements.
+
+    Generic opaque reconstruction inlines ``NameExpr``/``FieldAccessExpr`` env
+    replacements and leaves field-access bases name-rooted; any other env
+    replacement still free in ``result`` is wrapped in one surrounding
+    ``let*`` so the owner stays bound. Bindings follow env order.
+    """
+
+    free_names = free_expr_names(result)
+    retained = [
+        name
+        for name in env
+        if name in free_names
+        and not isinstance(env[name], (NameExpr, FieldAccessExpr))
+    ]
+    if not retained:
+        return result
+    return LetStarExpr(
+        bindings=tuple((name, cast(ExprNode, env[name])) for name in retained),
+        body=cast(ExprNode, result),
+        span=metadata.source_span,
+        form_path=metadata.form_path,
+        expansion_stack=metadata.expansion_stack,
+    )
+
 def _provider_peer_group_member_projection(
     member: WccProviderPeerGroupMember,
 ) -> tuple[WccPerform, Mapping[str, object], object, tuple[tuple[str, IfExpr, TypeRef], ...]]:
@@ -3971,10 +4003,16 @@ def _provider_peer_group_member_projection(
                 "provider projection"
             ),
         )
+    result = _frontend_expr_from_wcc_value_with_env(current.result, env)
+    result = _wrap_free_env_owner_names(
+        result,
+        env,
+        metadata=current.result.metadata,
+    )
     return (
         provider_perform,
         provider_env,
-        _frontend_expr_from_wcc_value_with_env(current.result, env),
+        result,
         tuple(preludes),
     )
 
@@ -4165,10 +4203,16 @@ def _provider_supervision_member_projection(
                 "provider projection"
             ),
         )
+    result = _frontend_expr_from_wcc_value_with_env(current.result, env)
+    result = _wrap_free_env_owner_names(
+        result,
+        env,
+        metadata=current.result.metadata,
+    )
     return (
         provider_perform,
         provider_env,
-        _frontend_expr_from_wcc_value_with_env(current.result, env),
+        result,
         tuple(preludes),
     )
 
@@ -6512,49 +6556,11 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             expansion_stack=value.metadata.expansion_stack,
         )
     if isinstance(value, WccOpaqueFrontendValue):
-        return _frontend_opaque_value_with_env(value, env)
+        return map_expr(
+            _frontend_expr_from_wcc_value(value),
+            lambda node: env.get(node.name, node),
+        )
     return _frontend_expr_from_wcc_value(value)
-
-
-def _frontend_opaque_value_with_env(
-    value: WccOpaqueFrontendValue,
-    env: Mapping[str, object],
-):
-    """Reconstruct one opaque frontend value against the member/local env.
-
-    ``NameExpr`` and ``FieldAccessExpr`` env replacements are inlined (or
-    flattened) directly. Any other replacement (a compile-time record, union,
-    conditional, etc.) is retained as a surrounding ``let*`` binding and left
-    name-rooted in the opaque body, so a field access on such a name keeps its
-    ``NameExpr`` base while the owner stays bound. Retained bindings deduplicate
-    by name in first-use order; env values here are pure, so no effect is
-    duplicated.
-    """
-
-    reconstructed = _frontend_expr_from_wcc_value(value)
-    retained: dict[str, object] = {}
-
-    def on_name(node: NameExpr):
-        replacement = env.get(node.name)
-        if replacement is None:
-            return node
-        if isinstance(replacement, (NameExpr, FieldAccessExpr)):
-            return replacement
-        retained.setdefault(node.name, replacement)
-        return node
-
-    rewritten = map_expr(reconstructed, on_name)
-    if not retained:
-        return rewritten
-    return LetStarExpr(
-        bindings=tuple(
-            (name, cast(ExprNode, retained[name])) for name in retained
-        ),
-        body=cast(ExprNode, rewritten),
-        span=value.metadata.source_span,
-        form_path=value.metadata.form_path,
-        expansion_stack=value.metadata.expansion_stack,
-    )
 
 
 def _frontend_wcc_select_arm_with_env(
