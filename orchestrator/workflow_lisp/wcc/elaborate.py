@@ -122,6 +122,7 @@ from .model import (
     WccRecJoin,
     WccRecordAtom,
     WccSelect,
+    WccSelectArm,
     WccResumeOrStartPayload,
     WccRunRefPayload,
     WccTrialArmPayload,
@@ -1275,10 +1276,47 @@ def _substitute_wcc_value(
         return replace(
             value,
             condition=_substitute_wcc_value(value.condition, substitutions),
-            then_value=_substitute_wcc_value(value.then_value, substitutions),
-            else_value=_substitute_wcc_value(value.else_value, substitutions),
+            then_arm=_substitute_wcc_select_arm(value.then_arm, substitutions),
+            else_arm=_substitute_wcc_select_arm(value.else_arm, substitutions),
         )
     return value
+
+
+def _substitute_wcc_select_arm(
+    arm: WccSelectArm,
+    substitutions: Mapping[str, WccValue],
+) -> WccSelectArm:
+    """Substitute free names through one arm, respecting arm-local shadowing.
+
+    Each bound name shadows the outer substitution mapping only for the rest
+    of that arm, so a later binding or the terminal value sees the local
+    binding rather than the outer replacement.
+    """
+
+    shadowed: set[str] = set()
+    prefix: list[WccLet] = []
+    for let_node in arm.prefix:
+        active = {
+            name: value
+            for name, value in substitutions.items()
+            if name not in shadowed
+        }
+        prefix.append(
+            replace(
+                let_node,
+                bound_value=_substitute_wcc_value(let_node.bound_value, active),
+            )
+        )
+        shadowed.add(let_node.bound_name)
+    active = {
+        name: value
+        for name, value in substitutions.items()
+        if name not in shadowed
+    }
+    return WccSelectArm(
+        prefix=tuple(prefix),
+        value=_substitute_wcc_value(arm.value, active),
+    )
 
 
 def _substitute_wcc_payload(
@@ -2819,7 +2857,7 @@ def _elaborate_if_to_value(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    then_value = _elaborate_atomic_value(
+    then_prefix, then_value = _elaborate_expr_to_value(
         expr.then_expr,
         scope=scope.child_scope("select-then"),
         type_env=type_env,
@@ -2831,7 +2869,7 @@ def _elaborate_if_to_value(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    else_value = _elaborate_atomic_value(
+    else_prefix, else_value = _elaborate_expr_to_value(
         expr.else_expr,
         scope=scope.child_scope("select-else"),
         type_env=type_env,
@@ -2854,8 +2892,8 @@ def _elaborate_if_to_value(
                 expansion_stack=expr.expansion_stack,
             ),
             condition=condition,
-            then_value=then_value,
-            else_value=else_value,
+            then_arm=WccSelectArm(prefix=then_prefix, value=then_value),
+            else_arm=WccSelectArm(prefix=else_prefix, value=else_value),
         ),
     )
 

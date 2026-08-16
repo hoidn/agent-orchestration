@@ -270,13 +270,28 @@ class WccInject:
 
 
 @dataclass(frozen=True)
+class WccSelectArm:
+    """One arm of an internal pure conditional value.
+
+    ``prefix`` is the arm-local linear sequence of pure ``WccLet`` bindings
+    and ``value`` is the terminal ``WccValue``.  The two arms' terminal values
+    share the same exact static type.  A binding in one arm scopes over only
+    the rest of that arm; the retained ``WccLet.body`` links must never be
+    walked as a second semantic arm path.
+    """
+
+    prefix: tuple["WccLet", ...]
+    value: "WccValue"
+
+
+@dataclass(frozen=True)
 class WccSelect:
     """Internal pure conditional value: condition selects one of two arms."""
 
     metadata: WccNodeMetadata
     condition: "WccValue"
-    then_value: "WccValue"
-    else_value: "WccValue"
+    then_arm: WccSelectArm
+    else_arm: WccSelectArm
 
 
 WccValue = WccAtom | WccInject | WccPureOp | WccSelect

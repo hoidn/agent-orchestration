@@ -938,7 +938,9 @@ class _ControlledPeerHarness:
     )
     offered_targets: list[str] = field(default_factory=list)
     exact_bundle_bytes: dict[str, bytes] = field(default_factory=dict)
-    resolved_commands: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    resolved_commands: dict[str, list[tuple[str, ...]]] = field(
+        default_factory=dict
+    )
     endpoint_paths: set[Path] = field(default_factory=set)
 
     def create_adapter(
@@ -977,7 +979,9 @@ class _ControlledPeerAdapter:
         endpoint_path, _sender_binding = _decode_active_peer_binding(
             invocation.env
         )
-        self.harness.resolved_commands[self.member_id] = invocation.resolved_command
+        self.harness.resolved_commands.setdefault(self.member_id, []).append(
+            invocation.resolved_command
+        )
         self.harness.endpoint_paths.add(endpoint_path)
         if (
             self.harness.failure_mode == "launch"
@@ -1589,6 +1593,11 @@ def test_pre_provider_input_peer_downstream_failure_resume_reuses_projection(
     ]
     assert resumed["steps"][peer_name]["visit_count"] == 2
 
+    # The planner received a fresh provider invocation on the resumed attempt,
+    # captured in order after the initial attempt.
+    planner_commands = harness.resolved_commands["planner"]
+    assert len(planner_commands) == 2
+
 
 def _resume_manager(workspace: Path, run_id: str) -> StateManager:
     manager = StateManager(workspace=workspace, run_id=run_id)
@@ -1646,9 +1655,12 @@ def test_pre_provider_input_peer_provider_receives_selected_value(
     state = executor.execute(on_error="stop")
     assert state["status"] == "completed"
 
-    # The controlled adapter observed the planner's provider invocation.
-    planner_command = harness.resolved_commands["planner"]
-    assert planner_command
+    # The controlled adapter observed the planner's provider invocation, in
+    # order. The selected value is proven below via the same typed-binding
+    # resolution the runtime composition performs for this attempt.
+    planner_commands = harness.resolved_commands["planner"]
+    assert len(planner_commands) == 1
+    assert planner_commands[0]
 
     # Resolve the planner's typed input against the real run state: the
     # selected projected value reaches the perform's typed binding.

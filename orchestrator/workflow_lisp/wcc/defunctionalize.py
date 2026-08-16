@@ -161,6 +161,7 @@ from .model import (
     WccRecJoin,
     WccRecordAtom,
     WccSelect,
+    WccSelectArm,
     WccResumeOrStartPayload,
     WccRunRefPayload,
     WccTrialPayload,
@@ -6503,13 +6504,49 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
     if isinstance(value, WccSelect):
         return IfExpr(
             condition_expr=_frontend_expr_from_wcc_value_with_env(value.condition, env),
-            then_expr=_frontend_expr_from_wcc_value_with_env(value.then_value, env),
-            else_expr=_frontend_expr_from_wcc_value_with_env(value.else_value, env),
+            then_expr=_frontend_wcc_select_arm_with_env(value.then_arm, env),
+            else_expr=_frontend_wcc_select_arm_with_env(value.else_arm, env),
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
         )
     return _frontend_expr_from_wcc_value(value)
+
+
+def _frontend_wcc_select_arm_with_env(
+    arm: WccSelectArm,
+    env: Mapping[str, object],
+):
+    """Reconstruct one select arm, wrapping a non-empty prefix in ``LetStarExpr``."""
+
+    local_env: dict[str, object] = dict(env)
+    bindings: list[tuple[str, object]] = []
+    for let_node in arm.prefix:
+        bindings.append(
+            (
+                let_node.bound_name,
+                _frontend_expr_from_wcc_value_with_env(
+                    let_node.bound_value,
+                    local_env,
+                ),
+            )
+        )
+        local_env[let_node.bound_name] = NameExpr(
+            name=let_node.bound_name,
+            span=let_node.metadata.source_span,
+            form_path=let_node.metadata.form_path,
+            expansion_stack=let_node.metadata.expansion_stack,
+        )
+    value_expr = _frontend_expr_from_wcc_value_with_env(arm.value, local_env)
+    if not bindings:
+        return value_expr
+    return LetStarExpr(
+        bindings=tuple(bindings),
+        body=value_expr,
+        span=arm.value.metadata.source_span,
+        form_path=arm.value.metadata.form_path,
+        expansion_stack=arm.value.metadata.expansion_stack,
+    )
 
 
 def _prompt_dependency_spec_from_wcc_payload(
@@ -6825,10 +6862,32 @@ def _frontend_expr_from_wcc_value(value: WccValue):
     if isinstance(value, WccSelect):
         return IfExpr(
             condition_expr=_frontend_expr_from_wcc_value(value.condition),
-            then_expr=_frontend_expr_from_wcc_value(value.then_value),
-            else_expr=_frontend_expr_from_wcc_value(value.else_value),
+            then_expr=_frontend_wcc_select_arm(value.then_arm),
+            else_expr=_frontend_wcc_select_arm(value.else_arm),
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
         )
     raise TypeError(f"unsupported WCC value during defunctionalization: {type(value).__name__}")
+
+
+def _frontend_wcc_select_arm(arm: WccSelectArm):
+    """Reconstruct one select arm without an environment substitution."""
+
+    bindings = tuple(
+        (
+            let_node.bound_name,
+            _frontend_expr_from_wcc_value(let_node.bound_value),
+        )
+        for let_node in arm.prefix
+    )
+    value_expr = _frontend_expr_from_wcc_value(arm.value)
+    if not bindings:
+        return value_expr
+    return LetStarExpr(
+        bindings=bindings,
+        body=value_expr,
+        span=arm.value.metadata.source_span,
+        form_path=arm.value.metadata.form_path,
+        expansion_stack=arm.value.metadata.expansion_stack,
+    )

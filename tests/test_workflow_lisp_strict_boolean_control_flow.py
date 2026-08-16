@@ -1499,13 +1499,11 @@ def _module_for_target(target_dsl: str, forms: tuple[str, ...]) -> str:
     )
 
 
-def _serialized_if_diagnostic(
+def _serialized_if_diagnostic_payload(
     tmp_path: Path,
     target_dsl: str,
     forms: tuple[str, ...],
-) -> str:
-    import json
-
+) -> dict:
     path = tmp_path / "if_diagnostic.orc"
     path.write_text(_module_for_target(target_dsl, forms), encoding="utf-8")
     boundaries = {
@@ -1521,11 +1519,49 @@ def _serialized_if_diagnostic(
             validate_shared=False,
             workspace_root=tmp_path,
         )
-    return json.dumps(
-        serialize_diagnostic(excinfo.value.diagnostics[0]),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+    # The absolute source path is machine-specific; pin the remaining envelope
+    # (message, span, form path, expansion stack, phase, validation pass) to a
+    # stable committed literal.
+    payload["path"] = "if_diagnostic.orc"
+    return payload
+
+
+_EFFECTFUL_IF_DIAGNOSTIC_GOLDEN = {
+    "authority_layer": "frontend",
+    "code": "if_condition_has_effect",
+    "column": 7,
+    "diagnostic_kind": "validation",
+    "expansion_stack": [],
+    "form_path": ["workflow-lisp", "defworkflow", "invalid-if-condition-effectful"],
+    "line": 17,
+    "message": "`if` condition must be pure",
+    "notes": [],
+    "path": "if_diagnostic.orc",
+    "phase": "typecheck",
+    "severity": "error",
+    "validation_pass": "type",
+}
+
+_NONPROJECTABLE_IF_DIAGNOSTIC_GOLDEN = {
+    "authority_layer": "frontend",
+    "code": "if_condition_not_projectable",
+    "column": 9,
+    "diagnostic_kind": "validation",
+    "expansion_stack": [],
+    "form_path": [
+        "workflow-lisp",
+        "defworkflow",
+        "invalid-if-condition-not-projectable",
+    ],
+    "line": 19,
+    "message": "`if` condition must lower from a Bool literal or already-typed Bool ref",
+    "notes": [],
+    "path": "if_diagnostic.orc",
+    "phase": "read",
+    "severity": "error",
+    "validation_pass": "parse",
+}
 
 
 def test_target_225_effectful_if_diagnostic_bytes_unchanged(
@@ -1533,14 +1569,10 @@ def test_target_225_effectful_if_diagnostic_bytes_unchanged(
 ) -> None:
     """Target 2.25 keeps the pre-change effectful-`if` diagnostic byte-for-byte."""
 
-    golden = _serialized_if_diagnostic(
-        tmp_path, "2.14", _EFFECTFUL_IF_FORMS
-    )
-    current = _serialized_if_diagnostic(
+    current = _serialized_if_diagnostic_payload(
         tmp_path, "2.25", _EFFECTFUL_IF_FORMS
     )
-    assert '"if_condition_has_effect"' in current
-    assert current == golden
+    assert current == _EFFECTFUL_IF_DIAGNOSTIC_GOLDEN
 
 
 def test_target_225_nonprojectable_if_diagnostic_bytes_unchanged(
@@ -1548,14 +1580,10 @@ def test_target_225_nonprojectable_if_diagnostic_bytes_unchanged(
 ) -> None:
     """Target 2.25 keeps the pre-change nonprojectable-`if` bytes identical."""
 
-    golden = _serialized_if_diagnostic(
-        tmp_path, "2.14", _NONPROJECTABLE_IF_FORMS
-    )
-    current = _serialized_if_diagnostic(
+    current = _serialized_if_diagnostic_payload(
         tmp_path, "2.25", _NONPROJECTABLE_IF_FORMS
     )
-    assert '"if_condition_not_projectable"' in current
-    assert current == golden
+    assert current == _NONPROJECTABLE_IF_DIAGNOSTIC_GOLDEN
 
 
 def test_target_226_admits_effectful_and_nonprojectable_if(

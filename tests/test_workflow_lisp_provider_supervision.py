@@ -4884,6 +4884,53 @@ def test_closed_member_nested_post_provider_selection_no_arm_node(
     ) == "fallback"
 
 
+def test_closed_member_nested_arm_with_let_prefix_compiles(
+    tmp_path: Path,
+) -> None:
+    """A nested post-provider arm may carry a pure ``let*``-generated prefix."""
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") "accept" '
+            '(if (let* ((x true)) x) "revise" "fallback")))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    payload = dict(config.settlement_payload)
+    assert payload["expr"]["kind"] == "if"
+    assert payload["expr"]["else"]["kind"] == "if"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "ready",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "accept"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": "other",
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == "revise"
+
+
 def test_pre_provider_projection_lineage_matches_authored_selection(
     tmp_path: Path,
 ) -> None:
@@ -4920,34 +4967,67 @@ def test_pre_provider_projection_lineage_matches_authored_selection(
         for node in nodes.values()
         if node.kind is ExecutableNodeKind.PURE_PROJECTION
     )
+    supervision = next(
+        node
+        for node in nodes.values()
+        if node.kind is ExecutableNodeKind.PROVIDER_SUPERVISION
+    )
     lowered = next(
         workflow
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name == "orchestrate"
     )
-    origin = lowered.origin_map.step_spans[projection.presentation_name]
+    ownership = supervision.execution_config.source_ownership
+    supervision_origins = lowered.origin_map.provider_supervision_origins
     source_text = (tmp_path / "strict_boolean_member.orc").read_text(
         encoding="utf-8"
     )
-    owned = source_text[origin.span.start.offset : origin.span.end.offset]
-    assert owned == "(if a b false)"
-    assert origin.form_path == (
+
+    def owned_slice(origin) -> str:
+        return source_text[origin.span.start.offset : origin.span.end.offset]
+
+    # Projection origin: the authored `(if a b false)` selection.
+    projection_origin = lowered.origin_map.step_spans[projection.presentation_name]
+    assert owned_slice(projection_origin) == "(if a b false)"
+    assert projection_origin.form_path == (
         "workflow-lisp",
         "defproc",
         "branching-input-worker",
     )
-    assert origin.expansion_stack == ()
-    # The member binding is a recorded supervision owner origin.
-    member_owner = next(
-        origin
-        for key, origin in lowered.origin_map.provider_supervision_origins.items()
-        if key.startswith("wcc-node:wcc_m4:")
+    assert projection_origin.expansion_stack == ()
+    assert projection_origin.origin_key == (
+        f"orchestrate::step_id::{projection.presentation_name}"
     )
-    assert member_owner.form_path == (
+
+    # Group origin: the owning `with-live-providers` form, keyed exactly by
+    # the emitted `source_ownership.form`.
+    group_origin = supervision_origins[ownership.form]
+    assert group_origin.origin_key == ownership.form
+    assert group_origin.form_path == (
         "workflow-lisp",
         "defworkflow",
         "orchestrate",
     )
+    assert group_origin.expansion_stack == ()
+    assert owned_slice(group_origin) == (
+        "(with-live-providers ((worker (branching-input-worker a b)) "
+        "(supervisor (provider-result providers.supervisor "
+        ":prompt prompts.supervisor :inputs () "
+        ":timeout-sec 20 :returns ProviderSteeringDirective) "
+        ":observes worker)) worker)"
+    )
+
+    # Worker member origin: the authored worker binding, keyed exactly by the
+    # emitted `source_ownership.worker_binding`.
+    worker_origin = supervision_origins[ownership.worker_binding]
+    assert worker_origin.origin_key == ownership.worker_binding
+    assert worker_origin.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "orchestrate",
+    )
+    assert worker_origin.expansion_stack == ()
+    assert owned_slice(worker_origin) == "(worker (branching-input-worker a b))"
 
 
 def test_pre_provider_input_lifts_whole_selection_to_pure_projection(

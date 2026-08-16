@@ -38,6 +38,7 @@ from .model import (
     WccRecJoin,
     WccRecordAtom,
     WccSelect,
+    WccSelectArm,
 )
 
 
@@ -608,8 +609,8 @@ def _referenced_wcc_names(value: object) -> set[str]:
     if isinstance(value, WccSelect):
         return (
             _referenced_wcc_names(value.condition)
-            | _referenced_wcc_names(value.then_value)
-            | _referenced_wcc_names(value.else_value)
+            | _referenced_wcc_select_arm_names(value.then_arm)
+            | _referenced_wcc_select_arm_names(value.else_arm)
         )
     if isinstance(
         value,
@@ -648,6 +649,22 @@ def _referenced_wcc_names(value: object) -> set[str]:
         )
         return referenced
     return set()
+
+
+def _referenced_wcc_select_arm_names(arm: WccSelectArm) -> set[str]:
+    """Free names referenced by one select arm, respecting arm-local shadowing.
+
+    Names bound by the arm's own prefix scope only over the rest of that arm,
+    so they are excluded from the arm's outer free-name contribution.
+    """
+
+    referenced: set[str] = set()
+    bound: set[str] = set()
+    for let_node in arm.prefix:
+        referenced |= _referenced_wcc_names(let_node.bound_value) - bound
+        bound.add(let_node.bound_name)
+    referenced |= _referenced_wcc_names(arm.value) - bound
+    return referenced
 
 
 def _free_wcc_names_in_body(
@@ -792,7 +809,11 @@ def _disqualifying_member_control_metadata(value: object):
                 return metadata
         return None
     if isinstance(value, WccSelect):
-        for child in (value.condition, value.then_value, value.else_value):
+        for child in (
+            value.condition,
+            *_disqualifying_wcc_select_arm_children(value.then_arm),
+            *_disqualifying_wcc_select_arm_children(value.else_arm),
+        ):
             metadata = _disqualifying_member_control_metadata(child)
             if metadata is not None:
                 return metadata
@@ -810,6 +831,16 @@ def _disqualifying_member_control_metadata(value: object):
             value.operation_payload
         )
     return None
+
+
+def _disqualifying_wcc_select_arm_children(
+    arm: WccSelectArm,
+) -> tuple[object, ...]:
+    """The values an arm contributes to the disqualifying-control walk."""
+
+    return tuple(
+        let_node.bound_value for let_node in arm.prefix
+    ) + (arm.value,)
 
 
 def _disqualifying_member_control_in_payload(value: object):
