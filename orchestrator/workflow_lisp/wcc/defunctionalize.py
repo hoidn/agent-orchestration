@@ -4005,6 +4005,7 @@ def _provider_peer_group_member_projection(
                 current.bound_value,
                 env,
             )
+        current = current.body
     if (
         provider_perform is None
         or provider_env is None
@@ -4204,6 +4205,7 @@ def _provider_supervision_member_projection(
                 current.bound_value,
                 env,
             )
+        current = current.body
     if (
         provider_perform is None
         or provider_env is None
