@@ -12,12 +12,15 @@ import orchestrator.workflow_lisp.macros as workflow_lisp_macros
 import orchestrator.workflow_lisp.wcc.elaborate as wcc_elaborate_module
 import orchestrator.workflow_lisp.wcc.model as wcc_model
 import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize_module
+from orchestrator.state import StateManager
 from orchestrator.workflow.core_ast import CoreProviderSupervisionStep
 from orchestrator.workflow.executable_ir import (
     ExecutableNodeKind,
     ProviderSupervisionStepConfig,
     WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
 )
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_context
 from orchestrator.workflow.provider_supervision.paths import (
     derive_provider_supervision_paths,
 )
@@ -75,6 +78,11 @@ from orchestrator.workflow_lisp.workflows import (
     build_extern_environment,
     build_workflow_catalog,
     elaborate_workflow_definitions,
+)
+
+from tests.test_workflow_lisp_provider_supervision_e2e import (
+    _assert_closed_observations,
+    _install_fake_provider_runtime,
 )
 
 
@@ -4929,6 +4937,130 @@ def test_closed_member_nested_arm_with_let_prefix_compiles(
             "supervisor": {"variant": "CONTINUE"},
         },
     ) == "revise"
+
+
+def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full run settles the selected arm without touching the poisoned else.
+
+    The compiled settlement payload is one ``kind: "if"`` pure projection whose
+    ``else`` branch is the nested prefixed arm. After validation we replace that
+    untaken branch with a ``binding`` node referencing a declared-but-unresolved
+    ``poison`` binding. Evaluating the branch would raise
+    ``pure_expr_binding_missing``; the executor evaluates only the selected
+    ``then`` branch, so the run settles on the worker result. Because the poison
+    still passes payload validation, a failure could only come from actually
+    evaluating the untaken arm -- that is the end-to-end laziness proof.
+    """
+
+    source = _module_source(
+        "2.26",
+        (
+            "(defworkflow orchestrate () -> String "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((raw "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns String))) "
+            '(if (= raw "ready") "accept" '
+            '(if (let* ((x true)) x) "revise" "fallback")))) '
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 "
+            ":returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    bundle = result.validated_bundles["orchestrate"]
+    config = _task12b_supervision_config(result)
+    node = next(iter(bundle.ir.nodes.values()))
+
+    # The validated payload is one nested pure ``if``: a selected ``then`` arm
+    # and an untaken nested ``if`` arm carrying the collapsed ``let*`` prefix.
+    payload = dict(config.settlement_payload)
+    assert payload["expr"]["kind"] == "if"
+    assert payload["expr"]["else"]["kind"] == "if"
+
+    # Fail-on-touch probe: poison the untaken else branch with a binding that is
+    # declared (so payload validation accepts it) but never resolved (so any
+    # evaluation raises ``pure_expr_binding_missing``).
+    expr = dict(payload["expr"])
+    bindings = dict(payload["bindings"])
+    bindings["poison"] = {"type": {"kind": "primitive", "name": "String"}}
+    expr["else"] = {"kind": "binding", "name": "poison"}
+    tampered_payload = {
+        "pure_expr_schema_version": payload["pure_expr_schema_version"],
+        "result_type": payload["result_type"],
+        "bindings": bindings,
+        "expr": expr,
+    }
+    tampered_config = replace(config, settlement_payload=tampered_payload)
+    tampered_node = replace(node, execution_config=tampered_config)
+    tampered_ir = replace(
+        bundle.ir,
+        nodes={**bundle.ir.nodes, node.node_id: tampered_node},
+    )
+    tampered_bundle = replace(bundle, ir=tampered_ir)
+
+    runtime = _install_fake_provider_runtime(
+        monkeypatch,
+        payloads={"worker_fresh": '"ready"'},
+    )
+
+    manager = StateManager(workspace=tmp_path)
+    manager.initialize(
+        "strict_boolean_member.orc",
+        context=dict(workflow_context(tampered_bundle)),
+        bound_inputs={},
+    )
+    completed = WorkflowExecutor(
+        tampered_bundle,
+        tmp_path,
+        manager,
+        max_retries=0,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+
+    # The selected outer arm settles; the poisoned untaken arm is never touched.
+    assert completed["status"] == "completed"
+    assert completed["workflow_outputs"] == {"__result__": "accept"}
+
+    # Exactly one execution row: the owning provider-supervision settlement.
+    assert set(completed["steps"]) == {node.presentation_name}
+    [step] = completed["steps"].values()
+    assert step["step_id"] == node.node_id
+    assert step["status"] == "completed"
+    assert step["artifacts"] == {"__result__": "accept"}
+
+    # Durable state directly proves no arm-specific node, row, or call frame.
+    assert len(tampered_bundle.ir.nodes) == 1
+    assert completed["step_visits"] == {node.presentation_name: 1}
+    assert completed["call_frames"] == {}
+
+    # Exactly the two deterministic member turns ran; no arm-specific provider.
+    assert {
+        invocation.metadata["provider_supervision"]["turn_role"]
+        for invocation in runtime.executed
+    } == {"worker_fresh", "supervisor_directive"}
+    _assert_closed_observations(runtime)
+
+    # The probe is load-bearing: had the untaken arm been evaluated (worker
+    # != "ready"), settlement evaluation would have raised the poison.
+    with pytest.raises(ValueError) as excinfo:
+        evaluate_pure_expr(
+            tampered_payload,
+            resolved_bindings={
+                "worker": "other",
+                "supervisor": {"variant": "CONTINUE"},
+            },
+        )
+    assert excinfo.value.code == "pure_expr_binding_missing"
 
 
 def test_pre_provider_projection_lineage_matches_authored_selection(
