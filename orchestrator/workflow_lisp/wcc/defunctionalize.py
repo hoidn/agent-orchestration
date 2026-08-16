@@ -5107,21 +5107,21 @@ def _pure_wcc_body_expr(
             current.bound_value,
             resolved,
         )
-        if bound_name in resolved and not isinstance(
-            bound_value,
-            (NameExpr, FieldAccessExpr),
-        ):
-            generated = (
-                f"__wcc_settlement_{bound_name}_"
-                f"{current.metadata.node_id.rsplit(':', 1)[-1]}"
-            )
-            collapsed[generated] = bound_value
-            resolved[bound_name] = NameExpr(
-                name=generated,
-                span=current.metadata.source_span,
-                form_path=current.metadata.form_path,
-                expansion_stack=current.metadata.expansion_stack,
-            )
+        if bound_name in resolved:
+            if isinstance(bound_value, (NameExpr, FieldAccessExpr)):
+                resolved[bound_name] = bound_value
+            else:
+                generated = (
+                    f"__wcc_settlement_{bound_name}_"
+                    f"{current.metadata.node_id.rsplit(':', 1)[-1]}"
+                )
+                collapsed[generated] = bound_value
+                resolved[bound_name] = NameExpr(
+                    name=generated,
+                    span=current.metadata.source_span,
+                    form_path=current.metadata.form_path,
+                    expansion_stack=current.metadata.expansion_stack,
+                )
         else:
             collapsed[bound_name] = bound_value
             resolved[bound_name] = bound_value
