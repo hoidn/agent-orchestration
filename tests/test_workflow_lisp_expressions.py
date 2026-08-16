@@ -1267,6 +1267,43 @@ def test_map_expr_returns_class_objects_unchanged() -> None:
     assert traversal.map_expr(NameExpr, lambda node: node) is NameExpr
 
 
+def test_map_expr_flattens_field_access_base_substitution() -> None:
+    traversal = _traversal_module()
+
+    def substitute(node):
+        if node.name == "p":
+            return FieldAccessExpr(
+                base=_name("wrapper"),
+                fields=("payload",),
+                span=node.span,
+                form_path=node.form_path,
+                expansion_stack=node.expansion_stack,
+            )
+        return node
+
+    expr = FieldAccessExpr(
+        base=_name("p"),
+        fields=("flag",),
+        span=_test_span("p.flag"),
+        form_path=FORM_PATH,
+    )
+    rewritten = traversal.map_expr(expr, substitute)
+    assert isinstance(rewritten.base, NameExpr)
+    assert rewritten.base.name == "wrapper"
+    assert rewritten.fields == ("payload", "flag")
+
+    def substitute_non_name(node):
+        if node.name == "p":
+            return _literal("shadowed")
+        return node
+
+    kept = traversal.map_expr(expr, substitute_non_name)
+    assert isinstance(kept, FieldAccessExpr)
+    assert isinstance(kept.base, NameExpr)
+    assert kept.base.name == "p"
+    assert kept.fields == ("flag",)
+
+
 def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(

@@ -5028,6 +5028,50 @@ def test_closed_member_opaque_list_same_name_shadow_resolves_rhs_then_terminal(
     ) == 2
 
 
+def test_closed_member_inline_opaque_field_chain_flattens(
+    tmp_path: Path,
+) -> None:
+    """An inline proc's opaque list field-chain on a member-local record alias flattens."""
+
+    source = _module_source(
+        "2.26",
+        "(defrecord Payload (flag Bool))",
+        "(defrecord Wrapper (payload Payload))",
+        (
+            "(defproc worker-projection ((p Payload)) -> Int "
+            ":effects () :lowering inline "
+            "(list/length (list p.flag)))"
+        ),
+        (
+            "(defworkflow orchestrate () -> Int "
+            "(with-live-providers "
+            "((worker "
+            "(let* ((wrapper "
+            "(provider-result providers.worker "
+            ":prompt prompts.worker :inputs () "
+            ":timeout-sec 30 :returns Wrapper))) "
+            "(worker-projection wrapper.payload))) "
+            "(supervisor "
+            "(provider-result providers.supervisor "
+            ":prompt prompts.supervisor :inputs () "
+            ":timeout-sec 20 :returns ProviderSteeringDirective) "
+            ":observes worker)) "
+            "worker))"
+        ),
+    )
+    result = _compile_strict_boolean_member(tmp_path, source)
+    config = _task12b_supervision_config(result)
+    assert config.worker.result_contract.kind == "record"
+    assert config.worker.result_contract.name == "Wrapper"
+    assert evaluate_pure_expr(
+        config.settlement_payload,
+        resolved_bindings={
+            "worker": {"payload": {"flag": True}},
+            "supervisor": {"variant": "CONTINUE"},
+        },
+    ) == 1
+
+
 def test_closed_member_nested_prefixed_arm_executor_run_is_lazy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -268,7 +268,19 @@ def map_expr(
         rewritten_base = map_expr(expr.base, on_name, bound=bound)
         if rewritten_base is expr.base:
             return expr
-        return replace(expr, base=rewritten_base)
+        if isinstance(rewritten_base, FieldAccessExpr):
+            return replace(
+                expr,
+                base=rewritten_base.base,
+                fields=(*rewritten_base.fields, *expr.fields),
+            )
+        if isinstance(rewritten_base, NameExpr):
+            return replace(expr, base=rewritten_base)
+        # The base resolved to a non-name value (e.g. a record the name was
+        # bound to). Keep the original name-rooted base and let the lowering
+        # machinery resolve/static-evaluate the field access, matching the
+        # existing WccFieldAccessAtom fall-through.
+        return expr
     if isinstance(expr, LetStarExpr):
         local_bound = set(bound)
         rewritten_bindings: list[tuple[str, ExprNode]] = []
@@ -447,7 +459,7 @@ def map_expr(
 
 
 def free_expr_names(
-    expr: ExprNode,
+    expr: object,
     *,
     bound: frozenset[str] = frozenset(),
 ) -> set[str]:
