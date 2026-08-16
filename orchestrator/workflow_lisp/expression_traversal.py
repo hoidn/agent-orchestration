@@ -236,6 +236,34 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     raise TypeError(f"unsupported expression traversal node: {type(expr)!r}")
 
 
+def _rebuild_with_replacements(
+    expr: ExprNode,
+    replacements: Mapping[int, ExprNode],
+) -> ExprNode:
+    """Rebuild one dataclass expression, swapping child nodes keyed by ``id``."""
+
+    def _map_value(value: object) -> object:
+        if isinstance(value, ExprNode):
+            return replacements.get(id(value), value)
+        if isinstance(value, tuple):
+            return tuple(_map_value(item) for item in value)
+        if isinstance(value, list):
+            return [_map_value(item) for item in value]
+        if is_dataclass(value) and not isinstance(value, type):
+            return _map_node(value)
+        return value
+
+    def _map_node(node: object) -> object:
+        updates = {
+            field.name: _map_value(getattr(node, field.name))
+            for field in dataclass_fields(node)
+            if field.init
+        }
+        return replace(node, **updates)
+
+    return _map_node(expr)
+
+
 def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
     """Yield one expression tree in deterministic pre-order."""
 

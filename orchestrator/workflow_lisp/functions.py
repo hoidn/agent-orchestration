@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .expression_traversal import walk_expr
+from .expression_traversal import _rebuild_with_replacements, iter_child_exprs, walk_expr
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -716,7 +716,14 @@ def _normalize_expr(
                 expansion_stack=expr.base.expansion_stack,
             ),
         )
-    return expr
+    children = iter_child_exprs(expr)
+    if not children:
+        return expr
+    replacements = {
+        id(child): _normalize_expr(child, typed_functions_by_name=typed_functions_by_name)
+        for child in children
+    }
+    return _rebuild_with_replacements(expr, replacements)
 
 
 def _clone_function_expr(

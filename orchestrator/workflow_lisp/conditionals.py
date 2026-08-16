@@ -10,7 +10,7 @@ from typing import Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EffectSummary
-from .expression_traversal import iter_child_exprs
+from .expression_traversal import _rebuild_with_replacements, iter_child_exprs
 from .expressions import (
     BindProcExpr,
     CallExpr,
@@ -1064,30 +1064,6 @@ def fold_pure_short_circuit(expr: PureOpExpr) -> IfExpr:
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
     )
-def _rebuild_with_replacements(
-    expr: ExprNode,
-    replacements: Mapping[int, ExprNode],
-) -> ExprNode:
-    def _map_value(value: object) -> object:
-        if isinstance(value, ExprNode):
-            return replacements.get(id(value), value)
-        if isinstance(value, tuple):
-            return tuple(_map_value(item) for item in value)
-        if isinstance(value, list):
-            return [_map_value(item) for item in value]
-        if dataclasses.is_dataclass(value) and not isinstance(value, type):
-            return _map_node(value)
-        return value
-
-    def _map_node(node: object) -> object:
-        updates = {
-            field.name: _map_value(getattr(node, field.name))
-            for field in dataclasses.fields(node)
-            if field.init
-        }
-        return dataclasses.replace(node, **updates)
-
-    return _map_node(expr)
 
 
 def _wrap_bindings(

@@ -798,6 +798,50 @@ def test_strict_direct_procedure_bool_admitted(tmp_path: Path) -> None:
     assert _cond_pure_ops(body) == []
 
 
+def test_strict_nested_helper_call_in_procedure_arg_expands(tmp_path: Path) -> None:
+    """A pure `defun` call nested in a procedure argument expands before lowering."""
+
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule nested_helper)",
+                "  (export outer)",
+                "  (defun both",
+                "    ((a Bool) (b Bool))",
+                "    -> Bool",
+                "    (and a b))",
+                "  (defproc identity-proc",
+                "    ((value Bool))",
+                "    -> Bool",
+                "    :effects ()",
+                "    value)",
+                "  (defworkflow outer",
+                "    ()",
+                "    -> Bool",
+                "    (if (identity-proc (both true false))",
+                "        (command-result yes",
+                '          :argv ("python" "scripts/yes.py")',
+                "          :returns Bool)",
+                "        (command-result no",
+                '          :argv ("python" "scripts/no.py")',
+                "          :returns Bool))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("yes", "no"),
+    )
+
+    assert _cond_pure_ops(body) == []
+    assert not [
+        node
+        for node in walk_expr(body)
+        if isinstance(node, FunctionCallExpr)
+    ]
+
+
 def test_strict_effectful_not_normalized(tmp_path: Path) -> None:
     """`not` over an effectful operand evaluates the operand once and inverts."""
 
