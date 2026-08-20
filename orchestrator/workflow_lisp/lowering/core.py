@@ -135,13 +135,7 @@ from ..phase_family_boundary import (
 from ..macros import collect_macro_catalog, expand_module_forms
 from ..reader import SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
-from ..syntax import (
-    WorkflowLispSyntaxModule,
-    build_syntax_module,
-    syntax_head_name,
-    syntax_node_datum,
-    target_dsl_supports_trial,
-)
+from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum, target_dsl_supports_trial
 from ..type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,

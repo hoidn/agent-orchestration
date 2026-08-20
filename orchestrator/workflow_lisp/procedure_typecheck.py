@@ -72,6 +72,7 @@ from .type_env import (
     type_refs_compatible,
 )
 from .typecheck_context import raise_error as _raise_error
+from .typecheck_proofs import BindingIdentity, _allocate_binding_identity
 
 
 @dataclass(frozen=True)
@@ -1024,6 +1025,7 @@ def typecheck_let_proc_expr(
         expr,
         type_env=context.type_env,
         value_env=dict(context.value_env),
+        binding_env=context.binding_env,
         proof_scope=context.proof_scope,
         workflow_catalog=context.workflow_catalog,
         procedure_catalog=context.procedure_catalog,
@@ -1044,6 +1046,7 @@ def _typecheck_let_proc_expr_impl(
     *,
     type_env: FrontendTypeEnvironment,
     value_env: dict[str, TypeRef],
+    binding_env: Mapping[str, BindingIdentity],
     proof_scope: ProofScope,
     workflow_catalog: "WorkflowCatalog | None",
     procedure_catalog: ProcedureCatalog | None,
@@ -1258,6 +1261,14 @@ def _typecheck_let_proc_expr_impl(
 
     local_value_env = {name: type_ref for name, type_ref in capture_signature_params}
     local_value_env.update(dict(residual_signature_params))
+    local_binding_env = dict(binding_env)
+    for name, _type_ref in residual_signature_params:
+        local_binding_env[name] = _allocate_binding_identity(
+            local_binding_env,
+            form_path=expr.binding.form_path,
+            kind="param",
+            name=name,
+        )
     previous_proc_ref_env = session_state.proc_ref_value_env
     session_state.proc_ref_value_env = local_proc_ref_env
     previous_workflow_signature = session_state.workflow_signature
@@ -1280,6 +1291,7 @@ def _typecheck_let_proc_expr_impl(
             local_body_expr,
             type_env=type_env,
             value_env=local_value_env,
+            binding_env=local_binding_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
             procedure_catalog=generated_catalog,
@@ -1335,6 +1347,7 @@ def _typecheck_let_proc_expr_impl(
             outer_body_expr,
             type_env=type_env,
             value_env=value_env,
+            binding_env=binding_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
             procedure_catalog=generated_catalog,
