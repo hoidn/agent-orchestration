@@ -617,12 +617,7 @@ def typecheck_cond_expr(
         None,
     )
     no_else = final_else_clause is None
-    if no_else:
-        fold_clauses = condition_clauses[:-1]
-        terminal_clause = condition_clauses[-1]
-    else:
-        fold_clauses = condition_clauses
-        terminal_clause = None
+    terminal_clause = condition_clauses[-1] if no_else else None
 
     residual_facts: dict = dict(context.proof_scope.facts)
     rewritten: list[CondClauseRewrite] = []
@@ -756,7 +751,9 @@ def typecheck_cond_expr(
                 expansion_stack=terminal_rewrite.expansion_stack,
             )
         else:
-            final_expr = terminal_rewrite.result_expr
+            raise AssertionError(
+                "effectful cond terminal normalized without bindings"
+            )
 
     return typed_factory(
         expr=rewrite_cond_clauses(rewritten, final_expr=final_expr),
