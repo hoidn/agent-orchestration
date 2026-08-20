@@ -2209,6 +2209,56 @@ def test_cond_clause_result_types_must_match(tmp_path: Path) -> None:
     assert _diagnostic_code(excinfo) == "type_mismatch"
 
 
+def test_cond_dead_clause_body_type_still_must_match(tmp_path: Path) -> None:
+    """A statically-dead clause body still unifies, matching an authored `if`."""
+
+    type_env = _proof_env(tmp_path)
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(type_env, '(cond (false "text") (else 5))', {})
+    assert _diagnostic_code(excinfo) == "type_mismatch"
+
+
+def test_cond_dead_else_body_type_still_must_match(tmp_path: Path) -> None:
+    """A dead `else` body still unifies with the reachable clause bodies."""
+
+    type_env = _proof_env(tmp_path)
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(type_env, '(cond (true r) (else "text"))', {"r": report})
+    assert _diagnostic_code(excinfo) == "type_mismatch"
+
+
+def test_cond_mid_list_true_makes_form_exhaustive(tmp_path: Path) -> None:
+    """A mid-list statically-true clause makes a no-`else` cond exhaustive."""
+
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    report = _proof_type(tmp_path, "WorkReport")
+    typed = _check_226(
+        type_env,
+        "(cond (a r) (true r) (b r))",
+        {"a": flag, "b": flag, "r": report},
+    )
+    assert typed.type_ref.name == "WorkReport"
+    assert isinstance(typed.expr, IfExpr)
+
+
+def test_cond_dead_trailing_clause_keeps_enclosing_variant_facts(tmp_path: Path) -> None:
+    """A dead trailing clause still typechecks under enclosing variant facts."""
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    typed = _check_226(
+        type_env,
+        "(if (= attempt.variant COMPLETED)"
+        "    (cond (a attempt.execution_report)"
+        "          (true attempt.execution_report)"
+        "          (b attempt.execution_report))"
+        "    attempt.progress_report)",
+        {"a": flag, "b": flag, "attempt": attempt},
+    )
+    assert typed.type_ref.name == "WorkReport"
+
 def test_cond_requires_final_else_when_false_reachable(tmp_path: Path) -> None:
     """A no-`else` cond with a reachable false env fails `cond_non_exhaustive`."""
 

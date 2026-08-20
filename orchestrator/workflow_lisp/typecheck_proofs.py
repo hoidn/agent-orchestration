@@ -603,8 +603,8 @@ def typecheck_cond_expr(
 
     Clauses are checked in authored order: each condition is analyzed under the
     residual false environment of all earlier clauses, and each body is checked
-    under its own true environment. Reachable body result types unify exactly as
-    ``if`` does. Ordinary clauses fold into nested normalized ``IfExpr``; a
+    under its own true environment. All clause and else body result types unify
+    exactly as ``if`` does, even when a clause is statically dead.
     no-``else`` form is exhaustive only when a pure condition statically folds
     true or possible-set refinement makes the final false environment
     unreachable. An effect-free exhaustive terminal test is erased; an effectful
@@ -623,9 +623,11 @@ def typecheck_cond_expr(
     rewritten: list[CondClauseRewrite] = []
     effect_summaries: list = []
     result_type: TypeRef | LoopControlTypeRef | None = None
-    last_false_unreachable = False
+    residual_unreachable = False
     terminal_rewrite: CondClauseRewrite | None = None
     terminal_effect_summary = EMPTY_EFFECT_SUMMARY
+    terminal_facts: dict = dict(residual_facts)
+    terminal_is_dead = False
 
     def unify_result(new_type, *, span, form_path):
         nonlocal result_type
@@ -656,6 +658,7 @@ def typecheck_cond_expr(
         result_type = new_type
 
     for clause in condition_clauses:
+        clause_is_dead = residual_unreachable
         clause_facts = dict(residual_facts)
         typed_condition = recurse(
             clause.condition_expr,
@@ -686,14 +689,14 @@ def typecheck_cond_expr(
             type_ref=typed_condition.type_ref,
             effect_summary=typed_condition.effect_summary,
         )
-        effect_summaries.append(typed_condition.effect_summary)
-        effect_summaries.append(typed_result.effect_summary)
-        if true_env is not UNREACHABLE:
-            unify_result(
-                typed_result.type_ref,
-                span=clause.result_expr.span,
-                form_path=clause.result_expr.form_path,
-            )
+        if not clause_is_dead:
+            effect_summaries.append(typed_condition.effect_summary)
+            effect_summaries.append(typed_result.effect_summary)
+        unify_result(
+            typed_result.type_ref,
+            span=clause.result_expr.span,
+            form_path=clause.result_expr.form_path,
+        )
         rewrite = CondClauseRewrite(
             condition_bindings=normalized_condition.bindings,
             condition_terminal=normalized_condition.terminal,
@@ -708,10 +711,14 @@ def typecheck_cond_expr(
             terminal_rewrite = rewrite
             terminal_effect_summary = typed_condition.effect_summary
             terminal_facts = clause_facts
-        else:
+            terminal_is_dead = clause_is_dead
+        elif not clause_is_dead:
             rewritten.append(rewrite)
-        residual_facts = false_proof_facts
-        last_false_unreachable = false_env is UNREACHABLE
+        if false_env is UNREACHABLE:
+            residual_unreachable = True
+            residual_facts = clause_facts
+        else:
+            residual_facts = false_proof_facts
 
     if final_else_clause is not None:
         typed_else = recurse(
@@ -720,15 +727,14 @@ def typecheck_cond_expr(
             expected_type=expected_type,
         )
         effect_summaries.append(typed_else.effect_summary)
-        if not last_false_unreachable:
-            unify_result(
-                typed_else.type_ref,
-                span=final_else_clause.result_expr.span,
-                form_path=final_else_clause.result_expr.form_path,
-            )
+        unify_result(
+            typed_else.type_ref,
+            span=final_else_clause.result_expr.span,
+            form_path=final_else_clause.result_expr.form_path,
+        )
         final_expr = typed_else.expr
     else:
-        if not last_false_unreachable:
+        if not residual_unreachable:
             raise_error(
                 "`cond` requires a final `else` clause unless the clauses are provably exhaustive",
                 code="cond_non_exhaustive",
@@ -737,7 +743,7 @@ def typecheck_cond_expr(
                 expansion_stack=expr.expansion_stack,
             )
         assert terminal_rewrite is not None
-        if terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
+        if terminal_is_dead or terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
             final_expr = terminal_rewrite.result_expr
         elif terminal_rewrite.condition_bindings:
             final_expr = LetStarExpr(
