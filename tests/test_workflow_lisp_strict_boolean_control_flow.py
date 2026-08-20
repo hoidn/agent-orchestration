@@ -2287,6 +2287,45 @@ def test_cond_clause_condition_must_be_bool(tmp_path: Path) -> None:
     assert _diagnostic_code(excinfo) == "cond_condition_not_bool"
 
 
+def test_cond_else_after_exhaustive_chain_gets_no_erased_facts(tmp_path: Path) -> None:
+    """A defensive `else` after an exhaustive discriminant chain is checked
+    under the facts WCC will actually carry (none), not the last clause's
+    erased entry facts."""
+
+    type_env = _proof_env(tmp_path)
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(cond ((= attempt.variant COMPLETED) r)"
+            "      ((= attempt.variant BLOCKED) r)"
+            "      (else attempt.progress_report))",
+            {"attempt": attempt, "r": report},
+        )
+    assert _diagnostic_code(excinfo) == "variant_ref_unproved"
+
+
+def test_cond_else_gets_no_facts_from_dead_discriminant_clause(tmp_path: Path) -> None:
+    """An `else` body may not consume narrowing justified only by a dead
+    clause that is never emitted into the rewritten tree."""
+
+    type_env = _proof_env(tmp_path)
+    flag = _proof_type(tmp_path, "Bool")
+    attempt = _proof_type(tmp_path, "ImplementationState")
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            "(cond (a r)"
+            "      (true r)"
+            "      ((= attempt.variant COMPLETED) r)"
+            "      (else attempt.progress_report))",
+            {"a": flag, "attempt": attempt, "r": report},
+        )
+    assert _diagnostic_code(excinfo) == "variant_ref_unproved"
+
+
 def test_cond_pure_static_true_terminal_is_exhaustive(tmp_path: Path) -> None:
     """A pure `true` terminal clause makes a no-`else` cond exhaustive."""
 

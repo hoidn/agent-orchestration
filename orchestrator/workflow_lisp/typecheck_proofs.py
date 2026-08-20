@@ -619,6 +619,10 @@ def typecheck_cond_expr(
     no_else = final_else_clause is None
 
     residual_facts: dict = dict(context.proof_scope.facts)
+    # Facts the emitted tree actually justifies at the else continuation: the
+    # false-proof context of the last EMITTED clause. Erased guards (dead
+    # clauses, exhaustive-clause false envs) contribute nothing.
+    else_facts: dict = dict(residual_facts)
     rewritten: list[CondClauseRewrite] = []
     effect_summaries: list = []
     result_type: TypeRef | LoopControlTypeRef | None = None
@@ -716,6 +720,8 @@ def typecheck_cond_expr(
             terminal_facts = clause_facts
         elif not clause_is_dead:
             rewritten.append(rewrite)
+        if not clause_is_dead:
+            else_facts = false_proof_facts
         if false_env is UNREACHABLE:
             residual_unreachable = True
             residual_facts = clause_facts
@@ -725,7 +731,7 @@ def typecheck_cond_expr(
     if final_else_clause is not None:
         typed_else = recurse(
             final_else_clause.result_expr,
-            proof_scope=ProofScope(facts=residual_facts),
+            proof_scope=ProofScope(facts=else_facts),
             expected_type=expected_type,
         )
         effect_summaries.append(typed_else.effect_summary)
