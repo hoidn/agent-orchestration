@@ -2763,3 +2763,103 @@ def test_source_map_validator_rejects_tampered_provider_member_association(
     assert excinfo.value.diagnostics[0].code == (
         "source_map_provider_supervision_invalid"
     )
+
+
+_COND_SOURCE_MAP_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule cond_sm)",
+        "  (export decide)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (blocker_reason WorkReport)))",
+        "  (defworkflow decide () -> Bool",
+        "    (let* ((attempt",
+        "             (provider-result providers.execute",
+        "               :prompt prompts.execute",
+        "               :inputs ()",
+        "               :returns ImplementationState)))",
+        "      (cond",
+        "        ((= attempt.variant COMPLETED)",
+        "         (command-result consume-completed",
+        '           :argv ("python" "scripts/consume_completed.py" attempt.execution_report)',
+        "           :returns Bool))",
+        "        ((or (provider-result providers.last-check",
+        "              :prompt prompts.last-check",
+        "              :inputs ()",
+        "              :returns Bool)",
+        "             (= attempt.variant BLOCKED))",
+        "         (command-result consume-blocked",
+        '           :argv ("python" "scripts/consume_blocked.py" attempt.blocker_reason)',
+        "           :returns Bool))))))",
+    ]
+)
+
+
+def test_source_map_cond_generated_bindings_keep_authored_clause_ownership(
+    tmp_path: Path,
+) -> None:
+    """Compiler-owned ``__cond_*`` bindings map back to their authored cond
+    clause spans, never a generated binding location."""
+
+    source_map_module = importlib.import_module(
+        "orchestrator.workflow_lisp.source_map"
+    )
+    (tmp_path / "prompts").mkdir(exist_ok=True)
+    (tmp_path / "prompts" / "execute.md").write_text("E\n", encoding="utf-8")
+    (tmp_path / "prompts" / "last-check.md").write_text("L\n", encoding="utf-8")
+    path = tmp_path / "cond_sm.orc"
+    path.write_text(_COND_SOURCE_MAP_MODULE, encoding="utf-8")
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.last-check": "fake-last-check",
+        },
+        prompt_externs={
+            "prompts.execute": "prompts/execute.md",
+            "prompts.last-check": "prompts/last-check.md",
+        },
+        command_boundaries={
+            "consume-completed": ExternalToolBinding(
+                name="consume-completed",
+                stable_command=("python", "scripts/consume_completed.py"),
+            ),
+            "consume-blocked": ExternalToolBinding(
+                name="consume-blocked",
+                stable_command=("python", "scripts/consume_blocked.py"),
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name={"__main__": result},
+            validated_bundles_by_name=result.validated_bundles,
+        ),
+        selected_name="decide",
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    workflow = document.workflows["decide"]
+    source_lines = _COND_SOURCE_MAP_MODULE.splitlines()
+
+    cond_entries = [
+        entry
+        for key, entry in workflow.generated_paths.items()
+        if "__cond_" in key
+    ]
+    assert cond_entries, "expected compiler-owned cond bindings in the source map"
+
+    for entry in cond_entries:
+        # The persisted origin is the authored .orc file, and its line/column
+        # land on the authored cond clause, never a generated binding name.
+        assert entry.path.endswith("cond_sm.orc")
+        assert entry.line >= 16
+        assert "__cond_" not in source_lines[entry.line - 1]
+        assert entry.end_line >= entry.line

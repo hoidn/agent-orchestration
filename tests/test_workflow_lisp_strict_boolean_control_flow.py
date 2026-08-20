@@ -2272,6 +2272,19 @@ def test_cond_requires_final_else_when_false_reachable(tmp_path: Path) -> None:
         )
     assert _diagnostic_code(excinfo) == "cond_non_exhaustive"
 
+def test_cond_clause_condition_must_be_bool(tmp_path: Path) -> None:
+    """A non-`Bool` clause condition is refused with `cond_condition_not_bool`."""
+
+    type_env = _proof_env(tmp_path)
+    report = _proof_type(tmp_path, "WorkReport")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _check_226(
+            type_env,
+            '(cond (r "yes") (else "no"))',
+            {"r": report},
+        )
+    assert _diagnostic_code(excinfo) == "cond_condition_not_bool"
+
 
 def test_cond_pure_static_true_terminal_is_exhaustive(tmp_path: Path) -> None:
     """A pure `true` terminal clause makes a no-`else` cond exhaustive."""

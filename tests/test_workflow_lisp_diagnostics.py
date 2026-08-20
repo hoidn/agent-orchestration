@@ -2468,6 +2468,97 @@ def test_rendered_diagnostic_reports_if_condition_not_bool(
     else:
         assert "workflow-lisp > defworkflow" in rendered
 
+_COND_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule cond_non_bool)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defworkflow decide () -> String",
+        "    (cond ((provider-result providers.review",
+        "              :prompt prompts.review",
+        "              :inputs ()",
+        "              :returns WorkReport)",
+        '           "yes")',
+        '          (else "no"))))',
+    ]
+)
+
+
+def test_cond_condition_not_bool_points_at_authored_operand(tmp_path: Path) -> None:
+    """A non-`Bool` effectful cond condition reports its authored
+    `provider-result` operand span, never a compiler-generated binding name."""
+
+    (tmp_path / "prompts").mkdir(exist_ok=True)
+    (tmp_path / "prompts" / "review.md").write_text("Prompt.\n", encoding="utf-8")
+    path = tmp_path / "cond_non_bool.orc"
+    path.write_text(_COND_NON_BOOL_EFFECTFUL_SOURCE, encoding="utf-8")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_module(
+            path,
+            provider_externs={"providers.review": "fake-review"},
+            prompt_externs={"prompts.review": "prompts/review.md"},
+            command_boundaries={},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "cond_condition_not_bool"
+    assert diagnostic.form_path[-1] == "decide"
+    assert Path(diagnostic.span.start.path).name == "cond_non_bool.orc"
+    line = _COND_NON_BOOL_EFFECTFUL_SOURCE.splitlines()[diagnostic.span.start.line - 1]
+    assert line[diagnostic.span.start.column - 1 :].startswith(
+        "(provider-result providers.review"
+    )
+
+_IF_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule if_non_bool)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defworkflow decide () -> String",
+        "    (if (provider-result providers.review",
+        "          :prompt prompts.review",
+        "          :inputs ()",
+        "          :returns WorkReport)",
+        '      "yes" "no")))',
+    ]
+)
+
+
+def test_if_condition_not_bool_points_at_authored_operand(tmp_path: Path) -> None:
+    """A non-`Bool` effectful if condition reports its authored
+    `provider-result` operand span, never a compiler-generated binding name."""
+
+    (tmp_path / "prompts").mkdir(exist_ok=True)
+    (tmp_path / "prompts" / "review.md").write_text("Prompt.\n", encoding="utf-8")
+    path = tmp_path / "if_non_bool.orc"
+    path.write_text(_IF_NON_BOOL_EFFECTFUL_SOURCE, encoding="utf-8")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_module(
+            path,
+            provider_externs={"providers.review": "fake-review"},
+            prompt_externs={"prompts.review": "prompts/review.md"},
+            command_boundaries={},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "if_condition_not_bool"
+    assert diagnostic.form_path[-1] == "decide"
+    assert Path(diagnostic.span.start.path).name == "if_non_bool.orc"
+    line = _IF_NON_BOOL_EFFECTFUL_SOURCE.splitlines()[diagnostic.span.start.line - 1]
+    assert line[diagnostic.span.start.column - 1 :].startswith(
+        "(provider-result providers.review"
+    )
+
 
 @pytest.mark.parametrize(
     ("fixture_path", "expected_code"),
