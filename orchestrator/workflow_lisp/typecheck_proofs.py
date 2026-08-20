@@ -604,7 +604,7 @@ def typecheck_cond_expr(
     Clauses are checked in authored order: each condition is analyzed under the
     residual false environment of all earlier clauses, and each body is checked
     under its own true environment. All clause and else body result types unify
-    exactly as ``if`` does, even when a clause is statically dead.
+    exactly as ``if`` does, even when a clause is statically dead. A
     no-``else`` form is exhaustive only when a pure condition statically folds
     true or possible-set refinement makes the final false environment
     unreachable. An effect-free exhaustive terminal test is erased; an effectful
@@ -617,7 +617,6 @@ def typecheck_cond_expr(
         None,
     )
     no_else = final_else_clause is None
-    terminal_clause = condition_clauses[-1] if no_else else None
 
     residual_facts: dict = dict(context.proof_scope.facts)
     rewritten: list[CondClauseRewrite] = []
@@ -627,7 +626,6 @@ def typecheck_cond_expr(
     terminal_rewrite: CondClauseRewrite | None = None
     terminal_effect_summary = EMPTY_EFFECT_SUMMARY
     terminal_facts: dict = dict(residual_facts)
-    terminal_is_dead = False
 
     def unify_result(new_type, *, span, form_path):
         nonlocal result_type
@@ -707,11 +705,15 @@ def typecheck_cond_expr(
             form_path=clause.form_path,
             expansion_stack=clause.expansion_stack,
         )
-        if clause is terminal_clause:
+        if no_else and not clause_is_dead and false_env is UNREACHABLE:
+            # The reachable clause whose false environment becomes unreachable
+            # is the effective terminal: its body supplies the final
+            # continuation and its now-provably-true condition is erased. A
+            # positional terminal that is already dead is dropped here, so its
+            # body is never emitted into the rewritten tree.
             terminal_rewrite = rewrite
             terminal_effect_summary = typed_condition.effect_summary
             terminal_facts = clause_facts
-            terminal_is_dead = clause_is_dead
         elif not clause_is_dead:
             rewritten.append(rewrite)
         if false_env is UNREACHABLE:
@@ -743,7 +745,7 @@ def typecheck_cond_expr(
                 expansion_stack=expr.expansion_stack,
             )
         assert terminal_rewrite is not None
-        if terminal_is_dead or terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
+        if terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
             final_expr = terminal_rewrite.result_expr
         elif terminal_rewrite.condition_bindings:
             final_expr = LetStarExpr(

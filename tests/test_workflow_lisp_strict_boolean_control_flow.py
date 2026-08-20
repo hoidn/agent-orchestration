@@ -2259,6 +2259,7 @@ def test_cond_dead_trailing_clause_keeps_enclosing_variant_facts(tmp_path: Path)
     )
     assert typed.type_ref.name == "WorkReport"
 
+
 def test_cond_requires_final_else_when_false_reachable(tmp_path: Path) -> None:
     """A no-`else` cond with a reachable false env fails `cond_non_exhaustive`."""
 
@@ -2409,3 +2410,31 @@ def test_cond_exhaustive_terminal_shadowed_discriminant_not_folded(
     # inner one must not fold to `false` under the outer binding's residual
     # facts, which would silently erase the wrong effect branch.
     assert len(completed) == 2
+
+
+def test_cond_mid_list_true_dead_terminal_body_not_emitted(tmp_path: Path) -> None:
+    """A dead trailing clause after a mid-list `true` is erased, not emitted
+    into the rewritten tree, so WCC never infers its unproved field access."""
+
+    source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.26")',
+            "  (defmodule dead_terminal_lowering)",
+            "  (export gate)",
+            '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+            "  (defunion ImplementationState",
+            "    (COMPLETED (execution_report WorkReport))",
+            "    (BLOCKED (blocker_reason WorkReport))",
+            "    (CANCELLED (cancel_note WorkReport)))",
+            "  (defworkflow gate ((report WorkReport)) -> WorkReport",
+            "    (let* ((attempt (variant ImplementationState CANCELLED :cancel_note report)))",
+            "      (cond",
+            "        ((= attempt.variant COMPLETED) report)",
+            "        (true report)",
+            "        ((= attempt.variant BLOCKED) attempt.blocker_reason)))))",
+        ]
+    )
+    result = _compile_variant_proof_module(tmp_path, source)
+    assert result.lowered_workflows
