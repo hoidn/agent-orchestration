@@ -122,6 +122,23 @@ def test_cond_syntax_elaborates_special_form_at_2_26() -> None:
     assert second.result_expr.value == "no"
 
 
+def test_cond_syntax_no_else_elaborates_with_has_else_false() -> None:
+    """A no-`else` cond elaborates with `has_else` False and only condition clauses."""
+
+    cond_expr_type = _cond_expr_type()
+    assert cond_expr_type is not None
+
+    expr = elaborate_expression(
+        _expression_syntax('(cond (true "yes") (false "no"))'),
+        bound_names=frozenset(),
+        target_dsl_version="2.26",
+    )
+
+    assert isinstance(expr, cond_expr_type)
+    assert expr.has_else is False
+    assert all(clause.is_else is False for clause in expr.clauses)
+
+
 def test_cond_syntax_retains_source_spans() -> None:
     """The temporary `cond` node keeps authored clause provenance."""
 
