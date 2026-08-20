@@ -445,6 +445,16 @@ def typecheck_match_expr(
         effect=merge_effect_summaries(*arm_summaries),
     )
 
+def _require_exact_bool(type_ref: TypeRef, *, condition_expr) -> None:
+    """Reject a non-``Bool`` `if` condition with ``if_condition_not_bool``."""
+    if type_ref != PrimitiveTypeRef(name="Bool"):
+        raise_error(
+            "`if` condition must resolve to exact `Bool`",
+            code="if_condition_not_bool",
+            span=condition_expr.span,
+            form_path=condition_expr.form_path,
+        )
+
 
 def typecheck_if_expr(
     expr: IfExpr,
@@ -463,13 +473,7 @@ def typecheck_if_expr(
     true_proof_facts: dict | None = None
     false_proof_facts: dict | None = None
     if supports_strict:
-        if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
-            raise_error(
-                "`if` condition must resolve to exact `Bool`",
-                code="if_condition_not_bool",
-                span=expr.condition_expr.span,
-                form_path=expr.condition_expr.form_path,
-            )
+        _require_exact_bool(typed_condition.type_ref, condition_expr=expr.condition_expr)
         true_env, false_env = analyze_condition(
             typed_condition.expr,
             binding_env=context.binding_env,
@@ -489,13 +493,7 @@ def typecheck_if_expr(
                 reason="is not permitted in an `if` condition",
                 effect_summary=typed_condition.effect_summary,
             )
-        if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
-            raise_error(
-                "`if` condition must resolve to exact `Bool`",
-                code="if_condition_not_bool",
-                span=expr.condition_expr.span,
-                form_path=expr.condition_expr.form_path,
-            )
+        _require_exact_bool(typed_condition.type_ref, condition_expr=expr.condition_expr)
         if typed_condition.effect_summary != EMPTY_EFFECT_SUMMARY:
             raise_error(
                 "`if` condition must be pure",

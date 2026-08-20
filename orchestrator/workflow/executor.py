@@ -1611,6 +1611,10 @@ class WorkflowExecutor:
                     "status": "completed",
                     "artifacts": artifacts,
                 }
+            # Mirror the real match join's variant artifacts so a downstream
+            # `requires_variant` guard can resolve the restored case.
+            artifacts["variant"] = selected_case
+            artifacts["return__variant"] = selected_case
             return {
                 "status": "completed",
                 "artifacts": artifacts,

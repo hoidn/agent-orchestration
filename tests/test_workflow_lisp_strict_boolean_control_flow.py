@@ -1330,6 +1330,42 @@ def test_strict_loop_body_and_exhaustion_normalize_in_scope(tmp_path: Path) -> N
     # Body `and` folds inside the loop body.
     assert isinstance(loops[0].body_expr, LetStarExpr)
 
+def test_strict_loop_body_list_map_handled_not_none_falloff(tmp_path: Path) -> None:
+    """A ``list/map`` value in a loop body is handled by the loop-body
+    normalizer (no implicit-``None`` dispatch fall-off), reaching Stage 3
+    lowering with a clean diagnostic."""
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typed_body(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.26")',
+                    "  (defmodule loop_list_map)",
+                    "  (export gate)",
+                    "  (defworkflow gate ((items List[Bool])) -> Bool",
+                    "    (if (loop/recur",
+                    "          :max 1",
+                    "          :state (loop-state (count Int 0) (done Bool false))",
+                    "          :on-exhausted true",
+                    "          (fn (state)",
+                    "            (let* ((flags (list/map ((f items)) f)))",
+                    "              (if (and (= state.count 0) (= state.done false))",
+                    "                  (done true)",
+                    "                  (continue (loop-state :like state :count 1 :done true))))))",
+                    "        (command-result yes",
+                    '          :argv ("python" "scripts/yes.py")',
+                    "          :returns Bool)",
+                    "        (command-result no",
+                    '          :argv ("python" "scripts/no.py")',
+                    "          :returns Bool))))",
+                ]
+            ),
+            tmp_path,
+            command_names=("yes", "no"),
+        )
+    assert excinfo.value.diagnostics[0].code == "workflow_return_not_exportable"
 
 def test_strict_command_traversal_includes_adapter_inputs() -> None:
     """The generic traversal covers certified adapter inputs, not only argv."""
@@ -2118,21 +2154,25 @@ def _compile_variant_proof_module(
     *,
     provider_externs: dict[str, str] | None = None,
     prompt_externs: dict[str, dict[str, str]] | None = None,
+    extra_command_boundaries: dict[str, ExternalToolBinding] | None = None,
 ):
     path = tmp_path / "variant_lowering.orc"
     path.write_text(source, encoding="utf-8")
+    command_boundaries = {
+        "send": ExternalToolBinding(
+            name="send", stable_command=("python", "scripts/send.py")
+        ),
+        "skip": ExternalToolBinding(
+            name="skip", stable_command=("python", "scripts/skip.py")
+        ),
+    }
+    if extra_command_boundaries:
+        command_boundaries.update(extra_command_boundaries)
     return compile_stage3_module(
         path,
         provider_externs=provider_externs or {},
         prompt_externs=prompt_externs or {},
-        command_boundaries={
-            "send": ExternalToolBinding(
-                name="send", stable_command=("python", "scripts/send.py")
-            ),
-            "skip": ExternalToolBinding(
-                name="skip", stable_command=("python", "scripts/skip.py")
-            ),
-        },
+        command_boundaries=command_boundaries,
         validate_shared=False,
         workspace_root=tmp_path,
         lowering_route="wcc_m4",
@@ -2185,10 +2225,154 @@ def test_strict_shadowed_union_binding_stale_proof_skipped(tmp_path: Path) -> No
     result = _compile_variant_proof_module(tmp_path, _SHADOWED_ATTEMPT_MODULE)
     assert result.lowered_workflows
 
+_VALUE_IF_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule value_if_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defworkflow gate () -> Bool",
+        "    (let* ((attempt (command-result probe",
+        "              :argv (\"python\" \"scripts/probe.py\")",
+        "              :returns ImplementationState))",
+        "           (chosen (if (= attempt.variant COMPLETED)",
+        "                       attempt.execution_report",
+        "                       attempt.progress_report)))",
+        "      (command-result send",
+        "        :argv (\"python\" \"scripts/send.py\" chosen)",
+        "        :returns Bool))))",
+    ]
+)
+
+
+def test_strict_pure_value_if_variant_narrowed_reports_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """A pure value-position `if` narrowing a runtime union reports a clean
+    diagnostic instead of the raw WCC ``TypeError`` (variant_case narrowing in
+    the ``kind: "if"`` payload is a follow-up design revision)."""
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_variant_proof_module(
+            tmp_path,
+            _VALUE_IF_MODULE,
+            extra_command_boundaries={
+                "probe": ExternalToolBinding(
+                    name="probe", stable_command=("python", "scripts/probe.py")
+                ),
+            },
+        )
+    assert excinfo.value.diagnostics[0].code == "pure_expr_operand_type_mismatch"
+
+
+_NESTED_IF_CONDITION_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule nested_if_condition_lowering)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion ImplementationState",
+        "    (COMPLETED (execution_report WorkReport))",
+        "    (BLOCKED (progress_report WorkReport)))",
+        "  (defworkflow gate ((report WorkReport)) -> Bool",
+        "    (let* ((attempt",
+        "             (variant ImplementationState COMPLETED :execution_report report)))",
+        "      (if (if (= attempt.variant COMPLETED)",
+        "              (command-result check",
+        '                :argv ("python" "scripts/check.py" attempt.execution_report)',
+        "                :returns Bool)",
+        "              false)",
+        "          (command-result send",
+        '            :argv ("python" "scripts/send.py")',
+        "            :returns Bool)",
+        "          (command-result skip",
+        '            :argv ("python" "scripts/skip.py")',
+        "            :returns Bool)))))",
+    ]
+)
+
+
+def test_strict_nested_if_condition_preserves_proof_context(tmp_path: Path) -> None:
+    """A nested `if` inside a strict condition keeps its branch proof contexts."""
+
+    result = _compile_variant_proof_module(
+        tmp_path,
+        _NESTED_IF_CONDITION_MODULE,
+        extra_command_boundaries={
+            "check": ExternalToolBinding(
+                name="check", stable_command=("python", "scripts/check.py")
+            ),
+        },
+    )
+    assert result.lowered_workflows
+_MATCH_ATTEMPT_MODULE = "\n".join(
+    [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.26")',
+        "  (defmodule match_attempt_restore)",
+        "  (export gate)",
+        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+        "  (defunion BranchDecision",
+        "    (READY (label String) (report WorkReport))",
+        "    (RETRY (label String) (report WorkReport)))",
+        "  (defworkflow gate () -> String",
+        "    (let* ((attempt (command-result probe",
+        '              :argv ("python" "scripts/probe.py")',
+        "              :returns BranchDecision))",
+        "           (selected_label (match attempt",
+        "                             ((READY ready) ready.label)",
+        "                             ((RETRY retry) retry.label))))",
+        "      (command-result emit",
+        '        :argv ("python" "scripts/emit.py" selected_label)',
+        "        :returns String))))",
+    ]
+)
+
+
+def test_strict_match_restore_descriptors_not_subject_name_coupled(
+    tmp_path: Path,
+) -> None:
+    """A ``match`` whose subject is not named ``decision`` still emits its
+    restore binding and proof descriptors (no ``__match_decision`` spelling)."""
+
+    result = _compile_variant_proof_module(
+        tmp_path,
+        _MATCH_ATTEMPT_MODULE,
+        extra_command_boundaries={
+            "probe": ExternalToolBinding(
+                name="probe", stable_command=("python", "scripts/probe.py")
+            ),
+            "emit": ExternalToolBinding(
+                name="emit", stable_command=("python", "scripts/emit.py")
+            ),
+        },
+    )
+    points = result.lowered_workflows[0].lexical_checkpoint_points
+    proofs = [
+        descriptor
+        for point in points
+        for descriptor in (point.get("restore", {}).get("proof_descriptors") or [])
+    ]
+    match_proofs = [
+        proof for proof in proofs if proof.get("subject_binding") == "attempt"
+    ]
+    assert match_proofs
+    assert match_proofs[0]["union_type"] == "BranchDecision"
+    assert match_proofs[0]["source_step_name"].endswith("__match_attempt")
+
 
 # ---------------------------------------------------------------------------
 # Task 4: cond erasure with typed exhaustiveness
 # ---------------------------------------------------------------------------
+
 
 def test_cond_ordered_clauses_fold_to_nested_if(tmp_path: Path) -> None:
     """Ordinary clauses erase to nested `if` in authored order."""

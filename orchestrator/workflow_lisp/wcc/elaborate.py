@@ -2910,11 +2910,25 @@ def _elaborate_if_to_value(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
+    _, then_value_env = _branch_proof_narrowing(
+        expr.true_proof_context,
+        type_env=type_env,
+        value_env=value_env,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    _, else_value_env = _branch_proof_narrowing(
+        expr.false_proof_context,
+        type_env=type_env,
+        value_env=value_env,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
     then_prefix, then_value = _elaborate_expr_to_value(
         expr.then_expr,
         scope=scope.child_scope("select-then"),
         type_env=type_env,
-        value_env=value_env,
+        value_env=then_value_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
         effect_summary=effect_summary,
@@ -2926,7 +2940,7 @@ def _elaborate_if_to_value(
         expr.else_expr,
         scope=scope.child_scope("select-else"),
         type_env=type_env,
-        value_env=value_env,
+        value_env=else_value_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
         effect_summary=effect_summary,
@@ -5414,17 +5428,31 @@ def _infer_expr_type(
             procedure_return_types=procedure_return_types,
         )
     if isinstance(expr, IfExpr):
+        _, then_value_env = _branch_proof_narrowing(
+            expr.true_proof_context,
+            type_env=type_env,
+            value_env=value_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _, else_value_env = _branch_proof_narrowing(
+            expr.false_proof_context,
+            type_env=type_env,
+            value_env=value_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
         then_type = _infer_expr_type(
             expr.then_expr,
             type_env=type_env,
-            value_env=value_env,
+            value_env=then_value_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
         else_type = _infer_expr_type(
             expr.else_expr,
             type_env=type_env,
-            value_env=value_env,
+            value_env=else_value_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )

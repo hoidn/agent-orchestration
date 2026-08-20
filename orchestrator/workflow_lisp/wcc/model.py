@@ -697,8 +697,12 @@ class WccIf:
     # a ``(binding_name, union_name, variant_name)`` triple authorizing one
     # variant-only field access inside that branch. Empty when the branch
     # carries no narrowing.
-    then_proof_context: tuple[object, ...] = ()
-    else_proof_context: tuple[object, ...] = ()
+    then_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
+    else_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 @dataclass(frozen=True)
 class WccJoinParam:

@@ -460,20 +460,16 @@ def capture_restore_payload(
             continue
         step_name = descriptor.get("source_step_name")
         value_document = descriptor.get("value_document")
-        value = None
-        if value_document is not None and hasattr(executor, "_resolve_pure_projection_bindings"):
-            value, error = executor._resolve_pure_projection_bindings(value_document, run_state)
-            if error is not None:
-                continue
-        elif isinstance(step_name, str) and step_name:
-            result = _mapping(steps.get(step_name))
-            if result.get("status") != "completed":
-                continue
-            artifacts = _mapping(result.get("artifacts"))
-            if "return" not in artifacts:
-                continue
-            value = artifacts.get("return")
-        else:
+        # ``validate_restore_point_metadata`` requires every emitted binding
+        # descriptor to carry a value document, and the runtime executor always
+        # resolves pure projections, so the historical step-name fallback was
+        # unreachable.
+        if value_document is None or not hasattr(
+            executor, "_resolve_pure_projection_bindings"
+        ):
+            continue
+        value, error = executor._resolve_pure_projection_bindings(value_document, run_state)
+        if error is not None:
             continue
         binding_payload = {
             "binding_name": descriptor.get("binding_name"),

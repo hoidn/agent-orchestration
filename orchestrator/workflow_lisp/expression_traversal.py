@@ -235,6 +235,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(children)
     if isinstance(expr, FinalizeSelectedItemExpr):
         return _finalize_selected_item_children(expr.spec)
+    if isinstance(expr, LoopBodyFnExpr):
+        return (expr.body_expr,)
     raise TypeError(f"unsupported expression traversal node: {type(expr)!r}")
 
 

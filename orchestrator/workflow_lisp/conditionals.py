@@ -255,15 +255,6 @@ _EFFECT_EXPRS: tuple[type, ...] = (
 # respectively), but their run-ref input and start-branch children may still
 # contain condition-owned Bool projections and are rebuilt scope-preservingly.
 
-# Effect expressions whose expression children are ordinary values that can
-# themselves contain a nested strict-Boolean `and`/`or`; every effect is
-# recursively normalized before it is bound once.
-_EFFECT_EXPRS_WITH_ARG_CHILDREN: tuple[type, ...] = (
-    CallExpr,
-    ProcedureCallExpr,
-    RunRefExpr,
-)
-
 # Composite value/call expressions traversed for nested `and`/`or`. Loop-control
 # terminals (`continue`/`done`) are normalized in place: their state/result
 # children fold any condition-owned Bool projection without binding the control
@@ -295,6 +286,9 @@ _LEAF_EXPRS: tuple[type, ...] = (
     GeneratedRelpathSeedExpr,
     WorkflowRefLiteralExpr,
     ProcRefLiteralExpr,
+    # Intentional leaf: ``iter_child_exprs`` yields ``source_expr`` here, but
+    # that child is path-typed and can never carry a Bool `and`/`or`, so
+    # treating the bundle path as a closed terminal is safe.
     ProviderBundlePathExpr,
 )
 
@@ -421,6 +415,9 @@ def _normalize_short_circuit(
     *,
     path: tuple[int, ...],
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    # Twin of ``fold_pure_short_circuit``: both fold `and`/`or` into nested
+    # `if`; this one also hoists each operand into a compiler binding. The
+    # nested-`if` topology must stay identical in both.
     operator = expr.operator
     normalized = tuple(
         _normalize_operand(arg, path=path + (index,))
@@ -515,13 +512,11 @@ def _normalize_if_value(
     )
     then_bindings, then_terminal = _normalize_operand(expr.then_expr, path=path + (1,))
     else_bindings, else_terminal = _normalize_operand(expr.else_expr, path=path + (2,))
-    nested_if = IfExpr(
+    nested_if = dataclasses.replace(
+        expr,
         condition_expr=condition_terminal,
         then_expr=_wrap_bindings(then_bindings, then_terminal, expr.then_expr),
         else_expr=_wrap_bindings(else_bindings, else_terminal, expr.else_expr),
-        span=expr.span,
-        form_path=expr.form_path,
-        expansion_stack=expr.expansion_stack,
     )
     binding_name = _condition_binding_name(expr, role="value", path=path)
     return (*condition_bindings, (binding_name, nested_if)), _name_expr(
@@ -686,10 +681,16 @@ def _normalize_loop_body(
         return _normalize_loop_body_match(expr, path=path)
     if isinstance(expr, LetStarExpr):
         return _normalize_loop_body_let(expr, path=path)
+    if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
+        return _normalize_list_map(expr, path=path)
     if isinstance(expr, _LOOP_SPINE_EXPRS) or isinstance(
         expr, _COMPOSITE_VALUE_EXPRS
     ):
         return _normalize_loop_body_composite(expr, path=path)
+    raise TypeError(
+        f"unhandled loop-body operand variant {type(expr).__name__}; "
+        "add an explicit scope-preserving handler"
+    )
 
 
 def _normalize_loop_body_if(
@@ -703,16 +704,13 @@ def _normalize_loop_body_if(
     )
     then_bindings, then_terminal = _normalize_loop_body(expr.then_expr, path=path + (1,))
     else_bindings, else_terminal = _normalize_loop_body(expr.else_expr, path=path + (2,))
-    rebuilt = IfExpr(
+    rebuilt = dataclasses.replace(
+        expr,
         condition_expr=condition_terminal,
         then_expr=_wrap_bindings(then_bindings, then_terminal, expr.then_expr),
         else_expr=_wrap_bindings(else_bindings, else_terminal, expr.else_expr),
-        span=expr.span,
-        form_path=expr.form_path,
-        expansion_stack=expr.expansion_stack,
     )
     return condition_bindings, rebuilt
-
 
 def _normalize_loop_body_match(
     expr: MatchExpr,
@@ -1026,7 +1024,12 @@ def normalize_expanded_conditions(
 
 
 def fold_pure_short_circuit(expr: PureOpExpr) -> IfExpr:
-    """Fold one pure ``and``/``or`` into nested ``if`` without bindings."""
+    """Fold one pure ``and``/``or`` into nested ``if`` without bindings.
+
+    Twin of ``_normalize_short_circuit``: both fold `and`/`or` into nested
+    `if`; this one emits no compiler bindings. The nested-`if` topology must
+    stay identical in both.
+    """
 
     operator = expr.operator
     if operator == "and":

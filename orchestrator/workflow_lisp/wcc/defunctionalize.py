@@ -1472,7 +1472,7 @@ def _collect_restore_match_descriptors(
         if (
             isinstance(local_value, str)
             and isinstance(source_step_name, str)
-            and not source_step_name.endswith("__match_decision")
+            and _match_subject_from_step_name(source_step_name) is None
             and source_step_name != binding_step_name
         ):
             continue
@@ -1495,7 +1495,7 @@ def _collect_restore_match_descriptors(
             )
         binding_descriptors.append(descriptor)
 
-        if not isinstance(source_step_name, str) or not source_step_name.endswith("__match_decision"):
+        if not isinstance(source_step_name, str) or _match_subject_from_step_name(source_step_name) is None:
             continue
 
         if source_step_id in seen_proof_sources:
