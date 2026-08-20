@@ -224,7 +224,7 @@ def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
     assert "not an OS sandbox" in version
     assert "| 2.25 |" in versioning
     assert index.startswith(
-        "# Multi-Agent Orchestration — Master Spec (v1.1 through v2.25)"
+        "# Multi-Agent Orchestration — Master Spec (v1.1 through v2.26)"
     )
     assert "`trial` requires target `2.25`" in index
 

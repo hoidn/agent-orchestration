@@ -1,4 +1,4 @@
-# Multi-Agent Orchestration — Master Spec (v1.1 through v2.25)
+# Multi-Agent Orchestration — Master Spec (v1.1 through v2.26)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
