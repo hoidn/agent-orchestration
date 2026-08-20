@@ -2261,3 +2261,88 @@ def test_cond_closed_union_terminal_is_exhaustive(tmp_path: Path) -> None:
     # outer false continuation.
     assert isinstance(outer.else_expr, FieldAccessExpr)
     assert outer.else_expr.fields == ("progress_report",)
+
+
+def _discriminant_comparisons(expr) -> list[tuple[str, str]]:
+    """Return ``(base_name, variant)`` for each discriminant-tag comparison."""
+    found = []
+    for node in walk_expr(expr):
+        if not isinstance(node, PureOpExpr) or node.operator not in {"=", "!="}:
+            continue
+        left, right = node.args
+        if isinstance(left, UnionVariantTagExpr) and isinstance(right, FieldAccessExpr):
+            tag, discriminant = left, right
+        elif isinstance(right, UnionVariantTagExpr) and isinstance(left, FieldAccessExpr):
+            tag, discriminant = right, left
+        else:
+            continue
+        if discriminant.fields == ("variant",):
+            found.append((discriminant.base.name, tag.variant_name))
+    return found
+
+
+def test_cond_exhaustive_terminal_shadowed_discriminant_not_folded(
+    tmp_path: Path,
+) -> None:
+    """A shadowed union binding inside an effectful exhaustive terminal keeps
+    its live discriminant test instead of folding to the outer binding's facts."""
+
+    for name in ("execute", "other", "p", "q"):
+        (tmp_path / "prompts").mkdir(exist_ok=True)
+        (tmp_path / "prompts" / f"{name}.md").write_text("Prompt.\n", encoding="utf-8")
+    body = _typed_body(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.26")',
+                "  (defmodule cond_shadow)",
+                "  (export decide)",
+                '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
+                "  (defunion ImplementationState",
+                "    (COMPLETED (execution_report WorkReport))",
+                "    (BLOCKED (blocker_reason WorkReport)))",
+                "  (defworkflow decide () -> Bool",
+                "    (let* ((attempt",
+                '             (provider-result providers.execute :prompt prompts.execute :inputs () :returns ImplementationState))',
+                "           (other",
+                '             (provider-result providers.other :prompt prompts.other :inputs () :returns ImplementationState)))',
+                "      (cond",
+                "        ((= attempt.variant COMPLETED)",
+                "         (command-result consume-completed",
+                '           :argv ("python" "scripts/consume-completed.py" attempt.execution_report)',
+                "           :returns Bool))",
+                "        ((or (if (let* ((attempt other)) (= attempt.variant COMPLETED))",
+                '                 (provider-result providers.p :prompt prompts.p :inputs () :returns Bool)',
+                '                 (provider-result providers.q :prompt prompts.q :inputs () :returns Bool))',
+                "             (= attempt.variant BLOCKED))",
+                "         (command-result consume-blocked",
+                '           :argv ("python" "scripts/consume-blocked.py" attempt.blocker_reason)',
+                "           :returns Bool))))))",
+            ]
+        ),
+        tmp_path,
+        command_names=("consume-completed", "consume-blocked"),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.other": "fake-other",
+            "providers.p": "fake-p",
+            "providers.q": "fake-q",
+        },
+        prompt_externs={
+            "prompts.execute": "prompts/execute.md",
+            "prompts.other": "prompts/other.md",
+            "prompts.p": "prompts/p.md",
+            "prompts.q": "prompts/q.md",
+        },
+    )
+
+    completed = [
+        pair
+        for pair in _discriminant_comparisons(body)
+        if pair == ("attempt", "COMPLETED")
+    ]
+    # The first clause's test and the shadowed inner test both stay live: the
+    # inner one must not fold to `false` under the outer binding's residual
+    # facts, which would silently erase the wrong effect branch.
+    assert len(completed) == 2

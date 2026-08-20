@@ -869,6 +869,16 @@ def _is_variant_access(expr) -> bool:
     return isinstance(expr, FieldAccessExpr) and expr.fields == ("variant",)
 
 
+def _discriminant_base_name(expr) -> str | None:
+    """Base name of the discriminant in a variant-tag comparison, if any."""
+    left, right = expr.args
+    if isinstance(left, UnionVariantTagExpr) and _is_variant_access(right):
+        return right.base.name
+    if isinstance(right, UnionVariantTagExpr) and _is_variant_access(left):
+        return left.base.name
+    return None
+
+
 def _reachable(facts: dict):
     """Mark a fact map unreachable when any binding's possible set is empty."""
     for possible in facts.values():
@@ -877,7 +887,7 @@ def _reachable(facts: dict):
     return facts
 
 
-def _fold_forced_terminal_tests(expr, *, binding_env, facts):
+def _fold_forced_terminal_tests(expr, *, binding_env, facts, shadowed=frozenset()):
     """Fold statically-decided discriminant tests inside a normalized terminal.
 
     An exhaustive no-``else`` terminal condition is provably true under
@@ -886,10 +896,17 @@ def _fold_forced_terminal_tests(expr, *, binding_env, facts):
     with a literal so WCC never elaborates ``x.variant`` under a narrowed
     :class:`VariantCaseTypeRef`. Only the comparison and its reachable effect
     prefixes remain, preserving the normalized short-circuit structure.
+
+    ``shadowed`` accumulates authored ``let*`` binding names entered while
+    recursing. A discriminant whose base name is shadowed refers to a binding
+    ``facts`` does not track, so its comparison is never folded.
     """
     from dataclasses import replace
 
     if isinstance(expr, PureOpExpr) and expr.operator in {"=", "!="}:
+        base_name = _discriminant_base_name(expr)
+        if base_name is not None and base_name in shadowed:
+            return expr
         true_f, false_f = analyze_condition(expr, binding_env=binding_env, facts=facts)
         if false_f is UNREACHABLE:
             return LiteralExpr(
@@ -912,7 +929,9 @@ def _fold_forced_terminal_tests(expr, *, binding_env, facts):
         return replace(
             expr,
             args=tuple(
-                _fold_forced_terminal_tests(arg, binding_env=binding_env, facts=facts)
+                _fold_forced_terminal_tests(
+                    arg, binding_env=binding_env, facts=facts, shadowed=shadowed
+                )
                 for arg in expr.args
             ),
         )
@@ -920,22 +939,32 @@ def _fold_forced_terminal_tests(expr, *, binding_env, facts):
         return replace(
             expr,
             condition_expr=_fold_forced_terminal_tests(
-                expr.condition_expr, binding_env=binding_env, facts=facts
+                expr.condition_expr, binding_env=binding_env, facts=facts, shadowed=shadowed
             ),
             then_expr=_fold_forced_terminal_tests(
-                expr.then_expr, binding_env=binding_env, facts=facts
+                expr.then_expr, binding_env=binding_env, facts=facts, shadowed=shadowed
             ),
             else_expr=_fold_forced_terminal_tests(
-                expr.else_expr, binding_env=binding_env, facts=facts
+                expr.else_expr, binding_env=binding_env, facts=facts, shadowed=shadowed
             ),
         )
     if isinstance(expr, LetStarExpr):
+        bindings = []
+        for name, binding_expr in expr.bindings:
+            bindings.append(
+                (
+                    name,
+                    _fold_forced_terminal_tests(
+                        binding_expr, binding_env=binding_env, facts=facts, shadowed=shadowed
+                    ),
+                )
+            )
+            shadowed = shadowed | {name}
         return replace(
             expr,
-            bindings=tuple(
-                (name, _fold_forced_terminal_tests(binding_expr, binding_env=binding_env, facts=facts))
-                for name, binding_expr in expr.bindings
+            bindings=tuple(bindings),
+            body=_fold_forced_terminal_tests(
+                expr.body, binding_env=binding_env, facts=facts, shadowed=shadowed
             ),
-            body=_fold_forced_terminal_tests(expr.body, binding_env=binding_env, facts=facts),
         )
     return expr
