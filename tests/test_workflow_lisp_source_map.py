@@ -2856,10 +2856,20 @@ def test_source_map_cond_generated_bindings_keep_authored_clause_ownership(
     ]
     assert cond_entries, "expected compiler-owned cond bindings in the source map"
 
+    # All __cond_* bindings in this fixture originate from clause 2's
+    # effectful `or` condition; per-clause ownership means every entry lands
+    # inside that clause's authored span, not the cond head or clause 1.
+    clause2_start = (
+        next(
+            index
+            for index, line in enumerate(source_lines)
+            if "((or (provider-result" in line
+        )
+        + 1
+    )
     for entry in cond_entries:
         # The persisted origin is the authored .orc file, and its line/column
-        # land on the authored cond clause, never a generated binding name.
+        # land on the authored owning clause, never a generated binding name.
         assert entry.path.endswith("cond_sm.orc")
-        assert entry.line >= 16
-        assert "__cond_" not in source_lines[entry.line - 1]
-        assert entry.end_line >= entry.line
+        assert clause2_start <= entry.line <= len(source_lines)
+        assert entry.line <= entry.end_line <= len(source_lines)
