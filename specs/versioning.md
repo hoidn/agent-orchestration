@@ -490,6 +490,30 @@
     earlier targets cannot opt in through Core fields or internal carriers.
     Targets through 2.24 remain byte-compatible in accepted source, compiler,
     IR, state, checkpoint, runtime, and provider behavior.
+- v2.26 additions (Workflow Lisp strict Boolean control flow)
+  - Target `2.26` generalizes Workflow Lisp `if` and adds `cond`. An `if`
+    condition may be any expression whose final inferred type is exactly
+    `Bool`; condition effects execute left to right and at most once,
+    `and`/`or` short-circuit, and `not` evaluates its operand once and inverts.
+    `cond` is frontend sugar for nested `if` with typed exhaustiveness: each
+    clause holds exactly one condition and one result expression, an `else`
+    clause is required unless a pure statically true terminal or typed variant
+    facts make the final false environment unreachable, and every result
+    expression has a compatible type.
+  - A typed `.variant` discriminant comparison (`(= x.variant V)` /
+    `(!= x.variant V)`) establishes sound branch-local union proof through the
+    closed binding-identity possible-set algebra. That proof is carried into
+    the existing `requires_variant` runtime guard and lexical-checkpoint resume
+    descriptor; a missing guard is a compile error and every emitted guard
+    fails closed under contradictory runtime or persisted state.
+  - No new runtime execution form, public Core/Semantic/Executable IR envelope,
+    or state family is introduced: effectful selection reuses structured `if`
+    and effect-free selection uses the existing pure-projection `kind: "if"`
+    payload. State schema stays `2.1`. Targets through 2.25 remain
+    byte-compatible in accepted source, compiler, IR, state, checkpoint,
+    runtime, and provider behavior; targets above 2.26 remain unsupported.
+  - Existing `match` source remains valid; no automatic rewrite or migration is
+    required.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
@@ -666,5 +690,6 @@ Planned acceptance:
 | 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
 | 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is deferred. State schema remains `2.1`. |
 | 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, M2-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
+| 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form; targets above 2.26 remain unsupported. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

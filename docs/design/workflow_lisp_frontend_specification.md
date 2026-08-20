@@ -1633,7 +1633,9 @@ flowchart TD
 
 ## 12. Conditionals
 
-`if` is allowed only for pure or already-proven values.
+At target DSL 2.26, an `if` condition may be any expression whose final
+inferred type is exactly `Bool`; below 2.26 it is allowed only for pure or
+already-proven values.
 
 ```lisp
 (if selected.active?
@@ -1641,16 +1643,21 @@ flowchart TD
   selected)
 ```
 
-Computed pure `Bool` conditions are allowed when the condition is effect-free
-and typechecks as `Bool`. They may lower into a generated `pure_projection`
-boundary when the condition is not already a literal or direct reference.
+Below 2.26, computed pure `Bool` conditions are allowed when the condition is
+effect-free and typechecks as `Bool`; they may lower into a generated
+`pure_projection` boundary when the condition is not already a literal or
+direct reference.
 
-That widening does not create proof. A computed pure `Bool` condition may route
-control flow, but it does not unlock variant-specific fields, optional payload
-access, or union narrowing. `match` remains the only construct that establishes
-variant proof context.
+At target 2.26, a typed discriminant comparison such as
+`(= attempt.variant COMPLETED)` establishes sound branch-local variant proof
+and therefore unlocks variant-specific fields in the proven branch. A computed
+pure `Bool` condition that is not a typed discriminant comparison still routes
+control flow but does not unlock variant-specific fields, optional payload
+access, or union narrowing. Below 2.26, `match` remains the only construct that
+establishes variant proof context.
 
-For union values, `match` is preferred and remains the required proof surface.
+For union values, `match` is preferred and remains a supported proof surface;
+at target 2.26 typed `.variant` comparisons are an additional proof source.
 
 The compiler should warn on:
 

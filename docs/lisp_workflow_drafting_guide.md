@@ -383,7 +383,8 @@ The currently implemented authoring surface includes:
   source form or workflow-readable value
 - modules, imports, and exports
 - `let*`
-- `if`, including computed pure `Bool` conditions
+- `if` and `cond`, including arbitrary exact-`Bool` conditions at target 2.26
+  (below 2.26, only computed pure `Bool` conditions)
 - the closed pure-expression operator surface (`=`, `!=`, `<`, `<=`, `>`,
   `>=`, `and`, `or`, `not`, `+`, `-`, `*`, `min`, `max`, `string/concat`,
   `string/empty?`, `symbol/name`, `some?`, `or-else`, `record-update`),
@@ -620,10 +621,11 @@ Bad:
 ```lisp
 attempt.execution-report
 ```
-
 A computed pure `Bool` condition, such as `(= status "READY")`, may route
 control flow, but it is proof-neutral: it does not unlock variant-specific
-fields, optional payloads, or union narrowing. `match` remains the only
+fields, optional payloads, or union narrowing. At target 2.26, a typed
+`.variant` discriminant comparison such as `(= attempt.variant COMPLETED)`
+does establish branch-local variant proof; below 2.26 `match` remains the only
 construct that establishes variant proof.
 
 ### 3.8 Do Not Hand-Manage Runtime State

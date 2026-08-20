@@ -16,11 +16,14 @@ Supported sources:
 - `match` over the same discriminant
 - explicit `requires_variant`
 - compiler-generated proof context from a typed transition
+- a typed `.variant` discriminant comparison (`(= x.variant V)` /
+  `(!= x.variant V)`) at target DSL 2.26, analyzed through the closed
+  binding-identity possible-set algebra
 
-Unsupported in the first tranche:
+Not a proof source:
 
 - arbitrary string predicates
-- general boolean expressions
+- general Boolean expressions that are not typed discriminant comparisons
 - cross-loop proof carryover
 - proof through undeclared workflow call internals
 
@@ -60,8 +63,9 @@ Proof validation checks:
 ## Required Invariants
 
 - A discriminant being readable is not enough to read all variant fields.
-- A frontend `if` expression is not proof unless Semantic IR explicitly models
-  it as proof.
+- A frontend `if` expression establishes proof only when its condition is a
+  typed `.variant` discriminant comparison; every other Boolean condition is
+  proof-neutral and does not unlock variant-only fields.
 - Runtime still guards variant access even after static proof succeeds.
 
 ## Open Questions

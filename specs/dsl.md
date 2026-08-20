@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.25"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.26"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).

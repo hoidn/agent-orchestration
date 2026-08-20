@@ -2,11 +2,11 @@
 
 ## Metadata
 
-- **Status:** accepted; implementation unselected
+- **Status:** accepted; implemented at target DSL 2.26
 - **Kind:** feature and frontend architecture decision
 - **Owner:** repository owner
 - **Created:** 2026-08-14
-- **Last material update:** 2026-08-14
+- **Last material update:** 2026-08-20
 - **Related:**
   [`workflow_lisp_frontend_specification.md`](workflow_lisp_frontend_specification.md),
   [`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md),
@@ -62,9 +62,9 @@ branch path, including resume. The missing capability is generic frontend
 normalization and predicate-derived proof, not a new runtime primitive.
 
 This design changes the current frontend rule that an `if` condition must be
-pure and that only `match` creates authored variant proof. Until target 2.26 is
-implemented, the current frontend specification and capability matrix remain
-the authority for runnable source.
+pure and that only `match` creates authored variant proof. The change is gated
+at target DSL 2.26; below 2.26 the frontend specification and capability matrix
+remain the authority for runnable source.
 
 ## Problem
 
@@ -251,13 +251,28 @@ Generated bindings are compiler-owned and have stable identities derived from
 the authored condition, operand position, and enclosing form path. Normalization
 must not hoist an effect across a short-circuit or branch boundary.
 
+Normalization follows expression ownership. Generated bindings remain inside
+authored `let*` bodies, list-map iterations, phase bodies, live-provider and
+peer members, trial/resume branches, loop iterations/exhaustion, and every
+`if`/`match` branch or arm that owns them. A parent condition or match subject
+may contribute a parent-scope prefix; branch/arm/body prefixes never join that
+prefix. Generic traversal includes effect-owned children such as command
+adapter inputs, while their existing projectability contracts remain in force.
+
+Helper expansion may expose a condition subtree that was not present when the
+caller was typechecked. The target-2.26 post-expansion fold applies only to
+expressions carrying exact helper-clone provenance. It must not rewrite
+authored non-condition subtrees merely because they occur in the same
+workflow/procedure body.
+
 Rules:
 
 - ordinary operands evaluate left to right;
 - a completed effect result is bound once and reused by the remaining pure
   computation;
-- the final Boolean is represented by a literal, existing typed Boolean ref, or
-  generated `pure_projection` result before structured routing;
+- the final Boolean is represented by a literal, existing typed Boolean ref,
+  generated `pure_projection` result, or internal pure conditional value before
+  structured routing;
 - `and` evaluates each later operand only after all prior operands are true;
 - `or` evaluates each later operand only after all prior operands are false;
 - `not` evaluates its operand once and inverts the result;
@@ -270,6 +285,60 @@ Rules:
 `cond` expansion retains clause-level source provenance and then uses this same
 normalization path. Its temporary frontend representation is erased before WCC;
 there is no cond-only evaluator or runtime node.
+
+### Pure Conditional Values In Closed Provider Members
+
+At target 2.26, an effect-free normalized `IfExpr` may remain value-shaped when
+turning it into WCC control would cross a closed live-provider or peer-member
+boundary. WCC represents that selection as internal
+`WccSelect(condition, then_arm, else_arm)`. Each arm is a
+`WccSelectArm(prefix, value)`: `prefix` is the arm-local linear sequence of
+pure `WccLet` bindings and `value` is the terminal `WccValue`. The two terminal
+values have the same exact static type. Sources below target 2.26 retain the
+current WCC handling of pure `if` values.
+
+`WccSelect` and `WccSelectArm` are compiler IR, not public
+Semantic/Executable IR nodes, runtime execution forms, or state families. WCC
+dependency, scope, substitution, free-name, and source-provenance walks recurse
+through the condition and both arms' prefixes and terminal values. A binding
+in one arm scopes over only the rest of that arm. WCC ANF treats the complete
+selection as a non-hoisting value barrier: neither arm may be externalized
+ahead of selection. Value elaboration may return the condition prefix to the
+enclosing prefix because the condition always executes, but it must retain each
+arm prefix inside its `WccSelectArm`.
+
+Defunctionalization reconstructs each non-empty arm prefix as a branch-local
+`LetStarExpr`, then reconstructs the ordinary frontend `IfExpr`. A post-provider
+member result uses the existing settlement pure-projection
+payload directly. When the selected value is consumed as a typed input before
+the member's sole provider perform, the compiler materializes the **whole
+selection**, never either arm, as one existing `pure_projection` dependency
+immediately before the owning provider-supervision or provider-peer-group node.
+The projection retains the authored source path, emits the existing
+`kind: "if"` payload, and exposes its result through the existing
+`typed_binding_ref` input source. The owning closed-group node depends on that
+projection. Supervision and peer members share this carriage path.
+
+This owner-scope lift is valid only when the complete selection and any
+compiler-owned pure bindings it requires are available before member launch.
+It may not move an effect, branch-local prefix, or member-runtime result across
+the boundary. The projection uses the existing Executable IR node, state row,
+checkpoint, and resume behavior; it adds no node kind, typed-input source
+variant, runtime form, state family, or schema version. If the whole value
+cannot lower through that existing projection and binding-ref path, stop for
+design revision rather than extending public contracts silently.
+
+Pure-expression payload validation continues to check both branches
+structurally and derive both branch types without values. Because the payload
+does not carry a target DSL version, evaluation of every existing
+`kind: "if"` payload executes the condition and selected branch only; it must
+not evaluate the untaken branch merely to rediscover its type. Legacy
+`op: "and"` and `op: "or"` payload evaluation is unchanged. Consequently, an
+effectful short-circuit still lowers to structured `WccIf`. A post-provider
+member-result selection creates no child node. A pre-provider typed-input
+selection creates exactly one ordinary `pure_projection` node and durable row
+for the whole selected value; neither arm creates a projection node or skipped
+row.
 
 ## Contextual Union Tags And Proof
 
@@ -423,14 +492,20 @@ not a compiler-generated binding name.
 
 ## Compatibility And Versioning
 
-- The surface is gated at target DSL 2.26.
+- Strict condition normalization and `WccSelect` elaboration are gated at
+  target DSL 2.26.
 - State schema remains 2.1 because normalized effects, projections, structured
   conditionals, proofs, and checkpoints reuse existing state families.
 - Existing Semantic IR, Executable IR, core AST, and runtime-plan envelope
   versions remain unless implementation discovers an actual representational
   gap. Such a gap triggers design revision rather than a silent version change.
+- Pure-expression `kind: "if"` evaluation is selected-branch-only for every
+  existing payload because the payload has no target-version field. Existing
+  `op: "and"` and `op: "or"` payload evaluation remains unchanged.
 - Source targeting below 2.26 retains current pure/projectable `if` behavior,
-  current `match` proof ownership, and current `cond` name resolution.
+  WCC closed-member outcomes, pure-op normalization/evaluation, named
+  effect/projectability diagnostics, current `match` proof ownership, and
+  current `cond` name resolution.
 - Existing `match` source remains valid at and after 2.26. No automatic source
   rewrite or migration is required.
 - The drafting guide must not recommend the new style until capability evidence
@@ -473,9 +548,19 @@ preserved on clean run and resume, and the temporary frontend marker is erased
 into ordinary nested `if` before WCC.
 
 An internal WCC conditional proof field or compiler side table is within the
-accepted design. If the fixtures require a condition-specific runtime node, a
-new public IR envelope, a new state family, or eager evaluation of
-short-circuited effects, stop and revise this design.
+accepted design. The closed-member feasibility probes found two internal
+lowering gaps. `WccSelect` plus its branch-local `WccSelectArm` prefixes closes
+the value-representation gap. For the pre-provider carriage gap, an explicitly
+owner-bound `IfExpr` already lowers
+to an existing `pure_projection` followed by either provider supervision or a
+provider peer group whose member typed input is an existing
+`typed_binding_ref`; implementation must synthesize that same two-node shape
+from the member-local selection through one shared carriage path. If the
+remaining fixtures
+require a
+condition-specific runtime execution node, a new public IR envelope, a new
+state family, or eager evaluation of short-circuited effects, stop and revise
+this design again.
 
 ## Verification Strategy
 
@@ -490,8 +575,20 @@ Focused compile and typecheck coverage must prove:
 - contextual tag resolution, lexical-binding precedence, unknown/mismatched
   tag rejection, and compatible discriminant equality;
 - positive and negative proof through `=`, `!=`, `and`, `or`, and `not`;
-- unsound proof paths and unproved/wrong-variant fields remain rejected; and
-- source maps retain authored subexpression and clause provenance.
+- unsound proof paths and unproved/wrong-variant fields remain rejected;
+- only exact helper-expansion clones receive the post-expansion fold, while
+  authored non-condition return/projection subtrees remain unchanged;
+- nested `let*`, list-map, phase, live-member, trial/resume, loop
+  body/exhaustion, and `if`/`match` branch owners retain every generated prefix
+  in the scope that owns it;
+- nested `WccSelect` arms retain pure `let*`/helper-generated prefixes inside
+  the owning arm, including when the prefixed arm is untaken;
+- source maps retain authored subexpression and clause provenance; and
+- in both provider-supervision and provider-peer-group fixtures, an
+  unresolved-`Bool` selection consumed as a closed-member provider input emits
+  exactly one whole-value `pure_projection` before the owning group node, uses
+  an existing `typed_binding_ref`, preserves authored lineage, and emits no
+  arm-specific nodes.
 
 Runtime integration coverage must use deterministic fake providers/commands
 with invocation counters to prove:
@@ -500,7 +597,9 @@ with invocation counters to prove:
 - `and`, `or`, and `cond` skip unneeded effects;
 - only the selected result branch executes;
 - an invalid or failed condition effect fails before branch selection;
-- clean and resumed runs produce the same selected branch and outputs; and
+- clean and resumed runs produce the same selected branch and outputs;
+- pre-provider whole-selection projections feed the selected typed inputs in
+  supervision and peer groups and are reused after downstream failure; and
 - completed condition effects are reused without duplicate attempts.
 
 The primary acceptance scenario is an inline provider call returning a typed
@@ -534,19 +633,31 @@ Implementation updates:
 - `specs/versioning.md` and `specs/index.md` target-2.26 routing; and
 - relevant frontend reference/form catalogs.
 
-This design and the documentation indexes may advertise the surface as
-designed, not runnable.
+Implementation landed at target DSL 2.26; this design and the documentation
+indexes now advertise the surface as implemented. Behavioral copy-safety
+evidence is the focused strict-Boolean, E2E, and variant-proof suites
+`tests/test_workflow_lisp_strict_boolean_control_flow.py`,
+`tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py`, and
+`tests/test_workflow_lisp_variant_proofs.py`, plus the normative target-admission
+controls `tests/test_workflow_lisp_e1_normative_contract.py` and
+`tests/test_workflow_lisp_e2_trial_contract.py`. No statement above extends
+beyond what those selectors demonstrate.
 
 ## Implementation Handoff
 
 The implementation plan should keep one vertical path:
 
-1. run the five feasibility fixtures above and stop on a public-IR/runtime/state
-   gap;
+1. prove the internal `WccSelect` path through closed provider members,
+   materialize a pre-provider whole selection through the existing
+   owner-scope `pure_projection` plus `typed_binding_ref` path, and correct the
+   existing pure-projection `kind: "if"` evaluator to be lazy; then run the
+   five feasibility fixtures above and stop on any remaining
+   public-IR/runtime/state gap;
 2. add target/version gating, contextual tag typing, and binding-identity
    possible-set analysis;
 3. recursively normalize effects through existing `let*`, projection, and
-   structured-`if` machinery, then erase temporary `cond` structure without
+   structured-`if` machinery, retain effect-free selections as `WccSelect`
+   where a WCC value is required, then erase temporary `cond` structure without
    discarding reachable effect prefixes or short-circuit boundaries;
 4. carry branch proof through WCC into existing runtime guards and resume proof
    descriptors; and
