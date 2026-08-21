@@ -3,12 +3,13 @@
 ## Metadata
 
 - **Title:** OMP integration — generic worker template, JSON session codec, prompt scaffolder, multiagent conf presets, bidirectional session bridge
-- **Status:** proposed; incorporated into the active E-series roadmap as pending, unselected off-spine item `OMP-I1`
+- **Status:** accepted; owner selected `OMP-I1` tranche 1 on 2026-08-21, with activation blocked only until frozen-ES hand-back; the owner-approved declarative capability extension remains lower-priority, pending, unselected `OMP-I2`
 - **Kind:** architecture decision + roadmap extension
 - **Owner:** repository owner (decision holder)
-- **Created:** 2026-08-14 (**Last material update:** 2026-08-14, lightened and generalized to multiagent conf presets; canonical output-contract and self-contained prompt materialization added after owner review)
+- **Created:** 2026-08-14 (**Last material update:** 2026-08-21, tranche-1 selection recorded and design inconsistencies resolved; declarative skill/extension selection remains a lower-priority follow-on behind `OMP-I1`)
 - **Related:** extends [`2026-08-14-omp-integration-proposal.md`](2026-08-14-omp-integration-proposal.md); spec home on landing [`specs/providers.md`](../../specs/providers.md); authoring home [`docs/lisp_workflow_drafting_guide.md`](../lisp_workflow_drafting_guide.md); omp checkout `~/Documents/oh-my-pi`
-- **Implementation target:** one thin tranche + one gated follow-on; nothing touches the frozen ES apparatus
+- **Implementation target:** one thin `OMP-I1` tranche plus independently gated follow-ons; `OMP-I2` is lower priority and nothing touches the frozen ES apparatus
+- **Upstream pin:** `oh-my-pi` tag `v17.3.4`, commit `ffd53ff92a6f575d499730475a73460dd7cc2eea`; capture binary `/home/ollie/.local/bin/omp` reports `omp/17.3.4` and has SHA-256 `3fce4b25628064b0cd7bfbc6245ecdada331750ed4b341aca6bd29ba4478aab5`
 
 ## Summary
 
@@ -75,14 +76,16 @@ omp's persistent, resumable session JSONL.
   named templates; that is a naming convention, not machinery.
 - **X2 — One codec, panes for free.** `OMP_JSON_STDOUT` parses
   `omp --mode json` stdout (session header id → fail-closed identity;
-  `message_update`/`message_end` → assistant text; `turn_end`/`agent_end` →
-  terminal + embedded usage → `{tokens, cost}`; error surfaces → typed
-  transport error). The assistant-text callback is what observation panes
+  `message_update`/`message_end` → assistant text; terminal message `Usage`
+  (not optional `agent_end.telemetry`) → `{tokens, cost}`; error surfaces →
+  typed transport error). Unknown event types are tolerated; a missing or
+  non-first session header fails identity closed. The assistant-text callback
+  is what observation panes
   display, so every omp step is live-watchable at
   `tmux -S <run observation socket> attach` the day the codec lands.
-  The RPC stack (client, driver, `steer`) stays out entirely, gated on a
-  named consumer needing mid-turn control; recorded fallback if
-  `--mode json` proves insufficient (F2/F5) is the proposal's original C.
+  The RPC stack (client, driver, `steer`) stays out entirely and is not a
+  fallback. A named consumer needing mid-turn control must separately activate
+  the gated RPC follow-on.
 - **X3 — Scaffolder: prompt artifact + output contract + optional conf →
   generated `.orc` → run.** A CLI entry requires exactly one of
   `--prompt TEXT` and `--prompt-file PATH`. One materializer validates
@@ -98,6 +101,10 @@ omp's persistent, resumable session JSONL.
   without the original CLI working directory or prompt-file path. General:
   `--provider codex_gpt55` works identically; the conf argument is simply
   absent.
+  `--provider` always names the exact generated provider extern; the CLI does
+  not rewrite `omp` to `omp_conf`. A conf-backed run therefore uses
+  `--provider omp_conf --conf PATH`; `--provider omp` has no conf input and
+  rejects `--conf`.
 - **X3a — Shared library procedure, not per-workflow glue.** One
   `defproc` family under `workflows/library/omp/` owns conf staging +
   provider call + advisor-evidence wiring for every consumer (generated
@@ -188,8 +195,8 @@ omp's persistent, resumable session JSONL.
 # --no-extensions/--no-title cut ambient surface and a wasted title call.
 "omp": ProviderTemplate(
     name="omp",
-    command=["env", "PI_CODING_AGENT_DIR=.omp-agent",
-             "omp", "--mode", "json",
+    command=["env", "-u", "OMP_PROFILE", "-u", "PI_PROFILE",
+             "PI_CODING_AGENT_DIR=.omp-agent", "omp", "--mode", "json",
              "--no-extensions", "--no-title",
              "--approval-mode", "write",
              "--model", "${model}", "${PROMPT}"],
@@ -214,8 +221,8 @@ omp's persistent, resumable session JSONL.
 # the conf; the argv is preset-independent.
 "omp_conf": ProviderTemplate(
     name="omp_conf",
-    command=["env", "PI_CODING_AGENT_DIR=.omp-conf/agent",
-             "omp", "--mode", "json",
+    command=["env", "-u", "OMP_PROFILE", "-u", "PI_PROFILE",
+             "PI_CODING_AGENT_DIR=.omp-conf/agent", "omp", "--mode", "json",
              "--no-extensions", "--no-title",
              "--approval-mode", "write",
              "--config", ".omp-conf/config.yml",
@@ -228,10 +235,10 @@ omp's persistent, resumable session JSONL.
 
 Approval mode is pinned in argv (a runtime override) on both lanes so it
 is evidence-visible and cannot drift via config; `write` is the
-conservative default and F7 verifies it suffices for ordinary worker
+conservative default and F6 verifies it suffices for ordinary worker
 tasks, else the template adjusts before landing. The advised presets do
 not need an `--advisor` flag: `advisor.enabled: true` in the mounted
-`config.yml` owns topology, keeping one conf template for all four
+`config.yml` owns topology, keeping one conf template for all five
 presets.
 
 `.omp-conf/` is `omp_conf`'s fixed mount point in the step workspace.
@@ -245,8 +252,9 @@ run evidence.
 
 | Preset | conf contents | Evidence facts recorded |
 | --- | --- | --- |
+| `neutral/` | `config.yml` (`advisor.enabled: false`, `memory.backend: "off"`; no role or WATCHDOG files) | conf digest, zero advisor/subagent activity |
 | `advised/` | `config.yml` (advisor role, `syncBacklog`), `agent/WATCHDOG.yml` (pinned read-only tools), `WATCHDOG.md` | advisor transcript non-empty, advisor usage |
-| `fanout/` | `agent/agents/*.md` (models, tools, `spawns: none`, output schemas) | subagent count, per-agent tokens/cost, worktree cleanup check |
+| `fanout/` | `agent/agents/*.md` (models, explicit tools excluding `task`, output schemas) | subagent count, per-agent tokens/cost, worktree cleanup check |
 | `peer-team/` | `fanout/` plus `hub` in agent tool grants | as `fanout/` plus hub-message activity in session artifacts |
 | `advised-fanout/` | union of `advised/` + `fanout/` | union of both fact sets |
 
@@ -276,7 +284,7 @@ advisor:
   enabled: true
   syncBacklog: "1"     # string enum "off"|"1"|"3"|"5" (settings-schema.ts:471)
 memory:
-  enabled: false       # explicit pin — unset fields deep-merge from operator globals
+  backend: "off"       # exact schema key; unset fields deep-merge from operator globals
 ```
 
 ```yaml
@@ -329,8 +337,8 @@ forms only; nothing here is compiler-visible.
 ```bash
 orchestrator prompt run \
   --prompt "Implement the requested repository change and run its required checks." \
-  --conf workflows/assets/omp_confs/ds_fable_advised/ \
-  --provider omp \
+  --conf workflows/assets/omp_confs/advised/ \
+  --provider omp_conf \
   --output "A concise summary, repository-relative files changed, whether \
 all required checks passed, and any unresolved problems"
 ```
@@ -490,7 +498,7 @@ behind the same consumer gate as RPC `steer`.
 ### The bridge, both directions
 
 - **orc → omp:** after (or during) a run,
-  `PI_CODING_AGENT_DIR=<evidence>/omp-agent omp --resume <session-id>`
+  `env -u OMP_PROFILE -u PI_PROFILE PI_CODING_AGENT_DIR=<evidence>/omp-agent omp --resume <session-id>`
   opens the recorded session in the full TUI — inspection, `/advisor dump`,
   forking — without any orc involvement. Feasibility F1 (session files land
   under the relocated agent dir) is the one open prerequisite.
@@ -517,6 +525,8 @@ behind the same consumer gate as RPC `steer`.
   same prompt materializer, carries a digest-bound canonical contract when
   available, and never infers that contract from transcript prose. No direct
   model client: synthesis is an ordinary provider invocation.
+  `--provider` is literal provider identity: `--conf` requires a conf-capable
+  template such as `omp_conf`; no implicit `omp` → `omp_conf` remapping exists.
 - `ScaffoldOutputContract.v1` is the single public scaffold IR/envelope for
   inferred, exact, default, cached, and imported contracts. The scaffolding
   component owns its codec, policy subset, provenance split, and artifact
@@ -542,42 +552,115 @@ behind the same consumer gate as RPC `steer`.
   else in omp is opaque, version-pinned harness internals free to churn
   under the pin:
 
+The source pin and capture binary are distinct evidence. The source tag fixes
+the reviewed contract surface; checked-in frame fixtures bind the binary
+digest above. Replacing that binary requires fixture recapture. Every provider
+argv clears `OMP_PROFILE` and `PI_PROFILE`, because either profile disables
+`PI_CODING_AGENT_DIR` relocation.
+
 | Contract point | omp component | Our consumer | Pin |
 | --- | --- | --- | --- |
-| CLI argv: `-p`/`--mode json`, `--config`, `--model`, `--resume <full-id>`, `--approval-mode`, `--no-extensions`, `--no-title` | `cli/args.ts`, `cli/flag-tables.ts`, `modes/print-mode.ts` | provider templates (both lanes) | template + upgrade review |
-| Config semantics: precedence, `PI_CODING_AGENT_DIR` relocation, `modelRoles`/`advisor.*`/`memory` fields | `config/settings-schema.ts`, config resolution | conf presets, hermeticity (X4) | canary tests (F3) |
-| stdout NDJSON events: session header, `message_update`/`message_end`, `turn_end`/`agent_end`, embedded `Usage`, `notice` | `packages/agent/src/types.ts`, `session/agent-session-events.ts`, `packages/catalog` `Usage` | `OMP_JSON_STDOUT` codec, panes | checked-in frame fixtures |
-| Session persistence: `SessionHeader.id`, append-only session JSONL, `__advisor.<slug>.jsonl`, resume | `session/session-manager.ts`, `session/session-entries.ts`, `advisor/transcript-recorder.ts` | identity check, evidence, bridge (`omp --resume`, import) | F1 + fixtures |
-| Advisor subsystem: headless `--advisor`, WATCHDOG discovery, emission guard, `syncBacklog` | `src/advisor/*` | `advised*` presets | preset pins + liveness fact |
-| Subagent system: `agents/*.md` frontmatter, schema-validated yields, worktree isolation, per-agent metering, `hub` tool | `src/task/*`, `discovery/helpers.ts`, `registry/agent-registry.ts`, `tools/hub` | `fanout/`/`peer-team/` presets | F6 + preset pins |
-| Version identity | `omp --version` | `provider_runtime_version` evidence | recorded per invocation |
+| CLI argv: `--mode json`, `--config`, `--model`, `--resume <full-id>`, `--approval-mode`, `--no-extensions`, `--no-title` | `packages/coding-agent/src/cli/args.ts`, `packages/coding-agent/src/cli/flag-tables.ts`, `packages/coding-agent/src/modes/print-mode.ts` | provider templates (both lanes) | template + upgrade review |
+| Config semantics: precedence, `PI_CODING_AGENT_DIR` relocation, `modelRoles`/`advisor.*`/`memory.backend` fields | `packages/coding-agent/src/config/settings-schema.ts`, config resolution | conf presets, hermeticity (X4) | canary tests (F3) |
+| stdout NDJSON events: session header, `message_update`/`message_end`, `turn_end`/`agent_end`, embedded `Usage`, `notice` | `packages/agent/src/types.ts`, `packages/coding-agent/src/session/agent-session-events.ts`, `packages/catalog/src/types.ts` | `OMP_JSON_STDOUT` codec, panes | checked-in frame fixtures |
+| Session persistence: `SessionHeader.id`, append-only session JSONL, `__advisor.<slug>.jsonl`, resume | `packages/coding-agent/src/session/session-manager.ts`, `packages/coding-agent/src/session/session-entries.ts`, `packages/coding-agent/src/advisor/transcript-recorder.ts` | identity check, evidence, bridge (`omp --resume`, import) | F1 + fixtures |
+| Advisor subsystem: headless `advisor.enabled` configuration, WATCHDOG discovery, emission guard, `syncBacklog` | `packages/coding-agent/src/advisor/` | `advised*` presets | preset pins + liveness fact |
+| Subagent system: `agents/*.md` frontmatter, schema-validated yields, worktree isolation, per-agent metering, `hub` tool | `packages/coding-agent/src/task/`, `packages/coding-agent/src/discovery/helpers.ts`, `packages/coding-agent/src/registry/agent-registry.ts`, `packages/coding-agent/src/tools/hub/` | `fanout/`/`peer-team/` presets | F5 + preset pins |
+| Version identity | `omp --version` | `provider_runtime_version` evidence | source tag + binary digest |
 
-  Deliberately NOT consumed: RPC/ACP modes and the `omp-rpc` client
-  (phase-2 gate), collab/relay (ops trial only), metaharness (post-ES
-  spike), memory backends (banned), Agent Hub TUI/cross-step revival
-  (banned beyond step scope), extensions/hooks/skills/MCP (admissible
-  later as conf, not in the four presets).
+  Deliberately NOT consumed by `OMP-I1`: RPC/ACP modes and the `omp-rpc`
+  client (separate gate), collab/relay (ops trial only), metaharness
+  (post-ES spike), memory backends (banned), Agent Hub TUI/cross-step
+  revival (banned beyond step scope), or non-empty skills/extensions/hooks/
+  MCP capability sets. Declarative skills and exact extension bundles belong
+  only to lower-priority `OMP-I2`; hooks, MCP, and implicit plugin-package
+  capability closure remain unincorporated.
+
+## Deferred Declarative OMP Capability Loading (`OMP-I2`)
+
+Owner decision on 2026-08-14 approves this design for lower-priority roadmap
+tracking, not implementation selection. `OMP-I2` cannot enter before
+`OMP-I1` closes and a separate owner activation names a consumer. It has no
+ordering effect on ES, E3, E-program closure, the P-series, or any earlier
+selected or owner-prioritized OMP follow-on.
+
+The authored boundary is an ordinary library value, not new Workflow Lisp
+grammar and not new `provider-result` keywords:
+
+```lisp
+(record OmpCapabilitySet
+  :skills (list "repo-navigation" "systematic-debugging")
+  :extensions (list "safe-shell"))
+```
+
+`workflows/library/omp/` owns `OmpCapabilitySet` and passes it to
+`omp-attempt`. Logical ids resolve only through a checked-in, source-owned,
+content-addressed `omp-capabilities-lock.v1`. The certified
+`stage-omp-conf` adapter validates kind, containment, exported-name
+collisions, and digests; stages only the selected closure; and emits the
+requested capability manifest plus its digest. No run may invoke `omp
+plugin install`, use network package resolution, or consult ambient installed
+plugin state.
+
+Skills and extensions have separate admission rules. A skill is passive
+prompt authority: its complete directory and exported name are pinned. An
+extension is executable in-process code: it must be an exact reviewed,
+self-contained entry bundle. A plugin package is only a distribution
+container and is not directly selectable; any later bundle convenience must
+expand in the lock to an enumerated skill/extension closure. Undeclared sibling
+hooks, tools, rules, commands, agents, prompts, or MCP configuration are not
+implicitly authorized.
+
+OMP must load the selected closure exactly and fail before the first provider
+request on a missing, mismatching, malformed, duplicate, or unloadable entry.
+The requested manifest and observed loaded inventory are separate evidence;
+the attempt proceeds only when they match and the observed ambient set is
+empty. `omp` version, base-conf digest, and capability-manifest digest jointly
+identify the harness treatment. Resume requires the same capability digest,
+and OMP-owned advisors/subagents may inherit but never widen the set. The
+bound-path provider bundle remains the only orc result channel.
+
+Existing CLI/config controls are evidence candidates, not proof of this exact
+closure: `PI_CODING_AGENT_DIR` and `--no-extensions` do not by themselves
+disable every discovery subsystem. `OMP-I1` must still prove its empty
+capability closure through F3; it does not wait for non-empty author selection.
+`OMP-I2` requires either an OMP-owned fail-closed capability-manifest mode or
+equivalent executable evidence without an orc-side shadow loader.
+
+`OMP-I2` entry and exit require: closed `OMP-I1`; exact fail-closed OMP
+capability-loading evidence; a named consumer and explicit owner activation;
+a focused compile/lower/run fixture proving
+`OmpCapabilitySet` through the certified adapter boundary; canaries across
+user, ancestor, external-tool, installed-plugin, custom-tool, and MCP roots;
+selected-skill and selected-extension positive cases; undeclared and
+digest/load-failure negatives; same-manifest resume and changed-manifest
+refusal; subagent non-widening; no package-state mutation or network install;
+and digest-bound requested/loaded inventory evidence.
 
 ## Feasibility Prerequisites (exit criteria for the tranche's first run)
 
 - **F1** [open]: session JSONL (incl. `__advisor.<slug>.jsonl` and subagent
   artifacts) lands under the relocated agent dir. [INFERENCE from
   `config-usage.md`; one run.]
-- **F2** [open]: `--advisor` composes with `--mode json` (advisor events +
-  drain under JSON print mode).
-- **F3** [open]: hermeticity canaries (user-global config, user WATCHDOG,
-  ancestor `.claude`) provably absent from behavior and evidence.
-- **F5** [open]: resume-boundary observability under
+- **F2** [open]: staged `advisor.enabled: true` configuration composes with
+  `--mode json` (advisor events + drain under JSON print mode).
+- **F3** [open]: an empty capability closure is proven with
+  `OMP_PROFILE`/`PI_PROFILE` unset: canaries in user-global config, user and
+  project/ancestor WATCHDOG files, ancestor external-tool config, skills,
+  extensions, hooks, custom tools, installed plugins, and MCP are neither
+  loaded/imported nor present in behavior or evidence. Non-empty declarative
+  capability selection is `OMP-I2`, not an `OMP-I1` fallback.
+- **F4** [open]: resume-boundary observability under
   `--mode json --resume` sufficient for `turn_boundary_resume`.
-- **F6** [open]: task-subagent activity under `--mode json` is observable
+- **F5** [open]: task-subagent activity under `--mode json` is observable
   in evidence (per-agent metering, yields in the primary session, worktree
   cleanup on step end).
-- **F7** [open]: bare-lane neutrality and headless completion — a fresh
+- **F6** [open]: bare-lane neutrality and headless completion — a fresh
   empty agent dir yields schema defaults with memory/advisor off; an
   ordinary bash+edit worker task completes under `--approval-mode write`
   (else the lane's pinned mode is adjusted); stdin input composes with
   `--mode json` for the unrestricted variant.
-- **F8** [open]: literal and file prompt inputs pass through one exact,
+- **F7** [open]: literal and file prompt inputs pass through one exact,
   source-owned prompt materializer; flag ambiguity, invalid UTF-8, empty
   prompts, external-path retention, and silent overwrite fail closed.
   `--output` returns a schema-valid structural `OutputContractDraft` through
@@ -592,10 +675,16 @@ behind the same consumer gate as RPC `steer`.
 
 - **Active-roadmap route:** `OMP-I1` is tracked from
   [`2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
-  It becomes eligible only after hand-back of the frozen ES apparatus and
-  separate owner approval of tranche 1. Incorporation does not select it.
-  Its F1–F8 checks close only OMP-I1 and cannot gate ES, E3, E-program
+  Owner selection of tranche 1 is recorded above; activation becomes eligible
+  only after hand-back of the frozen ES apparatus.
+  Its F1–F7 checks close only OMP-I1 and cannot gate ES, E3, E-program
   completion, or the P-series successor route.
+- **Lower-priority route:** `OMP-I2` adds declarative, content-addressed
+  skill and exact extension-bundle selection through the ordinary
+  `OmpCapabilitySet` library boundary. It is pending and unselected, requires
+  closed `OMP-I1`, exact fail-closed OMP loading evidence, a named consumer,
+  and separate owner activation, and creates no gate or precedence over any
+  selected spine or earlier OMP follow-on.
 
 - **Tranche 1 (one reviewed change):** the omp template family (`omp`,
   `omp_unrestricted_workspace`, `omp_conf`) + codec +
@@ -608,12 +697,14 @@ behind the same consumer gate as RPC `steer`.
   `--prompt`/`--prompt-file` → owned `prompt.md` + canonical prompt extern,
   `--output`/`--returns`, canonical contract artifact and import sidecar) +
   monitoring-doc note + the two-arm bare-vs-advised trial: one `run.orc` on
-  `omp_conf`, arms differing only in the digest-pinned conf input (neutral
-  `advisor.enabled: false` conf vs `advised/`), plus one `fanout/` preset
-  smoke (F6) and one bare-lane `omp` smoke (F7). Exit: F1–F8 resolved;
+  `omp_conf`, arms differing only in the digest-pinned conf input (`neutral/`
+  vs `advised/`), plus one `fanout/` preset smoke (F5) and one bare-lane `omp`
+  smoke (F6). Exit: F1–F7 resolved;
   canary scenario passes; codec unit + fake-child tests green; one real
   orchestrator smoke; cost and wall-time (contract synthesis, advisor drain
   ≤10 min, `syncBacklog` stalls) measured and reported.
+  This tranche proves an empty optional-capability closure under F3; it does
+  not implement non-empty skill or extension selection.
 - **DP-A (at tranche close):** 2.16/2.17 deprecate-or-commit;
   drafting-guide guidance (advised-conf conventions, admission tiers)
   enters only with the trial evidence — normativity stays evidence-gated.
@@ -624,6 +715,10 @@ behind the same consumer gate as RPC `steer`.
 - **Post-ES-hand-back:** metaharness spike and supervision-as-variable
   study candidacy, unchanged from the proposal, with the tranche-1 trial
   as pilot data.
+- **Lower-priority follow-on (`OMP-I2`):** implement the deferred declarative
+  capability contract only after its entry conditions above. It remains behind
+  `OMP-I1` and does not displace RPC, metaharness, or supervision work if the
+  owner selects those first.
 
 ## Invariants And Failure Modes
 
@@ -693,7 +788,7 @@ new modules complete the tranche check.
 Clean checkout; canaries planted in `~/.omp/agent/` and an ancestor
 `.claude/`; run `orchestrator prompt run --prompt "Implement the requested
 repository change and run its required checks." --conf
-workflows/assets/omp_confs/advised/ --provider omp --output "A concise
+workflows/assets/omp_confs/advised/ --provider omp_conf --output "A concise
 summary, whether all checks passed, and unresolved problems"`. Expected:
 `prompt.md` contains the exact literal bytes and `prompts.json` binds
 `prompts.task` through canonical `asset_file`; no task-prompt transformation
@@ -720,9 +815,10 @@ execution difference between generated source and a bare `orchestrator run`.
 
 ## Stop / Revise Criteria
 
-F3 leak with no hermetic fix → revise isolation before adoption. F2/F5/F6
-failure for a preset → that preset is withheld (transport fallback for
-F2/F5 remains proposal option C). F8 prompt materialization, contract
+F3 leak with no hermetic fix → revise isolation before adoption. F2 failure
+blocks advisor presets; F4 failure blocks the session bridge; F5 failure
+blocks fanout/peer presets. None falls back to RPC: the affected tranche scope
+must be owner-revised before close. F7 prompt materialization, contract
 synthesis, or self-containment failure; model rewriting of task prompts;
 model-written source or prompt-visible field prose; a second CLI
 type/symbol/string grammar; or task invocation after prompt normalization,
@@ -743,9 +839,11 @@ one public `ScaffoldOutputContract.v1` schema/codec; capability-matrix rows
 `docs/workflow_monitoring.md` (attach runbook); index entry. Drafting-guide
 text waits for DP-A.
 
-## Open Questions (owner)
+## Owner Decisions
 
-1. Approve tranche 1 as scoped (single reviewed change, trial included)?
-2. Scaffolder namespace: `orchestrator prompt run|import` vs a flag on
-   `orchestrator run` — default is the former; not blocking.
-3. DP-A timing confirmation; relay policy independent as before.
+1. Resolved 2026-08-21: tranche 1 is selected as scoped, including its trial;
+   frozen-ES hand-back remains the only activation blocker.
+2. Use `orchestrator prompt run|import`; do not add a parallel flag mode to
+   `orchestrator run`.
+3. DP-A timing remains at tranche close; relay policy remains an independent
+   follow-on decision.

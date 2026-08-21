@@ -157,13 +157,15 @@ C3, E2O, the historical execution-registry substrate, and security work remain
 unselected.
 
 The [OMP integration design and roadmap extension](2026-08-14-omp-integration-design-and-roadmap.md)
-is incorporated by owner direction on 2026-08-14 as one tracked off-spine
-item, **OMP-I1**. It remains pending and unselected. Its earliest eligibility
-is after hand-back of the frozen ES apparatus and a separate owner approval of
-its tranche 1; incorporation alone supplies neither. OMP-I1 cannot execute
-against, modify, or consume the frozen ES arms or evidence, and it cannot gate
-the ES exit, E3 review, E-program completion, or the P-series successor route.
-Its F1–F8 checks govern only OMP-I1's own first-run closure.
+tracks off-spine item **OMP-I1** plus owner-approved, lower-priority follow-on
+**OMP-I2**. The owner selected OMP-I1 tranche 1 on 2026-08-21; activation
+awaits hand-back of the frozen ES apparatus. OMP-I2 cannot enter before
+OMP-I1 closes, a named consumer exists, and the owner separately activates it;
+it yields to any selected or owner-prioritized OMP follow-on. Neither item may
+execute against, modify, or consume the frozen ES arms or evidence, and neither
+can gate the ES exit, E3 review, E-program completion, or the P-series
+successor route. F1–F7 govern only OMP-I1's first-run closure; OMP-I2 owns only
+its deferred capability-selection checks.
 Selection does not waive the feasibility, spec-first, ordered-review,
 focused, broad non-security, end-to-end, or exit gates attached to
 roadmap-level units: E exits, ES component tasks, and owner adoptions.
@@ -217,21 +219,32 @@ The historical ledger below is provenance only and cannot redefine or select
 these tranches. C1 is a companion design; C2/C3 from that companion remain
 deferred unless separately incorporated.
 
-Tracked off-spine integration (owner-directed 2026-08-14):
+Tracked off-spine integrations (owner-directed 2026-08-14; OMP-I1 selected
+2026-08-21):
 
 - **OMP-I1 — generic OMP harness integration:** the exact scope is owned by
   [`2026-08-14-omp-integration-design-and-roadmap.md`](2026-08-14-omp-integration-design-and-roadmap.md):
   generic provider-template family, `OMP_JSON_STDOUT` codec, self-contained
   prompt/output-contract scaffolder, named multiagent conf presets, shared
   staging procedure, and bidirectional session bridge.
-- **State:** pending, unselected. ES hand-back and explicit tranche-1 approval
-  are entry conditions; F1–F8 are item-local exit criteria, not new E/ES/P
-  gates.
+- **OMP-I1 state:** selected; activation is blocked only on frozen-ES
+  hand-back. F1–F7 are item-local exit criteria, not new E/ES/P gates. Its F3
+  proof uses an empty optional-capability closure.
+- **OMP-I2 — declarative OMP capabilities:** ordinary `.orc`
+  `OmpCapabilitySet` values select content-addressed skills and exact reviewed
+  extension bundles through the shared staging boundary. Runtime plugin
+  installation, ambient installed-plugin state, implicit package capability
+  closure, and new `provider-result` grammar are excluded.
+- **OMP-I2 state and priority:** approved for tracking, pending, unselected,
+  and lower priority than OMP-I1 and any separately selected or
+  owner-prioritized OMP follow-on. Closed OMP-I1, a named consumer, exact
+  fail-closed OMP loading evidence, and separate owner activation are entry
+  conditions. OMP-I2 is not an OMP-I1 exit criterion.
 - **Ordering effect:** none on the selected spine. The ES F1 refreeze remains
-  the current unit; OMP-I1 does not interpose between ES and E3 or between
+  the current unit; neither OMP item interposes between ES and E3 or between
   E-program closure and the P-series. The metaharness spike, RPC interactive
   lane, and supervision-as-variable study remain separately gated follow-ons,
-  not implied OMP-I1 scope.
+  not implied OMP-I1 or OMP-I2 scope.
 
 Sequencing prerequisites (owner-directed 2026-07-30):
 
