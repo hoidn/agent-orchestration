@@ -383,8 +383,10 @@ The currently implemented authoring surface includes:
   source form or workflow-readable value
 - modules, imports, and exports
 - `let*`
-- `if` and `cond`, including arbitrary exact-`Bool` conditions at target 2.26
-  (below 2.26, only computed pure `Bool` conditions)
+- `if` and `cond`, including arbitrary exact-`Bool` conditions at target 2.26;
+  condition effects run left to right and at most once, `and`/`or`
+  short-circuit, and a no-`else` `cond` must be provably exhaustive (below
+  2.26, only computed pure `Bool` conditions)
 - the closed pure-expression operator surface (`=`, `!=`, `<`, `<=`, `>`,
   `>=`, `and`, `or`, `not`, `+`, `-`, `*`, `min`, `max`, `string/concat`,
   `string/empty?`, `symbol/name`, `some?`, `or-else`, `record-update`),
@@ -623,10 +625,10 @@ attempt.execution-report
 ```
 A computed pure `Bool` condition, such as `(= status "READY")`, may route
 control flow, but it is proof-neutral: it does not unlock variant-specific
-fields, optional payloads, or union narrowing. At target 2.26, a typed
-`.variant` discriminant comparison such as `(= attempt.variant COMPLETED)`
-does establish branch-local variant proof; below 2.26 `match` remains the only
-construct that establishes variant proof.
+fields, optional payloads, or union narrowing. At target 2.26, typed
+`.variant` equality and inequality comparisons such as
+`(= attempt.variant COMPLETED)` establish branch-local variant proof. Below
+2.26, `match` remains the only construct that establishes variant proof.
 
 ### 3.8 Do Not Hand-Manage Runtime State
 
@@ -792,7 +794,8 @@ Construct one declared union variant with the explicit `variant` form:
 
 Keep the union type and variant name explicit. Use the same keyword/value field
 shape as `record`. Constructing a union does not prove later field access;
-variant-specific reads still need `match` or another proof-bearing path.
+variant-specific reads still need `match` or, at target 2.26, a branch proven
+by a typed `.variant` equality or inequality comparison.
 
 Bad:
 
@@ -1821,12 +1824,13 @@ Copy-safe fixtures:
 `tests/fixtures/workflow_lisp/valid/pure_expr_loop_counter.orc` and
 `tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc`.
 
-Routing is not proof. `(if (= status "READY") ...)` may choose a branch; it
-never makes union variant fields readable. See Section 10.
+Routing is not generally proof. `(if (= status "READY") ...)` may choose a
+branch, but it never makes union variant fields readable. At target 2.26, typed
+`.variant` equality and inequality comparisons are the deliberate exception.
 
 ## 10. Pattern Matching And Variant Proof
 
-Use `match` to consume union results.
+Use `match` when directly deconstructing a union:
 
 ```lisp
 (match implementation
@@ -1842,45 +1846,54 @@ Use `match` to consume union results.
 ```
 
 Inside the `COMPLETED` arm, `c.execution-report` is available. Inside the
-`BLOCKED` arm, `b.progress-report`, `b.blocker-class`, and `b.blocker-reason`
-are available. Outside `match`, variant-specific fields are unavailable.
+`BLOCKED` arm, `b.progress-report`, `b.blocker-class`, and
+`b.blocker-reason` are available. The proof is arm-local.
 
-Prefer exhaustive matches. Avoid partial matches unless the type or form
-explicitly permits them.
-
-Use `variant` to build a union value; use `match` to prove which variant you
-have before reading variant-specific fields.
-
-Computed scalar predicates may route; they never prove.
-
-Routing on a genuine scalar is fine:
+At target 2.26, ordinary `if` and `cond` may establish the same branch-local
+proof from a typed union discriminant:
 
 ```lisp
-(if (>= state.count max-iterations)
-  (done ...)
-  (continue ...))
+(if (= attempt.variant COMPLETED)
+    (record-completed :execution-report attempt.execution-report)
+    ...)
+
+(cond
+  ((= attempt.variant COMPLETED)
+   (record-completed :execution-report attempt.execution-report))
+  ((= attempt.variant BLOCKED)
+   (record-blocked :progress attempt.progress-report)))
 ```
 
-Simulating `match` with a comparison to reach variant fields is not:
+Each condition must resolve to exact `Bool`. Condition effects execute left to
+right and at most once; `and` and `or` skip unselected operands. A `cond`
+without `else` is accepted only when a pure statically true terminal or the
+closed variant facts make its final false environment unreachable. The
+compiler retains runtime `requires_variant` guards and resume-time proof
+validation for narrowed field reads.
+
+Ordinary scalar predicates and status mirrors remain proof-neutral:
 
 ```lisp
-;; Bad: routes on a status mirror, then reads an unproved variant field
+;; Bad: a status mirror does not prove the union discriminant
 (if (= implementation.status "COMPLETED")
     implementation.execution-report
     ...)
-
-;; Better: proof comes from match
-(match implementation
-  ((COMPLETED c)
-    c.execution-report)
-
-  ((BLOCKED b)
-    ...))
 ```
 
-If the value is a union, use `match`. If a record carries a status enum that
-mirrors a union's discriminant, the record is probably a fake outcome type
-(Section 28).
+Below target 2.26, `match` remains the only authored variant-proof source.
+Prefer `match` for exhaustive deconstruction; use typed discriminant `if` or
+`cond` when ordinary branch control is clearer.
+
+Current ceiling: consume narrowed fields in branch bodies or effect arguments.
+A pure value-position `if` that selects between variant-only fields is not a
+supported projection shape and fails closed with a diagnostic rather than
+creating an unguarded value.
+
+Copy-safety evidence:
+`tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_requires_variant_local_union_branch_narrows`,
+`tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_closed_union_terminal_is_exhaustive`,
+and
+`tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py::test_cond_exhaustive_terminal_routes_and_resumes`.
 
 ## 11. Contexts And Derived State
 
@@ -2601,7 +2614,7 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `variant_output_without_variant_specific_fields` | Union variants with no fields | Record plus enum |
 | `recovery_gate_without_canonical_state` | File-existence recovery gate | `resume-or-start` |
 | `resource_move_without_transition` | Shell move plus hidden ledger update | `resource-transition` or certified adapter |
-| `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match` |
+| `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match`, or target-2.26 typed discriminant `if`/`cond` |
 | `manual_state_path` | Hand-built state path | Context helper such as `with-phase` |
 | `command_step_for_pure_computation` | Python/`jq` step that only compares, counts, defaults, or formats | Closed pure-expression surface / typed projection (Section 9A) |
 | `loop_state_carries_path_authority` | Loop state threading state-file paths between iterations | Typed value state plus `record-update` (Section 17) |
@@ -2620,7 +2633,7 @@ target; they do not define a runnable YAML frontend.
 | `variant_output` | `defunion` plus `provider-result` |
 | `pre_snapshot` + `select_variant_output` | `run-provider-phase` or another structured producer result |
 | `materialize_artifacts` | Context-derived materialization or internal lowering |
-| `requires_variant` | Usually generated from `match` |
+| `requires_variant` | Compiler-generated from `match` or target-2.26 typed discriminant proof |
 | `match` | Same concept, used directly over unions |
 | `repeat_until` | `review-revise-loop`, `backlog-drain`, or `loop/recur` |
 | Raw `goto` | Avoid; use structured control |
@@ -2957,7 +2970,7 @@ Before running a new `.orc` workflow, confirm:
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |
-| Variants | Variant-specific fields are used only inside `match`. |
+| Variants | Variant-specific fields are used only inside a proof-bearing `match` arm or target-2.26 typed discriminant branch. |
 | State | State paths are derived from contexts. |
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
 | Reuse | Durable public run/resume/invocation/publication identity is a `defworkflow`; repeated internal effectful behavior is a `defproc`; pure behavior is a `defun`. |
@@ -3004,8 +3017,8 @@ Require artifact values.
 
 ### Unproved Variant Access
 
-Look for variant-specific fields outside `match`. Require `match` or a frontend
-construct that lowers to an equivalent proof context.
+Look for variant-specific fields outside a proof-bearing context. Require
+`match` or, at target 2.26, a typed `.variant` equality or inequality branch.
 
 ## 29. Persisted Legacy And Historical Compatibility Policy
 
