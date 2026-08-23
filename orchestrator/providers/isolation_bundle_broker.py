@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
 from dataclasses import dataclass, field
 from hashlib import sha256
 import errno
@@ -14,6 +13,12 @@ import unicodedata
 
 from jsonschema import Draft202012Validator
 
+from orchestrator._common.io_atomic import (
+    RenameNoreplaceError,
+    RenameNoreplaceUnavailableError,
+    RenamePathEncodingError,
+    rename_noreplace_at,
+)
 from orchestrator.providers.isolation import (
     MAX_PROVIDER_ISOLATION_RUNTIME_RELPATH_LENGTH,
     canonical_isolation_json_bytes,
@@ -40,7 +45,6 @@ _TRANSFER_ROOT = "transfers"
 _JOURNAL_NAME = "transfer.json"
 _STAGED_NAME = "bundle.staged"
 _ARCHIVE_NAME = "bundle.invalid"
-_RENAME_NOREPLACE = 1
 _BOUND_CAPTURE_TOKEN = object()
 _TRANSFER_REQUEST_TOKEN = object()
 
@@ -2519,35 +2523,21 @@ def _rename_noreplace(
 ) -> None:
     """Linux renameat2(RENAME_NOREPLACE), with no overwrite fallback."""
 
-    libc = ctypes.CDLL(None, use_errno=True)
-    renameat2 = getattr(libc, "renameat2", None)
-    if renameat2 is None:
-        raise _broker_error("Linux renameat2 is unavailable")
-    renameat2.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    renameat2.restype = ctypes.c_int
     try:
-        source_bytes = os.fsencode(source_name)
-        target_bytes = os.fsencode(target_name)
-    except (TypeError, UnicodeEncodeError) as exc:
+        rename_noreplace_at(
+            source_parent_fd,
+            source_name,
+            target_parent_fd,
+            target_name,
+        )
+    except RenameNoreplaceUnavailableError as exc:
+        raise _broker_error("Linux renameat2 is unavailable") from exc
+    except RenamePathEncodingError as exc:
         raise _broker_error("rename path is not a filesystem name") from exc
-    result = renameat2(
-        source_parent_fd,
-        source_bytes,
-        target_parent_fd,
-        target_bytes,
-        _RENAME_NOREPLACE,
-    )
-    if result != 0:
-        error_number = ctypes.get_errno()
+    except RenameNoreplaceError as exc:
         raise _broker_error(
-            f"atomic no-replace rename failed with errno {error_number}"
-        ) from OSError(error_number, os.strerror(error_number))
+            f"atomic no-replace rename failed with errno {exc.errno}"
+        ) from exc
 
 
 def _fsync_directory(directory_fd: int) -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
 from pathlib import Path
 from typing import Callable
@@ -8,10 +10,16 @@ import pytest
 
 import orchestrator._common.io_atomic as io_atomic
 from orchestrator._common.io_atomic import (
+    RenameNoreplaceError,
+    RenameNoreplaceUnavailableError,
+    RenamePathEncodingError,
     atomic_write_bytes,
     atomic_write_text,
     durable_atomic_write,
+    rename_noreplace_at,
 )
+from orchestrator.providers import isolation_bundle_broker as bundle_broker
+from orchestrator.providers import isolation_environment as environment
 
 
 def _temporary_paths(destination: Path) -> list[Path]:
@@ -503,3 +511,301 @@ def test_atomic_writers_replace_with_empty_payload(
 
     assert destination.read_bytes() == b""
     assert _temporary_paths(destination) == []
+
+
+def _directory_descriptor(directory: Path) -> int:
+    return os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+
+
+class _FakeLibc:
+    def __init__(self, renameat2: object):
+        self.renameat2 = renameat2
+
+
+def test_rename_noreplace_at_moves_between_directory_descriptors(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    (source_dir / "a").write_bytes(b"payload")
+    source_fd = _directory_descriptor(source_dir)
+    target_fd = _directory_descriptor(target_dir)
+    try:
+        rename_noreplace_at(source_fd, "a", target_fd, "b")
+    finally:
+        os.close(source_fd)
+        os.close(target_fd)
+
+    assert not (source_dir / "a").exists()
+    assert (target_dir / "b").read_bytes() == b"payload"
+
+
+def test_rename_noreplace_at_collision_raises_typed_eexist(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    (directory / "a").write_bytes(b"source")
+    (directory / "b").write_bytes(b"destination")
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(RenameNoreplaceError) as caught:
+            rename_noreplace_at(fd, "a", fd, "b")
+    finally:
+        os.close(fd)
+
+    assert caught.value.errno == errno.EEXIST
+    assert (directory / "a").read_bytes() == b"source"
+    assert (directory / "b").read_bytes() == b"destination"
+
+
+def test_rename_noreplace_at_has_no_replace_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    (directory / "a").write_bytes(b"source")
+    (directory / "b").write_bytes(b"destination")
+
+    def failing_renameat2(*_args: object) -> int:
+        ctypes.set_errno(errno.EEXIST)
+        return -1
+
+    monkeypatch.setattr(
+        io_atomic.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: _FakeLibc(failing_renameat2),
+    )
+    monkeypatch.setattr(
+        io_atomic.os,
+        "replace",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("replace fallback attempted")
+        ),
+    )
+
+    with pytest.raises(RenameNoreplaceError):
+        rename_noreplace_at(fd := _directory_descriptor(directory), "a", fd, "b")
+    os.close(fd)
+
+    assert (directory / "a").read_bytes() == b"source"
+    assert (directory / "b").read_bytes() == b"destination"
+
+
+def test_rename_noreplace_at_missing_symbol_is_typed_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        io_atomic.ctypes, "CDLL", lambda *_args, **_kwargs: object()
+    )
+
+    with pytest.raises(RenameNoreplaceUnavailableError):
+        rename_noreplace_at(0, "a", 0, "b")
+
+
+def test_rename_noreplace_at_enosys_is_typed_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_renameat2(*_args: object) -> int:
+        ctypes.set_errno(errno.ENOSYS)
+        return -1
+
+    monkeypatch.setattr(
+        io_atomic.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: _FakeLibc(failing_renameat2),
+    )
+
+    with pytest.raises(RenameNoreplaceError) as caught:
+        rename_noreplace_at(0, "a", 0, "b")
+
+    assert caught.value.errno == errno.ENOSYS
+
+
+@pytest.mark.parametrize(
+    ("source_name", "target_name"),
+    [
+        ("a\x00b", "c"),
+        ("\ud800", "c"),
+        (b"a", "c"),
+        (123, "c"),
+        ("a", "c\x00d"),
+        ("a", "\ud800"),
+        ("a", b"c"),
+        ("a", 456),
+    ],
+)
+def test_rename_noreplace_at_rejects_unsafe_names_before_syscall(
+    tmp_path: Path,
+    source_name: object,
+    target_name: object,
+) -> None:
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    (directory / "a").write_bytes(b"payload")
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(RenamePathEncodingError):
+            rename_noreplace_at(fd, source_name, fd, target_name)
+    finally:
+        os.close(fd)
+
+    assert (directory / "a").read_bytes() == b"payload"
+    assert sorted(entry.name for entry in directory.iterdir()) == ["a"]
+
+
+def test_broker_rename_wrapper_preserves_success_and_domain_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+    (directory / "a").write_bytes(b"source")
+    (directory / "b").write_bytes(b"destination")
+    fd = _directory_descriptor(directory)
+    try:
+        bundle_broker._rename_noreplace(fd, "a", fd, "moved")
+        with pytest.raises(
+            bundle_broker.ProviderIsolationBundleBrokerError,
+            match="atomic no-replace rename failed with errno 17",
+        ):
+            bundle_broker._rename_noreplace(fd, "moved", fd, "b")
+    finally:
+        os.close(fd)
+
+    assert not (directory / "a").exists()
+    assert (directory / "moved").read_bytes() == b"source"
+    assert (directory / "b").read_bytes() == b"destination"
+
+
+def test_broker_rename_wrapper_translates_unavailable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+
+    def unavailable(*_args: object, **_kwargs: object) -> None:
+        raise RenameNoreplaceUnavailableError("Linux renameat2 is unavailable")
+
+    monkeypatch.setattr(bundle_broker, "rename_noreplace_at", unavailable)
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(
+            bundle_broker.ProviderIsolationBundleBrokerError,
+            match="Linux renameat2 is unavailable",
+        ):
+            bundle_broker._rename_noreplace(fd, "a", fd, "b")
+    finally:
+        os.close(fd)
+
+
+def test_broker_rename_wrapper_translates_encoding_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+
+    def unencodable(*_args: object, **_kwargs: object) -> None:
+        raise RenamePathEncodingError("rename name is not a filesystem name")
+
+    monkeypatch.setattr(bundle_broker, "rename_noreplace_at", unencodable)
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(
+            bundle_broker.ProviderIsolationBundleBrokerError,
+            match="rename path is not a filesystem name",
+        ):
+            bundle_broker._rename_noreplace(fd, "a", fd, "b")
+    finally:
+        os.close(fd)
+
+
+def test_environment_rename_wrapper_preserves_success_and_eexist_message(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+    (directory / "staging").write_bytes(b"source")
+    (directory / "final").write_bytes(b"destination")
+    fd = _directory_descriptor(directory)
+    try:
+        environment._rename_noreplace(fd, "staging", "published")
+        with pytest.raises(
+            environment.ProviderIsolationEnvironmentError,
+            match="snapshot digest authority already exists",
+        ):
+            environment._rename_noreplace(fd, "published", "final")
+    finally:
+        os.close(fd)
+
+    assert not (directory / "staging").exists()
+    assert (directory / "published").read_bytes() == b"source"
+    assert (directory / "final").read_bytes() == b"destination"
+
+
+def test_environment_rename_wrapper_translates_unavailable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+
+    def unavailable(*_args: object, **_kwargs: object) -> None:
+        raise RenameNoreplaceUnavailableError("Linux renameat2 is unavailable")
+
+    monkeypatch.setattr(environment, "rename_noreplace_at", unavailable)
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(
+            environment.ProviderIsolationEnvironmentError,
+            match="atomic no-replace rename is unavailable",
+        ):
+            environment._rename_noreplace(fd, "a", "b")
+    finally:
+        os.close(fd)
+
+
+def test_environment_rename_wrapper_translates_encoding_error_directly(
+    tmp_path: Path,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+    (directory / "a").write_bytes(b"source")
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(
+            environment.ProviderIsolationEnvironmentError,
+            match="atomic no-replace snapshot publication failed",
+        ):
+            environment._rename_noreplace(fd, 123, "b")
+    finally:
+        os.close(fd)
+
+    assert (directory / "a").read_bytes() == b"source"
+
+
+def test_environment_rename_wrapper_translates_other_errno_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = tmp_path / "authority"
+    directory.mkdir()
+
+    def failed(*_args: object, **_kwargs: object) -> None:
+        raise RenameNoreplaceError(errno.EINVAL, os.strerror(errno.EINVAL))
+
+    monkeypatch.setattr(environment, "rename_noreplace_at", failed)
+    fd = _directory_descriptor(directory)
+    try:
+        with pytest.raises(
+            environment.ProviderIsolationEnvironmentError,
+            match="atomic no-replace snapshot publication failed",
+        ):
+            environment._rename_noreplace(fd, "a", "b")
+    finally:
+        os.close(fd)

@@ -32,6 +32,13 @@ import uuid
 
 from jsonschema import Draft202012Validator
 
+from orchestrator._common.io_atomic import (
+    RenameNoreplaceError,
+    RenameNoreplaceUnavailableError,
+    RenamePathEncodingError,
+    rename_noreplace_at,
+)
+
 from .isolation import (
     ProviderIsolationIssue,
     canonical_isolation_json_bytes,
@@ -5196,8 +5203,8 @@ def _rename_noreplace(
     destination_name: str,
 ) -> None:
     try:
-        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
-    except AttributeError as exc:
+        rename_noreplace_at(parent_fd, source_name, parent_fd, destination_name)
+    except RenameNoreplaceUnavailableError as exc:
         raise ProviderIsolationEnvironmentError(
             (
                 _issue(
@@ -5206,43 +5213,33 @@ def _rename_noreplace(
                 ),
             )
         ) from exc
-    renameat2.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.c_uint,
-    ]
-    renameat2.restype = ctypes.c_int
-    if (
-        renameat2(
-            parent_fd,
-            source_name.encode("utf-8"),
-            parent_fd,
-            destination_name.encode("utf-8"),
-            1,
-        )
-        == 0
-    ):
-        return
-    error = ctypes.get_errno()
-    if error == errno.EEXIST:
+    except RenameNoreplaceError as exc:
+        if exc.errno == errno.EEXIST:
+            raise ProviderIsolationEnvironmentError(
+                (
+                    _issue(
+                        "$.snapshot_authority",
+                        "snapshot digest authority already exists",
+                    ),
+                )
+            ) from exc
         raise ProviderIsolationEnvironmentError(
             (
                 _issue(
                     "$.snapshot_authority",
-                    "snapshot digest authority already exists",
+                    "atomic no-replace snapshot publication failed",
                 ),
             )
-        )
-    raise ProviderIsolationEnvironmentError(
-        (
-            _issue(
-                "$.snapshot_authority",
-                "atomic no-replace snapshot publication failed",
-            ),
-        )
-    )
+        ) from exc
+    except RenamePathEncodingError as exc:
+        raise ProviderIsolationEnvironmentError(
+            (
+                _issue(
+                    "$.snapshot_authority",
+                    "atomic no-replace snapshot publication failed",
+                ),
+            )
+        ) from exc
 
 
 def _require_private_directory(

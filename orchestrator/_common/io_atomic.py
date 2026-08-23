@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
 from pathlib import Path
 import secrets
@@ -129,3 +130,69 @@ def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = _ORDINARY_FILE
 def atomic_write_text(path: Path, text: str, *, mode: int = _ORDINARY_FILE_MODE) -> None:
     """UTF-8 encode text and replace a file without adding framing."""
     atomic_write_bytes(path, text.encode("utf-8"), mode=mode)
+
+
+_RENAME_NOREPLACE = 1
+
+
+class RenameNoreplaceUnavailableError(RuntimeError):
+    """The platform lacks a usable renameat2(RENAME_NOREPLACE) syscall."""
+
+
+class RenameNoreplaceError(OSError):
+    """renameat2(RENAME_NOREPLACE) failed; errno identifies the cause."""
+
+
+class RenamePathEncodingError(ValueError):
+    """A rename source or target name is not a filesystem name."""
+
+
+def _validate_rename_name(name: str) -> None:
+    if not isinstance(name, str) or "\x00" in name:
+        raise RenamePathEncodingError("rename name is not a filesystem name")
+
+
+def rename_noreplace_at(
+    source_parent_fd: int,
+    source_name: str,
+    target_parent_fd: int,
+    target_name: str,
+) -> None:
+    """Atomically move source_name to target_name only when target is absent.
+
+    Uses Linux renameat2(RENAME_NOREPLACE) exclusively; never falls back to
+    replace or link. Raises RenameNoreplaceUnavailableError when the syscall
+    is unavailable, RenamePathEncodingError for non-str or NUL-bearing names,
+    and RenameNoreplaceError (an OSError carrying errno) on syscall failure.
+    """
+    _validate_rename_name(source_name)
+    _validate_rename_name(target_name)
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise RenameNoreplaceUnavailableError("Linux renameat2 is unavailable")
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    try:
+        source_bytes = os.fsencode(source_name)
+        target_bytes = os.fsencode(target_name)
+    except UnicodeEncodeError as exc:
+        raise RenamePathEncodingError(
+            "rename name is not a filesystem name"
+        ) from exc
+    result = renameat2(
+        source_parent_fd,
+        source_bytes,
+        target_parent_fd,
+        target_bytes,
+        _RENAME_NOREPLACE,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise RenameNoreplaceError(error_number, os.strerror(error_number))
