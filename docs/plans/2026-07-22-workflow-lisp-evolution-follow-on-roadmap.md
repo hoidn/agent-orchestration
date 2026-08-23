@@ -158,14 +158,16 @@ unselected.
 
 The [OMP integration design and roadmap extension](2026-08-14-omp-integration-design-and-roadmap.md)
 tracks off-spine item **OMP-I1** plus owner-approved, lower-priority follow-on
-**OMP-I2**. The owner selected OMP-I1 tranche 1 on 2026-08-21; activation
-awaits hand-back of the frozen ES apparatus. OMP-I2 cannot enter before
-OMP-I1 closes, a named consumer exists, and the owner separately activates it;
-it yields to any selected or owner-prioritized OMP follow-on. Neither item may
-execute against, modify, or consume the frozen ES arms or evidence, and neither
-can gate the ES exit, E3 review, E-program completion, or the P-series
-successor route. F1–F7 govern only OMP-I1's first-run closure; OMP-I2 owns only
-its deferred capability-selection checks.
+**OMP-I2**. The owner selected OMP-I1 tranche 1 on 2026-08-21; implementation
+awaits hand-back of the frozen ES apparatus, and a review finding blocks only
+by demonstrating a current design, specification, or security violation.
+OMP-I2 cannot enter before OMP-I1 closes, a named consumer exists, and the
+owner separately activates it; it yields to any selected or owner-prioritized
+OMP follow-on. Neither item may execute against, modify, or consume the frozen
+ES arms or evidence, and neither can gate the ES exit, E3 review, E-program
+completion, or the P-series successor route. F1–F8 govern only OMP-I1's
+implementation closure; OMP-I2 owns only its deferred capability-selection
+checks.
 Selection does not waive the feasibility, spec-first, ordered-review,
 focused, broad non-security, end-to-end, or exit gates attached to
 roadmap-level units: E exits, ES component tasks, and owner adoptions.
@@ -224,17 +226,24 @@ Tracked off-spine integrations (owner-directed 2026-08-14; OMP-I1 selected
 
 - **OMP-I1 — generic OMP harness integration:** the exact scope is owned by
   [`2026-08-14-omp-integration-design-and-roadmap.md`](2026-08-14-omp-integration-design-and-roadmap.md):
-  generic provider-template family, `OMP_JSON_STDOUT` codec, self-contained
-  prompt/output-contract scaffolder, named multiagent conf presets, shared
-  staging procedure, and bidirectional session bridge.
-- **OMP-I1 state:** selected; activation is blocked only on frozen-ES
-  hand-back. F1–F7 are item-local exit criteria, not new E/ES/P gates. Its F3
-  proof uses an empty optional-capability closure.
+  ambient, profile-isolated, and internal tool-free inference provider
+  templates, one whole-binary launch adapter, `OMP_JSON_STDOUT` codec,
+  explicit fresh-session publication, content-addressed prompt/output-contract
+  scaffolding, named multiagent conf presets, and a run-state-consistent
+  bidirectional session bridge.
+- **OMP-I1 state:** selected; implementation remains blocked on frozen-ES
+  hand-back. A review finding blocks only by demonstrating a current design,
+  specification, or security violation. F1–F8 are item-local exit criteria,
+  not new E/ES/P gates. F3 proves the profile-isolated conf launch
+  envelope with planted ambient-resource canaries while deliberately admitting
+  repository context; it does not claim an OS sandbox or authenticated
+  provenance from model-writable disk files.
 - **OMP-I2 — declarative OMP capabilities:** ordinary `.orc`
-  `OmpCapabilitySet` values select content-addressed skills and exact reviewed
-  extension bundles through the shared staging boundary. Runtime plugin
-  installation, ambient installed-plugin state, implicit package capability
-  closure, and new `provider-result` grammar are excluded.
+  `OmpCapabilitySet` values would select content-addressed skills and exact
+  reviewed extension bundles through a separately reviewed capability
+  admission boundary. Runtime plugin installation, ambient installed-plugin
+  state, implicit package capability closure, and new `provider-result`
+  grammar are excluded.
 - **OMP-I2 state and priority:** approved for tracking, pending, unselected,
   and lower priority than OMP-I1 and any separately selected or
   owner-prioritized OMP follow-on. Closed OMP-I1, a named consumer, exact
