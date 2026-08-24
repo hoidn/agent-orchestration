@@ -7,9 +7,9 @@ import json
 import threading
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping, Protocol, runtime_checkable
 
-from .types import ProviderSessionMetadataMode
+from .types import OmpTransportExpectation, ProviderSessionMetadataMode
 
 
 _TRANSPORT_ERROR_TYPE = "provider_session_transport_error"
@@ -59,6 +59,28 @@ class SessionIdentitySnapshot:
             and self.status == "unique"
             and self.session_ids != (expected_session_id,)
         )
+
+
+@runtime_checkable
+class SessionTransportAccumulator(Protocol):
+    """Structural contract shared by every metadata transport codec."""
+
+    @property
+    def event_count(self) -> int: ...
+
+    @property
+    def normalized_stdout(self) -> str: ...
+
+    def feed(self, chunk: bytes) -> None: ...
+
+    def snapshot(self) -> SessionIdentitySnapshot: ...
+
+    def finalize(
+        self,
+        *,
+        expected_session_id: str | None,
+        require_terminal: bool,
+    ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]: ...
 
 
 def extract_codex_assistant_text(event: Mapping[str, Any]) -> str | None:
@@ -231,6 +253,12 @@ class CodexExecJsonlAccumulator:
         with self._lock:
             return self._event_count
 
+    @property
+    def normalized_stdout(self) -> str:
+        """Return the joined authoritative assistant text (display-safe use only)."""
+        with self._lock:
+            return "".join(self._text_parts)
+
     def _consume_line(self, raw_line: bytes) -> str | None:
         if not raw_line.strip():
             return None
@@ -348,10 +376,23 @@ def create_session_transport_accumulator(
     metadata_mode: str | ProviderSessionMetadataMode | None,
     *,
     assistant_text_callback: Callable[[str], None] | None = None,
-) -> CodexExecJsonlAccumulator | None:
+    expectation: OmpTransportExpectation | None = None,
+) -> SessionTransportAccumulator | None:
     """Select a session codec structurally from the declared metadata mode."""
     if metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
         return CodexExecJsonlAccumulator(
+            assistant_text_callback=assistant_text_callback,
+        )
+    if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        if expectation is None:
+            raise TypeError(
+                "OMP JSON stdout transport requires a parent-derived "
+                "OmpTransportExpectation"
+            )
+        from .omp_transport import OmpJsonStdoutAccumulator
+
+        return OmpJsonStdoutAccumulator(
+            expectation=expectation,
             assistant_text_callback=assistant_text_callback,
         )
     return None
@@ -370,6 +411,7 @@ def supports_resume_boundary_observation(
 __all__ = [
     "CodexExecJsonlAccumulator",
     "SessionIdentitySnapshot",
+    "SessionTransportAccumulator",
     "create_session_transport_accumulator",
     "supports_resume_boundary_observation",
 ]

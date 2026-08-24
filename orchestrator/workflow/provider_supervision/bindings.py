@@ -244,6 +244,8 @@ class ProviderSupervisionInvocationSnapshot:
     terminate_process_tree: bool
     metadata: MappingProxyType
     turn_boundary_resume: bool
+    provider_session_dir: str | None
+    omp_transport_expectation: MappingProxyType | None
 
     @classmethod
     def from_invocation(
@@ -258,6 +260,13 @@ class ProviderSupervisionInvocationSnapshot:
         frozen_metadata = _freeze_value(dict(invocation.metadata))
         assert isinstance(frozen_env, MappingProxyType)
         assert isinstance(frozen_metadata, MappingProxyType)
+        frozen_expectation = None
+        if invocation.omp_transport_expectation is not None:
+            frozen = _freeze_value(
+                dict(vars(invocation.omp_transport_expectation))
+            )
+            assert isinstance(frozen, MappingProxyType)
+            frozen_expectation = frozen
         return cls(
             command=tuple(invocation.command),
             input_mode=invocation.input_mode,
@@ -273,10 +282,14 @@ class ProviderSupervisionInvocationSnapshot:
             terminate_process_tree=invocation.terminate_process_tree,
             metadata=frozen_metadata,
             turn_boundary_resume=invocation.turn_boundary_resume,
+            provider_session_dir=invocation.provider_session_dir,
+            omp_transport_expectation=frozen_expectation,
         )
 
     def materialize(self) -> ProviderInvocation:
         """Return a detached mutable invocation local to one member thread."""
+
+        from orchestrator.providers.types import OmpTransportExpectation
 
         return ProviderInvocation(
             command=list(self.command),
@@ -295,6 +308,14 @@ class ProviderSupervisionInvocationSnapshot:
             terminate_process_tree=self.terminate_process_tree,
             metadata=_thaw_value(self.metadata),
             turn_boundary_resume=self.turn_boundary_resume,
+            provider_session_dir=self.provider_session_dir,
+            omp_transport_expectation=(
+                None
+                if self.omp_transport_expectation is None
+                else OmpTransportExpectation(
+                    **_thaw_value(self.omp_transport_expectation)
+                )
+            ),
         )
 
 

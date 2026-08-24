@@ -7,6 +7,7 @@ Provides registry, executor, and types for managing and executing provider templ
 from .types import (
     CallPolicyBinding,
     InteractiveSessionSupport,
+    OmpTransportExpectation,
     ProviderTemplate,
     ProviderParams,
     ProviderInvocation,
@@ -20,8 +21,10 @@ from .registry import ProviderRegistry
 from .session_transport import (
     CodexExecJsonlAccumulator,
     SessionIdentitySnapshot,
+    SessionTransportAccumulator,
     create_session_transport_accumulator,
 )
+from .omp_transport import OmpJsonStdoutAccumulator
 from .control import ProviderCancellationResult, ProviderExecutionControl
 from .observation import (
     ProviderObservationError,
@@ -49,6 +52,7 @@ from .isolation import (
 __all__ = [
     "CallPolicyBinding",
     "InteractiveSessionSupport",
+    "OmpTransportExpectation",
     "ProviderTemplate",
     "ProviderParams",
     "ProviderInvocation",
@@ -60,7 +64,9 @@ __all__ = [
     "ProviderRegistry",
     "CodexExecJsonlAccumulator",
     "SessionIdentitySnapshot",
+    "SessionTransportAccumulator",
     "create_session_transport_accumulator",
+    "OmpJsonStdoutAccumulator",
     "ProviderCancellationResult",
     "ProviderExecutionControl",
     "ProviderObservationError",

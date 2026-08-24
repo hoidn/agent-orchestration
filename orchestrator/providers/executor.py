@@ -18,6 +18,7 @@ from .types import (
     PreparedProviderPolicy,
     ProviderInvocation,
     ProviderParams,
+    ProviderSessionMetadataMode,
     ProviderSessionMode,
     ProviderSessionRequest,
     canonical_workflow_call_policy,
@@ -30,10 +31,16 @@ from .types import (
 from .interactive_terminal import InteractiveMemberInvocation
 from .registry import ProviderRegistry
 from .control import ProviderExecutionControl
-from .observation import ProviderObservationHandle, ProviderObservationManager
+from .observation import (
+    ProviderObservationHandle,
+    ProviderObservationManager,
+    TerminalSafeWriter,
+    terminal_safe_text,
+)
 from .session_transport import (
     CodexExecJsonlAccumulator,
     SessionIdentitySnapshot,
+    SessionTransportAccumulator,
     create_session_transport_accumulator,
     extract_codex_assistant_text,
 )
@@ -314,7 +321,7 @@ class ProviderExecutor:
 
         command_template = provider.command
         command_variant = "command"
-        metadata_mode = None
+        metadata_mode = provider.command_metadata_mode
         if session_request is not None:
             if provider.session_support is None:
                 return None, {
@@ -776,6 +783,26 @@ class ProviderExecutor:
             execution_env_overlay,
         )
 
+        if (
+            invocation.metadata_mode
+            == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+            and invocation.omp_transport_expectation is None
+        ):
+            return ProviderExecutionResult(
+                exit_code=2,
+                stdout=b"",
+                stderr=b"",
+                duration_ms=0,
+                error={
+                    "type": "provider_pre_execution_failed",
+                    "message": (
+                        "OMP JSON transport requires a parent-derived "
+                        "OmpTransportExpectation"
+                    ),
+                    "context": {},
+                },
+            )
+
         if control is not None:
             return self._execute_controlled_invocation(
                 invocation=invocation,
@@ -798,7 +825,10 @@ class ProviderExecutor:
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
 
-            session_enabled = invocation.session_request is not None
+            session_enabled = (
+                invocation.session_request is not None
+                or invocation.metadata_mode is not None
+            )
             if session_enabled:
                 return self._execute_session_invocation(
                     invocation=invocation,
@@ -1147,7 +1177,7 @@ class ProviderExecutor:
     ) -> ProviderExecutionResult:
         """Execute one opt-in invocation inside a runtime-owned process group."""
         expected_session_id: Optional[str] = None
-        accumulator: CodexExecJsonlAccumulator | None = None
+        accumulator: SessionTransportAccumulator | None = None
 
         def _emit_assistant_text(assistant_text: str) -> None:
             if accumulator is None:
@@ -1191,6 +1221,7 @@ class ProviderExecutor:
                     if stream_output or observation_handle is not None
                     else None
                 ),
+                expectation=invocation.omp_transport_expectation,
             )
             if accumulator is not None:
                 control.publish_session_snapshot(accumulator.snapshot())
@@ -1482,7 +1513,7 @@ class ProviderExecutor:
         start_time: float,
         session_runtime: Optional[Dict[str, Any]],
         control: ProviderExecutionControl,
-        accumulator: CodexExecJsonlAccumulator | None,
+        accumulator: SessionTransportAccumulator | None,
         expected_session_id: Optional[str],
         stdout_buf: bytearray,
         stderr_buf: bytearray,
@@ -1773,7 +1804,7 @@ class ProviderExecutor:
         stdin_input: Optional[bytes],
         start_time: float,
         control: ProviderExecutionControl,
-        accumulator: CodexExecJsonlAccumulator | None,
+        accumulator: SessionTransportAccumulator | None,
         expected_session_id: Optional[str],
         stdout_buf: bytearray,
         stderr_buf: bytearray,
@@ -2105,6 +2136,7 @@ class ProviderExecutor:
             return
 
         output = out_stream.buffer if out_stream is not None and hasattr(out_stream, "buffer") else out_stream
+        display_writer = TerminalSafeWriter(output.write) if output is not None else None
         try:
             while True:
                 if read_mode == "lines":
@@ -2124,14 +2156,20 @@ class ProviderExecutor:
                         chunk_callback(chunk)
                     except Exception:
                         pass
-                if output is not None:
+                if display_writer is not None:
                     try:
-                        output.write(chunk)
+                        display_writer.write(chunk)
                         output.flush()
                     except Exception:
                         # Streaming should never break execution/capture path.
                         pass
         finally:
+            if display_writer is not None:
+                try:
+                    display_writer.close()
+                    output.flush()
+                except Exception:
+                    pass
             try:
                 pipe.close()
             except Exception:
@@ -2149,7 +2187,7 @@ class ProviderExecutor:
         ],
         capture_outcome_lock: Any,
         control: ProviderExecutionControl,
-        session_accumulator: CodexExecJsonlAccumulator | None = None,
+        session_accumulator: SessionTransportAccumulator | None = None,
         **capture_kwargs: Any,
     ) -> None:
         """Capture one controlled pipe and retain core worker failures."""
@@ -2428,7 +2466,7 @@ class ProviderExecutor:
             stdout_buf = bytearray()
             stderr_buf = bytearray()
             expected_session_id = self._expected_session_id(invocation)
-            accumulator: CodexExecJsonlAccumulator | None = None
+            accumulator: SessionTransportAccumulator | None = None
 
             def _emit_assistant_text(assistant_text: str) -> None:
                 if accumulator is None:
@@ -2452,6 +2490,7 @@ class ProviderExecutor:
                     if stream_output or observation_handle is not None
                     else None
                 ),
+                expectation=invocation.omp_transport_expectation,
             )
             stdout_callback = self._build_session_stdout_callback(
                 invocation=invocation,
@@ -2556,7 +2595,7 @@ class ProviderExecutor:
         invocation: ProviderInvocation,
         stream_output: bool,
         session_runtime: Optional[Dict[str, Any]],
-        accumulator: CodexExecJsonlAccumulator | None = None,
+        accumulator: SessionTransportAccumulator | None = None,
         identity_snapshot_callback: Optional[
             Callable[[SessionIdentitySnapshot], None]
         ] = None,
@@ -2568,14 +2607,20 @@ class ProviderExecutor:
                 assistant_text_callback=(
                     self._emit_session_assistant_text if stream_output else None
                 ),
+                expectation=invocation.omp_transport_expectation,
             )
+        omp_mode = (
+            invocation.metadata_mode
+            == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+        )
 
         def _handle_chunk(chunk: bytes) -> None:
             if accumulator is not None:
                 accumulator.feed(chunk)
                 if identity_snapshot_callback is not None:
                     identity_snapshot_callback(accumulator.snapshot())
-            self._append_masked_transport(chunk, session_runtime)
+            if not omp_mode:
+                self._append_masked_transport(chunk, session_runtime)
 
         return _handle_chunk
 
@@ -2626,7 +2671,7 @@ class ProviderExecutor:
         stderr: bytes,
         duration_ms: int,
         stream_output: bool,
-        accumulator: CodexExecJsonlAccumulator | None = None,
+        accumulator: SessionTransportAccumulator | None = None,
     ) -> ProviderExecutionResult:
         """Parse session transport and emit normalized assistant text."""
         normalized_stdout = b""
@@ -2635,6 +2680,7 @@ class ProviderExecutor:
         if accumulator is None:
             accumulator = create_session_transport_accumulator(
                 invocation.metadata_mode,
+                expectation=invocation.omp_transport_expectation,
             )
             if accumulator is not None:
                 accumulator.feed(raw_stdout)
@@ -2648,9 +2694,9 @@ class ProviderExecutor:
             )
             error = dict(parse_error) if parse_error is not None else None
             if error is None and provider_session is not None:
-                normalized_stdout = str(
-                    provider_session.get("normalized_stdout", "")
-                ).encode("utf-8")
+                normalized_stdout = accumulator.normalized_stdout.encode(
+                    "utf-8"
+                )
 
         if error is not None and exit_code == 0:
             exit_code = 2
@@ -2702,5 +2748,5 @@ class ProviderExecutor:
     @staticmethod
     def _emit_session_assistant_text(assistant_text: str) -> None:
         output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
-        output.write(assistant_text.encode("utf-8"))
+        output.write(terminal_safe_text(assistant_text).encode("utf-8"))
         output.flush()

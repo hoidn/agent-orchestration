@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 import re
+from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from orchestrator._common.validation import is_finite_positive_number
@@ -184,6 +185,77 @@ class ProviderSessionMode(str, Enum):
 class ProviderSessionMetadataMode(str, Enum):
     """Supported provider-session metadata transport modes."""
     CODEX_EXEC_JSONL_STDOUT = "codex_exec_jsonl_stdout"
+    OMP_JSON_STDOUT = "omp_json_stdout"
+
+
+@dataclass(frozen=True)
+class OmpTransportExpectation:
+    """Immutable parent-derived expectation an OMP launch frame must satisfy."""
+
+    lane: str
+    persistence: str
+    binary: Mapping[str, Any]
+    stdout_session_id: Optional[str] = None
+    visit_key: Optional[str] = None
+    child_argv: Tuple[str, ...] = ()
+    conf_manifest_sha256: Optional[str] = None
+    confinement_policy_sha256: Optional[str] = None
+    observed_relpaths: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Validate and detach the closed expectation carrier."""
+        if not isinstance(self.lane, str) or not self.lane:
+            raise ValueError("OMP transport expectation lane must be non-empty")
+        if self.persistence not in {"none", "fresh"}:
+            raise ValueError(
+                "OMP transport expectation persistence must be none or fresh"
+            )
+        if not isinstance(self.binary, Mapping) or not self.binary:
+            raise ValueError(
+                "OMP transport expectation binary must be a non-empty mapping"
+            )
+        if any(
+            not isinstance(key, str) or not key
+            for key in self.binary
+        ):
+            raise ValueError(
+                "OMP transport expectation binary keys must be non-empty strings"
+            )
+        object.__setattr__(
+            self, "binary", MappingProxyType(dict(self.binary))
+        )
+        for field_name in ("stdout_session_id", "visit_key", "conf_manifest_sha256"):
+            value = getattr(self, field_name)
+            if value is not None and (
+                not isinstance(value, str) or not value
+            ):
+                raise ValueError(
+                    f"OMP transport expectation {field_name} must be non-empty"
+                )
+        if self.confinement_policy_sha256 is not None and (
+            not isinstance(self.confinement_policy_sha256, str)
+            or len(self.confinement_policy_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.confinement_policy_sha256
+            )
+        ):
+            raise ValueError(
+                "OMP transport expectation confinement_policy_sha256 must be "
+                "64 lowercase hex"
+            )
+        for field_name in ("child_argv", "observed_relpaths"):
+            value = getattr(self, field_name)
+            if not isinstance(value, Tuple):
+                object.__setattr__(self, field_name, tuple(value))
+            value = getattr(self, field_name)
+            if any(
+                not isinstance(item, str) or not item for item in value
+            ):
+                raise ValueError(
+                    f"OMP transport expectation {field_name} items must be "
+                    "non-empty strings"
+                )
 
 
 @dataclass
@@ -404,6 +476,7 @@ class ProviderTemplate:
     session_support: Optional[ProviderSessionSupport] = None
     call_policy_bindings: Mapping[str, CallPolicyBinding] = field(default_factory=dict)
     interactive_session_support: Optional[InteractiveSessionSupport] = None
+    command_metadata_mode: Optional[str] = None
 
     def validate(self) -> List[str]:
         """
@@ -417,6 +490,20 @@ class ProviderTemplate:
         # Command must not be empty
         if not self.command:
             errors.append(f"Provider '{self.name}': command cannot be empty")
+
+        if self.command_metadata_mode is not None:
+            if not isinstance(self.command_metadata_mode, str):
+                errors.append(
+                    f"Provider '{self.name}': command_metadata_mode must "
+                    "be None or a metadata-mode string"
+                )
+            elif self.command_metadata_mode not in {
+                mode.value for mode in ProviderSessionMetadataMode
+            }:
+                errors.append(
+                    f"Provider '{self.name}': command_metadata_mode must be "
+                    "one of the pinned metadata modes"
+                )
 
         errors.extend(
             self._validate_command_tokens(
@@ -735,3 +822,5 @@ class ProviderInvocation:
     turn_boundary_resume: bool = False
     prepared_prompt: Optional[str] = None
     prepared_provider_policy: Optional[PreparedProviderPolicy] = None
+    provider_session_dir: Optional[str] = None
+    omp_transport_expectation: Optional[OmpTransportExpectation] = None

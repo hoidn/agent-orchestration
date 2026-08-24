@@ -1456,3 +1456,365 @@ class TestProviderExecutor:
         assert result.exit_code == 0
         assert len(result.stdout) == len(payload)
         assert result.stdout == payload.encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# OMP JSON transport contracts: carrier init, routing, spool, dominance
+# ---------------------------------------------------------------------------
+
+_OMP_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "omp" / "protocol"
+_OMP_TRANSIENT_FIXTURE = "transient.stdout.jsonl"
+_OMP_EXPECTED_BINARY = {
+    "platform": "linux",
+    "arch": "x86_64",
+    "version": "17.3.4",
+    "sha256": "f" * 64,
+}
+
+
+def _omp_fixture_bytes() -> bytes:
+    return (_OMP_FIXTURE_DIR / _OMP_TRANSIENT_FIXTURE).read_bytes()
+
+
+def _omp_fixture_header_id() -> str:
+    import json
+
+    for line in _omp_fixture_bytes().split(b"\n"):
+        if line.startswith(b'{"type":"session"'):
+            return json.loads(line)["id"]
+    raise AssertionError("fixture has no header")
+
+
+def _omp_launch_frame(session_id: str) -> bytes:
+    import json
+
+    frame = {
+        "type": "orchestrator.omp_launch.v1",
+        "lane": "ambient",
+        "persistence": "none",
+        "binary": _OMP_EXPECTED_BINARY,
+        "child": {"argv": [], "cwd": "/tmp/work", "env_names": [], "exit_code": 0},
+        "session": {
+            "id": session_id,
+            "visit_key": None,
+            "primary_relpath": None,
+            "primary_sha256": None,
+        },
+        "conf": {"manifest_sha256": None},
+        "confinement": None,
+        "observed": {"advisor_relpaths": [], "child_relpaths": []},
+    }
+    return json.dumps(frame, separators=(",", ":")).encode("utf-8") + b"\n"
+
+
+def _omp_expectation(**overrides):
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    base = {
+        "lane": "ambient",
+        "persistence": "none",
+        "binary": _OMP_EXPECTED_BINARY,
+        "stdout_session_id": None,
+        "visit_key": None,
+        "child_argv": (),
+        "conf_manifest_sha256": None,
+        "confinement_policy_sha256": None,
+        "observed_relpaths": (),
+    }
+    base.update(overrides)
+    return OmpTransportExpectation(**base)
+
+
+def _omp_stream_bytes() -> bytes:
+    return _omp_fixture_bytes() + _omp_launch_frame(_omp_fixture_header_id())
+
+
+def _omp_invocation(*, expectation=None, **overrides) -> ProviderInvocation:
+    kwargs = dict(
+        command=[
+            sys.executable,
+            "-c",
+            "import os,sys;sys.stdout.buffer.write(%r)" % _omp_stream_bytes(),
+        ],
+        input_mode=InputMode.STDIN,
+        prompt="prompt",
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        omp_transport_expectation=(
+            _omp_expectation() if expectation is None else expectation
+        ),
+    )
+    kwargs.update(overrides)
+    return ProviderInvocation(**kwargs)
+
+
+def test_command_metadata_mode_initializes_invocation_and_session_overrides():
+    provider = ProviderTemplate(
+        name="omp",
+        command=["omp", "--no-session"],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(provider)
+    executor = ProviderExecutor(Path("."), registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert (
+        invocation.metadata_mode
+        == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+
+    session_provider = ProviderTemplate(
+        name="omp-session",
+        command=["omp", "--no-session"],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        session_support=ProviderSessionSupport(
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            fresh_command=["omp", "--session"],
+        ),
+    )
+    registry.register(session_provider)
+
+    session_invocation, session_error = executor.prepare_invocation(
+        "omp-session",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    assert session_error is None
+    assert session_invocation is not None
+    assert (
+        session_invocation.metadata_mode
+        == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+    )
+
+    template = ProviderTemplate(
+        name="omp-default",
+        command=["omp"],
+        input_mode=InputMode.STDIN,
+    )
+    assert template.command_metadata_mode is None
+    assert template.validate() == []
+
+
+def test_command_metadata_mode_validation_is_closed():
+    from orchestrator.providers.types import ProviderTemplate as Template
+
+    template = Template(
+        name="bad",
+        command=["omp"],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=7,
+    )
+
+    errors = template.validate()
+
+    assert any("command_metadata_mode" in error for error in errors)
+
+
+def test_omp_execution_requires_parent_derived_expectation():
+    executor = ProviderExecutor(Path("."), ProviderRegistry())
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "pass"],
+        input_mode=InputMode.ARGV,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+
+    result = executor.execute(invocation)
+
+    assert result.exit_code != 0
+    assert result.error is not None
+    assert "expectation" in result.error["message"].lower()
+
+
+@pytest.mark.parametrize(
+    "controlled,stream_output,with_observation",
+    (
+        (False, False, False),
+        (False, True, False),
+        (False, False, True),
+        (True, False, False),
+    ),
+)
+def test_omp_transport_routes_through_all_executor_paths(
+    tmp_path,
+    controlled,
+    stream_output,
+    with_observation,
+):
+    invocation = _omp_invocation()
+
+    kwargs = {}
+    if controlled:
+        kwargs["control"] = ProviderExecutionControl()
+    if with_observation:
+        observation = _RecordingObservation()
+        kwargs["observation_handle"] = observation.handle
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(
+        invocation,
+        stream_output=stream_output,
+        **kwargs,
+    )
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert result.raw_stdout == _omp_stream_bytes()
+    assert result.stdout == b"OK"
+    assert result.provider_session is not None
+    assert result.provider_session["session_id"] == _omp_fixture_header_id()
+    assert result.provider_session["event_count"] == 11
+    if with_observation:
+        assert observation.appended == [b"OK"]
+
+
+class _RecordingObservation:
+    def __init__(self) -> None:
+        self.appended: list[bytes] = []
+
+        class _Handle:
+            def __init__(self, owner: "_RecordingObservation") -> None:
+                self._owner = owner
+
+            def check_health(self) -> bool:
+                return True
+
+            def append_display(self, data: bytes) -> None:
+                self._owner.appended.append(data)
+
+            def finalize(self):
+                return {"status": "finalized"}
+
+        self.handle = _Handle(self)
+
+
+def test_omp_persistence_remains_driven_solely_by_session_request(
+    tmp_path,
+):
+    transient = _omp_invocation()
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(transient)
+
+    assert result.exit_code == 0
+    assert result.provider_session is not None
+    assert result.provider_session["event_count"] == 11
+
+
+def test_omp_execution_never_appends_raw_stdout_to_transport_spool(
+    tmp_path,
+):
+    spool = tmp_path / "session.spool"
+    invocation = _omp_invocation()
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(
+        invocation,
+        session_runtime={"transport_spool_path": spool},
+    )
+
+    assert result.exit_code == 0
+    assert not spool.exists()
+
+
+def test_omp_nonzero_child_exit_stays_failure_after_complete_stream(
+    tmp_path,
+):
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            (
+                "import os,sys;sys.stdout.buffer.write(%r);"
+                "sys.stderr.write('boom');os._exit(3)"
+            )
+            % _omp_stream_bytes(),
+        ],
+        input_mode=InputMode.ARGV,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        omp_transport_expectation=_omp_expectation(),
+    )
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(invocation)
+
+    assert result.exit_code == 3
+    assert result.error is None
+    assert result.stdout == b"OK"
+    assert result.is_promotable is False
+
+
+def test_omp_live_streaming_display_is_projected_but_capture_is_raw(
+    tmp_path,
+    capsys,
+):
+    text = "ok\x1b]0;title\x07\r\x00tail"
+    event = {
+        "type": "message_end",
+        "message": {
+            "role": "assistant",
+            "api": "api",
+            "provider": "provider",
+            "model": "model",
+            "timestamp": 1,
+            "stopReason": "stop",
+            "content": [{"type": "text", "text": text}],
+            "usage": {
+                "input": 1,
+                "output": 1,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 2,
+                "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0,
+                },
+            },
+        },
+    }
+    import json
+
+    header = _omp_fixture_bytes().split(b"\n")[0]
+    stream = b"\n".join(
+        (
+            header,
+            b'{"type":"agent_start"}',
+            b'{"type":"turn_start"}',
+            b'{"type":"message_start","message":{"role":"assistant","content":[]}}',
+            json.dumps(event, separators=(",", ":")).encode("utf-8"),
+            b'{"type":"agent_end","messages":[]}',
+        )
+    ) + b"\n" + _omp_launch_frame(_omp_fixture_header_id())
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            "import os,sys;sys.stdout.buffer.write(%r)" % stream,
+        ],
+        input_mode=InputMode.ARGV,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        omp_transport_expectation=_omp_expectation(),
+    )
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(
+        invocation,
+        stream_output=True,
+    )
+
+    assert result.exit_code == 0
+    assert result.raw_stdout == stream
+    assert result.stdout == text.encode("utf-8")
+    projected = capsys.readouterr().out
+    assert "ok" in projected
+    assert "\\u001b]0;title\\u0007\\u000d\\u0000tail" in projected
+    assert "\x1b" not in projected

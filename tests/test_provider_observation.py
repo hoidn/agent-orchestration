@@ -134,7 +134,7 @@ def test_observation_manager_allocates_run_scoped_invocation_identities(
     assert exc_info.value.code == "manager_closed"
 
 
-def test_observation_finalize_uses_display_bytes_before_pane_teardown(
+def test_observation_finalize_uses_projected_display_bytes_before_teardown(
     tmp_path: Path,
 ) -> None:
     backend = _FakeObservationBackend()
@@ -146,7 +146,9 @@ def test_observation_finalize_uses_display_bytes_before_pane_teardown(
     handle.append_display(payload[7:])
     record = handle.finalize()
 
-    assert handle.transcript_path.read_bytes() == payload
+    assert handle.transcript_path.read_bytes() == (
+        b"first\nsecond\\u0000tail\n"
+    )
     assert backend.close_calls == [handle.target]
     assert record["status"] == "finalized"
     assert handle.finalize() == record
@@ -465,3 +467,117 @@ def test_real_tmux_observation_uses_bounded_socket_under_long_tmpdir(
         manager.close()
 
     assert not socket_directory.exists()
+
+
+# ---------------------------------------------------------------------------
+# Terminal-safe display projection (X3)
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_safe_text_passes_printable_unicode_lf_and_tab():
+    from orchestrator.providers.observation import terminal_safe_text
+
+    plain = "printable \N{SNOWMAN} text\n\ttabbed"
+    assert terminal_safe_text(plain) == plain
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        ("\x1b", "\\u001b"),
+        ("\x07", "\\u0007"),
+        ("\r", "\\u000d"),
+        ("\x00", "\\u0000"),
+        ("\x7f", "\\u007f"),
+        ("\x1b]0;title\x07", "\\u001b]0;title\\u0007"),
+        ("\x9d", "\\u009d"),
+        ("\u200b", "\\u200b"),
+        ("\U0001f4a9", "\U0001f4a9"),  # printable astral passes through
+        ("\U000e0001", "\\U000e0001"),  # non-printable astral escapes
+    ),
+)
+def test_terminal_safe_text_escapes_non_printable_code_points(
+    text: str,
+    expected: str,
+):
+    from orchestrator.providers.observation import terminal_safe_text
+
+    assert terminal_safe_text(text) == expected
+
+
+def test_terminal_safe_writer_projects_invalid_utf8_bytes_to_ascii():
+    from orchestrator.providers.observation import TerminalSafeWriter
+
+    emitted: list[bytes] = []
+    writer = TerminalSafeWriter(emitted.append)
+
+    writer.write(b"ok\xff")
+    writer.write(b"tail")
+
+    assert b"".join(emitted) == b"ok\\xfftail"
+
+
+def test_terminal_safe_writer_decodes_incrementally_across_chunks():
+    from orchestrator.providers.observation import TerminalSafeWriter
+
+    emitted: list[bytes] = []
+    writer = TerminalSafeWriter(emitted.append)
+    snowman = "\N{SNOWMAN}".encode("utf-8")
+
+    writer.write(snowman[:1])
+    writer.write(snowman[1:2])
+    writer.write(snowman[2:])
+
+    assert b"".join(emitted) == "\N{SNOWMAN}".encode("utf-8")
+
+
+def test_terminal_safe_writer_flushes_trailing_incomplete_sequence():
+    from orchestrator.providers.observation import TerminalSafeWriter
+
+    emitted: list[bytes] = []
+    writer = TerminalSafeWriter(emitted.append)
+    snowman = "\N{SNOWMAN}".encode("utf-8")
+
+    writer.write(snowman[:2])
+    writer.close()
+
+    assert b"".join(emitted) == b"\\xe2\\x98"
+
+
+def test_observation_display_append_is_incrementally_projected(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeObservationBackend()
+    manager = ProviderObservationManager(tmp_path, backend=backend)
+    handle = _open(manager)
+
+    snowman = "\N{SNOWMAN}".encode("utf-8")
+    handle.append_display(b"a" + snowman[:1])
+    handle.append_display(snowman[1:] + b"\x1b[31mred\x1b[0m\n")
+    handle.append_display(b"\xff")
+
+    record = handle.finalize()
+
+    assert record["status"] == "finalized"
+    assert handle.transcript_path.read_bytes() == (
+        "a\N{SNOWMAN}\\u001b[31mred\\u001b[0m\n\\xff".encode("utf-8")
+    )
+    assert handle.display_path.read_bytes() == (
+        "a\N{SNOWMAN}\\u001b[31mred\\u001b[0m\n\\xff".encode("utf-8")
+    )
+    manager.close()
+
+
+def test_observation_append_after_finalize_still_rejects_projection(
+    tmp_path: Path,
+) -> None:
+    backend = _FakeObservationBackend()
+    manager = ProviderObservationManager(tmp_path, backend=backend)
+    handle = _open(manager)
+
+    handle.finalize()
+
+    with pytest.raises(ProviderObservationError) as exc_info:
+        handle.append_display(b"late")
+    assert exc_info.value.code == "observation_finalized"
+    manager.close()

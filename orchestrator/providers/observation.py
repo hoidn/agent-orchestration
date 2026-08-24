@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import os
 import shlex
@@ -9,14 +10,91 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import unicodedata
 import uuid
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 
 
 _RECORD_SCHEMA_VERSION = "provider_observation.v1"
 # Tmux's AF_UNIX address must not inherit an unbounded caller TMPDIR.
 _SOCKET_TEMP_ROOT = "/tmp"
+
+_ESCAPE_ERROR_HANDLER = "omp_terminal_safe_escape"
+
+
+def _terminal_safe_escape_handler(
+    exc: UnicodeError,
+) -> tuple[str, int]:
+    """Emit one ASCII ``\\xNN`` escape per invalid byte (display only)."""
+    if not isinstance(exc, UnicodeDecodeError):
+        raise exc
+    escaped = "".join(f"\\x{byte:02x}" for byte in exc.object[exc.start:exc.end])
+    return escaped, exc.end
+
+
+try:
+    codecs.register_error(_ESCAPE_ERROR_HANDLER, _terminal_safe_escape_handler)
+except LookupError:
+    pass
+
+
+def terminal_safe_text(text: str) -> str:
+    """Project one authoritative text fragment for terminal display only."""
+    return "".join(
+        character
+        if (
+            character == "\n"
+            or character == "\t"
+            or unicodedata.category(character) not in {
+                "Cc",
+                "Cf",
+                "Cs",
+                "Cn",
+                "Co",
+                "Zl",
+                "Zp",
+            }
+        )
+        else (
+            f"\\U{ord(character):08x}"
+            if ord(character) > 0xFFFF
+            else f"\\u{ord(character):04x}"
+        )
+        for character in text
+    )
+
+
+class TerminalSafeWriter:
+    """Incrementally project one byte stream through the shared projection."""
+
+    def __init__(self, sink: Callable[[bytes], None]) -> None:
+        self._decoder = codecs.getincrementaldecoder("utf-8")(
+            errors=_ESCAPE_ERROR_HANDLER
+        )
+        self._sink = sink
+        self._closed = False
+
+    def write(self, chunk: bytes) -> None:
+        """Decode one chunk across boundaries and emit only projected bytes."""
+        if not isinstance(chunk, bytes):
+            raise TypeError("terminal-safe projection chunks must be bytes")
+        if self._closed:
+            raise RuntimeError("terminal-safe writer is closed")
+        if not chunk:
+            return
+        decoded = self._decoder.decode(chunk)
+        if decoded:
+            self._sink(terminal_safe_text(decoded).encode("utf-8"))
+
+    def close(self) -> None:
+        """Flush any trailing incomplete sequence as escapes."""
+        if self._closed:
+            return
+        self._closed = True
+        trailing = self._decoder.decode(b"", final=True)
+        if trailing:
+            self._sink(terminal_safe_text(trailing).encode("utf-8"))
 
 
 class ProviderObservationError(RuntimeError):
@@ -178,6 +256,9 @@ class ProviderObservationHandle:
         self._failure_code: str | None = None
         self._final_record: dict[str, object] | None = None
         self._lock = threading.RLock()
+        self._display_writer = TerminalSafeWriter(
+            self._write_display_projected_locked
+        )
 
     @property
     def target(self) -> str:
@@ -210,13 +291,16 @@ class ProviderObservationHandle:
         with self._lock:
             if self._final_record is not None:
                 raise ProviderObservationError("observation_finalized")
-            try:
-                with self._display_path.open("ab") as stream:
-                    stream.write(data)
-                    stream.flush()
-            except OSError as exc:
-                self._fail("display_append_failed")
-                raise ProviderObservationError("display_append_failed") from exc
+            self._display_writer.write(data)
+
+    def _write_display_projected_locked(self, projected: bytes) -> None:
+        try:
+            with self._display_path.open("ab") as stream:
+                stream.write(projected)
+                stream.flush()
+        except OSError as exc:
+            self._fail("display_append_failed")
+            raise ProviderObservationError("display_append_failed") from exc
 
     def check_health(self) -> bool:
         with self._lock:
@@ -245,6 +329,7 @@ class ProviderObservationHandle:
             if self._final_record is not None:
                 return dict(self._final_record)
 
+            self._display_writer.close()
             temporary_path = self._transcript_path.with_suffix(
                 self._transcript_path.suffix + ".tmp"
             )
@@ -487,4 +572,6 @@ __all__ = [
     "ProviderObservationError",
     "ProviderObservationHandle",
     "ProviderObservationManager",
+    "TerminalSafeWriter",
+    "terminal_safe_text",
 ]

@@ -12,7 +12,11 @@ from unittest.mock import patch, MagicMock
 
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.providers import ProviderRegistry, ProviderExecutor
+from orchestrator.providers import (
+    ProviderRegistry,
+    ProviderExecutor,
+    ProviderTemplate,
+)
 from orchestrator.exec.step_executor import StepExecutor
 from tests.workflow_bundle_helpers import thaw_surface_workflow
 
@@ -304,3 +308,86 @@ class TestProviderIntegration:
         # Built-in providers should work without explicit definition
         assert loaded_workflow["steps"][0]["provider"] == "claude"
         assert loaded_workflow["steps"][1]["provider"] == "codex"
+
+
+def test_omp_json_transport_end_to_end_execution(tmp_path):
+    """Complete OMP JSON transport run: template, prepare, execute, parse."""
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+        ProviderSessionRequest,
+    )
+    from orchestrator.providers.types import (
+        OmpTransportExpectation,
+        ProviderInvocation,
+    )
+
+    fixture_dir = Path(__file__).parent / "fixtures" / "omp" / "protocol"
+    fixture = (fixture_dir / "transient.stdout.jsonl").read_bytes()
+    header_id = json.loads(fixture.split(b"\n")[0])["id"]
+    expected_binary = {
+        "platform": "linux",
+        "arch": "x86_64",
+        "version": "17.3.4",
+        "sha256": "f" * 64,
+    }
+    frame = {
+        "type": "orchestrator.omp_launch.v1",
+        "lane": "ambient",
+        "persistence": "none",
+        "binary": expected_binary,
+        "child": {"argv": [], "cwd": "/tmp/work", "env_names": [], "exit_code": 0},
+        "session": {
+            "id": header_id,
+            "visit_key": None,
+            "primary_relpath": None,
+            "primary_sha256": None,
+        },
+        "conf": {"manifest_sha256": None},
+        "confinement": None,
+        "observed": {"advisor_relpaths": [], "child_relpaths": []},
+    }
+    stream = fixture + json.dumps(frame, separators=(",", ":")).encode() + b"\n"
+
+    template = ProviderTemplate(
+        name="omp-e2e",
+        command=["python", "-c", "import sys;sys.stdout.buffer.write(%r)" % stream],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp-e2e",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+    assert error is None
+    assert invocation is not None
+    assert (
+        invocation.metadata_mode
+        == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+
+    invocation.omp_transport_expectation = OmpTransportExpectation(
+        lane="ambient",
+        persistence="none",
+        binary=expected_binary,
+    )
+    result = executor.execute(invocation)
+
+    assert result.exit_code == 0
+    assert result.error is None
+    assert result.raw_stdout == stream
+    assert result.stdout == b"OK"
+    assert result.provider_session is not None
+    assert result.provider_session["session_id"] == header_id
+    assert result.provider_session["event_count"] == 11
+    assert result.provider_session["final_model"] == "gpt-5.6-sol"
+    assert result.is_promotable is True

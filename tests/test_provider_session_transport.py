@@ -1083,3 +1083,168 @@ def test_legacy_codex_jsonl_parser_delegates_to_shared_real_shape_codec(
         "normalized_stdout": "delegated",
         "event_count": 3,
     }
+
+
+# ---------------------------------------------------------------------------
+# OMP JSON stdout contract: enum, expectation carrier, factory, resume scope
+# ---------------------------------------------------------------------------
+
+
+def test_omp_json_stdout_metadata_mode_value_is_pinned():
+    assert (
+        ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+        == "omp_json_stdout"
+    )
+    assert (
+        ProviderSessionMetadataMode.OMP_JSON_STDOUT
+        != ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT
+    )
+
+
+def test_session_transport_factory_requires_expectation_for_omp_mode():
+    module = _session_transport_module()
+
+    with pytest.raises(TypeError):
+        module.create_session_transport_accumulator(
+            ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+        )
+
+    assert module.create_session_transport_accumulator(
+        ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        expectation=_omp_expectation(),
+    ) is not None
+
+
+def test_session_transport_factory_selects_omp_codec_with_expectation():
+    module = _session_transport_module()
+    expectation = _omp_expectation()
+
+    accumulator = module.create_session_transport_accumulator(
+        ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        expectation=expectation,
+    )
+
+    omp_module = importlib.import_module(
+        "orchestrator.providers.omp_transport"
+    )
+    assert isinstance(accumulator, omp_module.OmpJsonStdoutAccumulator)
+    assert module.create_session_transport_accumulator(
+        ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+    ) is not None
+    assert module.create_session_transport_accumulator("unsupported") is None
+
+
+def test_omp_mode_never_advertises_resume_boundary_observation():
+    module = _session_transport_module()
+
+    assert not module.supports_resume_boundary_observation(
+        ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+    assert module.supports_resume_boundary_observation(
+        ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+    )
+
+
+def test_omp_mode_cannot_declare_turn_boundary_resume_capability():
+    from orchestrator.providers.types import (
+        ProviderSessionSupport,
+        validate_turn_boundary_resume_capability,
+    )
+
+    support = ProviderSessionSupport(
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        fresh_command=["omp"],
+        resume_command=["omp", "--resume", "${SESSION_ID}"],
+        turn_boundary_resume=True,
+    )
+
+    errors = validate_turn_boundary_resume_capability(support)
+
+    assert errors
+    assert any(
+        "resume-boundary observation" in error for error in errors
+    )
+
+
+def test_session_transport_accumulator_protocol_is_exported_and_structural():
+    module = _session_transport_module()
+
+    protocol = module.SessionTransportAccumulator
+    assert hasattr(protocol, "feed")
+    assert hasattr(protocol, "snapshot")
+    assert hasattr(protocol, "finalize")
+    assert hasattr(protocol, "event_count")
+    assert hasattr(protocol, "normalized_stdout")
+
+    accumulator = _new_accumulator()
+    assert isinstance(accumulator, protocol)
+    assert accumulator.normalized_stdout == ""
+
+    omp_module = importlib.import_module(
+        "orchestrator.providers.omp_transport"
+    )
+    omp_accumulator = omp_module.OmpJsonStdoutAccumulator(
+        expectation=_omp_expectation()
+    )
+    assert isinstance(omp_accumulator, protocol)
+
+
+def test_omp_transport_carriers_survive_supervision_snapshot_roundtrip(
+    tmp_path: Path,
+):
+    from orchestrator.workflow.provider_supervision.bindings import (
+        ProviderSupervisionInvocationSnapshot,
+    )
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    expectation = _omp_expectation(
+        persistence="fresh",
+        visit_key="step-7__v2",
+        confinement_policy_sha256="d" * 64,
+    )
+    invocation = ProviderInvocation(
+        command=["python", "-c", "pass"],
+        input_mode=InputMode.ARGV,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        provider_session_dir="/run/root/provider_sessions/step-7__v2",
+        omp_transport_expectation=expectation,
+    )
+
+    snapshot = ProviderSupervisionInvocationSnapshot.from_invocation(
+        invocation
+    )
+    restored = snapshot.materialize()
+
+    assert restored.provider_session_dir == (
+        "/run/root/provider_sessions/step-7__v2"
+    )
+    assert restored.omp_transport_expectation == expectation
+    assert restored.omp_transport_expectation is not expectation
+    assert restored.omp_transport_expectation.binary == EXPECTED_BINARY
+    assert snapshot.omp_transport_expectation is not None
+
+
+EXPECTED_BINARY = {
+    "platform": "linux",
+    "arch": "x86_64",
+    "version": "17.3.4",
+    "sha256": "f" * 64,
+}
+
+
+def _omp_expectation(**overrides: Any) -> Any:
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    base = {
+        "lane": "ambient",
+        "persistence": "none",
+        "binary": EXPECTED_BINARY,
+        "stdout_session_id": None,
+        "visit_key": None,
+        "child_argv": (),
+        "conf_manifest_sha256": None,
+        "confinement_policy_sha256": None,
+        "observed_relpaths": (),
+    }
+    base.update(overrides)
+    return OmpTransportExpectation(**base)
