@@ -44,6 +44,7 @@ class RegularFileRow:
     size_bytes: int
     device: int
     inode: int
+    mode: int
 
 
 def _canonical_name(name: str) -> str:
@@ -139,6 +140,7 @@ def walk_regular_files(root_fd: int):
                     info.st_size,
                     info.st_dev,
                     info.st_ino,
+                    info.st_mode,
                 )
             elif stat.S_ISDIR(info.st_mode):
                 child = _open_child_directory(directory_fd, name, info)
