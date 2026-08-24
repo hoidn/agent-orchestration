@@ -17,12 +17,14 @@ The first mode requires Landlock ABI 3 or newer (queried directly), sets
 rejects any write root overlapping protected/read roots or another write
 root, installs the role-labelled write allowlist from the same still-open
 root fds, verifies the private target is a digest-named copy rehashed from
-the inherited no-follow private target fd, and then ``execve``-replaces
-itself with the private OMP argv. The ``--exec-only`` mode skips Landlock
-entirely (ambient lanes stay unconfined) but still opens the private target
-no-follow and rehashes it on the same fd before ``execve``.
-Every root and the target fd are reopened/recomputed: a digest, root, fd, or
-target mismatch fails before restriction/exec.
+the inherited no-follow private target fd, compares the code-owned fresh
+session identity carrier against the retained session-root fd, strips the
+internal carriers from the environment, and then ``execve``-replaces itself
+with the private OMP argv. The ``--exec-only`` mode skips Landlock entirely
+(ambient lanes stay unconfined) but still opens the private target no-follow
+and rehashes it on the same fd before ``execve``.
+Every root and the target fd are reopened/recomputed: a digest, root, fd,
+identity, or target mismatch fails before restriction/exec.
 """
 from __future__ import annotations
 
@@ -37,7 +39,11 @@ from .omp_launch_fs import (
     directory_identity,
     open_dir_no_follow,
     open_private_exec_fd,
+)
+from .omp_launch_policy import (
+    strip_omp_carriers,
     verify_root_identity_relations,
+    verify_session_identity,
 )
 
 SCHEMA_VERSION = "omp_write_confinement.v1"
@@ -52,12 +58,7 @@ MUTATION_FS_RIGHTS = 0x7FF2
 
 
 def role_rights(role: str, label: str) -> int:
-    """Deterministic per-root rights; shared by adapter, parent, and helper.
-
-    Only write roots carry the full mutation allowlist; protected/read roots
-    are bound by identity but grant nothing (their reads and execs are
-    unhandled and therefore permitted).
-    """
+    """Deterministic per-root rights; shared by adapter, parent, and helper."""
     if role == "write":
         return MUTATION_FS_RIGHTS
     if role in ("protected", "read"):
@@ -67,8 +68,7 @@ def role_rights(role: str, label: str) -> int:
 # Fixed protected runtime roots for the dynamically linked pinned binary and
 # the python interpreter that launches it. Usrmerge symlinks (/bin -> /usr/bin)
 # are resolved ONCE at import to their real targets, so the component-wise
-# no-follow walk below never encounters a symlink component: the resolved
-# paths are the code-owned fixed constants the digest binds.
+# no-follow walk below never encounters a symlink component.
 SYSTEM_RUNTIME_ROOTS = tuple(
     dict.fromkeys(
         os.path.realpath(root)
@@ -135,19 +135,6 @@ def _validate_exact_mask() -> None:
     if fd < 0:
         raise ConfinementError("kernel rejects the exact ABI-3 mutation mask")
     os.close(fd)
-
-
-def _root_identity(path: str) -> tuple[int, int]:
-    """Return the no-follow component-walked directory (dev, ino) identity.
-
-    Every component of the absolute path is opened with O_NOFOLLOW relative
-    to its parent dirfd, so a symlink anywhere (final or intermediate) fails
-    closed: no resolve-then-open TOCTOU, no lexical canonicalization.
-    """
-    try:
-        return directory_identity(path)
-    except LaunchFsError as exc:
-        raise ConfinementError(str(exc)) from exc
 
 
 def _path_is_within(path: str, root: str) -> bool:
@@ -230,7 +217,10 @@ def canonical_policy_digest(
     )
     root_rows = []
     for role, label, path in _role_path_rows(protected, write, read):
-        dev, ino = _root_identity(path)
+        try:
+            dev, ino = directory_identity(path)
+        except LaunchFsError as exc:
+            raise ConfinementError(str(exc)) from exc
         root_rows.append(
             {
                 "label": label,
@@ -300,65 +290,6 @@ def _role_path_rows(
     return rows
 
 
-def _reject_overlaps(
-    protected: list[tuple[str, str]],
-    write: list[tuple[str, str]],
-    read: list[tuple[str, str]],
-) -> None:
-    """Reject any write root equal to, containing, or contained in a protected
-    runtime root (``$HOME/.omp``), a read root (conf/cwd), or another write
-    root. The brief's overlapping-write-root failure is not limited to
-    protected/read roots: two write roots in an ancestor/descendant relation
-    (e.g. ``state`` nested below ``data``) make role attribution ambiguous
-    and fail before confinement. Exact-equal write paths are left to the
-    opened-identity duplicate check."""
-    guarded = [path for label, path in protected if label == "omp-home"]
-    guarded += [path for _, path in read]
-    for role, root in write:
-        root_real = os.path.realpath(root)
-        for other in guarded:
-            other_real = os.path.realpath(other)
-            try:
-                common = os.path.commonpath([root_real, other_real])
-            except ValueError:
-                continue
-            if common == root_real or common == other_real:
-                raise ConfinementError(
-                    f"write root {role}={root!r} overlaps runtime root {other!r}"
-                )
-        for other_role, other in write:
-            other_real = os.path.realpath(other)
-            if other_real == root_real:
-                continue  # exact duplicate handled by opened-identity check
-            try:
-                common = os.path.commonpath([root_real, other_real])
-            except ValueError:
-                continue
-            if common == root_real or common == other_real:
-                raise ConfinementError(
-                    f"write root {role}={root!r} overlaps write root "
-                    f"{other_role}={other!r}"
-                )
-
-
-def _open_private_exec_fd(target: list[str]) -> int:
-    """Open the private target no-follow via the shared fs primitive (digest-named
-    copy dir verified no-follow, same-fd rehash, same-fd exec); a same-UID swap
-    before the open mismatches the hash and fails closed."""
-    try:
-        return open_private_exec_fd(target)
-    except LaunchFsError as exc:
-        raise ConfinementError(str(exc)) from exc
-
-
-def _open_root(path: str) -> int:
-    """Open one role root no-follow as a directory; the fd backs the digest
-    identity and the Landlock rule (never a reopened pathname)."""
-    try:
-        return open_dir_no_follow(path)
-    except LaunchFsError as exc:
-        raise ConfinementError(str(exc)) from exc
-
 def _restrict_and_exec(
     *,
     rows: list[tuple[str, str, str]],
@@ -367,7 +298,7 @@ def _restrict_and_exec(
     exec_fd: int,
 ) -> int:
     """Install the Landlock ruleset from the still-open root fds and exec the
-    verified private target fd."""
+    verified private target fd (internal carriers stripped first)."""
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         raise ConfinementError("prctl(PR_SET_NO_NEW_PRIVS) failed")
@@ -397,6 +328,7 @@ def _restrict_and_exec(
     rc = libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset, 0)
     if rc != 0:
         raise ConfinementError(f"landlock_restrict_self failed: {ctypes.get_errno()}")
+    strip_omp_carriers(os.environ)
     try:
         os.execve(exec_fd, target, os.environ)
     except OSError as exc:
@@ -406,14 +338,18 @@ def _restrict_and_exec(
 
 def _exec_only_main(argv: list[str]) -> int:
     """Ambient fd-exec route: verify the private target on the opened fd and
-    exec it without any Landlock confinement (ambient lanes stay
-    unconfined). The same no-follow private-parent verification, same-fd
-    hash, and same-fd execve apply, so a swapped copy fails closed exactly
-    like the confined path."""
+    exec it without any Landlock confinement (ambient lanes stay unconfined).
+    The same no-follow private-parent verification, same-fd hash, and same-fd
+    execve apply, so a swapped copy fails closed exactly like the confined
+    path; internal carriers are stripped before exec."""
     if argv[:1] != ["--"]:
         raise ConfinementError("--exec-only requires a '-- <private-argv>' separator")
     target = argv[1:]
-    exec_fd = _open_private_exec_fd(target)
+    try:
+        exec_fd = open_private_exec_fd(target)
+    except LaunchFsError as exc:
+        raise ConfinementError(str(exc)) from exc
+    strip_omp_carriers(os.environ)
     try:
         os.execve(exec_fd, target, os.environ)
     except OSError as exc:
@@ -463,16 +399,23 @@ def main(argv: list[str] | None = None) -> int:
         read_roles = [role for role, _ in read]
         if any(role not in ("conf", "cwd") for role in read_roles):
             raise ConfinementError("unknown read role")
-        _reject_overlaps(protected, write, read)
-        exec_fd = _open_private_exec_fd(target)
-
-        # Recompute the canonical digest over the same opened root identities.
+        try:
+            exec_fd = open_private_exec_fd(target)
+        except LaunchFsError as exc:
+            raise ConfinementError(str(exc)) from exc
         rows = _role_path_rows(protected, write, read)
-        root_fds = [_open_root(path) for _, _, path in rows]
+        try:
+            root_fds = [open_dir_no_follow(path) for _, _, path in rows]
+        except LaunchFsError as exc:
+            raise ConfinementError(str(exc)) from exc
         try:
             # Identity relations bind the no-follow-opened roots: duplicate
-            # (dev, ino) identities and write/protected-read nesting fail.
+            # (dev, ino) identities, write/protected-read nesting, and
+            # bind-mounted alias views fail; the fresh session identity
+            # carrier must match the retained session-root fd (or the
+            # carrier-named visit dir for coalesced conf lanes).
             verify_root_identity_relations(rows, root_fds)
+            verify_session_identity(rows, root_fds, os.environ)
             computed = _recompute_digest(protected, write, read, required_abi, root_fds)
             if computed != digest:
                 raise ConfinementError("canonical policy digest does not match --digest")

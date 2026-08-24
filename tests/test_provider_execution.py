@@ -2005,25 +2005,93 @@ def test_omp_conf_prepare_rejects_malformed_conf_tree(tmp_path) -> None:
 
 
 def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path) -> None:
-    """NEW-T5-FIX-002: a failed preparation must not leave the empty cwd behind."""
-    conf = tmp_path / "conf"
-    conf.mkdir()
-    (conf / "config.yml").write_text(
-        "advisor:\n  enabled: maybe\n", encoding="utf-8"
-    )
+    """NEW-T5-FIX-002: a post-create failure must not leave the empty cwd behind.
+
+    The malformed-conf case fails before cwd creation; this one fails AFTER:
+    the empty cwd is created, then the canonical policy digest hits an
+    invalid write root (a file where XDG_DATA_HOME must be a directory).
+    """
     env = _omp_profile_env(tmp_path)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    env = {**env, "XDG_DATA_HOME": str(blocker)}
     executor = ProviderExecutor(tmp_path, _omp_profile_registry())
     invocation, error = executor.prepare_invocation(
-        "omp_conf",
-        ProviderParams(params={"omp_conf_root": str(conf)}),
+        "omp_no_tools",
+        ProviderParams(),
         {},
         prompt_content="hi",
         env=env,
     )
     assert invocation is None
     assert error is not None
+    assert error["type"] == "validation_error", error
     leftovers = list((tmp_path / "home").glob("omp-empty-*"))
-    assert leftovers == [], f"preparation failure must clean the empty cwd: {leftovers}"
+    assert leftovers == [], f"post-create failure must clean the empty cwd: {leftovers}"
+
+
+def test_omp_profile_prepare_cleans_empty_cwd_on_identity_failure(tmp_path) -> None:
+    """NEW-T5-FIX-002: fresh session identity capture failure also cleans."""
+    env = _omp_profile_env(tmp_path)
+    session_dir = tmp_path / "visits" / "step-1__v1.live"
+    session_dir.mkdir(parents=True)
+    session_dir.chmod(0o755)  # group/other accessible -> identity capture fails
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        env=env,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir=str(session_dir),
+    )
+    assert invocation is None
+    assert error is not None
+    leftovers = list((tmp_path / "home").glob("omp-empty-*"))
+    assert leftovers == [], f"identity failure must clean the empty cwd: {leftovers}"
+
+
+def test_omp_profile_prepare_exact_grammar_and_env_carrier(tmp_path) -> None:
+    """Finding 5 + T5-SEC-005: exact adapter argv; cwd/identity ride the
+    code-owned internal carriers; authored carriers are rejected."""
+    from orchestrator.providers.omp_launch_policy import EMPTY_CWD_ENV
+    from orchestrator.providers.omp_templates import DEFAULT_OMP_MODEL
+
+    env = _omp_profile_env(tmp_path)
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        env=env,
+    )
+    assert error is None, error
+    assert invocation is not None
+    assert "--empty-cwd" not in invocation.command
+    assert invocation.command == [
+        sys.executable, "-m", "orchestrator.providers.omp_launch",
+        "run", "--lane", "omp_no_tools", "--model", DEFAULT_OMP_MODEL,
+    ]
+    assert invocation.env.get(EMPTY_CWD_ENV), "per-invocation cwd rides the carrier"
+    assert invocation.omp_transport_expectation is not None
+    assert invocation.omp_transport_expectation.child_argv == tuple(
+        invocation.command[3:]
+    ), "the frozen frame argv is the exact adapter grammar"
+
+    # Authored carriers at the provider/workflow boundary are rejected.
+    env2 = {**env, EMPTY_CWD_ENV: "/tmp/evil-cwd"}
+    invocation2, error2 = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        env=env2,
+    )
+    assert invocation2 is None
+    assert error2 is not None
+    assert "carrier" in error2["message"].lower(), error2
 
 
 def test_omp_profile_prepare_uses_per_invocation_empty_cwd(tmp_path) -> None:

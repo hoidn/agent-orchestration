@@ -263,10 +263,14 @@ def _frozen_profile_expectation(pin, argv, *, lane, env, conf_root=None,
     """Freeze the profile expectation before the run, like the parent does.
 
     Production freezes the expectation (and the empty-cwd directory identity)
-    at prepare time, before the adapter executes; the adapter then removes the
-    exclusive empty cwd at run end. Tests must capture the expectation while
-    the directory still exists.
+    at prepare time, then carries the prepared empty cwd to the adapter via
+    the code-owned internal carrier; the adapter opens it (never adopts a
+    pre-existing predictable dir) and removes it at run end. The helper
+    therefore returns ``(expectation, run_env)`` with the carrier injected so
+    the adapter's digest matches the frozen one exactly.
     """
+    from orchestrator.providers.omp_launch_policy import EMPTY_CWD_ENV
+
     if conf_root is None and lane in ("no-tools", "conf", "conf-inference"):
         conf_root = str(omp_launch.neutral_conf_root())
     empty_cwd = omp_launch.empty_omp_cwd(
@@ -274,10 +278,11 @@ def _frozen_profile_expectation(pin, argv, *, lane, env, conf_root=None,
         session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
     )
     omp_launch.create_empty_omp_cwd(empty_cwd)
+    run_env = {**env, EMPTY_CWD_ENV: str(empty_cwd)}
     return _expectation(
         pin, argv, lane=lane, persistence=persistence, session_dir=session_dir,
         conf_root=conf_root, env=env, visit_key=visit_key, observed=observed,
-    )
+    ), run_env
 
 
 #: populated by the fixture below; keeps expectation builders compact
@@ -487,13 +492,13 @@ def test_profile_no_tools_confined_probe_and_child(tmp_path) -> None:
     env = _std_env(home, tmp_path)
     pin = _launcher_pin()
     argv = _adapter_argv("omp_no_tools")
-    expectation = _frozen_profile_expectation(
+    expectation, run_env = _frozen_profile_expectation(
         pin, argv, lane="no-tools", env=env,
         conf_root=str(omp_launch.neutral_conf_root()),
     )
 
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
@@ -515,12 +520,12 @@ def test_profile_conf_lane_add_dir(tmp_path) -> None:
     conf_root = _make_conf(tmp_path)
     pin = _launcher_pin()
     argv = _adapter_argv("omp_conf", conf_root=str(conf_root))
-    expectation = _frozen_profile_expectation(
+    expectation, run_env = _frozen_profile_expectation(
         pin, argv, lane="conf", env=env, conf_root=str(conf_root),
     )
 
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == [
@@ -536,12 +541,12 @@ def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     pin = _launcher_pin()
 
     argv = _adapter_argv("omp_conf_inference")
-    expectation = _frozen_profile_expectation(
+    expectation, run_env = _frozen_profile_expectation(
         pin, argv, lane="conf-inference", env=env,
         conf_root=str(omp_launch.neutral_conf_root()),
     )
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
@@ -550,12 +555,12 @@ def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
 
     session_dir = _live_dir(tmp_path)
     argv = _adapter_argv("omp_no_tools", session_dir=str(session_dir))
-    fresh_expectation = _frozen_profile_expectation(
+    fresh_expectation, fresh_env = _frozen_profile_expectation(
         pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
         visit_key=VISIT_KEY, persistence="fresh",
     )
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
+    rc = _run(argv=argv, env=fresh_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == [
@@ -592,13 +597,13 @@ def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
     session_dir.chmod(0o700)
     argv = _adapter_argv("omp_conf", conf_root=str(conf_root),
                          session_dir=str(session_dir))
-    expectation = _frozen_profile_expectation(
+    expectation, run_env = _frozen_profile_expectation(
         pin, argv, lane="conf", env=env, conf_root=str(conf_root),
         session_dir=str(session_dir), visit_key=VISIT_KEY, persistence="fresh",
     )
 
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=argv, env=env, workspace=workspace_path,
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
               stdin=_control(probe=True), pin=pin, out=out, err=err,
               resolver_path=_fake_launcher())
     assert rc == 0, err.getvalue()
@@ -1112,7 +1117,7 @@ def test_helper_rejects_write_overlap_with_omp_home(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     base, _private = _overlap_argv(home, env, tmp_path, data=str(home / ".omp"))
-    _helper_fails(base, "overlaps runtime root")
+    _helper_fails(base, "duplicate opened root identity")
 
 
 def test_helper_rejects_write_overlap_with_conf_root(tmp_path) -> None:
@@ -1121,21 +1126,21 @@ def test_helper_rejects_write_overlap_with_conf_root(tmp_path) -> None:
     base, _private = _overlap_argv(
         home, env, tmp_path, data=str(omp_launch.neutral_conf_root())
     )
-    _helper_fails(base, "overlaps runtime root")
+    _helper_fails(base, "duplicate opened root identity")
 
 
 def test_helper_rejects_write_overlap_with_cwd_root(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     base, _private = _overlap_argv(home, env, tmp_path, temp=str(tmp_path / "empty"))
-    _helper_fails(base, "overlaps runtime root")
+    _helper_fails(base, "duplicate opened root identity")
 
 
 def test_helper_rejects_write_root_containing_omp_home(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     base, _private = _overlap_argv(home, env, tmp_path, data=str(home))
-    _helper_fails(base, "overlaps runtime root")
+    _helper_fails(base, "overlaps opened omp-home")
 
 
 def test_helper_rejects_nested_write_state_under_data(tmp_path) -> None:
@@ -1289,10 +1294,15 @@ def test_ambient_exec_is_not_mutable_after_verify(tmp_path, monkeypatch) -> None
         argv = list(args) if isinstance(args, (list, tuple)) else [args]
         if "--version" not in argv and str(private) in argv:
             # Swap the verified private copy for attacker bytes between the
-            # version probe and the child spawn.
-            if private.exists():
-                private.write_bytes(evil_launcher.read_bytes())
-                private.chmod(0o500)
+            # version probe and the child spawn. The staged copy is 0o500
+            # (owner r-x), so open it for writing first; a real swap must
+            # happen or this test only exercises Popen OSError handling.
+            private.chmod(0o700)
+            private.write_bytes(evil_launcher.read_bytes())
+            private.chmod(0o500)
+            assert private.read_bytes() == evil_launcher.read_bytes(), (
+                "the swap must actually replace the staged file"
+            )
         return real_popen(args, *a, **kw)
 
     monkeypatch.setattr(_subprocess, "Popen", _swapping_popen)
@@ -1411,7 +1421,10 @@ def test_helper_root_open_is_race_closed(tmp_path) -> None:
         timeout=30,
     )
     assert proc.returncode == 2, (proc.returncode, proc.stderr)
-    assert b"orchestrator.omp_launch.v1" not in b""
+    assert "cannot open" in proc.stderr, proc.stderr
+    assert b"orchestrator.omp_launch.v1" not in b"".join(
+        [proc.stdout.encode("utf-8")]
+    ), "the helper must never emit a launch frame"
 
 
 
@@ -1487,3 +1500,219 @@ def test_adapter_cleans_empty_cwd_on_pre_child_failure(tmp_path) -> None:
               resolver_path=_fake_launcher())
     assert rc == 2, err.getvalue()
     assert not os.path.exists(empty), "the adapter must remove the empty cwd on failure"
+
+
+# ---------------------------------------------------------------------------
+# Task 5 fix round 3: RED-first regression suite (findings 1-7)
+# ---------------------------------------------------------------------------
+# Internal carrier names (must match omp_launch_fs.CARRIER_ENV_NAMES after the
+# fix; written as literals so the REDs fail on behavior, not imports).
+_CARRIER_EMPTY_CWD = "_OMP_I1_EMPTY_CWD"
+_CARRIER_SESSION_DIR = "_OMP_I1_SESSION_DIR"
+_CARRIER_SESSION_IDENTITY = "_OMP_I1_SESSION_DIR_IDENTITY"
+
+
+def test_parser_rejects_internal_empty_cwd_flag(tmp_path) -> None:
+    """Finding 5: Brief Step 5.4 grammar accepts only run/lane/model/conf-root/session-dir.
+
+    The per-invocation cwd must travel through the code-owned internal
+    carrier, never through the exact private adapter argv.
+    """
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools") + ["--empty-cwd", "/tmp/evil"],
+              env=env, workspace=workspace_path, stdin=_control(),
+              pin=_fake_pin(), out=out, err=err)
+    assert rc == 2, (rc, err.getvalue())
+    assert "unexpected" in err.getvalue(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_ambient_fresh_rejects_mismatched_session_identity_before_child(tmp_path) -> None:
+    """Finding 2 (T5-SEC-005): the ambient adapter compares the frozen
+    identity BEFORE the child runs; a mismatched carrier fails closed."""
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    session_dir = _live_dir(tmp_path)
+    env = {**env, _CARRIER_SESSION_IDENTITY: "1:1"}  # wrong identity
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp", session_dir=str(session_dir)),
+              env=env, workspace=workspace_path, stdin=_control(),
+              pin=_launcher_pin(), out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 2, (rc, err.getvalue())
+    assert "identity" in err.getvalue().lower(), err.getvalue()
+    assert "FAKE_" not in err.getvalue(), "the child must never run on identity mismatch"
+
+
+def test_profile_helper_rejects_mismatched_session_identity(tmp_path) -> None:
+    """Finding 2 (T5-SEC-005): the confined helper compares its retained
+    session-root fd before add_rule/exec; a mismatched carrier fails closed."""
+    from orchestrator.providers.omp_write_confinement import SYSTEM_RUNTIME_ROOTS
+
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    roots = _env_roots(env)
+    session_dir = _live_dir(tmp_path)
+    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
+    private.parent.mkdir(parents=True)
+    private.parent.chmod(0o700)
+    private.write_bytes(_FAKE_SOURCE.read_bytes())
+    private.chmod(0o500)
+    (tmp_path / "empty").mkdir()
+    digest = canonical_policy_digest(
+        lane="no-tools", home_omp=str(home / ".omp"), session_dir=str(session_dir),
+        conf_root=str(omp_launch.neutral_conf_root()), workspace=str(workspace_path),
+        empty_cwd=str(tmp_path / "empty"), env_roots=roots,
+    )
+    argv = ["--abi", "3", "--digest", digest,
+            "--protected", f"omp-home={home / '.omp'}"]
+    argv += [flag for root in SYSTEM_RUNTIME_ROOTS for flag in ("--protected", f"system-runtime={root}")]
+    argv += [
+        "--write", f"data={roots['data']}", "--write", f"state={roots['state']}",
+        "--write", f"cache={roots['cache']}", "--write", f"temp={roots['temp']}",
+        "--write", f"session={session_dir}",
+        "--read", f"conf={omp_launch.neutral_conf_root()}",
+        "--read", f"cwd={tmp_path / 'empty'}",
+        "--", str(private), "--version",
+    ]
+    proc = subprocess.run(
+        [sys.executable, "-m", "orchestrator.providers.omp_write_confinement", *argv],
+        capture_output=True, text=True, timeout=30,
+        env={**os.environ, _CARRIER_SESSION_IDENTITY: "1:1",
+             _CARRIER_SESSION_DIR: str(session_dir)},
+    )
+    assert proc.returncode == 2, (proc.returncode, proc.stderr)
+    assert "identity" in proc.stderr.lower(), proc.stderr
+
+
+def test_adapter_direct_seam_rejects_preplanted_empty_cwd(tmp_path) -> None:
+    """Finding 4: direct mode exclusive-creates its cwd; an EMPTY preplanted
+    directory at the deterministic path must fail closed, never be adopted."""
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _launcher_pin()
+    empty = omp_launch.empty_omp_cwd(
+        home=str(home), lane="no-tools", workspace=str(workspace_path),
+        session_dir=None, conf_root=str(omp_launch.neutral_conf_root()),
+        env_roots=_env_roots(env),
+    )
+    os.makedirs(empty)  # private, EMPTY, at the deterministic path
+    os.chmod(empty, 0o700)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 2, err.getvalue()
+    assert "empty" in err.getvalue().lower(), err.getvalue()
+
+
+def test_fresh_session_scan_is_atomic_to_one_visit_fd(tmp_path) -> None:
+    """Finding 3 (T5-SEC-006): inventory + primary derive from the SAME
+    retained fd as the identity compare; a whole-dir swap cannot redirect
+    attribution, and reopening the path fails on the changed identity."""
+    from orchestrator.providers import omp_launch_policy as policy
+    from orchestrator.providers.omp_launch_fs import (
+        primary_journal_identity,
+        primary_journal_identity_fd,
+        session_dir_identity,
+        session_inventory_fd,
+    )
+
+    live = tmp_path / "v1.live"
+    live.mkdir()
+    live.chmod(0o700)
+    expected = session_dir_identity(str(live))
+    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
+    journal.write_text("original", encoding="utf-8")
+    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
+    fd = policy.open_session_dir_verified(str(live), expected)
+    try:
+        # Swap the whole visit dir; the retained fd still names the original.
+        os.rename(live, tmp_path / "v1.old")
+        fresh = live
+        fresh.mkdir()
+        fresh.chmod(0o700)
+        (fresh / f"{TS_STEM}_{SESSION_ID}.jsonl").write_text(
+            "attacker", encoding="utf-8"
+        )
+        observed = session_inventory_fd(fd)
+        relpath2, sha2 = primary_journal_identity_fd(fd, SESSION_ID)
+        assert observed == (journal.name,)
+        assert (relpath2, sha2) == (relpath, sha)
+        with pytest.raises(policy.LaunchFsError):
+            policy.open_session_dir_verified(str(live), expected)
+    finally:
+        os.close(fd)
+
+
+def test_verify_root_identity_rejects_bind_alias_of_guarded_root(tmp_path, monkeypatch) -> None:
+    """Finding 1 (T5-SEC-003): a write root on the same superblock as a
+    guarded root but under a different mount is a bind alias and fails."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        monkeypatch.setattr(
+            policy, "_mount_id_for_path",
+            lambda path: 11 if path == str(guarded) else 22,
+        )
+        with pytest.raises(policy.LaunchFsError, match="bind"):
+            policy.verify_root_identity_relations(rows, fds)
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_admits_sibling_roots_on_one_mount(tmp_path) -> None:
+    """Finding 1: ordinary same-superblock same-mount siblings stay admissible."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        policy.verify_root_identity_relations(rows, fds)  # no raise
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_admits_distinct_superblocks(tmp_path, monkeypatch) -> None:
+    """Finding 1: legitimate separate-superblock roots (tmpfs, other
+    partitions) skip the alias check entirely and stay admissible."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        monkeypatch.setattr(policy, "_fd_is_same_superblock", lambda a, b: False)
+        monkeypatch.setattr(
+            policy, "_mount_id_for_path",
+            lambda path: (_ for _ in ()).throw(
+                AssertionError("mount lookup must be skipped")
+            ),
+        )
+        policy.verify_root_identity_relations(rows, fds)  # no raise
+    finally:
+        for fd in fds:
+            os.close(fd)

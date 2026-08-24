@@ -399,11 +399,24 @@ class ProviderExecutor:
             }
 
         omp_transport_expectation = None
+        empty_cwd = None
         if (
             metadata_mode
             == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
         ):
-            omp_transport_expectation, expectation_error = (
+            # Reject any authored internal OMP carrier at the boundary before
+            # any side effect: the carriers are code-owned transport only.
+            from .omp_launch_policy import CARRIER_ENV_NAMES
+
+            authored_carriers = sorted(
+                name for name in CARRIER_ENV_NAMES if name in secrets_context.child_env
+            )
+            if authored_carriers:
+                return None, self._omp_expectation_error(
+                    "authored internal OMP carrier environment is rejected: "
+                    + ", ".join(authored_carriers)
+                )
+            omp_transport_expectation, expectation_error, empty_cwd = (
                 self._derive_omp_transport_expectation(
                     provider_name=provider_name,
                     command=command,
@@ -414,30 +427,51 @@ class ProviderExecutor:
                 )
             )
             if expectation_error is not None:
+                self._remove_prepared_empty_cwd(empty_cwd)
                 return None, expectation_error
+            carrier_error = self._inject_omp_carriers(
+                secrets_context.child_env,
+                empty_cwd=empty_cwd,
+                session_request=session_request,
+                provider_session_dir=provider_session_dir,
+                session_identity=(
+                    omp_transport_expectation.session_dir_identity
+                    if omp_transport_expectation is not None
+                    else None
+                ),
+            )
+            if carrier_error is not None:
+                self._remove_prepared_empty_cwd(empty_cwd)
+                return None, carrier_error
 
-        invocation = ProviderInvocation(
-            command=command,
-            input_mode=provider.input_mode,
-            prompt=prompt_content if provider.input_mode == InputMode.STDIN else None,
-            output_file=params.output_file,
-            env=secrets_context.child_env,  # Use composed environment
-            timeout_sec=timeout_sec,
-            command_variant=command_variant,
-            metadata_mode=metadata_mode,
-            session_request=session_request,
-            turn_boundary_resume=(
-                provider.session_support is not None
-                and provider.session_support.turn_boundary_resume is True
-                and not validate_turn_boundary_resume_capability(
-                    provider.session_support
-                )
-            ),
-            prepared_prompt=prompt_content,
-            prepared_provider_policy=prepared_provider_policy,
-            provider_session_dir=provider_session_dir,
-            omp_transport_expectation=omp_transport_expectation,
-        )
+        try:
+            invocation = ProviderInvocation(
+                command=command,
+                input_mode=provider.input_mode,
+                prompt=prompt_content if provider.input_mode == InputMode.STDIN else None,
+                output_file=params.output_file,
+                env=secrets_context.child_env,  # Use composed environment
+                timeout_sec=timeout_sec,
+                command_variant=command_variant,
+                metadata_mode=metadata_mode,
+                session_request=session_request,
+                turn_boundary_resume=(
+                    provider.session_support is not None
+                    and provider.session_support.turn_boundary_resume is True
+                    and not validate_turn_boundary_resume_capability(
+                        provider.session_support
+                    )
+                ),
+                prepared_prompt=prompt_content,
+                prepared_provider_policy=prepared_provider_policy,
+                provider_session_dir=provider_session_dir,
+                omp_transport_expectation=omp_transport_expectation,
+            )
+        except (TypeError, ValueError) as exc:
+            self._remove_prepared_empty_cwd(empty_cwd)
+            return None, self._omp_expectation_error(
+                f"invalid OMP invocation: {exc}"
+            )
 
         return invocation, None
 
@@ -450,13 +484,19 @@ class ProviderExecutor:
         provider_session_dir: Optional[str],
         env: Optional[Dict[str, str]],
         substituted_params: Mapping[str, Any],
-    ) -> Tuple[Optional[OmpTransportExpectation], Optional[Dict[str, Any]]]:
+    ) -> Tuple[
+        Optional[OmpTransportExpectation],
+        Optional[Dict[str, Any]],
+        Optional[str],
+    ]:
         """Derive the frozen OMP launch expectation (Task 5).
 
         Derived after preparation from the actual prepared adapter argv, the
         code-owned lane policy, the concrete model, the workspace, explicit
-        persistence, and the active visit. The observed inventory is
-        child-generated and re-derived post-run by the accumulator route.
+        persistence, and the active visit. The per-invocation empty cwd is
+        created here; on ANY later failure the caller removes it (single
+        ownership flag returned as the third element). The observed inventory
+        is child-generated and re-derived post-run by the accumulator route.
         """
         # Lazy imports: the provider package must not pre-import the `-m`
         # launch targets, or fresh subprocesses would emit the Python runpy
@@ -475,13 +515,16 @@ class ProviderExecutor:
             session_dir_identity,
         )
         from .omp_pin import OMP_BINARY_PIN
-        from .omp_write_confinement import canonical_policy_digest
+        from .omp_write_confinement import (
+            ConfinementError,
+            canonical_policy_digest,
+        )
 
         lane = LANE_POLICY.get(provider_name)
         if lane is None:
             # Non-pinned OMP-metadata templates carry no expectation; the
             # accumulator factory refuses them at execution (fail-closed).
-            return None, None
+            return None, None, None
         persistence = (
             "fresh"
             if session_request is not None
@@ -508,7 +551,7 @@ class ProviderExecutor:
                 if not isinstance(candidate, str) or not candidate:
                     return None, self._omp_expectation_error(
                         "omp_conf requires the workflow omp_conf_root input"
-                    )
+                    ), None
                 conf_root = candidate
             else:
                 conf_root = neutral_conf_root()
@@ -517,13 +560,13 @@ class ProviderExecutor:
             except OSError as exc:
                 return None, self._omp_expectation_error(
                     f"cannot open the OMP conf root: {exc}"
-                )
+                ), None
             try:
                 conf_manifest = admit_conf_tree(conf_fd).manifest_sha256
             except (OSError, TypeError, ValueError, OmpConfError) as exc:
                 return None, self._omp_expectation_error(
                     f"cannot admit the OMP conf root: {exc}"
-                )
+                ), None
             finally:
                 os.close(conf_fd)
             merged_env = os.environ.copy()
@@ -541,7 +584,7 @@ class ProviderExecutor:
                     "OMP profile launch requires HOME, XDG_DATA_HOME, "
                     "XDG_STATE_HOME, XDG_CACHE_HOME, and TMPDIR in the "
                     "provider environment"
-                )
+                ), None
             env_roots = dict(roots)
             workspace = (
                 os.fspath(self.workspace)
@@ -566,8 +609,7 @@ class ProviderExecutor:
             except LaunchFsError as exc:
                 return None, self._omp_expectation_error(
                     f"cannot prepare the empty OMP cwd: {exc}"
-                )
-            command += ["--empty-cwd", empty_cwd]
+                ), None
             try:
                 confinement_digest = canonical_policy_digest(
                     lane=lane,
@@ -578,11 +620,10 @@ class ProviderExecutor:
                     empty_cwd=empty_cwd,
                     env_roots=env_roots,
                 )
-            except (TypeError, ValueError) as exc:
-                self._remove_prepared_empty_cwd(empty_cwd)
+            except (TypeError, ValueError, LaunchFsError, ConfinementError) as exc:
                 return None, self._omp_expectation_error(
                     f"cannot derive the OMP confinement digest: {exc}"
-                )
+                ), empty_cwd
         session_identity = None
         if (
             persistence == "fresh"
@@ -594,16 +635,15 @@ class ProviderExecutor:
             except LaunchFsError as exc:
                 return None, self._omp_expectation_error(
                     f"cannot verify the OMP fresh visit directory: {exc}"
-                )
+                ), empty_cwd
         # The adapter frame records post-wrapper sys.argv[1:]; freeze exactly
         # that slice, verifying the code-owned wrapper prefix first so a
         # forged command can never pass a frame-vs-expectation mismatch.
         wrapper = (sys.executable, "-m", "orchestrator.providers.omp_launch")
         if tuple(command[:3]) != wrapper:
-            self._remove_prepared_empty_cwd(empty_cwd)
             return None, self._omp_expectation_error(
                 "OMP command must start with the code-owned launch wrapper"
-            )
+            ), empty_cwd
         child_argv = tuple(command[3:])
         try:
             expectation = OmpTransportExpectation(
@@ -618,11 +658,10 @@ class ProviderExecutor:
                 session_dir_identity=session_identity,
             )
         except (TypeError, ValueError) as exc:
-            self._remove_prepared_empty_cwd(empty_cwd)
             return None, self._omp_expectation_error(
                 f"invalid OMP transport expectation: {exc}"
-            )
-        return expectation, None
+            ), empty_cwd
+        return expectation, None, empty_cwd
 
     @staticmethod
     def _remove_prepared_empty_cwd(empty_cwd: Optional[str]) -> None:
@@ -633,6 +672,44 @@ class ProviderExecutor:
             os.rmdir(empty_cwd)
         except OSError:
             pass
+
+    @staticmethod
+    def _inject_omp_carriers(
+        child_env: Dict[str, str],
+        *,
+        empty_cwd: Optional[str],
+        session_request: Optional[ProviderSessionRequest],
+        provider_session_dir: Optional[str],
+        session_identity: Optional[Tuple[int, int]],
+    ) -> Optional[Dict[str, Any]]:
+        """Inject the code-owned internal carriers into the composed child env.
+
+        The per-invocation empty cwd (profile lanes) and the fresh
+        session-dir path/identity ride the trusted carrier names; the adapter
+        reads them instead of any public flag and the confinement helper
+        strips them before the exact positive child env. Authored carriers
+        were rejected before derivation; this only adds code-owned values.
+        """
+        from .omp_launch_policy import (
+            EMPTY_CWD_ENV,
+            SESSION_DIR_ENV,
+            SESSION_IDENTITY_ENV,
+        )
+
+        if empty_cwd is not None:
+            child_env[EMPTY_CWD_ENV] = empty_cwd
+        if (
+            session_request is not None
+            and session_request.mode == ProviderSessionMode.FRESH
+            and isinstance(provider_session_dir, str)
+            and provider_session_dir
+        ):
+            child_env[SESSION_DIR_ENV] = provider_session_dir
+            if session_identity is not None:
+                child_env[SESSION_IDENTITY_ENV] = (
+                    f"{session_identity[0]}:{session_identity[1]}"
+                )
+        return None
 
     @staticmethod
     def _omp_expectation_error(message: str) -> Dict[str, Any]:
@@ -2922,9 +2999,17 @@ class ProviderExecutor:
         ):
             return None
         try:
-            from .omp_launch_fs import LaunchFsError, session_inventory
+            from .omp_launch_fs import LaunchFsError, session_inventory_fd
+            from .omp_launch_policy import open_session_dir_verified
 
-            observed = session_inventory(invocation.provider_session_dir)
+            dir_fd = open_session_dir_verified(
+                invocation.provider_session_dir,
+                expectation.session_dir_identity,
+            )
+            try:
+                observed = tuple(session_inventory_fd(dir_fd))
+            finally:
+                os.close(dir_fd)
         except (LaunchFsError, OSError):
             return None
         return create_session_transport_accumulator(
@@ -3050,26 +3135,23 @@ class ProviderExecutor:
                 "context": {},
             }
         try:
-            from .omp_launch_fs import (
-                LaunchFsError,
-                revalidate_primary_journal,
-                session_dir_identity,
-            )
+            from .omp_launch_fs import LaunchFsError, revalidate_primary_journal_fd
+            from .omp_launch_policy import open_session_dir_verified
 
-            if session_dir_identity(invocation.provider_session_dir) != (
-                expectation.session_dir_identity
-            ):
-                return {
-                    "type": "session_revalidation_failed",
-                    "message": "fresh OMP visit directory identity changed",
-                    "context": {},
-                }
-            revalidate_primary_journal(
+            # ONE opened visit fd (T5-SEC-006): identity compare and the
+            # descriptor-relative journal re-derivation share the same
+            # retained no-follow directory object, so a same-UID swap
+            # between checks cannot redirect attribution.
+            dir_fd = open_session_dir_verified(
                 invocation.provider_session_dir,
-                framed_id,
-                framed_relpath,
-                framed_sha256,
+                expectation.session_dir_identity,
             )
+            try:
+                revalidate_primary_journal_fd(
+                    dir_fd, framed_id, framed_relpath, framed_sha256
+                )
+            finally:
+                os.close(dir_fd)
         except LaunchFsError as exc:
             return {
                 "type": "session_revalidation_failed",

@@ -29,10 +29,17 @@ from .omp_launch_fs import (
     create_empty_omp_cwd,
     empty_omp_cwd_path,
     open_empty_omp_cwd,
-    primary_journal_identity,
-    session_inventory,
+    primary_journal_identity_fd,
+    session_inventory_fd,
     sha256_fd,
     stage_private_copy,
+)
+from .omp_launch_policy import (
+    CARRIER_ENV_NAMES,
+    EMPTY_CWD_ENV,
+    SESSION_IDENTITY_ENV,
+    open_session_dir_verified,
+    parse_session_identity,
 )
 from .omp_pin import OMP_BINARY_PIN, OmpBinaryPin
 from .omp_write_confinement import SCHEMA_VERSION, canonical_policy_digest, landlock_abi, profile_root_sets
@@ -87,12 +94,12 @@ def _parse_argv(argv: list[str]) -> dict[str, str | None]:
     if argv[:1] != ["run"]:
         raise LaunchError("expected leading 'run' subcommand")
     args: dict[str, str | None] = {"lane": None, "model": None, "conf_root": None,
-                                   "session_dir": None, "empty_cwd": None}
+                                   "session_dir": None}
     seen: set[str] = set()
     index = 1
     while index < len(argv):
         arg = argv[index]
-        if arg not in ("--lane", "--model", "--conf-root", "--provider-session-dir", "--empty-cwd"):
+        if arg not in ("--lane", "--model", "--conf-root", "--provider-session-dir"):
             raise LaunchError(
                 f"unexpected {'option' if arg.startswith('-') else 'positional argument'} {arg!r}"
             )
@@ -109,15 +116,13 @@ def _parse_argv(argv: list[str]) -> dict[str, str | None]:
             if not value or any(ch.isspace() for ch in value):
                 raise LaunchError("model must be a single non-whitespace token")
             args["model"] = value
-        elif arg in ("--conf-root", "--provider-session-dir", "--empty-cwd"):
+        else:
             if not os.path.isabs(value):
                 raise LaunchError(f"{arg} must be an absolute path")
             if arg == "--conf-root":
                 args["conf_root"] = value
-            elif arg == "--provider-session-dir":
-                args["session_dir"] = value
             else:
-                args["empty_cwd"] = value
+                args["session_dir"] = value
     if args["lane"] is None:
         raise LaunchError("missing --lane")
     if args["model"] is None:
@@ -126,8 +131,6 @@ def _parse_argv(argv: list[str]) -> dict[str, str | None]:
         raise LaunchError("conf-lane-only: --conf-root is accepted only on the omp_conf lane")
     if args["lane"] == "omp_conf" and args["conf_root"] is None:
         raise LaunchError("the omp_conf lane requires --conf-root")
-    if args["empty_cwd"] is not None and LANE_POLICY[args["lane"]] in AMBIENT_POLICIES:
-        raise LaunchError("profile-only: --empty-cwd is accepted only on profile lanes")
     return args
 
 
@@ -278,6 +281,7 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
     """Launch the pinned OMP binary through the adapter; returns an exit code."""
     empty_cwd: str | None = None
     conf_fd: int | None = None
+    session_fd: int | None = None
     try:
         args = _parse_argv(argv)
         lane = args["lane"]
@@ -297,26 +301,25 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         if profile:
             policy_args = dict(lane=policy, workspace=workspace, session_dir=session_dir,
                                conf_root=conf_root, env_roots=env_roots)
-            requested = args["empty_cwd"]
+            requested = env.get(EMPTY_CWD_ENV)
             if requested is not None:
                 # Parent-prepared per-invocation empty cwd: open-only, never
                 # re-created or adopted; the executor froze this exact path
-                # into the expectation's child_argv.
+                # into the expectation's child_argv and carries it through
+                # the code-owned carrier.
                 try:
                     open_empty_omp_cwd(requested)
                 except LaunchFsError as exc:
                     raise LaunchError(f"cannot open the prepared empty OMP cwd: {exc}") from exc
                 empty_cwd = requested
             else:
-                # Direct-seam fallback: deterministic path, open-then-create.
+                # Direct-seam fallback: deterministic path created EXCLUSIVELY;
+                # a pre-existing directory (even an empty one) fails the launch.
                 empty_cwd = empty_omp_cwd(home=positive["HOME"], **policy_args)
                 try:
-                    open_empty_omp_cwd(empty_cwd)
-                except LaunchFsError:
-                    try:
-                        create_empty_omp_cwd(empty_cwd)
-                    except LaunchFsError as exc:
-                        raise LaunchError(str(exc)) from exc
+                    create_empty_omp_cwd(empty_cwd)
+                except LaunchFsError as exc:
+                    raise LaunchError(str(exc)) from exc
             digest = canonical_policy_digest(home_omp=home_omp, empty_cwd=empty_cwd, **policy_args)
             protected, write, read = profile_root_sets(home_omp=home_omp, empty_cwd=empty_cwd, **policy_args)
             child_cwd = empty_cwd
@@ -326,8 +329,29 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
             child_cwd = workspace
             helper_prefix = _EXEC_ONLY_PREFIX  # ambient: same-fd exec, no Landlock
 
+        # Fresh visit: open ONCE no-follow, compare the frozen identity BEFORE
+        # the child runs, and retain the fd for the descriptor-relative scan
+        # (T5-SEC-005/006): a same-UID swap cannot redirect attribution.
+        if session_dir is not None:
+            expected_identity = None
+            carrier = env.get(SESSION_IDENTITY_ENV)
+            if carrier is not None:
+                try:
+                    expected_identity = parse_session_identity(carrier)
+                except LaunchFsError as exc:
+                    raise LaunchError(str(exc)) from exc
+            try:
+                session_fd = open_session_dir_verified(session_dir, expected_identity)
+            except LaunchFsError as exc:
+                raise LaunchError(str(exc)) from exc
+
+        carrier_env = {
+            **positive,
+            **{name: env[name] for name in CARRIER_ENV_NAMES if name in env},
+        }
+
         private = _private_copy(binary_resolver(), pin, positive["XDG_CACHE_HOME"])
-        _run_version_probe(private, positive, child_cwd, pin, helper_prefix)
+        _run_version_probe(private, carrier_env, child_cwd, pin, helper_prefix)
 
         conf_snapshot = None
         conf_manifest = None
@@ -356,7 +380,7 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=child_cwd,
-                env=positive,
+                env=carrier_env,
                 close_fds=True,
             )
         except OSError as exc:
@@ -386,9 +410,10 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
             visit_key = os.path.basename(session_dir.rstrip(os.sep)).removesuffix(".live")
             if session_id is None:
                 raise LaunchError("fresh session requires a header session id")
+            assert session_fd is not None
             try:
-                observed = tuple(session_inventory(session_dir))
-                primary_relpath, primary_sha256 = primary_journal_identity(session_dir, session_id)
+                observed = tuple(session_inventory_fd(session_fd))
+                primary_relpath, primary_sha256 = primary_journal_identity_fd(session_fd, session_id)
             except LaunchFsError as exc:
                 raise LaunchError(str(exc)) from exc
 
@@ -434,6 +459,8 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
     finally:
         if conf_fd is not None:
             os.close(conf_fd)
+        if session_fd is not None:
+            os.close(session_fd)
         if empty_cwd is not None:
             try:
                 os.rmdir(empty_cwd)  # child cannot write it (read root)
