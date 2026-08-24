@@ -9582,7 +9582,28 @@ class WorkflowExecutor:
                         if is_omp:
                             # Exclusive no-follow creation; a preplanted or
                             # pre-existing visit dir fails the step closed.
-                            session_dir.parent.mkdir(parents=True, exist_ok=True)
+                            # The run-owned parent is created privately and
+                            # must verify as a current-user 0700 directory
+                            # before the .live mkdir (never repaired).
+                            session_dir.parent.mkdir(
+                                parents=True, exist_ok=True, mode=0o700
+                            )
+                            parent_fd = os.open(
+                                session_dir.parent,
+                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            )
+                            try:
+                                parent_st = os.fstat(parent_fd)
+                                if (
+                                    parent_st.st_uid != os.getuid()
+                                    or parent_st.st_mode & 0o077
+                                ):
+                                    raise RuntimeError(
+                                        f"OMP fresh visit parent is not private: "
+                                        f"{session_dir.parent}"
+                                    )
+                            finally:
+                                os.close(parent_fd)
                             try:
                                 session_dir.mkdir(mode=0o700)
                             except FileExistsError:

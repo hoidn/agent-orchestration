@@ -415,6 +415,7 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
     }
     visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
     visit_dir.mkdir(parents=True)
+    visit_dir.chmod(0o700)
     journal = f"2026-08-23T22-33-14-831Z_{header_id}.jsonl"
     frame = {
         "type": "orchestrator.omp_launch.v1",
@@ -509,6 +510,7 @@ def test_omp_fresh_transport_rejects_fabricated_observed_inventory(tmp_path):
     }
     visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
     visit_dir.mkdir(parents=True)
+    visit_dir.chmod(0o700)
     frame = {
         "type": "orchestrator.omp_launch.v1",
         "lane": "ambient",

@@ -205,6 +205,7 @@ class OmpTransportExpectation:
     child_argv: Tuple[str, ...] = ()
     conf_manifest_sha256: Optional[str] = None
     confinement_policy_sha256: Optional[str] = None
+    session_dir_identity: Optional[Tuple[int, int]] = None
     observed_relpaths: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -263,6 +264,18 @@ class OmpTransportExpectation:
             raise ValueError(
                 "OMP transport expectation confinement_policy_sha256 must be "
                 "64 lowercase hex"
+            )
+        if self.session_dir_identity is not None and (
+            not isinstance(self.session_dir_identity, Tuple)
+            or len(self.session_dir_identity) != 2
+            or not all(
+                isinstance(part, int) and part >= 0
+                for part in self.session_dir_identity
+            )
+        ):
+            raise ValueError(
+                "OMP transport expectation session_dir_identity must be a "
+                "non-negative (dev, ino) pair"
             )
         for field_name in ("child_argv", "observed_relpaths"):
             value = getattr(self, field_name)

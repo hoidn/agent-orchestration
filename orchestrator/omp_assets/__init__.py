@@ -9,7 +9,7 @@ __all__ = ["neutral_config_path"]
 
 
 def neutral_config_path() -> str:
-    """Absolute path of the neutral conf package (importlib-resources backed)."""
-    from importlib import resources
+    """Absolute path of the neutral conf package (single launch helper)."""
+    from orchestrator.providers.omp_launch import neutral_conf_root
 
-    return resources.files("orchestrator.omp_assets").joinpath("confs", "neutral").as_posix()
+    return neutral_conf_root()

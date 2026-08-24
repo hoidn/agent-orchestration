@@ -21,6 +21,11 @@ _BUNDLED_AGENTS = [
 ]
 
 
+def test_neutral_conf_path_helper_is_single_sourced() -> None:
+    """F8: one neutral-conf path helper; the assets package reuses it."""
+    assert neutral_config_path() == neutral_conf_root()
+
+
 def test_neutral_conf_package_resolves() -> None:
     root = neutral_conf_root()
     assert root.endswith("confs/neutral")

@@ -140,9 +140,20 @@ def _run_fresh(tmp_path: Path, run_id: str, monkeypatch: pytest.MonkeyPatch, exi
     return executor.execute()
 
 
+def test_omp_fresh_non_private_visit_parent_fails_closed(tmp_path, monkeypatch) -> None:
+    """T5-SEC-005: the run-owned visit parent must be private before creation."""
+    parent = _visit_dir(tmp_path, "bad-parent").parent
+    parent.mkdir(parents=True, exist_ok=True)
+    parent.chmod(0o755)
+    with pytest.raises(RuntimeError, match="parent"):
+        _run_fresh(tmp_path, "bad-parent", monkeypatch)
+
+
 def test_omp_fresh_preexisting_live_dir_fails_closed(tmp_path, monkeypatch) -> None:
     """Finding 5: the .live visit dir is created exclusively and no-follow."""
-    _visit_dir(tmp_path, "preexisting-live").mkdir(parents=True)
+    live = _visit_dir(tmp_path, "preexisting-live")
+    live.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    live.mkdir(mode=0o700)
     with pytest.raises(RuntimeError, match="already exists"):
         _run_fresh(tmp_path, "preexisting-live", monkeypatch)
 

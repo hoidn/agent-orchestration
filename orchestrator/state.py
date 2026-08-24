@@ -678,7 +678,7 @@ class StateManager:
         """Return the canonical metadata and transport-spool paths for one session visit."""
         safe_step_id = step_id.replace("/", "_")
         session_root = self.run_root / "provider_sessions"
-        session_root.mkdir(parents=True, exist_ok=True)
+        session_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         visit_key = f"{safe_step_id}__v{visit_count}"
         return (
             session_root / f"{visit_key}.json",

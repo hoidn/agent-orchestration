@@ -379,7 +379,7 @@ def _main() -> int:
     agents_dir = os.environ.get("PI_CODING_AGENT_DIR")
     if isinstance(agents_dir, str) and os.path.isdir(agents_dir):
         try:
-            _report("AGENTS", json.dumps(sorted(os.listdir(agents_dir))))
+            _report("AGENTS", json.dumps(sorted(os.listdir(os.path.join(agents_dir, "agents")))))
         except OSError:
             pass
 

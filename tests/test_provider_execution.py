@@ -1944,3 +1944,116 @@ def test_omp_timeout_kills_the_whole_process_group(tmp_path):
     result = results.get("result")
     assert result is not None
     assert result.exit_code == 124
+
+
+# ---------------------------------------------------------------------------
+# Task 5 fix round 2: RED-first regression suite (re-review findings 5, 6)
+# ---------------------------------------------------------------------------
+
+
+def _omp_profile_env(tmp_path) -> dict:
+    home = tmp_path / "home"
+    (home / ".omp" / "agent" / "agents").mkdir(parents=True, exist_ok=True)
+    (home / ".omp" / "agent" / "agents" / "custom.md").write_text(
+        "---\nname: custom\ndescription: test agent\n---\nbody\n",
+        encoding="utf-8",
+    )
+    home.chmod(0o700)
+    env = {
+        "HOME": str(home),
+        "TMPDIR": str(tmp_path / "tmp"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "PATH": "/usr/bin:/bin",
+    }
+    for value in env.values():
+        if value.startswith(str(tmp_path)):
+            from pathlib import Path as _P
+            _P(value).mkdir(parents=True, exist_ok=True)
+    return env
+
+
+def _omp_profile_registry():
+    from orchestrator.providers.omp_templates import omp_templates
+
+    registry = ProviderRegistry()
+    for name, template in omp_templates().items():
+        registry.register(template)
+    return registry
+
+
+def test_omp_conf_prepare_rejects_malformed_conf_tree(tmp_path) -> None:
+    """NEW-T5-FIX-001: malformed conf returns validation_error, never escapes."""
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    (conf / "config.yml").write_text(
+        "advisor:\n  enabled: maybe\n", encoding="utf-8"
+    )
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    invocation, error = executor.prepare_invocation(
+        "omp_conf",
+        ProviderParams(params={"omp_conf_root": str(conf)}),
+        {},
+        prompt_content="hi",
+        env=_omp_profile_env(tmp_path),
+    )
+    assert invocation is None
+    assert error is not None
+    assert error["type"] == "validation_error", error
+
+
+def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path) -> None:
+    """NEW-T5-FIX-002: a failed preparation must not leave the empty cwd behind."""
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    (conf / "config.yml").write_text(
+        "advisor:\n  enabled: maybe\n", encoding="utf-8"
+    )
+    env = _omp_profile_env(tmp_path)
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    invocation, error = executor.prepare_invocation(
+        "omp_conf",
+        ProviderParams(params={"omp_conf_root": str(conf)}),
+        {},
+        prompt_content="hi",
+        env=env,
+    )
+    assert invocation is None
+    assert error is not None
+    leftovers = list((tmp_path / "home").glob("omp-empty-*"))
+    assert leftovers == [], f"preparation failure must clean the empty cwd: {leftovers}"
+
+
+def test_omp_profile_prepare_uses_per_invocation_empty_cwd(tmp_path) -> None:
+    """NEW-T5-FIX-002: a stale crashed-run leftover never poisons a fresh prepare."""
+    from orchestrator.providers.omp_launch import LANE_POLICY, PROFILE_POLICIES
+    from orchestrator.providers.omp_launch_fs import empty_omp_cwd_path
+    from orchestrator.providers.omp_write_confinement import profile_root_sets
+
+    env = _omp_profile_env(tmp_path)
+    home = str(tmp_path / "home")
+    roots = {
+        "data": env["XDG_DATA_HOME"],
+        "state": env["XDG_STATE_HOME"],
+        "cache": env["XDG_CACHE_HOME"],
+        "temp": env["TMPDIR"],
+    }
+    stale = empty_omp_cwd_path(
+        home=home, lane="no-tools", workspace=str(tmp_path),
+        session_dir=None, conf_root=None, env_roots=roots,
+    )
+    Path(stale).mkdir(parents=True)
+    (Path(stale) / "planted").write_text("x", encoding="utf-8")
+
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        env=env,
+    )
+    assert error is None, error
+    assert invocation is not None

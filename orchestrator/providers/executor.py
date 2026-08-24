@@ -2,6 +2,7 @@
 
 import logging
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -460,7 +461,7 @@ class ProviderExecutor:
         # Lazy imports: the provider package must not pre-import the `-m`
         # launch targets, or fresh subprocesses would emit the Python runpy
         # RuntimeWarning on stderr and fail the probe contract.
-        from .omp_conf import admit_conf_tree
+        from .omp_conf import OmpConfError, admit_conf_tree
         from .omp_launch import (
             LANE_POLICY,
             PROFILE_POLICIES,
@@ -468,7 +469,11 @@ class ProviderExecutor:
             empty_omp_cwd,
             neutral_conf_root,
         )
-        from .omp_launch_fs import LaunchFsError, create_empty_omp_cwd, session_inventory
+        from .omp_launch_fs import (
+            LaunchFsError,
+            create_empty_omp_cwd,
+            session_dir_identity,
+        )
         from .omp_pin import OMP_BINARY_PIN
         from .omp_write_confinement import canonical_policy_digest
 
@@ -495,6 +500,7 @@ class ProviderExecutor:
             visit_key = base
         conf_manifest = None
         confinement_digest = None
+        empty_cwd: Optional[str] = None
         if lane in PROFILE_POLICIES:
             conf_root: Optional[str]
             if lane == "conf":
@@ -514,7 +520,7 @@ class ProviderExecutor:
                 )
             try:
                 conf_manifest = admit_conf_tree(conf_fd).manifest_sha256
-            except (OSError, TypeError, ValueError) as exc:
+            except (OSError, TypeError, ValueError, OmpConfError) as exc:
                 return None, self._omp_expectation_error(
                     f"cannot admit the OMP conf root: {exc}"
                 )
@@ -542,6 +548,10 @@ class ProviderExecutor:
                 if self.workspace is not None
                 else os.getcwd()
             )
+            # Per-invocation nonce: a crashed-run leftover can never poison a
+            # later launch (the deterministic path remains the direct-seam
+            # fallback inside the adapter). The path is frozen into the
+            # executed argv so the adapter opens only the parent-prepared dir.
             empty_cwd = empty_omp_cwd(
                 home=home,
                 lane=lane,
@@ -549,6 +559,7 @@ class ProviderExecutor:
                 session_dir=provider_session_dir,
                 conf_root=conf_root,
                 env_roots=env_roots,
+                nonce=secrets.token_hex(8),
             )
             try:
                 create_empty_omp_cwd(empty_cwd)
@@ -556,6 +567,7 @@ class ProviderExecutor:
                 return None, self._omp_expectation_error(
                     f"cannot prepare the empty OMP cwd: {exc}"
                 )
+            command += ["--empty-cwd", empty_cwd]
             try:
                 confinement_digest = canonical_policy_digest(
                     lane=lane,
@@ -567,14 +579,28 @@ class ProviderExecutor:
                     env_roots=env_roots,
                 )
             except (TypeError, ValueError) as exc:
+                self._remove_prepared_empty_cwd(empty_cwd)
                 return None, self._omp_expectation_error(
                     f"cannot derive the OMP confinement digest: {exc}"
+                )
+        session_identity = None
+        if (
+            persistence == "fresh"
+            and isinstance(provider_session_dir, str)
+            and provider_session_dir
+        ):
+            try:
+                session_identity = session_dir_identity(provider_session_dir)
+            except LaunchFsError as exc:
+                return None, self._omp_expectation_error(
+                    f"cannot verify the OMP fresh visit directory: {exc}"
                 )
         # The adapter frame records post-wrapper sys.argv[1:]; freeze exactly
         # that slice, verifying the code-owned wrapper prefix first so a
         # forged command can never pass a frame-vs-expectation mismatch.
         wrapper = (sys.executable, "-m", "orchestrator.providers.omp_launch")
         if tuple(command[:3]) != wrapper:
+            self._remove_prepared_empty_cwd(empty_cwd)
             return None, self._omp_expectation_error(
                 "OMP command must start with the code-owned launch wrapper"
             )
@@ -589,12 +615,24 @@ class ProviderExecutor:
                 child_argv=child_argv,
                 conf_manifest_sha256=conf_manifest,
                 confinement_policy_sha256=confinement_digest,
+                session_dir_identity=session_identity,
             )
         except (TypeError, ValueError) as exc:
+            self._remove_prepared_empty_cwd(empty_cwd)
             return None, self._omp_expectation_error(
                 f"invalid OMP transport expectation: {exc}"
             )
         return expectation, None
+
+    @staticmethod
+    def _remove_prepared_empty_cwd(empty_cwd: Optional[str]) -> None:
+        """Best-effort removal of a parent-prepared empty cwd after a failure."""
+        if not empty_cwd:
+            return
+        try:
+            os.rmdir(empty_cwd)
+        except OSError:
+            pass
 
     @staticmethod
     def _omp_expectation_error(message: str) -> Dict[str, Any]:
@@ -2939,6 +2977,13 @@ class ProviderExecutor:
                 normalized_stdout = accumulator.normalized_stdout.encode(
                     "utf-8"
                 )
+                revalidation_error = self._revalidate_fresh_session(
+                    invocation, provider_session
+                )
+                if revalidation_error is not None:
+                    error = revalidation_error
+                    if exit_code == 0:
+                        exit_code = 2
 
         if error is not None and exit_code == 0:
             exit_code = 2
@@ -2953,6 +2998,85 @@ class ProviderExecutor:
             provider_session=provider_session,
             error=error,
         )
+
+    def _revalidate_fresh_session(
+        self,
+        invocation: ProviderInvocation,
+        provider_session: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Parent post-run re-validation of a fresh OMP session (T5-SEC-005/006).
+
+        The fresh visit dir was captured (dev, ino) at preparation; the
+        parent reopens it no-follow and requires the same identity, then
+        re-derives the primary journal relpath and bounded sha256 and
+        requires them to agree with the adapter's framed values. Any drift
+        fails the launch closed.
+        """
+        expectation = invocation.omp_transport_expectation
+        if (
+            expectation is None
+            or expectation.persistence != "fresh"
+            or expectation.session_dir_identity is None
+            or not isinstance(invocation.provider_session_dir, str)
+            or not invocation.provider_session_dir
+        ):
+            return None
+        frame_session = (provider_session.get("launch_frame") or {}).get("session")
+        if not isinstance(frame_session, dict):
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame lacks a session object",
+                "context": {},
+            }
+        framed_id = frame_session.get("id")
+        framed_relpath = frame_session.get("primary_relpath")
+        framed_sha256 = frame_session.get("primary_sha256")
+        if not isinstance(framed_id, str) or not framed_id:
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame lacks a session id",
+                "context": {},
+            }
+        if not isinstance(framed_relpath, str) or not framed_relpath:
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame lacks a primary journal relpath",
+                "context": {},
+            }
+        if not isinstance(framed_sha256, str) or len(framed_sha256) != 64:
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame lacks a 64-hex primary sha256",
+                "context": {},
+            }
+        try:
+            from .omp_launch_fs import (
+                LaunchFsError,
+                revalidate_primary_journal,
+                session_dir_identity,
+            )
+
+            if session_dir_identity(invocation.provider_session_dir) != (
+                expectation.session_dir_identity
+            ):
+                return {
+                    "type": "session_revalidation_failed",
+                    "message": "fresh OMP visit directory identity changed",
+                    "context": {},
+                }
+            revalidate_primary_journal(
+                invocation.provider_session_dir,
+                framed_id,
+                framed_relpath,
+                framed_sha256,
+            )
+        except LaunchFsError as exc:
+            return {
+                "type": "session_revalidation_failed",
+                "message": str(exc),
+                "context": {},
+            }
+        return None
 
     def _parse_codex_jsonl_transport(
         self,

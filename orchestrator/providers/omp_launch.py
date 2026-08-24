@@ -17,9 +17,7 @@ import io
 import json
 import os
 import secrets
-import shutil
 import socket
-import stat
 import subprocess
 import sys
 import threading
@@ -34,6 +32,7 @@ from .omp_launch_fs import (
     primary_journal_identity,
     session_inventory,
     sha256_fd,
+    stage_private_copy,
 )
 from .omp_pin import OMP_BINARY_PIN, OmpBinaryPin
 from .omp_write_confinement import SCHEMA_VERSION, canonical_policy_digest, landlock_abi, profile_root_sets
@@ -43,6 +42,12 @@ empty_omp_cwd = empty_omp_cwd_path
 
 FRAME_TYPE = "orchestrator.omp_launch.v1"
 MIN_LANDLOCK_ABI = 3
+
+# Ambient lanes route the probe AND the child through the confinement helper's
+# fd-exec mode: no Landlock, but the private target is opened no-follow and
+# rehashed on the same fd so a swapped copy fails closed exactly like the
+# confined path.
+_EXEC_ONLY_PREFIX = [sys.executable, "-m", "orchestrator.providers.omp_write_confinement", "--exec-only"]
 
 # Registry template name -> code-owned policy lane (frame/expectation vocab).
 LANE_POLICY = {"omp": "ambient", "omp_unrestricted_workspace": "ambient-unrestricted",
@@ -81,12 +86,13 @@ def neutral_conf_root() -> str:
 def _parse_argv(argv: list[str]) -> dict[str, str | None]:
     if argv[:1] != ["run"]:
         raise LaunchError("expected leading 'run' subcommand")
-    args: dict[str, str | None] = {"lane": None, "model": None, "conf_root": None, "session_dir": None}
+    args: dict[str, str | None] = {"lane": None, "model": None, "conf_root": None,
+                                   "session_dir": None, "empty_cwd": None}
     seen: set[str] = set()
     index = 1
     while index < len(argv):
         arg = argv[index]
-        if arg not in ("--lane", "--model", "--conf-root", "--provider-session-dir"):
+        if arg not in ("--lane", "--model", "--conf-root", "--provider-session-dir", "--empty-cwd"):
             raise LaunchError(
                 f"unexpected {'option' if arg.startswith('-') else 'positional argument'} {arg!r}"
             )
@@ -103,10 +109,15 @@ def _parse_argv(argv: list[str]) -> dict[str, str | None]:
             if not value or any(ch.isspace() for ch in value):
                 raise LaunchError("model must be a single non-whitespace token")
             args["model"] = value
-        elif arg in ("--conf-root", "--provider-session-dir"):
+        elif arg in ("--conf-root", "--provider-session-dir", "--empty-cwd"):
             if not os.path.isabs(value):
                 raise LaunchError(f"{arg} must be an absolute path")
-            args["conf_root" if arg == "--conf-root" else "session_dir"] = value
+            if arg == "--conf-root":
+                args["conf_root"] = value
+            elif arg == "--provider-session-dir":
+                args["session_dir"] = value
+            else:
+                args["empty_cwd"] = value
     if args["lane"] is None:
         raise LaunchError("missing --lane")
     if args["model"] is None:
@@ -115,6 +126,8 @@ def _parse_argv(argv: list[str]) -> dict[str, str | None]:
         raise LaunchError("conf-lane-only: --conf-root is accepted only on the omp_conf lane")
     if args["lane"] == "omp_conf" and args["conf_root"] is None:
         raise LaunchError("the omp_conf lane requires --conf-root")
+    if args["empty_cwd"] is not None and LANE_POLICY[args["lane"]] in AMBIENT_POLICIES:
+        raise LaunchError("profile-only: --empty-cwd is accepted only on profile lanes")
     return args
 
 
@@ -149,70 +162,11 @@ def _env_roots(env: dict[str, str]) -> dict[str, str]:
 
 
 def _private_copy(source_path: str, pin: OmpBinaryPin, cache_home: str) -> str:
-    """Verify the source no-follow/owner/mode/type/digest and stage a private copy."""
-    if not os.path.isabs(source_path):
-        raise LaunchError("binary resolver must return an absolute source path")
+    """Stage the verified private copy; translate fs errors to LaunchError."""
     try:
-        fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise LaunchError(f"cannot open source no-follow: {exc}") from exc
-    try:
-        st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise LaunchError("source is not a regular file")
-        if st.st_uid != os.getuid():
-            raise LaunchError("source is not owned by the current user")
-        if st.st_mode & 0o022:
-            raise LaunchError("source is group/other-writable")
-        if sha256_fd(fd) != pin.executable_sha256:
-            raise LaunchError("source digest does not match the pinned executable")
-        os.lseek(fd, 0, os.SEEK_SET)
-        base_dir = os.path.join(cache_home, "omp-i1", "private")
-        for directory in (base_dir, os.path.join(base_dir, pin.executable_sha256)):
-            try:
-                os.makedirs(directory, mode=0o700, exist_ok=True)
-                st = os.stat(directory)
-            except OSError as exc:
-                raise LaunchError(f"cannot prepare the private copy directory: {exc}") from exc
-            if st.st_uid != os.getuid() or st.st_mode & 0o077:
-                raise LaunchError("private copy directory is not a private current-user directory")
-        target = os.path.join(base_dir, pin.executable_sha256, os.path.basename(source_path))
-        try:
-            verify_fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        except OSError:
-            staging = os.path.join(
-                base_dir, pin.executable_sha256, ".staging-" + secrets.token_hex(8)
-            )
-            stage_fd = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o500)
-            try:
-                shutil.copyfileobj(
-                    os.fdopen(os.dup(fd), "rb"),
-                    os.fdopen(stage_fd, "wb", closefd=False),
-                )
-                os.fsync(stage_fd)
-            except BaseException:
-                os.close(stage_fd)
-                try:
-                    os.unlink(staging)
-                except OSError:
-                    pass
-                raise
-            os.close(stage_fd)
-            try:
-                os.link(staging, target)  # atomic no-replace publish
-            except FileExistsError:
-                pass
-            finally:
-                os.unlink(staging)
-            verify_fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        try:
-            if sha256_fd(verify_fd) != pin.executable_sha256:
-                raise LaunchError("private copy digest mismatch")
-        finally:
-            os.close(verify_fd)
-    finally:
-        os.close(fd)
-    return target
+        return stage_private_copy(source_path, pin, cache_home)
+    except LaunchFsError as exc:
+        raise LaunchError(str(exc)) from exc
 
 
 def _helper_prefix(*, digest: str, protected, write, read) -> list[str]:
@@ -322,6 +276,8 @@ def _relay(proc: subprocess.Popen[bytes], out, err, redact: bytes | None = None)
 
 def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinaryPin, binary_resolver) -> int:
     """Launch the pinned OMP binary through the adapter; returns an exit code."""
+    empty_cwd: str | None = None
+    conf_fd: int | None = None
     try:
         args = _parse_argv(argv)
         lane = args["lane"]
@@ -341,14 +297,26 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         if profile:
             policy_args = dict(lane=policy, workspace=workspace, session_dir=session_dir,
                                conf_root=conf_root, env_roots=env_roots)
-            empty_cwd = empty_omp_cwd(home=positive["HOME"], **policy_args)
-            try:
-                open_empty_omp_cwd(empty_cwd)  # executor-pre-created at prepare
-            except LaunchFsError:
+            requested = args["empty_cwd"]
+            if requested is not None:
+                # Parent-prepared per-invocation empty cwd: open-only, never
+                # re-created or adopted; the executor froze this exact path
+                # into the expectation's child_argv.
                 try:
-                    create_empty_omp_cwd(empty_cwd)  # direct-seam fallback
+                    open_empty_omp_cwd(requested)
                 except LaunchFsError as exc:
-                    raise LaunchError(str(exc)) from exc
+                    raise LaunchError(f"cannot open the prepared empty OMP cwd: {exc}") from exc
+                empty_cwd = requested
+            else:
+                # Direct-seam fallback: deterministic path, open-then-create.
+                empty_cwd = empty_omp_cwd(home=positive["HOME"], **policy_args)
+                try:
+                    open_empty_omp_cwd(empty_cwd)
+                except LaunchFsError:
+                    try:
+                        create_empty_omp_cwd(empty_cwd)
+                    except LaunchFsError as exc:
+                        raise LaunchError(str(exc)) from exc
             digest = canonical_policy_digest(home_omp=home_omp, empty_cwd=empty_cwd, **policy_args)
             protected, write, read = profile_root_sets(home_omp=home_omp, empty_cwd=empty_cwd, **policy_args)
             child_cwd = empty_cwd
@@ -356,12 +324,11 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         else:
             digest = None
             child_cwd = workspace
-            helper_prefix = None
+            helper_prefix = _EXEC_ONLY_PREFIX  # ambient: same-fd exec, no Landlock
 
         private = _private_copy(binary_resolver(), pin, positive["XDG_CACHE_HOME"])
         _run_version_probe(private, positive, child_cwd, pin, helper_prefix)
 
-        conf_fd = None
         conf_snapshot = None
         conf_manifest = None
         if profile:
@@ -372,7 +339,6 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
             try:
                 conf_snapshot = admit_conf_tree(conf_fd)
             except Exception as exc:
-                os.close(conf_fd)
                 raise LaunchError(f"conf admission failed: {exc}") from exc
             conf_manifest = conf_snapshot.manifest_sha256
 
@@ -385,8 +351,7 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
             stdin_bytes, stdin_arg = stdin.read(), subprocess.PIPE
         try:
             proc = subprocess.Popen(
-                [*helper_prefix, "--", private, *child_argv] if helper_prefix is not None
-                else [private, *child_argv],
+                [*helper_prefix, "--", private, *child_argv],
                 stdin=stdin_arg,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -395,8 +360,6 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
                 close_fds=True,
             )
         except OSError as exc:
-            if conf_fd is not None:
-                os.close(conf_fd)
             raise LaunchError(f"child failed to start: {exc}") from exc
 
         if stdin_bytes is not None:
@@ -408,75 +371,74 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         session_id, terminal_seen = _relay(
             proc, out, err, redact=token.encode("utf-8") if token else None
         )
-        try:
-            if proc.returncode != 0:
-                err.write(f"omp_launch: child exited {proc.returncode}\n")
-                return proc.returncode
-            if not terminal_seen:
-                err.write("omp_launch: OMP child stream did not settle\n")
-                return 1
+        if proc.returncode != 0:
+            err.write(f"omp_launch: child exited {proc.returncode}\n")
+            return proc.returncode
+        if not terminal_seen:
+            err.write("omp_launch: OMP child stream did not settle\n")
+            return 1
 
-            visit_key = None
-            primary_relpath = None
-            primary_sha256 = None
-            observed: tuple[str, ...] = ()
-            if session_dir is not None:
-                visit_key = os.path.basename(session_dir.rstrip(os.sep)).removesuffix(".live")
-                if session_id is None:
-                    raise LaunchError("fresh session requires a header session id")
-                try:
-                    observed = tuple(session_inventory(session_dir))
-                    primary_relpath, primary_sha256 = primary_journal_identity(session_dir, session_id)
-                except LaunchFsError as exc:
-                    raise LaunchError(str(exc)) from exc
+        visit_key = None
+        primary_relpath = None
+        primary_sha256 = None
+        observed: tuple[str, ...] = ()
+        if session_dir is not None:
+            visit_key = os.path.basename(session_dir.rstrip(os.sep)).removesuffix(".live")
+            if session_id is None:
+                raise LaunchError("fresh session requires a header session id")
+            try:
+                observed = tuple(session_inventory(session_dir))
+                primary_relpath, primary_sha256 = primary_journal_identity(session_dir, session_id)
+            except LaunchFsError as exc:
+                raise LaunchError(str(exc)) from exc
 
-            if profile:
-                try:
-                    revalidate_conf_tree(conf_fd, conf_snapshot)
-                except Exception as exc:
-                    raise LaunchError(f"conf tree changed during the run: {exc}") from exc
+        if profile:
+            try:
+                revalidate_conf_tree(conf_fd, conf_snapshot)
+            except Exception as exc:
+                raise LaunchError(f"conf tree changed during the run: {exc}") from exc
 
-            confinement = None
-            if profile:
-                confinement = {
-                    "schema_version": SCHEMA_VERSION,
-                    "landlock_abi": landlock_abi(),
-                    "policy_sha256": digest,
-                }
-            frame = {
-                "type": FRAME_TYPE,
-                "lane": policy,
-                "persistence": persistence,
-                "binary": binary_projection(pin),
-                "child": {
-                    "argv": argv,
-                    "cwd": child_cwd,
-                    "env_names": sorted(_POSITIVE_ENV_NAMES),
-                    "exit_code": proc.returncode,
-                },
-                "session": {
-                    "id": session_id,
-                    "visit_key": visit_key,
-                    "primary_relpath": primary_relpath,
-                    "primary_sha256": primary_sha256,
-                },
-                "conf": {"manifest_sha256": conf_manifest},
-                "confinement": confinement,
-                "observed": {"advisor_relpaths": [], "child_relpaths": list(observed)},
+        confinement = None
+        if profile:
+            confinement = {
+                "schema_version": SCHEMA_VERSION,
+                "landlock_abi": landlock_abi(),
+                "policy_sha256": digest,
             }
-            out.write(json.dumps(frame, separators=(",", ":")).encode("utf-8") + b"\n")
-            return 0
-        finally:
-            if conf_fd is not None:
-                os.close(conf_fd)
-            if profile:
-                try:
-                    os.rmdir(empty_cwd)  # child cannot write it (read root)
-                except OSError:
-                    pass
+        frame = {
+            "type": FRAME_TYPE,
+            "lane": policy,
+            "persistence": persistence,
+            "binary": binary_projection(pin),
+            "child": {
+                "argv": argv,
+                "cwd": child_cwd,
+                "env_names": sorted(_POSITIVE_ENV_NAMES),
+                "exit_code": proc.returncode,
+            },
+            "session": {
+                "id": session_id,
+                "visit_key": visit_key,
+                "primary_relpath": primary_relpath,
+                "primary_sha256": primary_sha256,
+            },
+            "conf": {"manifest_sha256": conf_manifest},
+            "confinement": confinement,
+            "observed": {"advisor_relpaths": [], "child_relpaths": list(observed)},
+        }
+        out.write(json.dumps(frame, separators=(",", ":")).encode("utf-8") + b"\n")
+        return 0
     except LaunchError as exc:
         err.write(f"omp_launch: {exc}\n")
         return 2
+    finally:
+        if conf_fd is not None:
+            os.close(conf_fd)
+        if empty_cwd is not None:
+            try:
+                os.rmdir(empty_cwd)  # child cannot write it (read root)
+            except OSError:
+                pass
 
 
 def main(argv: list[str] | None = None) -> int:
