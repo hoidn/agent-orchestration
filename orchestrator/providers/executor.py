@@ -9,12 +9,13 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .types import (
     CALL_POLICY_OPTION_ORDER,
     InputMode,
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
+    OmpTransportExpectation,
     PreparedProviderPolicy,
     ProviderInvocation,
     ProviderParams,
@@ -224,6 +225,7 @@ class ProviderExecutor:
         secrets: Optional[List[str]] = None,
         timeout_sec: Optional[int] = None,
         provider_call_policy: Optional[Mapping[str, object]] = None,
+        provider_session_dir: Optional[str] = None,
     ) -> Tuple[Optional[ProviderInvocation], Optional[Dict[str, Any]]]:
         """
         Prepare a provider invocation.
@@ -364,6 +366,7 @@ class ProviderExecutor:
             context=context,
             prompt=prompt_content,
             session_id=session_request.session_id if session_request is not None else None,
+            provider_session_dir=provider_session_dir,
         )
 
         # Check for validation errors
@@ -394,6 +397,24 @@ class ProviderExecutor:
                 "context": {"missing_secrets": secrets_context.missing_secrets}
             }
 
+        omp_transport_expectation = None
+        if (
+            metadata_mode
+            == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+        ):
+            omp_transport_expectation, expectation_error = (
+                self._derive_omp_transport_expectation(
+                    provider_name=provider_name,
+                    command=command,
+                    session_request=session_request,
+                    provider_session_dir=provider_session_dir,
+                    env=env,
+                    substituted_params=substituted_params,
+                )
+            )
+            if expectation_error is not None:
+                return None, expectation_error
+
         invocation = ProviderInvocation(
             command=command,
             input_mode=provider.input_mode,
@@ -413,9 +434,151 @@ class ProviderExecutor:
             ),
             prepared_prompt=prompt_content,
             prepared_provider_policy=prepared_provider_policy,
+            provider_session_dir=provider_session_dir,
+            omp_transport_expectation=omp_transport_expectation,
         )
 
         return invocation, None
+
+    def _derive_omp_transport_expectation(
+        self,
+        *,
+        provider_name: str,
+        command: List[str],
+        session_request: Optional[ProviderSessionRequest],
+        provider_session_dir: Optional[str],
+        env: Optional[Dict[str, str]],
+        substituted_params: Mapping[str, Any],
+    ) -> Tuple[Optional[OmpTransportExpectation], Optional[Dict[str, Any]]]:
+        """Derive the frozen OMP launch expectation (Task 5).
+
+        Derived after preparation from the actual prepared adapter argv, the
+        code-owned lane policy, the concrete model, the workspace, explicit
+        persistence, and the active visit. The observed inventory is
+        child-generated and re-derived post-run by the accumulator route.
+        """
+        # Lazy imports: the provider package must not pre-import the `-m`
+        # launch targets, or fresh subprocesses would emit the Python runpy
+        # RuntimeWarning on stderr and fail the probe contract.
+        from .omp_conf import admit_conf_tree
+        from .omp_launch import (
+            LANE_POLICY,
+            PROFILE_POLICIES,
+            binary_projection,
+            empty_omp_cwd,
+            neutral_conf_root,
+        )
+        from .omp_pin import OMP_BINARY_PIN
+        from .omp_write_confinement import canonical_policy_digest
+
+        lane = LANE_POLICY.get(provider_name)
+        if lane is None:
+            # Non-pinned OMP-metadata templates carry no expectation; the
+            # accumulator factory refuses them at execution (fail-closed).
+            return None, None
+        persistence = (
+            "fresh"
+            if session_request is not None
+            and session_request.mode == ProviderSessionMode.FRESH
+            else "none"
+        )
+        visit_key = None
+        if (
+            persistence == "fresh"
+            and isinstance(provider_session_dir, str)
+            and provider_session_dir
+        ):
+            base = os.path.basename(provider_session_dir.rstrip(os.sep))
+            if base.endswith(".live"):
+                base = base[: -len(".live")]
+            visit_key = base
+        conf_manifest = None
+        confinement_digest = None
+        if lane in PROFILE_POLICIES:
+            conf_root: Optional[str]
+            if lane == "conf":
+                candidate = substituted_params.get("omp_conf_root")
+                if not isinstance(candidate, str) or not candidate:
+                    return None, self._omp_expectation_error(
+                        "omp_conf requires the workflow omp_conf_root input"
+                    )
+                conf_root = candidate
+            else:
+                conf_root = neutral_conf_root()
+            try:
+                conf_manifest = admit_conf_tree(conf_root).manifest_sha256
+            except (OSError, TypeError, ValueError) as exc:
+                return None, self._omp_expectation_error(
+                    f"cannot admit the OMP conf root: {exc}"
+                )
+            merged_env = os.environ.copy()
+            if env:
+                merged_env.update(env)
+            home = merged_env.get("HOME")
+            roots = {
+                "data": merged_env.get("XDG_DATA_HOME"),
+                "state": merged_env.get("XDG_STATE_HOME"),
+                "cache": merged_env.get("XDG_CACHE_HOME"),
+                "temp": merged_env.get("TMPDIR"),
+            }
+            if not home or any(not value for value in roots.values()):
+                return None, self._omp_expectation_error(
+                    "OMP profile launch requires HOME, XDG_DATA_HOME, "
+                    "XDG_STATE_HOME, XDG_CACHE_HOME, and TMPDIR in the "
+                    "provider environment"
+                )
+            env_roots = dict(roots)
+            workspace = (
+                os.fspath(self.workspace)
+                if self.workspace is not None
+                else os.getcwd()
+            )
+            empty_cwd = empty_omp_cwd(
+                home=home,
+                lane=lane,
+                workspace=workspace,
+                session_dir=provider_session_dir,
+                conf_root=conf_root,
+                env_roots=env_roots,
+            )
+            try:
+                confinement_digest = canonical_policy_digest(
+                    lane=lane,
+                    home_omp=os.path.join(home, ".omp"),
+                    session_dir=provider_session_dir,
+                    conf_root=conf_root,
+                    workspace=workspace,
+                    empty_cwd=empty_cwd,
+                    env_roots=env_roots,
+                )
+            except (TypeError, ValueError) as exc:
+                return None, self._omp_expectation_error(
+                    f"cannot derive the OMP confinement digest: {exc}"
+                )
+        try:
+            expectation = OmpTransportExpectation(
+                lane=lane,
+                persistence=persistence,
+                binary=binary_projection(OMP_BINARY_PIN),
+                stdout_session_id=None,
+                visit_key=visit_key,
+                child_argv=tuple(command),
+                conf_manifest_sha256=conf_manifest,
+                confinement_policy_sha256=confinement_digest,
+            )
+        except (TypeError, ValueError) as exc:
+            return None, self._omp_expectation_error(
+                f"invalid OMP transport expectation: {exc}"
+            )
+        return expectation, None
+
+    @staticmethod
+    def _omp_expectation_error(message: str) -> Dict[str, Any]:
+        return {
+            "type": "validation_error",
+            "message": message,
+            "context": {},
+        }
 
     @staticmethod
     def _prepared_canonical_policy_value(
@@ -2369,6 +2532,7 @@ class ProviderExecutor:
         context: Dict[str, str],
         prompt: Optional[str],
         session_id: Optional[str] = None,
+        provider_session_dir: Optional[str] = None,
     ) -> Tuple[List[str], List[str], bool]:
         """
         Build command with placeholder substitution.
@@ -2407,6 +2571,18 @@ class ProviderExecutor:
                 if var == "SESSION_ID":
                     if isinstance(session_id, str):
                         processed = processed.replace("${SESSION_ID}", session_id)
+                    else:
+                        missing.add(var)
+                    continue
+
+                # Reserved carrier wins before authored/default/step params and
+                # can never be escaped or overridden by child output.
+                if var == "PROVIDER_SESSION_DIR":
+                    if isinstance(provider_session_dir, str) and provider_session_dir:
+                        processed = processed.replace(
+                            "${PROVIDER_SESSION_DIR}",
+                            provider_session_dir,
+                        )
                     else:
                         missing.add(var)
                     continue
@@ -2662,6 +2838,35 @@ class ProviderExecutor:
         ):
             stream_state["blocked"] = True
 
+    def _omp_fresh_observed_accumulator(
+        self,
+        invocation: ProviderInvocation,
+    ) -> SessionTransportAccumulator | None:
+        """Post-run OMP fresh observed re-derivation (Task 5).
+
+        The OMP child generates its session journal at runtime, so the
+        pre-run expectation cannot name the fresh observed inventory. When
+        the frame fails only on the observed comparison, re-derive the
+        inventory from the real provider session directory and re-validate
+        the frame once against the strengthened expectation.
+        """
+        expectation = invocation.omp_transport_expectation
+        if (
+            expectation is None
+            or expectation.persistence != "fresh"
+            or not isinstance(invocation.provider_session_dir, str)
+            or not invocation.provider_session_dir
+        ):
+            return None
+        try:
+            observed = tuple(sorted(os.listdir(invocation.provider_session_dir)))
+        except OSError:
+            return None
+        return create_session_transport_accumulator(
+            invocation.metadata_mode,
+            expectation=replace(expectation, observed_relpaths=observed),
+        )
+
     def _finalize_session_result(
         self,
         *,
@@ -2689,6 +2894,16 @@ class ProviderExecutor:
                 expected_session_id=self._expected_session_id(invocation),
                 require_terminal=True,
             )
+            if parse_error is not None:
+                rederived = self._omp_fresh_observed_accumulator(invocation)
+                if rederived is not None:
+                    rederived.feed(raw_stdout)
+                    parsed_session, parse_error = rederived.finalize(
+                        expected_session_id=self._expected_session_id(invocation),
+                        require_terminal=True,
+                    )
+                    if parse_error is None:
+                        accumulator = rederived
             provider_session = (
                 dict(parsed_session) if parsed_session is not None else None
             )

@@ -533,12 +533,23 @@ class ProviderTemplate:
                     "one of the pinned metadata modes"
                 )
 
+        is_omp_transport = (
+            self.command_metadata_mode
+            == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+            or (
+                self.session_support is not None
+                and self.session_support.metadata_mode
+                == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+            )
+        )
         errors.extend(
             self._validate_command_tokens(
                 self.command,
                 command_label="command",
                 allow_session_id=False,
                 require_session_id=False,
+                allow_provider_session_dir=False,
+                require_provider_session_dir=False,
             )
         )
 
@@ -553,6 +564,8 @@ class ProviderTemplate:
                     command_label="session_support.fresh_command",
                     allow_session_id=False,
                     require_session_id=False,
+                    allow_provider_session_dir=is_omp_transport,
+                    require_provider_session_dir=is_omp_transport,
                 )
             )
 
@@ -564,6 +577,8 @@ class ProviderTemplate:
                         command_label="session_support.resume_command",
                         allow_session_id=True,
                         require_session_id=True,
+                        allow_provider_session_dir=False,
+                        require_provider_session_dir=False,
                     )
                 )
 
@@ -721,6 +736,8 @@ class ProviderTemplate:
         command_label: str,
         allow_session_id: bool,
         require_session_id: bool,
+        allow_provider_session_dir: bool = False,
+        require_provider_session_dir: bool = False,
     ) -> List[str]:
         """Validate placeholder usage within one provider command template."""
         errors: List[str] = []
@@ -729,6 +746,7 @@ class ProviderTemplate:
             return errors
 
         session_id_count = 0
+        provider_session_dir_count = 0
         for token in command:
             if not isinstance(token, str):
                 errors.append(
@@ -746,6 +764,13 @@ class ProviderTemplate:
                 errors.append(
                     f"Provider '{self.name}': ${{SESSION_ID}} is only allowed in session_support.resume_command"
                 )
+            token_session_dirs = placeholders.count("PROVIDER_SESSION_DIR")
+            provider_session_dir_count += token_session_dirs
+            if token_session_dirs and not allow_provider_session_dir:
+                errors.append(
+                    f"Provider '{self.name}': ${{PROVIDER_SESSION_DIR}} is reserved "
+                    f"for an OMP session_support.fresh_command (found in {command_label})"
+                )
 
         if require_session_id and session_id_count != 1:
             errors.append(
@@ -754,6 +779,16 @@ class ProviderTemplate:
         if not require_session_id and session_id_count:
             errors.append(
                 f"Provider '{self.name}': {command_label} must not contain ${{SESSION_ID}}"
+            )
+        if require_provider_session_dir and provider_session_dir_count != 1:
+            errors.append(
+                f"Provider '{self.name}': {command_label} must contain exactly one "
+                "${{PROVIDER_SESSION_DIR}} placeholder"
+            )
+        if not require_provider_session_dir and provider_session_dir_count:
+            errors.append(
+                f"Provider '{self.name}': {command_label} must not contain "
+                "${{PROVIDER_SESSION_DIR}}"
             )
         return errors
 

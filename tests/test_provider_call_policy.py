@@ -1046,3 +1046,236 @@ def test_unsupported_call_policy_has_bounded_context_and_no_invocation(
     serialized = repr(error)
     for forbidden in ("secret value", "secret prompt", "step", "span", "form"):
         assert forbidden not in serialized
+
+
+# ---------------------------------------------------------------------------
+# Task 5 (OMP-I1): reserved ${PROVIDER_SESSION_DIR} placement and substitution.
+# ---------------------------------------------------------------------------
+
+
+def _omp_template(
+    *,
+    command: list[str] | None = None,
+    fresh_command: list[str] | None = None,
+) -> ProviderTemplate:
+    mode = ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    session_support = None
+    if fresh_command is not None:
+        session_support = ProviderSessionSupport(
+            metadata_mode=mode,
+            fresh_command=fresh_command,
+            resume_command=None,
+        )
+    return ProviderTemplate(
+        name="omp-custom",
+        command=command or ["omp", "run"],
+        input_mode=InputMode.STDIN,
+        session_support=session_support,
+        command_metadata_mode=mode,
+    )
+
+
+def test_provider_session_dir_placeholder_rejected_outside_omp_fresh_command() -> None:
+    in_command = _omp_template(
+        command=["omp", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"],
+    )
+    assert "${PROVIDER_SESSION_DIR} is reserved" in _binding_errors(in_command)
+
+    non_omp_fresh = _template(
+        fresh_command=["tool", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"],
+    )
+    assert "PROVIDER_SESSION_DIR" in _binding_errors(non_omp_fresh)
+
+
+def test_omp_fresh_command_requires_exactly_one_provider_session_dir_placeholder() -> None:
+    missing = _omp_template(
+        fresh_command=["omp", "run", "--provider-session-dir"],
+    )
+    errors = _binding_errors(missing)
+    assert "exactly one" in errors and "PROVIDER_SESSION_DIR" in errors
+
+    duplicated = _omp_template(
+        fresh_command=[
+            "omp",
+            "--provider-session-dir",
+            "${PROVIDER_SESSION_DIR}",
+            "--provider-session-dir",
+            "${PROVIDER_SESSION_DIR}",
+        ],
+    )
+    errors = _binding_errors(duplicated)
+    assert "exactly one" in errors and "PROVIDER_SESSION_DIR" in errors
+
+    exact = _omp_template(
+        fresh_command=["omp", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"],
+    )
+    assert _binding_errors(exact) == ""
+
+
+def test_omp_resume_command_rejects_provider_session_dir_placeholder() -> None:
+    template = ProviderTemplate(
+        name="omp-resume",
+        command=["omp", "run"],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        session_support=ProviderSessionSupport(
+            metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            fresh_command=["omp", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"],
+            resume_command=["omp", "resume", "${SESSION_ID}", "${PROVIDER_SESSION_DIR}"],
+        ),
+    )
+
+    errors = _binding_errors(template)
+    assert "PROVIDER_SESSION_DIR" in errors and "resume_command" in errors
+
+
+def test_prepare_invocation_substitutes_reserved_carrier_before_authored_params(
+    tmp_path,
+) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="omp-fresh",
+            command=["omp", "run"],
+            input_mode=InputMode.STDIN,
+            command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+                fresh_command=[
+                    "omp",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                    "--model",
+                    "${model}",
+                ],
+                resume_command=None,
+            ),
+            defaults={"model": "openai-codex/gpt-5.6-sol"},
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "omp-fresh",
+        ProviderParams(params={"PROVIDER_SESSION_DIR": "authored-override"}),
+        {},
+        prompt_content="run",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir="/run-root/provider_sessions/root_ask__v1.live",
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.provider_session_dir == "/run-root/provider_sessions/root_ask__v1.live"
+    assert "--provider-session-dir" in invocation.command
+    session_dir = invocation.command[invocation.command.index("--provider-session-dir") + 1]
+    assert session_dir == "/run-root/provider_sessions/root_ask__v1.live"
+    assert "authored-override" not in invocation.command
+
+
+def test_prepare_invocation_escaped_provider_session_dir_stays_literal(tmp_path) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="omp-escaped",
+            command=["omp", "run"],
+            input_mode=InputMode.STDIN,
+            command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+                fresh_command=[
+                    "omp",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                    "--escaped",
+                    "$${PROVIDER_SESSION_DIR}",
+                ],
+                resume_command=None,
+            ),
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "omp-escaped",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir="/reserved/live",
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert invocation.command.count("${PROVIDER_SESSION_DIR}") == 1
+    assert invocation.command[invocation.command.index("--escaped") + 1] == "${PROVIDER_SESSION_DIR}"
+
+
+def test_prepare_invocation_missing_reserved_carrier_fails_substitution(tmp_path) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="omp-no-carrier",
+            command=["omp", "run"],
+            input_mode=InputMode.STDIN,
+            command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+                fresh_command=[
+                    "omp",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                ],
+                resume_command=None,
+            ),
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "omp-no-carrier",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    assert invocation is None
+    assert error is not None
+    assert error["type"] == "validation_error"
+    assert "PROVIDER_SESSION_DIR" in error["message"]
+
+
+def test_transient_invocation_has_omp_metadata_mode_without_visit_dir(tmp_path) -> None:
+    executor, registry = _executor(tmp_path)
+    registry.register(
+        ProviderTemplate(
+            name="omp-transient",
+            command=["omp", "run"],
+            input_mode=InputMode.STDIN,
+            command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+                fresh_command=[
+                    "omp",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                ],
+                resume_command=None,
+            ),
+        )
+    )
+
+    invocation, error = executor.prepare_invocation(
+        "omp-transient",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+
+    assert error is None
+    assert invocation is not None
+    assert (
+        invocation.metadata_mode
+        == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+    assert invocation.command_variant == "command"
+    assert invocation.provider_session_dir is None
+    assert invocation.session_request is None

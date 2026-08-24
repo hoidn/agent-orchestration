@@ -1671,3 +1671,139 @@ def test_persisted_dashboard_typed_surface_does_not_use_fresh_frontends_or_sourc
     with pytest.raises(TypeError):
         structure.nodes["other"] = structure.entry_node  # type: ignore[index]
     assert required_reads == authoritative_paths
+
+
+# ---------------------------------------------------------------------------
+# Task 5 (OMP-I1): authored OMP metadata-mode admission and reservations.
+# ---------------------------------------------------------------------------
+
+
+def _omp_provider_mapping(providers_overrides: dict) -> dict:
+    mapping = _minimal_mapping()
+    mapping["providers"] = {
+        "impl": {
+            "command": ["provider", "run"],
+            "input_mode": "stdin",
+            **providers_overrides,
+        }
+    }
+    return mapping
+
+
+def test_shared_validation_accepts_authored_omp_json_stdout_metadata_mode(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    mapping = _omp_provider_mapping(
+        {
+            "session_support": {
+                "metadata_mode": "omp_json_stdout",
+                "fresh_command": [
+                    "provider",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                ],
+            }
+        }
+    )
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "omp-json.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert not any("metadata_mode" in error.message for error in result.errors)
+
+
+def test_shared_validation_rejects_authored_command_metadata_mode_key(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    mapping = _omp_provider_mapping(
+        {"command_metadata_mode": "omp_json_stdout"}
+    )
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "reserved-key.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert any(
+        "command_metadata_mode" in error.message
+        for error in result.errors
+    )
+
+
+def test_shared_validation_rejects_provider_session_dir_in_ordinary_command(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    mapping = _omp_provider_mapping(
+        {
+            "command": ["provider", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"],
+            "session_support": {
+                "metadata_mode": "omp_json_stdout",
+                "fresh_command": [
+                    "provider",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                ],
+            },
+        }
+    )
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "reserved-placement.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert any(
+        "PROVIDER_SESSION_DIR" in error.message
+        and "command" in error.message
+        for error in result.errors
+    )
+
+
+def test_shared_validation_accepts_omp_fresh_command_with_exactly_one_placeholder(
+    tmp_path: Path,
+) -> None:
+    validation = _validation_module()
+    mapping = _omp_provider_mapping(
+        {
+            "session_support": {
+                "metadata_mode": "omp_json_stdout",
+                "fresh_command": [
+                    "provider",
+                    "--provider-session-dir",
+                    "${PROVIDER_SESSION_DIR}",
+                ],
+            }
+        }
+    )
+
+    result = validation.validate_workflow_mapping(
+        validation.WorkflowMappingBuildRequest(
+            authored_mapping=mapping,
+            workflow_path=tmp_path / "omp-fresh.orc",
+            frontend_kind="workflow_lisp",
+        ),
+        options=_default_options(tmp_path),
+    )
+
+    assert result.bundle is not None
+    assert not any(
+        "PROVIDER_SESSION_DIR" in error.message
+        for error in result.errors
+    )

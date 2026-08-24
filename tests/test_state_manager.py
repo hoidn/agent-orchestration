@@ -1494,3 +1494,111 @@ steps:
         loaded = StateManager(temp_workspace, run_id=manager.run_id).load()
         assert loaded.steps["ProcessItems[0].Process"]["step_id"] == "root.process_items#0.process"
         assert loaded.steps["ProcessItems[0].Process"]["name"] == "Process"
+
+
+# ---------------------------------------------------------------------------
+# Task 5 (OMP-I1): provider-session visit directory and spool lifecycle.
+# ---------------------------------------------------------------------------
+
+
+def test_provider_session_visit_dir_shares_metadata_join_key(tmp_path):
+    """The live visit directory shares the metadata/spool join key plus .live."""
+    (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="visit-dir-key")
+    manager.initialize("workflow.yaml")
+
+    metadata_path, spool_path = manager.provider_session_paths("root/ask", 2)
+    visit_dir = manager.provider_session_visit_dir("root/ask", 2)
+
+    assert visit_dir == manager.run_root / "provider_sessions" / "root_ask__v2.live"
+    assert metadata_path == manager.run_root / "provider_sessions" / "root_ask__v2.json"
+    assert spool_path == manager.run_root / "provider_sessions" / "root_ask__v2.transport.log"
+    assert visit_dir.parent == metadata_path.parent
+
+
+@pytest.mark.parametrize(
+    "step_id,visit_count",
+    [
+        ("", 1),
+        ("root/ask", 0),
+        ("root/ask", -1),
+        ("root/ask", True),
+        ("root/ask", "1"),
+        (None, 1),
+    ],
+)
+def test_provider_session_visit_dir_rejects_invalid_identity_and_count(
+    tmp_path,
+    step_id,
+    visit_count,
+):
+    (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="visit-dir-invalid")
+    manager.initialize("workflow.yaml")
+
+    with pytest.raises(ValueError):
+        manager.provider_session_visit_dir(step_id, visit_count)
+
+
+def test_provider_session_visit_dir_is_a_pure_path_without_side_effects(tmp_path):
+    """Calling the accessor must not create any directory."""
+    (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="visit-dir-pure")
+    manager.initialize("workflow.yaml")
+
+    visit_dir = manager.provider_session_visit_dir("root/ask", 1)
+
+    assert not visit_dir.exists()
+
+
+def test_initialize_provider_session_visit_never_creates_live_directory(tmp_path):
+    """Metadata and empty compatibility-spool creation must not create the child-writable live dir."""
+    (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="visit-no-live")
+    manager.initialize("workflow.yaml")
+
+    result = manager.initialize_provider_session_visit(
+        provider_name="omp",
+        step_name="AskProvider",
+        step_id="root/ask",
+        visit_count=1,
+        mode="fresh",
+    )
+
+    metadata_path = Path(result["metadata_path"])
+    spool_path = Path(result["transport_spool_path"])
+    visit_dir = manager.provider_session_visit_dir("root/ask", 1)
+
+    assert metadata_path.exists()
+    assert spool_path.exists()
+    assert spool_path.read_text(encoding="utf-8") == ""
+    assert not visit_dir.exists()
+
+
+def test_recover_interrupted_provider_visit_preserves_old_visit_artifacts(tmp_path):
+    """Recovery clears the interrupted cursor but never deletes the old visit files."""
+    (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
+    manager = StateManager(tmp_path, run_id="recover-preserve")
+    manager.initialize("workflow.yaml")
+    manager.initialize_provider_session_visit(
+        provider_name="omp",
+        step_name="AskProvider",
+        step_id="root/ask",
+        visit_count=1,
+        mode="fresh",
+    )
+    manager.start_step("AskProvider", 0, "provider", step_id="root/ask", visit_count=1)
+    manager.update_control_flow_counters(transition_count=0, step_visits={"AskProvider": 1})
+    metadata_path, spool_path = manager.provider_session_paths("root/ask", 1)
+    before_metadata = metadata_path.read_bytes()
+
+    manager.recover_interrupted_provider_visit(
+        expected_step_name="AskProvider",
+        expected_step_id="root/ask",
+        expected_visit_count=1,
+    )
+
+    assert manager.load().current_step is None
+    assert metadata_path.exists()
+    assert metadata_path.read_bytes() == before_metadata
+    assert spool_path.exists()

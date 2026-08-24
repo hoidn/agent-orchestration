@@ -30,6 +30,7 @@ exclude = ["orchestrator.demo", "orchestrator.demo.*"]
 "orchestrator.experiments.schemas" = ["*.json"]
 "orchestrator.providers.schemas" = ["*.json"]
 "orchestrator.workflow_lisp" = ["stdlib_modules/**/*.orc"]
+"orchestrator.omp_assets" = ["confs/**/*.yml"]
 
 [tool.pytest.ini_options]
 markers = [

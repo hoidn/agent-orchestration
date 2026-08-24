@@ -7,6 +7,7 @@ Implements provider template storage, lookup, and parameter merging per specs/pr
 import logging
 from typing import Any, Dict, List, Optional
 
+from .omp_templates import omp_templates
 from .types import (
     CallPolicyBinding,
     InputMode,
@@ -209,6 +210,7 @@ class ProviderRegistry:
                     "effort": CallPolicyBinding(target_param="effort"),
                 },
             ),
+            **omp_templates(),
         }
 
     @staticmethod

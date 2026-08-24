@@ -1579,7 +1579,12 @@ def test_command_metadata_mode_initializes_invocation_and_session_overrides():
         command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
         session_support=ProviderSessionSupport(
             metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
-            fresh_command=["omp", "--session"],
+            fresh_command=[
+                "omp",
+                "--session",
+                "--provider-session-dir",
+                "${PROVIDER_SESSION_DIR}",
+            ],
         ),
     )
     registry.register(session_provider)
@@ -1590,6 +1595,7 @@ def test_command_metadata_mode_initializes_invocation_and_session_overrides():
         {},
         prompt_content="hi",
         session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir="/tmp/omp-visits/step.live",
     )
 
     assert session_error is None

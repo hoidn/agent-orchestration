@@ -1113,6 +1113,11 @@ class _WorkflowMappingValidator:
                     f"Provider '{name}': call_policy_bindings is reserved for internal provider templates"
                 )
 
+            if "command_metadata_mode" in config:
+                self._add_error(
+                    f"Provider '{name}': command_metadata_mode is reserved for internal provider templates"
+                )
+
             if 'command' not in config:
                 self._add_error(f"Provider '{name}' missing required 'command' field")
             elif not isinstance(config['command'], list):
@@ -1148,7 +1153,10 @@ class _WorkflowMappingValidator:
                         self._add_error(
                             f"Provider '{name}': session_support.metadata_mode must be a non-empty string"
                         )
-                    elif metadata_mode != ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
+                    elif metadata_mode not in {
+                        ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                        ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+                    }:
                         self._add_error(
                             f"Provider '{name}': unsupported session_support.metadata_mode '{metadata_mode}'"
                         )

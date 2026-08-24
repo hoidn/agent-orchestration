@@ -391,3 +391,181 @@ def test_omp_json_transport_end_to_end_execution(tmp_path):
     assert result.provider_session["event_count"] == 11
     assert result.provider_session["final_model"] == "gpt-5.6-sol"
     assert result.is_promotable is True
+
+
+def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
+    """Fresh OMP frames re-validate against the real visit inventory (Task 5)."""
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+    )
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    fixture_dir = Path(__file__).parent / "fixtures" / "omp" / "protocol"
+    fixture = (fixture_dir / "transient.stdout.jsonl").read_bytes()
+    header_id = json.loads(fixture.split(b"\n")[0])["id"]
+    expected_binary = {
+        "platform": "linux",
+        "arch": "x86_64",
+        "version": "17.3.4",
+        "sha256": "f" * 64,
+    }
+    visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
+    visit_dir.mkdir(parents=True)
+    journal = f"2026-08-23T22-33-14-831Z_{header_id}.jsonl"
+    frame = {
+        "type": "orchestrator.omp_launch.v1",
+        "lane": "ambient",
+        "persistence": "fresh",
+        "binary": expected_binary,
+        "child": {"argv": ["placeholder"], "cwd": str(tmp_path), "env_names": [], "exit_code": 0},
+        "session": {
+            "id": header_id,
+            "visit_key": "step-1__v1",
+            "primary_relpath": journal,
+            "primary_sha256": "a" * 64,
+        },
+        "conf": {"manifest_sha256": None},
+        "confinement": None,
+        "observed": {"advisor_relpaths": [], "child_relpaths": [journal]},
+    }
+    frame_path = tmp_path / "frame.json"
+    frame_path.write_text(json.dumps(frame), encoding="utf-8")
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import os, sys, json\n"
+        "d = sys.argv[1]\n"
+        "frame = json.loads(open(sys.argv[2]).read())\n"
+        "stream = open(sys.argv[3], 'rb').read()\n"
+        "sid = json.loads(stream.split(b'\\n')[0])['id']\n"
+        "journal = os.path.join(d, '2026-08-23T22-33-14-831Z_' + sid + '.jsonl')\n"
+        "with open(journal, 'wb') as h:\n"
+        "    h.write(b'{\"fake\": true}\\n')\n"
+        "sys.stdout.buffer.write(stream + json.dumps(frame, separators=(',', ':')).encode() + b'\\n')\n",
+        encoding="utf-8",
+    )
+    command = [sys.executable, str(script), str(visit_dir), str(frame_path), str(fixture_dir / "transient.stdout.jsonl")]
+    frame["child"]["argv"] = command
+    frame_path.write_text(json.dumps(frame), encoding="utf-8")
+    template = ProviderTemplate(
+        name="omp-fresh-e2e",
+        command=command,
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp-fresh-e2e",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+    assert error is None
+    assert invocation is not None
+    # The workflow parent cannot know the child-generated inventory pre-run.
+    invocation.omp_transport_expectation = OmpTransportExpectation(
+        lane="ambient",
+        persistence="fresh",
+        binary=expected_binary,
+        visit_key="step-1__v1",
+        child_argv=tuple(command),
+        observed_relpaths=(),
+    )
+    invocation.provider_session_dir = str(visit_dir)
+    result = executor.execute(invocation)
+
+    assert result.exit_code == 0, result.error
+    assert result.error is None
+    assert result.provider_session is not None
+    assert result.provider_session["session_id"] == header_id
+    assert result.provider_session["launch_frame"]["session"]["primary_relpath"] == journal
+
+
+def test_omp_fresh_transport_rejects_fabricated_observed_inventory(tmp_path):
+    """Fresh frames claiming files the visit directory never held still fail (Task 5)."""
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+    )
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    fixture_dir = Path(__file__).parent / "fixtures" / "omp" / "protocol"
+    fixture = (fixture_dir / "transient.stdout.jsonl").read_bytes()
+    header_id = json.loads(fixture.split(b"\n")[0])["id"]
+    expected_binary = {
+        "platform": "linux",
+        "arch": "x86_64",
+        "version": "17.3.4",
+        "sha256": "f" * 64,
+    }
+    visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
+    visit_dir.mkdir(parents=True)
+    frame = {
+        "type": "orchestrator.omp_launch.v1",
+        "lane": "ambient",
+        "persistence": "fresh",
+        "binary": expected_binary,
+        "child": {"argv": ["placeholder"], "cwd": str(tmp_path), "env_names": [], "exit_code": 0},
+        "session": {
+            "id": header_id,
+            "visit_key": "step-1__v1",
+            "primary_relpath": "ghost.jsonl",
+            "primary_sha256": "a" * 64,
+        },
+        "conf": {"manifest_sha256": None},
+        "confinement": None,
+        "observed": {"advisor_relpaths": [], "child_relpaths": ["ghost.jsonl"]},
+    }
+    frame_path = tmp_path / "frame.json"
+    frame_path.write_text(json.dumps(frame), encoding="utf-8")
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import sys, json\n"
+        "frame = json.loads(open(sys.argv[2]).read())\n"
+        "stream = open(sys.argv[3], 'rb').read()\n"
+        "sys.stdout.buffer.write(stream + json.dumps(frame, separators=(',', ':')).encode() + b'\\n')\n",
+        encoding="utf-8",
+    )
+    command = [sys.executable, str(script), str(visit_dir), str(frame_path), str(fixture_dir / "transient.stdout.jsonl")]
+    frame["child"]["argv"] = command
+    frame_path.write_text(json.dumps(frame), encoding="utf-8")
+    template = ProviderTemplate(
+        name="omp-fresh-e2e-ghost",
+        command=command,
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp-fresh-e2e-ghost",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+    assert error is None
+    assert invocation is not None
+    invocation.omp_transport_expectation = OmpTransportExpectation(
+        lane="ambient",
+        persistence="fresh",
+        binary=expected_binary,
+        visit_key="step-1__v1",
+        child_argv=tuple(command),
+        observed_relpaths=(),
+    )
+    invocation.provider_session_dir = str(visit_dir)
+    result = executor.execute(invocation)
+
+    assert result.exit_code != 0
+    assert result.error is not None

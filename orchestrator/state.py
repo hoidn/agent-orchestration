@@ -685,6 +685,23 @@ class StateManager:
             session_root / f"{visit_key}.transport.log",
         )
 
+    def provider_session_visit_dir(self, step_id: str, visit_count: int) -> Path:
+        """Return the child-writable live visit directory for one OMP session visit.
+
+        Shares the metadata join key plus a ``.live`` suffix and never creates
+        the directory: dispatch creates it only for OMP fresh visits.
+        """
+        if not isinstance(step_id, str) or not step_id:
+            raise ValueError("provider session step_id must be a non-empty string")
+        if (
+            isinstance(visit_count, bool)
+            or not isinstance(visit_count, int)
+            or visit_count <= 0
+        ):
+            raise ValueError("provider session visit_count must be a positive integer")
+        metadata_path, _ = self.provider_session_paths(step_id, visit_count)
+        return metadata_path.with_suffix(".live")
+
     def initialize_provider_session_visit(
         self,
         *,

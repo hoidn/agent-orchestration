@@ -24,7 +24,7 @@ from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
 from ..providers.observation import ProviderObservationManager
 from ..providers.registry import ProviderRegistry
-from ..providers.types import ProviderSessionMode, ProviderSessionRequest
+from ..providers.types import ProviderSessionMetadataMode, ProviderSessionMode, ProviderSessionRequest
 from ..providers.types import (
     INTERACTIVE_TERMINAL_TURN_QUEUE_SCHEMA_VERSION,
     validate_interactive_session_support_capability,
@@ -7689,7 +7689,21 @@ class WorkflowExecutor:
             finalized,
         )
         if session_info is not None:
-            retain_transport_spool = self.debug or finalized.get("exit_code", 0) != 0
+            # OMP JSON transport is memory-only: the compatibility spool stays
+            # empty and is removed on every finalized OMP fresh visit.
+            metadata_mode = (
+                provider_debug.get("metadata_mode")
+                if isinstance(provider_debug, dict)
+                and isinstance(provider_debug.get("metadata_mode"), str)
+                else None
+            )
+            omp_fresh = (
+                metadata_mode
+                == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+            )
+            retain_transport_spool = (
+                self.debug or finalized.get("exit_code", 0) != 0
+            ) and not omp_fresh
             parser_summary = {}
             if isinstance(provider_debug, dict):
                 event_count = provider_debug.get("event_count")
@@ -9524,6 +9538,43 @@ class WorkflowExecutor:
                 output_file=step.get('output_file')
             )
 
+            # Task 5: pass only the trusted canonical visit directory to OMP
+            # fresh launches; the adapter converts it to OMP's --session-dir
+            # and the reserved carrier wins over authored parameters.
+            provider_session_dir = None
+            if (
+                session_request is not None
+                and session_request.mode == ProviderSessionMode.FRESH
+            ):
+                visit_info = self._active_provider_session(step_name)
+                if isinstance(visit_info, dict):
+                    visit_step_id = visit_info.get("step_id")
+                    visit_count_value = visit_info.get("visit_count")
+                    if (
+                        isinstance(visit_step_id, str)
+                        and isinstance(visit_count_value, int)
+                        and not isinstance(visit_count_value, bool)
+                    ):
+                        session_dir = self.state_manager.provider_session_visit_dir(
+                            visit_step_id,
+                            visit_count_value,
+                        )
+                        template = self.provider_executor.registry.get(
+                            resolved_provider_name
+                        )
+                        is_omp = template is not None and (
+                            template.command_metadata_mode
+                            == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+                            or (
+                                template.session_support is not None
+                                and template.session_support.metadata_mode
+                                == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+                            )
+                        )
+                        if is_omp:
+                            session_dir.mkdir(parents=True, exist_ok=True)
+                        provider_session_dir = str(session_dir)
+
             invocation, error = self.provider_executor.prepare_invocation(
                 provider_name=resolved_provider_name,
                 params=params,
@@ -9544,6 +9595,7 @@ class WorkflowExecutor:
                     )
                     if value is not None
                 },
+                provider_session_dir=provider_session_dir,
             )
 
             if error or invocation is None:
