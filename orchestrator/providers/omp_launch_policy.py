@@ -147,19 +147,6 @@ def _fd_is_descendant(ancestor_fd: int, descendant_fd: int) -> bool:
 
 def _fd_is_same_superblock(fd_a: int, fd_b: int) -> bool:
     return os.fstat(fd_a).st_dev == os.fstat(fd_b).st_dev
-    best_point = ""
-    best_id: int | None = None
-    for point, mount_id in _mountinfo_entries():
-        if path == point or path.startswith(point.rstrip("/") + "/"):
-            if len(point) > len(best_point):
-                best_point, best_id = point, mount_id
-    if best_id is None:
-        raise LaunchFsError(f"cannot resolve the mount for root {path!r}")
-    return best_id
-
-
-def _fd_is_same_superblock(fd_a: int, fd_b: int) -> bool:
-    return os.fstat(fd_a).st_dev == os.fstat(fd_b).st_dev
 
 
 def _fd_mount_id(fd: int) -> int:

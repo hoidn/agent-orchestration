@@ -415,17 +415,22 @@ def accept_fresh_session_fd(
 ) -> None:
     """FINAL one-fd parent acceptance (T5-SEC-006).
 
-    On one retained, identity-checked visit fd at one instant, derives the
-    inventory, requires it to equal the adapter frame's observed relpaths,
-    then derives the one-link primary journal and requires relpath + bounded
-    sha256 to agree with the framed values. A racer that changes a NON-primary
-    entry between the observation scan and finalization fails here even when
-    the primary journal still matches.
+    On one retained, identity-checked visit fd at one instant: inventory
+    scan A must equal the adapter frame's observed relpaths; then the
+    one-link primary journal must match relpath + bounded sha256 (with the
+    primary helper's own pre/post same-fd stability checks); then inventory
+    scan B must equal scan A (and therefore the frame). This detects
+    in-window CONTENT drift of any entry (primary or not) between scan A and
+    the primary validation — it is not a general same-UID host-process
+    secrecy boundary, which the design explicitly excludes.
     """
-    observed = session_inventory_fd(dir_fd)
-    if tuple(observed) != tuple(expected_observed):
+    scan_a = tuple(session_inventory_fd(dir_fd))
+    if scan_a != tuple(expected_observed):
         raise LaunchFsError("fresh session inventory drifted from the adapter frame")
     revalidate_primary_journal_fd(dir_fd, session_id, expected_relpath, expected_sha256)
+    scan_b = tuple(session_inventory_fd(dir_fd))
+    if scan_b != scan_a:
+        raise LaunchFsError("fresh session inventory changed during final acceptance")
 
 
 def revalidate_primary_journal_fd(

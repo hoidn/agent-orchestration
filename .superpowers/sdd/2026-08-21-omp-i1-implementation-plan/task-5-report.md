@@ -640,3 +640,51 @@ adapter 479, `omp_launch_fs.py` 452, `omp_launch_policy.py` 249, helper 464
 - `py_compile` clean for all changed modules; line counts at round-4 commit
   time: adapter 479, `omp_launch_fs.py` 474, `omp_launch_policy.py` 292,
   helper 464 (all ≤ 500); `.tmp/` preserved untracked.
+
+## Round 5 (final fix round 5/5, scoped re-review finding RED-first)
+
+### Finding and disposition (binding source: `'/home/ollie/.omp/agent/sessions/-Documents-agent-orchestration/2026-08-20T18-42-51-430Z_01a0207b-ada6-7000-ac82-4001a26734bc/local/task5-round5-findings.md'`)
+
+**Important — final visit acceptance still admitted a content race
+(T5-SEC-006).** Round 4's `accept_fresh_session_fd` compared the inventory
+once, then revalidated the primary; a child descendant could add/remove a
+NON-primary entry after the inventory comparison while the primary was
+enumerated/hashed, and primary validation ignores unrelated names — so final
+acceptance could succeed with an inventory no longer equal to the frame.
+**Disposition:** on the same retained expected-identity fd, the final
+acceptance now performs (1) inventory scan A compared to the framed observed
+tuple, (2) primary relpath/one-link/bounded same-fd hash revalidation (the
+primary helper's pre/post same-fd stability checks are kept), (3) inventory
+scan B required to equal scan A (hence the frame). This detects in-window
+CONTENT drift of any entry between scan A and the primary validation; it is
+not a general same-UID host-process secrecy boundary, which the design
+explicitly excludes. Additionally removed the duplicate
+`_fd_is_same_superblock` and unreachable stale mountinfo body in
+`omp_launch_policy.py` flagged by the security re-review (leftover of the
+round-4 mountinfo removal).
+
+### RED-first evidence (on `9498e46a` before production edits)
+
+- `test_final_acceptance_rejects_in_window_non_primary_drift`: failed with
+  "DID NOT RAISE" — a non-primary entry created between scan A and the
+  primary validation was accepted. After the scan-B fix it raises
+  `LaunchFsError` ("inventory changed during final acceptance").
+- Preserved: `test_parent_final_acceptance_rejects_drifted_non_primary_entry`
+  and `test_omp_fresh_revalidation_rejects_drifted_non_primary_entry`
+  (execution suite) stay GREEN; `test_parent_final_acceptance_admits_matching_visit`
+  (positive finalization) stays GREEN.
+
+### Verification (round-5 worktree HEAD)
+
+- Round-5 selectors: 3/3 (in-window drift RED-then-GREEN; matching visit;
+  drifted non-primary).
+- Affected suites: `test_provider_omp_launch.py` + `test_provider_execution.py`
+  **145 passed**.
+- Brief verification gate (launch, templates, assets, call-policy,
+  execution, integration, state-manager, at72, shared-validation):
+  **420 passed**.
+- Real-binary e2e smokes (`-m e2e`, real pinned binary, real model calls):
+  **3 passed**.
+- `py_compile` clean for all changed modules; line counts at round-5 commit
+  time: adapter 479, `omp_launch_fs.py` 479, `omp_launch_policy.py` 279,
+  helper 464 (all ≤ 500); `.tmp/` preserved untracked.

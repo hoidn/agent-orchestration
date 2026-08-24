@@ -1890,3 +1890,41 @@ def test_parent_final_acceptance_rejects_drifted_non_primary_entry(tmp_path) -> 
             accept_fresh_session_fd(fd, SESSION_ID, (journal.name,), relpath, sha)
     finally:
         os.close(fd)
+
+
+def test_final_acceptance_rejects_in_window_non_primary_drift(tmp_path, monkeypatch) -> None:
+    """Finding (T5-SEC-006): a non-primary entry created between inventory
+    scan A and primary validation must fail the FINAL acceptance via the
+    scan-B equality check, even though the primary journal still matches."""
+    from orchestrator.providers import omp_launch_fs as fs_mod
+    from orchestrator.providers.omp_launch_fs import (
+        accept_fresh_session_fd,
+        primary_journal_identity,
+        revalidate_primary_journal_fd as real_revalidate,
+        session_dir_identity,
+    )
+    from orchestrator.providers.omp_launch_policy import (
+        LaunchFsError,
+        open_session_dir_verified,
+    )
+
+    live = tmp_path / "v1.live"
+    live.mkdir()
+    live.chmod(0o700)
+    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
+    journal.write_text("payload", encoding="utf-8")
+    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
+
+    def _racer_revalidate(dir_fd, session_id, relpath_arg, sha256):
+        # Simulates a child descendant adding a non-primary entry between
+        # scan A and primary validation on the SAME retained visit fd.
+        (live / "racer.txt").write_text("in-window", encoding="utf-8")
+        return real_revalidate(dir_fd, session_id, relpath_arg, sha256)
+
+    monkeypatch.setattr(fs_mod, "revalidate_primary_journal_fd", _racer_revalidate)
+    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
+    try:
+        with pytest.raises(LaunchFsError, match="inventory"):
+            accept_fresh_session_fd(fd, SESSION_ID, (journal.name,), relpath, sha)
+    finally:
+        os.close(fd)
