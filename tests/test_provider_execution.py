@@ -1818,3 +1818,88 @@ def test_omp_live_streaming_display_is_projected_but_capture_is_raw(
     assert "ok" in projected
     assert "\\u001b]0;title\\u0007\\u000d\\u0000tail" in projected
     assert "\x1b" not in projected
+
+
+def _omp_malformed_stream_bytes(kind: str) -> bytes:
+    import json
+
+    lines = [line for line in _omp_fixture_bytes().split(b"\n") if line]
+    if kind == "deep_opaque":
+        deep = (
+            b'{"type":"future.event","payload":'
+            + b"[" * 20000
+            + b"]" * 20000
+            + b"}"
+        )
+        lines = lines[:1] + [deep] + lines[1:]
+    elif kind == "huge_usage":
+        message_end = json.loads(lines[9])
+        message_end["message"]["usage"]["totalTokens"] = 10**400
+        lines = (
+            lines[:9]
+            + [json.dumps(message_end, separators=(",", ":")).encode()]
+            + lines[10:]
+        )
+    else:
+        raise AssertionError(f"unknown malformed kind {kind!r}")
+    return (
+        b"\n".join(lines)
+        + b"\n"
+        + _omp_launch_frame(_omp_fixture_header_id())
+    )
+
+
+@pytest.mark.parametrize("malformed_kind", ("deep_opaque", "huge_usage"))
+@pytest.mark.parametrize(
+    "controlled,stream_output,with_observation",
+    (
+        (False, False, False),
+        (False, True, False),
+        (False, False, True),
+        (True, False, False),
+    ),
+)
+def test_omp_transport_malformed_line_cannot_settle_across_routes(
+    tmp_path,
+    controlled,
+    stream_output,
+    with_observation,
+    malformed_kind,
+):
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            "import os,sys;sys.stdout.buffer.write(%r)"
+            % _omp_malformed_stream_bytes(malformed_kind),
+        ],
+        input_mode=InputMode.ARGV,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        omp_transport_expectation=_omp_expectation(),
+    )
+    kwargs = {}
+    if controlled:
+        kwargs["control"] = ProviderExecutionControl()
+    if with_observation:
+        observation = _RecordingObservation()
+        kwargs["observation_handle"] = observation.handle
+
+    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(
+        invocation,
+        stream_output=stream_output,
+        **kwargs,
+    )
+
+    assert result.is_promotable is False
+    assert result.error is not None
+    if controlled:
+        # The controlled identity boundary cannot be proven for an invalid
+        # transport, so the executor reports the boundary failure instead;
+        # either way the malformed stream never normalizes.
+        assert result.error["type"] in {
+            "provider_session_transport_error",
+            "provider_cancellation_boundary_failed",
+        }
+    else:
+        assert result.error["type"] == "provider_session_transport_error"
+    assert result.stdout != b"OK"

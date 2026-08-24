@@ -1198,6 +1198,7 @@ def test_omp_transport_carriers_survive_supervision_snapshot_roundtrip(
     from orchestrator.providers.types import OmpTransportExpectation
 
     expectation = _omp_expectation(
+        lane="no-tools",
         persistence="fresh",
         visit_key="step-7__v2",
         confinement_policy_sha256="d" * 64,

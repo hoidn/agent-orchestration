@@ -6,8 +6,13 @@ import re
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from orchestrator._common.safe_tree import SafeTreePathError, validate_relative_path
 from orchestrator._common.validation import is_finite_positive_number
 
+# Pinned OMP trust lanes (X3): ambient lanes run unconfined, profile lanes
+# require the closed ABI-at-least-3 confinement attestation.
+_OMP_AMBIENT_LANES = frozenset({"ambient", "ambient-unrestricted"})
+_OMP_PROFILE_LANES = frozenset({"no-tools", "conf", "conf-inference"})
 
 _ESCAPED_DOLLAR_SENTINEL = "\x00"
 _ESCAPED_BRACED_DOLLAR_SENTINEL = "\x01{"
@@ -204,8 +209,23 @@ class OmpTransportExpectation:
 
     def __post_init__(self) -> None:
         """Validate and detach the closed expectation carrier."""
-        if not isinstance(self.lane, str) or not self.lane:
-            raise ValueError("OMP transport expectation lane must be non-empty")
+        if not isinstance(self.lane, str) or self.lane not in (
+            _OMP_AMBIENT_LANES | _OMP_PROFILE_LANES
+        ):
+            raise ValueError(
+                "OMP transport expectation lane must be ambient, "
+                "ambient-unrestricted, no-tools, conf, or conf-inference"
+            )
+        if self.lane in _OMP_AMBIENT_LANES and self.confinement_policy_sha256 is not None:
+            raise ValueError(
+                "OMP transport expectation ambient lanes require null "
+                "confinement_policy_sha256"
+            )
+        if self.lane in _OMP_PROFILE_LANES and self.confinement_policy_sha256 is None:
+            raise ValueError(
+                "OMP transport expectation profile lanes require "
+                "confinement_policy_sha256"
+            )
         if self.persistence not in {"none", "fresh"}:
             raise ValueError(
                 "OMP transport expectation persistence must be none or fresh"
@@ -256,6 +276,14 @@ class OmpTransportExpectation:
                     f"OMP transport expectation {field_name} items must be "
                     "non-empty strings"
                 )
+        for relpath in self.observed_relpaths:
+            try:
+                validate_relative_path(relpath)
+            except SafeTreePathError:
+                raise ValueError(
+                    "OMP transport expectation observed_relpaths must be "
+                    "safe normalized run-relative paths"
+                ) from None
 
 
 @dataclass

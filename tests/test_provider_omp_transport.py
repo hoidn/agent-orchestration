@@ -1829,12 +1829,19 @@ def test_omp_transport_profile_lane_confinement_must_match_expectation(
     confinement: dict[str, Any] | None,
 ):
     accumulator = _new_accumulator(
-        expectation=_expectation(confinement_policy_sha256="a" * 64)
+        expectation=_expectation(
+            lane="no-tools",
+            confinement_policy_sha256="a" * 64,
+        )
     )
     accumulator.feed(_fixture(TRANSIENT))
     accumulator.feed(
         _jsonl(
-            _launch_frame(_header_id(TRANSIENT), confinement=confinement)
+            _launch_frame(
+                _header_id(TRANSIENT),
+                lane="no-tools",
+                confinement=confinement,
+            )
         )
         + b"\n"
     )
@@ -2095,3 +2102,239 @@ def test_omp_transport_snapshot_is_immutable_and_error_projection_is_frozen():
     assert metadata is None
     assert isinstance(error, dict)
     json.dumps(error)
+
+
+# ---------------------------------------------------------------------------
+# Security round 3: exponent overflow, parser-exception fail-closure,
+# lane/confinement binding, run-relative frame inventory
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "malformed_line",
+    (
+        b'{"type":"future.event","payload":1e+999}',
+        b'{"type":"future.event","payload":1e999}',
+        b'{"type":"tool_execution_start","toolCallId":"call_1","toolName":"read","args":{"depth":1e+999}}',
+        b'{"type":"tool_execution_start","toolCallId":"call_1","toolName":"read","args":{"depth":1e999}}',
+    ),
+)
+def test_omp_transport_exponent_overflow_floats_fail_closed(malformed_line):
+    lines = _fixture_lines()
+    stream = (
+        b"\n".join(lines[:1])
+        + b"\n"
+        + malformed_line
+        + b"\n"
+        + b"\n".join(lines[1:])
+        + b"\n"
+    )
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(stream)
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+def test_omp_transport_deep_nested_opaque_event_cannot_settle():
+    deep_line = (
+        b'{"type":"future.event","payload":'
+        + b"[" * 20000
+        + b"]" * 20000
+        + b"}"
+    )
+    lines = _fixture_lines()
+    stream = (
+        b"\n".join(lines[:1])
+        + b"\n"
+        + deep_line
+        + b"\n"
+        + b"\n".join(lines[1:])
+        + b"\n"
+    )
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(stream)  # must not raise to the caller
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+def test_omp_transport_huge_recognized_usage_integer_cannot_settle():
+    lines = _fixture_lines()
+    message_end = json.loads(lines[9])
+    message_end["message"]["usage"]["totalTokens"] = 10**400
+    stream = (
+        b"\n".join(lines[:9])
+        + b"\n"
+        + _jsonl(message_end)
+        + b"\n"
+        + b"\n".join(lines[10:])
+        + b"\n"
+    )
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(stream)  # must not raise to the caller
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+@pytest.mark.parametrize("lane", ("no-tools", "conf", "conf-inference"))
+def test_omp_transport_expectation_rejects_profile_lane_without_policy(lane):
+    with pytest.raises(ValueError):
+        _expectation(lane=lane, confinement_policy_sha256=None)
+
+
+@pytest.mark.parametrize(
+    "lane", ("ambient", "ambient-unrestricted")
+)
+def test_omp_transport_expectation_rejects_ambient_lane_with_policy(lane):
+    with pytest.raises(ValueError):
+        _expectation(lane=lane, confinement_policy_sha256="a" * 64)
+
+
+def test_omp_transport_expectation_rejects_lane_outside_the_pinned_union():
+    with pytest.raises(ValueError):
+        _expectation(lane="unpinned-lane")
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    (
+        "/etc/passwd",
+        "../../outside",
+        "a//b",
+        "a/./b",
+        "a/../b",
+        "a\x00b",
+        "\ud800",
+        "provider_sessions//1.jsonl",
+    ),
+)
+def test_omp_transport_frame_rejects_unsafe_advisor_relpaths(unsafe_path):
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    frame = _launch_frame(
+        _header_id(TRANSIENT),
+        observed={
+            "advisor_relpaths": [unsafe_path],
+            "child_relpaths": [],
+        },
+    )
+    # ensure_ascii keeps lone surrogates representable in the raw line.
+    accumulator.feed(
+        json.dumps(frame, separators=(",", ":")).encode("utf-8") + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    (
+        "/etc/passwd",
+        "../../outside",
+        "a//b",
+        "a\x00b",
+    ),
+)
+def test_omp_transport_frame_rejects_unsafe_child_relpaths(unsafe_path):
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl(
+            _launch_frame(
+                _header_id(TRANSIENT),
+                observed={
+                    "advisor_relpaths": [],
+                    "child_relpaths": [unsafe_path],
+                },
+            )
+        )
+        + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+def test_omp_transport_frame_accepts_valid_dynamic_advisor_relpath():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl(
+            _launch_frame(
+                _header_id(TRANSIENT),
+                observed={
+                    "advisor_relpaths": [
+                        "worktrees/omp-i1-prerequisites/run-7/scout-notes.md"
+                    ],
+                    "child_relpaths": [],
+                },
+            )
+        )
+        + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert error is None
+    assert metadata is not None
+    assert accumulator.normalized_stdout == "OK"
+
+
+def test_omp_transport_frame_rejects_unsafe_fresh_primary_relpath():
+    accumulator = _new_accumulator(
+        expectation=_expectation(persistence="fresh", visit_key="step-1__v1")
+    )
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl(
+            _launch_frame(
+                _header_id(TRANSIENT),
+                persistence="fresh",
+                session={
+                    "id": _header_id(TRANSIENT),
+                    "visit_key": "step-1__v1",
+                    "primary_relpath": "/etc/passwd",
+                    "primary_sha256": "b" * 64,
+                },
+                observed={
+                    "advisor_relpaths": [],
+                    "child_relpaths": ["/etc/passwd"],
+                },
+            )
+        )
+        + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert metadata is None
+    _assert_transport_error(error)
+
+
+def test_omp_transport_expectation_rejects_unsafe_observed_relpaths():
+    with pytest.raises(ValueError):
+        _expectation(observed_relpaths=("/etc/passwd",))
+    with pytest.raises(ValueError):
+        _expectation(observed_relpaths=("../../outside",))

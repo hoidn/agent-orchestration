@@ -16,7 +16,6 @@ from typing import Any, Callable, Literal, Mapping
 from .omp_protocol import (
     freeze_frame,
     is_event_type,
-    is_nonempty_string,
     loads_strict,
     validate_agent_end,
     validate_closed_assistant_message,
@@ -108,7 +107,7 @@ class OmpJsonStdoutAccumulator:
                 raw_line = bytes(self._buffer[:newline_offset])
                 del self._buffer[: newline_offset + 1]
                 self._line_number += 1
-                assistant_text = self._consume_line(raw_line)
+                assistant_text = self._consume_line_guarded(raw_line)
                 if assistant_text is not None:
                     emitted.append(assistant_text)
         self._emit_assistant_text(emitted)
@@ -145,7 +144,7 @@ class OmpJsonStdoutAccumulator:
                 self._buffer.clear()
                 if raw_tail:
                     self._line_number += 1
-                    assistant_text = self._consume_line(raw_tail)
+                    assistant_text = self._consume_line_guarded(raw_tail)
                     if assistant_text is not None:
                         emitted.append(assistant_text)
         self._emit_assistant_text(emitted)
@@ -165,6 +164,22 @@ class OmpJsonStdoutAccumulator:
 
     def _fail(self, message: str, **context: Any) -> None:
         self._invalidate(message, context)
+
+    def _consume_line_guarded(self, raw_line: bytes) -> str | None:
+        """Consume one line; any ordinary parser/validator exception fails closed.
+
+        The line is already removed from the buffer, so an escaping exception
+        would silently drop it. Invalidate with the exception class name only
+        (never the raw payload) and emit nothing.
+        """
+        try:
+            return self._consume_line(raw_line)
+        except Exception as exc:
+            self._invalidate(
+                "OMP transport line failed to validate",
+                {"line": self._line_number, "error": type(exc).__name__},
+            )
+            return None
 
     def _consume_line(self, raw_line: bytes) -> str | None:
         """Validate one line and return assistant text to emit, if any."""

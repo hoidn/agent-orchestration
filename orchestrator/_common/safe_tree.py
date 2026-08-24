@@ -155,7 +155,7 @@ def walk_regular_files(root_fd: int):
     yield from recurse(root_fd, "")
 
 
-def _validate_relative_path(relative_path: str) -> None:
+def validate_relative_path(relative_path: str) -> None:
     if not isinstance(relative_path, str) or not relative_path:
         raise SafeTreePathError(f"unsafe relative path: {relative_path!r}")
     if relative_path.startswith("/"):
@@ -185,7 +185,7 @@ def _open_regular_file(
     SafeTreePathChangedError when an expected row binds identity, and
     SafeTreeRejectionError otherwise.
     """
-    _validate_relative_path(relative_path)
+    validate_relative_path(relative_path)
     components = relative_path.split("/")
     parent_fd = root_fd
     owned: list[int] = []
@@ -349,5 +349,6 @@ __all__ = [
     "copy_regular_file",
     "hash_regular_file",
     "read_regular_file",
+    "validate_relative_path",
     "walk_regular_files",
 ]

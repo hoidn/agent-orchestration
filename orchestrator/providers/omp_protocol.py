@@ -9,7 +9,8 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from .types import OmpTransportExpectation
+from .._common.safe_tree import SafeTreePathError, validate_relative_path
+from .types import OmpTransportExpectation, _OMP_AMBIENT_LANES, _OMP_PROFILE_LANES
 
 _RFC3339_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
@@ -46,7 +47,6 @@ _STOP_REASONS = frozenset({"stop", "length", "toolUse", "error", "aborted"})
 _IMAGE_DETAILS = frozenset({"auto", "low", "high", "original"})
 _CONTENT_KINDS = frozenset({"text", "thinking", "redactedThinking", "fallback", "anthropicServerTool", "image", "toolCall"})
 _FRAME_REQUIRED = frozenset({"type", "lane", "persistence", "binary", "child", "session", "conf", "confinement", "observed"})
-_FRAME_LANES = frozenset({"ambient", "ambient-unrestricted", "no-tools", "conf", "conf-inference"})
 _FRAME_SESSION_KEYS = frozenset({"id", "visit_key", "primary_relpath", "primary_sha256"})
 _FRAME_CHILD_KEYS = frozenset({"argv", "cwd", "env_names", "exit_code"})
 _FRAME_CONFINEMENT_KEYS = frozenset({"schema_version", "landlock_abi", "policy_sha256"})
@@ -80,13 +80,26 @@ def is_nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
 
 def is_finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        # JSON integers beyond IEEE double range are not representable and
+        # must never raise out of the transport; reject them fail-closed.
+        return False
 
 def is_nonnegative_number(value: Any) -> bool:
     return is_finite_number(value) and value >= 0
 
 def is_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+def _parse_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"non-finite JSON number {value!r}")
+    return parsed
 
 def loads_strict(text: str) -> dict[str, Any]:
     """Parse one transport line rejecting duplicate keys and non-finite numbers."""
@@ -96,11 +109,8 @@ def loads_strict(text: str) -> dict[str, Any]:
             raise ValueError("duplicate JSON object key")
         return dict(pairs)
 
-    def _reject_constant(value: str) -> Any:
-        raise ValueError(f"non-finite JSON number {value!r}")
-
     try:
-        parsed = json.loads(text, object_pairs_hook=_reject_duplicate_pairs, parse_constant=_reject_constant)
+        parsed = json.loads(text, object_pairs_hook=_reject_duplicate_pairs, parse_constant=_parse_finite_float, parse_float=_parse_finite_float)
     except (json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"line is not one strict JSON object: {exc}") from exc
     if not isinstance(parsed, dict):
@@ -199,9 +209,7 @@ def validate_message_update(obj: Any) -> str | None:
         return "assistantMessageEvent type is outside the pinned union"
     if event_type in _INDEX_EVENT_TYPES:
         allowed = frozenset({"type", "contentIndex", "delta"})
-    elif event_type in _CONTENT_END_TYPES:
-        allowed = frozenset({"type", "contentIndex", "content"})
-    elif event_type == "image_end":
+    elif event_type in _CONTENT_END_TYPES or event_type == "image_end":
         allowed = frozenset({"type", "contentIndex", "content"})
     elif event_type == "toolcall_end":
         allowed = frozenset({"type", "contentIndex", "toolCall"})
@@ -267,10 +275,8 @@ def validate_content_block(block: Any) -> str | None:
         error = _closed_object(block, frozenset({"type", "text", "textSignature"}), "text content block", required=frozenset({"type", "text"}))
         if error is not None:
             return error
-        if not isinstance(block.get("text"), str):
-            return "text content block text must be a string"
-        if "textSignature" in block and not isinstance(block["textSignature"], str):
-            return "text content block textSignature must be a string"
+        if not isinstance(block.get("text"), str) or ("textSignature" in block and not isinstance(block["textSignature"], str)):
+            return "text content block text and textSignature must be strings"
         return None
     if kind == "image":
         return _validate_image_object(block)
@@ -340,9 +346,8 @@ def validate_usage(usage: Any) -> str | None:
         group_unknown = _unknown_keys(group_value, keys)
         if group_unknown:
             return f"usage {group} has unknown member(s): " + ", ".join(group_unknown)
-        for key in keys:
-            if key in group_value and not is_nonnegative_number(group_value[key]):
-                return f"usage {group}.{key} must be a finite non-negative number"
+        if any(key in group_value and not is_nonnegative_number(group_value[key]) for key in keys):
+            return f"usage {group} members must be finite non-negative numbers"
     return None
 
 def validate_turn_end(obj: Any) -> str | None:
@@ -376,7 +381,7 @@ def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, hea
         return "adapter launch frame lane does not match the expectation"
     if obj["persistence"] != expectation.persistence:
         return "adapter launch frame persistence does not match the expectation"
-    if obj["lane"] not in _FRAME_LANES:
+    if obj["lane"] not in (_OMP_AMBIENT_LANES | _OMP_PROFILE_LANES):
         return "adapter launch frame lane is outside the pinned set"
     if obj["persistence"] not in {"none", "fresh"}:
         return "adapter launch frame persistence must be none or fresh"
@@ -405,6 +410,11 @@ def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, hea
         value = observed.get(key)
         if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
             return f"adapter launch frame observed.{key} must be an array of strings"
+        for item in value:
+            try:
+                validate_relative_path(item)
+            except SafeTreePathError:
+                return f"adapter launch frame observed.{key} contains an unsafe relative path"
     if tuple(observed["child_relpaths"]) != expectation.observed_relpaths:
         return "adapter launch frame observed inventory does not match the expectation"
     if obj["persistence"] == "fresh":
@@ -446,18 +456,25 @@ def _validate_frame_session(session: Any, expectation: OmpTransportExpectation, 
         if expectation.persistence == "fresh":
             if not is_nonempty_string(value):
                 return f"adapter launch frame session {key} must be non-null for fresh persistence"
-            if key == "primary_sha256" and _HEX64_PATTERN.fullmatch(value) is None:
-                return "adapter launch frame primary_sha256 must be 64 lowercase hex"
+            if key == "primary_sha256":
+                if _HEX64_PATTERN.fullmatch(value) is None:
+                    return "adapter launch frame primary_sha256 must be 64 lowercase hex"
+            else:
+                try:
+                    validate_relative_path(value)
+                except SafeTreePathError:
+                    return "adapter launch frame session primary_relpath must be a safe relative path"
         elif value is not None:
             return f"adapter launch frame session {key} must be null for transient persistence"
     return None
 
 def _validate_frame_confinement(confinement: Any, expectation: OmpTransportExpectation) -> str | None:
-    policy_sha256 = expectation.confinement_policy_sha256
-    if policy_sha256 is None:
+    if expectation.lane in _OMP_AMBIENT_LANES:
         if confinement is not None:
-            return "adapter launch frame confinement must be null for this lane"
+            return "adapter launch frame confinement must be null for an ambient lane"
         return None
+    if confinement is None:
+        return "adapter launch frame confinement is required for a profile lane"
     error = _closed_object(confinement, _FRAME_CONFINEMENT_KEYS, "adapter launch frame confinement", required=_FRAME_CONFINEMENT_KEYS)
     if error is not None:
         return error
@@ -466,7 +483,7 @@ def _validate_frame_confinement(confinement: Any, expectation: OmpTransportExpec
     abi = confinement.get("landlock_abi")
     if not is_integer(abi) or abi < _MIN_LANDLOCK_ABI:
         return f"adapter launch frame confinement landlock_abi must be an integer of at least {_MIN_LANDLOCK_ABI}"
-    if confinement.get("policy_sha256") != policy_sha256:
+    if confinement.get("policy_sha256") != expectation.confinement_policy_sha256:
         return "adapter launch frame confinement policy digest does not match the expectation"
     return None
 
