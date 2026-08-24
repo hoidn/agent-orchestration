@@ -73,6 +73,7 @@ from .syntax import (
     target_dsl_supports_phased_contract_delivery,
     target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_run_ref,
+    target_dsl_supports_session_artifact,
     target_dsl_supports_trial,
 )
 
@@ -665,6 +666,19 @@ class PromptDependencySpec:
 
 
 @dataclass(frozen=True)
+class SessionArtifactSpec:
+    """Immutable target-2.27 declaration of one fresh provider session artifact.
+
+    Carried verbatim through WCC payloads; never a visited name reference.
+    """
+
+    symbol: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -691,6 +705,10 @@ class ProviderResultExpr:
         metadata={"json_omit_if_none": True},
     )
     materialization_attempts: "LiteralExpr | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    session_artifact: SessionArtifactSpec | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -5057,6 +5075,7 @@ def _elaborate_provider_result(
         ":timeout-sec",
         ":delivery",
         ":materialization-attempts",
+        ":session-artifact",
         ":prompt-dependencies",
     }
     invalid_section = next((name for name in sections if name not in allowed_sections), None)
@@ -5212,6 +5231,51 @@ def _elaborate_provider_result(
                 ),
             )
         delivery_value = delivery_node.value[1:]
+    session_artifact_node = sections.get(":session-artifact")
+    if (
+        session_artifact_node is not None
+        and not target_dsl_supports_session_artifact(
+            session_state.target_dsl_version or ""
+        )
+    ):
+        _raise_error(
+            "`:session-artifact` requires target DSL 2.27",
+            code="session_artifact_target_dsl_unsupported",
+            span=session_artifact_node.span,
+            form_path=form_path,
+            expansion_stack=session_artifact_node.expansion_stack,
+        )
+    session_artifact_symbol: str | None = None
+    if session_artifact_node is not None:
+        if not (
+            isinstance(session_artifact_node, SyntaxIdentifier)
+            and "." not in session_artifact_node.resolved_name
+            and "::" not in session_artifact_node.resolved_name
+        ):
+            _raise_error(
+                "`provider-result :session-artifact` must name one bare symbol",
+                code="session_artifact_value_invalid",
+                span=session_artifact_node.span,
+                form_path=form_path,
+                expansion_stack=session_artifact_node.expansion_stack,
+            )
+        session_artifact_symbol = session_artifact_node.resolved_name
+    if session_artifact_node is not None and delivery_value == "phased":
+        _raise_error(
+            "`:session-artifact` cannot pair with `:delivery :phased`",
+            code="session_artifact_phased_delivery_invalid",
+            span=session_artifact_node.span,
+            form_path=form_path,
+            expansion_stack=session_artifact_node.expansion_stack,
+        )
+    if session_artifact_node is not None and attempts_node is not None:
+        _raise_error(
+            "`:session-artifact` cannot pair with `:materialization-attempts`",
+            code="session_artifact_materialization_attempts_invalid",
+            span=session_artifact_node.span,
+            form_path=form_path,
+            expansion_stack=session_artifact_node.expansion_stack,
+        )
     attempts_value: int | None = None
     if attempts_node is not None:
         if isinstance(attempts_node, SyntaxBool):
@@ -5469,6 +5533,16 @@ def _elaborate_provider_result(
                 ),
             )
             if attempts_value is not None
+            else None
+        ),
+        session_artifact=(
+            SessionArtifactSpec(
+                symbol=session_artifact_symbol,
+                span=session_artifact_node.span,
+                form_path=form_path,
+                expansion_stack=session_artifact_node.expansion_stack,
+            )
+            if session_artifact_node is not None
             else None
         ),
         prompt_dependencies=(

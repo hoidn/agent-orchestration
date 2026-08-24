@@ -33,6 +33,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.24",
         "2.25",
         "2.26",
+        "2.27",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -48,6 +49,7 @@ RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
 NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
 TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
 STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION = "2.26"
+SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION = "2.27"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -59,6 +61,20 @@ def target_dsl_supports_provider_supervision(target_dsl_version: str) -> bool:
         minimum = tuple(
             int(part)
             for part in PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_session_artifact(target_dsl_version: str) -> bool:
+    """Return whether a validated target admits the `:session-artifact` clause."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False

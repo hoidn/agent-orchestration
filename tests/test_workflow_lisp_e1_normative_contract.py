@@ -57,13 +57,14 @@ def test_target_2_26_is_admitted(
     assert result.validated_bundles_by_name == {}
 
 
-def test_target_2_27_remains_fail_closed(
+def test_target_2_27_is_admitted(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "2.27")
+    result = _compile(tmp_path, "2.27")
 
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
+    assert result.entry_result.module.target_dsl_version == "2.27"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
 
 
 def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:

@@ -2535,6 +2535,7 @@ def typecheck_workflow_definitions(
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
     compiler_session: CompilerSession | None = None,
+    session_artifact_entry_workflow_allowed: bool = False,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -2548,6 +2549,49 @@ def typecheck_workflow_definitions(
         else frozenset(function_catalog.signatures_by_name)
     )
     elaborated_bodies: dict[str, object] = {}
+    session_artifact_workflow_names: frozenset[str] = frozenset()
+    if session_artifact_entry_workflow_allowed:
+        if selected_entry_workflow_name is not None:
+            session_artifact_workflow_names = frozenset(
+                workflow_def.name
+                for workflow_def in workflow_defs
+                if workflow_def.name == selected_entry_workflow_name
+                or workflow_def.name.rsplit("::", 1)[-1] == selected_entry_workflow_name
+            )
+        else:
+            exported_names = (
+                {name for name in module.exports if isinstance(name, str)}
+                if module is not None
+                else set()
+            )
+            exported_workflow_defs = [
+                workflow_def
+                for workflow_def in workflow_defs
+                if workflow_def.name in exported_names
+                or workflow_def.name.rsplit("::", 1)[-1] in exported_names
+            ]
+            if len(exported_workflow_defs) == 1:
+                sole = exported_workflow_defs[0]
+                signature = workflow_catalog.signatures_by_name[sole.name]
+                if not any(
+                    isinstance(type_ref, WorkflowRefTypeRef)
+                    for _, type_ref in signature.params
+                ):
+                    session_artifact_workflow_names = frozenset({sole.name})
+            elif not exported_workflow_defs:
+                # Zero exported workflow definitions: mirror the lowering
+                # entry convention (first workflow without workflow-ref
+                # params). Exported non-workflow names are irrelevant here.
+                for workflow_def in workflow_defs:
+                    signature = workflow_catalog.signatures_by_name[workflow_def.name]
+                    if not any(
+                        isinstance(type_ref, WorkflowRefTypeRef)
+                        for _, type_ref in signature.params
+                    ):
+                        session_artifact_workflow_names = frozenset(
+                            {workflow_def.name}
+                        )
+                        break
     for workflow_def in workflow_defs:
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
         if workflow_def.publication_policy is not None:
@@ -2667,6 +2711,9 @@ def typecheck_workflow_definitions(
                 prompt_catalog=prompt_catalog,
                 expected_type=signature.return_type_ref,
                 compiler_session=compiler_session,
+                session_artifact_allowed=(
+                    workflow_def.name in session_artifact_workflow_names
+                ),
             )
         finally:
             clear_active_reusable_state_producer_context(compiler_session.typecheck)

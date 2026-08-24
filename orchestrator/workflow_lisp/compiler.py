@@ -1849,6 +1849,7 @@ def _run_stage3_validation_pipeline(
                 reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=None,
                 compiler_session=compiler_session,
+                session_artifact_entry_workflow_allowed=True,
             )
         )
         typed_functions_by_name = {
@@ -2697,6 +2698,9 @@ def _compile_stage3_graph(
                 entry_workflow if module_name == graph.entry_module_name else None
             ),
             compiler_session=compiler_session,
+            session_artifact_entry_workflow_allowed=(
+                module_name == graph.entry_module_name
+            ),
         )
         typed_procedures = tuple(
             replace(
@@ -4500,6 +4504,7 @@ def _infer_stage3_effect_summaries(
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
     compiler_session: CompilerSession | None = None,
+    session_artifact_entry_workflow_allowed: bool = False,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
@@ -4663,6 +4668,9 @@ def _infer_stage3_effect_summaries(
                 reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=selected_entry_workflow_name,
                 compiler_session=compiler_session,
+                session_artifact_entry_workflow_allowed=(
+                    session_artifact_entry_workflow_allowed
+                ),
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
@@ -4790,6 +4798,9 @@ def _infer_stage3_effect_summaries(
             reusable_state_producer_context=reusable_state_producer_context,
             selected_entry_workflow_name=selected_entry_workflow_name,
             compiler_session=compiler_session,
+            session_artifact_entry_workflow_allowed=(
+                session_artifact_entry_workflow_allowed
+            ),
         )
         generated_from_workflows = {
             procedure.definition.name: procedure

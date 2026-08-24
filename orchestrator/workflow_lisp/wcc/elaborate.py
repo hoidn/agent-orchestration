@@ -4579,6 +4579,8 @@ def _elaborate_effect_expr_to_binding_value(
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
             )
+        if expr.session_artifact is not None:
+            operation_payload["session_artifact"] = expr.session_artifact
         if expr.prompt_dependencies is not None:
             dependency_rows: list[WccPromptDependencyRow] = []
             for role, operands in (

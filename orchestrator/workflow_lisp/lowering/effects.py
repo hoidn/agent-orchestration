@@ -90,6 +90,7 @@ class LowerableProviderResult:
     timeout_sec: Any | None = None
     delivery: LiteralExpr | None = None
     materialization_attempts: LiteralExpr | None = None
+    session_artifact: "SessionArtifactSpec | None" = None
     prompt_dependencies: PromptDependencySpec | None = None
     prompt_application: PromptApplicationExpr | None = None
 
@@ -309,6 +310,7 @@ def _lower_provider_result(
             timeout_sec=expr.timeout_sec,
             delivery=expr.delivery,
             materialization_attempts=expr.materialization_attempts,
+            session_artifact=expr.session_artifact,
             prompt_dependencies=expr.prompt_dependencies,
             prompt_application=(
                 expr.prompt
@@ -572,6 +574,25 @@ def _lower_provider_result_operation(
             hidden_inputs.update(typed_hidden_inputs)
             provider_step["typed_prompt_inputs"] = typed_prompt_inputs
         hidden_inputs[allocation.generated_input_name] = _origin_from_context_source(context, provider_result)
+    if provider_result.session_artifact is not None:
+        if provider_result.session_artifact.symbol in context.top_level_artifacts:
+            raise _compile_error(
+                code="session_artifact_collision",
+                message=(
+                    f"session artifact `{provider_result.session_artifact.symbol}` "
+                    "collides with an already declared artifact"
+                ),
+                span=provider_result.session_artifact.span,
+                form_path=provider_result.session_artifact.form_path,
+            )
+        context.top_level_artifacts[provider_result.session_artifact.symbol] = {
+            "kind": "scalar",
+            "type": "string",
+        }
+        provider_step["provider_session"] = {
+            "mode": "fresh",
+            "publish_artifact": provider_result.session_artifact.symbol,
+        }
     _record_step_origin(
         context,
         step_name=provider_step_name,

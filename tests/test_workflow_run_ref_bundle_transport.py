@@ -310,7 +310,7 @@ def test_bundle_capsule_encode_rejects_unsupported_catalog_version(
     bundle = _compiled_bundle(tmp_path, target_dsl_version="2.25")
     unsupported = replace(
         bundle,
-        surface=replace(bundle.surface, version="2.27"),
+        surface=replace(bundle.surface, version="2.28"),
     )
     bundles = {unsupported.surface.name: unsupported}
 

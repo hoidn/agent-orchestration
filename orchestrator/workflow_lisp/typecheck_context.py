@@ -83,6 +83,7 @@ class TypecheckContext:
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...]
     compiler_session: CompilerSession
     session_state: TypecheckSessionState
+    session_artifact_allowed: bool = False
 
 
 def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionState:

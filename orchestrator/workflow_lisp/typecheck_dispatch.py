@@ -157,6 +157,7 @@ def typecheck_expression(
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
     expected_type: TypeRef | None = None,
     compiler_session: CompilerSession | None = None,
+    session_artifact_allowed: bool = False,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
@@ -199,6 +200,7 @@ def typecheck_expression(
             expected_type=expected_type,
             session_state=session_state,
             compiler_session=compiler_session,
+            session_artifact_allowed=session_artifact_allowed,
         )
         from .procedure_typecheck import _replace_eliminated_let_procs as _replace_eliminated_let_procs_owner
 
@@ -245,6 +247,7 @@ def _typecheck(
     expected_type: TypeRef | None = None,
     session_state: TypecheckSessionState,
     compiler_session: CompilerSession,
+    session_artifact_allowed: bool = False,
 ) -> TypedExpr:
     context = TypecheckContext(
         type_env=type_env,
@@ -263,6 +266,7 @@ def _typecheck(
         shared_union_field_capabilities=session_state.shared_union_field_capabilities,
         compiler_session=compiler_session,
         session_state=session_state,
+        session_artifact_allowed=session_artifact_allowed,
     )
     check = partial(
         _typecheck,
@@ -301,6 +305,10 @@ def _typecheck(
         recurse_proc_ref_value_env = overrides.pop("proc_ref_value_env", None)
         recurse_value_expr_env = overrides.pop("value_expr_env", None)
         recurse_expected_type = overrides.pop("expected_type", None)
+        recurse_session_artifact_allowed = overrides.pop(
+            "session_artifact_allowed",
+            False,
+        )
         if overrides:
             raise TypeError(f"unexpected recurse overrides: {sorted(overrides)}")
         previous_proc_ref_env = session_state.proc_ref_value_env
@@ -326,6 +334,7 @@ def _typecheck(
                 proc_ref_resolution_context=recurse_proc_ref_resolution_context,
                 prompt_catalog=prompt_catalog,
                 expected_type=recurse_expected_type,
+                session_artifact_allowed=recurse_session_artifact_allowed,
             )
         finally:
             session_state.proc_ref_value_env = previous_proc_ref_env
@@ -852,6 +861,7 @@ def _typecheck(
                 binding_env=local_binding_env,
                 proc_ref_value_env=local_proc_ref_env,
                 value_expr_env=local_value_expr_env,
+                session_artifact_allowed=context.session_artifact_allowed,
             )
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
@@ -879,6 +889,7 @@ def _typecheck(
             binding_env=local_binding_env,
             proc_ref_value_env=local_proc_ref_env,
             value_expr_env=local_value_expr_env,
+            session_artifact_allowed=context.session_artifact_allowed,
         )
         rewritten_expr = LetStarExpr(
             bindings=tuple(rewritten_bindings),

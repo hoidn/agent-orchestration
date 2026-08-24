@@ -4851,6 +4851,7 @@ def _lower_provider_peer_group_member(
                 if payload.get("materialization_attempts") is not None
                 else None
             ),
+            session_artifact=payload.get("session_artifact"),
             prompt_application=_prompt_application_from_wcc_payload(
                 payload,
                 env=provider_env,
@@ -5124,6 +5125,7 @@ def _lower_provider_supervision_member(
                 if payload.get("materialization_attempts") is not None
                 else None
             ),
+            session_artifact=payload.get("session_artifact"),
             prompt_application=_prompt_application_from_wcc_payload(
                 payload,
                 env=provider_env,
@@ -5964,6 +5966,7 @@ def _lower_effectful_binding(
                         if operation_payload.get("materialization_attempts") is not None
                         else None
                     ),
+                    session_artifact=operation_payload.get("session_artifact"),
                     timeout_sec=(
                         _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
                         if operation_payload.get("timeout_sec") is not None
@@ -6198,6 +6201,7 @@ def _lower_wcc_effect_expr(
                 effort=expr.effort,
                 delivery=expr.delivery,
                 materialization_attempts=expr.materialization_attempts,
+                session_artifact=expr.session_artifact,
                 timeout_sec=expr.timeout_sec,
                 prompt_dependencies=expr.prompt_dependencies,
                 prompt_application=(
@@ -6977,6 +6981,7 @@ def _frontend_expr_from_wcc_loop_binding_value(
                     if operation_payload.get("materialization_attempts") is not None
                     else None
                 ),
+                session_artifact=operation_payload.get("session_artifact"),
                 timeout_sec=(
                     _frontend_expr_from_wcc_value(operation_payload["timeout_sec"])
                     if operation_payload.get("timeout_sec") is not None

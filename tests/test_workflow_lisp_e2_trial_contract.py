@@ -65,11 +65,12 @@ def test_target_2_26_is_admitted(tmp_path: Path) -> None:
     assert result.validated_bundles_by_name == {}
 
 
-def test_target_2_27_remains_fail_closed(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile(tmp_path, "2.27")
+def test_target_2_27_is_admitted(tmp_path: Path) -> None:
+    result = _compile(tmp_path, "2.27")
 
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
+    assert result.entry_result.module.target_dsl_version == "2.27"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
 
 
 def test_trial_compiles_and_lowers_at_inherited_target_2_26(tmp_path: Path) -> None:
@@ -105,7 +106,7 @@ def test_trial_compiles_and_lowers_at_inherited_target_2_26(tmp_path: Path) -> N
     )
 
 
-def test_trial_config_rejects_unsupported_2_27() -> None:
+def test_trial_config_rejects_unsupported_2_28() -> None:
     """The trial static config rejects a target above the admitted catalog."""
 
     from orchestrator.workflow.trial.config import build_trial_static_config
@@ -121,7 +122,7 @@ def test_trial_config_rejects_unsupported_2_27() -> None:
             budget={},
             result_descriptor={},
             result_digest="sha256:" + "0" * 64,
-            target_dsl_version="2.27",
+            target_dsl_version="2.28",
         )
 
 

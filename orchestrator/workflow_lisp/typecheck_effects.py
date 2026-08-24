@@ -619,6 +619,14 @@ def typecheck_provider_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    if expr.session_artifact is not None and not context.session_artifact_allowed:
+        raise_error(
+            "`:session-artifact` is only permitted at the entry workflow root or its sequential `let*` spine",
+            code="session_artifact_placement_invalid",
+            span=expr.session_artifact.span,
+            form_path=expr.session_artifact.form_path,
+            expansion_stack=expr.session_artifact.expansion_stack,
+        )
     return_type = (
         expr.prompt.prompt.return_type_ref
         if isinstance(expr.prompt, PromptApplicationExpr)
