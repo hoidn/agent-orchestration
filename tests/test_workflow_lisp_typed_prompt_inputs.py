@@ -233,35 +233,38 @@ def test_ordinary_extern_prompt_input_admits_nested_lists_of_json_values(
 
 
 @pytest.mark.parametrize(
-    ("input_type", "type_definitions", "diagnostic_code"),
-    [
-        ("Optional[String]", "", "workflow_boundary_collection_unsupported"),
-        ("Map[String, String]", "", "workflow_boundary_collection_unsupported"),
-        (
-            "Outcome",
-            """\
-  (defunion Outcome
-    (VALUE (value String))
-    (EMPTY))
-""",
-            "workflow_boundary_type_invalid",
-        ),
-    ],
+    "input_type",
+    ["Optional[String]", "Map[String, String]"],
 )
-def test_ordinary_extern_prompt_input_rejects_unsupported_containers(
+def test_ordinary_extern_prompt_input_admits_optional_and_map_boundaries(
     tmp_path: Path,
     input_type: str,
-    type_definitions: str,
-    diagnostic_code: str,
+) -> None:
+    # Task 7 authorized admission: canonical Optional/Map now cross the Stage 3
+    # input boundary; the prompt fragment renderer still binds only admitted
+    # list shapes, so no typed binding rows are produced.
+    step = _compile_generic_ordinary_extern_input(
+        tmp_path,
+        input_type=input_type,
+    )
+    assert step.typed_prompt_inputs == ()
+
+
+def test_ordinary_extern_prompt_input_rejects_unsupported_containers(
+    tmp_path: Path,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as exc_info:
         _compile_generic_ordinary_extern_input(
             tmp_path,
-            input_type=input_type,
-            type_definitions=type_definitions,
+            input_type="Outcome",
+            type_definitions="""\
+  (defunion Outcome
+    (VALUE (value String))
+    (EMPTY))
+""",
         )
 
-    assert exc_info.value.diagnostics[0].code == diagnostic_code
+    assert exc_info.value.diagnostics[0].code == "workflow_boundary_type_invalid"
 
 
 def _provider_step(bundle):

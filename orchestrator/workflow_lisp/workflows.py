@@ -689,15 +689,13 @@ def analyze_workflow_boundary_type(
         if not analysis.lowerable:
             return analysis
         return WorkflowBoundaryAnalysis(
-            lowerable=False,
+            lowerable=True,
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_proc_ref=False,
             contains_union=False,
             contains_collection=True,
-            offending_path=source_path,
-            offending_type_name=type_ref.name,
         )
     if isinstance(type_ref, MapTypeRef):
         key_analysis = analyze_workflow_boundary_type(
@@ -717,15 +715,13 @@ def analyze_workflow_boundary_type(
         if not value_analysis.lowerable:
             return value_analysis
         return WorkflowBoundaryAnalysis(
-            lowerable=False,
+            lowerable=True,
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_proc_ref=False,
             contains_union=False,
             contains_collection=True,
-            offending_path=source_path,
-            offending_type_name=type_ref.name,
         )
     if isinstance(type_ref, RecordTypeRef):
         for field in type_ref.definition.fields:

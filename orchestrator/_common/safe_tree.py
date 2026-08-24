@@ -102,18 +102,25 @@ def _open_child_directory(
     return child
 
 
-def walk_regular_files(root_fd: int):
+def walk_regular_files(root_fd: int, *, directories: list[str] | None = None):
     """Yield RegularFileRow for each regular file beneath root_fd.
 
     Rows are deterministic: entries are visited in UTF-8 byte order and paths
     are POSIX-relative. Symlinks, devices, FIFOs, sockets, hard-linked
     duplicates, undecodable names, and duplicate canonical (NFC) paths are
     rejected; every descriptor opened here is close-on-exec.
+
+    When ``directories`` is supplied it collects the relative path of every
+    visited directory (including the empty string for the root), enabling
+    callers to verify the exact directory set of a tree. Passing ``None``
+    (the default) keeps the historical no-collection behavior.
     """
     seen_identities: set[tuple[int, int]] = set()
     seen_canonical: set[str] = set()
 
     def recurse(directory_fd: int, prefix: str):
+        if directories is not None:
+            directories.append(prefix)
         for name in sorted(os.listdir(directory_fd)):
             canonical = _canonical_name(name)
             if canonical in (".", ".."):

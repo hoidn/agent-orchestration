@@ -750,7 +750,38 @@ def test_workflow_boundary_accepts_lowerable_collection_typed_params_under_wcc(t
     assert workflow_catalog.signatures_by_name["entry"].params[0][0] == "attempt_ids"
 
 
-def test_workflow_boundary_rejects_unsupported_collection_typed_returns(tmp_path: Path) -> None:
+def test_workflow_boundary_admits_collection_typed_returns_under_collection_flag(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_boundary_collection_return.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowOutput",
+                "    (attempt_ids Map[String, Int]))",
+                "  (defworkflow entry",
+                "    ()",
+                "    -> WorkflowOutput",
+                '    (record WorkflowOutput :attempt_ids "unused")))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    workflow_catalog = build_workflow_catalog(
+        module,
+        elaborate_workflow_definitions(_build_syntax_module(path)),
+        FrontendTypeEnvironment.from_module(module),
+        allow_collection_return_boundaries=True,
+    )
+
+    assert (
+        workflow_catalog.signatures_by_name["entry"].return_type_ref.name
+        == "WorkflowOutput"
+    )
+
+
+def test_workflow_boundary_rejects_collection_typed_returns_without_collection_flag(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "workflow_boundary_collection_return.orc",
         "\n".join(
@@ -775,7 +806,7 @@ def test_workflow_boundary_rejects_unsupported_collection_typed_returns(tmp_path
             module,
             workflow_defs,
             FrontendTypeEnvironment.from_module(module),
-            allow_collection_return_boundaries=True,
+            allow_collection_return_boundaries=False,
         )
 
     _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")

@@ -1330,31 +1330,21 @@ def _field_contract_definition(
     form_path: tuple[str, ...],
     type_env: Any | None = None,
 ) -> dict[str, Any]:
-    if isinstance(type_ref, ListTypeRef):
-        return {
-            "type": "list",
-            "items": _structured_result_field_definition(
-                type_ref.item_type_ref,
-                span=span,
-                form_path=form_path,
-                type_env=type_env,
-                allow_nested_structures=(
-                    isinstance(
-                        getattr(type_env, "target_dsl_version", None),
-                        str,
-                    )
-                    and target_dsl_supports_nested_structural_transport(
-                        type_env.target_dsl_version
-                    )
-                ),
-            ),
-        }
-    if isinstance(type_ref, (OptionalTypeRef, MapTypeRef)):
-        _raise_contract_error(
-            code="workflow_boundary_collection_unsupported",
-            message=f"`{type_ref.name}` cannot lower across a workflow boundary in Stage 3",
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef, MapTypeRef)):
+        return _structured_result_field_definition(
+            type_ref,
             span=span,
             form_path=form_path,
+            type_env=type_env,
+            allow_nested_structures=(
+                isinstance(
+                    getattr(type_env, "target_dsl_version", None),
+                    str,
+                )
+                and target_dsl_supports_nested_structural_transport(
+                    type_env.target_dsl_version
+                )
+            ),
         )
     if isinstance(type_ref, PathTypeRef):
         return {
