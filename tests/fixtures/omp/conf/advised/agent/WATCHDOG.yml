@@ -1,0 +1,7 @@
+instructions: "Review each primary turn for blockers and inject concise notes."
+advisors:
+  - name: code-reviewer
+    model: "x-ai/grok-code-fast:high"
+    tools: [read, grep, glob]
+    instructions: "Focus on correctness and fail-closed behavior."
+    enabled: true

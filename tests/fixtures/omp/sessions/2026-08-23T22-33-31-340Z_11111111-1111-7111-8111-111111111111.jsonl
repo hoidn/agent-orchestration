@@ -1,0 +1,8 @@
+{"type":"title","v":1,"title":"","updatedAt":"2026-08-23T22:33:31.340Z","pad":"                                                                                                                                                                              "}
+{"type":"session","version":3,"id":"11111111-1111-7111-8111-111111111111","timestamp":"2026-08-23T22:33:31.340Z","cwd":"/workspace"}
+{"type":"model_change","id":"m1","parentId":null,"timestamp":"2026-08-23T22:33:31.926Z","model":"openai-codex/gpt-5.6-sol","resolvedModelIsFallback":false}
+{"type":"thinking_level_change","id":"t1","parentId":"m1","timestamp":"2026-08-23T22:33:31.926Z","thinkingLevel":"high","configured":null}
+{"type":"message","id":"u1","parentId":"t1","timestamp":"2026-08-23T22:33:32.104Z","message":{"role":"user","content":[{"type":"text","text":"Reply exactly OK"}],"attribution":"user","timestamp":1787524412000}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-08-23T22:33:45.001Z","message":{"role":"assistant","content":[{"type":"text","text":"OK"}],"api":"openai","provider":"openai-codex","model":"gpt-5.6-sol","stopReason":"stop","timestamp":1787524425001,"usage":{"input":10,"output":2,"cacheRead":0,"cacheWrite":0,"totalTokens":12,"cost":{"input":0.0,"output":0.0,"cacheRead":0.0,"cacheWrite":0.0,"total":0.0}}}}
+{"type":"credential_pin","id":"c1","parentId":"a1","timestamp":"2026-08-23T22:33:46.000Z","provider":"anthropic","hash":"aaaa"}
+{"type":"title_change","id":"tc1","parentId":"c1","timestamp":"2026-08-23T22:33:47.000Z","title":"OK session","source":"auto"}

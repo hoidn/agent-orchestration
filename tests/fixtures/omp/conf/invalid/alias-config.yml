@@ -1,0 +1,16 @@
+defaults: &defaults
+  enabled: false
+advisor: *defaults
+memory:
+  backend: "off"
+task:
+  maxConcurrency: 4
+  maxRecursionDepth: 1
+  disabledAgents:
+    - designer
+    - librarian
+    - reviewer
+    - scout
+    - security-reviewer
+    - sonic
+    - task

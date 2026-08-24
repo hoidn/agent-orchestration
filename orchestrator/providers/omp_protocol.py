@@ -146,7 +146,7 @@ def validate_session_header(obj: Any) -> str | None:
     for key in ("title", "parentSession", "providerPromptCacheKey"):
         if key in obj and not isinstance(obj[key], str):
             return f"session header {key} must be a string"
-    if "titleSource" in obj and obj["titleSource"] not in {"auto", "user"}:
+    if "titleSource" in obj and (not isinstance(obj["titleSource"], str) or obj["titleSource"] not in {"auto", "user"}):
         return "session header titleSource must be auto or user"
     for key in ("additionalDirectories", "previousSessionFiles"):
         if key in obj and (not isinstance(obj[key], list) or any(not isinstance(item, str) for item in obj[key])):
@@ -252,7 +252,7 @@ def validate_closed_assistant_message(message: Any) -> str | None:
             return f"closed assistant message {key} must be a non-empty string"
     if not is_finite_number(message.get("timestamp")):
         return "closed assistant message timestamp must be a finite number"
-    if message.get("stopReason") not in _STOP_REASONS:
+    if not isinstance(message.get("stopReason"), str) or message["stopReason"] not in _STOP_REASONS:
         return "closed assistant message stopReason is outside the pinned set"
     content = message.get("content")
     if not isinstance(content, list):
@@ -295,7 +295,7 @@ def _validate_image_object(image: Any) -> str | None:
         return "image content object data must be a base64 string"
     if not is_nonempty_string(image.get("mimeType")):
         return "image content object mimeType must be a non-empty string"
-    if "detail" in image and image["detail"] not in _IMAGE_DETAILS:
+    if "detail" in image and (not isinstance(image["detail"], str) or image["detail"] not in _IMAGE_DETAILS):
         return "image content object detail is outside auto|low|high|original"
     return None
 

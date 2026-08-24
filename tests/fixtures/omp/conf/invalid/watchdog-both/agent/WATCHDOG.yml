@@ -1,0 +1,4 @@
+instructions: "paired watchdog"
+advisors:
+  - name: w
+    enabled: true
