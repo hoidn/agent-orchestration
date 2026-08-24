@@ -20,7 +20,6 @@ from .omp_protocol import (
     loads_strict,
     validate_agent_end,
     validate_closed_assistant_message,
-    validate_custom,
     validate_launch_frame,
     validate_message_end,
     validate_message_start,
@@ -243,12 +242,30 @@ class OmpJsonStdoutAccumulator:
                 self._fail("Repeated terminal agent_end is malformed", line=self._line_number, error=error)
                 return
             if event.get("isTerminal", True) is False:
-                # Nonterminal returns to streaming; a later terminal is
-                # still required before the adapter frame.
-                self._state = "streaming"
+                # Once settled, a nonterminal end is not legal and can never
+                # reopen streaming.
+                self._fail("nonterminal agent_end is not legal after settlement", line=self._line_number)
             return
-        if event_type == "custom":
-            self._consume_custom(event, late=True)
+        if event_type == "message_start":
+            error = validate_message_start(event)
+            if error is None and event["message"]["role"] != "custom":
+                error = "post-terminal message lifecycle must be a custom pair"
+            if error is None:
+                error = self._open_lifecycle("custom")
+            if error is not None:
+                self._invalidate("OMP transport recognized event is malformed", {"line": self._line_number, "error": error})
+            return
+        if event_type == "message_end":
+            error = validate_message_end(event)
+            if error is None:
+                if event["message"]["role"] != "custom":
+                    error = "message_end role must be custom for a post-terminal pair"
+                elif self._open_role != "custom":
+                    error = "message_end closes no open custom lifecycle"
+                else:
+                    self._open_role = None
+            if error is not None:
+                self._invalidate("OMP transport recognized event is malformed", {"line": self._line_number, "error": error})
             return
         self._fail("OMP transport event is not legal after settlement", line=self._line_number, event_type=event_type)
 
@@ -273,8 +290,6 @@ class OmpJsonStdoutAccumulator:
             error = validate_turn_end(event)
         elif event_type == "agent_end":
             error = self._consume_agent_end(event)
-        elif event_type == "custom":
-            error = "OMP custom message is only legal after settlement"
         else:
             error = "unrecognized OMP event type"
         if error is not None:
@@ -340,27 +355,11 @@ class OmpJsonStdoutAccumulator:
             return "terminal agent_end requires a closed assistant message"
         if last.get("stopReason") != "stop":
             return "terminal agent_end requires the final assistant stopReason to be stop"
-        if any(isinstance(block, dict) and block.get("type") in {"tool_call", "tool_use"} for block in last.get("content", [])):
+        if any(isinstance(block, dict) and block.get("type") == "toolCall" for block in last.get("content", [])):
             return "terminal agent_end requires no tool-call block in the final assistant"
         self._settlement_seen = True
         self._state = "terminal_seen"
         return None
-
-    def _consume_custom(self, event: dict[str, Any], *, late: bool) -> str | None:
-        if not late:
-            return "custom events are only pinned after settlement"
-        error = validate_custom(event)
-        if error is not None:
-            return error
-        role = event["message"]["role"]
-        marker = f"custom:{role}"
-        if self._open_role is None:
-            self._open_role = marker
-            return None
-        if self._open_role == marker:
-            self._open_role = None
-            return None
-        return "custom lifecycle pair does not match its open role"
 
     def _mandatory_checks(self) -> dict[str, Any] | None:
         if self._invalid_error is not None:

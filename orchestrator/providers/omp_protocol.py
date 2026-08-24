@@ -24,6 +24,7 @@ _CTTL_KEYS = frozenset({"ephemeral5m", "ephemeral1h"})
 _SERVER_KEYS = frozenset({"webSearch", "webFetch"})
 _STOP_REASONS = frozenset({"stop", "length", "toolUse", "error", "aborted"})
 _IMAGE_DETAILS = frozenset({"auto", "low", "high", "original"})
+_CONTENT_KINDS = frozenset({"text", "thinking", "redactedThinking", "fallback", "anthropicServerTool", "image", "toolCall"})
 _FRAME_REQUIRED = frozenset({"type", "lane", "persistence", "binary", "child", "session", "conf", "confinement", "observed"})
 _FRAME_LANES = frozenset({"ambient", "ambient-unrestricted", "no-tools", "conf", "conf-inference"})
 _FRAME_SESSION_KEYS = frozenset({"id", "visit_key", "primary_relpath", "primary_sha256"})
@@ -33,18 +34,23 @@ _CONFINEMENT_SCHEMA_VERSION = "omp_write_confinement.v1"
 _MIN_LANDLOCK_ABI = 3
 _FRAME_OBSERVED_KEYS = frozenset({"advisor_relpaths", "child_relpaths"})
 _FRAME_CONF_KEYS = frozenset({"manifest_sha256"})
-_EVENT_TYPES = frozenset({"agent_start", "turn_start", "tool_execution_start", "tool_execution_update", "tool_execution_end", "message_start", "message_update", "message_end", "turn_end", "agent_end", "custom", "orchestrator.omp_launch.v1"})
-_UPDATE_EVENT_TYPES = frozenset({"start", "text_start", "text_delta", "thinking_start", "thinking_delta", "toolcall_start", "text_end", "thinking_end", "image_end", "toolcall_end", "done", "error"})
-_INDEX_EVENT_TYPES = frozenset({"text_start", "text_delta", "thinking_start", "thinking_delta", "toolcall_start"})
+_EVENT_TYPES = frozenset({"agent_start", "turn_start", "tool_execution_start", "tool_execution_update", "tool_execution_end", "message_start", "message_update", "message_end", "turn_end", "agent_end", "orchestrator.omp_launch.v1"})
+_UPDATE_EVENT_TYPES = frozenset({"start", "text_start", "text_delta", "thinking_start", "thinking_delta", "toolcall_start", "toolcall_delta", "text_end", "thinking_end", "image_end", "toolcall_end", "done", "error"})
+_INDEX_EVENT_TYPES = frozenset({"text_start", "text_delta", "thinking_start", "thinking_delta", "toolcall_start", "toolcall_delta"})
 _CONTENT_END_TYPES = frozenset({"text_end", "thinking_end"})
+_DELTA_EVENT_TYPES = frozenset({"text_delta", "thinking_delta", "toolcall_delta"})
+_INDEXED_EVENT_TYPES = _INDEX_EVENT_TYPES | _CONTENT_END_TYPES | frozenset({"image_end", "toolcall_end"})
 _DONE_REASONS = frozenset({"stop", "length", "toolUse"})
 _ERROR_REASONS = frozenset({"error", "aborted"})
 _TOOL_EVENTS = {
-    "tool_execution_start": (frozenset({"type", "toolCallId", "toolName", "args", "intent"}), frozenset({"type", "toolCallId", "toolName", "args"}), "isError"),
-    "tool_execution_update": (frozenset({"type", "toolCallId", "toolName", "args", "partialResult"}), frozenset({"type", "toolCallId", "toolName", "args"}), "isError"),
-    "tool_execution_end": (frozenset({"type", "toolCallId", "toolName", "result", "isError"}), frozenset({"type", "toolCallId", "toolName", "result"}), "isError"),
+    "tool_execution_start": (frozenset({"type", "toolCallId", "toolName", "args", "intent"}), frozenset({"type", "toolCallId", "toolName", "args"})),
+    "tool_execution_update": (frozenset({"type", "toolCallId", "toolName", "args", "partialResult"}), frozenset({"type", "toolCallId", "toolName", "args"})),
+    "tool_execution_end": (frozenset({"type", "toolCallId", "toolName", "result", "isError"}), frozenset({"type", "toolCallId", "toolName", "result"})),
 }
-_TOOL_FLAG_ONLY = {"tool_execution_end": "isError"}
+_TOOL_OPTIONAL_TYPES = {
+    "tool_execution_start": {"intent": "string"},
+    "tool_execution_end": {"isError": "boolean"},
+}
 
 
 def is_event_type(value: Any) -> bool:
@@ -132,16 +138,16 @@ def validate_only_type(obj: Any, event_type: str) -> str | None:
 
 
 def _validate_tool_event(obj: Any, name: str) -> str | None:
-    allowed, required, _flag = _TOOL_EVENTS[name]
+    allowed, required = _TOOL_EVENTS[name]
     error = _closed_object(obj, allowed, f"{name} event", required=required)
     if error is not None:
         return error
     for key in ("toolCallId", "toolName"):
         if not is_nonempty_string(obj.get(key)):
             return f"{name} {key} must be a non-empty string"
-    flag = _TOOL_FLAG_ONLY.get(name)
-    if flag and flag in obj and not isinstance(obj[flag], bool):
-        return f"{name} {flag} must be a boolean"
+    for key, expected in _TOOL_OPTIONAL_TYPES.get(name, {}).items():
+        if key in obj and not isinstance(obj[key], str if expected == "string" else bool):
+            return f"{name} {key} must be a {expected}"
     return None
 
 
@@ -195,9 +201,9 @@ def validate_message_update(obj: Any) -> str | None:
     elif event_type in _CONTENT_END_TYPES:
         allowed = frozenset({"type", "contentIndex", "content"})
     elif event_type == "image_end":
-        allowed = frozenset({"type", "content"})
+        allowed = frozenset({"type", "contentIndex", "content"})
     elif event_type == "toolcall_end":
-        allowed = frozenset({"type", "toolCall"})
+        allowed = frozenset({"type", "contentIndex", "toolCall"})
     elif event_type in {"done", "error"}:
         allowed = frozenset({"type", "reason"})
     else:
@@ -205,10 +211,11 @@ def validate_message_update(obj: Any) -> str | None:
     error = _closed_object(event, allowed, f"assistantMessageEvent {event_type}")
     if error is not None:
         return error
-    if event_type in _INDEX_EVENT_TYPES:
+    if event_type in _INDEXED_EVENT_TYPES:
         if not is_integer(event.get("contentIndex")) or event["contentIndex"] < 0:
             return f"{event_type} contentIndex must be a non-negative integer"
-        if event_type.endswith("_delta") and not isinstance(event.get("delta"), str):
+    if event_type in _DELTA_EVENT_TYPES:
+        if not isinstance(event.get("delta"), str):
             return f"{event_type} delta must be a string"
     elif event_type in _CONTENT_END_TYPES:
         if not isinstance(event.get("content"), str):
@@ -217,7 +224,7 @@ def validate_message_update(obj: Any) -> str | None:
         return _validate_image_object(event.get("content"))
     elif event_type == "toolcall_end":
         return _validate_tool_call_object(event.get("toolCall"))
-    else:
+    elif event_type in {"done", "error"}:
         expected = _DONE_REASONS if event_type == "done" else _ERROR_REASONS
         if event.get("reason") not in expected:
             return f"{event_type} reason is outside the pinned set"
@@ -255,6 +262,8 @@ def validate_content_block(block: Any) -> str | None:
     kind = block.get("type")
     if not is_nonempty_string(kind):
         return "assistant content block type must be a non-empty string"
+    if kind not in _CONTENT_KINDS:
+        return "assistant content block type is outside the pinned set"
     if kind == "text":
         error = _closed_object(block, frozenset({"type", "text", "textSignature"}), "text content block", required=frozenset({"type", "text"}))
         if error is not None:
@@ -266,9 +275,9 @@ def validate_content_block(block: Any) -> str | None:
         return None
     if kind == "image":
         return _validate_image_object(block)
-    if kind in {"tool_call", "tool_use"}:
+    if kind == "toolCall":
         return _validate_tool_call_object(block)
-    # Other pinned non-text block kinds are accepted but contribute no output.
+    # Other pinned non-text block kinds are observational; contribute no output.
     return None
 
 
@@ -286,9 +295,8 @@ def _validate_image_object(image: Any) -> str | None:
 
 
 def _validate_tool_call_object(tool_call: Any) -> str | None:
-    error = _closed_object(tool_call, frozenset({"type", "id", "name", "arguments"}), "tool-call object", required=frozenset({"id", "name", "arguments"}))
-    if error is not None:
-        return error
+    if not isinstance(tool_call, dict):
+        return "tool-call object must be a JSON object"
     for key in ("id", "name"):
         if not is_nonempty_string(tool_call.get(key)):
             return f"tool-call object {key} must be a non-empty string"
@@ -363,13 +371,6 @@ def validate_agent_end(obj: Any) -> str | None:
     return None
 
 
-def validate_custom(obj: Any) -> str | None:
-    error = _closed_object(obj, frozenset({"type", "message"}), "custom event", required=frozenset({"type", "message"}))
-    if error is not None:
-        return error
-    return _message_role_error(obj["message"], "custom")
-
-
 def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, header_session_id: str) -> str | None:
     error = _closed_object(obj, _FRAME_REQUIRED, "adapter launch frame", required=_FRAME_REQUIRED)
     if error is not None:
@@ -387,7 +388,7 @@ def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, hea
     child_error = _validate_frame_child(obj["child"])
     if child_error is not None:
         return child_error
-    if expectation.child_argv and tuple(obj["child"]["argv"]) != expectation.child_argv:
+    if tuple(obj["child"]["argv"]) != expectation.child_argv:
         return "adapter launch frame child argv does not match the expectation"
     session_error = _validate_frame_session(obj["session"], expectation, header_session_id=header_session_id)
     if session_error is not None:
@@ -428,8 +429,8 @@ def _validate_frame_child(child: Any) -> str | None:
     env_names = child["env_names"]
     if not isinstance(env_names, list) or any(not isinstance(name, str) or not name for name in env_names) or env_names != sorted(env_names):
         return "adapter launch frame child env_names must be a sorted array of non-empty strings"
-    if not is_integer(child.get("exit_code")):
-        return "adapter launch frame child exit_code must be an integer"
+    if not is_integer(child.get("exit_code")) or child["exit_code"] != 0:
+        return "adapter launch frame child exit_code must be zero"
     return None
 
 

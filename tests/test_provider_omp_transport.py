@@ -586,6 +586,7 @@ def test_omp_transport_tool_execution_shapes_are_closed():
         {"type": "tool_execution_start", "toolName": "bash", "args": {}},
         {"type": "tool_execution_start", "toolCallId": "c", "toolName": "", "args": {}},
         {"type": "tool_execution_start", "toolCallId": "c", "toolName": "bash", "args": {}, "intent": 7},
+        {"type": "tool_execution_start", "toolCallId": "c", "toolName": "bash", "args": {}, "intent": ["list"]},
         {"type": "tool_execution_start", "toolCallId": "c", "toolName": "bash", "args": {}, "surprise": 1},
         {"type": "tool_execution_update", "toolCallId": "c", "toolName": "bash"},
         {"type": "tool_execution_end", "toolCallId": "c", "toolName": "bash", "result": 1, "isError": "no"},
@@ -593,9 +594,12 @@ def test_omp_transport_tool_execution_shapes_are_closed():
     ),
 )
 def test_omp_transport_malformed_tool_events_fail_closed(event: dict[str, Any]):
+    # Inject while streaming (through turn_end) so each case exercises its
+    # own validator rather than the post-terminal gate.
+    lines = _fixture_lines()
+    head = b"\n".join(lines[:11]) + b"\n"
     accumulator = _new_accumulator(expectation=_expectation())
-    accumulator.feed(_fixture(TRANSIENT))
-    accumulator.feed(_jsonl(event) + b"\n")
+    accumulator.feed(head + _jsonl(event) + b"\n")
 
     _, error = _finalize(accumulator, require_terminal=False)
 
@@ -706,6 +710,10 @@ def test_omp_transport_message_update_never_carries_outer_message():
         {"type": "thinking_delta", "contentIndex": 0, "delta": 7},
         {"type": "image_end", "content": {"type": "image", "data": "abc", "mimeType": "image/png"}},
         {"type": "toolcall_end"},
+        {"type": "toolcall_delta", "contentIndex": 0},
+        {"type": "image_end", "contentIndex": 0, "content": {"type": "image", "data": "abc", "mimeType": "image/png"}},
+        {"type": "toolcall_end", "contentIndex": 0, "toolCall": {"id": "t"}},
+        {"type": "text_start", "contentIndex": 0, "extra": 1},
         {"type": "done", "reason": "error"},
         {"type": "error", "reason": "stop"},
         {"type": "partial"},
@@ -731,12 +739,20 @@ def test_omp_transport_assistant_message_event_union_is_closed(
         {"type": "text_delta", "contentIndex": 0, "delta": "d"},
         {"type": "thinking_start", "contentIndex": 1},
         {"type": "thinking_delta", "contentIndex": 1, "delta": "d"},
+        {"type": "start"},
         {"type": "toolcall_start", "contentIndex": 2},
+        {"type": "toolcall_delta", "contentIndex": 2, "delta": "d"},
         {"type": "text_end", "contentIndex": 0, "content": "c"},
         {"type": "thinking_end", "contentIndex": 1, "content": "c"},
         {
             "type": "toolcall_end",
+            "contentIndex": 2,
             "toolCall": {"id": "t", "name": "bash", "arguments": {}},
+        },
+        {
+            "type": "image_end",
+            "contentIndex": 2,
+            "content": {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
         },
         {"type": "done", "reason": "stop"},
     ),
@@ -793,9 +809,11 @@ def test_omp_transport_closed_assistant_message_requires_mandatory_fields(
             "mimeType": "image/png",
             "detail": "low",
         },
-        {"type": "tool_call", "id": "t1", "name": "bash", "arguments": {}},
-        {"type": "tool_use", "id": "t2", "name": "read", "arguments": {"path": "/tmp/x"}},
-        {"type": "thinking", "payload": {"tokens": [1]}},
+        {"type": "toolCall", "id": "t1", "name": "bash", "arguments": {}},
+        {"type": "thinking", "thinking": "reasoning"},
+        {"type": "redactedThinking", "data": "redacted"},
+        {"type": "fallback", "from": {"model": "a"}, "to": {"model": "b"}},
+        {"type": "anthropicServerTool", "block": {"type": "server_tool_use", "id": "s", "name": "web_search"}},
     ),
 )
 def test_omp_transport_content_block_kinds_are_pinned(block: dict[str, Any]):
@@ -824,8 +842,9 @@ def test_omp_transport_content_block_kinds_are_pinned(block: dict[str, Any]):
         {"type": "text", "text": 7},
         {"type": "image", "data": "aGVsbG8=", "mimeType": ""},
         {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png", "detail": "huge"},
-        {"type": "tool_call", "id": "", "name": "bash", "arguments": {}},
-        {"type": "tool_call", "id": "t", "name": "bash", "arguments": "{}"},
+        {"type": "toolCall", "id": "", "name": "bash", "arguments": {}},
+        {"type": "toolCall", "id": "t", "name": "bash", "arguments": "{}"},
+        {"type": "fancy", "payload": 1},
         {"type": ""},
     ),
 )
@@ -1040,17 +1059,19 @@ def test_omp_transport_error_update_admitted_with_matching_stop_and_recovery():
 def test_omp_transport_agent_end_is_terminal_semantics(
     terminal_value: bool | None,
 ):
+    lines = _fixture_lines()
+    pre_terminal = b"\n".join(lines[:11]) + b"\n"  # through turn_end
     agent_end = {"type": "agent_end", "messages": []}
     if terminal_value is not None:
         agent_end["isTerminal"] = terminal_value
     accumulator = _new_accumulator(expectation=_expectation())
-    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(pre_terminal)
     accumulator.feed(_jsonl(agent_end) + b"\n")
-    frame = _launch_frame(_header_id(TRANSIENT))
     if terminal_value is False:
-        # Nonterminal returns to streaming: a later terminal is still required.
+        # Nonterminal returns to streaming pre-settlement: a later terminal
+        # end is still required before the adapter frame.
         accumulator.feed(_jsonl({"type": "agent_end", "messages": []}) + b"\n")
-    accumulator.feed(_jsonl(frame) + b"\n")
+    accumulator.feed(_jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n")
 
     metadata, error = _finalize(accumulator)
 
@@ -1058,10 +1079,24 @@ def test_omp_transport_agent_end_is_terminal_semantics(
     assert metadata is not None
 
 
-def test_omp_transport_nonterminal_agent_end_returns_to_streaming():
+def test_omp_transport_nonterminal_agent_end_after_settlement_fails():
     accumulator = _new_accumulator(expectation=_expectation())
     accumulator.feed(_fixture(TRANSIENT))
-    accumulator.feed(_jsonl({"type": "agent_end", "messages": [], "isTerminal": False}) + b"\n")
+    accumulator.feed(
+        _jsonl({"type": "agent_end", "messages": [], "isTerminal": False}) + b"\n"
+    )
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
+
+
+def test_omp_transport_nonterminal_agent_end_never_reopens_streaming():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl({"type": "agent_end", "messages": [], "isTerminal": False}) + b"\n"
+    )
     accumulator.feed(_jsonl({"type": "turn_start"}) + b"\n")
     accumulator.feed(
         _jsonl({"type": "message_start", "message": {"role": "assistant"}}) + b"\n"
@@ -1072,11 +1107,9 @@ def test_omp_transport_nonterminal_agent_end_returns_to_streaming():
         _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
     )
 
-    metadata, error = _finalize(accumulator)
+    _, error = _finalize(accumulator)
 
-    assert error is None
-    assert metadata is not None
-    assert metadata["event_count"] == 16
+    _assert_transport_error(error)
 
 
 def test_omp_transport_terminal_requires_last_closed_assistant_stop():
@@ -1100,7 +1133,7 @@ def test_omp_transport_terminal_requires_last_closed_assistant_stop():
 def test_omp_transport_terminal_requires_last_assistant_without_tool_call():
     event = _minimal_assistant_message_end()
     event["message"]["content"] = [
-        {"type": "tool_call", "id": "t", "name": "bash", "arguments": {}}
+        {"type": "toolCall", "id": "t", "name": "bash", "arguments": {}}
     ]
     lines = _fixture_lines()
     head = b"\n".join(lines[:6]) + b"\n"  # through assistant message_start
@@ -1184,14 +1217,13 @@ def test_omp_transport_late_custom_pairs_are_tolerated_after_settlement():
         assistant_text_callback=emitted.append,
     )
     accumulator.feed(_fixture(TRANSIENT))
-    custom_start = _jsonl(
-        {"type": "custom", "message": {"role": "custom", "content": []}}
+    accumulator.feed(
+        _jsonl({"type": "message_start", "message": {"role": "custom"}}) + b"\n"
     )
-    accumulator.feed(custom_start + b"\n")
     accumulator.feed(
         _jsonl(
             {
-                "type": "custom",
+                "type": "message_end",
                 "message": {"role": "custom", "content": []},
             }
         )
@@ -1210,12 +1242,93 @@ def test_omp_transport_late_custom_pairs_are_tolerated_after_settlement():
     assert emitted == ["OK"]
 
 
-def test_omp_transport_custom_before_settlement_fails():
+def test_omp_transport_custom_outer_event_is_opaque_count_only():
     accumulator = _new_accumulator(expectation=_expectation())
     head = b"\n".join(_fixture_lines()[:11]) + b"\n"
     accumulator.feed(head)
     accumulator.feed(
         _jsonl({"type": "custom", "message": {"role": "custom"}}) + b"\n"
+    )
+    accumulator.feed(_jsonl({"type": "agent_end", "messages": []}) + b"\n")
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert error is None
+    assert metadata is not None
+    assert metadata["event_count"] == 12
+
+
+def test_omp_transport_late_custom_pair_requires_role_custom():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl({"type": "message_start", "message": {"role": "assistant"}}) + b"\n"
+    )
+    accumulator.feed(
+        _jsonl({"type": "message_end", "message": {"role": "assistant"}}) + b"\n"
+    )
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
+
+
+def test_omp_transport_late_custom_pair_orphan_overlap_mismatch_fail():
+    orphan = _new_accumulator(expectation=_expectation())
+    orphan.feed(_fixture(TRANSIENT))
+    orphan.feed(
+        _jsonl({"type": "message_end", "message": {"role": "custom"}}) + b"\n"
+    )
+
+    _, orphan_error = _finalize(orphan, require_terminal=False)
+
+    _assert_transport_error(orphan_error)
+
+    mismatch = _new_accumulator(expectation=_expectation())
+    mismatch.feed(_fixture(TRANSIENT))
+    mismatch.feed(
+        _jsonl({"type": "message_start", "message": {"role": "custom"}}) + b"\n"
+    )
+    mismatch.feed(
+        _jsonl({"type": "message_end", "message": {"role": "user"}}) + b"\n"
+    )
+
+    _, mismatch_error = _finalize(mismatch, require_terminal=False)
+
+    _assert_transport_error(mismatch_error)
+
+    overlap = _new_accumulator(expectation=_expectation())
+    overlap.feed(_fixture(TRANSIENT))
+    overlap.feed(
+        _jsonl({"type": "message_start", "message": {"role": "custom"}}) + b"\n"
+    )
+    overlap.feed(
+        _jsonl({"type": "message_start", "message": {"role": "custom"}}) + b"\n"
+    )
+
+    _, overlap_error = _finalize(overlap, require_terminal=False)
+
+    _assert_transport_error(overlap_error)
+
+
+def test_omp_transport_late_custom_pair_malformed_outer_fails_closed():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl(
+            {
+                "type": "message_start",
+                "message": {"role": "custom"},
+                "extra": 1,
+            }
+        )
+        + b"\n"
+    )
+    accumulator.feed(
+        _jsonl({"type": "message_end", "message": {"role": "custom"}}) + b"\n"
     )
 
     _, error = _finalize(accumulator, require_terminal=False)
@@ -1476,6 +1589,8 @@ def test_omp_transport_zero_closed_assistant_messages_fails():
         {"binary": {"platform": "darwin"}},
         {"session": {"id": "other-id", "visit_key": None, "primary_relpath": None, "primary_sha256": None}},
         {"child": {"argv": [], "cwd": "relative", "env_names": [], "exit_code": 0}},
+        {"child": {"argv": ["omp"], "cwd": "/tmp", "env_names": [], "exit_code": 0}},
+        {"child": {"argv": [], "cwd": "/tmp", "env_names": [], "exit_code": 1}},
         {"child": {"argv": [], "cwd": "/tmp", "env_names": [], "exit_code": 0, "surprise": 1}},
         {"child": {"argv": [], "cwd": "/tmp", "env_names": [], "exit_code": "0"}},
         {"observed": {"advisor_relpaths": [], "child_relpaths": ["x"]}},
@@ -1829,7 +1944,7 @@ def test_omp_transport_metadata_never_contains_assistant_text_or_payloads():
     message["content"] = [
         {"type": "text", "text": secret_text},
         {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"},
-        {"type": "tool_call", "id": "t", "name": "bash", "arguments": {"command": "cat /etc/passwd"}},
+        {"type": "toolCall", "id": "t", "name": "bash", "arguments": {"command": "cat /etc/passwd"}},
     ]
     accumulator = _new_accumulator(expectation=_expectation())
     accumulator.feed(_stream_with_extra_assistant_lifecycle(message))
