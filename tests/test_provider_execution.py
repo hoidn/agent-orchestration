@@ -2125,3 +2125,64 @@ def test_omp_profile_prepare_uses_per_invocation_empty_cwd(tmp_path) -> None:
     )
     assert error is None, error
     assert invocation is not None
+
+
+def test_omp_fresh_revalidation_rejects_drifted_non_primary_entry(tmp_path) -> None:
+    """Finding 2 (T5-SEC-006): the parent final acceptance derives inventory
+    AND the primary journal on ONE retained visit fd; a racer that changes a
+    non-primary entry between the observation scan and finalization must fail
+    the launch even though the primary journal still matches."""
+    import hashlib
+
+    from orchestrator.providers.omp_launch import binary_projection
+    from orchestrator.providers.omp_launch_fs import session_dir_identity
+    from orchestrator.providers.omp_pin import OMP_BINARY_PIN
+    from orchestrator.providers.types import OmpTransportExpectation
+
+    env = _omp_profile_env(tmp_path)
+    session_dir = tmp_path / "visits" / "step-1__v1.live"
+    session_dir.mkdir(parents=True)
+    session_dir.chmod(0o700)
+    session_id = "a" * 32
+    journal = session_dir / f"session_{session_id}.jsonl"
+    journal.write_text("payload", encoding="utf-8")
+    identity = session_dir_identity(str(session_dir))
+    expectation = OmpTransportExpectation(
+        lane="no-tools",
+        persistence="fresh",
+        binary=binary_projection(OMP_BINARY_PIN),
+        visit_key="v1",
+        session_dir_identity=identity,
+        confinement_policy_sha256="0" * 64,
+    )
+    invocation = ProviderInvocation(
+        command=[
+            sys.executable, "-m", "orchestrator.providers.omp_launch",
+            "run", "--lane", "omp_no_tools", "--model", "m",
+        ],
+        input_mode=InputMode.STDIN,
+        env=env,
+        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir=str(session_dir),
+        omp_transport_expectation=expectation,
+    )
+    framed_sha = hashlib.sha256(journal.read_bytes()).hexdigest()
+    provider_session = {
+        "launch_frame": {
+            "session": {
+                "id": session_id,
+                "primary_relpath": journal.name,
+                "primary_sha256": framed_sha,
+            },
+            "observed": {"advisor_relpaths": [], "child_relpaths": [journal.name]},
+        }
+    }
+    # Racer mutates a NON-primary entry after the observation scan: the
+    # primary journal still matches, but the final one-fd acceptance must
+    # fail because the derived inventory drifted.
+    (session_dir / "note.txt").write_text("racer", encoding="utf-8")
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    error = executor._revalidate_fresh_session(invocation, provider_session)
+    assert error is not None, "non-primary drift must fail the final acceptance"
+    assert error["type"] == "session_revalidation_failed", error

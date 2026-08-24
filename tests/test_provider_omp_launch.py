@@ -1716,3 +1716,177 @@ def test_verify_root_identity_admits_distinct_superblocks(tmp_path, monkeypatch)
     finally:
         for fd in fds:
             os.close(fd)
+
+
+# ---------------------------------------------------------------------------
+# Task 5 review fix round 4: retained-fd statx mount ids + one-fd final
+# parent acceptance (RED-first regression suite)
+# ---------------------------------------------------------------------------
+
+
+def test_fd_mount_id_reports_real_mount_for_retained_fd(tmp_path) -> None:
+    """Finding 1 (T5-SEC-003): the retained-fd statx path yields real,
+    consistent mount ids without any pathname or /proc lookup."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    first = tmp_path / "a"
+    first.mkdir()
+    second = tmp_path / "b"
+    second.mkdir()
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (first, second)]
+    try:
+        ids = [policy._fd_mount_id(fd) for fd in fds]
+        assert ids[0] == ids[1], "sibling dirs share one mount"
+        assert isinstance(ids[0], int) and ids[0] > 0
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_rejects_bind_alias_between_write_roots(tmp_path, monkeypatch) -> None:
+    """Finding 1 (T5-SEC-003): write x write pairs must also reject a
+    same-superblock different-mount alias, even with equal rights masks."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    data_dir = tmp_path / "data-root"
+    data_dir.mkdir()
+    state_dir = tmp_path / "state-root"
+    state_dir.mkdir()
+    rows = [("write", "data", str(data_dir)), ("write", "state", str(state_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (data_dir, state_dir)]
+    try:
+        monkeypatch.setattr(
+            policy, "_fd_mount_id",
+            lambda fd: 11 if fd == fds[0] else 22,
+        )
+        with pytest.raises(policy.LaunchFsError, match="bind"):
+            policy.verify_root_identity_relations(rows, fds)
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_rejects_bind_alias_of_guarded_root(tmp_path, monkeypatch) -> None:
+    """Finding 1 (T5-SEC-003): a write root on the same superblock as a
+    guarded root but under a different mount is a bind alias and fails."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        monkeypatch.setattr(
+            policy, "_fd_mount_id",
+            lambda fd: 11 if fd == fds[0] else 22,
+        )
+        with pytest.raises(policy.LaunchFsError, match="bind"):
+            policy.verify_root_identity_relations(rows, fds)
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_admits_sibling_roots_on_one_mount(tmp_path) -> None:
+    """Finding 1: ordinary same-superblock same-mount siblings stay admissible."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        policy.verify_root_identity_relations(rows, fds)  # no raise
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_verify_root_identity_admits_distinct_superblocks(tmp_path, monkeypatch) -> None:
+    """Finding 1: legitimate separate-superblock roots (tmpfs, other
+    partitions) skip the alias check entirely and stay admissible."""
+    from orchestrator.providers import omp_launch_policy as policy
+
+    guarded = tmp_path / "guarded"
+    guarded.mkdir()
+    write_dir = tmp_path / "write-root"
+    write_dir.mkdir()
+    rows = [("protected", "omp-home", str(guarded)),
+            ("write", "data", str(write_dir))]
+    fds = [os.open(str(path), os.O_RDONLY | os.O_DIRECTORY)
+           for path in (guarded, write_dir)]
+    try:
+        monkeypatch.setattr(policy, "_fd_is_same_superblock", lambda a, b: False)
+        monkeypatch.setattr(
+            policy, "_fd_mount_id",
+            lambda fd: (_ for _ in ()).throw(
+                AssertionError("mount lookup must be skipped")
+            ),
+        )
+        policy.verify_root_identity_relations(rows, fds)  # no raise
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_parent_final_acceptance_admits_matching_visit(tmp_path) -> None:
+    """Finding 2 (T5-SEC-006): inventory + primary accepted on ONE retained fd."""
+    from orchestrator.providers.omp_launch_fs import (
+        accept_fresh_session_fd,
+        primary_journal_identity,
+        session_dir_identity,
+    )
+    from orchestrator.providers.omp_launch_policy import open_session_dir_verified
+
+    live = tmp_path / "v1.live"
+    live.mkdir()
+    live.chmod(0o700)
+    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
+    journal.write_text("payload", encoding="utf-8")
+    (live / "note.txt").write_text("extra", encoding="utf-8")
+    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
+    expected_observed = tuple(sorted(entry.name for entry in live.iterdir()))
+    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
+    try:
+        accept_fresh_session_fd(fd, SESSION_ID, expected_observed, relpath, sha)
+    finally:
+        os.close(fd)
+
+
+def test_parent_final_acceptance_rejects_drifted_non_primary_entry(tmp_path) -> None:
+    """Finding 2 (T5-SEC-006): a non-primary entry changed after the retained
+    fd was opened must fail the FINAL acceptance even though the primary
+    journal still matches (the observation scan alone is not acceptance)."""
+    from orchestrator.providers.omp_launch_fs import (
+        accept_fresh_session_fd,
+        primary_journal_identity,
+        session_dir_identity,
+    )
+    from orchestrator.providers.omp_launch_policy import (
+        LaunchFsError,
+        open_session_dir_verified,
+    )
+
+    live = tmp_path / "v1.live"
+    live.mkdir()
+    live.chmod(0o700)
+    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
+    journal.write_text("payload", encoding="utf-8")
+    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
+    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
+    try:
+        (live / "note.txt").write_text("racer", encoding="utf-8")
+        with pytest.raises(LaunchFsError, match="inventory"):
+            accept_fresh_session_fd(fd, SESSION_ID, (journal.name,), relpath, sha)
+    finally:
+        os.close(fd)

@@ -145,38 +145,8 @@ def _fd_is_descendant(ancestor_fd: int, descendant_fd: int) -> bool:
         os.close(current)
 
 
-_MOUNTINFO: tuple[tuple[str, int], ...] | None = None
-
-
-def _unmountescape(value: str) -> str:
-    return (
-        value.replace("\\040", " ")
-        .replace("\\011", "\t")
-        .replace("\\012", "\n")
-        .replace("\\134", "\\")
-    )
-
-
-def _mountinfo_entries() -> tuple[tuple[str, int], ...]:
-    """``(mount_point, mount_id)`` pairs parsed once from /proc/self/mountinfo."""
-    global _MOUNTINFO
-    if _MOUNTINFO is None:
-        entries = []
-        with open("/proc/self/mountinfo", encoding="utf-8") as handle:
-            for line in handle:
-                head, separator, _tail = line.partition(" - ")
-                if not separator:
-                    continue
-                fields = head.split()
-                if len(fields) < 6:
-                    continue
-                entries.append((_unmountescape(fields[4]), int(fields[0])))
-        _MOUNTINFO = tuple(entries)
-    return _MOUNTINFO
-
-
-def _mount_id_for_path(path: str) -> int:
-    """Mount id covering ``path`` (the longest mount-point prefix)."""
+def _fd_is_same_superblock(fd_a: int, fd_b: int) -> bool:
+    return os.fstat(fd_a).st_dev == os.fstat(fd_b).st_dev
     best_point = ""
     best_id: int | None = None
     for point, mount_id in _mountinfo_entries():
@@ -192,20 +162,83 @@ def _fd_is_same_superblock(fd_a: int, fd_b: int) -> bool:
     return os.fstat(fd_a).st_dev == os.fstat(fd_b).st_dev
 
 
+def _fd_mount_id(fd: int) -> int:
+    """``stx_mnt_id`` of the RETAINED fd via libc statx(fd, "", AT_EMPTY_PATH).
+
+    No pathname and no /proc lookup: the mount identity is read from the
+    already-opened directory object itself, so a mount-capable process that
+    swapped the pathname cannot make the check report a covering ordinary
+    mount while the fd still names the protected subtree. Kernels without
+    STATX_MNT_ID fail closed (the helper already requires Landlock ABI 3,
+    i.e. kernel >= 5.13, where the field is guaranteed).
+    """
+    import ctypes
+
+    class _StatxTimestamp(ctypes.Structure):
+        _fields_ = [("tv_sec", ctypes.c_int64), ("tv_nsec", ctypes.c_uint32)]
+
+    class _Statx(ctypes.Structure):
+        _fields_ = [
+            ("stx_mask", ctypes.c_uint32),
+            ("stx_blksize", ctypes.c_uint32),
+            ("stx_attributes", ctypes.c_uint64),
+            ("stx_nlink", ctypes.c_uint32),
+            ("stx_uid", ctypes.c_uint32),
+            ("stx_gid", ctypes.c_uint32),
+            ("stx_mode", ctypes.c_uint16),
+            ("__spare0", ctypes.c_uint16),
+            ("stx_ino", ctypes.c_uint64),
+            ("stx_size", ctypes.c_uint64),
+            ("stx_blocks", ctypes.c_uint64),
+            ("stx_attributes_mask", ctypes.c_uint64),
+            ("stx_atime", _StatxTimestamp),
+            ("stx_btime", _StatxTimestamp),
+            ("stx_ctime", _StatxTimestamp),
+            ("stx_mtime", _StatxTimestamp),
+            ("stx_rdev_major", ctypes.c_uint32),
+            ("stx_rdev_minor", ctypes.c_uint32),
+            ("stx_dev_major", ctypes.c_uint32),
+            ("stx_dev_minor", ctypes.c_uint32),
+            ("stx_mnt_id", ctypes.c_uint64),
+            ("stx_dio_mem_align", ctypes.c_uint32),
+            ("stx_dio_offset_align", ctypes.c_uint32),
+            ("__spare3", ctypes.c_uint64 * 12),
+        ]
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    buf = _Statx()
+    rc = libc.syscall(
+        332,  # SYS_statx (x86_64)
+        fd,
+        "",
+        0x1000,  # AT_EMPTY_PATH
+        0x1000,  # STATX_MNT_ID
+        ctypes.byref(buf),
+    )
+    if rc != 0:
+        raise LaunchFsError(
+            f"statx on the retained root fd failed: {ctypes.get_errno()}"
+        )
+    if not (buf.stx_mask & 0x1000):
+        raise LaunchFsError("kernel cannot report mount ids for the retained root fd")
+    return buf.stx_mnt_id
+
+
 def verify_root_identity_relations(
     rows: list[tuple[str, str, str]],
     fds: list[int],
 ) -> None:
-    """Reject duplicate opened identities, write-root nesting, and bind aliases.
+    """Reject duplicate opened identities, root nesting, and bind aliases.
 
     Every root was already opened no-follow; this binds the identity
     relations: two roots must not be the same directory, a write root must
     not equal or contain (or be contained in) a protected or read root, and
     two write roots must not be in an ancestor/descendant relation (e.g.
-    ``state`` nested below ``data``). A write root on the same superblock as
-    a guarded root but under a DIFFERENT mount is a bind-mounted alias view
-    of that filesystem and fails closed (T5-SEC-003); genuine separate
-    superblocks (tmpfs, other partitions) stay admissible.
+    ``state`` nested below ``data``). EVERY pair involving a write root
+    (write x guarded AND write x write, even with equal rights masks) must
+    not be a bind-mounted alias view: same superblock but a DIFFERENT mount
+    id read from the retained fd via statx fails closed; genuine separate
+    superblocks (tmpfs, other partitions) short-circuit admissible.
     """
     identities: dict[tuple[int, int], str] = {}
     for (role, label, path), fd in zip(rows, fds):
@@ -227,15 +260,20 @@ def verify_root_identity_relations(
         for (role, label, path), fd in zip(rows, fds)
         if role in ("protected", "read")
     ]
+    mount_ids: dict[int, int] = {}
+
+    def _mount_id(fd: int) -> int:
+        if fd not in mount_ids:
+            mount_ids[fd] = _fd_mount_id(fd)
+        return mount_ids[fd]
+
     for _wrole, wlabel, wpath, wfd in write_pairs:
         for _grole, glabel, gpath, gfd in guarded_pairs:
             if _fd_is_descendant(gfd, wfd) or _fd_is_descendant(wfd, gfd):
                 raise LaunchFsError(
                     f"write root {wlabel}={wpath!r} overlaps opened {glabel} root {gpath!r}"
                 )
-            if _fd_is_same_superblock(wfd, gfd) and (
-                _mount_id_for_path(wpath) != _mount_id_for_path(gpath)
-            ):
+            if _fd_is_same_superblock(wfd, gfd) and _mount_id(wfd) != _mount_id(gfd):
                 raise LaunchFsError(
                     f"write root {wlabel}={wpath!r} is a bind-mounted alias view "
                     f"of the {glabel} root's filesystem ({gpath!r})"
@@ -246,4 +284,9 @@ def verify_root_identity_relations(
                 raise LaunchFsError(
                     f"write root {wlabel}={wpath!r} overlaps opened write root "
                     f"{olabel}={opath!r}"
+                )
+            if _fd_is_same_superblock(wfd, ofd) and _mount_id(wfd) != _mount_id(ofd):
+                raise LaunchFsError(
+                    f"write root {wlabel}={wpath!r} is a bind-mounted alias view "
+                    f"of the {olabel} root's filesystem ({opath!r})"
                 )

@@ -575,3 +575,68 @@ adapter 479, `omp_launch_fs.py` 452, `omp_launch_policy.py` 249, helper 464
 - Real-binary e2e smokes (`-m e2e`, real pinned binary, real model calls):
   **3 passed**.
 - `py_compile` clean for all changed modules; `.tmp/` preserved untracked.
+
+## Round 4 (fix round 4/5, scoped re-review findings RED-first)
+
+### Findings and dispositions (binding source: `'/home/ollie/.omp/agent/sessions/-Documents-agent-orchestration/2026-08-20T18-42-51-430Z_01a0207b-ada6-7000-ac82-4001a26734bc/local/task5-round4-findings.md'`)
+
+1. **High — mount alias check was pathname/snapshot-racy (T5-SEC-003).**
+   Round 3's `_mount_id_for_path` mapped a pathname against a cached
+   `/proc/self/mountinfo` snapshot. A mount-capable process could open a
+   protected bind alias as the write fd, unmount/replace the pathname before
+   the lookup, and make the lookup report the covering ordinary mount while
+   the retained fd still names the protected subtree that receives the
+   Landlock rule. The alias check also did not cover write×write pairs.
+   **Disposition:** the mountinfo machinery was REMOVED (clean cutover, no
+   shim). `omp_launch_policy._fd_mount_id` now reads `stx_mnt_id` from each
+   RETAINED root fd via libc `statx(fd, "", AT_EMPTY_PATH, STATX_MNT_ID)`
+   — no pathname, no /proc trust, no snapshot. `verify_root_identity_relations`
+   applies the same-superblock + different-mount-id rejection to EVERY pair
+   involving a write root (write×guarded AND write×write, even with equal
+   rights masks per the binding ruling); genuine separate superblocks
+   short-circuit admissible and never hit the mount lookup. Kernels that
+   cannot report `STATX_MNT_ID` fail closed (guaranteed on Landlock-ABI-3
+   kernels, >= 5.13). Verified live: real mount id 33 for tmp dirs.
+2. **Important — parent final inventory/primary acceptance used separate
+   opens/times (T5-SEC-006).** `_omp_fresh_observed_accumulator` scanned the
+   visit (separate open), then `_revalidate_fresh_session` re-opened and
+   revalidated only the PRIMARY journal. A racer could change a NON-primary
+   entry between the phases while the primary still matched.
+   **Disposition:** new `omp_launch_fs.accept_fresh_session_fd` performs the
+   FINAL acceptance on one retained, identity-checked visit fd at one
+   instant: derive the inventory, require it to equal the adapter frame's
+   observed `child_relpaths`, then derive and require the one-link primary
+   relpath + bounded sha256. `_revalidate_fresh_session` now opens once via
+   `open_session_dir_verified` and delegates to it; the earlier accumulator
+   scan remains only for observation construction, not acceptance.
+
+### RED-first evidence (on `ce0cd140` before production edits)
+
+- `test_fd_mount_id_reports_real_mount_for_retained_fd`,
+  `test_verify_root_identity_rejects_bind_alias_between_write_roots`,
+  `test_verify_root_identity_rejects_bind_alias_of_guarded_root`,
+  `test_verify_root_identity_admits_distinct_superblocks`:
+  AttributeError (`_fd_mount_id` absent).
+- `test_parent_final_acceptance_admits_matching_visit`,
+  `test_parent_final_acceptance_rejects_drifted_non_primary_entry`:
+  ImportError (`accept_fresh_session_fd` absent).
+- `test_omp_fresh_revalidation_rejects_drifted_non_primary_entry`
+  (execution suite): `_revalidate_fresh_session` returned None — the
+  non-primary drift slipped through exactly as the finding described.
+- `test_verify_root_identity_admits_sibling_roots_on_one_mount` stayed
+  GREEN on base (real same-mount siblings) and remains the regression guard.
+
+### Verification (round-4 worktree HEAD)
+
+- Round-4 selectors: launch suite 7/7 RED-then-GREEN (plus the preserved
+  sibling-roots guard); execution suite 1/1 RED-then-GREEN.
+- Affected suites: `test_provider_omp_launch.py` + `test_provider_execution.py`
+  **144 passed**.
+- Brief verification gate (launch, templates, assets, call-policy,
+  execution, integration, state-manager, at72, shared-validation):
+  **419 passed**.
+- Real-binary e2e smokes (`-m e2e`, real pinned binary, real model calls):
+  **3 passed**.
+- `py_compile` clean for all changed modules; line counts at round-4 commit
+  time: adapter 479, `omp_launch_fs.py` 474, `omp_launch_policy.py` 292,
+  helper 464 (all ≤ 500); `.tmp/` preserved untracked.

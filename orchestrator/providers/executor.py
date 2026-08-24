@@ -3134,21 +3134,44 @@ class ProviderExecutor:
                 "message": "fresh OMP frame lacks a 64-hex primary sha256",
                 "context": {},
             }
+        framed_observed = (provider_session.get("launch_frame") or {}).get(
+            "observed"
+        )
+        framed_child_relpaths = (
+            framed_observed.get("child_relpaths") if isinstance(framed_observed, dict) else None
+        )
+        if not isinstance(framed_child_relpaths, list):
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame lacks an observed child_relpaths list",
+                "context": {},
+            }
+        if any(not isinstance(relpath, str) or not relpath for relpath in framed_child_relpaths):
+            return {
+                "type": "session_revalidation_failed",
+                "message": "fresh OMP frame observed relpaths are invalid",
+                "context": {},
+            }
         try:
-            from .omp_launch_fs import LaunchFsError, revalidate_primary_journal_fd
+            from .omp_launch_fs import LaunchFsError, accept_fresh_session_fd
             from .omp_launch_policy import open_session_dir_verified
 
-            # ONE opened visit fd (T5-SEC-006): identity compare and the
-            # descriptor-relative journal re-derivation share the same
-            # retained no-follow directory object, so a same-UID swap
+            # ONE opened visit fd (T5-SEC-006): identity compare, inventory
+            # derivation, and the descriptor-relative primary re-derivation
+            # share the same retained no-follow directory object at the same
+            # final instant, so a same-UID swap or non-primary mutation
             # between checks cannot redirect attribution.
             dir_fd = open_session_dir_verified(
                 invocation.provider_session_dir,
                 expectation.session_dir_identity,
             )
             try:
-                revalidate_primary_journal_fd(
-                    dir_fd, framed_id, framed_relpath, framed_sha256
+                accept_fresh_session_fd(
+                    dir_fd,
+                    framed_id,
+                    tuple(framed_child_relpaths),
+                    framed_relpath,
+                    framed_sha256,
                 )
             finally:
                 os.close(dir_fd)

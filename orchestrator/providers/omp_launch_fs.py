@@ -406,6 +406,28 @@ def primary_journal_identity(session_dir: str, session_id: str) -> tuple[str, st
         os.close(dir_fd)
 
 
+def accept_fresh_session_fd(
+    dir_fd: int,
+    session_id: str,
+    expected_observed: tuple[str, ...],
+    expected_relpath: str,
+    expected_sha256: str,
+) -> None:
+    """FINAL one-fd parent acceptance (T5-SEC-006).
+
+    On one retained, identity-checked visit fd at one instant, derives the
+    inventory, requires it to equal the adapter frame's observed relpaths,
+    then derives the one-link primary journal and requires relpath + bounded
+    sha256 to agree with the framed values. A racer that changes a NON-primary
+    entry between the observation scan and finalization fails here even when
+    the primary journal still matches.
+    """
+    observed = session_inventory_fd(dir_fd)
+    if tuple(observed) != tuple(expected_observed):
+        raise LaunchFsError("fresh session inventory drifted from the adapter frame")
+    revalidate_primary_journal_fd(dir_fd, session_id, expected_relpath, expected_sha256)
+
+
 def revalidate_primary_journal_fd(
     dir_fd: int,
     session_id: str,
