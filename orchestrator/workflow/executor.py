@@ -7701,14 +7701,22 @@ class WorkflowExecutor:
                 metadata_mode
                 == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
             )
+            # OMP JSON transport is memory-only: the compatibility spool stays
+            # empty and is removed on every finalized OMP fresh visit.
             retain_transport_spool = (
                 self.debug or finalized.get("exit_code", 0) != 0
             ) and not omp_fresh
             parser_summary = {}
             if isinstance(provider_debug, dict):
-                event_count = provider_debug.get("event_count")
-                if isinstance(event_count, int):
-                    parser_summary["event_count"] = event_count
+                # Persist the complete minimized provider_session projection
+                # (not only event_count/session_id); the projection is
+                # credential-free by construction.
+                for key in (
+                    "session_id", "event_count", "messages", "total_tokens",
+                    "total_cost", "final_provider", "final_model", "launch_frame",
+                ):
+                    if key in provider_debug:
+                        parser_summary[key] = provider_debug[key]
             self._finalize_active_provider_session(
                 step_name,
                 step_status=str(finalized.get("status", "failed")),
@@ -9572,7 +9580,27 @@ class WorkflowExecutor:
                             )
                         )
                         if is_omp:
-                            session_dir.mkdir(parents=True, exist_ok=True)
+                            # Exclusive no-follow creation; a preplanted or
+                            # pre-existing visit dir fails the step closed.
+                            session_dir.parent.mkdir(parents=True, exist_ok=True)
+                            try:
+                                session_dir.mkdir(mode=0o700)
+                            except FileExistsError:
+                                raise RuntimeError(
+                                    f"OMP fresh visit directory already exists: {session_dir}"
+                                ) from None
+                            live_fd = os.open(
+                                session_dir,
+                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            )
+                            try:
+                                live_st = os.fstat(live_fd)
+                                if live_st.st_uid != os.getuid() or live_st.st_mode & 0o077:
+                                    raise RuntimeError(
+                                        f"OMP fresh visit directory is not private: {session_dir}"
+                                    )
+                            finally:
+                                os.close(live_fd)
                         provider_session_dir = str(session_dir)
 
             invocation, error = self.provider_executor.prepare_invocation(
@@ -9944,8 +9972,6 @@ class WorkflowExecutor:
             if provider_session_payload:
                 debug_info.setdefault('provider_session', {}).update({
                     'mode': session_request.mode.value if session_request is not None else None,
-                    'session_id': provider_session_payload.get('session_id'),
-                    'event_count': provider_session_payload.get('event_count'),
                     'command_variant': getattr(invocation, 'command_variant', None),
                     'metadata_mode': getattr(invocation, 'metadata_mode', None),
                     'metadata_path': session_runtime.get('metadata_path') if isinstance(session_runtime, dict) else None,
@@ -9955,6 +9981,9 @@ class WorkflowExecutor:
                         else None
                     ),
                 })
+                # Task 5 fix round: persist the complete minimized projection
+                # (credential-free by construction), not just ids/counts.
+                debug_info['provider_session'].update(provider_session_payload)
             elif isinstance(session_runtime, dict):
                 debug_info.setdefault('provider_session', {}).update({
                     'mode': session_request.mode.value if session_request is not None else None,

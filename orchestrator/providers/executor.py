@@ -468,6 +468,7 @@ class ProviderExecutor:
             empty_omp_cwd,
             neutral_conf_root,
         )
+        from .omp_launch_fs import LaunchFsError, create_empty_omp_cwd, session_inventory
         from .omp_pin import OMP_BINARY_PIN
         from .omp_write_confinement import canonical_policy_digest
 
@@ -506,11 +507,19 @@ class ProviderExecutor:
             else:
                 conf_root = neutral_conf_root()
             try:
-                conf_manifest = admit_conf_tree(conf_root).manifest_sha256
+                conf_fd = os.open(conf_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            except OSError as exc:
+                return None, self._omp_expectation_error(
+                    f"cannot open the OMP conf root: {exc}"
+                )
+            try:
+                conf_manifest = admit_conf_tree(conf_fd).manifest_sha256
             except (OSError, TypeError, ValueError) as exc:
                 return None, self._omp_expectation_error(
                     f"cannot admit the OMP conf root: {exc}"
                 )
+            finally:
+                os.close(conf_fd)
             merged_env = os.environ.copy()
             if env:
                 merged_env.update(env)
@@ -542,6 +551,12 @@ class ProviderExecutor:
                 env_roots=env_roots,
             )
             try:
+                create_empty_omp_cwd(empty_cwd)
+            except LaunchFsError as exc:
+                return None, self._omp_expectation_error(
+                    f"cannot prepare the empty OMP cwd: {exc}"
+                )
+            try:
                 confinement_digest = canonical_policy_digest(
                     lane=lane,
                     home_omp=os.path.join(home, ".omp"),
@@ -555,6 +570,15 @@ class ProviderExecutor:
                 return None, self._omp_expectation_error(
                     f"cannot derive the OMP confinement digest: {exc}"
                 )
+        # The adapter frame records post-wrapper sys.argv[1:]; freeze exactly
+        # that slice, verifying the code-owned wrapper prefix first so a
+        # forged command can never pass a frame-vs-expectation mismatch.
+        wrapper = (sys.executable, "-m", "orchestrator.providers.omp_launch")
+        if tuple(command[:3]) != wrapper:
+            return None, self._omp_expectation_error(
+                "OMP command must start with the code-owned launch wrapper"
+            )
+        child_argv = tuple(command[3:])
         try:
             expectation = OmpTransportExpectation(
                 lane=lane,
@@ -562,7 +586,7 @@ class ProviderExecutor:
                 binary=binary_projection(OMP_BINARY_PIN),
                 stdout_session_id=None,
                 visit_key=visit_key,
-                child_argv=tuple(command),
+                child_argv=child_argv,
                 conf_manifest_sha256=conf_manifest,
                 confinement_policy_sha256=confinement_digest,
             )
@@ -2630,6 +2654,7 @@ class ProviderExecutor:
                 stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                start_new_session=True,
             )
 
             if stdin_input is not None and process.stdin is not None:
@@ -2698,7 +2723,7 @@ class ProviderExecutor:
                 stdout_thread.join()
                 stderr_thread.join()
             except subprocess.TimeoutExpired:
-                process.kill()
+                self._terminate_process_tree(process)
                 process.wait()
                 stdout_thread.join()
                 stderr_thread.join()
@@ -2859,8 +2884,10 @@ class ProviderExecutor:
         ):
             return None
         try:
-            observed = tuple(sorted(os.listdir(invocation.provider_session_dir)))
-        except OSError:
+            from .omp_launch_fs import LaunchFsError, session_inventory
+
+            observed = session_inventory(invocation.provider_session_dir)
+        except (LaunchFsError, OSError):
             return None
         return create_session_transport_accumulator(
             invocation.metadata_mode,

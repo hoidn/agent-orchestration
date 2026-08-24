@@ -1550,7 +1550,7 @@ def _omp_invocation(*, expectation=None, **overrides) -> ProviderInvocation:
 def test_command_metadata_mode_initializes_invocation_and_session_overrides():
     provider = ProviderTemplate(
         name="omp",
-        command=["omp", "--no-session"],
+        command=[sys.executable, "-m", "orchestrator.providers.omp_launch", "--no-session"],
         input_mode=InputMode.STDIN,
         command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
     )
@@ -1574,13 +1574,15 @@ def test_command_metadata_mode_initializes_invocation_and_session_overrides():
 
     session_provider = ProviderTemplate(
         name="omp-session",
-        command=["omp", "--no-session"],
+        command=[sys.executable, "-m", "orchestrator.providers.omp_launch", "--no-session"],
         input_mode=InputMode.STDIN,
         command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
         session_support=ProviderSessionSupport(
             metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
             fresh_command=[
-                "omp",
+                sys.executable,
+                "-m",
+                "orchestrator.providers.omp_launch",
                 "--session",
                 "--provider-session-dir",
                 "${PROVIDER_SESSION_DIR}",
@@ -1909,3 +1911,36 @@ def test_omp_transport_malformed_line_cannot_settle_across_routes(
     else:
         assert result.error["type"] == "provider_session_transport_error"
     assert result.stdout != b"OK"
+
+
+def test_omp_timeout_kills_the_whole_process_group(tmp_path):
+    """Timeout must SIGKILL the entire provider process group (finding 12).
+
+    The OMP adapter spawns the OMP child as its grandchild; killing only the
+    wrapper leaves the grandchild holding the stdout pipe, so the executor's
+    pipe joins never complete and the invocation hangs past the timeout.
+    """
+    wrapper = (
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        "time.sleep(60)\n"
+    )
+    invocation = _omp_invocation(
+        command=[sys.executable, "-c", wrapper],
+        timeout_sec=2,
+    )
+    executor = ProviderExecutor(tmp_path, ProviderRegistry())
+
+    results: dict = {}
+
+    def _run() -> None:
+        results["result"] = executor.execute(invocation)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=20)
+
+    assert not thread.is_alive(), "timeout must kill the group and return"
+    result = results.get("result")
+    assert result is not None
+    assert result.exit_code == 124

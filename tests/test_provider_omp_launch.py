@@ -15,6 +15,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -67,13 +68,46 @@ def _fake_pin() -> OmpBinaryPin:
     )
 
 
+def _fake_launcher() -> Path:
+    """Compile (once per session) the native fake launcher.
+
+    The confined helper execs the verified private copy through a descriptor
+    (execveat with AT_EMPTY_PATH), which the kernel refuses for shebang
+    scripts. The production pinned binary is a native ELF, so the fixture
+    needs a native launcher that hands control to the python fake with the
+    script path embedded at compile time.
+    """
+    src = Path(__file__).parent / "fixtures" / "omp" / "fake_launcher.c"
+    cache = Path(os.getcwd()) / ".tmp" / "omp-fake-launcher"
+    cache.mkdir(parents=True, exist_ok=True)
+    launcher = cache / "fake_launcher"
+    if not launcher.exists() or launcher.stat().st_mtime < src.stat().st_mtime:
+        script = str(_FAKE_SOURCE.resolve())
+        subprocess.run(
+            ["cc", "-O1", "-o", str(launcher), str(src), f'-DOMP_FAKE_SCRIPT="{script}"'],
+            check=True,
+            capture_output=True,
+            env={**os.environ, "TMPDIR": str(cache)},  # /tmp can be full
+        )
+        launcher.chmod(0o700)  # the adapter rejects group/other-writable sources
+    return launcher
+
+
+def _launcher_pin() -> OmpBinaryPin:
+    return dataclasses.replace(
+        _fake_pin(), executable_sha256=_sha256_file(_fake_launcher())
+    )
+
+
 def _make_home(root: Path) -> Path:
     agents = root / "home" / ".omp" / "agent" / "agents"
     agents.mkdir(parents=True)
     (agents / "custom.md").write_text(
         "---\nname: custom\ndescription: test agent\n---\nbody\n", encoding="utf-8"
     )
-    return root / "home"
+    home = root / "home"
+    home.chmod(0o700)  # a real private home; the machine umask is not 0o022
+    return home
 
 
 def _make_conf(root: Path) -> Path:
@@ -210,6 +244,29 @@ def _expectation(pin, argv, *, lane="ambient", persistence="none", session_dir=N
     return OmpTransportExpectation(**kwargs)
 
 
+def _frozen_profile_expectation(pin, argv, *, lane, env, conf_root=None,
+                                session_dir=None, visit_key=None,
+                                persistence="none", observed=()):
+    """Freeze the profile expectation before the run, like the parent does.
+
+    Production freezes the expectation (and the empty-cwd directory identity)
+    at prepare time, before the adapter executes; the adapter then removes the
+    exclusive empty cwd at run end. Tests must capture the expectation while
+    the directory still exists.
+    """
+    if conf_root is None and lane in ("no-tools", "conf", "conf-inference"):
+        conf_root = str(omp_launch.neutral_conf_root())
+    empty_cwd = omp_launch.empty_omp_cwd(
+        home=env["HOME"], lane=lane, workspace=str(workspace_path),
+        session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
+    )
+    omp_launch.create_empty_omp_cwd(empty_cwd)
+    return _expectation(
+        pin, argv, lane=lane, persistence=persistence, session_dir=session_dir,
+        conf_root=conf_root, env=env, visit_key=visit_key, observed=observed,
+    )
+
+
 #: populated by the fixture below; keeps expectation builders compact
 workspace_path: Path = Path(".")
 
@@ -259,7 +316,8 @@ def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     env = _std_env(home, tmp_path)
     pin = _fake_pin()
     argv = _adapter_argv("omp")
-    stdin = _control()
+    token_file = tmp_path / "token.out"
+    stdin = _control(token_file=str(token_file))
 
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=stdin, pin=pin, out=out, err=err)
@@ -272,9 +330,14 @@ def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     assert json.loads(reports["AGENTS"][0]) == ["agents"]
     broker = json.loads(reports["BROKER"][0])
     assert _BROKER_URL_RE.fullmatch(broker["url"])
-    assert _HEX64_RE.fullmatch(broker["token"])
-    assert broker["token"] != "caller-token-must-not-leak"
+    # The relay redacts the generated token from the child stderr, so the
+    # broker report reaches us scrubbed; the token itself is observable only
+    # through the fake's side channel.
+    assert broker["token"] == "[redacted]"
     assert broker["agent_dir"] == str(home / ".omp" / "agent")
+    generated = token_file.read_text(encoding="utf-8")
+    assert _HEX64_RE.fullmatch(generated)
+    assert generated != "caller-token-must-not-leak"
 
     frame = _assert_success(
         rc=rc, out=out, err=err,
@@ -371,7 +434,9 @@ def _profile_assertions(reports, env, home, lane, *, session_dir=None, workspace
         session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
     )
     assert reports["CWD"][0] == empty_cwd
-    assert os.listdir(empty_cwd) == []
+    # The adapter removes the exclusive empty cwd at run end (the confined
+    # child holds it read-only, so the rmdir is deterministic).
+    assert not os.path.exists(empty_cwd)
     assert set(json.loads(reports["ENV"][0])) == _POSITIVE_ENV_NAMES
     for secret in ("SECRET_CANARY", "LD_PRELOAD", "caller-token"):
         assert secret not in reports["ENV"][0] + reports["BROKER"][0]
@@ -402,18 +467,20 @@ def _profile_assertions(reports, env, home, lane, *, session_dir=None, workspace
 def test_profile_no_tools_confined_probe_and_child(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    pin = _fake_pin()
+    pin = _launcher_pin()
     argv = _adapter_argv("omp_no_tools")
+    expectation = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env,
+        conf_root=str(omp_launch.neutral_conf_root()),
+    )
 
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
-              pin=pin, out=out, err=err)
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
     empty_cwd = _profile_assertions(reports, env, home, "no-tools")
 
-    conf_root = str(omp_launch.neutral_conf_root())
-    expectation = _expectation(pin, argv, lane="no-tools", env=env, conf_root=conf_root)
     frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
     assert frame["child"]["cwd"] == empty_cwd
     assert frame["confinement"] == {
@@ -428,47 +495,51 @@ def test_profile_conf_lane_add_dir(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     conf_root = _make_conf(tmp_path)
-    pin = _fake_pin()
+    pin = _launcher_pin()
     argv = _adapter_argv("omp_conf", conf_root=str(conf_root))
+    expectation = _frozen_profile_expectation(
+        pin, argv, lane="conf", env=env, conf_root=str(conf_root),
+    )
 
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
-              pin=pin, out=out, err=err)
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == [
         "--no-session", "--mode=json", "--model", MODEL, "--add-dir", str(workspace_path),
     ]
     _profile_assertions(reports, env, home, "conf", workspace_add=True, conf_root=str(conf_root))
-    _assert_success(
-        rc=rc, out=out, err=err,
-        expectation=_expectation(pin, argv, lane="conf", env=env, conf_root=str(conf_root)),
-    )
+    _assert_success(rc=rc, out=out, err=err, expectation=expectation)
 
 
 def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    pin = _fake_pin()
+    pin = _launcher_pin()
 
     argv = _adapter_argv("omp_conf_inference")
+    expectation = _frozen_profile_expectation(
+        pin, argv, lane="conf-inference", env=env,
+        conf_root=str(omp_launch.neutral_conf_root()),
+    )
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
-              pin=pin, out=out, err=err)
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
     _profile_assertions(reports, env, home, "conf-inference")
-    _assert_success(
-        rc=rc, out=out, err=err,
-        expectation=_expectation(pin, argv, lane="conf-inference", env=env,
-                                 conf_root=str(omp_launch.neutral_conf_root())),
-    )
+    _assert_success(rc=rc, out=out, err=err, expectation=expectation)
 
     session_dir = tmp_path / "visits" / f"{VISIT_KEY}.live"
     session_dir.mkdir(parents=True)
     argv = _adapter_argv("omp_no_tools", session_dir=str(session_dir))
+    fresh_expectation = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh",
+    )
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
-              pin=pin, out=out, err=err)
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
     assert json.loads(reports["ARGS"][0]) == [
         "--session-dir", str(session_dir), "--mode=json", "--model", MODEL, "--no-tools",
@@ -476,12 +547,10 @@ def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     _profile_assertions(reports, env, home, "no-tools", session_dir=str(session_dir))
     journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
     observed = tuple(sorted(entry.name for entry in session_dir.iterdir()))
-    _assert_success(
-        rc=rc, out=out, err=err,
-        expectation=_expectation(pin, argv, lane="no-tools", env=env,
-                                 persistence="fresh", session_dir=str(session_dir),
-                                 visit_key=VISIT_KEY, observed=observed),
+    fresh_expectation = dataclasses.replace(
+        fresh_expectation, observed_relpaths=observed
     )
+    _assert_success(rc=rc, out=out, err=err, expectation=fresh_expectation)
 
 
 def test_planted_fd_not_inherited(tmp_path) -> None:
@@ -492,7 +561,7 @@ def test_planted_fd_not_inherited(tmp_path) -> None:
         for argv in (_adapter_argv("omp"), _adapter_argv("omp_no_tools")):
             out, err = io.BytesIO(), io.StringIO()
             rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(),
-                      pin=_fake_pin(), out=out, err=err)
+                      pin=_launcher_pin(), out=out, err=err, resolver_path=_fake_launcher())
             assert rc == 0, err.getvalue()
             fds = json.loads(_reports(err.getvalue())["FDS"][0])
             assert str(planted.fileno()) not in fds
@@ -503,7 +572,7 @@ def test_planted_fd_not_inherited(tmp_path) -> None:
 def test_no_spool_and_repeated_agent_discovery(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    pin = _fake_pin()
+    pin = _launcher_pin()
     session_dir = tmp_path / "visits" / f"{VISIT_KEY}.live"
     session_dir.mkdir(parents=True)
 
@@ -513,7 +582,8 @@ def test_no_spool_and_repeated_agent_discovery(tmp_path) -> None:
         control = _control() if index == 0 else _control(ts="2026-08-24T01:02:03.456Z")
         out, err = io.BytesIO(), io.StringIO()
         rc = _run(argv=_adapter_argv("omp_no_tools", session_dir=str(session_dir)),
-                  env=env, workspace=workspace_path, stdin=control, pin=pin, out=out, err=err)
+                  env=env, workspace=workspace_path, stdin=control, pin=pin,
+                  out=out, err=err, resolver_path=_fake_launcher())
         assert rc == 0, err.getvalue()
         assert json.loads(_reports(err.getvalue())["AGENTS"][0]) == ["agents"]
     journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
@@ -594,6 +664,7 @@ def test_helper_rejects_bad_roots_digest_and_target(tmp_path) -> None:
     roots = _env_roots(env)
     private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
     private.parent.mkdir(parents=True)
+    private.parent.chmod(0o700)  # the helper requires a private current-user copy dir
     private.write_bytes(_FAKE_SOURCE.read_bytes())
     private.chmod(0o500)
     (tmp_path / "empty").mkdir()
@@ -643,7 +714,7 @@ def test_conf_runtime_mutation_fails_at_close(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     conf_root = _make_conf(tmp_path)
-    pin = _fake_pin()
+    pin = _launcher_pin()
 
     out, err = io.BytesIO(), io.StringIO()
     result: dict[str, int] = {}
@@ -651,7 +722,7 @@ def test_conf_runtime_mutation_fails_at_close(tmp_path) -> None:
     def _blocking() -> None:
         result["rc"] = _run(argv=_adapter_argv("omp_conf", conf_root=str(conf_root)),
                             env=env, workspace=workspace_path, stdin=_control(sleep=1.5),
-                            pin=pin, out=out, err=err)
+                            pin=pin, out=out, err=err, resolver_path=_fake_launcher())
 
     thread = threading.Thread(target=_blocking)
     thread.start()
@@ -679,7 +750,7 @@ def test_primary_mismatch_fails_without_frame(tmp_path) -> None:
     rc = _run(argv=_adapter_argv("omp_no_tools", session_dir=str(session_dir)),
               env=env, workspace=workspace_path,
               stdin=_control(mode="primary-mismatch", journal_id="other-id"),
-              pin=_fake_pin(), out=out, err=err)
+              pin=_launcher_pin(), out=out, err=err, resolver_path=_fake_launcher())
     assert rc == 2
     assert "primary" in err.getvalue().lower()
     assert b"orchestrator.omp_launch.v1" not in out.getvalue()
@@ -832,3 +903,244 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
     assert primary.rsplit("_", 1)[-1][: -len(".jsonl")] == header["id"], frame
     assert _HEX64_RE.fullmatch(frame["session"]["primary_sha256"]), frame
     assert primary in frame["observed"]["child_relpaths"], frame
+
+
+# ---------------------------------------------------------------------------
+# Task 5 review fix round: findings 1-4, 6, 7, 9 (RED-first regression suite)
+# ---------------------------------------------------------------------------
+
+
+def _helper_base(home: Path, env: dict, tmp_path: Path) -> tuple[list[str], Path]:
+    """Helper argv with a REAL digest over the same roots the adapter uses."""
+    roots = _env_roots(env)
+    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
+    private.parent.mkdir(parents=True)
+    private.parent.chmod(0o700)  # the helper requires a private current-user copy dir
+    private.write_bytes(_FAKE_SOURCE.read_bytes())
+    private.chmod(0o500)
+    (tmp_path / "empty").mkdir()
+    digest = canonical_policy_digest(
+        lane="no-tools", home_omp=str(home / ".omp"), session_dir=None,
+        conf_root=str(omp_launch.neutral_conf_root()), workspace=str(workspace_path),
+        empty_cwd=str(tmp_path / "empty"), env_roots=roots,
+    )
+    base = [
+        "--abi", "3", "--digest", digest,
+        "--protected", f"omp-home={home / '.omp'}",
+        "--write", f"data={roots['data']}", "--write", f"state={roots['state']}",
+        "--write", f"cache={roots['cache']}", "--write", f"temp={roots['temp']}",
+        "--read", f"conf={omp_launch.neutral_conf_root()}",
+        "--read", f"cwd={tmp_path / 'empty'}",
+        "--", str(private), "--version",
+    ]
+    return base, private
+
+
+def _helper_fails(argv: list[str], needle: str) -> str:
+    proc = subprocess.run(
+        [sys.executable, "-m", "orchestrator.providers.omp_write_confinement", *argv],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 2, (proc.returncode, proc.stderr)
+    assert needle in proc.stderr, proc.stderr
+    return proc.stderr
+
+
+def test_helper_mask_is_the_exact_abi3_mutation_set() -> None:
+    from orchestrator.providers.omp_write_confinement import MUTATION_FS_RIGHTS
+    # 0x77F2 (old) omitted MAKE_BLOCK (0x800); the ABI-3 mutation-only set is
+    # WRITE_FILE|REMOVE_DIR|REMOVE_FILE|MAKE_CHAR|MAKE_DIR|MAKE_REG|MAKE_SOCK|
+    # MAKE_FIFO|MAKE_BLOCK|MAKE_SYM|REFER|TRUNCATE.
+    assert MUTATION_FS_RIGHTS == 0x7FF2
+
+
+def test_helper_exact_mask_is_accepted_by_this_kernel() -> None:
+    from orchestrator.providers.omp_write_confinement import ConfinementError, _validate_exact_mask
+    _validate_exact_mask()  # raises ConfinementError on a rejecting kernel
+
+
+def test_helper_landlock_abi_queries_the_version_directly(monkeypatch) -> None:
+    from orchestrator.providers import omp_write_confinement as wc
+
+    class _Libc:
+        def __init__(self, _name, **kwargs):
+            pass
+
+        def syscall(self, number, attr, size, flags):
+            # The direct VERSION query passes a null ruleset-attr pointer.
+            if attr is None and flags == wc._LANDLOCK_CREATE_RULESET_VERSION:
+                return 3  # exact ABI 3
+            return -1  # any mask probe fails: the exact-mask probe must reject
+
+    monkeypatch.setattr(wc.ctypes, "CDLL", _Libc)
+    assert wc.landlock_abi() == 3
+    with pytest.raises(wc.ConfinementError):
+        wc._validate_exact_mask()
+
+
+def test_helper_rejects_old_fd_grammar_and_opens_the_private_path_itself(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _helper_base(home, env, tmp_path)
+    _helper_fails(["--abi", "3", "--digest", "0" * 64, "--fd", "3", *base[2:]],
+                  "unexpected helper argument")
+
+
+def test_helper_rejects_non_private_copy_directory(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _helper_base(home, env, tmp_path)
+    os.chmod(tmp_path / "private" / _fake_pin().executable_sha256, 0o777)
+    _helper_fails(base, "private copy directory")
+
+
+def _overlap_argv(home: Path, env: dict, tmp_path: Path, **root_mutations: str):
+    """Helper argv whose digest matches a mutated write-root set."""
+    roots = {**_env_roots(env), **root_mutations}
+    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
+    private.parent.mkdir(parents=True)
+    private.parent.chmod(0o700)
+    private.write_bytes(_FAKE_SOURCE.read_bytes())
+    private.chmod(0o500)
+    (tmp_path / "empty").mkdir()
+    digest = canonical_policy_digest(
+        lane="no-tools", home_omp=str(home / ".omp"), session_dir=None,
+        conf_root=str(omp_launch.neutral_conf_root()), workspace=str(workspace_path),
+        empty_cwd=str(tmp_path / "empty"), env_roots=roots,
+    )
+    return [
+        "--abi", "3", "--digest", digest,
+        "--protected", f"omp-home={home / '.omp'}",
+        "--write", f"data={roots['data']}", "--write", f"state={roots['state']}",
+        "--write", f"cache={roots['cache']}", "--write", f"temp={roots['temp']}",
+        "--read", f"conf={omp_launch.neutral_conf_root()}",
+        "--read", f"cwd={tmp_path / 'empty'}",
+        "--", str(private), "--version",
+    ], private
+
+
+def test_helper_rejects_write_overlap_with_omp_home(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _overlap_argv(home, env, tmp_path, data=str(home / ".omp"))
+    _helper_fails(base, "overlaps runtime root")
+
+
+def test_helper_rejects_write_overlap_with_conf_root(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _overlap_argv(
+        home, env, tmp_path, data=str(omp_launch.neutral_conf_root())
+    )
+    _helper_fails(base, "overlaps runtime root")
+
+
+def test_helper_rejects_write_overlap_with_cwd_root(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _overlap_argv(home, env, tmp_path, temp=str(tmp_path / "empty"))
+    _helper_fails(base, "overlaps runtime root")
+
+
+def test_helper_rejects_write_root_containing_omp_home(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    base, _private = _overlap_argv(home, env, tmp_path, data=str(home))
+    _helper_fails(base, "overlaps runtime root")
+
+
+def test_adapter_rejects_symlink_at_empty_cwd_path(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _fake_pin()
+    target = tmp_path / "real-empty"
+    target.mkdir()
+    empty = omp_launch.empty_omp_cwd(
+        home=str(home), lane="no-tools", workspace=str(workspace_path),
+        session_dir=None, conf_root=str(omp_launch.neutral_conf_root()),
+        env_roots=_env_roots(env),
+    )
+    os.symlink(str(target), empty)  # preplanted symlink at the cwd path
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err)
+    assert rc == 2, err.getvalue()
+    assert "empty" in err.getvalue().lower(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_adapter_rejects_preexisting_nonempty_empty_cwd(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _fake_pin()
+    empty = omp_launch.empty_omp_cwd(
+        home=str(home), lane="no-tools", workspace=str(workspace_path),
+        session_dir=None, conf_root=str(omp_launch.neutral_conf_root()),
+        env_roots=_env_roots(env),
+    )
+    os.makedirs(empty)
+    (Path(empty) / "planted").write_text("x", encoding="utf-8")
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err)
+    assert rc == 2, err.getvalue()
+    assert "empty" in err.getvalue().lower(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_adapter_relay_redacts_the_broker_token(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _fake_pin()
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(leak_token=True), pin=pin, out=out, err=err)
+    assert rc == 0, err.getvalue()
+    text = err.getvalue()
+    assert "TOKEN_LEAK [redacted]" in text, text
+    assert not re.search(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", text), text
+
+
+def test_adapter_fresh_session_rejects_symlink_journal_entry(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _fake_pin()
+    session_dir = tmp_path / "visits" / f"{VISIT_KEY}.live"
+    session_dir.mkdir(parents=True)
+    real = tmp_path / "real.jsonl"
+    real.write_text("{}", encoding="utf-8")
+    os.symlink(str(real), session_dir / f"{TS_STEM}_zzz.jsonl")
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools", session_dir=str(session_dir)),
+              env=env, workspace=workspace_path, stdin=_control(),
+              pin=pin, out=out, err=err)
+    assert rc == 2, err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_primary_journal_identity_rejects_symlink_and_huge_journal(tmp_path) -> None:
+    from orchestrator.providers.omp_launch_fs import (
+        LaunchFsError,
+        primary_journal_identity,
+    )
+
+    session_dir = tmp_path / "visits"
+    session_dir.mkdir()
+    real = tmp_path / "r.jsonl"
+    real.write_text("x", encoding="utf-8")
+    os.symlink(str(real), session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl")
+    with pytest.raises(LaunchFsError):
+        primary_journal_identity(str(session_dir), SESSION_ID)
+    os.unlink(session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl")
+
+    huge = session_dir / f"2026-01-01T00-00-00-000Z_{SESSION_ID}.jsonl"
+    with open(huge, "wb") as handle:
+        handle.truncate(512 * 1024 * 1024 + 1)  # sparse; over the hash bound
+    with pytest.raises(LaunchFsError):
+        primary_journal_identity(str(session_dir), SESSION_ID)

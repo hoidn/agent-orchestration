@@ -187,6 +187,10 @@ class StepExecutor:
             output_file=output_file,
             allow_parse_error=allow_parse_error,
             exit_code=exit_code,
+            redact_token=(
+                (env or {}).get("OMP_BROKER_TOKEN")
+                or os.environ.get("OMP_BROKER_TOKEN")
+            ),
         )
 
         # Mask secrets in captured output (AT-42)

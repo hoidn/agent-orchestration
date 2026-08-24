@@ -569,3 +569,159 @@ def test_omp_fresh_transport_rejects_fabricated_observed_inventory(tmp_path):
 
     assert result.exit_code != 0
     assert result.error is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 5 review fix round: finding 11 (post-wrapper child argv freeze)
+# ---------------------------------------------------------------------------
+
+
+def test_omp_prepare_derives_post_wrapper_child_argv(tmp_path):
+    """The derived expectation freezes post-wrapper argv (finding 11).
+
+    The adapter frame records ``sys.argv[1:]`` after the code-owned wrapper
+    prefix; freezing the full wrapper command would mismatch every production
+    frame-vs-expectation comparison.
+    """
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+    )
+
+    model = "gpt-5.6-sol"
+    template = ProviderTemplate(
+        name="omp",
+        command=[
+            sys.executable,
+            "-m",
+            "orchestrator.providers.omp_launch",
+            "run",
+            "--lane",
+            "omp",
+            "--model",
+            model,
+        ],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+    assert error is None, error
+    assert invocation is not None
+    expectation = invocation.omp_transport_expectation
+    assert expectation is not None, "OMP prepare must derive an expectation"
+    assert expectation.lane == "ambient"
+    assert expectation.persistence == "none"
+    assert expectation.child_argv == ("run", "--lane", "omp", "--model", model)
+    assert expectation.child_argv[:3] != (
+        sys.executable,
+        "-m",
+        "orchestrator.providers.omp_launch",
+    ), "the wrapper prefix must never be part of the frozen child argv"
+    assert expectation.child_argv[0] != sys.executable
+
+
+def test_omp_prepare_rejects_foreign_wrapper_command(tmp_path):
+    """A non-code-owned wrapper prefix fails the derivation closed."""
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+    )
+
+    template = ProviderTemplate(
+        name="omp",
+        command=["/usr/bin/env", "omp", "run"],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp",
+        ProviderParams(),
+        {},
+        prompt_content="run",
+    )
+    assert invocation is None
+    assert error is not None
+    assert "code-owned launch wrapper" in error["message"], error
+
+
+def test_omp_conf_prepare_admits_the_conf_root_via_an_fd(tmp_path):
+    """Finding 10: the conf lane admits the tree through an fd, not a path.
+
+    The old derivation passed the conf_root string into the fd-only
+    admit_conf_tree, which raised TypeError and failed every production
+    conf-lane prepare.
+    """
+    import sys
+
+    from orchestrator.providers import (
+        InputMode,
+        ProviderParams,
+        ProviderSessionMetadataMode,
+    )
+    from orchestrator.providers.omp_launch import neutral_conf_root
+
+    env = {
+        "HOME": str(tmp_path),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+        "XDG_STATE_HOME": str(tmp_path / "state"),
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "TMPDIR": str(tmp_path / "tmp"),
+    }
+    for value in env.values():
+        Path(value).mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".omp").mkdir()
+
+    template = ProviderTemplate(
+        name="omp_conf",
+        command=[
+            sys.executable,
+            "-m",
+            "orchestrator.providers.omp_launch",
+            "run",
+            "--lane",
+            "omp_conf",
+            "--model",
+            "gpt-5.6-sol",
+            "--conf-root",
+            "${omp_conf_root}",
+        ],
+        input_mode=InputMode.STDIN,
+        command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+    )
+    registry = ProviderRegistry()
+    registry.register(template)
+    executor = ProviderExecutor(tmp_path, registry)
+
+    invocation, error = executor.prepare_invocation(
+        "omp_conf",
+        ProviderParams(params={"omp_conf_root": neutral_conf_root()}),
+        {},
+        prompt_content="run",
+        env=env,
+    )
+    assert error is None, error
+    assert invocation is not None
+    expectation = invocation.omp_transport_expectation
+    assert expectation is not None
+    assert expectation.lane == "conf"
+    assert expectation.conf_manifest_sha256 is not None
+    assert expectation.confinement_policy_sha256 is not None

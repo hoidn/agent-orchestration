@@ -369,6 +369,13 @@ def _main() -> int:
             }
         ),
     )
+    if control.get("leak_token") is True:
+        sys.stderr.write("TOKEN_LEAK %s\n" % os.environ.get("OMP_BROKER_TOKEN", ""))
+    token_file = control.get("token_file")
+    if token_file:
+        with open(token_file, "w", encoding="utf-8") as handle:
+            handle.write(os.environ.get("OMP_BROKER_TOKEN", ""))
+        sys.stderr.flush()
     agents_dir = os.environ.get("PI_CODING_AGENT_DIR")
     if isinstance(agents_dir, str) and os.path.isdir(agents_dir):
         try:

@@ -111,6 +111,7 @@ class OutputCapture:
         output_file: Optional[Path] = None,
         allow_parse_error: bool = False,
         exit_code: int = 0,
+        redact_token: Optional[str] = None,
     ) -> CaptureResult:
         """
         Process captured output according to mode and limits.
@@ -123,11 +124,16 @@ class OutputCapture:
             output_file: Optional file to tee full output to
             allow_parse_error: For JSON mode, whether to allow parse errors
             exit_code: Process exit code
+            redact_token: Exact secret token bytes to redact from captured
+                stderr before it is persisted (credential hygiene).
 
         Returns:
             CaptureResult with processed output
         """
-        # Handle stderr (always written to logs if non-empty)
+        # Handle stderr (always written to logs if non-empty). The OMP
+        # broker token must never persist in captured output.
+        if stderr and redact_token:
+            stderr = stderr.replace(redact_token.encode("utf-8"), b"[redacted]")
         if stderr:
             stderr_file = self._log_file(step_name, "stderr")
             stderr_file.parent.mkdir(parents=True, exist_ok=True)

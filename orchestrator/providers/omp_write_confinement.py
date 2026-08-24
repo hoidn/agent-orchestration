@@ -9,13 +9,15 @@ Dependency-free Linux helper that confines one private OMP launch. Grammar::
         [--read <role>=<path> ...] \
         -- <private-argv...>
 
-It requires Landlock ABI 3 or newer, sets ``no_new_privs``, admits only
-no-follow-opened existing directory roots, rejects any write root containing
-the runtime conf/snapshot/empty cwd, installs the role-labelled write
-allowlist, verifies the target is a private digest-named copy, and then
-``execve``-replaces itself with the private OMP argv. Every root is reopened
-and every value recomputed: a digest, root, or target mismatch fails before
-restriction/exec.
+It requires Landlock ABI 3 or newer (queried directly), sets ``no_new_privs``,
+admits only no-follow-opened existing directory roots, rejects any write root
+overlapping the protected ``$HOME/.omp`` or the runtime conf/cwd roots,
+installs the role-labelled write allowlist from the same still-open root fds,
+verifies the private target is a digest-named copy rehashed from the inherited
+no-follow private target fd, and then ``execve``-replaces itself with the
+private OMP argv.
+Every root and the target fd are reopened/recomputed: a digest, root, fd, or
+target mismatch fails before restriction/exec.
 """
 from __future__ import annotations
 
@@ -29,19 +31,17 @@ import sys
 SCHEMA_VERSION = "omp_write_confinement.v1"
 MIN_LANDLOCK_ABI = 3
 
-# Mutation-only ABI-3 filesystem set (kernel 6.2+ UAPI layout):
+# Mutation-only ABI-3 filesystem set (this kernel family's UAPI layout):
 # WRITE_FILE|REMOVE_DIR|REMOVE_FILE|MAKE_CHAR|MAKE_DIR|MAKE_REG|MAKE_SOCK|
-# MAKE_FIFO|MAKE_BLOCK|MAKE_SYM|REFER|TRUNCATE. This is the full set of
-# mutation bits handled by the ruleset; reads and execution stay unhandled
-# (permitted everywhere), so the allowlist is a pure write confinement.
-MUTATION_FS_RIGHTS = 0x77F2
+# MAKE_FIFO|MAKE_BLOCK|MAKE_SYM|REFER|TRUNCATE. Reads and execution stay
+# unhandled (permitted everywhere), so the allowlist is a pure write
+# confinement.
+MUTATION_FS_RIGHTS = 0x7FF2
 
 
 def role_rights(role: str, label: str) -> int:
-    """Derive the deterministic per-root rights for a role-labelled root.
+    """Deterministic per-root rights; shared by adapter, parent, and helper.
 
-    Shared by the adapter (policy digest), the parent expectation, and the
-    helper's recomputation so the digest binds exactly the rights installed.
     Only write roots carry the full mutation allowlist; protected/read roots
     are bound by identity but grant nothing (their reads and execs are
     unhandled and therefore permitted).
@@ -67,6 +67,7 @@ _LANDLOCK_CREATE_RULESET = 444
 _LANDLOCK_ADD_RULE = 445
 _LANDLOCK_RESTRICT_SELF = 446
 _LANDLOCK_RULE_PATH_BENEATH = 1
+_LANDLOCK_CREATE_RULESET_VERSION = 1
 _PR_SET_NO_NEW_PRIVS = 38
 
 
@@ -90,31 +91,30 @@ class _PathBeneath(ctypes.Structure):
 
 
 def landlock_abi() -> int:
-    """Return the running kernel's Landlock ABI (0 when unavailable)."""
+    """Return the running kernel's Landlock ABI via the direct VERSION query."""
     libc = ctypes.CDLL(None, use_errno=True)
-    # Supported handled bits grow by ABI (kernel 6.2+ UAPI layout): ABI-1
-    # (0x1FFF = EXECUTE..MAKE_SYM), ABI-2 adds REFER|TRUNCATE (0x7FFF), ABI-4
-    # adds IOCTL_DEV (0xFFFF). ABI-3 adds no new mask bits, so an ABI-3 kernel
-    # is conservatively reported as ABI-2; the helper then fails closed for
-    # --abi 3 on those 2023-era kernels.
-    abi = 0
-    for candidate, bits in (
-        (1, 0x1FFF),
-        (2, 0x7FFF),
-        (4, 0xFFFF),
-    ):
-        probe = _RulesetAttr(bits, 0)
-        probe_fd = libc.syscall(
-            _LANDLOCK_CREATE_RULESET,
-            ctypes.byref(probe),
-            ctypes.sizeof(probe),
-            0,
-        )
-        if probe_fd < 0:
-            break
-        os.close(probe_fd)
-        abi = candidate
-    return abi
+    version = libc.syscall(
+        _LANDLOCK_CREATE_RULESET,
+        None,
+        0,
+        _LANDLOCK_CREATE_RULESET_VERSION,
+    )
+    return int(version) if version >= 0 else 0
+
+
+def _validate_exact_mask() -> None:
+    """Fail closed unless the kernel accepts the exact ABI-3 mutation mask."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    probe = _RulesetAttr(MUTATION_FS_RIGHTS, 0)
+    fd = libc.syscall(
+        _LANDLOCK_CREATE_RULESET,
+        ctypes.byref(probe),
+        ctypes.sizeof(probe),
+        0,
+    )
+    if fd < 0:
+        raise ConfinementError("kernel rejects the exact ABI-3 mutation mask")
+    os.close(fd)
 
 
 def _root_identity(path: str) -> tuple[int, int]:
@@ -219,11 +219,8 @@ def _parse_args(argv: list[str]) -> dict:
     index = 0
     while index < len(argv):
         arg = argv[index]
-        if arg == "--abi" and index + 1 < len(argv):
-            expected["abi"] = argv[index + 1]
-            index += 2
-        elif arg == "--digest" and index + 1 < len(argv):
-            expected["digest"] = argv[index + 1]
+        if arg in ("--abi", "--digest") and index + 1 < len(argv):
+            expected[arg[2:]] = argv[index + 1]
             index += 2
         elif arg in ("--protected", "--write", "--read") and index + 1 < len(argv):
             expected[arg[2:]].append(argv[index + 1])
@@ -259,25 +256,48 @@ def _role_path_rows(
     return rows
 
 
-def _reject_container_roots(write: list[tuple[str, str]], excluded: list[str]) -> None:
-    """Reject any write root containing the runtime conf/snapshot/empty cwd."""
+def _reject_overlaps(
+    protected: list[tuple[str, str]],
+    write: list[tuple[str, str]],
+    read: list[tuple[str, str]],
+) -> None:
+    """Reject any write root equal to, containing, or contained in a protected
+    runtime root (``$HOME/.omp``) or a read root (conf/cwd)."""
+    guarded = [path for label, path in protected if label == "omp-home"]
+    guarded += [path for _, path in read]
     for role, root in write:
-        normalized_root = os.path.normpath(root)
-        for candidate in excluded:
-            normalized = os.path.normpath(candidate)
+        root_real = os.path.realpath(root)
+        for other in guarded:
+            other_real = os.path.realpath(other)
             try:
-                inside = os.path.commonpath([normalized_root, normalized]) == normalized_root
+                common = os.path.commonpath([root_real, other_real])
             except ValueError:
-                inside = False
-            if inside:
+                continue
+            if common == root_real or common == other_real:
                 raise ConfinementError(
-                    f"write root {role}={root!r} contains runtime path {candidate!r}"
+                    f"write root {role}={root!r} overlaps runtime root {other!r}"
                 )
 
 
-def _verify_private_target(target: list[str]) -> None:
-    """Reject any non-private target: the copy must sit in a 64-hex digest-named
-    directory whose name equals the whole-file SHA-256 of the target itself."""
+def _sha256_fd(fd: int) -> str:
+    """Hex sha256 of the bytes readable from ``fd`` (position preserved)."""
+    digest = hashlib.sha256()
+    while True:
+        chunk = os.read(fd, 1 << 16)
+        if not chunk:
+            return digest.hexdigest()
+        digest.update(chunk)
+
+
+def _open_private_exec_fd(target: list[str]) -> int:
+    """Open the private target no-follow via its verified private parent.
+
+    The digest-named copy directory is opened first (no-follow, owner/mode
+    verified); the target basename is then opened against that dirfd with
+    O_NOFOLLOW and rehashed on the same fd. A replacement before this open
+    mismatches the expected hash; a replacement after the open cannot change
+    the executed inode.
+    """
     if not target:
         raise ConfinementError("missing private OMP target after --")
     binary = target[0]
@@ -287,23 +307,63 @@ def _verify_private_target(target: list[str]) -> None:
     if len(digest_dir) != 64 or any(char not in "0123456789abcdef" for char in digest_dir):
         raise ConfinementError("private OMP target is not under a digest-named copy directory")
     try:
-        with open(binary, "rb") as handle:
-            actual = hashlib.sha256(handle.read()).hexdigest()
+        parent_fd = os.open(os.path.dirname(binary), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError as exc:
-        raise ConfinementError(f"private OMP target is unreadable: {exc}") from exc
-    if actual != digest_dir:
-        raise ConfinementError("private OMP target digest does not match its digest directory")
+        raise ConfinementError(f"cannot open the private copy directory: {exc}") from exc
+    try:
+        st = os.fstat(parent_fd)
+        if st.st_uid != os.getuid() or st.st_mode & 0o077:
+            raise ConfinementError("private copy directory is not a private current-user directory")
+        try:
+            exec_fd = os.open(
+                os.path.basename(binary),
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=parent_fd,
+            )
+        except OSError as exc:
+            raise ConfinementError(f"cannot open the private OMP target: {exc}") from exc
+    finally:
+        os.close(parent_fd)
+    try:
+        st = os.fstat(exec_fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ConfinementError("private OMP target is not a regular file")
+        if st.st_uid != os.getuid():
+            raise ConfinementError("private OMP target is not owned by the current user")
+        if st.st_mode & 0o022:
+            raise ConfinementError("private OMP target is group/other-writable")
+        if _sha256_fd(exec_fd) != digest_dir:
+            raise ConfinementError("private OMP target digest does not match its digest directory")
+    except BaseException:
+        os.close(exec_fd)
+        raise
+    return exec_fd
+
+
+def _open_root(path: str) -> int:
+    """Open one role root no-follow as a directory; the fd backs the digest
+    identity and the Landlock rule (never a reopened pathname)."""
+    resolved = os.path.realpath(path)
+    try:
+        fd = os.open(resolved, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        raise ConfinementError(f"cannot open root {path!r}: {exc}") from exc
+    st = os.fstat(fd)
+    if not stat.S_ISDIR(st.st_mode):
+        os.close(fd)
+        raise ConfinementError(f"root is not a directory: {path!r}")
+    return fd
 
 
 def _restrict_and_exec(
     *,
-    abi: int,
-    protected: list[tuple[str, str]],
-    write: list[tuple[str, str]],
-    read: list[tuple[str, str]],
+    rows: list[tuple[str, str, str]],
+    fds: list[int],
     target: list[str],
+    exec_fd: int,
 ) -> int:
-    """Install the Landlock ruleset and execve the private target."""
+    """Install the Landlock ruleset from the still-open root fds and exec the
+    verified private target fd."""
     libc = ctypes.CDLL(None, use_errno=True)
     if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         raise ConfinementError("prctl(PR_SET_NO_NEW_PRIVS) failed")
@@ -316,42 +376,31 @@ def _restrict_and_exec(
     )
     if ruleset < 0:
         raise ConfinementError("landlock_create_ruleset failed")
-
-    def add(root: str, rights: int) -> None:
-        fd = os.open(
-            os.path.realpath(root),
-            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    for (role, label, _), fd in zip(rows, fds):
+        rights = role_rights(role, label)
+        if not rights:
+            continue
+        beneath = _PathBeneath(rights, fd)
+        rc = libc.syscall(
+            _LANDLOCK_ADD_RULE,
+            ruleset,
+            _LANDLOCK_RULE_PATH_BENEATH,
+            ctypes.byref(beneath),
+            0,
         )
-        try:
-            beneath = _PathBeneath(rights, fd)
-            rc = libc.syscall(
-                _LANDLOCK_ADD_RULE,
-                ruleset,
-                _LANDLOCK_RULE_PATH_BENEATH,
-                ctypes.byref(beneath),
-                0,
-            )
-        finally:
-            os.close(fd)
         if rc != 0:
             raise ConfinementError(
-                f"landlock_add_rule failed for {root!r}: {ctypes.get_errno()}"
+                f"landlock_add_rule failed for {label}: {ctypes.get_errno()}"
             )
-
-    for role, label, root in _role_path_rows(protected, write, read):
-        rights = role_rights(role, label)
-        if rights:
-            add(root, rights)
-
     rc = libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset, 0)
     if rc != 0:
         raise ConfinementError(
             f"landlock_restrict_self failed: {ctypes.get_errno()}"
         )
     try:
-        os.execve(target[0], target, os.environ)
+        os.execve(exec_fd, target, os.environ)
     except OSError as exc:
-        raise ConfinementError(f"execve failed: {exc}") from exc
+        raise ConfinementError(f"exec of the private target failed: {exc}") from exc
     return 1  # pragma: no cover
 
 
@@ -374,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ConfinementError(
                 f"Landlock ABI {required_abi} required, kernel has {available}"
             )
+        _validate_exact_mask()
         if not isinstance(digest, str) or len(digest) != 64:
             raise ConfinementError("expected a 64-hex --digest")
         protected = _parse_labeled(parsed["protected"], "protected")
@@ -394,21 +444,20 @@ def main(argv: list[str] | None = None) -> int:
         read_roles = [role for role, _ in read]
         if any(role not in ("conf", "cwd") for role in read_roles):
             raise ConfinementError("unknown read role")
-        excluded = [path for _, path in read] + [os.getcwd()]
-        _reject_container_roots(write, excluded)
-        _verify_private_target(target)
+        _reject_overlaps(protected, write, read)
+        exec_fd = _open_private_exec_fd(target)
 
-        # Recompute the canonical digest over reopened identities.
-        computed = _recompute_digest(protected, write, read, required_abi)
-        if computed != digest:
-            raise ConfinementError("canonical policy digest does not match --digest")
-        return _restrict_and_exec(
-            abi=required_abi,
-            protected=protected,
-            write=write,
-            read=read,
-            target=target,
-        )
+        # Recompute the canonical digest over the same opened root identities.
+        rows = _role_path_rows(protected, write, read)
+        root_fds = [_open_root(path) for _, _, path in rows]
+        try:
+            computed = _recompute_digest(protected, write, read, required_abi, root_fds)
+            if computed != digest:
+                raise ConfinementError("canonical policy digest does not match --digest")
+            return _restrict_and_exec(rows=rows, fds=root_fds, target=target, exec_fd=exec_fd)
+        finally:
+            for fd in root_fds:
+                os.close(fd)
     except ConfinementError as exc:
         sys.stderr.write(f"omp_write_confinement: {exc}\n")
         return 2
@@ -419,16 +468,17 @@ def _recompute_digest(
     write: list[tuple[str, str]],
     read: list[tuple[str, str]],
     abi: int,
+    fds: list[int],
 ) -> str:
     root_rows = []
-    for role, label, path in _role_path_rows(protected, write, read):
-        dev, ino = _root_identity(path)
+    for fd, (role, label, path) in zip(fds, _role_path_rows(protected, write, read)):
+        st = os.fstat(fd)
         root_rows.append(
             {
                 "label": label,
                 "path": path,
-                "dev": dev,
-                "ino": ino,
+                "dev": st.st_dev,
+                "ino": st.st_ino,
                 "rights": role_rights(role, label),
             }
         )
