@@ -182,7 +182,7 @@ class OmpJsonStdoutAccumulator:
             self._fail("OMP transport line is not one strict JSON object", line=self._line_number, error=str(exc))
             return None
         event_type = event.get("type")
-        if not is_nonempty_string(event_type):
+        if not (isinstance(event_type, str) and event_type):
             self._fail("OMP transport event type must be a non-empty string", line=self._line_number)
             return None
         if self._state == "awaiting_header":
