@@ -1269,7 +1269,7 @@ def test_real_two_member_coordinator_records_peer_send_and_settles_once(
 
     assert run_workflow(
         _coordinator_run_args(files, state_dir=state_dir)
-    ) == 0
+    ).exit_code == 0
 
     assert sync_marker.is_file()
     assert _peer_socket_paths() == sockets_before
@@ -1480,7 +1480,7 @@ def test_real_three_member_workflow_runs_through_public_surface(
 
     assert run_workflow(
         _coordinator_run_args(files, state_dir=state_dir)
-    ) == 0
+    ).exit_code == 0
 
     assert sync_marker.is_file()
     assert _peer_socket_paths() == sockets_before

@@ -243,7 +243,7 @@ def test_real_supervisor_steers_session_worker_to_distinct_typed_result(
     assert config.schema_version == "provider_supervision.v1"
 
     monkeypatch.chdir(workspace)
-    assert run_workflow(_run_args(files)) == 0
+    assert run_workflow(_run_args(files)).exit_code == 0
 
     [run_root] = (workspace / ".orchestrate" / "runs").iterdir()
     state = json.loads(
@@ -324,7 +324,7 @@ def test_real_supervisor_continues_session_worker_fresh_typed_result(
     assert config.schema_version == "provider_supervision.v1"
 
     monkeypatch.chdir(workspace)
-    assert run_workflow(_run_args(files)) == 0
+    assert run_workflow(_run_args(files)).exit_code == 0
 
     [run_root] = (workspace / ".orchestrate" / "runs").iterdir()
     state = json.loads(

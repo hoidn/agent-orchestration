@@ -286,6 +286,7 @@ import importlib
 import sys
 
 cli_main = importlib.import_module("orchestrator.cli.main")
+run_module = importlib.import_module("orchestrator.cli.commands.run")
 
 names = (
     "orchestrator.cli.commands.trial",
@@ -294,7 +295,7 @@ names = (
 after_import = [name for name in names if name in sys.modules]
 cli_main.create_parser().parse_args(["run", "ordinary.yaml"])
 after_parse = [name for name in names if name in sys.modules]
-cli_main.run_workflow = lambda _args: 0
+cli_main.run_workflow = lambda _args: run_module.RunWorkflowResult(exit_code=0)
 exit_code = cli_main.main(["run", "ordinary.yaml"])
 after_dispatch = [name for name in names if name in sys.modules]
 print(json.dumps({

@@ -133,7 +133,7 @@ def test_run_rejects_non_orc_before_creating_state(
 
     result = run_workflow(_run_args(workflow))
 
-    assert result == 1
+    assert result.exit_code == 1
     assert ".orc required" in caplog.text
     assert not (tmp_path / ".orchestrate").exists()
 
@@ -147,7 +147,7 @@ def test_run_accepts_case_insensitive_orc_suffix(
 
     result = run_workflow(_run_args(workflow))
 
-    assert result == 0
+    assert result.exit_code == 0
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 

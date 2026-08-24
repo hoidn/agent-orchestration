@@ -1260,7 +1260,7 @@ def test_public_run_executes_controlled_provider_peer_group_atomically(
         values=values,
     )
 
-    assert run_workflow(_public_run_args(files)) == 0
+    assert run_workflow(_public_run_args(files)).exit_code == 0
 
     run_root, state = _only_public_run(tmp_path)
     assert state["status"] == "completed"
@@ -1387,7 +1387,7 @@ def test_public_run_peer_group_failures_never_publish_or_retarget(
             fail_settlement,
         )
 
-    assert run_workflow(_public_run_args(files)) == 1
+    assert run_workflow(_public_run_args(files)).exit_code == 1
 
     run_root, state = _only_public_run(tmp_path)
     assert state["status"] == "failed"
@@ -1492,7 +1492,7 @@ def test_pre_provider_input_peer_runtime_and_resume_reuses_projection(
         values=values,
     )
 
-    assert run_workflow(_run_inputs(files)) == 0
+    assert run_workflow(_run_inputs(files)).exit_code == 0
 
     run_root, state = _only_public_run(tmp_path)
     assert state["status"] == "completed"

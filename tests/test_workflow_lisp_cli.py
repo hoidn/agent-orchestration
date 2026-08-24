@@ -802,7 +802,7 @@ def test_run_workflow_supports_orc_dry_run(tmp_path: Path, monkeypatch) -> None:
         )
     )
 
-    assert result == 0
+    assert result.exit_code == 0
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -811,7 +811,7 @@ def test_run_workflow_orc_dry_run_requires_bound_inputs(tmp_path: Path, monkeypa
 
     result = run_workflow(_orc_run_args())
 
-    assert result == 2
+    assert result.exit_code == 2
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -851,7 +851,7 @@ def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: 
 
     result = run_workflow(args)
 
-    assert result == 0
+    assert result.exit_code == 0
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -869,7 +869,7 @@ def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_input
         )
     )
 
-    assert result == 0
+    assert result.exit_code == 0
 
 
 def test_run_workflow_rejects_non_orc_before_creating_state(
@@ -880,7 +880,7 @@ def test_run_workflow_rejects_non_orc_before_creating_state(
 
     result = run_workflow(_legacy_run_args())
 
-    assert result == 1
+    assert result.exit_code == 1
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
@@ -1012,7 +1012,7 @@ def test_prompt_extern_object_manifest_cli_commands_accept_explicit_source_fixtu
     args.prompt_externs_file = str(prompt_manifest)
     result = command(args)
     capsys.readouterr()
-    assert result == 0
+    assert getattr(result, "exit_code", result) == 0
 
 
 @pytest.mark.parametrize("command_name", ["compile", "explain", "run"])
@@ -1059,7 +1059,7 @@ def test_prompt_extern_object_entry_invalid_cli_commands_report_frontend_diagnos
     with caplog.at_level("ERROR"):
         result = command(args)
 
-    assert result == 2
+    assert getattr(result, "exit_code", result) == 2
     assert "[workflow_lisp_manifest_invalid]" in caplog.text
     assert "prompt externs manifest entries" in caplog.text
     assert "Traceback" not in caplog.text
@@ -1235,7 +1235,7 @@ def test_run_workflow_reports_missing_imported_bundle_key(
         )
     )
 
-    assert result != 0
+    assert result.exit_code != 0
 
 
 def test_compile_workflow_rejects_non_orc_inputs_with_frontend_diagnostic(
@@ -1421,7 +1421,7 @@ def test_orc_commands_report_missing_manifest_files_as_frontend_diagnostics(
     with caplog.at_level("ERROR"):
         result = command(args)
 
-    assert result == 2
+    assert getattr(result, "exit_code", result) == 2
     assert "[workflow_lisp_manifest_missing]" in caplog.text
     assert "provider externs manifest does not exist" in caplog.text
     assert "Traceback" not in caplog.text
@@ -1511,7 +1511,7 @@ def test_orc_commands_report_malformed_manifest_files_as_frontend_diagnostics(
     with caplog.at_level("ERROR"):
         result = command(args)
 
-    assert result == 2
+    assert getattr(result, "exit_code", result) == 2
     assert "[workflow_lisp_manifest_invalid_json]" in caplog.text
     assert "provider externs manifest must contain valid JSON" in caplog.text
     assert "Traceback" not in caplog.text
@@ -1596,7 +1596,7 @@ def test_orc_commands_report_invalid_manifest_entry_schema_as_frontend_diagnosti
     with caplog.at_level("ERROR"):
         result = command(args)
 
-    assert result == 2
+    assert getattr(result, "exit_code", result) == 2
     assert f"[{expected_code}]" in caplog.text
     assert expected_message in caplog.text
     assert "Traceback" not in caplog.text

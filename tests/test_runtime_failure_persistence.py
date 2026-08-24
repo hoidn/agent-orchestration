@@ -126,9 +126,9 @@ def test_run_command_persists_unexpected_executor_exception(tmp_path: Path):
 
     with patch("orchestrator.cli.commands.run.WorkflowExecutor.execute") as execute:
         execute.side_effect = RuntimeError("cli executor crash")
-        exit_code = run_workflow(_run_args(workflow_path))
+        result = run_workflow(_run_args(workflow_path))
 
-    assert exit_code == 1
+    assert result.exit_code == 1
     run_dirs = sorted((tmp_path / "runs").iterdir())
     persisted = json.loads(
         (run_dirs[-1] / "state.json").read_text(encoding="utf-8")
@@ -179,9 +179,9 @@ def test_run_holds_writer_lock_through_executor_exit(tmp_path: Path) -> None:
         "execute",
         new=complete_while_probing_lock,
     ):
-        exit_code = run_workflow(_run_args(workflow_path))
+        result = run_workflow(_run_args(workflow_path))
 
-    assert exit_code == 0
+    assert result.exit_code == 0
     assert len(observed_run_root) == 1
     assert (observed_run_root[0] / "run.lock").is_file()
 

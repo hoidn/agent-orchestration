@@ -1,5 +1,6 @@
 """Run command implementation with safety checks."""
 
+import copy
 import json
 import logging
 import os
@@ -7,9 +8,11 @@ import shutil
 import traceback
 import zipfile
 from contextlib import ExitStack
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional
+from types import MappingProxyType
+from typing import Dict, Any, Mapping, Optional
 from argparse import Namespace
 
 from orchestrator.state import StateManager
@@ -32,9 +35,155 @@ from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_fronten
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
+from orchestrator.providers.omp_launch_fs import directory_identity
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RunWorkflowResult:
+    """Structured run outcome: exit code plus exact run/root/output/session data."""
+
+    exit_code: int
+    run_id: str | None = None
+    run_root: Path | None = None
+    workflow_outputs: Mapping[str, object] = field(default_factory=dict)
+    session_id: str | None = None
+    session_status: str | None = None
+    usage: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Detach and deep-freeze both mapping fields on EVERY construction
+        path (defaults included), so a public ``RunWorkflowResult`` can never
+        alias a caller's or the executor's mutable state."""
+        object.__setattr__(
+            self, "workflow_outputs", _deep_freeze(self.workflow_outputs)
+        )
+        object.__setattr__(self, "usage", _deep_freeze(self.usage))
+
+
+def _deep_freeze(value: object) -> object:
+    """Recursively detach and freeze one result payload into immutable views.
+
+    Mappings become read-only mapping proxies, lists become tuples, so a
+    finalized ``RunWorkflowResult`` can never alias executor-owned mutable
+    state: top-level and nested mutation both fail, and mutating the source
+    after construction cannot change the result. Any ``Mapping`` is
+    accepted, not only ``dict``.
+    """
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _deep_freeze(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item) for item in value)
+    return value
+
+
+_ZERO_USAGE = {
+    "input": 0,
+    "output": 0,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 0,
+    "cost": {
+        "input": 0.0,
+        "output": 0.0,
+        "cacheRead": 0.0,
+        "cacheWrite": 0.0,
+        "total": 0.0,
+    },
+}
+
+
+def _provider_usage_record(provider_session: object) -> dict[str, object]:
+    """One normalized per-provider usage record from the step debug projection."""
+    if not isinstance(provider_session, dict):
+        return {}
+    record: dict[str, object] = {}
+    for key in ("session_id", "final_provider", "final_model",
+                "total_tokens", "total_cost"):
+        if key in provider_session:
+            record[key] = provider_session[key]
+    messages = provider_session.get("messages")
+    usage = None
+    if isinstance(messages, list):
+        for row in reversed(messages):
+            if isinstance(row, dict) and isinstance(row.get("usage"), dict):
+                usage = row["usage"]
+                break
+    if not isinstance(usage, dict):
+        record["usage"] = copy.deepcopy(_ZERO_USAGE)
+        return record
+    cost = usage.get("cost")
+    if not isinstance(cost, dict):
+        cost = {}
+    record["usage"] = {
+        "input": usage.get("input", 0),
+        "output": usage.get("output", 0),
+        "cacheRead": usage.get("cacheRead", 0),
+        "cacheWrite": usage.get("cacheWrite", 0),
+        "totalTokens": usage.get("totalTokens", 0),
+        "cost": {
+            "input": cost.get("input", 0.0),
+            "output": cost.get("output", 0.0),
+            "cacheRead": cost.get("cacheRead", 0.0),
+            "cacheWrite": cost.get("cacheWrite", 0.0),
+            "total": cost.get("total", 0.0),
+        },
+    }
+    return record
+
+
+def _normalize_usage(result: object) -> dict[str, dict[str, object]]:
+    """Best-effort usage normalization over finalized provider steps."""
+    if not isinstance(result, dict):
+        return {}
+    steps = result.get("steps")
+    if not isinstance(steps, dict):
+        return {}
+    usage: dict[str, dict[str, object]] = {}
+    for step_name, step in steps.items():
+        if not isinstance(step, dict):
+            continue
+        debug = step.get("debug")
+        if not isinstance(debug, dict):
+            continue
+        record = _provider_usage_record(debug.get("provider_session"))
+        if record.get("session_id"):
+            usage[step_name] = record
+    return usage
+
+
+def _run_result(
+    exit_code: int,
+    *,
+    state_manager: StateManager | None = None,
+    session_id: str | None = None,
+    session_status: str | None = None,
+    result: object = None,
+) -> RunWorkflowResult:
+    """Build one structured result; workflow outputs/usage are best-effort."""
+    run_id: str | None = None
+    run_root: Path | None = None
+    if state_manager is not None:
+        run_id = state_manager.run_id
+        run_root = state_manager.run_root
+    workflow_outputs: Mapping[str, object] = {}
+    if isinstance(result, dict):
+        outputs = result.get("workflow_outputs")
+        if isinstance(outputs, dict):
+            workflow_outputs = outputs
+    return RunWorkflowResult(
+        exit_code=exit_code,
+        run_id=run_id,
+        run_root=run_root,
+        workflow_outputs=workflow_outputs,
+        session_id=session_id,
+        session_status=session_status,
+        usage=_normalize_usage(result),
+    )
 
 
 def _workflow_path_for_state(workspace: Path, workflow_path: Path) -> str:
@@ -296,11 +445,18 @@ def archive_processed_directory(processed_dir: Path, archive_dest: Path) -> None
     logger.info(f"Successfully archived processed directory to {archive_dest}")
 
 
-def run_workflow(args: Namespace) -> int:
+def run_workflow(
+    args: Namespace,
+    *,
+    run_id: Optional[str] = None,
+    expected_run_identity: Optional[tuple[int, int]] = None,
+) -> RunWorkflowResult:
     """
     Run a workflow with safety checks.
 
-    Implements AT-11, AT-12, AT-16
+    Implements AT-11, AT-12, AT-16. When ``run_id`` and
+    ``expected_run_identity`` are supplied, the reserved run root is
+    revalidated here, immediately before ``StateManager.initialize``.
     """
     # Set up logging
     log_level = getattr(logging, args.log_level.upper())
@@ -318,6 +474,8 @@ def run_workflow(args: Namespace) -> int:
 
     state_manager: StateManager | None = None
     writer_lock_stack = ExitStack()
+    session_id: str | None = None
+    session_status: str | None = None
 
     try:
         # Determine workspace
@@ -325,16 +483,15 @@ def run_workflow(args: Namespace) -> int:
         state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
         run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
-        # Load workflow
         workflow_path = Path(args.workflow).resolve()
         if workflow_path.suffix.lower() != ".orc":
             logger.error(
                 ".orc required: authored workflows must use the Workflow Lisp frontend"
             )
-            return 1
+            return _run_result(1)
         if not workflow_path.exists():
             logger.error(f"Workflow file not found: {workflow_path}")
-            return 1
+            return _run_result(1)
 
         frontend_build = None
         try:
@@ -358,7 +515,7 @@ def run_workflow(args: Namespace) -> int:
         except LispFrontendCompileError as e:
             for diagnostic in e.diagnostics:
                 logger.error(render_diagnostic(diagnostic))
-            return 2
+            return _run_result(2)
         workflow = frontend_build.validated_bundle
         bundle = loaded_workflow_bundle(workflow)
         # Determine processed directory
@@ -384,10 +541,11 @@ def run_workflow(args: Namespace) -> int:
             if args.archive_processed.strip():
                 archive_dest = Path(args.archive_processed).resolve()
             else:
-                # Default to RUN_ROOT/processed.zip
-                run_id = datetime.now().strftime("%Y%m%dT%H%M%SZ")
+                # Default to RUN_ROOT/processed.zip; never rebind the service
+                # run id when a caller-selected id is in flight.
+                archive_run_id = run_id or datetime.now().strftime("%Y%m%dT%H%M%SZ")
                 runs_root = state_dir_override or (workspace / '.orchestrate' / 'runs')
-                run_root = runs_root / run_id
+                run_root = runs_root / archive_run_id
                 archive_dest = run_root / 'processed.zip'
 
             validate_archive_destination(processed_dir, archive_dest)
@@ -412,8 +570,7 @@ def run_workflow(args: Namespace) -> int:
                     warning.get("code"),
                     warning.get("path"),
                 )
-            logger.info("[DRY RUN] Workflow validation successful")
-            return 0
+            return _run_result(0)
 
         # Parse context
         context = parse_context(args, workflow_context=dict(workflow_context(workflow)))
@@ -432,11 +589,33 @@ def run_workflow(args: Namespace) -> int:
             backup_enabled=args.backup_state,
             debug=args.debug if hasattr(args, 'debug') else False,
             state_dir=state_dir_override,
+            run_id=run_id,
         )
         state_manager.run_root.mkdir(parents=True, exist_ok=True)
         writer_lock_stack.enter_context(
             run_writer_lock(state_manager.run_root)
         )
+        # Revalidate an externally reserved run root immediately before state
+        # initialization: the mkdir and writer lock above must not mask a
+        # moved or replaced root.
+        if run_id is not None and expected_run_identity is not None:
+            reserved_root = state_manager.run_root
+            try:
+                actual = directory_identity(str(reserved_root))
+            except OSError:
+                actual = None
+            if actual != expected_run_identity:
+                logger.error(
+                    f"Reserved run root {reserved_root} changed identity "
+                    f"({expected_run_identity} != {actual})"
+                )
+                return _run_result(
+                    1,
+                    state_manager=state_manager,
+                    session_id=session_id,
+                    session_status=session_status,
+                )
+
         # Create new run
         run_state = state_manager.initialize(
             _workflow_path_for_state(workspace, workflow_path),
@@ -457,8 +636,6 @@ def run_workflow(args: Namespace) -> int:
             assert run_state is not None
         logger.info(f"Created new run: {run_state.run_id}")
 
-        session_id: str | None = None
-        session_status = "failed"
         try:
             with state_manager.state_transaction() as transaction_state:
                 session_id = open_executor_session(
@@ -466,6 +643,7 @@ def run_workflow(args: Namespace) -> int:
                     entrypoint="run",
                     process_start_time=process_start_time_token(os.getpid()),
                 )
+            session_status = "failed"
             try:
                 write_process_metadata(
                     state_manager.run_root,
@@ -500,33 +678,62 @@ def run_workflow(args: Namespace) -> int:
                 run_succeeded = bool(result)
             session_status = "completed" if run_succeeded else "failed"
 
-            # Archive processed directory on successful completion only.
+            # Archive processed directory on successful completion only; an
+            # archive failure marks the session failed, never stale completed.
             if run_succeeded and archive_dest:
-                archive_processed_directory(processed_dir, archive_dest)
+                try:
+                    archive_processed_directory(processed_dir, archive_dest)
+                except Exception:
+                    session_status = "failed"
+                    raise
 
-            return 0 if run_succeeded else 1
+            return _run_result(
+                0 if run_succeeded else 1,
+                state_manager=state_manager,
+                session_id=session_id,
+                session_status=session_status,
+                result=result,
+            )
         finally:
             if session_id is not None and state_manager.state is not None:
-                with state_manager.state_transaction() as transaction_state:
-                    close_executor_session(
-                        transaction_state,
-                        session_id=session_id,
-                        status=session_status,
-                    )
+                try:
+                    with state_manager.state_transaction() as transaction_state:
+                        close_executor_session(
+                            transaction_state,
+                            session_id=session_id,
+                            status=session_status or "failed",
+                        )
+                except Exception as exc:
+                    # Never return from the finally block: a close failure
+                    # must reach the outer handler so fail_run persists a
+                    # failed run state and the exact failed result returns
+                    # (a return here would suppress an active body exception
+                    # and leave the persisted run completed).
+                    logger.error(f"Failed to close executor session: {exc}")
+                    session_status = "failed"
+                    raise
 
     except RunAlreadyActiveError as e:
         logger.error(str(e))
-        return 1
+        return _run_result(
+            1, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
-        return 1
+        return _run_result(
+            1, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
     except ValueError as e:
         logger.error(f"Validation error: {e}")
-        return 2
+        return _run_result(
+            2, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
         if state_manager is not None and state_manager.state is not None:
             state_manager.fail_run(_cli_exception_error(e))
-        return 1
+        return _run_result(
+            1, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
     finally:
         writer_lock_stack.close()

@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
 from .._common.io_atomic import atomic_write_text, durable_atomic_write
 from .._common.status import is_step_settled
+
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
@@ -223,6 +224,16 @@ from .adjudication_runner import AdjudicationBindings, AdjudicationRunner
 logger = logging.getLogger(__name__)
 RESTORE_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_restore_report.v1"
 _RESTORE_REF_MISSING = object()
+
+
+def _write_bundle_fd(descriptor: int, payload: bytes) -> None:
+    """Write all bundle bytes to one owned descriptor (partial-write safe)."""
+    remaining = memoryview(payload)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise OSError("bundle materialization made no progress")
+        remaining = remaining[written:]
 
 
 def _is_structurally_root_state_manager(state_manager: Any) -> bool:
@@ -9546,6 +9557,45 @@ class WorkflowExecutor:
                 output_file=step.get('output_file')
             )
 
+            # The only typed-prompt-input -> provider-parameter bridge is
+            # the pinned OMP conf lane: binding omp_conf_root sourced from
+            # inputs.omp_conf_root on the omp_conf provider. Authored
+            # provider_params win on a name collision; no other typed input
+            # on any provider can reach provider params.
+            bound_inputs = state.get('bound_inputs', {})
+            if (
+                isinstance(bound_inputs, dict)
+                and resolved_provider_name == 'omp_conf'
+            ):
+                provider_params = dict(params.params)
+                for typed_input in step.get('typed_prompt_inputs') or ():
+                    if not isinstance(typed_input, dict):
+                        continue
+                    binding_name = typed_input.get('binding_name')
+                    if not isinstance(binding_name, str) or not binding_name:
+                        continue
+                    if binding_name in provider_params:
+                        continue
+                    value_source = typed_input.get('value_source')
+                    if not isinstance(value_source, dict):
+                        continue
+                    binding = value_source.get('binding')
+                    if not isinstance(binding, dict):
+                        continue
+                    ref = binding.get('ref')
+                    if not isinstance(ref, str) or not ref.startswith('inputs.'):
+                        continue
+                    if binding_name != 'omp_conf_root' or ref != 'inputs.omp_conf_root':
+                        continue
+                    value = bound_inputs.get(ref[len('inputs.'):])
+                    if isinstance(value, str):
+                        provider_params[binding_name] = value
+                params = ProviderParams(
+                    params=provider_params,
+                    input_file=params.input_file,
+                    output_file=params.output_file,
+                )
+
             # Task 5: pass only the trusted canonical visit directory to OMP
             # fresh launches; the adapter converts it to OMP's --session-dir
             # and the reserved carrier wins over authored parameters.
@@ -10060,6 +10110,37 @@ class WorkflowExecutor:
         if debug_info:
             result['debug'] = debug_info
 
+        # OMP JSON transport is memory-only: the confined child never receives
+        # the runtime output-bundle path (the positive child environment is a
+        # closed, tested contract), so the normalized assistant text — exactly
+        # one JSON value per the output-contract guidance — is the
+        # authoritative structured output. Materialize the compiled bundle
+        # from it when the child wrote no bundle file; the ordinary output-
+        # contract validation below remains the single enforcement surface.
+        if (
+            result.get('exit_code') == 0
+            and isinstance(result.get('output'), str)
+            and result['output']
+            and resolved_output_bundle is not None
+        ):
+            omp_template = self.provider_executor.registry.get(
+                resolved_provider_name
+            )
+            omp_transport = omp_template is not None and (
+                omp_template.command_metadata_mode
+                == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+                or (
+                    omp_template.session_support is not None
+                    and omp_template.session_support.metadata_mode
+                    == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+                )
+            )
+            if omp_transport:
+                bundle_error = self._materialize_omp_output_bundle(
+                    resolved_output_bundle, result['output']
+                )
+                if bundle_error is not None:
+                    return bundle_error
         final_result = self._apply_expected_outputs_contract(step, result, state, context=context)
         raw_call_policy = step.get("provider_call_policy") or {}
         delivery = (
@@ -10987,6 +11068,139 @@ class WorkflowExecutor:
             PROVIDER_ATTEMPT_SITE_KEY_ENV: (
                 provider_attempt_scope.run_independent_site_key
             )
+        }
+
+    def _materialize_omp_output_bundle(
+        self,
+        resolved_output_bundle: Dict[str, Any],
+        payload: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Materialize the compiled OMP bundle leaf without following links.
+
+        The provider has already run, so the compiler-owned parent chain is
+        reopened component-by-component with no-follow descriptors: any
+        symlink or special parent, and any existing, symlink, or special
+        leaf (OMP JSON-transport children never receive the bundle path, so
+        a leaf can only be provider-planted), fails closed instead of
+        redirecting the write or being consumed as provider output. The
+        absent leaf is created descriptor-relative with
+        ``O_CREAT|O_EXCL|O_NOFOLLOW``; a write failure removes only the
+        owned partial. The ordinary output-contract validator below parses
+        the exact file created here.
+        """
+        bundle_path_value = resolved_output_bundle.get('path')
+        if not isinstance(bundle_path_value, str) or not bundle_path_value:
+            return self._bundle_materialization_error(
+                bundle_path_value, "bundle path is missing"
+            )
+        relative = Path(bundle_path_value)
+        if relative.is_absolute() or ".." in relative.parts:
+            return self._bundle_materialization_error(
+                bundle_path_value,
+                "bundle path is not a workspace-relative path",
+            )
+        try:
+            workspace_fd = os.open(
+                self.workspace,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+        except OSError as exc:
+            return self._bundle_materialization_error(
+                bundle_path_value, f"workspace cannot be opened: {exc}"
+            )
+        parent_fd = workspace_fd
+        owned: list[int] = []
+        try:
+            for component in relative.parts[:-1]:
+                try:
+                    child = os.open(
+                        component,
+                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                        | os.O_CLOEXEC,
+                        dir_fd=parent_fd,
+                    )
+                except OSError as exc:
+                    return self._bundle_materialization_error(
+                        bundle_path_value,
+                        f"bundle parent {component!r} is not a real "
+                        f"directory: {exc}",
+                    )
+                owned.append(child)
+                parent_fd = child
+            leaf = relative.parts[-1]
+            try:
+                os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                return self._bundle_materialization_error(
+                    bundle_path_value,
+                    f"bundle leaf cannot be inspected: {exc}",
+                )
+            else:
+                # The leaf is provider-planted (OMP JSON-transport children
+                # never receive the bundle path). It is left untouched: only
+                # a leaf this process created with O_EXCL is ever removed
+                # (on a write failure, below).
+                return self._bundle_materialization_error(
+                    bundle_path_value,
+                    "bundle leaf already exists (provider-planted)",
+                )
+            try:
+                descriptor = os.open(
+                    leaf,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                    | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=parent_fd,
+                )
+            except OSError as exc:
+                return self._bundle_materialization_error(
+                    bundle_path_value,
+                    f"bundle leaf cannot be created exclusively: {exc}",
+                )
+            try:
+                try:
+                    _write_bundle_fd(descriptor, payload.encode("utf-8"))
+                    os.fsync(descriptor)
+                except BaseException:
+                    # Remove only the owned partial leaf created above.
+                    try:
+                        os.unlink(leaf, dir_fd=parent_fd)
+                    except OSError:
+                        pass
+                    raise
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            return self._bundle_materialization_error(
+                bundle_path_value, str(exc)
+            )
+        finally:
+            for fd in reversed(owned):
+                os.close(fd)
+            os.close(workspace_fd)
+        return None
+
+    @staticmethod
+    def _bundle_materialization_error(
+        path_value: object, reason: str
+    ) -> Dict[str, Any]:
+        """One closed failure result for the OMP bundle materialization."""
+        return {
+            'status': 'failed',
+            'exit_code': 2,
+            'error': {
+                'type': 'output_bundle_materialization_failed',
+                'message': (
+                    'Failed to materialize the OMP output bundle from the '
+                    'provider output'
+                ),
+                'context': {
+                    'path': path_value,
+                    'error': reason,
+                },
+            },
         }
 
     def _apply_expected_outputs_contract(

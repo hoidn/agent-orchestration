@@ -112,7 +112,10 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # Run command
-    run_parser = subparsers.add_parser('run', help='Run a workflow')
+    run_parser = subparsers.add_parser(
+        'run',
+        help='Run a workflow',
+    )
     run_parser.add_argument(
         'workflow',
         type=str,
@@ -277,6 +280,69 @@ def create_parser() -> argparse.ArgumentParser:
         help='Maximum provider transport tail chars passed to live note provider'
     )
     _add_frontend_flags(run_parser)
+    prompt_parser = subparsers.add_parser(
+        'prompt',
+        help='Deterministic OMP prompt scaffolds and ordinary runs',
+        allow_abbrev=False,
+    )
+    prompt_subparsers = prompt_parser.add_subparsers(
+        dest='prompt_command',
+        help='Prompt subcommands',
+    )
+    prompt_run_parser = prompt_subparsers.add_parser(
+        'run',
+        help='Generate (or rerun) a scaffold and execute the task run',
+        allow_abbrev=False,
+    )
+    prompt_run_parser.add_argument(
+        '--prompt',
+        action='append',
+        metavar='TEXT',
+        help='Exact prompt text (repeatable flag, but exactly one value)',
+    )
+    prompt_run_parser.add_argument(
+        '--prompt-file',
+        action='append',
+        metavar='PATH',
+        help='Path to a UTF-8 prompt file (repeatable flag, but exactly one value)',
+    )
+    prompt_run_parser.add_argument(
+        '--provider',
+        choices=['omp', 'omp_no_tools', 'omp_conf', 'omp_unrestricted_workspace'],
+        action='append',
+        metavar='NAME',
+        help='Public OMP provider (repeatable flag, but exactly one value)',
+    )
+    prompt_run_parser.add_argument(
+        '--conf',
+        action='append',
+        metavar='PATH',
+        help='Conf directory root; required iff --provider omp_conf',
+    )
+    prompt_run_parser.add_argument(
+        '--model',
+        action='append',
+        metavar='MODEL',
+        help='Concrete model selector (repeatable flag, but exactly one value)',
+    )
+    prompt_run_parser.add_argument(
+        '--returns',
+        action='append',
+        metavar='JSON',
+        help='Exact semantic contract document (mutually exclusive with --output)',
+    )
+    prompt_run_parser.add_argument(
+        '--output',
+        action='append',
+        metavar='TEXT',
+        help='Natural-language output request; infer the contract (closed provider mapping)',
+    )
+    prompt_run_parser.add_argument(
+        '--scaffold',
+        action='append',
+        metavar='PATH',
+        help='Rerun an existing scaffold root; mutually exclusive with generation flags',
+    )
 
     trial_parser = subparsers.add_parser(
         'trial',
@@ -587,7 +653,10 @@ def main(args: Optional[list] = None) -> int:
         return 1
 
     if parsed_args.command == 'run':
-        return run_workflow(parsed_args)
+        return run_workflow(parsed_args).exit_code
+    elif parsed_args.command == 'prompt':
+        from .commands import prompt_workflow
+        return prompt_workflow(parsed_args)
     elif parsed_args.command == 'trial':
         from orchestrator.cli.commands.trial import trial_workflow
         return trial_workflow(parsed_args)

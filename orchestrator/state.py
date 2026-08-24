@@ -530,7 +530,18 @@ class StateManager:
             raise
         return ordinal
 
-    def _generate_run_id(self) -> str:
+    @staticmethod
+    def new_run_id() -> str:
+        """Generate/allocate a fresh run id in the current format (Task 8 seam).
+
+        Public so prompt-run can allocate an id without constructing a
+        StateManager (which would generate and discard one); reservation of
+        the id's run root is ``create_run_root``'s job, not this method's.
+        """
+        return StateManager._generate_run_id()
+
+    @staticmethod
+    def _generate_run_id() -> str:
         """Generate run ID in format: YYYYMMDDTHHMMSSZ-<6char>."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))

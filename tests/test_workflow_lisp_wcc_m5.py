@@ -283,7 +283,7 @@ def test_run_workflow_lisp_stamps_lowering_schema_2_in_run_state(tmp_path: Path,
     ), patch("orchestrator.cli.commands.run.bind_workflow_inputs", return_value={}):
         result = run_workflow(args)
 
-    assert result == 0
+    assert result.exit_code == 0
     run_roots = list((tmp_path / ".orchestrate" / "runs").iterdir())
     assert len(run_roots) == 1
     state_payload = StateManager(workspace=tmp_path, run_id=run_roots[0].name).load().to_dict()

@@ -286,7 +286,7 @@ def publish_scaffold(
 # --- run-owned private snapshot --------------------------------------------------
 
 
-def _open_root_creating(path: Path) -> int:
+def open_root_creating(path: Path) -> int:
     """Open a directory tree, creating missing components, with every
     existing component traversed no-follow; a symlinked ancestor fails closed
     without writing through it."""
@@ -331,7 +331,7 @@ def create_run_root(runs_root: Path, run_id: str) -> Path:
         or "\x00" in run_id
     ):
         raise ScaffoldSnapshotError(f"invalid run id {run_id!r}")
-    root_fd = _open_root_creating(Path(runs_root))
+    root_fd = open_root_creating(Path(runs_root))
     try:
         try:
             os.mkdir(run_id, 0o700, dir_fd=root_fd)

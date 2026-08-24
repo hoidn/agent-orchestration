@@ -16,6 +16,7 @@ import hashlib
 import json
 
 import pytest
+from pathlib import Path
 
 from orchestrator.prompt_contract import (
     MAX_TYPE_DEPTH,
@@ -530,3 +531,56 @@ def test_validate_type_node_enforces_max_depth() -> None:
     for _ in range(MAX_TYPE_DEPTH):
         admissible = OptionalType(admissible)
     validate_type_node(admissible)
+
+
+# --- packaged inference workflow: typed task-prompt/output-request inputs ---
+
+
+def _compile_inference_asset(workspace: Path):
+    from orchestrator.omp_assets import inference_output_contract_path
+    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+
+    (workspace / "prompt.md").write_text(
+        "synthesize the output contract\n", encoding="utf-8"
+    )
+    entry = workspace / "infer-output-contract.orc"
+    entry.write_text(
+        Path(inference_output_contract_path()).read_text(encoding="utf-8")
+    )
+    return compile_stage3_entrypoint(
+        entry,
+        source_roots=(workspace,),
+        provider_externs={"providers.inference": "omp_conf_inference"},
+        prompt_externs={"prompts.inference": {"asset_file": "prompt.md"}},
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+
+
+def test_inference_asset_declares_typed_string_inputs(tmp_path: Path) -> None:
+    result = _compile_inference_asset(tmp_path)
+    mapping = result.entry_result.lowered_workflows[0].authored_mapping
+    inputs = mapping["inputs"]
+    assert inputs["task_prompt"] == {"kind": "scalar", "type": "string"}
+    assert inputs["output_request"] == {"kind": "scalar", "type": "string"}
+    step = next(s for s in mapping["steps"] if "provider" in s)
+    bindings = {
+        entry["binding_name"]
+        for entry in (step.get("typed_prompt_inputs") or ())
+    }
+    assert bindings == {"task_prompt", "output_request"}
+    # Neutral isolation: transient, no session artifact, internal extern.
+    assert step.get("session_request") is None
+    assert step.get("prompt_consumes") is None
+
+
+def test_inference_asset_output_is_only_output_contract_draft(tmp_path: Path) -> None:
+    result = _compile_inference_asset(tmp_path)
+    mapping = result.entry_result.lowered_workflows[0].authored_mapping
+    outputs = mapping["outputs"]
+    assert set(outputs) == {"return__fields"}
+    fields_spec = outputs["return__fields"]
+    assert fields_spec["type"] == "list"
+    items = fields_spec["items"]
+    assert items["record_name"] == "OutputContractField"
+    assert [f["name"] for f in items["fields"]] == ["name", "type"]

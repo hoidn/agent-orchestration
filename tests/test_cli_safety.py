@@ -340,7 +340,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         state_kwargs = mock_state.call_args.kwargs
         self.assertEqual(state_kwargs['state_dir'], Path('/tmp/custom-runs').resolve())
 
@@ -371,7 +371,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         call_args, _ = mock_state_inst.initialize.call_args
         self.assertEqual(call_args[1], {
             'max_review_cycles': '3',
@@ -405,7 +405,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         init_kwargs = mock_state_inst.initialize.call_args.kwargs
         self.assertEqual(init_kwargs['bound_inputs'], {'max_cycles': 5})
 
@@ -441,7 +441,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
@@ -473,7 +473,7 @@ class TestCLISafety(TestCase):
         with patch('orchestrator.cli.commands.run.validate_clean_processed') as mock_validate:
             result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         self.assertEqual(
             mock_validate.call_args.args[1],
             self.workspace / 'custom-processed',
@@ -510,7 +510,7 @@ class TestCLISafety(TestCase):
         with patch('orchestrator.cli.commands.run.validate_clean_processed') as mock_validate:
             result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         self.assertEqual(
             mock_validate.call_args.args[1],
             self.workspace / 'typed-processed',
@@ -536,7 +536,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
         exec_kwargs = mock_executor.call_args.kwargs
         self.assertEqual(exec_kwargs['stream_output'], True)
 
@@ -563,7 +563,7 @@ class TestCLISafety(TestCase):
         result = run_workflow(args)
 
         # Should succeed
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
 
         # Processed directory should be empty
         self.assertEqual(list(self.processed_dir.iterdir()), [])
@@ -594,7 +594,7 @@ class TestCLISafety(TestCase):
 
         result = run_workflow(args)
 
-        self.assertEqual(result, 1)
+        self.assertEqual(result.exit_code, 1)
         self.assertFalse(Path('archive.zip').exists())
 
     @patch('orchestrator.cli.commands.run.build_frontend_bundle')
@@ -616,7 +616,7 @@ class TestCLISafety(TestCase):
         result = run_workflow(args)
 
         # Should succeed
-        self.assertEqual(result, 0)
+        self.assertEqual(result.exit_code, 0)
 
         # Files should still exist (dry run doesn't actually clean)
         self.assertTrue((self.processed_dir / 'should_remain.txt').exists())

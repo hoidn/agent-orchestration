@@ -8,8 +8,8 @@
     (type String))
   (defrecord OutputContractDraft
     (fields List[OutputContractField]))
-  (defworkflow infer-output-contract () -> OutputContractDraft
+  (defworkflow infer-output-contract ((task_prompt String) (output_request String)) -> OutputContractDraft
     (provider-result providers.inference
       :prompt prompts.inference
-      :inputs ()
+      :inputs (task_prompt output_request)
       :returns OutputContractDraft)))

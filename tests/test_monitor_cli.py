@@ -194,7 +194,7 @@ def test_run_workflow_writes_monitor_process_sidecar(tmp_path: Path, monkeypatch
     workflow = _write_workflow(workspace)
     monkeypatch.chdir(workspace)
 
-    assert run_workflow(_run_args(workflow)) == 0
+    assert run_workflow(_run_args(workflow)).exit_code == 0
 
     run_roots = list((workspace / ".orchestrate" / "runs").iterdir())
     assert len(run_roots) == 1
@@ -208,7 +208,7 @@ def test_run_workflow_sidecar_write_failure_is_nonfatal(tmp_path: Path, monkeypa
     monkeypatch.chdir(workspace)
 
     with patch("orchestrator.cli.commands.run.write_process_metadata", side_effect=OSError("nope")):
-        assert run_workflow(_run_args(workflow)) == 0
+        assert run_workflow(_run_args(workflow)).exit_code == 0
 
 
 def test_resume_workflow_refreshes_monitor_process_sidecar(tmp_path: Path, monkeypatch):

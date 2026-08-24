@@ -144,7 +144,7 @@ def test_fresh_run_leaves_the_default_binding_lazy_until_run_ref_executes(
         executor.execute.return_value = {"status": "completed"}
         executor_cls.return_value = executor
 
-        assert run_workflow(_run_args(workflow)) == 0
+        assert run_workflow(_run_args(workflow)).exit_code == 0
 
     assert "run_ref_root" not in _only_state(workspace)
 
@@ -166,7 +166,7 @@ def test_fresh_run_binds_explicit_canonical_root(
 
         assert run_workflow(
             _run_args(workflow, run_ref_root=selected.as_posix())
-        ) == 0
+        ).exit_code == 0
 
     assert _only_state(workspace)["run_ref_root"] == selected.as_posix()
 
@@ -183,7 +183,7 @@ def test_fresh_run_rejects_explicit_noncanonical_or_relative_root(
     workflow = _write_workflow(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    assert run_workflow(_run_args(workflow, run_ref_root=raw_root)) == 2
+    assert run_workflow(_run_args(workflow, run_ref_root=raw_root)).exit_code == 2
     assert not (tmp_path / ".orchestrate").exists()
 
 

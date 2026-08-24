@@ -551,7 +551,7 @@ def test_public_run_completes_continue_settlement(
     monkeypatch.chdir(tmp_path)
     runtime = _install_fake_provider_runtime(monkeypatch)
 
-    assert run_workflow(_run_args(files)) == 0
+    assert run_workflow(_run_args(files)).exit_code == 0
 
     run_root, state = _only_run(tmp_path)
     assert state["status"] == "completed"
@@ -602,7 +602,7 @@ def test_public_run_rejects_invalid_directive_without_publication(
         },
     )
 
-    assert run_workflow(_run_args(files)) == 1
+    assert run_workflow(_run_args(files)).exit_code == 1
 
     _assert_atomic_failure(
         tmp_path,
@@ -650,7 +650,7 @@ def test_public_run_rejects_stale_provisional_bundle_before_launch(
         inject_stale_preimage,
     )
 
-    assert run_workflow(_run_args(files)) == 1
+    assert run_workflow(_run_args(files)).exit_code == 1
 
     run_root, _state = _assert_atomic_failure(
         tmp_path,
@@ -681,7 +681,7 @@ def test_public_run_rejects_settlement_evaluation_failure_without_publication(
         fail_settlement,
     )
 
-    assert run_workflow(_run_args(files)) == 1
+    assert run_workflow(_run_args(files)).exit_code == 1
 
     _assert_atomic_failure(
         tmp_path,
@@ -779,7 +779,7 @@ def test_public_run_steers_and_selects_exact_resumed_worker(
     )
     monkeypatch.setattr(ProviderExecutor, "execute", execute_provider)
 
-    assert run_workflow(_run_args(files)) == 0
+    assert run_workflow(_run_args(files)).exit_code == 0
 
     _run_root, state = _only_run(tmp_path)
     assert state["status"] == "completed"
@@ -931,7 +931,7 @@ def test_public_run_rejects_unusable_steer_resume_boundary(
     )
     monkeypatch.setattr(ProviderExecutor, "execute", execute_provider)
 
-    assert run_workflow(_run_args(files)) == 1
+    assert run_workflow(_run_args(files)).exit_code == 1
 
     _run_root, state = _assert_atomic_failure(
         tmp_path,

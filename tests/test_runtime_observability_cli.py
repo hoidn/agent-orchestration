@@ -129,7 +129,7 @@ def test_run_workflow_records_closed_executor_session(tmp_path: Path, monkeypatc
 
     state = _latest_state(tmp_path)
     sessions = state["runtime_observability"]["executor_sessions"]
-    assert result == 0
+    assert result.exit_code == 0
     assert len(sessions) == 1
     assert sessions[0]["entrypoint"] == "run"
     assert sessions[0]["status"] == "completed"
@@ -215,7 +215,7 @@ def test_run_workflow_persists_compiled_frontend_surface_anchor_for_orc_runs(
 
     state = _latest_state(tmp_path)
     frontend = state["runtime_observability"]["compiled_frontend"]
-    assert result == 0
+    assert result.exit_code == 0
     assert frontend["frontend_kind"] == "workflow_lisp"
     assert frontend["frontend_entry_workflow"] == "neurips/entry::orchestrate"
     assert frontend["frontend_build_root"].endswith("/")
@@ -305,7 +305,7 @@ def test_run_workflow_logs_compiled_frontend_source_context(
         result = run_workflow(args)
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
-    assert result == 0
+    assert result.exit_code == 0
     assert "Running step runtime/entry::orchestrate__remote__call_selector-run" in messages
     assert f"source: {workflow}" in messages
     assert "form: workflow-lisp > defworkflow > orchestrate" in messages

@@ -153,7 +153,7 @@ def _observe_real_cli_and_lsp_captures(
         cli_argv.extend(("--source-root", str(source_root)))
     cli_args = cli_main.create_parser().parse_args(cli_argv)
 
-    assert run_command.run_workflow(cli_args) == 0
+    assert run_command.run_workflow(cli_args).exit_code == 0
     assert len(cli_captures) == 1
 
     state = lsp_state.initialize_lsp_state(
@@ -332,7 +332,7 @@ def test_l3_listed_and_unlisted_requests_match_real_cli_f2_capture(
         "_effective_source_roots",
         observe_effective_source_roots,
     )
-    assert run_command.run_workflow(cli_args) == expected_cli_status
+    assert run_command.run_workflow(cli_args).exit_code == expected_cli_status
 
     driver = compile_driver.initialize_compile_driver(
         lsp_state.initialize_lsp_state(
@@ -462,7 +462,7 @@ def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(
         ("run", str(entry_path), "--dry-run", "--quiet")
     )
 
-    assert run_command.run_workflow(cli_args) == 2
+    assert run_command.run_workflow(cli_args).exit_code == 2
     assert len(cli_errors) == 1
 
     read_only_build = build.build_frontend_bundle_in_memory

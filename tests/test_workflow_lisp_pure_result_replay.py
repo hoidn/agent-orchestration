@@ -997,7 +997,7 @@ def test_public_run_activates_replay_profile_with_value_free_pure_results(
     persisted = json.loads(
         (run_root / "state.json").read_text(encoding="utf-8")
     )
-    assert result == 0
+    assert result.exit_code == 0
     assert (
         persisted["result_persistence_profile"]
         == DERIVED_PURE_REPLAY_PROFILE

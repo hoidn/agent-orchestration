@@ -261,7 +261,7 @@ def _render_type(node) -> str:
     raise PromptScaffoldError(f"cannot render type node {node!r}")
 
 
-def _wfl_string_literal(text: str) -> str:
+def wfl_string_literal(text: str) -> str:
     """One Workflow Lisp-safe double-quoted string body.
 
     Control characters are rejected outright and ``\\`` / ``"`` are escaped
@@ -300,7 +300,7 @@ def _render_run_orc(inputs: object) -> bytes:
     lines.append("    (provider-result providers.task")
     lines.append("      :prompt prompts.task")
     lines.append(f"      :inputs {'(omp_conf_root)' if with_conf else '()'}")
-    lines.append(f'      :model "{_wfl_string_literal(inputs.model)}"')
+    lines.append(f'      :model "{wfl_string_literal(inputs.model)}"')
     lines.append("      :session-artifact omp_session")
     lines.append(f"      :returns {result})")
     lines.append(")")
