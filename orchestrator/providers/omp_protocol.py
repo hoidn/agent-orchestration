@@ -5,12 +5,32 @@ import json
 import math
 import os
 import re
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .types import OmpTransportExpectation
 
 _RFC3339_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+
+def _is_rfc3339(value: str) -> bool:
+    """Return whether a value is a real RFC 3339 timestamp (leap second allowed)."""
+    if _RFC3339_PATTERN.fullmatch(value) is None:
+        return False
+    candidate = value.replace("Z", "+00:00")
+    try:
+        datetime.fromisoformat(candidate)
+        return True
+    except ValueError:
+        pass
+    leap = re.search(r"^(.*T\d{2}:\d{2}):60(\.\d*)?([+-]\d{2}:\d{2})$", candidate)
+    if leap is not None:
+        try:
+            datetime.fromisoformat(leap.group(1) + ":59" + (leap.group(2) or "") + leap.group(3))
+            return True
+        except ValueError:
+            pass
+    return False
 _HEX64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
 _HEADER_REQUIRED = frozenset({"type", "id", "timestamp", "cwd"})
@@ -44,7 +64,7 @@ _DONE_REASONS = frozenset({"stop", "length", "toolUse"})
 _ERROR_REASONS = frozenset({"error", "aborted"})
 _TOOL_EVENTS = {
     "tool_execution_start": (frozenset({"type", "toolCallId", "toolName", "args", "intent"}), frozenset({"type", "toolCallId", "toolName", "args"})),
-    "tool_execution_update": (frozenset({"type", "toolCallId", "toolName", "args", "partialResult"}), frozenset({"type", "toolCallId", "toolName", "args"})),
+    "tool_execution_update": (frozenset({"type", "toolCallId", "toolName", "args", "partialResult"}), frozenset({"type", "toolCallId", "toolName", "args", "partialResult"})),
     "tool_execution_end": (frozenset({"type", "toolCallId", "toolName", "result", "isError"}), frozenset({"type", "toolCallId", "toolName", "result"})),
 }
 _TOOL_OPTIONAL_TYPES = {
@@ -52,27 +72,21 @@ _TOOL_OPTIONAL_TYPES = {
     "tool_execution_end": {"isError": "boolean"},
 }
 
-
 def is_event_type(value: Any) -> bool:
     """Return whether one discriminator is an admitted OMP event type."""
     return value in _EVENT_TYPES
 
-
 def is_nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
-
 
 def is_finite_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
-
 def is_nonnegative_number(value: Any) -> bool:
     return is_finite_number(value) and value >= 0
 
-
 def is_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
-
 
 def loads_strict(text: str) -> dict[str, Any]:
     """Parse one transport line rejecting duplicate keys and non-finite numbers."""
@@ -93,10 +107,8 @@ def loads_strict(text: str) -> dict[str, Any]:
         raise ValueError("transport line must be a JSON object")
     return parsed
 
-
 def _unknown_keys(obj: Mapping[str, Any], allowed: frozenset[str]) -> list[str]:
     return sorted(str(key) for key in set(obj) - allowed)
-
 
 def _closed_object(obj: Any, allowed: frozenset[str], where: str, *, required: frozenset[str] = frozenset()) -> str | None:
     if not isinstance(obj, dict):
@@ -109,14 +121,13 @@ def _closed_object(obj: Any, allowed: frozenset[str], where: str, *, required: f
         return f"{where} is missing required member(s): {', '.join(sorted(missing))}"
     return None
 
-
 def validate_session_header(obj: Any) -> str | None:
     error = _closed_object(obj, _HEADER_ALLOWED, "session header", required=_HEADER_REQUIRED)
     if error is not None:
         return error
     if not is_nonempty_string(obj["id"]):
         return "session header id must be a non-empty string"
-    if not is_nonempty_string(obj["timestamp"]) or _RFC3339_PATTERN.fullmatch(obj["timestamp"]) is None:
+    if not is_nonempty_string(obj["timestamp"]) or not _is_rfc3339(obj["timestamp"]):
         return "session header timestamp must be an RFC 3339 string"
     if not is_nonempty_string(obj["cwd"]) or not os.path.isabs(obj["cwd"]):
         return "session header cwd must be an absolute path string"
@@ -132,10 +143,8 @@ def validate_session_header(obj: Any) -> str | None:
             return f"session header {key} must be an array of strings"
     return None
 
-
 def validate_only_type(obj: Any, event_type: str) -> str | None:
     return _closed_object(obj, frozenset({"type"}), f"{event_type} event")
-
 
 def _validate_tool_event(obj: Any, name: str) -> str | None:
     allowed, required = _TOOL_EVENTS[name]
@@ -150,18 +159,14 @@ def _validate_tool_event(obj: Any, name: str) -> str | None:
             return f"{name} {key} must be a {expected}"
     return None
 
-
 def validate_tool_execution_start(obj: Any) -> str | None:
     return _validate_tool_event(obj, "tool_execution_start")
-
 
 def validate_tool_execution_update(obj: Any) -> str | None:
     return _validate_tool_event(obj, "tool_execution_update")
 
-
 def validate_tool_execution_end(obj: Any) -> str | None:
     return _validate_tool_event(obj, "tool_execution_end")
-
 
 def _message_role_error(message: Any, where: str) -> str | None:
     if not isinstance(message, dict):
@@ -170,21 +175,17 @@ def _message_role_error(message: Any, where: str) -> str | None:
         return f"{where} message role must be a non-empty string"
     return None
 
-
 def _validate_message_event(obj: Any, where: str) -> str | None:
     error = _closed_object(obj, frozenset({"type", "message"}), f"{where} event", required=frozenset({"type", "message"}))
     if error is not None:
         return error
     return _message_role_error(obj["message"], where)
 
-
 def validate_message_start(obj: Any) -> str | None:
     return _validate_message_event(obj, "message_start")
 
-
 def validate_message_end(obj: Any) -> str | None:
     return _validate_message_event(obj, "message_end")
-
 
 def validate_message_update(obj: Any) -> str | None:
     error = _closed_object(obj, frozenset({"type", "assistantMessageEvent"}), "message_update event", required=frozenset({"type", "assistantMessageEvent"}))
@@ -230,7 +231,6 @@ def validate_message_update(obj: Any) -> str | None:
             return f"{event_type} reason is outside the pinned set"
     return None
 
-
 def validate_closed_assistant_message(message: Any) -> str | None:
     if not isinstance(message, dict):
         return "closed assistant message must be a JSON object"
@@ -254,7 +254,6 @@ def validate_closed_assistant_message(message: Any) -> str | None:
         if block_error is not None:
             return block_error
     return validate_usage(message.get("usage"))
-
 
 def validate_content_block(block: Any) -> str | None:
     if not isinstance(block, dict):
@@ -280,11 +279,12 @@ def validate_content_block(block: Any) -> str | None:
     # Other pinned non-text block kinds are observational; contribute no output.
     return None
 
-
 def _validate_image_object(image: Any) -> str | None:
     error = _closed_object(image, frozenset({"type", "data", "mimeType", "detail"}), "image content object", required=frozenset({"type", "data", "mimeType"}))
     if error is not None:
         return error
+    if image.get("type") != "image":
+        return "image content object type must be image"
     if not is_nonempty_string(image.get("data")) or len(image["data"]) % 4 != 0 or _BASE64_PATTERN.fullmatch(image["data"]) is None:
         return "image content object data must be a base64 string"
     if not is_nonempty_string(image.get("mimeType")):
@@ -293,17 +293,17 @@ def _validate_image_object(image: Any) -> str | None:
         return "image content object detail is outside auto|low|high|original"
     return None
 
-
 def _validate_tool_call_object(tool_call: Any) -> str | None:
     if not isinstance(tool_call, dict):
         return "tool-call object must be a JSON object"
+    if tool_call.get("type") != "toolCall":
+        return "tool-call object type must be toolCall"
     for key in ("id", "name"):
         if not is_nonempty_string(tool_call.get(key)):
             return f"tool-call object {key} must be a non-empty string"
     if not isinstance(tool_call.get("arguments"), dict):
         return "tool-call object arguments must be a JSON object"
     return None
-
 
 def validate_usage(usage: Any) -> str | None:
     if not isinstance(usage, dict):
@@ -345,7 +345,6 @@ def validate_usage(usage: Any) -> str | None:
                 return f"usage {group}.{key} must be a finite non-negative number"
     return None
 
-
 def validate_turn_end(obj: Any) -> str | None:
     error = _closed_object(obj, frozenset({"type", "message", "toolResults"}), "turn_end event", required=frozenset({"type", "message", "toolResults"}))
     if error is not None:
@@ -355,7 +354,6 @@ def validate_turn_end(obj: Any) -> str | None:
     if not isinstance(obj["toolResults"], list):
         return "turn_end toolResults must be an array"
     return None
-
 
 def validate_agent_end(obj: Any) -> str | None:
     error = _closed_object(obj, frozenset({"type", "messages", "isTerminal", "telemetry", "coverage"}), "agent_end event", required=frozenset({"type", "messages"}))
@@ -369,7 +367,6 @@ def validate_agent_end(obj: Any) -> str | None:
         if key in obj and not isinstance(obj[key], dict):
             return f"agent_end {key} must be a JSON object"
     return None
-
 
 def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, header_session_id: str) -> str | None:
     error = _closed_object(obj, _FRAME_REQUIRED, "adapter launch frame", required=_FRAME_REQUIRED)
@@ -416,7 +413,6 @@ def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, hea
             return "adapter launch frame observed inventory must contain the primary session file"
     return None
 
-
 def _validate_frame_child(child: Any) -> str | None:
     error = _closed_object(child, _FRAME_CHILD_KEYS, "adapter launch frame child", required=_FRAME_CHILD_KEYS)
     if error is not None:
@@ -432,7 +428,6 @@ def _validate_frame_child(child: Any) -> str | None:
     if not is_integer(child.get("exit_code")) or child["exit_code"] != 0:
         return "adapter launch frame child exit_code must be zero"
     return None
-
 
 def _validate_frame_session(session: Any, expectation: OmpTransportExpectation, *, header_session_id: str) -> str | None:
     error = _closed_object(session, _FRAME_SESSION_KEYS, "adapter launch frame session", required=_FRAME_SESSION_KEYS)
@@ -457,7 +452,6 @@ def _validate_frame_session(session: Any, expectation: OmpTransportExpectation, 
             return f"adapter launch frame session {key} must be null for transient persistence"
     return None
 
-
 def _validate_frame_confinement(confinement: Any, expectation: OmpTransportExpectation) -> str | None:
     policy_sha256 = expectation.confinement_policy_sha256
     if policy_sha256 is None:
@@ -476,11 +470,9 @@ def _validate_frame_confinement(confinement: Any, expectation: OmpTransportExpec
         return "adapter launch frame confinement policy digest does not match the expectation"
     return None
 
-
 def freeze_frame(frame: Mapping[str, Any]) -> Mapping[str, Any]:
     """Return a deeply frozen copy of one validated adapter launch frame."""
     return MappingProxyType({key: _freeze_value(value) for key, value in frame.items()})
-
 
 def _freeze_value(value: Any) -> Any:
     if isinstance(value, Mapping):

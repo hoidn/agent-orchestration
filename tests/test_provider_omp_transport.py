@@ -366,6 +366,17 @@ def test_omp_transport_requires_sole_first_session_header():
     assert accumulator.snapshot().status == "invalid"
 
 
+def test_omp_transport_header_timestamp_must_be_real_rfc3339():
+    header = json.loads(_fixture_lines()[0])
+    header["timestamp"] = "2026-13-01T00:00:00Z"
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_jsonl(header) + b"\n")
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
+
+
 def test_omp_transport_rejects_duplicate_session_header():
     accumulator = _new_accumulator(expectation=_expectation())
     accumulator.feed(_fixture(TRANSIENT))
@@ -589,6 +600,7 @@ def test_omp_transport_tool_execution_shapes_are_closed():
         {"type": "tool_execution_start", "toolCallId": "c", "toolName": "bash", "args": {}, "intent": ["list"]},
         {"type": "tool_execution_start", "toolCallId": "c", "toolName": "bash", "args": {}, "surprise": 1},
         {"type": "tool_execution_update", "toolCallId": "c", "toolName": "bash"},
+        {"type": "tool_execution_update", "toolCallId": "c", "toolName": "bash", "args": {}},
         {"type": "tool_execution_end", "toolCallId": "c", "toolName": "bash", "result": 1, "isError": "no"},
         {"type": "tool_execution_end", "toolCallId": "c", "toolName": "bash", "extra": 1},
     ),
@@ -686,6 +698,31 @@ def test_omp_transport_message_update_requires_open_assistant_lifecycle():
     _assert_transport_error(user_error)
 
 
+def test_omp_transport_update_start_is_valid_with_only_type():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_stream_with_update({"type": "start"}))
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert error is None
+    assert metadata is not None
+    assert metadata["event_count"] == 12
+
+
+def test_omp_transport_update_start_rejects_extra_members():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(
+        _stream_with_update({"type": "start", "contentIndex": 0})
+    )
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
+
+
 def test_omp_transport_message_update_never_carries_outer_message():
     accumulator = _new_accumulator(expectation=_expectation())
     accumulator.feed(
@@ -713,6 +750,8 @@ def test_omp_transport_message_update_never_carries_outer_message():
         {"type": "toolcall_delta", "contentIndex": 0},
         {"type": "image_end", "contentIndex": 0, "content": {"type": "image", "data": "abc", "mimeType": "image/png"}},
         {"type": "toolcall_end", "contentIndex": 0, "toolCall": {"id": "t"}},
+        {"type": "toolcall_end", "contentIndex": 0, "toolCall": {"id": "t", "name": "bash", "arguments": {}}},
+        {"type": "image_end", "contentIndex": 0, "content": {"type": "text", "data": "aGVsbG8=", "mimeType": "image/png"}},
         {"type": "text_start", "contentIndex": 0, "extra": 1},
         {"type": "done", "reason": "error"},
         {"type": "error", "reason": "stop"},
@@ -747,7 +786,7 @@ def test_omp_transport_assistant_message_event_union_is_closed(
         {
             "type": "toolcall_end",
             "contentIndex": 2,
-            "toolCall": {"id": "t", "name": "bash", "arguments": {}},
+            "toolCall": {"type": "toolCall", "id": "t", "name": "bash", "arguments": {}},
         },
         {
             "type": "image_end",
@@ -996,6 +1035,22 @@ def test_omp_transport_text_blocks_and_messages_join_in_validated_order():
     ]
 
 
+def test_omp_transport_conflicting_error_updates_fail():
+    lines = _fixture_lines()
+    head = b"\n".join(lines[:6]) + b"\n"  # through assistant message_start
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(
+        head
+        + _jsonl({"type": "message_update", "assistantMessageEvent": {"type": "error", "reason": "error"}}) + b"\n"
+        + _jsonl({"type": "message_update", "assistantMessageEvent": {"type": "error", "reason": "aborted"}}) + b"\n"
+        + _jsonl({"type": "message_end", "message": dict(_minimal_assistant_message_end()["message"], stopReason="aborted")}) + b"\n"
+    )
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
+
+
 def test_omp_transport_error_update_requires_matching_stop_reason():
     # The fixture's message_end closes with stopReason "stop", which does not
     # match the preceding error update reason; the lifecycle must fail.
@@ -1179,6 +1234,30 @@ def test_omp_transport_earlier_provider_error_is_recovered_by_later_stop():
     assert metadata["final_provider"] == "provider"
 
 
+def test_omp_transport_provisional_metadata_without_text_blocks():
+    lines = _fixture_lines()
+    head = b"\n".join(lines[:6]) + b"\n"  # through assistant message_start
+    message = _minimal_assistant_message_end()["message"]
+    message["content"] = [
+        {"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"}
+    ]
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(
+        head
+        + _jsonl({"type": "message_end", "message": message}) + b"\n"
+        + _jsonl({"type": "agent_end", "messages": []}) + b"\n"
+    )
+    accumulator.feed(
+        _jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator, require_terminal=False)
+
+    assert error is None
+    assert metadata is not None
+    assert metadata["event_count"] == 7
+
+
 def test_omp_transport_open_lifecycle_at_terminal_fails():
     accumulator = _new_accumulator(expectation=_expectation())
     accumulator.feed(_fixture(TRANSIENT))
@@ -1312,6 +1391,19 @@ def test_omp_transport_late_custom_pair_orphan_overlap_mismatch_fail():
     _, overlap_error = _finalize(overlap, require_terminal=False)
 
     _assert_transport_error(overlap_error)
+
+
+def test_omp_transport_terminal_agent_end_fails_while_custom_lifecycle_open():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(
+        _jsonl({"type": "message_start", "message": {"role": "custom"}}) + b"\n"
+    )
+    accumulator.feed(_jsonl({"type": "agent_end", "messages": []}) + b"\n")
+
+    _, error = _finalize(accumulator, require_terminal=False)
+
+    _assert_transport_error(error)
 
 
 def test_omp_transport_late_custom_pair_malformed_outer_fails_closed():

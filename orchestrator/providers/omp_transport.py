@@ -37,7 +37,6 @@ _TRANSPORT_ERROR_TYPE = "provider_session_transport_error"
 _FRAME_EVENT_TYPE = "orchestrator.omp_launch.v1"
 _TransportState = Literal["awaiting_header", "streaming", "terminal_seen", "frame_seen"]
 
-
 def _unfreeze_value(value: Any) -> Any:
     """Recursively thaw frozen MappingProxyType/tuple values to plain containers."""
     if isinstance(value, MappingProxyType):
@@ -49,7 +48,6 @@ def _unfreeze_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_unfreeze_value(item) for item in value]
     return value
-
 
 class OmpJsonStdoutAccumulator:
     """Incrementally parse pinned OMP JSON stdout without altering it."""
@@ -63,13 +61,12 @@ class OmpJsonStdoutAccumulator:
         self._event_count = 0
         self._line_number = 0
         self._open_role: str | None = None
-        self._pending_error_stop_reason: str | None = None
+        self._pending_error_stop_reasons: set[str] = set()
         self._text_parts: list[str] = []
         self._message_rows: list[dict[str, Any]] = []
         self._final_provider: str | None = None
         self._final_model: str | None = None
         self._last_closed_assistant: dict[str, Any] | None = None
-        self._settlement_seen = False
         self._frame: Mapping[str, Any] | None = None
         self._invalid_error: dict[str, Any] | None = None
         self._eof_tail_parsed = False
@@ -245,6 +242,9 @@ class OmpJsonStdoutAccumulator:
                 # Once settled, a nonterminal end is not legal and can never
                 # reopen streaming.
                 self._fail("nonterminal agent_end is not legal after settlement", line=self._line_number)
+                return
+            if self._open_role is not None:
+                self._fail("terminal agent_end arrives with an open message lifecycle", line=self._line_number)
             return
         if event_type == "message_start":
             error = validate_message_start(event)
@@ -309,7 +309,7 @@ class OmpJsonStdoutAccumulator:
             return error
         union = event["assistantMessageEvent"]
         if union["type"] == "error":
-            self._pending_error_stop_reason = union["reason"]
+            self._pending_error_stop_reasons.add(union["reason"])
         return None
 
     def _consume_message_end(self, event: dict[str, Any]) -> str | None:
@@ -328,10 +328,14 @@ class OmpJsonStdoutAccumulator:
         error = validate_closed_assistant_message(message)
         if error is not None:
             return error
-        if self._pending_error_stop_reason is not None and message["stopReason"] != self._pending_error_stop_reason:
-            self._pending_error_stop_reason = None
-            return "assistant message_end stopReason does not match the preceding error update"
-        self._pending_error_stop_reason = None
+        if self._pending_error_stop_reasons:
+            if len(self._pending_error_stop_reasons) > 1:
+                self._pending_error_stop_reasons.clear()
+                return "assistant lifecycle emitted conflicting error update stop reasons"
+            if message["stopReason"] not in self._pending_error_stop_reasons:
+                self._pending_error_stop_reasons.clear()
+                return "assistant message_end stopReason does not match the preceding error update"
+        self._pending_error_stop_reasons.clear()
         message_text = "\n".join(block["text"] for block in message["content"] if isinstance(block, dict) and block.get("type") == "text")
         if message_text:
             self._text_parts.append(message_text)
@@ -357,7 +361,6 @@ class OmpJsonStdoutAccumulator:
             return "terminal agent_end requires the final assistant stopReason to be stop"
         if any(isinstance(block, dict) and block.get("type") == "toolCall" for block in last.get("content", [])):
             return "terminal agent_end requires no tool-call block in the final assistant"
-        self._settlement_seen = True
         self._state = "terminal_seen"
         return None
 
@@ -376,7 +379,7 @@ class OmpJsonStdoutAccumulator:
         """Return an incomplete observation without settling any finality."""
         if self._invalid_error is not None:
             return None, copy.deepcopy(self._invalid_error)
-        if self._state == "frame_seen" and self._open_role is None and self._text_parts:
+        if self._state == "frame_seen" and self._open_role is None and self._message_rows:
             return self._build_metadata(), None
         return None, None
 
@@ -419,13 +422,11 @@ class OmpJsonStdoutAccumulator:
     def _error(message: str, context: Mapping[str, Any]) -> dict[str, Any]:
         return {"type": _TRANSPORT_ERROR_TYPE, "message": message, "context": dict(context)}
 
-
 def _freeze_snapshot_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze_snapshot_value(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_snapshot_value(item) for item in value)
     return value
-
 
 __all__ = ["OmpJsonStdoutAccumulator"]
