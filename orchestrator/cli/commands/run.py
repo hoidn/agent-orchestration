@@ -450,6 +450,9 @@ def run_workflow(
     *,
     run_id: Optional[str] = None,
     expected_run_identity: Optional[tuple[int, int]] = None,
+    no_tools_conf_root: Optional[str] = None,
+    no_tools_conf_identity: Optional[tuple[int, int]] = None,
+    no_tools_conf_manifest_sha256: Optional[str] = None,
 ) -> RunWorkflowResult:
     """
     Run a workflow with safety checks.
@@ -663,6 +666,9 @@ def run_workflow(
                 max_retries=args.max_retries,
                 retry_delay_ms=args.retry_delay,
                 observability=observability,
+                no_tools_conf_root=no_tools_conf_root,
+                no_tools_conf_identity=no_tools_conf_identity,
+                no_tools_conf_manifest_sha256=no_tools_conf_manifest_sha256,
             )
 
             result = executor.execute(

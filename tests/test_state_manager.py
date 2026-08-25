@@ -1502,7 +1502,7 @@ steps:
 
 
 def test_provider_session_visit_dir_shares_metadata_join_key(tmp_path):
-    """The live visit directory shares the metadata/spool join key plus .live."""
+    """The live visit directory shares the exact metadata/spool join key."""
     (tmp_path / "workflow.yaml").write_text("name: w\nsteps: []\n", encoding="utf-8")
     manager = StateManager(tmp_path, run_id="visit-dir-key")
     manager.initialize("workflow.yaml")
@@ -1510,10 +1510,32 @@ def test_provider_session_visit_dir_shares_metadata_join_key(tmp_path):
     metadata_path, spool_path = manager.provider_session_paths("root/ask", 2)
     visit_dir = manager.provider_session_visit_dir("root/ask", 2)
 
-    assert visit_dir == manager.run_root / "provider_sessions" / "root_ask__v2.live"
+    assert visit_dir == manager.run_root / "provider_sessions" / "root_ask__v2"
     assert metadata_path == manager.run_root / "provider_sessions" / "root_ask__v2.json"
     assert spool_path == manager.run_root / "provider_sessions" / "root_ask__v2.transport.log"
     assert visit_dir.parent == metadata_path.parent
+
+
+def test_provider_session_x8_siblings_share_bare_visit_key(tmp_path: Path) -> None:
+    manager = StateManager(tmp_path, run_id="layout")
+    metadata, _spool = manager.provider_session_paths("root/ask", 2)
+    live = manager.provider_session_visit_dir("root/ask", 2)
+    parent = metadata.parent
+    assert {
+        "metadata": metadata,
+        "live": live,
+        "snapshot": parent / "root_ask__v2.snapshot",
+        "conf": parent / "root_ask__v2.conf",
+        "link": parent / "root_ask__v2.session-link.json",
+        "continuations": parent / "root_ask__v2.continuations",
+    } == {
+        "metadata": parent / "root_ask__v2.json",
+        "live": parent / "root_ask__v2",
+        "snapshot": parent / "root_ask__v2.snapshot",
+        "conf": parent / "root_ask__v2.conf",
+        "link": parent / "root_ask__v2.session-link.json",
+        "continuations": parent / "root_ask__v2.continuations",
+    }
 
 
 @pytest.mark.parametrize(
@@ -1602,3 +1624,157 @@ def test_recover_interrupted_provider_visit_preserves_old_visit_artifacts(tmp_pa
     assert metadata_path.exists()
     assert metadata_path.read_bytes() == before_metadata
     assert spool_path.exists()
+
+
+def test_publish_provider_session_link_is_atomic_no_replace(tmp_path: Path) -> None:
+    manager = StateManager(tmp_path, run_id="run-1", state_dir=tmp_path / "runs")
+    manager.run_root.mkdir(parents=True)
+    payload = b'{"schema_version":"session_link.v1"}\n'
+    kind = manager.run_root.stat()
+    identity = (kind.st_dev, kind.st_ino)
+    sessions = manager.run_root / "provider_sessions"
+    sessions.mkdir()
+    sessions_fd = os.open(sessions, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        published = manager.publish_provider_session_link(
+            "task__v1",
+            payload,
+            expected_run_identity=identity,
+            session_dir_fd=sessions_fd,
+        )
+        before = _run_tree_snapshot(manager.run_root)
+        assert published == (
+            manager.run_root / "provider_sessions" / "task__v1.session-link.json"
+        )
+        assert published.read_bytes() == payload
+        with pytest.raises(FileExistsError):
+            manager.publish_provider_session_link(
+                "task__v1",
+                b"replacement",
+                expected_run_identity=identity,
+                session_dir_fd=sessions_fd,
+            )
+        assert _run_tree_snapshot(manager.run_root) == before
+    finally:
+        os.close(sessions_fd)
+
+
+
+
+def test_publish_provider_session_link_rejects_run_swap_before_sink(
+    tmp_path: Path,
+) -> None:
+    manager = StateManager(tmp_path, run_id="run-1", state_dir=tmp_path / "runs")
+    manager.run_root.mkdir(parents=True)
+    kind = manager.run_root.stat()
+    identity = (kind.st_dev, kind.st_ino)
+    old_sessions = manager.run_root / "provider_sessions"
+    old_sessions.mkdir()
+    sessions_fd = os.open(
+        old_sessions, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    )
+    manager.run_root.rename(manager.run_root.with_name("old-run"))
+    manager.run_root.mkdir()
+    try:
+        with pytest.raises(ValueError, match="run root identity changed"):
+            manager.publish_provider_session_link(
+                "task__v1",
+                b"{}\n",
+                expected_run_identity=identity,
+                session_dir_fd=sessions_fd,
+            )
+        assert not (manager.run_root / "provider_sessions").exists()
+    finally:
+        os.close(sessions_fd)
+@pytest.mark.parametrize("visit_key", ("", ".", "..", "a/b", "a\\b", "a\x00b"))
+def test_publish_provider_session_link_rejects_non_component_visit_keys(
+    tmp_path: Path, visit_key: str
+) -> None:
+    manager = StateManager(tmp_path, run_id="run-1", state_dir=tmp_path / "runs")
+    manager.run_root.mkdir(parents=True)
+    with pytest.raises(ValueError):
+        manager.publish_provider_session_link(
+            visit_key,
+            b"{}",
+            expected_run_identity=(0, 0),
+            session_dir_fd=-1,
+        )
+    assert not (manager.run_root / "provider_sessions").exists()
+
+
+@pytest.mark.parametrize("swap_point", ("before-rename", "after-rename"))
+def test_publish_provider_session_link_rejects_detached_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap_point: str
+) -> None:
+    import orchestrator.state as state_module
+
+    manager = StateManager(tmp_path, run_id="run-1", state_dir=tmp_path / "runs")
+    manager.run_root.mkdir(parents=True)
+    sessions = manager.run_root / "provider_sessions"
+    sessions.mkdir()
+    run_stat = manager.run_root.stat()
+    identity = (run_stat.st_dev, run_stat.st_ino)
+    sessions_fd = os.open(sessions, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    detached = manager.run_root / "detached-provider-sessions"
+    original = state_module.rename_noreplace_at
+
+    def swap():
+        sessions.rename(detached)
+        sessions.mkdir()
+
+    def raced(*args):
+        if swap_point == "before-rename":
+            swap()
+        result = original(*args)
+        if swap_point == "after-rename":
+            swap()
+        return result
+
+    monkeypatch.setattr(state_module, "rename_noreplace_at", raced)
+    try:
+        with pytest.raises(ValueError, match="changed during publication"):
+            manager.publish_provider_session_link(
+                "task__v1",
+                b"{}\n",
+                expected_run_identity=identity,
+                session_dir_fd=sessions_fd,
+            )
+    finally:
+        os.close(sessions_fd)
+    assert (detached / "task__v1.session-link.json").read_bytes() == b"{}\n"
+    assert not (sessions / "task__v1.session-link.json").exists()
+
+
+def test_publish_provider_session_link_rejects_replaced_final_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import orchestrator.state as state_module
+
+    manager = StateManager(tmp_path, run_id="run-1", state_dir=tmp_path / "runs")
+    manager.run_root.mkdir(parents=True)
+    sessions = manager.run_root / "provider_sessions"
+    sessions.mkdir()
+    run_stat = manager.run_root.stat()
+    identity = (run_stat.st_dev, run_stat.st_ino)
+    sessions_fd = os.open(sessions, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    original = state_module.rename_noreplace_at
+    target = sessions / "task__v1.session-link.json"
+
+    def replace_after_rename(*args):
+        result = original(*args)
+        target.unlink()
+        target.write_bytes(b"attacker replacement")
+        return result
+
+    monkeypatch.setattr(state_module, "rename_noreplace_at", replace_after_rename)
+    try:
+        with pytest.raises(ValueError, match="changed during publication"):
+            manager.publish_provider_session_link(
+                "task__v1",
+                b"owned payload",
+                expected_run_identity=identity,
+                session_dir_fd=sessions_fd,
+            )
+    finally:
+        os.close(sessions_fd)
+    assert target.read_bytes() == b"attacker replacement"

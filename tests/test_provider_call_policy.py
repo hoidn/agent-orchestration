@@ -1160,15 +1160,15 @@ def test_prepare_invocation_substitutes_reserved_carrier_before_authored_params(
         {},
         prompt_content="run",
         session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
-        provider_session_dir="/run-root/provider_sessions/root_ask__v1.live",
+        provider_session_dir="/run-root/provider_sessions/root_ask__v1",
     )
 
     assert error is None
     assert invocation is not None
-    assert invocation.provider_session_dir == "/run-root/provider_sessions/root_ask__v1.live"
+    assert invocation.provider_session_dir == "/run-root/provider_sessions/root_ask__v1"
     assert "--provider-session-dir" in invocation.command
     session_dir = invocation.command[invocation.command.index("--provider-session-dir") + 1]
-    assert session_dir == "/run-root/provider_sessions/root_ask__v1.live"
+    assert session_dir == "/run-root/provider_sessions/root_ask__v1"
     assert "authored-override" not in invocation.command
 
 

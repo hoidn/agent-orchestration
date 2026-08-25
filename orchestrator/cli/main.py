@@ -344,6 +344,29 @@ def create_parser() -> argparse.ArgumentParser:
         help='Rerun an existing scaffold root; mutually exclusive with generation flags',
     )
 
+    prompt_import_parser = prompt_subparsers.add_parser(
+        'import',
+        help='Import one exact linked active primary OMP session',
+        allow_abbrev=False,
+    )
+    prompt_import_parser.add_argument('session_id', metavar='ID')
+    prompt_import_parser.add_argument(
+        '--provider',
+        choices=['omp', 'omp_no_tools', 'omp_conf', 'omp_unrestricted_workspace'],
+        action='append',
+        metavar='NAME',
+    )
+    prompt_import_parser.add_argument('--conf', action='append', metavar='PATH')
+    prompt_import_parser.add_argument('--model', action='append', metavar='MODEL')
+    prompt_import_parser.add_argument('--returns', action='append', metavar='JSON')
+    prompt_import_parser.add_argument('--output', action='append', metavar='TEXT')
+    prompt_import_parser.add_argument(
+        '--reuse-run-contract',
+        action='count',
+        default=0,
+        help='Reuse only the fully verified source private run contract',
+    )
+
     trial_parser = subparsers.add_parser(
         'trial',
         help='Run a target-2.25 terminal trial entry',

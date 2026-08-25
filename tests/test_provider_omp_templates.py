@@ -70,13 +70,17 @@ def test_conf_template_carries_conf_root_placeholder() -> None:
     ) + ["--conf-root", "${omp_conf_root}", "--provider-session-dir", "${PROVIDER_SESSION_DIR}"]
 
 
-def test_no_tools_and_inference_match_neutral_profile() -> None:
-    for name in ("omp_no_tools", "omp_conf_inference"):
-        template = omp_templates()[name]
-        assert template.command == _expected_command(name)
-        assert template.session_support.fresh_command == _expected_command(
-            name
-        ) + ["--provider-session-dir", "${PROVIDER_SESSION_DIR}"]
+def test_no_tools_uses_reserved_conf_carrier_and_inference_uses_neutral_default() -> None:
+    no_tools = omp_templates()["omp_no_tools"]
+    prefix = _expected_command("omp_no_tools") + [
+        "--conf-root", "${PROVIDER_CONF_ROOT}"
+    ]
+    assert no_tools.command == prefix
+    assert no_tools.session_support.fresh_command == prefix + [
+        "--provider-session-dir", "${PROVIDER_SESSION_DIR}"
+    ]
+    inference = omp_templates()["omp_conf_inference"]
+    assert inference.command == _expected_command("omp_conf_inference")
 
 
 def test_templates_expose_no_authorable_binary_or_approval_flags() -> None:
@@ -91,11 +95,16 @@ def test_templates_expose_no_authorable_binary_or_approval_flags() -> None:
             for token in tokens
         )
         assert not any("dist-omp" in token for token in tokens)
-        if name != "omp_conf":
+        if name not in ("omp_conf", "omp_no_tools"):
             assert "--conf-root" not in tokens
-        assert tokens == set(_expected_command(name)) | (
-            {"--conf-root", "${omp_conf_root}"} if name == "omp_conf" else set()
-        ) | {"--provider-session-dir", "${PROVIDER_SESSION_DIR}"}
+        conf_tokens = (
+            {"--conf-root", "${omp_conf_root}"} if name == "omp_conf"
+            else {"--conf-root", "${PROVIDER_CONF_ROOT}"}
+            if name == "omp_no_tools" else set()
+        )
+        assert tokens == set(_expected_command(name)) | conf_tokens | {
+            "--provider-session-dir", "${PROVIDER_SESSION_DIR}"
+        }
 
 
 def test_omp_unrestricted_workspace_is_ambient_without_flags() -> None:

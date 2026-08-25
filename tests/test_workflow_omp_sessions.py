@@ -123,7 +123,7 @@ def _install_canned_provider(monkeypatch: pytest.MonkeyPatch, result) -> None:
 def _visit_dir(tmp_path: Path, run_id: str) -> Path:
     return (
         tmp_path / ".orchestrate" / "runs" / run_id
-        / "provider_sessions" / "root.ask__v1.live"
+        / "provider_sessions" / "root.ask__v1"
     )
 
 

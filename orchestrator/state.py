@@ -3,8 +3,11 @@
 Manages run state persistence, atomic writes, and recovery per specs/state.md.
 """
 
-import json
+import errno
 import hashlib
+import json
+import os
+import secrets
 import shutil
 import threading
 from copy import deepcopy
@@ -16,7 +19,11 @@ import random
 import string
 from contextlib import contextmanager
 
-from ._common.io_atomic import atomic_write_text
+from ._common.io_atomic import (
+    RenameNoreplaceError,
+    atomic_write_text,
+    rename_noreplace_at,
+)
 
 
 StateStatus = Literal["running", "suspended", "completed", "failed"]
@@ -685,6 +692,122 @@ class StateManager:
         """Return the canonical runtime default-resume report path for Workflow Lisp sidecars."""
         return self.run_root / "workflow_lisp" / "checkpoints" / "default_resume_report.json"
 
+    def publish_provider_session_link(
+        self,
+        visit_key: str,
+        payload: bytes,
+        *,
+        expected_run_identity: tuple[int, int],
+        session_dir_fd: int,
+    ) -> Path:
+        """Publish through the caller's retained provider-sessions authority."""
+        if (
+            not isinstance(visit_key, str)
+            or not visit_key
+            or visit_key in (".", "..")
+            or "/" in visit_key
+            or "\\" in visit_key
+            or "\x00" in visit_key
+        ):
+            raise ValueError("provider session visit_key must be one component")
+        if not isinstance(payload, bytes) or not payload:
+            raise ValueError("provider session link payload must be non-empty bytes")
+        temp_name = f".{visit_key}.link-{secrets.token_hex(8)}.tmp"
+        target = f"{visit_key}.session-link.json"
+        run_fd = sessions_fd = canonical_fd = descriptor = -1
+        temp_created = False
+        try:
+            run_fd = os.open(
+                self.run_root,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            sessions_fd = os.dup(session_dir_fd)
+            run_stat = os.fstat(run_fd)
+            if (run_stat.st_dev, run_stat.st_ino) != expected_run_identity:
+                raise ValueError("provider session run root identity changed")
+            expected_sessions_identity = os.fstat(sessions_fd)
+            canonical_fd = os.open(
+                "provider_sessions",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=run_fd,
+            )
+            canonical_identity = os.fstat(canonical_fd)
+            if (
+                canonical_identity.st_dev,
+                canonical_identity.st_ino,
+            ) != (
+                expected_sessions_identity.st_dev,
+                expected_sessions_identity.st_ino,
+            ):
+                raise ValueError("provider sessions directory identity changed")
+            os.close(canonical_fd)
+            canonical_fd = -1
+            descriptor = os.open(
+                temp_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=sessions_fd,
+            )
+            temp_created = True
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("provider session link write made no progress")
+                remaining = remaining[written:]
+            created_target = os.fstat(descriptor)
+            if created_target.st_size != len(payload):
+                raise OSError("provider session link write size disagrees")
+            try:
+                rename_noreplace_at(sessions_fd, temp_name, sessions_fd, target)
+            except RenameNoreplaceError as exc:
+                if exc.errno == errno.EEXIST:
+                    raise FileExistsError(exc.errno, exc.strerror, target) from exc
+                raise
+            temp_created = False
+            try:
+                canonical_fd = os.open(
+                    "provider_sessions",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=run_fd,
+                )
+                canonical_identity = os.fstat(canonical_fd)
+                retained_target = os.stat(target, dir_fd=sessions_fd, follow_symlinks=False)
+                canonical_target = os.stat(target, dir_fd=canonical_fd, follow_symlinks=False)
+                created_identity = (created_target.st_dev, created_target.st_ino)
+                rebound = (
+                    canonical_identity.st_dev,
+                    canonical_identity.st_ino,
+                ) != (
+                    expected_sessions_identity.st_dev,
+                    expected_sessions_identity.st_ino,
+                ) or (
+                    retained_target.st_dev,
+                    retained_target.st_ino,
+                ) != created_identity or (
+                    canonical_target.st_dev,
+                    canonical_target.st_ino,
+                ) != created_identity
+            except OSError:
+                rebound = True
+            if rebound:
+                raise ValueError("provider sessions directory changed during publication")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temp_created:
+                try:
+                    os.unlink(temp_name, dir_fd=sessions_fd)
+                except FileNotFoundError:
+                    pass
+            if canonical_fd >= 0:
+                os.close(canonical_fd)
+            if sessions_fd >= 0:
+                os.close(sessions_fd)
+            if run_fd >= 0:
+                os.close(run_fd)
+        return self.run_root / "provider_sessions" / target
+
     def provider_session_paths(self, step_id: str, visit_count: int) -> tuple[Path, Path]:
         """Return the canonical metadata and transport-spool paths for one session visit."""
         safe_step_id = step_id.replace("/", "_")
@@ -699,8 +822,8 @@ class StateManager:
     def provider_session_visit_dir(self, step_id: str, visit_count: int) -> Path:
         """Return the child-writable live visit directory for one OMP session visit.
 
-        Shares the metadata join key plus a ``.live`` suffix and never creates
-        the directory: dispatch creates it only for OMP fresh visits.
+        Shares the metadata join key exactly and never creates the directory:
+        dispatch creates it only for OMP fresh visits.
         """
         if not isinstance(step_id, str) or not step_id:
             raise ValueError("provider session step_id must be a non-empty string")
@@ -711,7 +834,7 @@ class StateManager:
         ):
             raise ValueError("provider session visit_count must be a positive integer")
         metadata_path, _ = self.provider_session_paths(step_id, visit_count)
-        return metadata_path.with_suffix(".live")
+        return metadata_path.with_suffix("")
 
     def initialize_provider_session_visit(
         self,

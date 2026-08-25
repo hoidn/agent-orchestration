@@ -271,6 +271,9 @@ class WorkflowExecutor:
         *,
         provider_observation_enabled: bool = True,
         provider_observation_manager: ProviderObservationManager | None = None,
+        no_tools_conf_root: str | None = None,
+        no_tools_conf_identity: tuple[int, int] | None = None,
+        no_tools_conf_manifest_sha256: str | None = None,
     ):
         """
         Initialize workflow executor.
@@ -352,6 +355,9 @@ class WorkflowExecutor:
             self.secrets_manager,
             provider_observation_enabled=self.provider_observation_enabled,
             observation_manager=self.provider_observation_manager,
+            no_tools_conf_root=no_tools_conf_root,
+            no_tools_conf_identity=no_tools_conf_identity,
+            no_tools_conf_manifest_sha256=no_tools_conf_manifest_sha256,
         )
         self.dependency_resolver = DependencyResolver(str(workspace))
         self.dependency_injector = DependencyInjector(str(workspace))
@@ -9634,7 +9640,7 @@ class WorkflowExecutor:
                             # pre-existing visit dir fails the step closed.
                             # The run-owned parent is created privately and
                             # must verify as a current-user 0700 directory
-                            # before the .live mkdir (never repaired).
+                            # before the bare live-directory mkdir (never repaired).
                             session_dir.parent.mkdir(
                                 parents=True, exist_ok=True, mode=0o700
                             )

@@ -168,6 +168,8 @@ def verify_occupant(
     identity: str,
     expected_paths: set[str],
     expected_files: Mapping[str, bytes],
+    controlled_files: Mapping[str, bytes] | None = None,
+    occupant_mode: int = 0o644,
 ) -> ScaffoldVerification:
     """Verify one published scaffold against current inputs and the exact
     closed manifest; every file's bytes are captured for the private snapshot.
@@ -179,6 +181,7 @@ def verify_occupant(
     matching manifest-row hash/size updates — cannot pass because the captured
     bytes must equal the deterministic bytes for the current inputs.
     """
+    controlled = dict(controlled_files or {})
     directories: list[str] = []
     rows = {
         row.relative_path: row
@@ -187,9 +190,9 @@ def verify_occupant(
     if "scaffold.json" not in rows:
         raise ScaffoldVerificationError("occupant lacks scaffold.json")
     manifest_raw, scaffold_mode = _read_captured(scaffold_fd, "scaffold.json")
-    if scaffold_mode != 0o644:
+    if scaffold_mode != occupant_mode:
         raise ScaffoldVerificationError(
-            "occupant scaffold.json actual mode is not 0644"
+            f"occupant scaffold.json actual mode is not {occupant_mode:04o}"
         )
     try:
         manifest = parse_strict_json_object(manifest_raw)
@@ -241,17 +244,17 @@ def verify_occupant(
             "occupant scaffold conf_manifest_sha256 disagrees with the inputs"
         )
     walked_paths = set(rows) - {"scaffold.json"}
-    if walked_paths != expected_paths:
+    complete_paths = expected_paths | set(controlled)
+    if walked_paths != complete_paths:
         raise ScaffoldVerificationError(
             "occupant file set mismatch: "
-            f"missing={sorted(expected_paths - walked_paths)} "
-            f"extra={sorted(walked_paths - expected_paths)}"
+            f"missing={sorted(complete_paths - walked_paths)} "
+            f"extra={sorted(walked_paths - complete_paths)}"
         )
-    if set(directories) != _expected_directories(expected_paths):
+    if set(directories) != _expected_directories(complete_paths):
         raise ScaffoldVerificationError(
-            "occupant directory set mismatch: "
-            f"missing={sorted(_expected_directories(expected_paths) - set(directories))} "
-            f"extra={sorted(set(directories) - _expected_directories(expected_paths))}"
+            f"missing={sorted(_expected_directories(complete_paths) - set(directories))} "
+            f"extra={sorted(set(directories) - _expected_directories(complete_paths))}"
         )
     manifest_rows = manifest["files"]
     if not isinstance(manifest_rows, list) or len(manifest_rows) != len(
@@ -262,9 +265,9 @@ def verify_occupant(
     captured: dict[str, bytes] = {}
     for relative in sorted(expected_paths, key=lambda p: p.encode("utf-8")):
         data, actual_mode = _read_captured(scaffold_fd, relative)
-        if actual_mode != 0o644:
+        if actual_mode != occupant_mode:
             raise ScaffoldVerificationError(
-                f"occupant file {relative!r} actual mode is not 0644"
+                f"occupant file {relative!r} actual mode is not {occupant_mode:04o}"
             )
         digest = _sha256(data)
         if relative == "prompt.md":
@@ -281,6 +284,12 @@ def verify_occupant(
                 "for the current inputs"
             )
         captured[relative] = data
+    for relative in sorted(controlled, key=lambda p: p.encode("utf-8")):
+        data, actual_mode = _read_captured(scaffold_fd, relative)
+        if actual_mode != occupant_mode or data != controlled[relative]:
+            raise ScaffoldVerificationError(
+                f"occupant controlled file {relative!r} disagrees"
+            )
 
     expected_rows: list[dict[str, object]] = []
     for relative in sorted(expected_paths, key=lambda p: p.encode("utf-8")):

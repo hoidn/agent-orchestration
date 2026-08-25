@@ -1597,7 +1597,7 @@ def test_command_metadata_mode_initializes_invocation_and_session_overrides():
         {},
         prompt_content="hi",
         session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
-        provider_session_dir="/tmp/omp-visits/step.live",
+        provider_session_dir="/tmp/omp-visits/step",
     )
 
     assert session_error is None
@@ -2033,7 +2033,7 @@ def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path) -> None:
 def test_omp_profile_prepare_cleans_empty_cwd_on_identity_failure(tmp_path) -> None:
     """NEW-T5-FIX-002: fresh session identity capture failure also cleans."""
     env = _omp_profile_env(tmp_path)
-    session_dir = tmp_path / "visits" / "step-1__v1.live"
+    session_dir = tmp_path / "visits" / "step-1__v1"
     session_dir.mkdir(parents=True)
     session_dir.chmod(0o755)  # group/other accessible -> identity capture fails
     executor = ProviderExecutor(tmp_path, _omp_profile_registry())
@@ -2057,6 +2057,7 @@ def test_omp_profile_prepare_exact_grammar_and_env_carrier(tmp_path) -> None:
     code-owned internal carriers; authored carriers are rejected."""
     from orchestrator.providers.omp_launch_policy import EMPTY_CWD_ENV
     from orchestrator.providers.omp_templates import DEFAULT_OMP_MODEL
+    from orchestrator.providers.omp_launch import neutral_conf_root
 
     env = _omp_profile_env(tmp_path)
     executor = ProviderExecutor(tmp_path, _omp_profile_registry())
@@ -2073,6 +2074,7 @@ def test_omp_profile_prepare_exact_grammar_and_env_carrier(tmp_path) -> None:
     assert invocation.command == [
         sys.executable, "-m", "orchestrator.providers.omp_launch",
         "run", "--lane", "omp_no_tools", "--model", DEFAULT_OMP_MODEL,
+        "--conf-root", neutral_conf_root(),
     ]
     assert invocation.env.get(EMPTY_CWD_ENV), "per-invocation cwd rides the carrier"
     assert invocation.omp_transport_expectation is not None
@@ -2140,7 +2142,7 @@ def test_omp_fresh_revalidation_rejects_drifted_non_primary_entry(tmp_path) -> N
     from orchestrator.providers.types import OmpTransportExpectation
 
     env = _omp_profile_env(tmp_path)
-    session_dir = tmp_path / "visits" / "step-1__v1.live"
+    session_dir = tmp_path / "visits" / "step-1__v1"
     session_dir.mkdir(parents=True)
     session_dir.chmod(0o700)
     session_id = "a" * 32
@@ -2186,3 +2188,87 @@ def test_omp_fresh_revalidation_rejects_drifted_non_primary_entry(tmp_path) -> N
     error = executor._revalidate_fresh_session(invocation, provider_session)
     assert error is not None, "non-primary drift must fail the final acceptance"
     assert error["type"] == "session_revalidation_failed", error
+
+
+def test_no_tools_private_conf_carrier_controls_argv_and_expected_manifest(
+    tmp_path, monkeypatch
+) -> None:
+    import shutil
+    from orchestrator.providers.omp_conf import admit_conf_tree
+    from orchestrator.providers.omp_launch import neutral_conf_root
+
+    private_conf = tmp_path / "source-private-conf"
+    shutil.copytree(neutral_conf_root(), private_conf)
+    conf_fd = os.open(private_conf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        conf_stat = os.fstat(conf_fd)
+        expected_identity = (conf_stat.st_dev, conf_stat.st_ino)
+        expected_digest = admit_conf_tree(conf_fd).manifest_sha256
+    finally:
+        os.close(conf_fd)
+    monkeypatch.setattr(
+        "orchestrator.providers.omp_launch.neutral_conf_root",
+        lambda: (_ for _ in ()).throw(AssertionError("neutral conf reopened")),
+    )
+    env = _omp_profile_env(tmp_path)
+    session_dir = tmp_path / "visits" / "task__v1"
+    session_dir.mkdir(parents=True)
+    session_dir.chmod(0o700)
+    executor = ProviderExecutor(
+        tmp_path,
+        _omp_profile_registry(),
+        no_tools_conf_root=str(private_conf),
+        no_tools_conf_identity=expected_identity,
+        no_tools_conf_manifest_sha256=expected_digest,
+    )
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(params={}),
+        {},
+        "prompt",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        env=env,
+        provider_session_dir=str(session_dir),
+    )
+    assert error is None
+    assert invocation is not None
+    conf_index = invocation.command.index("--conf-root") + 1
+    assert invocation.command[conf_index] == str(private_conf)
+    assert invocation.omp_transport_expectation.conf_manifest_sha256 == expected_digest
+
+
+def test_no_tools_private_conf_carrier_rejects_swap_before_first_open(tmp_path) -> None:
+    import shutil
+    from orchestrator.providers.omp_conf import admit_conf_tree
+    from orchestrator.providers.omp_launch import neutral_conf_root
+
+    private_conf = tmp_path / "source-private-conf"
+    shutil.copytree(neutral_conf_root(), private_conf)
+    descriptor = os.open(private_conf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        kind = os.fstat(descriptor)
+        identity = (kind.st_dev, kind.st_ino)
+        digest = admit_conf_tree(descriptor).manifest_sha256
+    finally:
+        os.close(descriptor)
+    private_conf.rename(tmp_path / "old")
+    shutil.copytree(neutral_conf_root(), private_conf)
+
+    executor = ProviderExecutor(
+        tmp_path,
+        _omp_profile_registry(),
+        no_tools_conf_root=str(private_conf),
+        no_tools_conf_identity=identity,
+        no_tools_conf_manifest_sha256=digest,
+    )
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(params={}),
+        {},
+        "prompt",
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        env=_omp_profile_env(tmp_path),
+        provider_session_dir=str(tmp_path / "visits" / "task__v1"),
+    )
+    assert invocation is None
+    assert error and error["type"] == "validation_error"

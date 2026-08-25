@@ -7,9 +7,7 @@ Capture precedes inference and destination creation; --output runs the internal
 omp_conf_inference workflow with typed inputs, then the task runs ordinary
 run_workflow on a private snapshot under a reserved run root.
 """
-
 from __future__ import annotations
-
 import json
 import os
 import sys
@@ -17,7 +15,6 @@ from typing import Mapping
 from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
-
 from orchestrator import prompt_scaffold
 from orchestrator._common.safe_tree import SafeTreeError, read_regular_file
 from orchestrator.cli.commands.prompt_io import (
@@ -33,12 +30,15 @@ from orchestrator.cli.commands.prompt_io import (
     _read_prompt_file,
     _write_inference_snapshot,
 )
+from orchestrator.cli.commands.prompt_run_service import (
+    materialize_and_run,
+    run_namespace,
+)
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.omp_assets import inference_output_contract_path
 from orchestrator.prompt_contract import (
     PromptContractError,
     canonical_json_bytes,
-    contracts_structurally_equal,
     default_semantic_contract,
     parse_inferred_draft,
     parse_semantic_contract,
@@ -58,6 +58,7 @@ from orchestrator.prompt_scaffold_render import wfl_string_literal
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
 from orchestrator.providers.omp_templates import omp_templates
 from orchestrator.providers.registry import ProviderRegistry
+from orchestrator.prompt_session import PromptSessionError
 
 GENERATED_DIR = "workflows/generated"
 _ZERO_USAGE = {
@@ -67,25 +68,6 @@ _ZERO_USAGE = {
 _INFERENCE_PROMPT = (
     "Synthesize the exact machine-readable output contract for the task in task_prompt and the requested output in output_request. Reply with exactly one JSON object on one line: {\"fields\": [{\"name\": \"<lowercase identifier>\", \"type\": \"<canonical type>\"}, ...]}. Each row has exactly name and type; names are unique lowercase identifiers; types are one of String, Bool, Int, Float, Optional[T], List[T], Map[String,T]. No prose, no code fences, no extra keys."
 )
-# Every key run_workflow reads; quiet internal defaults; no public flags.
-_RUN_NS = {
-    "context": None, "context_file": None, "input": None, "input_file": None,
-    "clean_processed": False, "archive_processed": None, "dry_run": False,
-    "debug": False, "quiet": True, "verbose": False, "log_level": "error",
-    "backup_state": False, "on_error": "stop", "max_retries": 0,
-    "retry_delay": 1000, "stream_output": False, "step_summaries": False,
-    "summary_mode": None, "summary_provider": "claude_sonnet_summary",
-    "summary_timeout_sec": 120, "summary_max_input_chars": 12000,
-    "summary_profile": None, "live_agent_notes": False,
-    "live_agent_note_provider": None, "live_agent_note_interval_sec": 15.0,
-    "live_agent_note_timeout_sec": 30, "live_agent_note_max_tail_chars": 6000,
-    "entry_workflow": None, "source_root": None,
-    "provider_externs_file": None, "prompt_externs_file": None,
-    "imported_workflow_bundles_file": None, "command_boundaries_file": None,
-    "emit_debug_yaml": False, "run_ref_root": None,
-}
-
-
 @dataclass(frozen=True)
 class _Captured:
     """Captures taken before inference or destination creation."""
@@ -97,32 +79,21 @@ class _Captured:
     contract_mode: str
     contract_request: str | None
     slug: str
-
-
 def _single(values: list[str] | None, flag: str) -> str | None:
     items = values or []
     if len(items) > 1:
         raise PromptCliError(f"--{flag} must be given at most once")
     return items[0] if items else None
-
-
 def _require_nonempty(value: str | None, flag: str) -> str:
     if not value:
         raise PromptCliError(f"--{flag} must be a non-empty value")
     return value
-
-
 def _inline_slug() -> str:
     """Inline --prompt scaffolds are always named 'prompt-<identity>'."""
     return "prompt"
-
-
 def _prompt_file_slug(prompt_file: str) -> str:
     """A --prompt-file scaffold is named from its normalized lowercase stem."""
     return prompt_scaffold.slugify(Path(prompt_file).stem)
-
-
-
 def _parse_prompt_run(args: Namespace) -> dict:
     """Validate the closed grammar; returns one mode dict (no side effects)."""
     scaffold = _single(getattr(args, "scaffold", None), "scaffold")
@@ -181,8 +152,6 @@ def _parse_prompt_run(args: Namespace) -> dict:
     return {"kind": "generate", "prompt": prompt_bytes, "provider": provider,
             "model": model, "conf": conf, "returns": returns, "output": output,
             "slug": slug}
-
-
 def _capture_generation(mode: dict) -> _Captured:
     """Capture prompt, registry template, concrete model, conf, and request."""
     prompt = mode["prompt"]
@@ -220,7 +189,6 @@ def _capture_generation(mode: dict) -> _Captured:
         model=model, conf_manifest=conf_manifest,
         contract_mode=contract_mode, contract_request=contract_request,
         slug=mode["slug"])
-
 
 def _capture_rerun(scaffold: Path) -> tuple[_Captured, ScaffoldInputs]:
     """Rebuild identity inputs from one published scaffold (pre-verification)."""
@@ -291,9 +259,6 @@ def _exact_contract(payload: str) -> object:
         raise PromptCliError(f"invalid --returns contract: {exc}") from exc
 
 
-def _run_namespace(**overrides: object) -> Namespace:
-    base = dict(_RUN_NS); base.update(overrides)
-    return Namespace(**base)
 
 
 
@@ -317,7 +282,7 @@ def _infer_output_contract(
         prompt_inputs, captured.model, _INFERENCE_PROMPT,
         inference_output_contract_path())
     _revalidate_run_root(run_root, identity)
-    ns = _run_namespace(
+    ns = run_namespace(
         workflow=str(prompt_inputs / "infer-output-contract.orc"),
         input=[
             f"task_prompt={captured.prompt.decode('utf-8')}",
@@ -380,69 +345,35 @@ def _resolve_contract(
     return default_semantic_contract(), {"mode": "default"}
 
 
-def _materialize_and_run(
-    *,
-    workspace: Path,
-    runs_root: Path,
-    run_id: str,
-    run_root: Path,
-    identity: tuple[int, int],
-    captured: _Captured,
-    contract: object,
-    verification: ScaffoldVerification,
-    print_scaffold: bool,
-    scaffold_path: Path | None = None,
-) -> int:
-    """Materialize the private snapshot, compile-check, then run the task."""
-    prompt_inputs = _create_prompt_inputs_root(run_root, identity)
-    snapshot = prompt_scaffold.materialize_run_snapshot(
-        verification, run_root=prompt_inputs
-    )
-    try:
-        _compiled, compiled_contract = prompt_scaffold.compile_snapshot(
-            snapshot, provider=captured.provider
-        )
-        if not contracts_structurally_equal(compiled_contract, contract):
-            raise PromptRunError("compiled contract disagrees with the admitted contract")
-        _revalidate_run_root(run_root, identity)
-        input_values = [f"omp_conf_root={snapshot.conf_root}"] if captured.provider == "omp_conf" else []
-        ns = _run_namespace(
-            workflow=str(snapshot.run_orc),
-            input=input_values,
-            state_dir=str(runs_root),
-            source_root=[str(snapshot.root)],
-            provider_externs_file=str(snapshot.providers_json),
-            prompt_externs_file=str(snapshot.prompts_json),
-        )
-        result = run_workflow(ns, run_id=run_id, expected_run_identity=identity)
-        if result.run_id != run_id or result.run_root != run_root:
-            raise PromptRunError(
-                f"task run identity mismatch: {result.run_id!r}/{result.run_root!r} "
-                f"!= {run_id!r}/{run_root!r}")
-    finally:
-        snapshot.close()
-    if print_scaffold and scaffold_path is not None:
-        print(f"scaffold: {scaffold_path}", file=sys.stderr)
-    return result.exit_code
 
 
 def prompt_workflow(args: Namespace) -> int:
     """Entry for `orchestrate prompt run`; returns the process exit code."""
+    if getattr(args, "prompt_command", None) == "import":
+        from orchestrator.cli.commands.prompt_import import prompt_import_workflow
+        return prompt_import_workflow(args)
     try:
         mode = _parse_prompt_run(args)
         workspace = Path.cwd()
         runs_root = workspace / ".orchestrate" / "runs"
         if mode["kind"] == "rerun":
+            scaffold_workspace = mode["scaffold"].resolve().parents[2]
+            if scaffold_workspace != workspace.resolve():
+                raise PromptRunError(
+                    "rerun scaffold must belong to the current workspace"
+                )
             run_id, run_root, identity = _new_reserved_run(runs_root, workspace)
             captured, inputs = _capture_rerun(mode["scaffold"])
             verification = prompt_scaffold.verify_scaffold(
                 generated_root=mode["scaffold"].parent,
                 inputs=inputs, name=mode["scaffold"].name)
-            return _materialize_and_run(
+            return materialize_and_run(
                 workspace=workspace, runs_root=runs_root, run_id=run_id,
                 run_root=run_root, identity=identity, captured=captured,
                 contract=verification.semantic_contract,
                 verification=verification, print_scaffold=False,
+                scaffold_path=mode["scaffold"],
+                scaffold_workspace=workspace.resolve(),
             )
         captured = _capture_generation(mode)
         contract, authoring = _resolve_contract(captured, runs_root, workspace)
@@ -462,7 +393,7 @@ def prompt_workflow(args: Namespace) -> int:
             prompt_bytes=captured.prompt,
             authoring=authoring,
         )
-        return _materialize_and_run(
+        return materialize_and_run(
             workspace=workspace, runs_root=runs_root, run_id=run_id,
             run_root=run_root, identity=identity, captured=captured,
             contract=contract, verification=scaffold.verification,
@@ -471,7 +402,7 @@ def prompt_workflow(args: Namespace) -> int:
     except PromptCliError as exc:
         print(f"prompt run: {exc}", file=sys.stderr)
         return 2
-    except (PromptRunError, ScaffoldCompileError, ScaffoldVerificationError,
-            ScaffoldSnapshotError) as exc:
+    except (PromptRunError, PromptSessionError, ScaffoldCompileError,
+            ScaffoldVerificationError, ScaffoldSnapshotError) as exc:
         print(f"prompt run: {exc}", file=sys.stderr)
         return 1

@@ -427,8 +427,9 @@ def test_rerun_reserves_run_root_before_scaffold_verification(
     assert verify_calls == []
 
 
-def test_rerun_verified_scaffold_reconstructs_inputs(tmp_path, monkeypatch, fake_runtime):
-    # Generate once, then rerun via --scaffold PATH from a fresh workspace.
+def test_rerun_rejects_scaffold_from_another_workspace_before_child(
+    tmp_path, monkeypatch, fake_runtime
+):
     code = _exit(
         ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
         tmp_path,
@@ -446,13 +447,11 @@ def test_rerun_verified_scaffold_reconstructs_inputs(tmp_path, monkeypatch, fake
         rerun_workspace,
         monkeypatch,
     )
-    assert code == 0
-    assert fake_runtime.provider_names() == ["omp_no_tools"]
-    [invocation] = fake_runtime.executed
-    assert TASK_TEXT in invocation.prompt
-    # The rerun published nothing; it created one run root under the new workspace.
-    assert not (rerun_workspace / "workflows" / "generated").exists()
-    assert len(_run_roots(rerun_workspace)) == 1
+    assert code == 1
+    assert fake_runtime.executed == []
+    assert not (rerun_workspace / ".orchestrate").exists()
+
+
 
 def test_prompt_file_rejects_symlink_parent(tmp_path, monkeypatch, fake_runtime):
     real_dir = tmp_path / "real-prompts"

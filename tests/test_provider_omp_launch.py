@@ -130,7 +130,7 @@ def _make_conf(root: Path) -> Path:
 
 def _live_dir(root: Path, key: str = VISIT_KEY) -> Path:
     """Private OMP fresh session dir (the machine umask is 0o002)."""
-    session_dir = root / "visits" / f"{key}.live"
+    session_dir = root / "visits" / key
     session_dir.mkdir(parents=True)
     session_dir.chmod(0o700)
     return session_dir
@@ -320,8 +320,46 @@ def test_parser_contract(tmp_path) -> None:
     _fails(["run", "--lane", "omp", "--model", "a b"], "model")
     _fails(_adapter_argv("omp") + ["--lane", "omp_no_tools"], "duplicate")
     _fails(_adapter_argv("omp") + ["--model", MODEL], "duplicate")
-    _fails(_adapter_argv("omp_no_tools", conf_root=str(tmp_path / "conf")), "conf-lane-only")
+    _fails(_adapter_argv("omp", conf_root=str(tmp_path / "conf")), "conf-root is accepted")
     _fails(["run", "--lane", "omp_conf", "--model", MODEL], "conf-root")
+
+
+def test_no_tools_frozen_conf_rejects_swap_between_executor_and_adapter(
+    tmp_path: Path,
+) -> None:
+    import shutil
+    from orchestrator.providers.omp_conf import admit_conf_tree
+
+    home = _make_home(tmp_path)
+    conf = tmp_path / "conf"
+    shutil.copytree(omp_launch.neutral_conf_root(), conf)
+    descriptor = os.open(conf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        kind = os.fstat(descriptor)
+        digest = admit_conf_tree(descriptor).manifest_sha256
+    finally:
+        os.close(descriptor)
+    original_identity = (kind.st_dev, kind.st_ino)
+    conf.rename(tmp_path / "old-conf")
+    shutil.copytree(omp_launch.neutral_conf_root(), conf)
+    argv = _adapter_argv("omp_no_tools", conf_root=str(conf)) + [
+        "--conf-root-device", str(original_identity[0]),
+        "--conf-root-inode", str(original_identity[1]),
+        "--conf-manifest-sha256", digest,
+    ]
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=argv,
+        env=_std_env(home, tmp_path),
+        workspace=workspace_path,
+        stdin=_control(),
+        pin=_fake_pin(),
+        out=out,
+        err=err,
+    )
+    assert rc == 2
+    assert "conf root identity" in err.getvalue()
+    assert out.getvalue() == b""
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +617,7 @@ def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
     """Ruling: fresh conf coalesces the redundant session write root.
 
     The canonical live-session dir sits beneath the admitted conf-workspace
-    write root (runs/<id>/provider_sessions/<key>.live), so the helper must
+    write root (runs/<id>/provider_sessions/<key>), so the helper must
     NOT install a separate overlapping `session` Landlock rule; the workspace
     authority already permits the journal writes. The launch still binds the
     session identity, path, visit key, and journal in the frame, and the
@@ -591,7 +629,7 @@ def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
     pin = _launcher_pin()
     session_dir = (
         workspace_path / ".orchestrate" / "runs" / "run-1"
-        / "provider_sessions" / f"{VISIT_KEY}.live"
+        / "provider_sessions" / VISIT_KEY
     )
     session_dir.mkdir(parents=True)
     session_dir.chmod(0o700)
@@ -958,7 +996,7 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     env["HOME"] = REAL_AUTH_HOME
-    live = tmp_path / "visits" / "v1.live"
+    live = tmp_path / "visits" / "v1"
     live.mkdir(parents=True)
     live.chmod(0o700)
     out, err = io.BytesIO(), io.StringIO()

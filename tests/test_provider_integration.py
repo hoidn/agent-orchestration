@@ -413,7 +413,7 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
         "version": "17.3.4",
         "sha256": "f" * 64,
     }
-    visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
+    visit_dir = tmp_path / "provider_sessions" / "step-1__v1"
     visit_dir.mkdir(parents=True)
     visit_dir.chmod(0o700)
     journal = f"2026-08-23T22-33-14-831Z_{header_id}.jsonl"
@@ -508,7 +508,7 @@ def test_omp_fresh_transport_rejects_fabricated_observed_inventory(tmp_path):
         "version": "17.3.4",
         "sha256": "f" * 64,
     }
-    visit_dir = tmp_path / "provider_sessions" / "step-1__v1.live"
+    visit_dir = tmp_path / "provider_sessions" / "step-1__v1"
     visit_dir.mkdir(parents=True)
     visit_dir.chmod(0o700)
     frame = {

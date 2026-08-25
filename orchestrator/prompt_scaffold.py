@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Mapping
 
 from orchestrator.prompt_contract import (
@@ -39,6 +38,7 @@ from orchestrator.prompt_contract import (
     validate_authoring,
     validate_contract,
 )
+from orchestrator.prompt_scaffold_conf import owned_conf_snapshot
 from orchestrator.prompt_scaffold_render import (
     OMP_PROVIDER_POLICY,
     OMP_PROVIDER_POLICY_VERSION,
@@ -60,7 +60,6 @@ from orchestrator.prompt_scaffold_render import (
     _provider_object,
     _scaffold_files,
     _sha256,
-    _validate_conf_snapshot,
     _validate_provider_template,
 )
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN, OmpBinaryPin
@@ -98,23 +97,9 @@ __all__ = [
 ]
 
 
-def _owned_conf_snapshot(manifest: object) -> object:
-    """Validate a conf snapshot and return an owned immutable copy of its
-    records (OMP-T7-FINAL-001: a caller-retained mutable ``files`` mapping
-    must not be able to change identity or rendered conf bytes after
-    validation). The copy is validated inside so a non-``ConfSnapshot``
-    input raises the closed ``ValueError``, never ``AttributeError``."""
-    from orchestrator.providers.omp_conf import ConfSnapshot
 
-    if not isinstance(manifest, ConfSnapshot):
-        raise ValueError("conf_manifest must be a ConfSnapshot")
-    owned = ConfSnapshot(
-        files=MappingProxyType(dict(manifest.files)),
-        manifest_bytes=manifest.manifest_bytes,
-        manifest_sha256=manifest.manifest_sha256,
-    )
-    _validate_conf_snapshot(owned)
-    return owned
+
+_SOURCE_CONF_AUTHORITY = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,8 +114,12 @@ class ScaffoldInputs:
     conf_manifest: object | None
     slug: str
     pin: OmpBinaryPin
+    _source_conf_authority: InitVar[object | None] = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, _source_conf_authority: object | None) -> None:
+        admitted_no_tools_conf = _source_conf_authority is _SOURCE_CONF_AUTHORITY
+        if _source_conf_authority is not None and not admitted_no_tools_conf:
+            raise ValueError("invalid internal source-conf authority")
         if not isinstance(self.prompt_sha256, str) or re.fullmatch(
             r"^[0-9a-f]{64}$", self.prompt_sha256
         ) is None:
@@ -155,18 +144,27 @@ class ScaffoldInputs:
             if self.conf_manifest is None:
                 raise ValueError("omp_conf requires an authored conf manifest")
             object.__setattr__(
-                self, "conf_manifest", _owned_conf_snapshot(self.conf_manifest)
+                self, "conf_manifest", owned_conf_snapshot(self.conf_manifest)
             )
         if self.provider == "omp_no_tools":
-            if self.conf_manifest is not None:
-                raise ValueError(
-                    "omp_no_tools binds the packaged neutral conf manifest; "
-                    "an authored conf override is refused"
+            if admitted_no_tools_conf:
+                if self.conf_manifest is None:
+                    raise ValueError("admitted no-tools conf is missing")
+                object.__setattr__(
+                    self, "conf_manifest", owned_conf_snapshot(self.conf_manifest)
                 )
-            object.__setattr__(
-                self, "conf_manifest",
-                _owned_conf_snapshot(_neutral_conf_snapshot()),
-            )
+            else:
+                if self.conf_manifest is not None:
+                    raise ValueError(
+                        "omp_no_tools binds the packaged neutral conf manifest; "
+                        "an authored conf override is refused"
+                    )
+                object.__setattr__(
+                    self, "conf_manifest",
+                    owned_conf_snapshot(_neutral_conf_snapshot()),
+                )
+        elif admitted_no_tools_conf:
+            raise ValueError("admitted no-tools conf requires omp_no_tools")
         if not isinstance(self.slug, str) or not self.slug:
             raise ValueError("slug must be a non-empty string")
         for label in ("platform", "arch", "version"):
@@ -182,6 +180,29 @@ class ScaffoldInputs:
                 "pin.executable_sha256 must be a 64-char lowercase hex"
             )
         _validate_provider_template(self.provider)
+
+    @classmethod
+    def from_admitted_no_tools_conf(
+        cls,
+        *,
+        prompt_sha256: str,
+        contract: SemanticContract,
+        model: str,
+        admitted_conf: object,
+        slug: str,
+        pin: OmpBinaryPin,
+    ) -> "ScaffoldInputs":
+        """Construct validated no-tools identity directly from admitted private conf."""
+        return cls(
+            prompt_sha256=prompt_sha256,
+            contract=contract,
+            provider="omp_no_tools",
+            model=model,
+            conf_manifest=admitted_conf,
+            slug=slug,
+            pin=pin,
+            _source_conf_authority=_SOURCE_CONF_AUTHORITY,
+        )
 
     @property
     def conf_manifest_sha256(self) -> str | None:

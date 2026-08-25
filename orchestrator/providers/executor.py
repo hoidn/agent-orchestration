@@ -127,6 +127,9 @@ class ProviderExecutor:
         *,
         provider_observation_enabled: bool = True,
         observation_manager: Optional[ProviderObservationManager] = None,
+        no_tools_conf_root: Optional[str] = None,
+        no_tools_conf_identity: Optional[Tuple[int, int]] = None,
+        no_tools_conf_manifest_sha256: Optional[str] = None,
     ):
         """
         Initialize provider executor.
@@ -141,6 +144,9 @@ class ProviderExecutor:
         self.secrets_manager = secrets_manager or SecretsManager()
         self.provider_observation_enabled = provider_observation_enabled
         self.observation_manager = observation_manager
+        self.no_tools_conf_root = no_tools_conf_root
+        self.no_tools_conf_identity = no_tools_conf_identity
+        self.no_tools_conf_manifest_sha256 = no_tools_conf_manifest_sha256
 
     def _acquire_observation_handle(
         self,
@@ -359,6 +365,11 @@ class ProviderExecutor:
                 if fragment is not None:
                     command_template.extend(fragment)
 
+        provider_conf_root = None
+        if provider_name == "omp_no_tools":
+            from .omp_launch import neutral_conf_root
+            provider_conf_root = self.no_tools_conf_root or neutral_conf_root()
+
         # Build command with substitution
         command, missing_placeholders, invalid_prompt = self._build_command(
             command_template=command_template,
@@ -368,7 +379,28 @@ class ProviderExecutor:
             prompt=prompt_content,
             session_id=session_request.session_id if session_request is not None else None,
             provider_session_dir=provider_session_dir,
+            provider_conf_root=provider_conf_root,
         )
+        if provider_name == "omp_no_tools" and self.no_tools_conf_root is not None:
+            if (
+                self.no_tools_conf_identity is None
+                or self.no_tools_conf_manifest_sha256 is None
+            ):
+                return None, {
+                    "type": "provider_configuration_error",
+                    "message": "frozen no-tools conf authority is incomplete",
+                    "context": {"provider": provider_name},
+                }
+            command.extend(
+                [
+                    "--conf-root-device",
+                    str(self.no_tools_conf_identity[0]),
+                    "--conf-root-inode",
+                    str(self.no_tools_conf_identity[1]),
+                    "--conf-manifest-sha256",
+                    self.no_tools_conf_manifest_sha256,
+                ]
+            )
 
         # Check for validation errors
         if invalid_prompt:
@@ -424,6 +456,7 @@ class ProviderExecutor:
                     provider_session_dir=provider_session_dir,
                     env=env,
                     substituted_params=substituted_params,
+                    provider_conf_root=provider_conf_root,
                 )
             )
             if expectation_error is not None:
@@ -484,6 +517,7 @@ class ProviderExecutor:
         provider_session_dir: Optional[str],
         env: Optional[Dict[str, str]],
         substituted_params: Mapping[str, Any],
+        provider_conf_root: Optional[str],
     ) -> Tuple[
         Optional[OmpTransportExpectation],
         Optional[Dict[str, Any]],
@@ -537,10 +571,7 @@ class ProviderExecutor:
             and isinstance(provider_session_dir, str)
             and provider_session_dir
         ):
-            base = os.path.basename(provider_session_dir.rstrip(os.sep))
-            if base.endswith(".live"):
-                base = base[: -len(".live")]
-            visit_key = base
+            visit_key = os.path.basename(provider_session_dir.rstrip(os.sep))
         conf_manifest = None
         confinement_digest = None
         empty_cwd: Optional[str] = None
@@ -553,6 +584,8 @@ class ProviderExecutor:
                         "omp_conf requires the workflow omp_conf_root input"
                     ), None
                 conf_root = candidate
+            elif lane == "no-tools":
+                conf_root = provider_conf_root
             else:
                 conf_root = neutral_conf_root()
             try:
@@ -563,6 +596,17 @@ class ProviderExecutor:
                 ), None
             try:
                 conf_manifest = admit_conf_tree(conf_fd).manifest_sha256
+                if lane == "no-tools" and self.no_tools_conf_root is not None:
+                    observed = os.fstat(conf_fd)
+                    expected_identity = self.no_tools_conf_identity
+                    if expected_identity != (observed.st_dev, observed.st_ino):
+                        return None, self._omp_expectation_error(
+                            "frozen no-tools conf root identity disagrees"
+                        ), None
+                    if conf_manifest != self.no_tools_conf_manifest_sha256:
+                        return None, self._omp_expectation_error(
+                            "frozen no-tools conf manifest disagrees"
+                        ), None
             except (OSError, TypeError, ValueError, OmpConfError) as exc:
                 return None, self._omp_expectation_error(
                     f"cannot admit the OMP conf root: {exc}"
@@ -2672,6 +2716,7 @@ class ProviderExecutor:
         prompt: Optional[str],
         session_id: Optional[str] = None,
         provider_session_dir: Optional[str] = None,
+        provider_conf_root: Optional[str] = None,
     ) -> Tuple[List[str], List[str], bool]:
         """
         Build command with placeholder substitution.
@@ -2721,6 +2766,14 @@ class ProviderExecutor:
                         processed = processed.replace(
                             "${PROVIDER_SESSION_DIR}",
                             provider_session_dir,
+                        )
+                    else:
+                        missing.add(var)
+                    continue
+                if var == "PROVIDER_CONF_ROOT":
+                    if isinstance(provider_conf_root, str) and provider_conf_root:
+                        processed = processed.replace(
+                            "${PROVIDER_CONF_ROOT}", provider_conf_root
                         )
                     else:
                         missing.add(var)

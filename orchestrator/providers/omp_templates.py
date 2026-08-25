@@ -10,8 +10,8 @@ the adapter maps it to the code-owned policy lane.
 
 from __future__ import annotations
 
-import sys
 from typing import Dict
+from .omp_launch_contract import ADAPTER_WRAPPER, build_fresh_adapter_argv
 
 from .types import (
     CallPolicyBinding,
@@ -23,22 +23,33 @@ from .types import (
 
 DEFAULT_OMP_MODEL = "openai-codex/gpt-5.6-sol"
 
-_WRAPPER = [sys.executable, "-m", "orchestrator.providers.omp_launch"]
 
 
 def _omp_template(
     name: str,
     *,
     conf_root: bool = False,
+    provider_conf_root: bool = False,
 ) -> ProviderTemplate:
-    """One OMP template: wrapper argv + model, optional conf root."""
-    command = [*_WRAPPER, "run", "--lane", name, "--model", "${model}"]
-    if conf_root:
-        command += ["--conf-root", "${omp_conf_root}"]
-    fresh_command = command + [
-        "--provider-session-dir",
-        "${PROVIDER_SESSION_DIR}",
-    ]
+    """One OMP template: wrapper argv + model, optional conf authority."""
+    conf_value = (
+        "${omp_conf_root}" if conf_root
+        else "${PROVIDER_CONF_ROOT}" if provider_conf_root
+        else None
+    )
+    command = list(
+        ADAPTER_WRAPPER
+        + build_fresh_adapter_argv(
+            name, "${model}", session_dir=None, conf_root=conf_value
+        )
+    )
+    fresh_command = list(
+        ADAPTER_WRAPPER
+        + build_fresh_adapter_argv(
+            name, "${model}",
+            session_dir="${PROVIDER_SESSION_DIR}", conf_root=conf_value,
+        )
+    )
     return ProviderTemplate(
         name=name,
         command=command,
@@ -62,7 +73,9 @@ def omp_templates() -> Dict[str, ProviderTemplate]:
         "omp_unrestricted_workspace": _omp_template(
             "omp_unrestricted_workspace"
         ),
-        "omp_no_tools": _omp_template("omp_no_tools"),
+        "omp_no_tools": _omp_template(
+            "omp_no_tools", provider_conf_root=True
+        ),
         "omp_conf": _omp_template("omp_conf", conf_root=True),
         "omp_conf_inference": _omp_template("omp_conf_inference"),
     }

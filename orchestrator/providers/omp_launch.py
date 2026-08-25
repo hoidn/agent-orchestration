@@ -34,6 +34,7 @@ from .omp_launch_fs import (
     sha256_fd,
     stage_private_copy,
 )
+from .omp_launch_contract import POSITIVE_ENV_NAMES, parse_adapter_argv
 from .omp_launch_policy import (
     CARRIER_ENV_NAMES,
     EMPTY_CWD_ENV,
@@ -66,9 +67,8 @@ PROFILE_POLICIES = frozenset({"no-tools", "conf", "conf-inference"})
 # whole-file against the pin at every launch.
 PRODUCTION_BINARY_PATH = "/home/ollie/.cache/omp-i1/root-a-evidence/dist-omp"
 
-_POSITIVE_ENV_NAMES = frozenset({"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "OMP_BROKER_URL", "OMP_BROKER_TOKEN"})
 # The positive set minus the three values the adapter itself derives.
-_PASS_THROUGH_ENV = _POSITIVE_ENV_NAMES - {"PI_CODING_AGENT_DIR", "OMP_BROKER_URL", "OMP_BROKER_TOKEN"}
+_PASS_THROUGH_ENV = frozenset(POSITIVE_ENV_NAMES) - {"PI_CODING_AGENT_DIR", "OMP_BROKER_URL", "OMP_BROKER_TOKEN"}
 
 
 class LaunchError(Exception):
@@ -90,48 +90,6 @@ def neutral_conf_root() -> str:
     return os.fspath(resources.files("orchestrator.omp_assets").joinpath("confs", "neutral"))
 
 
-def _parse_argv(argv: list[str]) -> dict[str, str | None]:
-    if argv[:1] != ["run"]:
-        raise LaunchError("expected leading 'run' subcommand")
-    args: dict[str, str | None] = {"lane": None, "model": None, "conf_root": None,
-                                   "session_dir": None}
-    seen: set[str] = set()
-    index = 1
-    while index < len(argv):
-        arg = argv[index]
-        if arg not in ("--lane", "--model", "--conf-root", "--provider-session-dir"):
-            raise LaunchError(
-                f"unexpected {'option' if arg.startswith('-') else 'positional argument'} {arg!r}"
-            )
-        if arg in seen or index + 1 >= len(argv):
-            raise LaunchError(f"duplicate option {arg!r}" if arg in seen else f"missing value for {arg!r}")
-        value = argv[index + 1]
-        index += 2
-        seen.add(arg)
-        if arg == "--lane":
-            if value not in LANE_POLICY:
-                raise LaunchError(f"unknown lane {value!r}")
-            args["lane"] = value
-        elif arg == "--model":
-            if not value or any(ch.isspace() for ch in value):
-                raise LaunchError("model must be a single non-whitespace token")
-            args["model"] = value
-        else:
-            if not os.path.isabs(value):
-                raise LaunchError(f"{arg} must be an absolute path")
-            if arg == "--conf-root":
-                args["conf_root"] = value
-            else:
-                args["session_dir"] = value
-    if args["lane"] is None:
-        raise LaunchError("missing --lane")
-    if args["model"] is None:
-        raise LaunchError("missing --model")
-    if args["conf_root"] is not None and args["lane"] != "omp_conf":
-        raise LaunchError("conf-lane-only: --conf-root is accepted only on the omp_conf lane")
-    if args["lane"] == "omp_conf" and args["conf_root"] is None:
-        raise LaunchError("the omp_conf lane requires --conf-root")
-    return args
 
 
 def _loopback_broker_url() -> str:
@@ -283,7 +241,10 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
     conf_fd: int | None = None
     session_fd: int | None = None
     try:
-        args = _parse_argv(argv)
+        try:
+            args = parse_adapter_argv(argv, set(LANE_POLICY))
+        except ValueError as exc:
+            raise LaunchError(str(exc)) from exc
         lane = args["lane"]
         model = args["model"]
         policy = LANE_POLICY[lane]
@@ -297,6 +258,29 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         if profile and conf_root is None:
             conf_root = neutral_conf_root()
         env_roots = _env_roots(positive)
+        conf_snapshot = None
+        conf_manifest = None
+        if profile:
+            try:
+                conf_fd = os.open(conf_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            except OSError as exc:
+                raise LaunchError(f"cannot admit conf tree: {exc}") from exc
+            try:
+                conf_snapshot = admit_conf_tree(conf_fd)
+            except Exception as exc:
+                raise LaunchError(f"conf admission failed: {exc}") from exc
+            conf_manifest = conf_snapshot.manifest_sha256
+            expected_device = args["conf_root_device"]
+            if expected_device is not None:
+                observed = os.fstat(conf_fd)
+                expected_identity = (
+                    int(expected_device),
+                    int(args["conf_root_inode"]),
+                )
+                if (observed.st_dev, observed.st_ino) != expected_identity:
+                    raise LaunchError("frozen conf root identity disagrees")
+                if conf_manifest != args["conf_manifest_sha256"]:
+                    raise LaunchError("frozen conf manifest disagrees")
 
         if profile:
             policy_args = dict(lane=policy, workspace=workspace, session_dir=session_dir,
@@ -353,18 +337,6 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         private = _private_copy(binary_resolver(), pin, positive["XDG_CACHE_HOME"])
         _run_version_probe(private, carrier_env, child_cwd, pin, helper_prefix)
 
-        conf_snapshot = None
-        conf_manifest = None
-        if profile:
-            try:
-                conf_fd = os.open(conf_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            except OSError as exc:
-                raise LaunchError(f"cannot admit conf tree: {exc}") from exc
-            try:
-                conf_snapshot = admit_conf_tree(conf_fd)
-            except Exception as exc:
-                raise LaunchError(f"conf admission failed: {exc}") from exc
-            conf_manifest = conf_snapshot.manifest_sha256
 
         child_argv = _child_argv(lane, policy, model, session_dir, workspace)
         if isinstance(stdin, bytes):
@@ -407,7 +379,7 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
         primary_sha256 = None
         observed: tuple[str, ...] = ()
         if session_dir is not None:
-            visit_key = os.path.basename(session_dir.rstrip(os.sep)).removesuffix(".live")
+            visit_key = os.path.basename(session_dir.rstrip(os.sep))
             if session_id is None:
                 raise LaunchError("fresh session requires a header session id")
             assert session_fd is not None
@@ -438,7 +410,7 @@ def run(*, argv: list[str], env: dict[str, str], stdin, out, err, pin: OmpBinary
             "child": {
                 "argv": argv,
                 "cwd": child_cwd,
-                "env_names": sorted(_POSITIVE_ENV_NAMES),
+                "env_names": list(POSITIVE_ENV_NAMES),
                 "exit_code": proc.returncode,
             },
             "session": {

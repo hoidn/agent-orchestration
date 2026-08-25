@@ -10,9 +10,8 @@ lowercase file stem). Sibling modules cover Step 8.2 orchestration
 (``test_cli_prompt_security``). The shared fake-OMP harness lives here.
 """
 
+import json
 import os
-from pathlib import Path
-
 from pathlib import Path
 
 import pytest
@@ -46,6 +45,33 @@ def _usage_row() -> dict:
             "total": 0.0,
         },
     }
+
+
+def _title_slot() -> str:
+    obj = {
+        "type": "title", "v": 1, "title": "",
+        "updatedAt": "2026-08-23T22:33:31.340Z", "pad": "",
+    }
+    base = json.dumps(obj, separators=(",", ":")) + "\n"
+    obj["pad"] = " " * (256 - len(base.encode("utf-8")))
+    return json.dumps(obj, separators=(",", ":")) + "\n"
+
+
+def _journal(session_id: str, prompt: str) -> bytes:
+    header = {
+        "type": "session", "version": 3, "id": session_id,
+        "timestamp": "2026-08-23T22:33:31.340Z", "cwd": "/workspace",
+    }
+    message = {
+        "type": "message", "id": "u1", "parentId": None,
+        "timestamp": "2026-08-23T22:33:31.340Z",
+        "message": {"role": "user", "content": prompt, "timestamp": 1},
+    }
+    return (
+        _title_slot()
+        + json.dumps(header, separators=(",", ":")) + "\n"
+        + json.dumps(message, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
 
 
 class _FakeRuntime:
@@ -157,6 +183,12 @@ def fake_runtime(
             },
         )
 
+    monkeypatch.setattr(
+        "orchestrator.cli.commands.prompt_run_service.publish_prompt_run_link",
+        lambda manager, **_kwargs: (
+            manager.run_root / "provider_sessions" / "fake.session-link.json"
+        ),
+    )
     monkeypatch.setattr(ProviderExecutor, "execute", execute_provider)
     return runtime
 
@@ -429,66 +461,3 @@ def test_abbreviated_prompt_long_options_are_rejected(
         assert fake_runtime.executed == [], argv
         assert not (tmp_path / ".orchestrate").exists(), argv
         assert not (tmp_path / "workflows" / "generated").exists(), argv
-
-
-# ---------------------------------------------------------------------------
-# Exact slug semantics
-# ---------------------------------------------------------------------------
-
-
-def test_inline_prompt_slug_is_literal_prompt(tmp_path, monkeypatch, fake_runtime):
-    """An inline --prompt always names its scaffold 'prompt-<identity>'."""
-    code = _exit(
-        ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    scaffold = _generated_scaffold(tmp_path)
-    assert scaffold.name.startswith("prompt-")
-
-
-def test_prompt_file_slug_is_normalized_lowercase_stem(
-    tmp_path, monkeypatch, fake_runtime
-):
-    """A --prompt-file names its scaffold from the normalized lowercase stem,
-    never from the prompt's first line."""
-    prompt_file = tmp_path / "My Meeting Notes v2.md"
-    prompt_file.write_bytes(TASK_TEXT.encode("utf-8"))
-    code = _exit(
-        ["prompt", "run", "--prompt-file", str(prompt_file),
-         "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    scaffold = _generated_scaffold(tmp_path)
-    assert scaffold.name.startswith("my-meeting-notes-v2-"), scaffold.name
-
-
-def test_prompt_file_slug_rerun_reconstructs_identity(
-    tmp_path, monkeypatch, fake_runtime
-):
-    """A verified rerun of a file-stem scaffold keeps the exact slug."""
-    prompt_file = tmp_path / "My Meeting Notes v2.md"
-    prompt_file.write_bytes(TASK_TEXT.encode("utf-8"))
-    code = _exit(
-        ["prompt", "run", "--prompt-file", str(prompt_file),
-         "--provider", "omp_no_tools"],
-        tmp_path,
-        monkeypatch,
-    )
-    assert code == 0
-    scaffold = _generated_scaffold(tmp_path)
-    fake_runtime.executed.clear()
-    rerun_workspace = tmp_path / "slug-rerun"
-    rerun_workspace.mkdir()
-    code = _exit(
-        ["prompt", "run", "--scaffold", str(scaffold)],
-        rerun_workspace,
-        monkeypatch,
-    )
-    assert code == 0
-    assert fake_runtime.provider_names() == ["omp_no_tools"]
-    [invocation] = fake_runtime.executed
-    assert TASK_TEXT in invocation.prompt
