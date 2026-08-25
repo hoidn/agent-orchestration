@@ -367,6 +367,19 @@ def create_parser() -> argparse.ArgumentParser:
         help='Reuse only the fully verified source private run contract',
     )
 
+    prompt_resume_parser = prompt_subparsers.add_parser(
+        'resume',
+        help='Fork or resume one exact linked primary OMP session on this TTY',
+        allow_abbrev=False,
+    )
+    prompt_resume_parser.add_argument('session_id', metavar='ID')
+    prompt_resume_parser.add_argument(
+        '--in-place',
+        action='count',
+        default=0,
+        help='Resume the primary journal in place instead of forking a new one',
+    )
+
     trial_parser = subparsers.add_parser(
         'trial',
         help='Run a target-2.25 terminal trial entry',

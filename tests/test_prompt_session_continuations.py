@@ -26,6 +26,7 @@ from tests.test_prompt_session import (
     _canonical,
     _entry,
     _journal,
+    _link,
     _user,
     _write_index_run,
 )
@@ -401,3 +402,202 @@ def test_lookup_rejects_same_name_continuation_authority_swap(
     )
     with pytest.raises(PromptSessionError, match="session_continuation_invalid"):
         resolve_prompt_session(runs, "run-1")
+
+
+def _profile_link_and_run(runs: Path) -> tuple[dict, Path, bytes]:
+    """A minimal no-tools link whose confinement digest is the stale link value."""
+    link = _link(
+        provider={"name": "omp_no_tools", "model": "gpt-5.6-sol", "lane": "no-tools"},
+        paths={
+            **_link()["paths"],
+            "conf": "provider_sessions/task__v1.conf",
+        },
+        digests={
+            **_link()["digests"],
+            "conf_manifest_sha256": "f" * 64,
+        },
+        confinement={
+            "schema_version": "omp_write_confinement.v1",
+            "landlock_abi": 3,
+            "policy_sha256": "b" * 64,
+        },
+    )
+    run = runs / "run-1"
+    live = run / "provider_sessions" / "task__v1"
+    live.mkdir(parents=True)
+    source = _journal(_user("source prompt"))
+    (live / PRIMARY).write_bytes(source)
+    conf = run / "provider_sessions" / "task__v1.conf"
+    conf.mkdir()
+    (conf / "config.yml").write_text(
+        "advisor:\n  enabled: false\nmemory:\n  backend: \"off\"\ntask:\n"
+        "  maxConcurrency: 4\n  maxRecursionDepth: 1\n  disabledAgents: []\n",
+        encoding="utf-8",
+    )
+    raw = _canonical(link)
+    (run / "provider_sessions" / "task__v1.session-link.json").write_bytes(raw)
+    return link, run, source, live
+
+
+def test_profile_continuation_accepts_fresh_policy_digest_distinct_from_link(
+    tmp_path: Path,
+) -> None:
+    """A profile continuation may install a fresh closed policy for its own
+    reconstructed conf-copy/empty-cwd roots; it must not require equality to
+    the link's digest (X8: same closed X2 object/schema, not same value)."""
+    runs = tmp_path / "runs"
+    link, run, source, live = _profile_link_and_run(runs)
+    journal_sha = hashlib.sha256(source).hexdigest()
+    fresh = {
+        "schema_version": "omp_write_confinement.v1",
+        "landlock_abi": 3,
+        "policy_sha256": "d" * 64,  # executed policy differs from the link value
+    }
+    record = {
+        "schema_version": "session_continuation.v1",
+        "sequence": 1,
+        "previous_sha256": hashlib.sha256(_canonical(link)).hexdigest(),
+        "status": "success",
+        "mode": "in_place",
+        "source": {
+            "session_id": SESSION_ID,
+            "primary_basename": PRIMARY,
+            "journal_sha256": journal_sha,
+        },
+        "result": {
+            "session_id": SESSION_ID,
+            "primary_basename": PRIMARY,
+            "journal_sha256": journal_sha,
+        },
+        "started_at": TS,
+        "ended_at": TS,
+        "child_exit_code": 0,
+        "failure": None,
+        "binary": {
+            "platform": OMP_BINARY_PIN.platform,
+            "arch": OMP_BINARY_PIN.arch,
+            "version": OMP_BINARY_PIN.version,
+            "sha256": OMP_BINARY_PIN.executable_sha256,
+        },
+        "conf_manifest_sha256": "f" * 64,
+        "launch": {
+            "argv": list(
+                build_interactive_argv(
+                    "omp_no_tools",
+                    "gpt-5.6-sol",
+                    private_binary=str(
+                        runs.parent / "cache" / "omp-i1" / "private"
+                        / OMP_BINARY_PIN.executable_sha256 / "omp"
+                    ),
+                    live_dir=str(live),
+                    mode="in_place",
+                    source_session_id=SESSION_ID,
+                    workspace=link["workflow_workspace"],
+                    empty_cwd=str(runs.parent / "omp-empty-1111111111111111-2222222222222222"),
+                )
+            ),
+            "env_names": list(POSITIVE_ENV_NAMES),
+        },
+        "confinement": fresh,
+        "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],
+        "post_live_manifest_sha256": link["digests"]["live_manifest_sha256"],
+    }
+    active = validate_continuation_chain(
+        _canonical(link),
+        [_canonical(record)],
+        initial_journal_sha256=journal_sha,
+        run_root=run,
+    )
+    assert not active.blocked
+    assert active.session_id == SESSION_ID
+
+
+def test_profile_continuation_rejects_malformed_or_missing_policy(
+    tmp_path: Path,
+) -> None:
+    runs = tmp_path / "runs"
+    link, run, source, live = _profile_link_and_run(runs)
+    journal_sha = hashlib.sha256(source).hexdigest()
+    base = {
+        "schema_version": "session_continuation.v1",
+        "sequence": 1,
+        "previous_sha256": hashlib.sha256(_canonical(link)).hexdigest(),
+        "status": "failed",
+        "mode": "in_place",
+        "source": {
+            "session_id": SESSION_ID,
+            "primary_basename": PRIMARY,
+            "journal_sha256": journal_sha,
+        },
+        "result": {
+            "session_id": None, "primary_basename": None, "journal_sha256": None,
+        },
+        "started_at": TS,
+        "ended_at": TS,
+        "child_exit_code": 1,
+        "failure": "child_failed",
+        "binary": {
+            "platform": OMP_BINARY_PIN.platform,
+            "arch": OMP_BINARY_PIN.arch,
+            "version": OMP_BINARY_PIN.version,
+            "sha256": OMP_BINARY_PIN.executable_sha256,
+        },
+        "conf_manifest_sha256": "f" * 64,
+        "launch": {
+            "argv": list(
+                build_interactive_argv(
+                    "omp_no_tools",
+                    "gpt-5.6-sol",
+                    private_binary=str(
+                        runs.parent / "cache" / "omp-i1" / "private"
+                        / OMP_BINARY_PIN.executable_sha256 / "omp"
+                    ),
+                    live_dir=str(live),
+                    mode="in_place",
+                    source_session_id=SESSION_ID,
+                    workspace=link["workflow_workspace"],
+                    empty_cwd=str(runs.parent / "omp-empty-1111111111111111-2222222222222222"),
+                )
+            ),
+            "env_names": list(POSITIVE_ENV_NAMES),
+        },
+        "confinement": None,  # profile lanes may never drop confinement
+        "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],
+        "post_live_manifest_sha256": None,
+    }
+    for bad in (
+        {**base, "confinement": None},
+        {**base, "confinement": {"schema_version": "omp_write_confinement.v1",
+                                 "landlock_abi": 2, "policy_sha256": "d" * 64}},
+        {**base, "confinement": {"schema_version": "omp_write_confinement.v1",
+                                 "landlock_abi": 3, "policy_sha256": "x"}},
+    ):
+        with pytest.raises(PromptSessionError, match="session_continuation_invalid"):
+            validate_continuation_chain(
+                _canonical(link),
+                [_canonical(bad)],
+                initial_journal_sha256=journal_sha,
+                run_root=run,
+            )
+
+
+def test_ambient_continuation_rejects_gained_confinement(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    link = _write_index_run(runs, "run-1", continuation={})
+    chain = runs / "run-1" / "provider_sessions" / "task__v1.continuations"
+    first = json.loads((chain / "1.json").read_bytes())
+    journal_sha = first["source"]["journal_sha256"]
+    gained = {
+        **first,
+        "confinement": {
+            "schema_version": "omp_write_confinement.v1",
+            "landlock_abi": 3,
+            "policy_sha256": "d" * 64,
+        },
+    }
+    with pytest.raises(PromptSessionError, match="session_continuation_invalid"):
+        validate_continuation_chain(
+            _canonical(link), [_canonical(gained)],
+            initial_journal_sha256=journal_sha,
+            run_root=runs / "run-1",
+        )

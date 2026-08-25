@@ -461,3 +461,29 @@ def test_abbreviated_prompt_long_options_are_rejected(
         assert fake_runtime.executed == [], argv
         assert not (tmp_path / ".orchestrate").exists(), argv
         assert not (tmp_path / "workflows" / "generated").exists(), argv
+
+
+# --- Task 10: `prompt resume` grammar -----------------------------------------
+
+
+def _invoke_main(argv: list[str]) -> int:
+    try:
+        return main(argv)
+    except SystemExit as exc:
+        return int(exc.code)
+
+
+def test_prompt_resume_grammar_is_exactly_id_and_in_place() -> None:
+    # Valid grammar under a non-TTY dispatch must reach the TTY gate (exit 1),
+    # never argparse (exit 2) and never a launch.
+    assert _invoke_main(["prompt", "resume", "run-1"]) == 1
+    assert _invoke_main(["prompt", "resume", "run-1", "--in-place"]) == 1
+
+
+def test_prompt_resume_rejects_unknown_repeated_and_extra_grammar() -> None:
+    assert _invoke_main(["prompt", "resume"]) == 2
+    assert _invoke_main(["prompt", "resume", "run-1", "--extra"]) == 2
+    assert _invoke_main(["prompt", "resume", "run-1", "positional"]) == 2
+    assert _invoke_main(["prompt", "resume", "run-1", "--in-place", "--in-place"]) == 2
+    assert _invoke_main(["prompt", "resume", "run-1", "--fork"]) == 2
+    assert _invoke_main(["prompt", "resume", "run-1", "--in-place", "--model", "x"]) == 2

@@ -352,6 +352,9 @@ def prompt_workflow(args: Namespace) -> int:
     if getattr(args, "prompt_command", None) == "import":
         from orchestrator.cli.commands.prompt_import import prompt_import_workflow
         return prompt_import_workflow(args)
+    if getattr(args, "prompt_command", None) == "resume":
+        from orchestrator.prompt_resume import prompt_resume_workflow
+        return prompt_resume_workflow(args)
     try:
         mode = _parse_prompt_run(args)
         workspace = Path.cwd()

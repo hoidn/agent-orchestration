@@ -346,6 +346,39 @@ def _parse_continuation(data: bytes, sequence: int, previous: bytes) -> dict[str
         raise PromptSessionError("session_continuation_invalid", str(exc)) from exc
 
 
+def _validate_continuation_confinement(record: dict[str, Any], link: SessionLink) -> None:
+    """A profile continuation installs the executed closed policy; ambient stays null.
+
+    Same closed X2 object/schema as the link, not the same digest: the bridge
+    re-derives a fresh conf copy and empty cwd, so its executed policy digest
+    legitimately differs from the link's value. conf-manifest equality is
+    enforced by the caller.
+    """
+    link_conf = link.document["confinement"]
+    record_conf = record["confinement"]
+    if (record_conf is None) != (link_conf is None):
+        raise PromptSessionError(
+            "session_continuation_invalid",
+            "continuation confinement nullability disagrees with link",
+        )
+    if record_conf is None:
+        return
+    if not isinstance(record_conf, dict) or set(record_conf) != _CONFINEMENT_KEYS:
+        raise PromptSessionError(
+            "session_continuation_invalid", "continuation confinement is not closed"
+        )
+    if record_conf["schema_version"] != "omp_write_confinement.v1" \
+            or type(record_conf["landlock_abi"]) is not int or record_conf["landlock_abi"] < 3:
+        raise PromptSessionError(
+            "session_continuation_invalid", "continuation confinement schema/ABI is invalid"
+        )
+    if not isinstance(record_conf["policy_sha256"], str) \
+            or _HEX.fullmatch(record_conf["policy_sha256"]) is None:
+        raise PromptSessionError(
+            "session_continuation_invalid", "continuation confinement policy digest is invalid"
+        )
+
+
 def _validate_continuation_launch(
     record: dict[str, Any],
     link: SessionLink,
@@ -444,9 +477,9 @@ def validate_continuation_chain(
                 "session_continuation_invalid",
                 "source disagrees with active primary",
             )
-        if record["conf_manifest_sha256"] != link.document["digests"]["conf_manifest_sha256"] \
-                or record["confinement"] != link.document["confinement"]:
+        if record["conf_manifest_sha256"] != link.document["digests"]["conf_manifest_sha256"]:
             raise PromptSessionError("session_continuation_invalid", "continuation policy disagrees with link")
+        _validate_continuation_confinement(record, link)
         if record["status"] == "failed":
             active = ContinuationState(
                 active.session_id, active.primary_basename, active.journal_sha256,
