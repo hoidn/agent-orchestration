@@ -1,8 +1,9 @@
 """Provider type definitions for the orchestrator."""
 
+import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-import re
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -207,6 +208,9 @@ class OmpTransportExpectation:
     confinement_policy_sha256: Optional[str] = None
     session_dir_identity: Optional[Tuple[int, int]] = None
     observed_relpaths: Tuple[str, ...] = ()
+    # Internal X5 carrier: the pinned OMP worktree base under the ACTUAL child
+    # HOME (~/.omp/wt) this invocation's close-time observer must re-check.
+    isolated_worktree_root: Optional[str] = None
 
     def __post_init__(self) -> None:
         """Validate and detach the closed expectation carrier."""
@@ -265,17 +269,13 @@ class OmpTransportExpectation:
                 "OMP transport expectation confinement_policy_sha256 must be "
                 "64 lowercase hex"
             )
-        if self.session_dir_identity is not None and (
-            not isinstance(self.session_dir_identity, Tuple)
-            or len(self.session_dir_identity) != 2
-            or not all(
-                isinstance(part, int) and part >= 0
-                for part in self.session_dir_identity
-            )
+        if self.isolated_worktree_root is not None and (
+            not isinstance(self.isolated_worktree_root, str)
+            or not os.path.isabs(self.isolated_worktree_root)
         ):
             raise ValueError(
-                "OMP transport expectation session_dir_identity must be a "
-                "non-negative (dev, ino) pair"
+                "OMP transport expectation isolated_worktree_root must be an "
+                "absolute path when set"
             )
         for field_name in ("child_argv", "observed_relpaths"):
             value = getattr(self, field_name)
@@ -900,3 +900,5 @@ class ProviderInvocation:
     prepared_provider_policy: Optional[PreparedProviderPolicy] = None
     provider_session_dir: Optional[str] = None
     omp_transport_expectation: Optional[OmpTransportExpectation] = None
+    inherited_fds: Tuple[int, ...] = ()
+    inherited_fd_authority: Any = None

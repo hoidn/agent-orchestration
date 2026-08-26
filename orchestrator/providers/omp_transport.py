@@ -17,7 +17,8 @@ from .omp_protocol import (
     freeze_frame,
     is_event_type,
     loads_strict,
-    validate_agent_end,
+       validate_agent_end,
+    validate_agent_end_terminal,
     validate_closed_assistant_message,
     validate_launch_frame,
     validate_message_end,
@@ -51,7 +52,7 @@ def _unfreeze_value(value: Any) -> Any:
 class OmpJsonStdoutAccumulator:
     """Incrementally parse pinned OMP JSON stdout without altering it."""
 
-    def __init__(self, *, expectation: OmpTransportExpectation, assistant_text_callback: Callable[[str], None] | None = None) -> None:
+    def __init__(self, *, expectation: OmpTransportExpectation | None, assistant_text_callback: Callable[[str], None] | None = None) -> None:
         self._expectation = expectation
         self._assistant_text_callback = assistant_text_callback
         self._buffer = bytearray()
@@ -62,6 +63,7 @@ class OmpJsonStdoutAccumulator:
         self._open_role: str | None = None
         self._pending_error_stop_reasons: set[str] = set()
         self._text_parts: list[str] = []
+        self._response_boundary_pending = False
         self._message_rows: list[dict[str, Any]] = []
         self._final_provider: str | None = None
         self._final_model: str | None = None
@@ -162,6 +164,31 @@ class OmpJsonStdoutAccumulator:
             self._settled_error = error
             return (copy.deepcopy(metadata) if metadata is not None else None, copy.deepcopy(error) if error is not None else None)
 
+    def finalize_child_stream(
+        self,
+    ) -> tuple[str | None, Mapping[str, Any] | None]:
+        """Settle the child-only stream before the adapter appends its frame."""
+        self.finalize(expected_session_id=None, require_terminal=False)
+        with self._lock:
+            if self._invalid_error is not None:
+                return None, copy.deepcopy(self._invalid_error)
+            if self._open_role is not None:
+                return None, self._error(
+                    "OMP child stream ends with an open message lifecycle",
+                    {"line": self._line_number},
+                )
+            if self._state != "terminal_seen":
+                return None, self._error(
+                    "OMP child stream did not settle",
+                    {"state": self._state, "events": self._event_count},
+                )
+            if self._session_id is None or not self._message_rows:
+                return None, self._error(
+                    "OMP child stream lacks its header or assistant result",
+                    {"events": self._event_count},
+                )
+            return self._session_id, None
+
     def _fail(self, message: str, **context: Any) -> None:
         self._invalidate(message, context)
 
@@ -239,6 +266,12 @@ class OmpJsonStdoutAccumulator:
             return
         if self._open_role is not None:
             self._fail("OMP adapter frame arrives with an open message lifecycle", line=self._line_number)
+            return
+        if self._expectation is None:
+            self._fail(
+                "OMP child stream may not contain an adapter frame",
+                line=self._line_number,
+            )
             return
         error = validate_launch_frame(event, self._expectation, header_session_id=(self._session_id if self._session_id is not None else ""))
         if error is not None:
@@ -338,6 +371,7 @@ class OmpJsonStdoutAccumulator:
             return f"message_end role {role!r} does not match open lifecycle {self._open_role!r}"
         self._open_role = None
         if role != "assistant":
+            self._response_boundary_pending = True
             return None
         message = event["message"]
         error = validate_closed_assistant_message(message)
@@ -352,6 +386,9 @@ class OmpJsonStdoutAccumulator:
                 return "assistant message_end stopReason does not match the preceding error update"
         self._pending_error_stop_reasons.clear()
         message_text = "\n".join(block["text"] for block in message["content"] if isinstance(block, dict) and block.get("type") == "text")
+        if self._response_boundary_pending:
+            self._text_parts.clear()
+            self._response_boundary_pending = False
         if message_text:
             self._text_parts.append(message_text)
             self._pending_emission = message_text
@@ -362,10 +399,10 @@ class OmpJsonStdoutAccumulator:
         return None
 
     def _consume_agent_end(self, event: dict[str, Any]) -> str | None:
-        error = validate_agent_end(event)
+        terminal, error = validate_agent_end_terminal(event)
         if error is not None:
             return error
-        if event.get("isTerminal", True) is False:
+        if not terminal:
             return None
         if self._open_role is not None:
             return "terminal agent_end arrives with an open message lifecycle"

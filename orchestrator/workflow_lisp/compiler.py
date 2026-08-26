@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
@@ -196,6 +197,7 @@ from .workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
     ExternalToolBinding,
+    PromptExtern,
     Stage3CompileResult,
     TypedWorkflowDef,
     WorkflowCatalog,
@@ -227,6 +229,9 @@ from .wcc.lower import (
     lower_wcc_m3_workflow_definitions,
     lower_wcc_m4_workflow_definitions,
 )
+
+PromptExternValue = PromptExtern | str | Mapping[str, object]
+
 
 
 _EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
@@ -443,7 +448,7 @@ def _effective_source_roots(
     deduped_roots: list[Path] = []
     seen_roots: set[Path] = set()
     for root in ordered_roots:
-        resolved_root = root.resolve()
+        resolved_root = resolve_path_preserving_fd(root)
         if resolved_root in seen_roots:
             continue
         seen_roots.add(resolved_root)
@@ -640,7 +645,7 @@ def compile_stage3_entrypoint(
     source_roots: tuple[Path, ...] | None = None,
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
-    prompt_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -741,7 +746,7 @@ def compile_stage3_module(
     *,
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
-    prompt_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -1325,7 +1330,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     source_roots: tuple[Path, ...] | None = None,
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
-    prompt_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -1692,7 +1697,7 @@ def _run_stage3_validation_pipeline(
     path: Path,
     *,
     provider_externs: Mapping[str, str] | None,
-    prompt_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, PromptExternValue] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
@@ -2291,7 +2296,7 @@ def _derive_reusable_state_producer_context(
     definition_module: WorkflowLispModule,
     source_file_digests: Mapping[str, str],
     provider_externs: Mapping[str, str] | None,
-    prompt_externs: Mapping[str, object] | None,
+    prompt_externs: Mapping[str, PromptExternValue] | None,
     command_boundary_environment: CommandBoundaryEnvironment,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
 ) -> Mapping[str, object]:
@@ -2337,7 +2342,7 @@ def _compile_stage3_graph(
     *,
     entry_workflow: str | None,
     provider_externs: Mapping[str, str] | None,
-    prompt_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, PromptExternValue] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 
 class AssetResolutionError(ValueError):
     """Raised when a workflow-source-relative asset path is invalid."""
@@ -14,7 +15,7 @@ class WorkflowAssetResolver:
     """Resolve source-relative assets against an authored workflow file."""
 
     def __init__(self, workflow_path: Path):
-        resolved_workflow = Path(workflow_path).resolve()
+        resolved_workflow = resolve_path_preserving_fd(workflow_path)
         self.workflow_path = resolved_workflow
         self.source_root = resolved_workflow.parent
 
@@ -33,7 +34,7 @@ class WorkflowAssetResolver:
                 f"asset path traversal outside the workflow source tree is not allowed: {relative_path}"
             )
 
-        resolved = (self.source_root / candidate).resolve()
+        resolved = resolve_path_preserving_fd(self.source_root / candidate)
         try:
             resolved.relative_to(self.source_root)
         except ValueError as exc:

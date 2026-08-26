@@ -19,6 +19,38 @@
     - Report output may surface provider-session metadata paths and bounded
       interrupted-rerun diagnostic context; partial provider evidence remains
       non-authoritative.
+  - `orchestrate prompt run (--prompt TEXT | --prompt-file PATH) --provider (omp|omp_no_tools|omp_conf|omp_unrestricted_workspace) [--conf PATH] [--model MODEL] [--returns JSON | --output TEXT]`
+    - Generation requires exactly one prompt source and one public provider.
+      `--conf` is required only for `omp_conf`. `--returns` supplies the exact
+      semantic contract; `--output` is mutually exclusive and performs one
+      internal `omp_conf_inference` call, so ambient providers reject it.
+    - The command captures all source inputs before inference or destination
+      creation, publishes or reuses one content-addressed target-2.27 scaffold,
+      executes its ordinary compiled `run.orc`, and prints one success summary
+      naming the run and generated scaffold. Existing mismatched occupants,
+      source drift, and malformed or semantically invalid inferred contracts
+      fail without replacement.
+  - `orchestrate prompt run --scaffold PATH`
+    - Rerun accepts only a fully verified scaffold root and is mutually
+      exclusive with every generation flag. It executes a run-owned private
+      snapshot; mutable generated files are never the execution authority.
+  - `orchestrate prompt resume ID [--in-place]`
+    - This foreground command requires fd 0, 1, and 2 to be TTYs before lock
+      acquisition or child launch. The default is one full-id fork into a new
+      session; `--in-place` resumes the linked primary session. It accepts only
+      one exact linked primary OMP journal, holds one per-session lock through
+      preflight, child, validation, and one no-replace continuation append, and
+      exits 0 on success, 1 on any failed post-start outcome, and 2 on
+      grammar errors. The continuation record retains the observed child exit
+      code; every post-start outcome publishes exactly one closed record.
+  - `orchestrate prompt import ID --provider NAME [--conf PATH] [--model MODEL] [--returns JSON | --output TEXT] [--reuse-run-contract]`
+    - Import resolves one exact linked active primary journal, verifies the
+      full continuation chain and source scaffold/run evidence, extracts only
+      authored user-message content, and then uses the ordinary prompt
+      generation path. Without `--reuse-run-contract`, the caller supplies the
+      new provider/contract flags. With it, provider, model, semantic contract,
+      conf, and composed prompt bytes come only from the fully verified source
+      scaffold; incompatible flags reject.
   - `orchestrate provider-isolation-environment-manifest --root <absolute-source> --provider-prefix <absolute-prefix> --output <absolute-manifest>`
     - Prospectively validates and canonicalizes one provider rootfs, including
       the runtime-reserved launch shim row, without mutating the source or

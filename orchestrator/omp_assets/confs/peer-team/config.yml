@@ -6,3 +6,6 @@ task:
   maxConcurrency: 16
   maxRecursionDepth: 1
   disabledAgents: [designer, librarian, reviewer, scout, security-reviewer, sonic, task]
+tools:
+  approval:
+    task: allow

@@ -167,7 +167,11 @@ def test_live_agent_note_observer_clears_stale_error_after_success(tmp_path: Pat
     assert not (summaries / "live-current-step.error.json").exists()
 
 
-def test_live_agent_note_observer_uses_tmux_tail_when_available(tmp_path: Path):
+def test_live_agent_note_observer_uses_tmux_tail_when_available(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.delenv("TMUX", raising=False)
     run_root = tmp_path / ".orchestrate" / "runs" / "run-live"
     transport = run_root / "provider_sessions" / "root.step__v1.transport.log"
     transport.parent.mkdir(parents=True)

@@ -12,12 +12,13 @@ from orchestrator.providers.omp_conf import OmpConfError, admit_conf_tree
 from orchestrator.providers.omp_observation import is_advisor_name, is_child_journal
 from orchestrator.providers.omp_protocol import loads_strict
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
-from orchestrator.providers.omp_launch_fs import LaunchFsError, session_inventory_fd
-from orchestrator.providers.omp_session import (
-    OmpSessionError,
-    build_session_manifest,
-    parse_journal_bytes,
+from orchestrator.providers.omp_observation import (
+    OmpObservationError,
+    observe_close,
+    recognized_preset_topologies,
 )
+from orchestrator.providers.omp_session import OmpSessionError, parse_journal_bytes
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 from orchestrator.prompt_session_chain import (
     read_continuations,
     read_manifest_bound,
@@ -25,10 +26,10 @@ from orchestrator.prompt_session_chain import (
 )
 from orchestrator.prompt_session_scaffold import capture_no_tools_conf_authority
 from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
     build_fresh_adapter_argv,
     resolved_adapter_command,
     valid_fresh_child_cwd,
+    valid_launch_env_names,
     valid_observed_relpaths,
 )
 from orchestrator.prompt_session import (
@@ -170,7 +171,7 @@ def _validate_frame(metadata: dict[str, Any], link, run_fd: int, run_root: Path)
         or set(child) != _CHILD_KEYS
         or tuple(child.get("argv") or ()) != expected_argv
         or child.get("argv") != link.document["launch"]["argv"]
-        or child.get("env_names") != list(POSITIVE_ENV_NAMES)
+        or not valid_launch_env_names(provider, child.get("env_names"))
         or child.get("env_names") != link.document["launch"]["env_names"]
         or child.get("exit_code") != 0
         or metadata.get("resolved_command") != resolved_adapter_command(expected_argv)
@@ -188,9 +189,10 @@ def _validate_frame(metadata: dict[str, Any], link, run_fd: int, run_root: Path)
         != link.document["digests"]["conf_manifest_sha256"]
         or not isinstance(observed, dict)
         or set(observed) != {"advisor_relpaths", "child_relpaths"}
-        or observed.get("advisor_relpaths") != []
+                or not valid_observed_relpaths(observed.get("advisor_relpaths"))
         or not valid_observed_relpaths(observed.get("child_relpaths"))
-        or link.primary_basename not in observed["child_relpaths"]
+        or link.primary_basename in observed["advisor_relpaths"]
+        or link.primary_basename in observed["child_relpaths"]
     ):
         raise _invalid("launch frame disagrees with link")
     return frame
@@ -231,10 +233,20 @@ def _candidate(
     try:
         snapshot_manifest = build_session_manifest(snapshot_fd)
         try:
-            snapshot_inventory = list(session_inventory_fd(snapshot_fd))
-        except LaunchFsError as exc:
-            raise _invalid("snapshot inventory cannot be admitted", exc)
-        if frame["observed"]["child_relpaths"] != snapshot_inventory:
+            report = observe_close(
+                session_root_fd=snapshot_fd,
+                stdout_session_id=link.session_id,
+                conf_manifest_sha256=link.document["digests"]["conf_manifest_sha256"],
+                recognized_topologies=recognized_preset_topologies(),
+                isolated_worktree_root=None,
+            )
+        except OmpObservationError as exc:
+            raise _invalid(f"frozen snapshot fails close-time observation: {exc}", exc)
+        if (
+            report.primary_relpath != link.primary_basename
+            or list(report.advisor_relpaths) != frame["observed"]["advisor_relpaths"]
+            or list(report.child_relpaths) != frame["observed"]["child_relpaths"]
+        ):
             raise _invalid("launch inventory disagrees with frozen snapshot")
         if snapshot_manifest.manifest_sha256 != link.document["digests"]["snapshot_manifest_sha256"]:
             raise _invalid("snapshot manifest disagrees")
@@ -303,8 +315,15 @@ def _candidate(
     run_stat = os.fstat(run_fd)
     return (
         ResolvedPrimary(
-            run_name, link.visit_key, active.session_id, active.primary_basename,
-            link, run_root, (run_stat.st_dev, run_stat.st_ino), journal_bytes,
+            run_id=run_name,
+            visit_key=link.visit_key,
+            session_id=active.session_id,
+            primary_basename=active.primary_basename,
+            link=link,
+            run_root=run_root,
+            run_identity=(run_stat.st_dev, run_stat.st_ino),
+            journal_bytes=journal_bytes,
+            initial_journal_sha256=initial_sha,
         ),
         active.blocked,
     )
@@ -361,7 +380,9 @@ def _ambiguous(matches) -> PromptSessionError:
     return PromptSessionError("prompt_session_ambiguous", identities)
 
 
-def resolve_prompt_session(runs_root: Path, identifier: str):
+def resolve_prompt_session(
+    runs_root: Path, identifier: str
+) -> ResolvedPrimary:
     """Resolve exact valid run, then session id, then primary basename."""
     value = _identifier(identifier)
     try:
@@ -389,6 +410,7 @@ def resolve_prompt_session(runs_root: Path, identifier: str):
                 candidate, blocked = matches[0]
                 if blocked:
                     raise PromptSessionError("prompt_session_blocked")
+                assert candidate is not None
                 return candidate
 
         candidates = []

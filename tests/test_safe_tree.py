@@ -81,6 +81,60 @@ def test_walk_of_empty_tree_yields_no_rows(tmp_path: Path) -> None:
     assert _run_walk(tmp_path) == []
 
 
+def test_walk_rejects_entry_budget_before_yielding_unbounded_tree(tmp_path: Path) -> None:
+    for name in ("a", "b", "c"):
+        (tmp_path / name).write_bytes(b"x")
+    fd = _tree_descriptor(tmp_path)
+    try:
+        with pytest.raises(SafeTreeRejectionError, match="entry bound"):
+            list(walk_regular_files(fd, max_entries=2))
+    finally:
+        os.close(fd)
+
+
+def test_walk_rejects_depth_budget(tmp_path: Path) -> None:
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    (nested / "x").write_bytes(b"x")
+    fd = _tree_descriptor(tmp_path)
+    try:
+        with pytest.raises(SafeTreeRejectionError, match="depth bound"):
+            list(walk_regular_files(fd, max_depth=1))
+    finally:
+        os.close(fd)
+
+
+def test_remove_tree_contents_handles_deep_tree_iteratively(tmp_path: Path) -> None:
+    nested = tmp_path
+    for index in range(80):
+        nested = nested / f"d{index}"
+        nested.mkdir()
+    (nested / "leaf").write_bytes(b"x")
+    fd = _tree_descriptor(tmp_path)
+    try:
+        safe_tree.remove_tree_contents(fd)
+    finally:
+        os.close(fd)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_remove_tree_contents_restores_child_changed_directory_modes(
+    tmp_path: Path,
+) -> None:
+    nested = tmp_path / "locked"
+    nested.mkdir()
+    (nested / "leaf").write_bytes(b"x")
+    fd = _tree_descriptor(tmp_path)
+    nested.chmod(0)
+    tmp_path.chmod(0)
+    try:
+        safe_tree.remove_tree_contents(fd)
+    finally:
+        os.close(fd)
+        tmp_path.chmod(0o700)
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "make_entry",
     [

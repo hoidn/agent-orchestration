@@ -1741,8 +1741,8 @@ def test_omp_nonzero_child_exit_stays_failure_after_complete_stream(
             sys.executable,
             "-c",
             (
-                "import os,sys;sys.stdout.buffer.write(%r);"
-                "sys.stderr.write('boom');os._exit(3)"
+                "import sys;sys.stdout.buffer.write(%r);sys.stdout.flush();"
+                "sys.stderr.write('boom');sys.stderr.flush();sys.exit(3)"
             )
             % _omp_stream_bytes(),
         ],
@@ -2003,18 +2003,71 @@ def test_omp_conf_prepare_rejects_malformed_conf_tree(tmp_path) -> None:
     assert error is not None
     assert error["type"] == "validation_error", error
 
+def test_omp_conf_prepare_uses_retained_fd_after_conf_path_swap(
+    tmp_path
+) -> None:
+    import json
+    from orchestrator.providers.omp_launch_policy import (
+        ATTEMPT_FDS_ENV,
+        EMPTY_CWD_ENV,
+    )
 
-def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path) -> None:
-    """NEW-T5-FIX-002: a post-create failure must not leave the empty cwd behind.
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    from orchestrator.providers.omp_launch import neutral_conf_root
+    (conf / "config.yml").write_bytes(
+        (Path(neutral_conf_root()) / "config.yml").read_bytes()
+    )
+    conf_fd = os.open(
+        conf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    )
+    original = tmp_path / "conf-original"
+    os.replace(conf, original)
+    conf.mkdir()
+    (conf / "config.yml").write_text("advisor:\n  enabled: maybe\n")
+    executor = ProviderExecutor(
+        tmp_path, _omp_profile_registry(), profile_conf_fd=conf_fd
+    )
+    try:
+        invocation, error = executor.prepare_invocation(
+            "omp_conf",
+            ProviderParams(params={"omp_conf_root": str(conf)}),
+            {},
+            prompt_content="hi",
+            env=_omp_profile_env(tmp_path),
+        )
+        assert error is None, error
+        assert invocation is not None
+        carrier = json.loads(invocation.env[ATTEMPT_FDS_ENV])
+        inherited = os.fstat(carrier["roots"]["__conf__"])
+        admitted = os.fstat(conf_fd)
+        assert (inherited.st_dev, inherited.st_ino) == (
+            admitted.st_dev, admitted.st_ino
+        )
+    finally:
+        os.close(conf_fd)
+    invocation.inherited_fd_authority.close()
+    os.rmdir(invocation.env[EMPTY_CWD_ENV])
 
-    The malformed-conf case fails before cwd creation; this one fails AFTER:
-    the empty cwd is created, then the canonical policy digest hits an
-    invalid write root (a file where XDG_DATA_HOME must be a directory).
-    """
+
+def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path, monkeypatch) -> None:
+    """NEW-T5-FIX-002: a post-create failure must not leave the empty cwd or
+    the attempt tree behind (R2: the attempt tree is adapter-owned and must
+    never linger after a failed prepare)."""
+    from orchestrator.providers.omp_write_confinement import (
+        ConfinementError,
+        canonical_policy_digest as real_canonical_policy_digest,
+    )
+
+
     env = _omp_profile_env(tmp_path)
-    blocker = tmp_path / "blocker"
-    blocker.write_text("x", encoding="utf-8")
-    env = {**env, "XDG_DATA_HOME": str(blocker)}
+
+    def _boom(*args, **kwargs):
+        raise ConfinementError("forced digest failure")
+
+    monkeypatch.setattr(
+        "orchestrator.providers.omp_write_confinement.canonical_policy_digest", _boom
+    )
     executor = ProviderExecutor(tmp_path, _omp_profile_registry())
     invocation, error = executor.prepare_invocation(
         "omp_no_tools",
@@ -2028,6 +2081,39 @@ def test_omp_profile_prepare_cleans_empty_cwd_on_failure(tmp_path) -> None:
     assert error["type"] == "validation_error", error
     leftovers = list((tmp_path / "home").glob("omp-empty-*"))
     assert leftovers == [], f"post-create failure must clean the empty cwd: {leftovers}"
+    attempts = list((tmp_path / "cache" / "omp-i1" / "attempts").glob("omp-attempt-*"))
+    assert attempts == [], f"post-create failure must clean the attempt tree: {attempts}"
+
+
+def test_omp_fresh_prepare_rejects_swapped_logical_visit_identity(
+    tmp_path
+) -> None:
+    from orchestrator.providers.omp_launch_fs import session_dir_identity
+
+    session_dir = tmp_path / "visits" / "root.task__v1"
+    session_dir.mkdir(parents=True)
+    session_dir.chmod(0o700)
+    identity = session_dir_identity(str(session_dir))
+    original = session_dir.with_name("root.task__v1-original")
+    os.replace(session_dir, original)
+    session_dir.mkdir(mode=0o700)
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+
+    invocation, error = executor.prepare_invocation(
+        "omp_no_tools",
+        ProviderParams(),
+        {},
+        prompt_content="hi",
+        env=_omp_profile_env(tmp_path),
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        provider_session_dir=str(session_dir),
+        provider_session_identity=identity,
+    )
+
+    assert invocation is None
+    assert error is not None
+    assert "identity changed" in error["message"]
+    assert list(session_dir.iterdir()) == []
 
 
 def test_omp_profile_prepare_cleans_empty_cwd_on_identity_failure(tmp_path) -> None:
@@ -2129,25 +2215,109 @@ def test_omp_profile_prepare_uses_per_invocation_empty_cwd(tmp_path) -> None:
     assert invocation is not None
 
 
+def test_omp_prepare_carries_isolated_worktree_root_per_invocation(tmp_path) -> None:
+    """R5: the X5 isolated-worktree root is carried per-invocation on the
+    immutable expectation (never mutable executor state), so two prepares
+    with different child HOMEs each retain their own root."""
+    from pathlib import Path
+
+    executor = ProviderExecutor(tmp_path, _omp_profile_registry())
+    roots = []
+    for name in ("home-a", "home-b"):
+        env = _omp_profile_env(tmp_path / name)
+        invocation, error = executor.prepare_invocation(
+            "omp_no_tools",
+            ProviderParams(),
+            {},
+            prompt_content="hi",
+            env=env,
+        )
+        assert error is None, error
+        assert invocation is not None
+        expectation = invocation.omp_transport_expectation
+        assert expectation is not None
+        root = expectation.isolated_worktree_root
+        assert root is not None and root.endswith(os.path.join(".omp", "wt")), root
+        assert str(tmp_path) in root, root
+        roots.append(root)
+    assert roots[0] != roots[1]
+
+
+def test_profile_attempt_fds_survive_spawn_and_do_not_leak(tmp_path) -> None:
+    import json
+
+    from orchestrator.providers.omp_launch_policy import (
+        ATTEMPT_FDS_ENV,
+        create_profile_attempt_authority,
+        profile_attempt_roots,
+    )
+
+    executor = ProviderExecutor(tmp_path, ProviderRegistry())
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    before = len(os.listdir("/proc/self/fd"))
+    for index in range(3):
+        attempt = profile_attempt_roots(
+            env_roots={"cache": str(cache)},
+            lane="no-tools",
+            workspace=str(tmp_path),
+            session_dir=None,
+            conf_root=str(tmp_path),
+            nonce=f"{index:016x}",
+        )
+        authority = create_profile_attempt_authority(attempt)
+        conf_fd = os.open(
+            tmp_path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        authority.root_fds["__conf__"] = conf_fd
+        authority.path_fds[str(tmp_path)] = conf_fd
+        script = (
+            "import json,os,sys;"
+            "from orchestrator.providers.omp_launch_policy import "
+            "ATTEMPT_FDS_ENV,adopt_profile_attempt_authority,"
+            "inherited_profile_conf_fd;"
+            "carrier=os.environ[ATTEMPT_FDS_ENV];"
+            "a=adopt_profile_attempt_authority(json.loads(sys.argv[1]),carrier);"
+            "os.fstat(inherited_profile_conf_fd(carrier));"
+            "os.fstat(a.base_fd);a.close();print('ok')"
+        )
+        invocation = ProviderInvocation(
+            command=[sys.executable, "-c", script, json.dumps(attempt)],
+            input_mode=InputMode.ARGV,
+            env={ATTEMPT_FDS_ENV: authority.carrier()},
+            inherited_fds=authority.descriptors,
+            inherited_fd_authority=authority,
+        )
+        result = executor.execute(invocation)
+        assert result.exit_code == 0, result.stderr
+        assert result.stdout == b"ok\n"
+        assert not os.path.exists(os.path.dirname(attempt["HOME"]))
+    assert len(os.listdir("/proc/self/fd")) == before
+
+
 def test_omp_fresh_revalidation_rejects_drifted_non_primary_entry(tmp_path) -> None:
-    """Finding 2 (T5-SEC-006): the parent final acceptance derives inventory
-    AND the primary journal on ONE retained visit fd; a racer that changes a
-    non-primary entry between the observation scan and finalization must fail
+    """R5 (T5-SEC-006): the parent final acceptance re-runs the shared
+    close-time observer on ONE retained visit fd; a racer that adds a valid
+    child journal after the adapter framed the empty observed lists must fail
     the launch even though the primary journal still matches."""
     import hashlib
+    from pathlib import Path
 
     from orchestrator.providers.omp_launch import binary_projection
     from orchestrator.providers.omp_launch_fs import session_dir_identity
     from orchestrator.providers.omp_pin import OMP_BINARY_PIN
     from orchestrator.providers.types import OmpTransportExpectation
 
+    fixtures = Path(__file__).parent / "fixtures" / "omp" / "sessions"
+    primary_fixture = "2026-08-23T22-33-31-340Z_11111111-1111-7111-8111-111111111111.jsonl"
+    session_id = "11111111-1111-7111-8111-111111111111"
     env = _omp_profile_env(tmp_path)
     session_dir = tmp_path / "visits" / "step-1__v1"
     session_dir.mkdir(parents=True)
     session_dir.chmod(0o700)
-    session_id = "a" * 32
-    journal = session_dir / f"session_{session_id}.jsonl"
-    journal.write_text("payload", encoding="utf-8")
+    journal = session_dir / primary_fixture
+    journal.write_bytes((fixtures / primary_fixture).read_bytes())
     identity = session_dir_identity(str(session_dir))
     expectation = OmpTransportExpectation(
         lane="no-tools",
@@ -2177,13 +2347,17 @@ def test_omp_fresh_revalidation_rejects_drifted_non_primary_entry(tmp_path) -> N
                 "primary_relpath": journal.name,
                 "primary_sha256": framed_sha,
             },
-            "observed": {"advisor_relpaths": [], "child_relpaths": [journal.name]},
+            "observed": {"advisor_relpaths": [], "child_relpaths": []},
         }
     }
-    # Racer mutates a NON-primary entry after the observation scan: the
-    # primary journal still matches, but the final one-fd acceptance must
-    # fail because the derived inventory drifted.
-    (session_dir / "note.txt").write_text("racer", encoding="utf-8")
+    # Racer adds a VALID settled child journal after the adapter framed the
+    # empty observed lists: the primary still matches, but the shared
+    # observer's recursive classification now disagrees with the frame.
+    artifacts = session_dir / primary_fixture[: -len(".jsonl")]
+    artifacts.mkdir()
+    (artifacts / "alpha.jsonl").write_bytes(
+        (fixtures / "alpha.jsonl").read_bytes()
+    )
     executor = ProviderExecutor(tmp_path, _omp_profile_registry())
     error = executor._revalidate_fresh_session(invocation, provider_session)
     assert error is not None, "non-primary drift must fail the final acceptance"

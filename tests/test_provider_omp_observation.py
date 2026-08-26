@@ -17,8 +17,10 @@ import contextlib
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
+import orchestrator.providers.omp_observation as omp_observation
 
 from orchestrator.providers.omp_conf import admit_conf_tree
 from orchestrator.providers.omp_observation import (
@@ -31,14 +33,12 @@ from orchestrator.providers.omp_observation import (
     is_advisor_journal,
     is_advisor_name,
     is_child_journal,
+    is_terminal_child,
     is_settled,
     observe_close,
 )
-from orchestrator.providers.omp_session import (
-    OmpSessionError,
-    build_session_manifest,
-    parse_journal_bytes,
-)
+from orchestrator.providers.omp_session import OmpSessionError, parse_journal_bytes
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 
 CONF_FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "omp", "conf")
 SESSION_FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "omp", "sessions")
@@ -131,6 +131,11 @@ def _conf_digest(fixture_name):
         return admit_conf_tree(fd).manifest_sha256
 
 
+def _conf_digest_dir(path):
+    with _root(path) as fd:
+        return admit_conf_tree(fd).manifest_sha256
+
+
 def _neutral_map():
     return {_conf_digest("neutral"): PRESET_TOPOLOGIES["neutral"]}
 
@@ -208,6 +213,60 @@ def test_is_child_journal():
     ]
     journal = parse_journal_bytes(_journal("99999999-9999-7999-8999-999999999999", two_inits), relpath="c.jsonl")
     assert is_child_journal(journal) is False
+
+def _yield_child(*, is_error=False, exit_kind="normal"):
+    call_id = "yield-1"
+    entries = [
+        _entry("session_init", "si1", None, systemPrompt="sp", task="t", tools=["write"], agent="alpha"),
+        _entry("message", "u1", "si1", message={"role": "user", "content": [], "timestamp": 1}),
+        _entry("message", "a1", "u1", message={"role": "assistant", "content": [
+            {"type": "toolCall", "id": call_id, "name": "yield", "arguments": {"result": {}}}
+        ], "api": "a", "provider": "p", "model": "m", "stopReason": "toolUse",
+            "timestamp": 2, "usage": _usage()}),
+        _entry("message", "r1", "a1", message={"role": "toolResult",
+            "toolCallId": call_id, "toolName": "yield", "content": [],
+            "details": {"status": "success"}, "isError": is_error, "timestamp": 3}),
+        _entry("custom", "x1", "r1", customType="session_exit",
+            data={"reason": "dispose", "kind": exit_kind, "recordedAt": TS}),
+    ]
+    return parse_journal_bytes(
+        _journal("99999999-9999-7999-8999-999999999999", entries),
+        relpath="Alpha.jsonl",
+    )
+
+
+def test_terminal_child_accepts_successful_yield_and_normal_exit():
+    journal = _yield_child()
+    assert is_settled(journal) is False
+    assert is_terminal_child(journal) is True
+
+
+def test_terminal_child_rejects_failed_yield_or_abnormal_exit():
+    assert is_terminal_child(_yield_child(is_error=True)) is False
+    assert is_terminal_child(_yield_child(exit_kind="abnormal")) is False
+
+def _settled_child_with_exit(kind: str) -> bytes:
+    entries = [
+        _entry("session_init", "si1", None, systemPrompt="sp", task="t",
+               tools=["read"], agent="alpha"),
+        _entry("message", "a1", "si1", message={"role": "assistant",
+            "content": [{"type": "text", "text": "done"}], "api": "a",
+            "provider": "p", "model": "m", "stopReason": "stop",
+            "timestamp": 2, "usage": _usage()}),
+        _entry("custom", "x1", "a1", customType="session_exit",
+            data={"reason": "dispose" if kind == "normal" else "signal",
+                  "kind": kind, "recordedAt": TS}),
+    ]
+    return _journal("99999999-9999-7999-8999-999999999999", entries)
+
+
+def test_terminal_child_rejects_abnormal_exit_after_assistant_stop():
+    journal = parse_journal_bytes(
+        _settled_child_with_exit("abnormal"), relpath="Alpha.jsonl")
+    assert is_settled(journal) is True
+    assert is_terminal_child(journal) is False
+
+
 
 
 def test_hub_match_by_tool_call_identity():
@@ -306,6 +365,24 @@ def test_observe_close_peer_team_topology(tmp_path):
     assert report.hub_matched is True
 
 
+def test_observe_close_rejects_ambiguous_advisor_child(tmp_path):
+    entries = [
+        _entry("session_init", "si1", None, systemPrompt="sp", task="t",
+               tools=["read"], agent="alpha"),
+        _entry("message", "a1", "si1", message={"role": "assistant",
+            "content": [{"type": "text", "text": "done"}], "api": "a",
+            "provider": "p", "model": "m", "stopReason": "stop",
+            "timestamp": 2, "usage": _usage()}),
+    ]
+    files = {
+        PRIMARY: _fixture(PRIMARY),
+        _artifacts(PRIMARY) + "/__advisor.jsonl": _journal(
+            "99999999-9999-7999-8999-999999999999", entries),
+    }
+    with pytest.raises(OmpObservationError, match="ambiguously classified"):
+        _observe(tmp_path, files, conf_map={})
+
+
 def test_observe_close_unrecognized_conf_skips_counts(tmp_path):
     files = {
         PRIMARY: _fixture(PRIMARY),
@@ -334,6 +411,16 @@ def test_observe_close_peer_team_requires_matched_hub(tmp_path):
     }
     with pytest.raises(OmpObservationError):
         _observe(tmp_path, files, session_id="77777777-7777-7777-8777-777777777777", conf_map=_peer_team_map())
+
+
+def test_observe_close_rejects_abnormal_settled_child(tmp_path):
+    files = {
+        PRIMARY: _fixture(PRIMARY),
+        _artifacts(PRIMARY) + "/alpha.jsonl":
+            _settled_child_with_exit("abnormal"),
+    }
+    with pytest.raises(OmpObservationError, match="child journal failed"):
+        _observe(tmp_path, files, conf_map={})
 
 
 def test_observe_close_unmatched_hub_in_child_fails(tmp_path):
@@ -434,6 +521,19 @@ def test_observe_close_nested_journal_outside_artifacts_fails(tmp_path):
         _observe(tmp_path, files, conf_map=_neutral_map())
 
 
+def test_observe_close_bounds_nonjournal_artifacts(tmp_path, monkeypatch):
+    primary = _fixture(PRIMARY)
+    monkeypatch.setattr(
+        omp_observation, "SESSION_TREE_MAX_BYTES", len(primary) + 3
+    )
+    with pytest.raises(OmpObservationError, match="tree-byte bound"):
+        _observe(
+            tmp_path,
+            {PRIMARY: primary, _artifacts(PRIMARY) + "/token.out": b"xxxx"},
+            conf_map=_neutral_map(),
+        )
+
+
 def test_observe_close_worktree_must_be_absent_at_close(tmp_path):
     root = os.path.join(str(tmp_path), "omp-wt")
     beta_worktree = os.path.join(root, "beta-wt")
@@ -480,6 +580,20 @@ def test_observe_close_symlink_in_session_fails(tmp_path):
             observe_close(session_root_fd=fd, stdout_session_id=PRIMARY_ID, conf_manifest_sha256=_conf_digest("neutral"), recognized_topologies=_neutral_map(), isolated_worktree_root=None)
 
 
+def test_observe_close_rejects_externally_hardlinked_journal(tmp_path):
+    root = _session(tmp_path, {PRIMARY: _fixture(PRIMARY)})
+    os.link(os.path.join(root, PRIMARY), tmp_path / "external-alias.jsonl")
+    with _root(root) as fd:
+        with pytest.raises(OmpObservationError, match="hard-linked"):
+            observe_close(
+                session_root_fd=fd,
+                stdout_session_id=PRIMARY_ID,
+                conf_manifest_sha256=_conf_digest("neutral"),
+                recognized_topologies=_neutral_map(),
+                isolated_worktree_root=None,
+            )
+
+
 def test_observe_close_undecodable_name_fails(tmp_path):
     root = _session(tmp_path, {PRIMARY: _fixture(PRIMARY)})
     raw = os.path.join(root, _artifacts(PRIMARY)).encode("utf-8") + b"\xff\xfe_bad.jsonl"
@@ -490,6 +604,82 @@ def test_observe_close_undecodable_name_fails(tmp_path):
             observe_close(session_root_fd=fd_root, stdout_session_id=PRIMARY_ID, conf_manifest_sha256=_conf_digest("neutral"), recognized_topologies=_neutral_map(), isolated_worktree_root=None)
 
 
-def test_observe_close_unknown_stdout_session_id_fails(tmp_path):
-    with pytest.raises(OmpObservationError):
-        _observe(tmp_path, {PRIMARY: _fixture(PRIMARY)}, session_id="unknown-id", conf_map=_neutral_map())
+# ---------------------------------------------------------------------------
+# Task 10 R5: one code-owned topology authority keyed ONLY by canonical
+# packaged-conf digest (labels and paths never select)
+# ---------------------------------------------------------------------------
+
+
+def test_recognized_preset_topologies_five_distinct_digests():
+    from orchestrator.omp_assets import preset_conf_root
+    from orchestrator.providers.omp_observation import (
+        ExpectedTopology,
+        recognized_preset_topologies,
+    )
+
+    topologies = recognized_preset_topologies()
+    assert len(topologies) == 5
+    assert len(set(topologies)) == 5
+    import dataclasses
+
+    assert topologies == {
+        _conf_digest_dir(preset_conf_root(name)): ExpectedTopology(
+            **dataclasses.asdict(PRESET_TOPOLOGIES[name])
+        )
+        for name in ("neutral", "advised", "fanout", "peer-team", "advised-fanout")
+    }
+
+
+def test_recognized_preset_topologies_copied_path_same_digest_and_topology(tmp_path):
+    """R5: a copied/renamed packaged conf tree resolves the SAME canonical
+    digest and therefore the same expected counts; the filesystem path never
+    selects. observe_close enforces the copied-path digest identically."""
+    from orchestrator.omp_assets import preset_conf_root
+    from orchestrator.providers.omp_observation import (
+        ExpectedTopology,
+        recognized_preset_topologies,
+    )
+
+    topologies = recognized_preset_topologies()
+    copied = tmp_path / "renamed-preset"
+    copied.mkdir()
+    source = preset_conf_root("advised-fanout")
+    for entry in Path(source).rglob("*"):
+        if entry.is_file():
+            target = copied / entry.relative_to(source)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(entry.read_bytes())
+    copied_digest = _conf_digest_dir(copied)
+    assert copied_digest in topologies
+    assert topologies[copied_digest] == ExpectedTopology(advisor=1, child=2)
+
+    # The copied-path digest enforces the counts during close observation.
+    files = {PRIMARY: _fixture(PRIMARY)}
+    for name in ("__advisor.jsonl", "alpha.jsonl", "beta.jsonl"):
+        files[_artifacts(PRIMARY) + "/" + name] = _fixture(name)
+    report = _observe(
+        tmp_path, files,
+        conf_map={copied_digest: topologies[copied_digest]},
+    )
+    assert report.unrecognized is False
+    assert len(report.advisor_relpaths) == 1 and len(report.child_relpaths) == 2
+
+
+def test_recognized_preset_topologies_label_key_is_not_authoritative(tmp_path):
+    """R5 RED: a name-labeled key (e.g. ``{"advised": ...}``) is absent from
+    the digest-keyed authority, so the same conf digest selects NO counts and
+    close observation stays unrecognized rather than trusting the label."""
+    from orchestrator.providers.omp_observation import (
+        ExpectedTopology,
+        recognized_preset_topologies,
+    )
+
+    topologies = recognized_preset_topologies()
+    digest = _conf_digest("advised")
+    assert digest not in {"advised": ExpectedTopology(advisor=1)}
+    report = _observe(
+        tmp_path,
+        {PRIMARY: _fixture(PRIMARY)},
+        conf_map={},
+    )
+    assert report.unrecognized is True

@@ -1178,6 +1178,55 @@ bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
 dashboard/debug projections, `expanded.debug.yaml`, and source maps are
 inspection views, not call-policy or resume authority.
 
+### Explicit OMP Session Publication
+
+Target 2.27 adds one narrow opt-in for a provider result whose OMP session must
+remain resumable or importable:
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.27")
+  (defmodule task)
+  (export run)
+
+  (defworkflow run () -> TaskResult
+    (provider-result providers.task
+      :prompt prompts.task
+      :inputs ()
+      :session-artifact omp_session
+      :returns TaskResult)))
+```
+
+`:session-artifact` takes one bare, previously undeclared symbol. The compiler
+creates the scalar String artifact and selects the provider template's existing
+fresh-session command. The clause is valid only in the selected entry workflow
+at the root or along its sequential `let*` spine. Do not place it in a
+procedure, imported/called workflow, branch, loop, trial, supervision group,
+peer group, or nested provider expression; do not declare a second session
+artifact. Omit the clause for an ordinary transient `--no-session` call.
+
+The four public code-owned templates are `omp`, `omp_no_tools`, `omp_conf`, and
+`omp_unrestricted_workspace`; `omp_conf_inference` is internal. Choose
+`omp_conf` only when the provider needs the admitted repository workspace and
+an explicit conf root. Choose `omp_no_tools` for the packaged neutral,
+workspace-free profile. `omp` and `omp_unrestricted_workspace` inherit ambient
+operator configuration and are for trusted repositories; the unrestricted
+template additionally selects OMP `--yolo`.
+
+`omp_conf` is a trusted, credential-bearing tool lane, not a secret sandbox. It
+retains same-UID read, network, and process access; model-facing tools can
+observe the current `OMP_AUTH_BROKER_TOKEN` through the process environment or
+procfs, and assistant, tool, or session output may persist it. Use `omp_conf`
+only with trusted repository, conf, and model inputs. `omp_no_tools` and
+internal inference disable this model-to-tool path but are not general OS
+sandboxes.
+
+The published artifact is the validated OMP session ID, not the provider
+result. The typed structured bundle remains semantic authority. Journal files,
+launch frames, and observation panes are bounded evidence and must not be
+parsed as workflow output.
+
 When provider prompt semantics require workspace file contents, declare exact
 typed prompt dependencies on the provider result:
 

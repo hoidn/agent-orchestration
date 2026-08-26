@@ -2,10 +2,9 @@ diff --git a/packages/natives/scripts/embed-native.ts b/packages/natives/scripts
 index 40d7e779d9..906a45bf9c 100644
 --- a/packages/natives/scripts/embed-native.ts
 +++ b/packages/natives/scripts/embed-native.ts
-@@ -7,6 +7,51 @@ const packageJsonPath = path.join(import.meta.dir, "../package.json");
- const nativeDir = path.join(import.meta.dir, "../native");
- const archivePrefix = "embedded-addons.";
+@@ -9,3 +9,48 @@ const archiveSuffix = ".tar.gz";
  const archiveSuffix = ".tar.gz";
+-
 +const TAR_BLOCK_SIZE = 512;
 +const TAR_SIZE_OFFSET = 124;
 +const TAR_SIZE_LENGTH = 12;
@@ -51,17 +50,44 @@ index 40d7e779d9..906a45bf9c 100644
 +		if (offset > bytes.length) throw new Error("Tar entry extends beyond the archive");
 +	}
 +}
- 
++
  const embeddedAddonTypedefs = `/** @typedef {"modern" | "baseline" | "default"} EmbeddedAddonVariant */
- 
-@@ -101,7 +146,9 @@ const archiveEntries: Record<string, Uint8Array> = {};
- for (const addon of available) {
- 	archiveEntries[addon.filename] = await fs.readFile(addon.path);
+@@ -103,4 +148,6 @@ for (const addon of available) {
  }
 -await Bun.write(archivePath, await new Bun.Archive(archiveEntries, { compress: "gzip", level: 9 }).bytes());
+-
 +const archiveBytes = await new Bun.Archive(archiveEntries).bytes();
 +normalizeTarMetadata(archiveBytes);
 +await Bun.write(archivePath, Bun.gzipSync(archiveBytes, { level: 9 }));
- 
++
  const files = available
- 	.map(
+diff --git a/packages/coding-agent/src/task/executor.ts b/packages/coding-agent/src/task/executor.ts
+index 0667cffe51..d1f360d92b 100644
+--- a/packages/coding-agent/src/task/executor.ts
++++ b/packages/coding-agent/src/task/executor.ts
+@@ -893,15 +893,11 @@ export function createSubagentSettings(
+-			// owner job outlives the run, so worktree capture/cleanup stays
+-			// race-free (previously both were force-disabled here).
+-
+-			// Subagents run headless — there is no UI to confirm prompts against, so
+-			// the parent task approval is the authorization boundary. Use yolo mode
+-			// to preserve unattended subagent execution. User `tools.approval` policies still apply.
+-			"tools.approvalMode": "yolo",
+-			// Subagents run unadvised by default; runSubprocess opts a spawn back in
+-			// per agent (frontmatter `advisor` / `task.agentAdvisor`) via overrides.
+-			"advisor.enabled": false,
+-			...overrides,
+-		},
+-		{ storage: baseSettings.getStorage() },
+-	);
++			// owner job outlives the run, so worktree capture/cleanup stays
++			// race-free (previously both were force-disabled here).
++
++			// Subagents run unadvised by default; runSubprocess opts a spawn back in
++			// per agent (frontmatter `advisor` / `task.agentAdvisor`) via overrides.
++			"advisor.enabled": false,
++			...overrides,
++		},
++		{ storage: baseSettings.getStorage() },
++	);
+ }

@@ -1,30 +1,8 @@
-"""Landlock ABI-3 write confinement exec helper (Task 5, OMP-I1).
+"""Landlock ABI-3 write-confinement and verified fd-exec helper.
 
-Dependency-free Linux helper for one private OMP launch. Grammar::
-
-    python -m orchestrator.providers.omp_write_confinement \
-        --abi N --digest H \
-        --protected <label>=<path> ... \
-        --write <role>=<path> ... \
-        [--read <role>=<path> ...] \
-        -- <private-argv...>
-
-    python -m orchestrator.providers.omp_write_confinement \
-        --exec-only -- <private-argv...>
-
-The first mode requires Landlock ABI 3 or newer (queried directly), sets
-``no_new_privs``, admits only no-follow-opened existing directory roots,
-rejects any write root overlapping protected/read roots or another write
-root, installs the role-labelled write allowlist from the same still-open
-root fds, verifies the private target is a digest-named copy rehashed from
-the inherited no-follow private target fd, compares the code-owned fresh
-session identity carrier against the retained session-root fd, strips the
-internal carriers from the environment, and then ``execve``-replaces itself
-with the private OMP argv. The ``--exec-only`` mode skips Landlock entirely
-(ambient lanes stay unconfined) but still opens the private target no-follow
-and rehashes it on the same fd before ``execve``.
-Every root and the target fd are reopened/recomputed: a digest, root, fd,
-identity, or target mismatch fails before restriction/exec.
+Profile mode validates the closed root grammar/digest, applies Landlock, strips
+internal carriers, and execs the private binary. ``--exec-only`` performs the
+same private binary admission without Landlock for ambient lanes.
 """
 from __future__ import annotations
 
@@ -33,14 +11,16 @@ import hashlib
 import json
 import os
 import sys
+import stat
 
 from .omp_launch_fs import (
     LaunchFsError,
-    directory_identity,
     open_dir_no_follow,
     open_private_exec_fd,
 )
 from .omp_launch_policy import (
+    SESSION_IDENTITY_ENV,
+    SESSION_PATH_FD_ENV,
     strip_omp_carriers,
     verify_root_identity_relations,
     verify_session_identity,
@@ -189,8 +169,6 @@ def profile_root_sets(
     if lane == "conf":
         write.append(("conf-workspace", workspace))
     read: list[tuple[str, str]] = []
-    if conf_root is not None:
-        read.append(("conf", conf_root))
     read.append(("cwd", empty_cwd))
     return protected, write, read
 
@@ -204,8 +182,9 @@ def canonical_policy_digest(
     workspace: str,
     empty_cwd: str,
     env_roots: dict[str, str],
+    root_fds: tuple[int, ...] | None = None,
 ) -> str:
-    """Return the canonical policy digest binding rights, roles, and identities."""
+    """Return the canonical policy digest over retained root identities."""
     protected, write, read = profile_root_sets(
         lane=lane,
         home_omp=home_omp,
@@ -215,30 +194,28 @@ def canonical_policy_digest(
         empty_cwd=empty_cwd,
         env_roots=env_roots,
     )
-    root_rows = []
-    for role, label, path in _role_path_rows(protected, write, read):
-        try:
-            dev, ino = directory_identity(path)
-        except LaunchFsError as exc:
-            raise ConfinementError(str(exc)) from exc
-        root_rows.append(
-            {
-                "label": label,
-                "path": path,
-                "dev": dev,
-                "ino": ino,
-                "rights": role_rights(role, label),
-            }
+    rows = _role_path_rows(protected, write, read)
+    supplied = (
+        tuple(-1 for _ in rows) if root_fds is None else root_fds
+    )
+    if len(supplied) != len(rows):
+        raise ConfinementError("policy root descriptor cardinality mismatch")
+    owned: list[int] = []
+    try:
+        descriptors = []
+        for descriptor, (_, _, path) in zip(supplied, rows):
+            if descriptor < 0:
+                descriptor = open_dir_no_follow(path)
+                owned.append(descriptor)
+            descriptors.append(descriptor)
+        return _recompute_digest(
+            protected, write, read, MIN_LANDLOCK_ABI, descriptors
         )
-    root_rows.sort(key=lambda row: (row["label"], row["path"]))
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "abi": MIN_LANDLOCK_ABI,
-        "handled_access_fs": MUTATION_FS_RIGHTS,
-        "roots": root_rows,
-    }
-    canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    except LaunchFsError as exc:
+        raise ConfinementError(str(exc)) from exc
+    finally:
+        for descriptor in owned:
+            os.close(descriptor)
 
 
 def _parse_args(argv: list[str]) -> dict:
@@ -248,6 +225,7 @@ def _parse_args(argv: list[str]) -> dict:
         "protected": [],
         "write": [],
         "read": [],
+        "root_fd": [],
         "target": None,
     }
     index = 0
@@ -258,6 +236,9 @@ def _parse_args(argv: list[str]) -> dict:
             index += 2
         elif arg in ("--protected", "--write", "--read") and index + 1 < len(argv):
             expected[arg[2:]].append(argv[index + 1])
+            index += 2
+        elif arg == "--root-fd" and index + 1 < len(argv):
+            expected["root_fd"].append(argv[index + 1])
             index += 2
         elif arg == "--":
             expected["target"] = argv[index + 1:]
@@ -288,6 +269,28 @@ def _role_path_rows(
     rows += [("write", label, path) for label, path in write]
     rows += [("read", label, path) for label, path in read]
     return rows
+
+
+def _retain_session_path_fd() -> None:
+    value = os.environ.get(SESSION_PATH_FD_ENV)
+    if value is None:
+        return
+    try:
+        descriptor = int(value)
+        expected = tuple(
+            int(part) for part in os.environ[SESSION_IDENTITY_ENV].split(":")
+        )
+        kind = os.fstat(descriptor)
+    except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+        raise ConfinementError("invalid retained session path descriptor") from exc
+    if (
+        descriptor < 3
+        or len(expected) != 2
+        or not stat.S_ISDIR(kind.st_mode)
+        or (kind.st_dev, kind.st_ino) != expected
+    ):
+        raise ConfinementError("retained session path descriptor identity mismatch")
+    os.set_inheritable(descriptor, True)
 
 
 def _restrict_and_exec(
@@ -328,6 +331,7 @@ def _restrict_and_exec(
     rc = libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset, 0)
     if rc != 0:
         raise ConfinementError(f"landlock_restrict_self failed: {ctypes.get_errno()}")
+    _retain_session_path_fd()
     strip_omp_carriers(os.environ)
     try:
         os.execve(exec_fd, target, os.environ)
@@ -349,6 +353,7 @@ def _exec_only_main(argv: list[str]) -> int:
         exec_fd = open_private_exec_fd(target)
     except LaunchFsError as exc:
         raise ConfinementError(str(exc)) from exc
+    _retain_session_path_fd()
     strip_omp_carriers(os.environ)
     try:
         os.execve(exec_fd, target, os.environ)
@@ -404,9 +409,34 @@ def main(argv: list[str] | None = None) -> int:
         except LaunchFsError as exc:
             raise ConfinementError(str(exc)) from exc
         rows = _role_path_rows(protected, write, read)
+        inherited = parsed["root_fd"]
         try:
-            root_fds = [open_dir_no_follow(path) for _, _, path in rows]
-        except LaunchFsError as exc:
+            if inherited:
+                if len(inherited) != len(rows):
+                    raise ConfinementError(
+                        "inherited root descriptor cardinality mismatch"
+                    )
+                root_fds = []
+                for value, (_, _, path) in zip(inherited, rows):
+                    if value == "-1":
+                        root_fds.append(open_dir_no_follow(path))
+                        continue
+                    if not value.isdigit() or int(value) < 3:
+                        raise ConfinementError(
+                            "invalid inherited root descriptor"
+                        )
+                    descriptor = int(value)
+                    os.set_inheritable(descriptor, False)
+                    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                        raise ConfinementError(
+                            "inherited root descriptor is not a directory"
+                        )
+                    root_fds.append(descriptor)
+            else:
+                root_fds = [
+                    open_dir_no_follow(path) for _, _, path in rows
+                ]
+        except (LaunchFsError, OSError) as exc:
             raise ConfinementError(str(exc)) from exc
         try:
             # Identity relations bind the no-follow-opened roots: duplicate

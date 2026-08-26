@@ -38,10 +38,26 @@ def _entry(kind: str, entry_id: str, parent: str | None, **extra: object) -> dic
 
 def _user(content: object, entry_id: str = "u", parent: str | None = None) -> dict:
     return _entry(
-        "message",
-        entry_id,
-        parent,
+        "message", entry_id, parent,
         message={"role": "user", "content": content, "timestamp": 1},
+    )
+
+
+def _settled_assistant() -> dict:
+    """A settled assistant turn: last closed message stops with no tool call,
+    so close-time observation classifies the journal as settled."""
+    return _entry(
+        "message", "a", "u",
+        message={
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "api": "a", "provider": "p", "model": "m",
+            "stopReason": "stop", "timestamp": 2,
+            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                      "totalTokens": 0,
+                      "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0,
+                               "cacheWrite": 0.0, "total": 0.0}},
+        },
     )
 
 
@@ -230,7 +246,7 @@ def _write_index_run(
     snapshot = sessions / "task__v1.snapshot"
     live.mkdir(parents=True)
     snapshot.mkdir()
-    data = _journal(_user("source prompt"), session_id=session_id)
+    data = _journal(_user("source prompt"), _settled_assistant(), session_id=session_id)
     (live / primary).write_bytes(data)
     (snapshot / primary).write_bytes(data)
     state = {
@@ -249,7 +265,7 @@ def _write_index_run(
     (run / "state.json").write_text(json.dumps(state), encoding="utf-8")
     from orchestrator.providers.omp_pin import OMP_BINARY_PIN
     from orchestrator.providers.omp_launch_contract import (
-        POSITIVE_ENV_NAMES,
+        PROFILE_ENV_NAMES,
         build_fresh_adapter_argv,
         build_interactive_argv,
         resolved_adapter_command,
@@ -274,7 +290,7 @@ def _write_index_run(
         "child": {
             "argv": argv,
             "cwd": str(runs_root.parent.resolve()),
-            "env_names": list(POSITIVE_ENV_NAMES),
+            "env_names": sorted(PROFILE_ENV_NAMES),
             "exit_code": 0,
         },
         "session": {
@@ -285,7 +301,7 @@ def _write_index_run(
         },
         "conf": {"manifest_sha256": None},
         "confinement": None,
-        "observed": {"advisor_relpaths": [], "child_relpaths": [primary]},
+                "observed": {"advisor_relpaths": [], "child_relpaths": []},
     }
     metadata = {
         "run_id": run_id,
@@ -307,7 +323,7 @@ def _write_index_run(
         "transport_spool_path": None,
     }
     (sessions / "task__v1.json").write_text(json.dumps(metadata), encoding="utf-8")
-    from orchestrator.providers.omp_session import build_session_manifest
+    from orchestrator.providers.omp_session_manifest import build_session_manifest
 
     def manifest_digest(path: Path) -> str:
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -326,7 +342,7 @@ def _write_index_run(
             "snapshot_manifest_sha256": manifest_digest(snapshot),
             "composed_prompt_sha256": hashlib.sha256(b"source prompt").hexdigest(),
         },
-        launch={"argv": argv, "env_names": list(POSITIVE_ENV_NAMES)},
+        launch={"argv": argv, "env_names": sorted(PROFILE_ENV_NAMES)},
     )
     raw = _canonical(link)
     (sessions / "task__v1.session-link.json").write_bytes(raw)
@@ -370,7 +386,7 @@ def _write_index_run(
                                 private_binary=str(
                                     runs_root.parent / "cache" / "omp-i1"
                                     / "private" / OMP_BINARY_PIN.executable_sha256
-                                    / "omp"
+                                    / ("attempt-" + "0" * 32) / "omp"
                                 ),
                                 live_dir=str(live),
                                 mode="fork",
@@ -378,7 +394,7 @@ def _write_index_run(
                                 workspace=link["workflow_workspace"],
                             )
                         ),
-                        "env_names": list(POSITIVE_ENV_NAMES),
+                        "env_names": sorted(PROFILE_ENV_NAMES),
                     },
                     "confinement": None,
                     "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],

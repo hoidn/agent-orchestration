@@ -13,6 +13,7 @@ import errno
 from hashlib import sha256
 import os
 import stat
+from pathlib import Path
 import unicodedata
 
 _CHUNK_SIZE = 64 * 1024
@@ -45,6 +46,63 @@ class RegularFileRow:
     device: int
     inode: int
     mode: int
+    uid: int
+    link_count: int
+    mtime_ns: int
+    ctime_ns: int
+
+
+def resolve_path_preserving_fd(path: Path | str) -> Path:
+    """Resolve ordinary paths while retaining caller-owned ``/proc/self/fd`` roots."""
+    candidate = Path(path)
+    parts = candidate.parts
+    if (
+        len(parts) >= 5
+        and parts[:4] == ("/", "proc", "self", "fd")
+        and parts[4].isdecimal()
+    ):
+        info = os.fstat(int(parts[4]))
+        if ".." in parts[5:]:
+            raise SafeTreePathError("retained descriptor path must not contain '..'")
+        if not stat.S_ISDIR(info.st_mode):
+            raise SafeTreePathError("retained path root fd is not a directory")
+        return candidate
+    return candidate.resolve()
+
+
+def open_directory(path: str) -> int:
+    """Open an absolute directory component-by-component without symlinks."""
+    if not os.path.isabs(path):
+        raise SafeTreePathError(f"directory root must be absolute: {path!r}")
+    components = [part for part in path.split(os.sep) if part not in ("", ".")]
+    if any(part == ".." for part in components):
+        raise SafeTreePathError(
+            f"directory root must not contain '..': {path!r}"
+        )
+    descriptor = os.open(
+        "/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    )
+    try:
+        for component in components:
+            try:
+                child = os.open(
+                    component, _NOFOLLOW_DIRECTORY, dir_fd=descriptor
+                )
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise SafeTreeRejectionError(
+                        f"cannot open directory root component {component!r}: "
+                        "symlink or non-directory"
+                    ) from exc
+                raise SafeTreeRejectionError(
+                    f"cannot open directory root component {component!r}"
+                ) from exc
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def _canonical_name(name: str) -> str:
@@ -102,26 +160,33 @@ def _open_child_directory(
     return child
 
 
-def walk_regular_files(root_fd: int, *, directories: list[str] | None = None):
-    """Yield RegularFileRow for each regular file beneath root_fd.
-
-    Rows are deterministic: entries are visited in UTF-8 byte order and paths
-    are POSIX-relative. Symlinks, devices, FIFOs, sockets, hard-linked
-    duplicates, undecodable names, and duplicate canonical (NFC) paths are
-    rejected; every descriptor opened here is close-on-exec.
-
-    When ``directories`` is supplied it collects the relative path of every
-    visited directory (including the empty string for the root), enabling
-    callers to verify the exact directory set of a tree. Passing ``None``
-    (the default) keeps the historical no-collection behavior.
-    """
+def walk_regular_files(root_fd: int, *, directories: list[str] | None = None,
+                       max_depth: int | None = None, max_entries: int | None = None):
+    """Yield deterministic no-follow rows, optionally under depth/entry bounds."""
+    for label, value in (("depth", max_depth), ("entry", max_entries)):
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError(f"tree {label} bound must be a non-negative integer")
     seen_identities: set[tuple[int, int]] = set()
     seen_canonical: set[str] = set()
+    entry_count = 0
 
-    def recurse(directory_fd: int, prefix: str):
+    def recurse(directory_fd: int, prefix: str, depth: int):
+        nonlocal entry_count
+        if max_depth is not None and depth > max_depth:
+            raise SafeTreeRejectionError("tree exceeds the depth bound")
         if directories is not None:
             directories.append(prefix)
-        for name in sorted(os.listdir(directory_fd)):
+        if max_entries is None:
+            names = os.listdir(directory_fd)
+        else:
+            names = []
+            with os.scandir(directory_fd) as entries:
+                for entry in entries:
+                    entry_count += 1
+                    if entry_count > max_entries:
+                        raise SafeTreeRejectionError("tree exceeds the entry bound")
+                    names.append(entry.name)
+        for name in sorted(names):
             canonical = _canonical_name(name)
             if canonical in (".", ".."):
                 raise SafeTreeRejectionError(
@@ -148,11 +213,15 @@ def walk_regular_files(root_fd: int, *, directories: list[str] | None = None):
                     info.st_dev,
                     info.st_ino,
                     info.st_mode,
+                    info.st_uid,
+                    info.st_nlink,
+                    info.st_mtime_ns,
+                    info.st_ctime_ns,
                 )
             elif stat.S_ISDIR(info.st_mode):
                 child = _open_child_directory(directory_fd, name, info)
                 try:
-                    yield from recurse(child, relative_path)
+                    yield from recurse(child, relative_path, depth + 1)
                 finally:
                     os.close(child)
             else:
@@ -161,7 +230,7 @@ def walk_regular_files(root_fd: int, *, directories: list[str] | None = None):
                     f"{relative_path!r}"
                 )
 
-    yield from recurse(root_fd, "")
+    yield from recurse(root_fd, "", 0)
 
 
 def validate_relative_path(relative_path: str) -> None:
@@ -263,10 +332,29 @@ def _check_identity(
     expected: RegularFileRow | None,
     relative_path: str,
 ) -> None:
-    if expected is not None and (kind.st_dev, kind.st_ino) != (
+    if expected is None:
+        return
+    observed = (
+        kind.st_dev,
+        kind.st_ino,
+        kind.st_size,
+        kind.st_mode,
+        kind.st_uid,
+        kind.st_nlink,
+        kind.st_mtime_ns,
+        kind.st_ctime_ns,
+    )
+    admitted = (
         expected.device,
         expected.inode,
-    ):
+        expected.size_bytes,
+        expected.mode,
+        expected.uid,
+        expected.link_count,
+        expected.mtime_ns,
+        expected.ctime_ns,
+    )
+    if observed != admitted:
         raise SafeTreePathChangedError(
             f"tree entry changed identity: {relative_path!r}"
         )
@@ -278,7 +366,7 @@ def hash_regular_file(
     *,
     expected: RegularFileRow | None = None,
 ) -> str:
-    """Stream one regular file through SHA-256 and return the hex digest."""
+    """Stream one stable regular file through SHA-256."""
     descriptor, kind = _open_regular_file(
         root_fd, relative_path, expected=expected
     )
@@ -288,8 +376,10 @@ def hash_regular_file(
         while True:
             chunk = os.read(descriptor, _CHUNK_SIZE)
             if not chunk:
-                return digest.hexdigest()
+                break
             digest.update(chunk)
+        _check_identity(os.fstat(descriptor), expected, relative_path)
+        return digest.hexdigest()
     finally:
         os.close(descriptor)
 
@@ -299,19 +389,32 @@ def read_regular_file(
     relative_path: str,
     *,
     expected: RegularFileRow | None = None,
+    max_bytes: int | None = None,
 ) -> bytes:
-    """Read one regular file's bytes; callers bound size expectations."""
+    """Read one stable regular file, optionally under a hard byte bound."""
     descriptor, kind = _open_regular_file(
         root_fd, relative_path, expected=expected
     )
     try:
         _check_identity(kind, expected, relative_path)
+        if max_bytes is not None and kind.st_size > max_bytes:
+            raise SafeTreeRejectionError(
+                f"tree entry exceeds the byte bound: {relative_path!r}"
+            )
         chunks: list[bytes] = []
+        total = 0
         while True:
             chunk = os.read(descriptor, _CHUNK_SIZE)
             if not chunk:
-                return b"".join(chunks)
+                break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise SafeTreeRejectionError(
+                    f"tree entry exceeds the byte bound: {relative_path!r}"
+                )
             chunks.append(chunk)
+        _check_identity(os.fstat(descriptor), expected, relative_path)
+        return b"".join(chunks)
     finally:
         os.close(descriptor)
 
@@ -322,22 +425,27 @@ def copy_regular_file(
     destination_fd: int,
     *,
     expected: RegularFileRow | None = None,
+    max_bytes: int | None = None,
 ) -> int:
-    """Stream one regular file into a caller-owned destination descriptor.
-
-    The destination descriptor is never closed or created here; the number of
-    bytes written is returned.
-    """
+    """Stream one stable regular file under an optional hard byte bound."""
     descriptor, kind = _open_regular_file(
         root_fd, relative_path, expected=expected
     )
     try:
         _check_identity(kind, expected, relative_path)
+        if max_bytes is not None and kind.st_size > max_bytes:
+            raise SafeTreeRejectionError(
+                f"tree entry exceeds the byte bound: {relative_path!r}"
+            )
         total = 0
         while True:
             chunk = os.read(descriptor, _CHUNK_SIZE)
             if not chunk:
-                return total
+                break
+            if max_bytes is not None and total + len(chunk) > max_bytes:
+                raise SafeTreeRejectionError(
+                    f"tree entry exceeds the byte bound: {relative_path!r}"
+                )
             remaining = memoryview(chunk)
             while remaining:
                 written = os.write(destination_fd, remaining)
@@ -345,8 +453,17 @@ def copy_regular_file(
                     raise OSError("safe-tree copy made no progress")
                 remaining = remaining[written:]
                 total += written
+        _check_identity(os.fstat(descriptor), expected, relative_path)
+        return total
     finally:
         os.close(descriptor)
+
+
+def remove_tree_contents(directory_fd: int) -> None:
+    """Best-effort descriptor-relative removal without following symlinks."""
+    from .safe_tree_cleanup import remove_tree_contents as remove
+
+    remove(directory_fd)
 
 
 __all__ = [
@@ -356,7 +473,9 @@ __all__ = [
     "SafeTreePathError",
     "SafeTreeRejectionError",
     "copy_regular_file",
+    "open_directory",
     "hash_regular_file",
+    "remove_tree_contents",
     "read_regular_file",
     "validate_relative_path",
     "walk_regular_files",

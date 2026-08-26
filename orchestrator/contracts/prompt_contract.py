@@ -277,9 +277,11 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     lines: List[str] = [
         "## Output Contract",
         (
-            "Write the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
-            "runtime-owned authoritative write target."
+            "Produce the following JSON bundle exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
+            "runtime-owned authoritative target. Otherwise, do not create or "
+            "modify the listed path; emit the JSON object as final assistant "
+            "text only so the runtime can materialize it."
         ),
         _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
@@ -314,9 +316,11 @@ def _render_root_output_bundle_contract_block(
     lines: List[str] = [
         "## Output Contract",
         (
-            "Write one JSON value exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
-            "runtime-owned authoritative write target."
+            "Produce one JSON value exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
+            "runtime-owned authoritative target. Otherwise, do not create or "
+            "modify the listed path; emit the JSON value as final assistant "
+            "text only so the runtime can materialize it."
         ),
         _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
@@ -336,9 +340,11 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
     lines: List[str] = [
         "## Variant Output Contract",
         (
-            "Write the following JSON bundle exactly as specified. If "
-            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
-            "runtime-owned authoritative write target."
+            "Produce the following JSON bundle exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, write only to that "
+            "runtime-owned authoritative target. Otherwise, do not create or "
+            "modify the listed path; emit the JSON object as final assistant "
+            "text only so the runtime can materialize it."
         ),
         _RELPATH_GUIDANCE,
         f"- path: {variant_output['path']}",

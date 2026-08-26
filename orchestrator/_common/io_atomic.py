@@ -103,6 +103,68 @@ def _replace_bytes(
                     pass
 
 
+
+def atomic_write_text_at(
+    directory_fd: int,
+    filename: str,
+    text: str,
+    *,
+    mode: int = _ORDINARY_FILE_MODE,
+) -> None:
+    """Atomically replace one UTF-8 file beneath a retained directory fd."""
+    if (
+        not filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\x00" in filename
+    ):
+        raise ValueError(f"filename must be one safe path component: {filename!r}")
+    temporary = f".orc-tmp-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+    descriptor: int | None = None
+    temporary_owned = False
+    primary_failure: BaseException | None = None
+    cleanup_failure: BaseException | None = None
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            mode,
+            dir_fd=directory_fd,
+        )
+        temporary_owned = True
+        _write_all(
+            descriptor,
+            text.encode("utf-8"),
+            no_progress_message="atomic file write made no progress",
+        )
+        os.close(descriptor)
+        descriptor = None
+        os.replace(
+            temporary,
+            filename,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        temporary_owned = False
+    except BaseException as error:
+        primary_failure = error
+        raise
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except BaseException as error:
+                cleanup_failure = error
+        if temporary_owned:
+            try:
+                os.unlink(temporary, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            except BaseException as error:
+                cleanup_failure = cleanup_failure or error
+        if primary_failure is None and cleanup_failure is not None:
+            raise cleanup_failure
+
 def durable_atomic_write(path: Path, payload: bytes) -> None:
     """Replace a file after syncing its bytes and resulting directory entry."""
     destination = Path(path)

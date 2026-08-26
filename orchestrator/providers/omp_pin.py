@@ -68,7 +68,7 @@ class OmpBinaryPin:
     module_bazel_lock_effective_sha256: str
     bazelversion_sha256: str
     # Audited overlay applied to the pinned upstream source before compilation.
-    native_archive_patch_sha256: str
+    source_overlay_patch_sha256: str
 
     # Bazel action-toolchain closure selected for //:natives-linux-x64-modern.
     rust_toolchain_label: str
@@ -303,7 +303,7 @@ def validate_build_observations(
         ("module_bazel_lock_sha256", pin.module_bazel_lock_sha256),
         ("module_bazel_lock_effective_sha256", pin.module_bazel_lock_effective_sha256),
         ("bazelversion_sha256", pin.bazelversion_sha256),
-        ("native_archive_patch_sha256", pin.native_archive_patch_sha256),
+        ("source_overlay_patch_sha256", pin.source_overlay_patch_sha256),
     ):
         observed_digest = _require_sha256(observations.get(key), f"{key}")
         if observed_digest != expected:
@@ -385,8 +385,8 @@ OMP_BINARY_PIN = OmpBinaryPin(
         "037601949bfb583a6e301589698894df301acfe82e858b6e9619575a864ca1ed"
     ),
     bazelversion_sha256=_sha256("1b9487d55bea47fea50d226cc9c53bc548877ad2a318bac8fbc8b320f429e5c5"),
-    native_archive_patch_sha256=_sha256(
-        "a5bb53ab92814423139518fc535493bcdb27ee8a9350b8d93801dabafb23c375"
+    source_overlay_patch_sha256=_sha256(
+        "f128fb6b8565b3221b9819b6f55b6f7f58d46a1163236d1a4c12d79d54f9c245"
     ),
     rust_toolchain_label=(
         "@@rules_rust++rust+rust_linux_x86_64__x86_64-unknown-linux-gnu__"
@@ -424,7 +424,7 @@ OMP_BINARY_PIN = OmpBinaryPin(
         "XDG_STATE_HOME",
     ),
     executable_sha256=_sha256(
-        "f1ffead4d40e6d3740cd2400522d967b270dad5d43a80de7e70c509d97f88211"
+        "df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb"
     ),
 )
 

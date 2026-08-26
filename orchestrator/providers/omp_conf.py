@@ -1,16 +1,10 @@
-"""Closed OMP conf-tree admission, manifest snapshot, and revalidation (X5).
-
-Reads an `omp_conf_root` with descriptor-relative no-follow traversal, admits
-exactly ``config.yml``, ``agent/WATCHDOG.yml`` (optional), and one level of
-``agent/agents/*.md``, validates every YAML with a closed SafeLoader, and
-returns an immutable content-addressed snapshot whose manifest digests the
-admitted bytes.
-"""
+"""Closed OMP conf admission, snapshot, materialization, and revalidation."""
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import os
 from collections.abc import Hashable
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -27,7 +21,7 @@ BUNDLED_AGENT_NAMES = ("designer", "librarian", "reviewer", "scout", "security-r
 ADMITTED_AGENT_TOOLS = frozenset({"read", "grep", "glob", "bash", "edit", "write", "task", "hub"})
 ADMITTED_ADVISOR_TOOLS = frozenset({"read", "grep", "glob"})
 
-_CONFIG_KEYS = frozenset({"advisor", "memory", "task"})
+_CONFIG_KEYS = frozenset({"advisor", "memory", "task", "tools"})
 _ADVISOR_KEYS = frozenset({"enabled"})
 _MEMORY_KEYS = frozenset({"backend"})
 _TASK_KEYS = frozenset({"maxConcurrency", "maxRecursionDepth", "disabledAgents"})
@@ -137,14 +131,14 @@ def _validate_tools(value, allowed, context):
 
 
 def _validate_config(document, source):
-    if not isinstance(document, dict) or set(document) != _CONFIG_KEYS:
-        raise OmpConfError(f"{source}: must be exactly {{advisor, memory, task}}")
+    if not isinstance(document, dict) or not (_CONFIG_KEYS - {"tools"}) <= set(document) <= _CONFIG_KEYS: raise OmpConfError(f"{source}: must contain exactly {{advisor, memory, task}} plus optional tools")
     advisor = document["advisor"]
     if not isinstance(advisor, dict) or set(advisor) != _ADVISOR_KEYS:
         raise OmpConfError(f"{source}: advisor must be exactly {{enabled}}")
     enabled = advisor["enabled"]
     if not isinstance(enabled, bool):
         raise OmpConfError(f"{source}: advisor.enabled must be a literal boolean")
+    if document.get("tools") not in (None, {"approval": {"task": "allow"}}): raise OmpConfError(f"{source}: tools must be exactly {{approval: {{task: allow}}}}")
     memory = document["memory"]
     if not isinstance(memory, dict) or set(memory) != _MEMORY_KEYS:
         raise OmpConfError(f"{source}: memory must be exactly {{backend}}")
@@ -152,9 +146,7 @@ def _validate_config(document, source):
         raise OmpConfError(f"{source}: memory.backend must be the literal string \"off\"")
     task = document["task"]
     if not isinstance(task, dict) or set(task) != _TASK_KEYS:
-        raise OmpConfError(
-            f"{source}: task must be exactly {{maxConcurrency, maxRecursionDepth, disabledAgents}}"
-        )
+        raise OmpConfError(f"{source}: task must be exactly {{maxConcurrency, maxRecursionDepth, disabledAgents}}")
     concurrency = task["maxConcurrency"]
     if not isinstance(concurrency, int) or isinstance(concurrency, bool) or not 1 <= concurrency <= 32:
         raise OmpConfError(f"{source}: task.maxConcurrency must be an integer 1..32")
@@ -354,6 +346,7 @@ def admit_conf_tree(root_fd: int) -> ConfSnapshot:
         if name in agents:
             raise OmpConfError(f"duplicate agent name {name!r}")
         agents[name] = (path, description, spawns)
+    if "tools" in config and not agents: raise OmpConfError("tools.approval.task requires an admitted custom agent")
     descriptions = {entry[1] for entry in agents.values()}
     if len(descriptions) != len(agents):
         raise OmpConfError("agent descriptions must be unique")
@@ -395,7 +388,8 @@ def admit_conf_tree(root_fd: int) -> ConfSnapshot:
 def revalidate_conf_tree(root_fd: int, snapshot: ConfSnapshot) -> None:
     """Re-check the tree against a snapshot; membership/identity/content drift fails."""
     try:
-        rows = list(walk_regular_files(root_fd))
+        rows = list(walk_regular_files(
+            root_fd, max_depth=2, max_entries=len(snapshot.files) + 2))
     except SafeTreeError as exc:
         raise OmpConfError(str(exc)) from exc
     if {row.relative_path for row in rows} != set(snapshot.files):
@@ -411,3 +405,95 @@ def revalidate_conf_tree(root_fd: int, snapshot: ConfSnapshot) -> None:
             raise OmpConfError(str(exc)) from exc
         if hashlib.sha256(data).hexdigest() != record.sha256:
             raise OmpConfError(f"conf tree entry changed content: {row.relative_path!r}")
+
+
+def _materialized_relpath(relpath: str) -> str:
+    if relpath == "config.yml":
+        return relpath
+    if relpath.startswith("agent/"):
+        return relpath[len("agent/"):]
+    raise OmpConfError(
+        f"conf entry outside the pinned discovery shape: {relpath!r}"
+    )
+
+
+def materialize_conf_at_discovery_path(authority, snapshot: ConfSnapshot) -> None:
+    """Write admitted conf bytes under the retained attempt agent fd."""
+    for relpath, record in snapshot.files.items():
+        parts = _materialized_relpath(relpath).split("/")
+        parent_fd = os.dup(authority.agent_fd)
+        try:
+            for part in parts[:-1]:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=parent_fd)
+                except FileExistsError:
+                    pass
+                child = os.open(
+                    part,
+                    os.O_RDONLY
+                    | os.O_DIRECTORY
+                    | os.O_NOFOLLOW
+                    | os.O_CLOEXEC,
+                    dir_fd=parent_fd,
+                )
+                os.close(parent_fd)
+                parent_fd = child
+            output_fd = os.open(
+                parts[-1],
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_NOFOLLOW
+                | os.O_CLOEXEC,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            try:
+                remaining = memoryview(record.content)
+                while remaining:
+                    written = os.write(output_fd, remaining)
+                    if written <= 0:
+                        raise OmpConfError("conf materialization made no progress")
+                    remaining = remaining[written:]
+                os.fsync(output_fd)
+            finally:
+                os.close(output_fd)
+        except OSError as exc:
+            raise OmpConfError(
+                f"conf materialization failed: {relpath!r}"
+            ) from exc
+        finally:
+            os.close(parent_fd)
+
+
+def revalidate_materialized_conf(authority, snapshot: ConfSnapshot) -> None:
+    """Require the runtime discovery tree to remain the admitted byte set."""
+    expected = {
+        _materialized_relpath(path): record.content
+        for path, record in snapshot.files.items()
+    }
+    try:
+        rows = list(walk_regular_files(
+            authority.agent_fd, max_depth=1,
+            max_entries=len(snapshot.files) + 1))
+        if [row.relative_path for row in rows] != sorted(expected):
+            raise OmpConfError("materialized conf inventory changed during run")
+        for row in rows:
+            if (
+                row.uid != os.geteuid()
+                or row.link_count != 1
+                or row.mode & 0o111
+            ):
+                raise OmpConfError(
+                    "materialized conf authority changed during run"
+                )
+            content = expected[row.relative_path]
+            if read_regular_file(
+                authority.agent_fd,
+                row.relative_path,
+                expected=row,
+                max_bytes=len(content),
+            ) != content:
+                raise OmpConfError("materialized conf bytes changed during run")
+    except SafeTreeError as exc:
+        raise OmpConfError(str(exc)) from exc

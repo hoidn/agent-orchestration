@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from types import MappingProxyType
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourcePosition, SourceSpan
@@ -112,7 +113,7 @@ class SourceReadTrace:
         self._module_graph_read_attempts.append(
             ModuleGraphReadAttempt(
                 attempt_id=attempt_id,
-                canonical_entry_path=Path(entry_path).resolve(),
+                canonical_entry_path=resolve_path_preserving_fd(entry_path),
                 started_at_ordinal=len(self._records),
                 completed_at_ordinal=None,
                 module_paths=None,
@@ -142,7 +143,9 @@ class SourceReadTrace:
         self._module_graph_read_attempts[attempt_id] = replace(
             attempt,
             completed_at_ordinal=len(self._records),
-            module_paths=tuple(Path(path).resolve() for path in module_paths),
+            module_paths=tuple(
+                resolve_path_preserving_fd(path) for path in module_paths
+            ),
         )
 
     def _record(
@@ -428,7 +431,7 @@ def _read_source_file_views(
 ) -> _SourceReadViews:
     """Read one exact source value and derive its strict and parser text views."""
 
-    canonical_path = path.resolve()
+    canonical_path = resolve_path_preserving_fd(path)
     try:
         raw_bytes = canonical_path.read_bytes()
     except FileNotFoundError:

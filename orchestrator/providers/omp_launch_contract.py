@@ -5,14 +5,41 @@ from __future__ import annotations
 import os
 import re
 import sys
-from collections.abc import Sequence
+import subprocess
+from collections.abc import Mapping, Sequence
+from urllib.parse import urlsplit
+from typing import TypedDict, cast
 from orchestrator._common.safe_tree import SafeTreePathError, validate_relative_path
 
-POSITIVE_ENV_NAMES = (
-    "HOME", "LANG", "LC_ALL", "OMP_BROKER_TOKEN", "OMP_BROKER_URL", "PATH",
-    "PI_CODING_AGENT_DIR", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+# The single X2 credential mechanism: both members are required for every
+# profile lane, structurally validated before the version probe, and never
+# printed, framed, or logged.
+BROKER_URL_ENV = "OMP_AUTH_BROKER_URL"
+BROKER_TOKEN_ENV = "OMP_AUTH_BROKER_TOKEN"
+BROKER_SETUP_COMMAND = "omp auth-broker serve"
+
+# The closed ``omp_conf_env.v1`` profile schema: adapter-owned attempt roots
+# plus required/optional copied values and the single broker credential pair.
+# No other key may enter a profile child environment.
+PROFILE_ENV_NAMES = (
+    "COLORTERM", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "NO_COLOR",
+    "NODE_EXTRA_CA_CERTS", "OMP_AUTH_BROKER_TOKEN", "OMP_AUTH_BROKER_URL",
+    "PATH", "PI_CODING_AGENT_DIR", "SHELL", "SSL_CERT_DIR", "SSL_CERT_FILE",
+    "TERM", "TMPDIR", "TZ", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
     "XDG_DATA_HOME", "XDG_STATE_HOME",
 )
+_PROFILE_REQUIRED_ENV_NAMES = frozenset({
+    "HOME", "OMP_AUTH_BROKER_TOKEN", "OMP_AUTH_BROKER_URL", "PATH",
+    "PI_CODING_AGENT_DIR", "SHELL", "TMPDIR", "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+})
+
+# Registry template name -> code-owned policy lane (frame/expectation vocab).
+LANE_POLICY = {"omp": "ambient", "omp_unrestricted_workspace": "ambient-unrestricted",
+               "omp_no_tools": "no-tools", "omp_conf": "conf", "omp_conf_inference": "conf-inference"}
+AMBIENT_POLICIES = frozenset({"ambient", "ambient-unrestricted"})
+PROFILE_POLICIES = frozenset({"no-tools", "conf", "conf-inference"})
+
 ADAPTER_WRAPPER = (sys.executable, "-m", "orchestrator.providers.omp_launch")
 _PROVIDERS = {
     "omp", "omp_unrestricted_workspace", "omp_no_tools", "omp_conf",
@@ -22,7 +49,95 @@ _PROFILE_PROVIDERS = {"omp_no_tools", "omp_conf"}
 _EMPTY_CWD = re.compile(r"omp-empty-[0-9a-f]{16}-[0-9a-f]{16}\Z")
 
 
-def parse_adapter_argv(argv: list[str], lane_names: set[str]) -> dict[str, str | None]:
+def valid_launch_env_names(provider: str, value: object) -> bool:
+    """Validate the historical child environment-name projection by lane."""
+    if provider not in _PROVIDERS or not isinstance(value, list):
+        return False
+    if (
+        any(
+            not isinstance(name, str)
+            or not name
+            or "\x00" in name
+            or "=" in name
+            for name in value
+        )
+        or value != sorted(set(value))
+    ):
+        return False
+    names = set(value)
+    if LANE_POLICY[provider] in PROFILE_POLICIES:
+        return (
+            _PROFILE_REQUIRED_ENV_NAMES <= names
+            and names <= set(PROFILE_ENV_NAMES)
+        )
+    return True
+
+# X2 loopback grammar: the netloc must be the exact IP literal (IPv6 in
+# brackets) with an explicit decimal port; userinfo, query, and fragment are
+# rejected by the caller after urlsplit.
+_LOOPBACK_NETLOC = re.compile(r"^(\[::1\]|127\.0\.0\.1):([0-9]+)$")
+
+
+def validate_broker_pair(env: Mapping[str, str]) -> tuple[str, str]:
+    """Return the structurally valid (url, token) broker pair or raise.
+
+    Missing members and malformed URLs fail before any OMP process starts;
+    the refusal prints the exact setup command and never the credential
+    values. Host admission follows X2: urlsplit hostname must be the IP
+    literal ``127.0.0.1`` or ``::1``, the netloc must spell the bracketed
+    IPv6/plain IPv4 literal with an explicit port in ``1..65535``, and no
+    userinfo, query, or fragment may be present.
+    """
+    url = env.get(BROKER_URL_ENV)
+    token = env.get(BROKER_TOKEN_ENV)
+    if not url or not token:
+        raise ValueError(
+            f"profile launch requires {BROKER_URL_ENV} and {BROKER_TOKEN_ENV}; "
+            f"run '{BROKER_SETUP_COMMAND}'"
+        )
+    try:
+        parsed = urlsplit(url)
+    except ValueError as exc:
+        raise ValueError(
+            f"{BROKER_URL_ENV} is not a valid absolute http URL; "
+            f"run '{BROKER_SETUP_COMMAND}'"
+        ) from exc
+    match = _LOOPBACK_NETLOC.fullmatch(parsed.netloc)
+    if (
+        parsed.scheme != "http"
+        or match is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.hostname not in ("127.0.0.1", "::1")
+    ):
+        raise ValueError(
+            f"{BROKER_URL_ENV} must be an absolute http URL whose host is the "
+            f"IP literal 127.0.0.1 or [::1] with an explicit port and no "
+            f"userinfo, query, or fragment; run '{BROKER_SETUP_COMMAND}'"
+        )
+    port = int(match.group(2))
+    if not 1 <= port <= 65535:
+        raise ValueError(
+            f"{BROKER_URL_ENV} port must be in 1..65535; "
+            f"run '{BROKER_SETUP_COMMAND}'"
+        )
+    return url, token
+
+
+
+class AdapterArgs(TypedDict):
+    lane: str
+    model: str
+    conf_root: str | None
+    session_dir: str | None
+    conf_root_device: str | None
+    conf_root_inode: str | None
+    conf_manifest_sha256: str | None
+
+
+def parse_adapter_argv(argv: list[str], lane_names: set[str]) -> AdapterArgs:
     """Parse the adapter's closed flag/value grammar."""
     if argv[:1] != ["run"]:
         raise ValueError("expected leading 'run' subcommand")
@@ -82,7 +197,7 @@ def parse_adapter_argv(argv: list[str], lane_names: set[str]) -> dict[str, str |
             or any(value is None for value in frozen)
         ):
             raise ValueError("frozen conf authority is complete and no-tools-only")
-    return args
+    return cast(AdapterArgs, args)
 
 
 def build_fresh_adapter_argv(
@@ -138,13 +253,24 @@ def valid_observed_relpaths(value: object) -> bool:
 
 
 def valid_private_binary_path(path: object, executable_sha256: str) -> bool:
-    """Validate the deterministic private-copy path known without env values."""
-    if not isinstance(path, str) or not os.path.isabs(path) or os.path.normpath(path) != path:
+    """Validate the fresh private launch-attempt path without opening it."""
+    if (
+        not isinstance(path, str)
+        or not os.path.isabs(path)
+        or os.path.normpath(path) != path
+        or os.path.basename(path) != "omp"
+    ):
         return False
-    digest_dir = os.path.dirname(path)
-    return (bool(os.path.basename(path)) and os.path.basename(digest_dir) == executable_sha256
-            and os.path.basename(os.path.dirname(digest_dir)) == "private"
-            and os.path.basename(os.path.dirname(os.path.dirname(digest_dir))) == "omp-i1")
+    attempt_dir = os.path.dirname(path)
+    digest_dir = os.path.dirname(attempt_dir)
+    attempt = os.path.basename(attempt_dir)
+    return (
+        bool(re.fullmatch(r"attempt-[0-9a-f]{32}", attempt))
+        and os.path.basename(digest_dir) == executable_sha256
+        and os.path.basename(os.path.dirname(digest_dir)) == "private"
+        and os.path.basename(os.path.dirname(os.path.dirname(digest_dir)))
+        == "omp-i1"
+    )
 
 
 def build_interactive_argv(
@@ -181,7 +307,76 @@ def build_interactive_argv(
     return tuple(argv)
 
 
-__all__ = ["ADAPTER_WRAPPER", "POSITIVE_ENV_NAMES", "build_fresh_adapter_argv",
-           "build_interactive_argv", "parse_adapter_argv", "resolved_adapter_command",
+
+
+def build_child_argv(
+    lane: str,
+    policy: str,
+    model: str,
+    session_dir: str | None,
+    workspace: str,
+    empty_cwd: str | None,
+) -> list[str]:
+    """Exact X2 child argv for every lane (print-mode JSON, no title)."""
+    argv = ["-p", "--mode", "json", "--no-title"]
+    if policy in ("no-tools", "conf-inference"):
+        argv += ["--no-extensions", "--no-skills", "--no-rules", "--no-tools"]
+    elif policy == "conf":
+        argv += ["--no-extensions", "--no-skills", "--no-rules"]
+    argv += ["--model", model]
+    if policy == "ambient-unrestricted":
+        argv += ["--yolo"]
+    else:
+        argv += ["--approval-mode", "write"]
+    if policy in PROFILE_POLICIES:
+        argv += ["--cwd", empty_cwd]
+        if policy == "conf":
+            argv += ["--add-dir", workspace]
+    argv += ["--session-dir", session_dir] if session_dir is not None else ["--no-session"]
+    return argv
+
+
+def relay_child_output(
+    proc: "subprocess.Popen[bytes]", out, err, redact: bytes | None = None
+) -> tuple[str | None, bool]:
+    """Relay child bytes while the shared X3 state machine settles them."""
+    import threading
+
+    from .omp_transport import OmpJsonStdoutAccumulator
+
+    accumulator = OmpJsonStdoutAccumulator(expectation=None)
+    stdout, stderr = proc.stdout, proc.stderr
+    assert stdout is not None and stderr is not None
+
+    def _drain_stderr() -> None:
+        try:
+            data = stderr.read()
+        except OSError:
+            return
+        if redact is not None:
+            data = data.replace(redact, b"[redacted]")
+        err.write(data.decode("utf-8", errors="replace"))
+
+    thread = threading.Thread(target=_drain_stderr, daemon=True)
+    thread.start()
+    while True:
+        chunk = stdout.read(1 << 16)
+        if not chunk:
+            break
+        out.write(chunk)
+        accumulator.feed(chunk)
+    proc.wait()
+    thread.join()
+    session_id, error = accumulator.finalize_child_stream()
+    return session_id, error is None
+
+
+__all__ = ["ADAPTER_WRAPPER", "AMBIENT_POLICIES", "BROKER_SETUP_COMMAND",
+           "BROKER_TOKEN_ENV", "BROKER_URL_ENV", "LANE_POLICY",
+           "PROFILE_ENV_NAMES", "PROFILE_POLICIES",
+           "build_child_argv", "build_fresh_adapter_argv",
+           "build_interactive_argv", "parse_adapter_argv",
+           "relay_child_output", "resolved_adapter_command",
+           "valid_launch_env_names", "validate_broker_pair",
            "valid_fresh_child_cwd", "valid_observed_relpaths",
            "valid_private_binary_path"]

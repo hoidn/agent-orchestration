@@ -5,10 +5,10 @@ from typing import Any
 from orchestrator.prompt_session_scaffold import capture_no_tools_conf_authority
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
 from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
     build_fresh_adapter_argv,
     resolved_adapter_command,
     valid_fresh_child_cwd,
+    valid_launch_env_names,
     valid_observed_relpaths,
 )
 
@@ -132,6 +132,7 @@ def validate_publication_agreement(
         or canonical_visit != visit_key
     ):
         raise _error("state and provider metadata disagree")
+    assert isinstance(step_id, str)
     parser = metadata.get("parser_summary")
     frame = parser.get("launch_frame") if isinstance(parser, dict) else None
     if not isinstance(frame, dict) or set(frame) != _FRAME_KEYS:
@@ -148,9 +149,11 @@ def validate_publication_agreement(
         or set(child) != {"argv", "cwd", "env_names", "exit_code"}
         or child.get("exit_code") != 0
         or not isinstance(child.get("argv"), list)
-        or not isinstance(child.get("env_names"), list)
-        or child["env_names"] != list(POSITIVE_ENV_NAMES)
+        or not valid_launch_env_names(
+            verification.provider, child.get("env_names")
+        )
         or not isinstance(session, dict)
+        or not isinstance(session.get("id"), str)
         or set(session) != {"id", "visit_key", "primary_relpath", "primary_sha256"}
         or session.get("visit_key") != visit_key
         or session.get("id") != metadata.get("session_id")
@@ -162,9 +165,10 @@ def validate_publication_agreement(
         or conf.get("manifest_sha256") != conf_digest
         or not isinstance(observed, dict)
         or set(observed) != {"advisor_relpaths", "child_relpaths"}
-        or observed.get("advisor_relpaths") != []
+                or not valid_observed_relpaths(observed.get("advisor_relpaths"))
         or not valid_observed_relpaths(observed.get("child_relpaths"))
-        or session["primary_relpath"] not in observed["child_relpaths"]
+        or session["primary_relpath"] in observed["advisor_relpaths"]
+        or session["primary_relpath"] in observed["child_relpaths"]
     ):
         raise _error("metadata and adapter frame disagree")
     live_root = os.path.join(run_root, "provider_sessions", visit_key)
@@ -199,8 +203,10 @@ def validate_publication_agreement(
         )
     ):
         raise _error("adapter launch envelope disagrees")
+    session_id = session["id"]
+    assert isinstance(session_id, str)
     _validate_confinement(lane, frame.get("confinement"))
-    _validate_session_artifact(state, metadata, session["id"], step_id)
+    _validate_session_artifact(state, metadata, session_id, step_id)
     return frame, step_id
 
 

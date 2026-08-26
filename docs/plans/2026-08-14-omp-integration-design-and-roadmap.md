@@ -3,14 +3,14 @@
 ## Metadata
 
 - **Title:** OMP integration — provider templates, JSON session transport, prompt scaffolding, multiagent conf presets, and session bridge
-- **Status:** implementation candidate; `OMP-I1` tranche 1 selected by the owner; Task 1 F4 is closed with two byte-identical whole executables, so downstream implementation is admitted subject to its own gates
+- **Status:** implemented; `OMP-I1` tranche 1 closed on 2026-08-26 after F1–F8, the declarative advised-fanout trial, real TTY fork/resume, import reuse, focused and broad verification, and final contract/security review; `OMP-I2` remains pending separate activation
 - **Kind:** architecture decision + roadmap extension
 - **Owner:** repository owner (decision holder)
 - **Created:** 2026-08-14
-- **Last material update:** 2026-08-23
+- **Last material update:** 2026-08-26
 - **Related:** extends [`2026-08-14-omp-integration-proposal.md`](2026-08-14-omp-integration-proposal.md); provider spec home [`specs/providers.md`](../../specs/providers.md); Workflow Lisp authoring home [`docs/lisp_workflow_drafting_guide.md`](../lisp_workflow_drafting_guide.md); OMP checkout `~/Documents/oh-my-pi`
 - **Implementation target:** `OMP-I1` plus independently activated follow-ons; no frozen-ES changes
-- **Upstream source pin:** OMP tag `v17.3.4`, commit `ffd53ff92a6f575d499730475a73460dd7cc2eea`. The 2026-08-21 source-launcher calibration used `/home/ollie/.local/bin/omp` (`omp/17.3.4`, launcher SHA-256 `3fce4b25628064b0cd7bfbc6245ecdada331750ed4b341aca6bd29ba4478aab5`). F4 replaced it with the OMP-built single-file executable admitted at SHA-256 `f1ffead4d40e6d3740cd2400522d967b270dad5d43a80de7e70c509d97f88211`.
+- **Upstream source pin:** OMP tag `v17.3.4`, commit `ffd53ff92a6f575d499730475a73460dd7cc2eea`. The 2026-08-21 source-launcher calibration used `/home/ollie/.local/bin/omp` (`omp/17.3.4`, launcher SHA-256 `3fce4b25628064b0cd7bfbc6245ecdada331750ed4b341aca6bd29ba4478aab5`). F4 replaced it with a reproducible OMP-built single-file executable; Task 10's descendant-approval repair superseded that first build with the current admitted SHA-256 `df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`.
 
 ## Summary
 
@@ -145,11 +145,16 @@ conf-inference:
   --cwd <empty-cwd> <session>
 
 <session>:
-  --session-dir <absolute-canonical-visit-dir>  # explicit fresh request
+  --session-dir /proc/self/fd/<retained-visit-fd>  # explicit fresh request
   --no-session                                  # ordinary command
 ```
 
 There are zero positional prompt arguments. `--config`, `--api-key`, `--resume`, and `--fork` are forbidden. The adapter forwards stdin byte-for-byte, closes child stdin at parent EOF, streams stdout byte-for-byte, and keeps stderr diagnostic-only. The private version probe argv is exactly `[<private-omp>, "--version"]`, with stdin closed and the same lane-specific process cwd and environment as the real child; it has no OMP `--cwd` argument, must emit exactly one UTF-8 line `omp/<pinned-version>` on stdout, emit no stderr, and exit zero. Ambient children inherit the parent environment and use the workflow workspace as process cwd. The `conf` child uses `--add-dir <workflow-workspace>`, which pinned v17.3.4 treats as both a tool root and a repository-context root. `no-tools` and `conf-inference` children use the fresh empty process/OMP cwd without `--add-dir`, so they load neither repository context nor workspace files.
+For a fresh request, the adapter opens and identity-checks the canonical
+logical visit once, inherits only that deliberate descriptor through the final
+exec, and gives OMP its `/proc/self/fd/<n>` path; the frame and persisted link
+retain the canonical logical path. A later logical run-root swap therefore
+cannot redirect child journal bytes.
 
 The conf child environment is the versioned closed schema `omp_conf_env.v1`:
 
@@ -227,6 +232,16 @@ recognized event and the adapter frame.
 
 EOF before settlement/frame, any non-empty tail after the frame, zero closed assistant messages, invalid UTF-8/JSON, malformed known events, or violated ordering fails with `provider_session_transport_error`. A nonzero adapter/child exit always fails even when the stream is complete; exit zero never clears a codec error. Stderr never supplies identity, output, or usage. The downstream `assistant_text_callback`/`on_assistant_message` observer runs once for each closed assistant text fragment after that message validates; callback exceptions are swallowed as display failures and do not mutate parse state or change provider success.
 
+Validated text blocks and consecutive assistant messages join in order within
+one response epoch. Closing a non-assistant streaming lifecycle arms a boundary;
+if another assistant message then closes, it starts a replacement epoch instead
+of appending a second response to the authoritative provider output. The
+boundary does not erase the prior response unless a replacement assistant
+actually closes, and callbacks still observe every validated assistant text
+fragment. This prevents queued user/custom/tool-result delivery after an
+apparent final response from turning the next response into a second JSON
+document while preserving legitimate consecutive assistant fragments.
+
 One shared terminal-safe display projection is applied at every non-interactive
 `ProviderExecutor` stdout/stderr/assistant-text display write and every
 `ProviderObservationHandle` append, never in capture, codec, provider-result,
@@ -241,6 +256,16 @@ remain sensitive untrusted exact data and must not be rendered to a terminal
 without the same projection; neither surface is authentication evidence.
 
 Normalized provider-session metadata is a parent-generated credential-minimized projection containing the header `session_id`, exact event count, ordered per-message provider/model/usage/stop-reason rows, aggregate tokens/cost, final provider/model, and validated adapter frame. It contains no assistant text, image/content block, tool argument, tool result, or opaque event body. Transient calls retain that projection in the provider result's debug record but publish no session artifact; fresh calls additionally persist it in the existing provider-session metadata record. Authoritative assistant text continues through the existing normalized provider-result/output path, not a second metadata copy.
+
+OMP's positive child environment never contains
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. For a structured provider result, the
+normalized final assistant text must therefore be exactly the requested JSON
+value; output-contract guidance tells the child not to create the listed path
+when that variable is absent. After successful OMP transport settlement, the
+parent opens the workspace and existing bundle parents no-follow, rejects any
+pre-existing leaf as provider-planted, creates the leaf with `O_EXCL`, and
+writes that exact text. Ordinary output-contract validation remains the sole
+schema authority.
 
 ### X4 — Fresh-session publication is explicit Workflow Lisp syntax
 
@@ -280,7 +305,8 @@ agent/agents/*.md        # optional regular files, one level only
 
 All YAML uses the pinned ordinary safe subset: UTF-8, mappings/sequences/scalars, unique keys, and no custom tags, aliases, anchors, merge keys, or string command indirection. Unknown keys fail rather than falling through to OMP's tolerant loader.
 
-`config.yml` is one closed mapping with these required leaves and no others:
+`config.yml` is a closed mapping with these required leaves plus the one
+fanout-only approval leaf shown below; no other setting is admitted:
 
 | Key | Admitted value |
 | --- | --- |
@@ -289,6 +315,7 @@ All YAML uses the pinned ordinary safe subset: UTF-8, mappings/sequences/scalars
 | `task.maxConcurrency` | integer `1..32` |
 | `task.maxRecursionDepth` | integer `0..2` |
 | `task.disabledAgents` | exact sorted list `[designer, librarian, reviewer, scout, security-reviewer, sonic, task]` from pinned OMP v17.3.4 |
+| `tools.approval.task` | optional literal string `allow`, legal only when custom agent files are admitted so headless print mode can dispatch only those named agents under global `write` approval |
 
 Each `agent/agents/*.md` has one YAML frontmatter mapping followed by a non-empty UTF-8 instruction body. Required keys are `name` and `description`, both non-empty strings; `name` matches `[a-z][a-z0-9_-]{0,63}` and is unique. Optional keys are:
 
@@ -310,7 +337,23 @@ instructions: non-empty string subject to the same @-candidate rejection
 enabled: literal true
 ```
 
-The file is legal only when `advisor.enabled` is true; true requires the file, and false forbids it. An admitted agent may spawn only a named admitted agent and only through OMP's `task` tool; bundled agents are disabled by the exact `task.disabledAgents` value. Every spawned agent/advisor uses the same process, positive child environment, admitted runtime root, model selector rules, and workspace exposure as the primary. A built-in `bash` invocation inherits that environment and current OMP cwd; it does not receive ambient credentials or profile roots. The schema adds no external agent launcher or executable. Because bodies and tools run under the operator account, they can still name or access same-UID paths outside the admitted tree; the adapter does not claim otherwise. Files that would activate skills, extensions, plugins, hooks, MCP, custom tools, prompts, commands, or rules remain absent.
+The closed optional `tools.approval.task: allow` exception is legal only when
+custom agent files are admitted; it authorizes the parent spawn call, not the
+descendant's tools. The pinned source overlay removes OMP's headless-child
+`yolo` override, so every subagent inherits the primary's `write` approval
+mode and any exec-tier call still requires unavailable interactive approval.
+The fanout writer therefore uses OMP's write-tier `write` tool and is not
+admitted `bash`; `--yolo` remains exclusive to the named unrestricted lane.
+Admitted agent names may not collide with the bundled list. Requiring
+`task.disabledAgents` to equal the complete pinned list prevents the task tool
+from reaching OMP's bundled agents while leaving only the explicitly admitted
+custom agent files available. Missing, extra, reordered, or renamed entries
+fail admission. An admitted agent may spawn only a named admitted agent and
+only through OMP's `task` tool; bundled agents remain disabled. Every spawned
+agent/advisor uses the same process, positive child environment, admitted
+runtime root, model selector rules, workspace exposure, and approval mode as
+the primary. A built-in `bash` invocation inherits that environment and
+current OMP cwd; it does not inherit the parent workflow's broader environment.
 
 Canonical conf manifest is the closed object
 `{"schema_version":"omp_conf_manifest.v1","files":[...]}`. Each ordered file
@@ -324,12 +367,14 @@ bytes are its canonical bytes and digest. This `canonical_json` definition is
 also used for scaffold naming and identity; admitted inputs contain no floats.
 
 The adapter opens the source root once and copies admitted files through
-descriptor-relative, no-follow reads into a fresh pre-launch snapshot. It sets
-snapshot directories/files to `0500`/`0400`, verifies content against the
-canonical manifest, then seeds `config.yml`, `WATCHDOG.yml`, and `agents/*.md`
-under `$HOME/.omp/agent` (also the exact `PI_CODING_AGENT_DIR`) so pinned config
-and every spawn-time task-agent discovery read the same bytes. OMP-created
-databases/caches live in separate writable XDG data/state/cache roots.
+descriptor-relative, no-follow reads into the fresh attempt. It seeds
+`config.yml`, `WATCHDOG.yml`, and `agents/*.md` under `$HOME/.omp/agent` (also
+the exact `PI_CODING_AGENT_DIR`) so pinned config and every spawn-time
+task-agent discovery read the same bytes. OMP-created databases/caches live in
+separate writable XDG data/state/cache roots. The source conf authority remains
+parent-only and is revalidated after the child; it is not a child Landlock read
+root because a prompt-run source snapshot can be nested beneath the writable
+workflow workspace.
 
 Before either the version probe or child exec in a profile-isolated lane, a
 small code-owned launcher requires Linux Landlock ABI 3 or newer, sets
@@ -337,10 +382,11 @@ small code-owned launcher requires Linux Landlock ABI 3 or newer, sets
 ABI-3 filesystem mutation right; only `XDG_DATA_HOME`, `XDG_STATE_HOME`,
 `XDG_CACHE_HOME`, `TMPDIR`, the explicit fresh session directory when present,
 and the `conf` lane's admitted workspace are writable. `$HOME`, `$HOME/.omp`,
-`XDG_CONFIG_HOME`, the empty process/OMP cwd, and the immutable snapshot are
-not writable. Every root is opened no-follow before policy installation; no
-writable root may equal or contain the runtime conf, immutable snapshot, or
-empty cwd.
+`XDG_CONFIG_HOME`, the empty process/OMP cwd, and the materialized runtime conf
+are not writable. Every root is opened no-follow before policy installation; no
+writable root may equal or contain the runtime conf or empty cwd. Any source
+snapshot drift still fails the adapter's post-child revalidation before a
+success frame.
 
 The adapter passes the helper a closed role/path list plus expected ABI and
 policy digest. The helper reopens each path, recomputes the canonical policy,
@@ -366,7 +412,7 @@ Checked-in package resources under `orchestrator/omp_assets/confs/` use only tha
 | --- | --- | --- |
 | `neutral/` | primary answers without delegation | one settled primary; zero child/advisor journals |
 | `advised/` | configured advisor reviews the primary | one settled primary and exactly one settled, non-empty advisor journal; zero child journals |
-| `fanout/` | primary dispatches exactly two named agents | one settled primary and exactly two distinct settled child journals; zero advisor journals |
+| `fanout/` | primary dispatches exactly two named agents | one settled primary and exactly two distinct terminal child journals; zero advisor journals |
 | `peer-team/` | two named agents coordinate through `hub` | fanout counts plus at least one matched successful persisted `hub` call/result |
 | `advised-fanout/` | advised primary dispatches exactly two agents | advised plus fanout counts |
 
@@ -374,11 +420,12 @@ The adapter inventories through the frozen primary artifact-tree descriptor afte
 
 - `journal(f)`: the first physical line is the pinned 256-byte `type:"title",v:1` slot (including LF and its validated `pad`), the second object is the sole `type:"session"` header, and every later object is a valid persisted OMP session entry; no malformed/truncated line, later duplicate header/title slot, symlink, non-regular file, or path escape exists;
 - `settled(f)`: `journal(f)` holds, at least one `type:"message"` entry has `message.role:"assistant"`, and the last such entry has `stopReason:"stop"` with no content block whose `type` is `toolCall`;
+- `child-terminal(f)`: a child journal either satisfies `settled(f)` and has no `session_exit` entry or exactly one final `type:"custom",customType:"session_exit"` with `data.kind:"normal"` and `data.reason:"dispose"`, or its last two entries are the pinned subagent completion pair: one successful `message.role:"toolResult"` for `toolName:"yield"` with `details.status:"success"` matched to exactly one earlier assistant `yield` tool call by id, followed by exactly that one normal `session_exit`; any duplicate, non-final, or abnormal exit fails;
 - `advisor(f)`: `f` is a direct child of the primary artifact directory named `__advisor.jsonl` or `__advisor.<slug>.jsonl`, contains at least one non-header entry, and satisfies `settled(f)`;
-- `child(f)`: `f` is any other `.jsonl` below the primary artifact directory and contains exactly one `type:"session_init"` entry with a non-empty string `agent`; it must satisfy `settled(f)`;
-- `hub(f)`: within one settled primary/child journal, an assistant message contains a `toolCall` block with `name:"hub"` and non-empty `id`, and a later `message.role:"toolResult"` has `toolName:"hub"`, the same `toolCallId`, and `isError:false`.
+- `child(f)`: `f` is any other `.jsonl` below the primary artifact directory and contains exactly one `type:"session_init"` entry with a non-empty string `agent`; it must satisfy `child-terminal(f)`;
+- `hub(f)`: within one settled primary or terminal child journal, an assistant message contains a `toolCall` block with `name:"hub"` and non-empty `id`, and a later `message.role:"toolResult"` has `toolName:"hub"`, the same `toolCallId`, and `isError:false`.
 
-The stdout header id must select exactly one direct primary `<timestamp>_<id>.jsonl`; that file must satisfy `settled` and is never classified as child/advisor. Every discovered advisor/child journal must satisfy its predicate even when the preset needs fewer; unclassified JSONL files fail. For every child header `cwd` that canonicalizes beneath the pinned OMP isolated-worktree root, the path must be absent at adapter close. A recognized preset digest enforces the table's exact counts; an unrecognized admitted conf enforces primary settlement, validity/settlement of every discovered journal, and worktree cleanup but no topology count. Missing, extra, malformed, unsettled, or ambiguously classified journals and unmatched/failed `hub` results fail the provider call. These are close-time observations, not authorship or provenance proofs.
+The stdout header id must select exactly one direct primary `<timestamp>_<id>.jsonl`; that file must satisfy `settled` and is never classified as child/advisor. Every discovered advisor/child journal must satisfy its predicate even when the preset needs fewer; unclassified JSONL files fail. For every child header `cwd` that canonicalizes beneath the pinned OMP isolated-worktree root, the path must be absent at adapter close. A recognized preset digest enforces the table's exact counts; an unrecognized admitted conf enforces primary settlement, each discovered journal's matching advisor/child terminal predicate, and worktree cleanup but no topology count. Missing, extra, malformed, nonterminal, or ambiguously classified journals and unmatched/failed `hub` results fail the provider call. These are close-time observations, not authorship or provenance proofs.
 
 ### X6 — Prompt scaffolding is deterministic after one narrow synthesis call
 
@@ -768,14 +815,19 @@ No new Executable IR member, state family, runtime step kind, provider retry beh
 ### OMP pin
 
 Production invocation supports only the OMP upstream build's single-file
-executable. The owner-authorized build-determinism repair uses two sequential
+executable. The owner-authorized build-determinism recipe uses two sequential
 fresh recreations at the recorded canonical root, each detached at commit
-`ffd53ff92a6f575d499730475a73460dd7cc2eea`. Each clone first applies the
-code-owned `orchestrator/providers/omp_native_archive.patch` with SHA-256
-`a5bb53ab92814423139518fc535493bcdb27ee8a9350b8d93801dabafb23c375`;
-the only changed upstream file is
-`packages/natives/scripts/embed-native.ts`, whose patched SHA-256 is
-`747221981bb2d9441e7a581871c73eb6ccb3f2f1eed063b80d45fe4043f347f1`.
+`ffd53ff92a6f575d499730475a73460dd7cc2eea`. The code-owned
+`orchestrator/providers/omp_source_overlay.patch` currently has SHA-256
+`f128fb6b8565b3221b9819b6f55b6f7f58d46a1163236d1a4c12d79d54f9c245`
+and whitespace-clean context-safe unified hunks for plain `git apply`.
+The changed upstream files are
+`packages/natives/scripts/embed-native.ts` at patched SHA-256
+`747221981bb2d9441e7a581871c73eb6ccb3f2f1eed063b80d45fe4043f347f1`
+for deterministic native archives and
+`packages/coding-agent/src/task/executor.ts` at patched SHA-256
+`afa226fd9c40d6d11e36e8376512c6df1268b4a067cd76690b20fffa924712d8`
+for descendant approval-mode inheritance.
 The recipe then runs exactly `bun install --frozen-lockfile`,
 `bun run build:native -- -- -- --jobs=1 --spawn_strategy=local`, a pinned-Bun
 `node:fs` check that requires the installed native addon to be a regular
@@ -897,6 +949,32 @@ This closes F4 without artifact normalization or a digest exception. The
 canonical-root formulation supersedes the earlier two-clones-at-distinct-paths
 formulation without weakening the whole-file criterion.
 
+Task 10's R10 repair required a sixth acceptance recipe with the expanded
+source overlay above. On 2026-08-25 two more sequential clean canonical-root
+builds started from the declared lock and applied the pre-normalization overlay
+bytes at SHA-256
+`ca9fcd664c37c8926ddd7f1986e05e5f49bf02ca59f0d6a7583ca6a8cde92138`.
+Both resolved the same effective lock
+`037601949bfb583a6e301589698894df301acfe82e858b6e9619575a864ca1ed`
+and produced the same
+`0e1db29a3e8205982e44e4f805a8ad7b3e9ab738a3c11340a1106d1d7cfb20c9`
+native addon. Both 153,254,016-byte `dist/omp` outputs reported `omp/17.3.4`
+and were byte-identical at
+`df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`.
+That digest supersedes the fifth-recipe executable after descendant approval
+inheritance became part of the admitted source.
+
+The committed overlay was later reformatted to whitespace-clean SHA-256
+`f128fb6b8565b3221b9819b6f55b6f7f58d46a1163236d1a4c12d79d54f9c245`.
+The executor hunk represents source-unchanged tab-indented lines as delete/add
+pairs around unindented context, so the patch file itself passes `git diff
+--check`. Applying either the build-time or committed patch to the pinned source
+produces the same two patched-file digests recorded above, and the committed
+patch reverse-checks against the canonical patched checkout. No canonical
+rebuild was run after this transport-only normalization; the 2026-08-25 build
+provenance remains attached to
+`ca9fcd664c37c8926ddd7f1986e05e5f49bf02ca59f0d6a7583ca6a8cde92138`.
+
 The two `packages/coding-agent/dist/omp` files are byte-identical, and their
 common SHA-256 is admitted into the code-owned integration pin and copied into
 scaffold/link identities. Any future closure hash, tool version, build output,
@@ -937,7 +1015,7 @@ These are implementation task-zero gates. The happy-path calibrations below grou
 - **F3 — profile-isolated conf boundary:** the child and version probe use the same empty process cwd, exact `omp_conf_env.v1` environment, and inherited `omp_write_confinement.v1` Landlock policy; the child uses that directory as OMP `--cwd`; `$HOME/.omp/agent` is exactly `PI_CODING_AGENT_DIR`; and the closed YAML/frontmatter schemas accept only requested preset bytes. The policy requires ABI 3 or newer, makes the admitted runtime conf immutable to OMP and every descendant for their full lifetime, and permits writes only to the role-labelled XDG data/state/cache, temp, optional live-session, and conf-workspace roots. Direct and spawned write/replace/create/rename plus restore attempts against conf fail while writes to every admitted root succeed. Planted workflow/ancestor/user `.env`, excluded environment keys, ambient user/global `.omp`/`.claude`, bundled agents, skills, extensions, custom tools, MCP, prompts, commands, rules, and WATCHDOG canaries are absent. `no-tools` and `conf-inference` omit `--add-dir` and workspace write authority and do not observe a repository `AGENTS.md` marker or workspace file. `conf` deliberately uses `--add-dir`: it must observe the marker as repository context, read a directly named workspace file, and may write that workspace. This proves the pinned process/config/context and child-lifetime write-confinement envelope, not a general OS sandbox, model-confidentiality boundary, or same-UID host-process secrecy.
 - **F4 — whole-binary admission:** both clean builds use the recorded positive environment, pinned source/module-lock digests, `linux-x64-modern` target, and identical Bazel action-toolchain closure records and are byte-identical; wrong platform/AVX2 target, writable/wrong-owner source binaries, wrong launcher/toolchain/output digest or version, stale scaffold pin, planted parent build override, and source-path substitution fail before the first provider request; the correct descriptor-copied private executable records one matching digest/version.
 - **F5 — multiagent observation:** neutral, advised, fanout, peer-team, and advised-fanout canaries satisfy the exact `journal|settled|advisor|child|hub` predicates and counts in X5; every discovered journal settles and every recorded isolated worktree path is gone at close. These are behavioral observations, not adversarial provenance proofs.
-- **F6 — approval mode:** `write` completes the ordinary worker fixture; `--yolo` is confined to the explicitly named unrestricted template.
+- **F6 — approval mode:** `write` completes ordinary and spawned write-tier fixtures, spawned exec-tier calls remain blocked without interactive approval, and `--yolo` is confined to the explicitly named unrestricted template.
 - **F7 — bridge:** exact run/session/basename lookup rejects zero/multiple/prefix/child matches; a TTY fork and explicit in-place resume satisfy their source/destination observations; primary import extracts the active-branch first user message; child/advisor import is unreachable; malformed graphs, failed chains, and untrusted contract reuse fail.
 - **F8 — output inference:** tool-free neutral-conf inference produces admitted field/type drafts, rejects invalid names/types and unmapped task providers, cannot mutate captured task-authority inputs, and compiles a structurally equal task return contract.
 
@@ -959,9 +1037,13 @@ Calibration on 2026-08-23 against the admitted whole binary:
 - The equivalent explicit `--session-dir <empty-root>` call emitted one header
   and persisted exactly one matching primary JSONL. Unmodified stdout and
   primary fixtures are checked in under `tests/fixtures/omp/protocol/`.
-- The installed regular current-user mode-`0555` file reports `omp/17.3.4` and
-  hashes `f1ffead4d40e6d3740cd2400522d967b270dad5d43a80de7e70c509d97f88211`;
-  this closes F4. Descriptor-copy launch negatives remain Task 3 acceptance.
+- The binary calibrated on 2026-08-23 was a regular current-user mode-`0555`
+  file reporting `omp/17.3.4` at SHA-256
+  `f1ffead4d40e6d3740cd2400522d967b270dad5d43a80de7e70c509d97f88211`;
+  this closed the original F4 gate. Task 10's descendant-approval repair was
+  rebuilt twice and superseded it with the current admitted SHA-256
+  `df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`.
+  Descriptor-copy launch negatives remain Task 3 acceptance.
 
 ## Roadmap
 

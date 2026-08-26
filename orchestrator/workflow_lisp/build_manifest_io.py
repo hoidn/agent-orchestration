@@ -17,6 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from .command_boundaries import (
     CertifiedAdapterBinding,
     CertifiedAdapterInputField,
@@ -110,8 +111,10 @@ class ConfigurationReadTrace:
 def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
     from .build import FrontendBuildRequest
 
-    workspace_root = (request.workspace_root or Path.cwd()).resolve()
-    source_path = request.source_path.resolve()
+    workspace_root = resolve_path_preserving_fd(
+        request.workspace_root or Path.cwd()
+    )
+    source_path = resolve_path_preserving_fd(request.source_path)
     if not source_path.exists():
         raise LispFrontendCompileError(
             (
@@ -122,18 +125,26 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
                 ),
             )
         )
-    source_roots = tuple(root.resolve() for root in request.source_roots)
+    source_roots = tuple(
+        resolve_path_preserving_fd(root) for root in request.source_roots
+    )
     return FrontendBuildRequest(
         source_path=source_path,
         source_roots=source_roots,
         entry_workflow=request.entry_workflow,
         boundary_admission_profile=request.boundary_admission_profile,
-        provider_externs_path=request.provider_externs_path.resolve() if request.provider_externs_path else None,
-        prompt_externs_path=request.prompt_externs_path.resolve() if request.prompt_externs_path else None,
-        imported_workflow_bundles_path=request.imported_workflow_bundles_path.resolve()
-        if request.imported_workflow_bundles_path
-        else None,
-        command_boundaries_path=request.command_boundaries_path.resolve() if request.command_boundaries_path else None,
+        provider_externs_path=resolve_path_preserving_fd(
+            request.provider_externs_path)
+        if request.provider_externs_path else None,
+        prompt_externs_path=resolve_path_preserving_fd(
+            request.prompt_externs_path)
+        if request.prompt_externs_path else None,
+        imported_workflow_bundles_path=resolve_path_preserving_fd(
+            request.imported_workflow_bundles_path)
+        if request.imported_workflow_bundles_path else None,
+        command_boundaries_path=resolve_path_preserving_fd(
+            request.command_boundaries_path)
+        if request.command_boundaries_path else None,
         emit_debug_yaml=request.emit_debug_yaml,
         workspace_root=workspace_root,
         lint_profile=request.lint_profile,
@@ -789,7 +800,7 @@ def _load_json_file(
     label: str,
     configuration_read_trace: ConfigurationReadTrace | None = None,
 ) -> Any:
-    canonical_path = path.resolve()
+    canonical_path = resolve_path_preserving_fd(path)
     try:
         raw_bytes = canonical_path.read_bytes()
     except FileNotFoundError as exc:

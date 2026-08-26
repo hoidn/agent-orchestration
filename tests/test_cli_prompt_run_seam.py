@@ -144,6 +144,47 @@ def test_run_workflow_accepts_keyword_run_id(tmp_path, monkeypatch):
     assert result.run_root == tmp_path / ".orchestrate" / "runs" / reserved
     assert (result.run_root / "state.json").is_file()
 
+def test_descriptor_workflow_persists_logical_resume_path(
+    tmp_path, monkeypatch
+):
+    from orchestrator.providers.omp_launch_fs import directory_identity
+    from orchestrator.run_lock import reserved_run_writer_lock
+
+    run_id = "20260821T000000Z-logical1"
+    args = _stub_workflow_run(
+        monkeypatch, tmp_path, execute_result={"status": "completed"}
+    )
+    run_root = tmp_path / ".orchestrate" / "runs" / run_id
+    prompt_inputs = run_root / "prompt-inputs"
+    prompt_inputs.mkdir(parents=True)
+    logical_workflow = prompt_inputs / "workflow.orc"
+    logical_workflow.write_bytes(Path(args.workflow).read_bytes())
+    prompt_fd = os.open(
+        prompt_inputs,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    identity = directory_identity(str(run_root))
+    try:
+        with reserved_run_writer_lock(run_root, identity) as run_fd:
+            args.workflow = f"/proc/self/fd/{prompt_fd}/workflow.orc"
+            args.source_root = [f"/proc/self/fd/{prompt_fd}"]
+            result = run_workflow(
+                args,
+                run_id=run_id,
+                expected_run_identity=identity,
+                reserved_run_fd=run_fd,
+                logical_workflow_path=logical_workflow,
+            )
+    finally:
+        os.close(prompt_fd)
+
+    state = json.loads((run_root / "state.json").read_text())
+    assert result.exit_code == 0
+    assert state["workflow_file"] == (
+        f".orchestrate/runs/{run_id}/prompt-inputs/workflow.orc"
+    )
+    assert "/proc/self/fd/" not in state["workflow_file"]
+
 
 def test_run_parser_exposes_no_run_id_flag(tmp_path, monkeypatch):
     workflow = tmp_path / "workflow.orc"
@@ -168,25 +209,30 @@ def test_main_run_dispatch_returns_exit_code_only(tmp_path, monkeypatch):
 def test_reserved_root_swapped_after_writer_lock_fails_before_initialize(
     tmp_path, monkeypatch, fake_runtime
 ):
-    # The final identity revalidation must happen after the writer lock is
-    # held and the run root mkdir, immediately before StateManager.initialize:
-    # a root replaced in that window must fail closed before any state work.
-    import orchestrator.cli.commands.run as run_command
+    # R7: the run root path is revalidated against the retained directory
+    # authority immediately before StateManager.initialize; a root replaced
+    # while the writer lock is held must fail closed with no state work and
+    # no file created in the replacement target.
+    import orchestrator.cli.commands.prompt_run_service as prompt_run_service
+    from contextlib import contextmanager
 
     reserved = "20260821T000000Z-lock001"
     monkeypatch.setattr(StateManager, "new_run_id", lambda: reserved)
-    original_lock = run_command.run_writer_lock
+    original_lock = prompt_run_service.reserved_run_writer_lock
     initialize_calls = []
 
-    def lock_then_swap(run_root):
-        stack = original_lock(run_root)
-        # Barrier: replace the reserved root after the writer lock is held.
-        parent = run_root.parent
-        os.replace(run_root, parent / (run_root.name + "-swapped"))
-        run_root.mkdir()
-        return stack
+    @contextmanager
+    def lock_then_swap(run_root, identity):
+        with original_lock(run_root, identity) as dir_fd:
+            # Barrier: replace the reserved root after the writer lock is held.
+            parent = run_root.parent
+            os.replace(run_root, parent / (run_root.name + "-swapped"))
+            run_root.mkdir()
+            yield dir_fd
 
-    monkeypatch.setattr(run_command, "run_writer_lock", lock_then_swap)
+    monkeypatch.setattr(
+        prompt_run_service, "reserved_run_writer_lock", lock_then_swap
+    )
     original_initialize = StateManager.initialize
 
     def spy_initialize(self, *args, **kwargs):
@@ -202,6 +248,174 @@ def test_reserved_root_swapped_after_writer_lock_fails_before_initialize(
     assert code == 1
     assert initialize_calls == []
     assert fake_runtime.executed == []
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    replacement = runs_root / reserved
+    assert list(replacement.iterdir()) == []
+
+
+
+def test_reserved_root_swap_during_initialize_never_writes_replacement(
+    tmp_path, monkeypatch, fake_runtime
+):
+    import orchestrator.cli.commands.run as run_command
+
+    reserved = "20260821T000000Z-lock002"
+    monkeypatch.setattr(StateManager, "new_run_id", lambda: reserved)
+    original_initialize = StateManager.initialize
+    original_root = tmp_path / ".orchestrate" / "runs" / f"{reserved}-original"
+
+    def swap_then_initialize(self, *args, **kwargs):
+        os.replace(self.run_root, original_root)
+        self.run_root.mkdir()
+        return original_initialize(self, *args, **kwargs)
+
+    monkeypatch.setattr(StateManager, "initialize", swap_then_initialize)
+    code = _exit(
+        ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
+        tmp_path,
+        monkeypatch,
+    )
+
+    replacement = tmp_path / ".orchestrate" / "runs" / reserved
+    assert code == 1
+    assert fake_runtime.executed == []
+    assert list(replacement.iterdir()) == []
+    assert not (replacement / "run.lock").exists()
+    assert not (replacement / "state.json").exists()
+    assert (original_root / "run.lock").is_file()
+    assert (original_root / "state.json").is_file()
+
+def test_run_workflow_reserved_root_pre_lock_swap_fails_before_any_write(
+    tmp_path, monkeypatch
+):
+    # R7 shared boundary: a reserved run root replaced by a different
+    # directory before run_workflow opens it fails with no lock/temp/state
+    # file created in the replacement target. Every prompt-run caller routes
+    # through this boundary.
+    import orchestrator.cli.commands.run as run_module
+    from orchestrator.providers.omp_launch_fs import directory_identity
+
+    run_id = "20260821T000000Z-swap001"
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_root = runs_root / run_id
+    run_root.mkdir(parents=True)
+    identity = directory_identity(str(run_root))
+    os.replace(run_root, runs_root / (run_id + "-original"))
+    replacement = runs_root / run_id
+    replacement.mkdir()
+
+    args = _stub_workflow_run(
+        monkeypatch, tmp_path, execute_result={}, run_id=run_id
+    )
+    result = run_workflow(args, run_id=run_id, expected_run_identity=identity)
+    assert result.exit_code == 1
+    assert result.run_id == run_id
+    assert result.run_root == run_root
+    assert (result.session_id, result.session_status) == (None, None)
+    assert list(replacement.iterdir()) == []
+    assert not (replacement / "run.lock").exists()
+    assert not (replacement / "state.json").exists()
+
+
+def test_run_workflow_reserved_root_pre_lock_symlink_swap_fails_before_any_write(
+    tmp_path, monkeypatch
+):
+    # R7 shared boundary, symlink variant: the reserved path pointing at an
+    # attacker directory must fail before writing through the symlink.
+    import orchestrator.cli.commands.run as run_module
+    from orchestrator.providers.omp_launch_fs import directory_identity
+
+    run_id = "20260821T000000Z-swap002"
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_root = runs_root / run_id
+    run_root.mkdir(parents=True)
+    identity = directory_identity(str(run_root))
+    os.replace(run_root, runs_root / (run_id + "-original"))
+    attacker = runs_root / (run_id + "-attacker")
+    attacker.mkdir()
+    run_root.symlink_to(attacker, target_is_directory=True)
+
+    args = _stub_workflow_run(
+        monkeypatch, tmp_path, execute_result={}, run_id=run_id
+    )
+    result = run_workflow(args, run_id=run_id, expected_run_identity=identity)
+    assert result.exit_code == 1
+    assert result.run_id == run_id
+    assert list(attacker.iterdir()) == []
+    assert not (attacker / "run.lock").exists()
+    assert not (attacker / "state.json").exists()
+
+
+def test_prompt_run_seam_pre_lock_swap_fails_without_files_in_replacement(
+    tmp_path, monkeypatch, fake_runtime
+):
+    # R7 at the prompt-run seam: a reserved root swapped before the shared
+    # run boundary acquires the lock fails with exit 1 and no file in the
+    # replacement target (run.lock / state.json / logs all absent).
+    import orchestrator.cli.commands.prompt_run_service as prompt_run_service
+
+    reserved = "20260821T000000Z-seam003"
+    monkeypatch.setattr(StateManager, "new_run_id", lambda: reserved)
+    original_lock = prompt_run_service.reserved_run_writer_lock
+
+    def swap_before_lock(run_root, identity):
+        # Simulate an attacker swap that already happened before the shared
+        # boundary opened the reserved root.
+        parent = run_root.parent
+        os.replace(run_root, parent / (run_root.name + "-swapped"))
+        run_root.mkdir()
+        return original_lock(run_root, identity)
+
+    monkeypatch.setattr(
+        prompt_run_service, "reserved_run_writer_lock", swap_before_lock
+    )
+    code = _exit(
+        ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
+        tmp_path,
+        monkeypatch,
+    )
+    assert code == 1
+    assert fake_runtime.executed == []
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    replacement = runs_root / reserved
+    assert list(replacement.iterdir()) == []
+    assert not (replacement / "run.lock").exists()
+    assert not (replacement / "state.json").exists()
+
+
+def test_prompt_run_seam_pre_lock_symlink_swap_fails_without_files_in_target(
+    tmp_path, monkeypatch, fake_runtime
+):
+    # R7 at the prompt-run seam, symlink variant: the lock must never be
+    # created inside the attacker directory behind the symlinked root.
+    import orchestrator.cli.commands.prompt_run_service as prompt_run_service
+
+    reserved = "20260821T000000Z-seam004"
+    monkeypatch.setattr(StateManager, "new_run_id", lambda: reserved)
+    original_lock = prompt_run_service.reserved_run_writer_lock
+
+    def symlink_before_lock(run_root, identity):
+        parent = run_root.parent
+        os.replace(run_root, parent / (run_root.name + "-swapped"))
+        attacker = parent / (run_root.name + "-attacker")
+        attacker.mkdir()
+        run_root.symlink_to(attacker, target_is_directory=True)
+        return original_lock(run_root, identity)
+
+    monkeypatch.setattr(
+        prompt_run_service, "reserved_run_writer_lock", symlink_before_lock
+    )
+    code = _exit(
+        ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
+        tmp_path,
+        monkeypatch,
+    )
+    assert code == 1
+    assert fake_runtime.executed == []
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    attacker = runs_root / (reserved + "-attacker")
+    assert list(attacker.iterdir()) == []
+    assert not (attacker / "run.lock").exists()
 
 
 def test_run_workflow_result_outputs_and_usage_are_deeply_immutable(
@@ -291,13 +505,17 @@ def test_run_workflow_identity_mismatch_returns_known_run_id_and_root(
     tmp_path, monkeypatch
 ):
     import orchestrator.cli.commands.run as run_module
+    from orchestrator.providers.omp_launch_fs import directory_identity
 
     run_id = "20260821T000000Z-caller1"
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_root = runs_root / run_id
+    run_root.mkdir(parents=True)
+    wrong_identity = (directory_identity(str(run_root))[0] + 1, 0)
     args = _stub_workflow_run(
         monkeypatch, tmp_path, execute_result={}, run_id=run_id
     )
-    monkeypatch.setattr(run_module, "directory_identity", lambda path: (0, 0))
-    result = run_workflow(args, run_id=run_id, expected_run_identity=(1, 1))
+    result = run_workflow(args, run_id=run_id, expected_run_identity=wrong_identity)
     assert result.exit_code == 1
     assert result.run_id == run_id
     assert result.run_root == tmp_path / ".orchestrate" / "runs" / run_id

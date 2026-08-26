@@ -1,13 +1,10 @@
-"""Closed OMP session-journal parsing, primary selection, graph, and tree manifests (X5/X8)."""
+"""Closed OMP session-journal parsing, primary selection, and graph rules."""
 from __future__ import annotations
 
-import hashlib
-import json
-import stat
 from dataclasses import dataclass
 from typing import Any
 
-from .._common.safe_tree import SafeTreeError, read_regular_file, walk_regular_files
+from .._common.safe_tree import read_regular_file
 from .omp_protocol import (_closed_object, _is_rfc3339, is_finite_number, is_integer, is_nonempty_string, loads_strict,
                            validate_closed_assistant_message, validate_content_block, validate_session_header)
 
@@ -466,34 +463,3 @@ def session_leaf(entries) -> SessionEntryRecord:
     """Return the active leaf: the last entry in file order (X8)."""
     if not entries: raise OmpSessionError("cannot select a leaf from an empty journal")
     return entries[-1]
-
-
-SESSION_MANIFEST_SCHEMA = "omp_session_manifest.v1"
-
-
-@dataclass(frozen=True, slots=True)
-class SessionManifestRow:
-    """One session-tree file: path, size, sha256, actual permission mode (octal string)."""
-    relative_path: str; size_bytes: int; sha256: str; mode: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionManifest:
-    """Canonical live/snapshot session-tree manifest (X8 745)."""
-    rows: tuple[SessionManifestRow, ...]; manifest_bytes: bytes; manifest_sha256: str
-
-
-def build_session_manifest(root_fd: int) -> SessionManifest:
-    """Canonical descriptor-safe manifest: no-follow walk/read, actual modes, closed on SafeTreeError."""
-    try:
-        rows = sorted(walk_regular_files(root_fd), key=lambda row: row.relative_path.encode("utf-8"))
-        content = {row.relative_path: read_regular_file(root_fd, row.relative_path, expected=row) for row in rows}
-    except SafeTreeError as exc:
-        raise OmpSessionError(str(exc)) from exc
-    records = tuple(SessionManifestRow(row.relative_path, len(content[row.relative_path]),
-                                       hashlib.sha256(content[row.relative_path]).hexdigest(),
-                                       f"{stat.S_IMODE(row.mode):04o}") for row in rows)
-    files = [{"mode": r.mode, "path": r.relative_path, "sha256": r.sha256, "size": r.size_bytes} for r in records]
-    manifest_bytes = json.dumps({"schema_version": SESSION_MANIFEST_SCHEMA, "files": files},
-                                sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return SessionManifest(records, manifest_bytes, hashlib.sha256(manifest_bytes).hexdigest())

@@ -126,6 +126,12 @@ profile-isolated templates; a failing preset is removed rather than weakened;
 F8 failure removes natural-language inference; bridge/import failure omits that
 subcommand without changing provider/runtime contracts.
 
+The Task 10 integration-remediation gate is mandatory before Task 11 resume
+work may be accepted or committed as complete. Resume work started before this
+plan revision may be preserved as work in progress, but it supplies no evidence
+for Task 10 and must not bypass, weaken, or defer any remediation item. Task 12
+remains the only OMP-I1 completion gate.
+
 ## Preflight
 
 - [ ] Record the Orchestrator and OMP revisions and verify the implementation
@@ -183,19 +189,23 @@ subcommand without changing provider/runtime contracts.
 **Purpose:** Close F4 before coding against an artifact that may not be
 reproducible or executable in production.
 
-> **Execution status:** F4 closed on the fifth recipe. Two sequential clean
-> canonical-root builds matched every declared/effective input, patch/script
-> digest, environment, toolchain, action closure, pre-bundle/embedded addon,
-> version, size, and whole output. The common executable SHA-256 is
-> `f1ffead4d40e6d3740cd2400522d967b270dad5d43a80de7e70c509d97f88211`;
-> it is installed and pinned, and the three required raw fixtures are captured.
-> Tasks 2–11 are unblocked subject to their own gates (report:
-> `.superpowers/sdd/2026-08-21-omp-i1-implementation-plan/task-1-report.md`).
+> **Execution status:** F4 closed on the fifth recipe and was refreshed on the
+> sixth after R10 expanded the audited source overlay. Two sequential clean
+> canonical-root builds matched the declared/effective lock, pre-normalization
+> overlay, native addon, version, size, and whole output. The current
+> whitespace-normalized overlay applies to the identical patched source tree;
+> no rebuild followed that transport-only normalization. The common executable
+> SHA-256 is
+> `df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`;
+> it is atomically installed and pinned, and the three required raw fixtures
+> remain valid because the transport protocol did not change. Initial report:
+> `.superpowers/sdd/2026-08-21-omp-i1-implementation-plan/task-1-report.md`;
+> R10 refresh evidence is in the Task 10 report.
 
 **Files:**
 
 - Create: `orchestrator/providers/omp_pin.py`
-- Create: `orchestrator/providers/omp_native_archive.patch`
+- Create: `orchestrator/providers/omp_source_overlay.patch`
 - Create: `tests/test_provider_omp_pin.py`
 - Create captured fixtures under `tests/fixtures/omp/protocol/`
 - Modify after the digest is known:
@@ -244,8 +254,8 @@ reproducible or executable in production.
 - [x] In each clone, under that exact positive environment, run exactly:
 
   ```sh
-  patch=/home/ollie/Documents/agent-orchestration/.worktrees/omp-i1-prerequisites/orchestrator/providers/omp_native_archive.patch
-  test "$(sha256sum "$patch" | cut -d' ' -f1)" = a5bb53ab92814423139518fc535493bcdb27ee8a9350b8d93801dabafb23c375
+  patch=/home/ollie/Documents/agent-orchestration/.worktrees/omp-i1-prerequisites/orchestrator/providers/omp_source_overlay.patch
+  test "$(sha256sum "$patch" | cut -d' ' -f1)" = f128fb6b8565b3221b9819b6f55b6f7f58d46a1163236d1a4c12d79d54f9c245
   git apply --check "$patch"
   git apply "$patch"
   bun install --frozen-lockfile
@@ -1182,7 +1192,218 @@ pytest -q \
 
 ---
 
-## Task 10: Add Foreground TTY Fork And Resume
+## Task 10: Repair Integrated Launch, Observation, Publication, And Authority Seams
+
+**Purpose:** Repair the cross-module defects found in the post-Task-9 range
+review before adding another consumer of the same launch and session contracts.
+This task is blocking: Task 11 resume work and Task 12 closure cannot be
+accepted until R1-R8 and R10 each have a failing regression, the shared
+root-cause fix, and fresh evidence on the exact candidate tree, and R9 has
+explicit report and routing evidence.
+
+**Files:**
+
+- Modify: `orchestrator/providers/omp_launch.py`
+- Modify: `orchestrator/providers/omp_launch_contract.py`
+- Modify: `orchestrator/providers/omp_launch_fs.py`
+- Modify: `orchestrator/providers/omp_observation.py`
+- Modify: `orchestrator/providers/omp_templates.py`
+- Modify: `orchestrator/cli/commands/run.py`
+- Modify: `orchestrator/run_lock.py`
+- Modify: `orchestrator/cli/commands/prompt.py`
+- Modify: `orchestrator/prompt_session_agreement.py`
+- Modify: `orchestrator/prompt_session_lookup.py`
+- Modify the owning OMP launch, observation, prompt-session, run-seam, and CLI
+  tests. Reuse those modules; do not create another launch, broker, observer,
+  settlement, or path-safety abstraction.
+- Modify: `orchestrator/providers/omp_pin.py`
+- Rename/modify: `orchestrator/providers/omp_source_overlay.patch`
+- Modify: `orchestrator/providers/omp_conf.py`
+- Modify: `orchestrator/contracts/prompt_contract.py`
+- Modify the packaged fanout conf and owning pin/conf/prompt-contract tests.
+
+### Blocking remediation ledger
+
+- **R1 — deployable binary admission:** remove the developer-specific production
+  executable path. Resolve code-owned command name `omp` once from the admitted
+  parent `PATH`, then preserve the existing no-follow mode/digest/private-copy
+  checks and correct ownership admission to match X2: effective-user or root
+  ownership passes, foreign ownership fails. A correct pinned executable on
+  another supported host must work; absent, substituted, writable, or wrong-
+  digest binaries fail before probing.
+- **R2 — real broker and lane environments:** never fabricate a port, listener,
+  URL, or token. Profile lanes require the operator-supplied
+  `OMP_AUTH_BROKER_URL` / `OMP_AUTH_BROKER_TOKEN` pair defined by X2, validate it
+  structurally before the version probe, and print the exact setup command when
+  missing. Do not add a connectivity preflight: a syntactically valid unreachable
+  broker reaches the real child and fails the call without local-credential
+  fallback or fabricated replacement credentials.
+  Profile `HOME`/XDG/temp roots are adapter-owned attempt roots with the admitted
+  conf materialized at the pinned discovery path. Ambient lanes retain their
+  documented parent environment. Every lane uses X2's exact OMP argv; remove
+  implementation-only defaults and misspelled broker variables.
+- **R3 — real profile completion:** replace the real-binary check that treats
+  denied OMP initialization as success evidence. One real `omp_no_tools` call
+  and one real `omp_conf` fresh call must complete with a live broker while the
+  direct/descendant mutation negatives and every admitted write-root positive
+  remain enforced. OMP JSON-transport providers never receive the runtime-owned
+  bundle path: when it is absent, prompt guidance requires final assistant JSON
+  only and the parent materializes it with exclusive no-follow creation;
+  provider-planted leaves fail.
+- **R4 — one structured settlement authority:** remove raw-byte substring
+  settlement detection. The adapter and parent must agree through parsed,
+  schema-validated lifecycle state, including valid whitespace and omitted
+  optional `isTerminal`; malformed, conflicting, nonterminal, or unsettled
+  streams still fail. Primary-journal selection requires exactly one match.
+- **R5 — production topology observation:** call the existing close-time
+  observer from the real fresh launch path. It must recursively validate the
+  primary, advisor, child, hub, settlement, recognized-preset cardinality, and
+  isolated-worktree cleanup contract. Recognized topology authority is one
+  code-owned map keyed by canonical packaged-conf digest for all five presets;
+  preset labels and paths cannot select counts. Delete the shallower duplicate
+  inventory path once the observer owns this decision.
+- **R6 — advisor-compatible links:** session-link publication and lookup admit
+  valid observed advisor journals while continuing to exclude advisor/child
+  journals from primary selection and import. `advised` and `advised-fanout`
+  must publish and resolve links; extra, malformed, or unsettled journals fail.
+- **R7 — write-after-verification run roots:** open and identity-check the
+  externally reserved run root no-follow before `mkdir`, lock creation, or any
+  other write. Acquire the writer lock beneath that retained directory
+  authority. Directory and symlink swaps fail without creating a file in the
+  replacement target.
+- **R8 — closed CLI and durable tests:** shallow or wrong-shape absolute
+  `--scaffold` paths return the stable prompt error instead of `IndexError`.
+  Replace literal prompt-heading assertions with contract/digest/dataflow
+  assertions. The complete OMP-I1 range must pass `git diff --check`; patch-file
+  whitespace is not exempt.
+- **R9 — authority quarantine:** target 2.27, OMP providers, prompt commands,
+  and session-link layout remain implementation-candidate surfaces until Task
+  12 updates their normative specs and capability routing. No intermediate
+  report or index may claim OMP-I1 complete or copy-safe.
+- **R10 — descendant approval non-widening:** the pinned source overlay removes
+  OMP's hardcoded headless-subagent `yolo` setting. Approved `task` dispatch
+  must preserve the primary `write` mode in every descendant; write-tier tools
+  complete, exec-tier tools remain blocked without interactive approval, and
+  only the explicitly named unrestricted provider may use global `--yolo`.
+
+### Step 10.1: Write integration REDs
+
+Add the smallest regression for each R1-R8 and R10 failure before production changes:
+
+- supported-host resolution with a PATH-installed pinned binary and no
+  developer cache path, including effective-user/root-owned positives and a
+  foreign-owner negative;
+- missing, malformed, and misspelled broker pairs failing before the probe, a
+  syntactically valid unreachable broker reaching the child and failing without
+  fallback, and a live broker completing, plus exact ambient/profile environment
+  and argv projections;
+- real profile initialization completing without granting mutation under the
+  protected OMP home;
+- formatted and omitted-`isTerminal` settlement, duplicate primary journals,
+  recursive advisor/child observations, and unmatched/failed hub results;
+- in `tests/test_provider_omp_observation.py`, all five packaged-conf canonical
+  digests selecting their exact topology, with renamed/copied paths and
+  substituted labels unable to select or change that topology;
+- advised/advised-fanout link publication, lookup, and primary-only import;
+- pre-lock directory and symlink swaps with a planted replacement target; and
+- shallow scaffold paths plus behavior-based prompt composition assertions.
+- pinned-source approval inheritance, including a real spawned write-tier
+  positive and spawned exec-tier negative; and OMP final-text bundle
+  materialization without a provider-planted leaf.
+
+Record the pre-fix failure for each ledger item. A fake child may prove failure
+classification and races, but it cannot close R1-R6 without the named real
+checks.
+
+### Step 10.2: Repair launch and credential handoff
+
+- [ ] Implement R1-R3 in the existing pin, launch, contract, and confinement
+  modules. Reuse stdlib path/URL/process primitives and the existing descriptor-
+  safe helpers; add no broker client or process manager.
+- [ ] Keep credentials out of argv, frames, normalized metadata, reports, and
+  logs. Redact the real broker token from child diagnostics.
+- [ ] Preserve the strict platform/AVX2, binary digest, closed profile schema,
+  Landlock, no-follow, descriptor inheritance, and transient/fresh boundaries.
+- [ ] Implement R10 in the audited source overlay, refresh the two-clean-build
+  pin, and remove exec-tier tools from write-mode canary agents that do not
+  need them.
+
+### Step 10.3: Unify observation and session agreement
+
+- [ ] Implement R4-R6 by routing production through the existing protocol and
+  close-time observer authorities. Remove duplicate byte heuristics and shallow
+  topology decisions after all callers use the shared path.
+- [ ] Keep disk journals observational: topology admission does not become an
+  authorship or authentication claim.
+- [ ] Bind the exact recursive observation report into the adapter frame,
+  using only X2's accepted closed projections: primary identity under `session`
+  and advisor/child relpaths under `observed`. Hub settlement, preset cardinality,
+  unrecognized files, and cleanup remain close-time admission decisions and do
+  not add frame, metadata, or link members. Amend the design before adding any
+  new projection.
+
+### Step 10.4: Close run-root, CLI, test-policy, and hygiene defects
+
+- [ ] Implement R7 at the shared reserved-root/lock boundary so every prompt-run
+  caller receives the same fail-before-write guarantee.
+- [ ] Implement R8 without adding compatibility aliases or prompt-text locks.
+- [ ] Record R9 in the Task 10 report as an intentional merge/claim boundary
+  owned by Task 12, not as deferred implementation debt.
+
+### Verification
+
+Collect every added or renamed module first, then run the narrow owners:
+
+```sh
+pytest --collect-only -q \
+  tests/test_provider_omp_launch.py \
+  tests/test_provider_omp_observation.py \
+  tests/test_prompt_session_publication.py \
+  tests/test_cli_prompt_run_seam.py \
+  tests/test_run_lock.py \
+  tests/test_cli_prompt_import.py
+
+pytest -q \
+  tests/test_provider_omp_pin.py \
+  tests/test_provider_omp_transport.py \
+  tests/test_provider_omp_launch.py \
+  tests/test_provider_omp_observation.py \
+  tests/test_provider_omp_session.py \
+  tests/test_prompt_session.py \
+  tests/test_prompt_session_publication.py \
+  tests/test_prompt_session_lookup_errors.py \
+  tests/test_cli_prompt.py \
+  tests/test_cli_prompt_import.py \
+  tests/test_cli_prompt_run_seam.py \
+  tests/test_run_lock.py \
+  tests/test_state_manager.py
+```
+
+Under tmux, run the marked real-binary checks with the validated live broker:
+
+- ambient transient completion;
+- `omp_no_tools` transient completion;
+- `omp_conf` fresh completion with immutable conf and workspace authority;
+- one advised-fanout fresh call whose descendants retain `write` approval,
+  whose final assistant JSON is parent-materialized without a provider-planted
+  leaf, whose recursive observation and session link agree, and whose primary
+  can be imported.
+
+Then run `pytest -q -n 16 --dist=worksteal`, direct Pyright over the changed
+modules, module compilation, installed-wheel fake-child smoke, and
+`git diff --check d97ffa7da352f6b9f9ed652e892896f53e5db06a` over the full
+OMP-I1 range. Task 10 is incomplete if any failure is merely reclassified as
+unrelated without demonstrating that it cannot falsify R1-R10.
+
+Request one contract/maintainability review and one security review over the
+Task 10 diff plus the production call path. Both must review real integration,
+not helper tests alone.
+
+**Commit:** `Repair OMP integration seams`
+
+---
+
+## Task 11: Add Foreground TTY Fork And Resume
 
 **Purpose:** Let the operator safely continue the linked primary OMP session
 without pretending ProviderExecutor supports interactive resume.
@@ -1195,7 +1416,7 @@ without pretending ProviderExecutor supports interactive resume.
 - Modify: `tests/test_cli_prompt.py`
 - Add a fake interactive OMP fixture under `tests/fixtures/omp/`
 
-### Step 10.1: Write CLI/preflight REDs
+### Step 11.1: Write CLI/preflight REDs
 
 Test:
 
@@ -1206,7 +1427,7 @@ Test:
   drift, missing current broker, and lock contention prevent launch;
 - no preflight failure writes a continuation record.
 
-### Step 10.2: Write child/postcondition REDs
+### Step 11.2: Write child/postcondition REDs
 
 Using a pseudoterminal and fake child, assert:
 
@@ -1232,16 +1453,16 @@ Using a pseudoterminal and fake child, assert:
   written; success/failure nullability and hash-chain rules are exact;
 - failed continuation permanently blocks another orchestrator continuation.
 
-### Step 10.3: Implement standalone bridge
+### Step 11.3: Implement standalone bridge
 
-- [ ] Keep `prompt_resume.py` independent of `ProviderExecutor` and workflow
+- [x] Keep `prompt_resume.py` independent of `ProviderExecutor` and workflow
   runtime forms.
-- [ ] Share Task 1 binary copy/probe, Task 4 session/conf parsing, Task 5 lane
+- [x] Share Task 1 binary copy/probe, Task 4 session/conf parsing, Task 5 lane
   policy and Landlock exec helper, and Task 9 link/chain lookup. Ambient records
   null confinement; profile records the exact ABI/policy digest.
-- [ ] Hold one descriptor-relative per-session lock across preflight, child, post
+- [x] Hold one descriptor-relative per-session lock across preflight, child, post
   validation, and record publication.
-- [ ] Print non-secret argv and environment names to stderr before launch; never
+- [x] Print non-secret argv and environment names to stderr before launch; never
   record broker token values.
 
 ### Verification
@@ -1262,7 +1483,7 @@ proof.
 
 ---
 
-## Task 11: Close Preset Canaries, End-To-End Trial, And Documentation
+## Task 12: Close Preset Canaries, End-To-End Trial, And Documentation
 
 **Purpose:** Prove the selected behavior on the real binary, then make docs say
 exactly what shipped.
@@ -1284,30 +1505,30 @@ exactly what shipped.
   `docs/plans/2026-08-14-omp-integration-design-and-roadmap.md`
 - Create: `docs/omp_upgrade_runbook.md`
 
-### Step 11.1: Close real feasibility gates
+### Step 12.1: Close real feasibility gates
 
 Run against the installed pinned binary and loopback auth broker:
 
-- [ ] F1 transient, fresh, and standalone full-id fork placement;
-- [ ] F2 captured protocol and nonzero-exit composition;
-- [ ] F3 exact profile environment/cwd and agent-directory binding; Landlock ABI
+- [x] F1 transient, fresh, and standalone full-id fork placement;
+- [x] F2 captured protocol and nonzero-exit composition;
+- [x] F3 exact profile environment/cwd and agent-directory binding; Landlock ABI
   and policy identity; direct and descendant conf create/write/truncate/replace/
   rename/restore refusal;
   every admitted write-root positive; ambient resource negatives;
   repository-context/workspace read-write positive for `conf` and negative for
   `no-tools`/inference; bundled-agent disablement; and no inherited planted fd;
-- [ ] F4 installed binary/version/digest and private-copy execution;
-- [ ] F5 neutral/advised/fanout/peer-team/advised-fanout exact observations;
-- [ ] F6 write/yolo confinement;
-- [ ] F7 lookup, real TTY fork, in-place resume, import, and refusal cases;
-- [ ] F8 tool-free typed output inference and invalid-draft refusal.
+- [x] F4 installed binary/version/digest and private-copy execution;
+- [x] F5 neutral/advised/fanout/peer-team/advised-fanout exact observations;
+- [x] F6 write/yolo confinement;
+- [x] F7 lookup, real TTY fork, in-place resume, import, and refusal cases;
+- [x] F8 tool-free typed output inference and invalid-draft refusal.
 
 Mark network/credential cases `e2e` and `requires_secrets`; they may skip in an
 ordinary suite but must be run explicitly here. Do not loosen a predicate to
 make a model run pass. Retry only a documented transient provider failure; a
 second behavior mismatch is a real gate failure.
 
-### Step 11.2: Run the declarative trial
+### Step 12.2: Run the declarative trial
 
 From a clean temporary workspace with planted ambient canaries:
 
@@ -1332,27 +1553,27 @@ Verify:
 - TTY default fork and one continuation record;
 - `prompt import --reuse-run-contract` returns to the same scaffold identity.
 
-### Step 11.3: Sync documentation
+### Step 12.3: Sync documentation
 
-- [ ] Providers spec: four public templates, internal inference, exact trust
+- [x] Providers spec: four public templates, internal inference, exact trust
   lanes, binary pin, launch/codec/observation boundaries, no-tools behavior.
-- [ ] CLI spec: closed run/import/resume grammars, output modes, scaffold
+- [x] CLI spec: closed run/import/resume grammars, output modes, scaffold
   identity, no-replace, TTY behavior.
-- [ ] DSL/version specs: target 2.27 and only `:session-artifact`.
-- [ ] State spec: visit directory, interrupted non-reuse, credential-minimized
+- [x] DSL/version specs: target 2.27 and only `:session-artifact`.
+- [x] State spec: visit directory, interrupted non-reuse, credential-minimized
   metadata with no OMP transport spool, live/snapshot/conf, link and
   continuation records.
-- [ ] Drafting guide: minimal `omp`, `omp_no_tools`, and `omp_conf` examples;
+- [x] Drafting guide: minimal `omp`, `omp_no_tools`, and `omp_conf` examples;
   state that `omp_conf --add-dir` loads repository context while no-tools and
   inference omit the workspace root.
-- [ ] Capability matrix/index/roadmap: mark only tested surfaces implemented;
+- [x] Capability matrix/index/roadmap: mark only tested surfaces implemented;
   retain OMP-I2, RPC steering, per-call conf, other platforms, and child import
   as future.
-- [ ] Upgrade runbook: source tag/commit, recorded positive build environment,
+- [x] Upgrade runbook: source tag/commit, recorded positive build environment,
   two-build digest gate, fixture recapture, env/conf review, canaries, scaffold
   pin bump.
 
-### Step 11.4: Final verification
+### Step 12.4: Final verification
 
 Narrow first:
 
@@ -1373,8 +1594,10 @@ pytest -q \
   tests/test_prompt_scaffold.py \
   tests/test_omp_package_assets.py \
   tests/test_cli_prompt.py \
+  tests/test_cli_prompt_import.py \
   tests/test_prompt_session.py \
-  tests/test_prompt_resume.py
+  tests/test_prompt_resume.py \
+  tests/test_run_lock.py
 ```
 
 Then the real selected e2e tests under tmux. Finally run the repository gate:
@@ -1404,18 +1627,24 @@ commands:
 
 1. the two clean OMP builds are byte-identical and the installed binary matches
    the committed platform/version/digest pin;
-2. F1-F8 are closed or the corresponding optional feature was removed and the
+2. Task 10's R1-R10 ledger is closed on the exact candidate tree; no
+   developer-specific binary path, fabricated/misspelled broker channel,
+   expected real-profile failure, dead observer, advisor-link contradiction,
+   abnormal child admission, descendant `yolo` widening, provider-planted
+   bundle leaf, pre-verification write, prompt-text assertion, or range-wide
+   diff-check failure remains;
+3. F1-F8 are closed or the corresponding optional feature was removed and the
    design/specs were revised before merge;
-3. all four public templates execute their exact lane policy, and ordinary
+4. all four public templates execute their exact lane policy, and ordinary
    calls remain transient;
-4. target 2.27 compiles and runs `:session-artifact` through the existing
+5. target 2.27 compiles and runs `:session-artifact` through the existing
    provider-session/scalar-artifact contract;
-5. default/exact/inferred prompt scaffolds compile, verify, and refuse tamper or
+6. default/exact/inferred prompt scaffolds compile, verify, and refuse tamper or
    overwrite;
-6. the real advised-fanout trial produces the typed result, published session,
+7. the real advised-fanout trial produces the typed result, published session,
    exact topology observation, link, safe fork, and deterministic import reuse;
-7. installed-wheel resource and CLI smoke passes outside the source checkout;
-8. focused tests, marked real tests, and
+8. installed-wheel resource and CLI smoke passes outside the source checkout;
+9. focused tests, marked real tests, and
    `pytest -q -n 16 --dist=worksteal` pass; and
-9. no unresolved review finding demonstrates a specification, security, or
+10. no unresolved review finding demonstrates a specification, security, or
    maintainability contract violation.

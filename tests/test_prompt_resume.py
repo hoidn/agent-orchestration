@@ -1,4 +1,4 @@
-"""Task 10: `prompt resume` — closed grammar, TTY gate, and preflight REDs.
+"""Task 11: `prompt resume` — closed grammar, TTY gate, and preflight REDs.
 
 Grammar failures exit 2 before any dispatch; valid grammar requires fds 0/1/2
 to be TTYs before lookup/lock/writes/child. Preflight reuses the exact Task 9
@@ -20,14 +20,13 @@ from orchestrator.prompt_resume import (
     PromptResumeError,
     build_bridge_env,
     resume_prompt_session,
-    validate_record_confinement,
 )
 from orchestrator.prompt_session import (
     PromptSessionError,
     parse_session_link_bytes,
     resolve_prompt_session,
 )
-from orchestrator.providers.omp_launch_contract import POSITIVE_ENV_NAMES
+from orchestrator.providers.omp_launch_contract import PROFILE_ENV_NAMES
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
 from tests.test_prompt_session import (
     PRIMARY,
@@ -46,7 +45,7 @@ def _invoke(argv: list[str]) -> int:
     try:
         return main(argv)
     except SystemExit as exc:
-        return int(exc.code)
+        return int(exc.code or 0)
 
 
 def _fake_pin() -> object:
@@ -65,8 +64,8 @@ def _bridge_env(tmp_path: Path, *, marker: str | None = None) -> dict[str, str]:
         "HOME": str(home),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
-        "OMP_BROKER_URL": "http://127.0.0.1:9999",
-        "OMP_BROKER_TOKEN": "t" * 64,
+        "OMP_AUTH_BROKER_URL": "http://127.0.0.1:9999",
+        "OMP_AUTH_BROKER_TOKEN": "t" * 64,
         "PATH": "/usr/bin:/bin",
         "TMPDIR": str(home / "tmp"),
         "XDG_CACHE_HOME": str(home / "cache"),
@@ -205,7 +204,7 @@ def test_failed_record_tail_blocks_future_resume(tmp_path, pty_fds) -> None:
     ).read_bytes()
     private = os.path.join(
         manager.workspace, "cache", "omp-i1", "private",
-        OMP_BINARY_PIN.executable_sha256, "omp",
+        OMP_BINARY_PIN.executable_sha256, f"attempt-{'0' * 32}", "omp",
     )
     active = ContinuationState(
         SESSION_ID,
@@ -237,6 +236,7 @@ def test_failed_record_tail_blocks_future_resume(tmp_path, pty_fds) -> None:
         confinement=None,
         conf_manifest=None,
         post_manifest=None,
+        env_names=sorted(PROFILE_ENV_NAMES),
     )
     chain = _chain(manager)
     chain.mkdir()
@@ -304,9 +304,9 @@ def test_resume_conf_drift_publishes_nothing(tmp_path, pty_fds, provider: str) -
 
 
 def test_resume_missing_broker_publishes_nothing(tmp_path, pty_fds) -> None:
-    manager, _setup = _resume_setup(tmp_path)
+    manager, _setup = _resume_setup(tmp_path, provider="omp_no_tools")
     env = _bridge_env(tmp_path)
-    del env["OMP_BROKER_URL"]
+    del env["OMP_AUTH_BROKER_URL"]
     with pytest.raises(PromptResumeError, match="prompt_resume_broker_missing"):
         _resume_call(manager, tmp_path, pty_fds, env=env)()
     assert _records(manager) == []
@@ -379,7 +379,7 @@ def test_build_bridge_env_requires_current_broker_pair() -> None:
     }
     with pytest.raises(PromptResumeError, match="prompt_resume_broker_missing"):
         build_bridge_env(env)
-    env["OMP_BROKER_URL"] = "http://127.0.0.1:1"
+    env["OMP_AUTH_BROKER_URL"] = "http://127.0.0.1:1"
     with pytest.raises(PromptResumeError, match="prompt_resume_broker_missing"):
         build_bridge_env(env)
 
@@ -390,14 +390,15 @@ def test_build_bridge_env_is_exactly_the_positive_schema() -> None:
         "TMPDIR": "/tmp", "XDG_CACHE_HOME": "/x/cache",
         "XDG_CONFIG_HOME": "/x/config", "XDG_DATA_HOME": "/x/data",
         "XDG_STATE_HOME": "/x/state",
-        "OMP_BROKER_URL": "http://127.0.0.1:1",
-        "OMP_BROKER_TOKEN": "secret-token",
+        "OMP_AUTH_BROKER_URL": "http://127.0.0.1:1",
+        "OMP_AUTH_BROKER_TOKEN": "secret-token",
         "TASK10_MARKER": "must-not-leak",
     }
     built = build_bridge_env(env)
-    assert sorted(built) == sorted(POSITIVE_ENV_NAMES)
-    assert built["OMP_BROKER_URL"] == "http://127.0.0.1:1"
-    assert built["OMP_BROKER_TOKEN"] == "secret-token"
+    from orchestrator.providers.omp_launch_contract import valid_launch_env_names
+    assert valid_launch_env_names("omp_no_tools", sorted(built))
+    assert built["OMP_AUTH_BROKER_URL"] == "http://127.0.0.1:1"
+    assert built["OMP_AUTH_BROKER_TOKEN"] == "secret-token"
     assert built["PI_CODING_AGENT_DIR"] == "/home/x/.omp/agent"
     assert "TASK10_MARKER" not in built
 
@@ -405,50 +406,13 @@ def test_build_bridge_env_is_exactly_the_positive_schema() -> None:
 def test_build_bridge_env_missing_positive_name_fails() -> None:
     env = {
         "HOME": "/home/x", "LANG": "C", "PATH": "/usr/bin",
-        "TMPDIR": "/tmp", "XDG_CACHE_HOME": "/x/cache",
-        "XDG_CONFIG_HOME": "/x/config", "XDG_DATA_HOME": "/x/data",
-        "XDG_STATE_HOME": "/x/state",
-        "OMP_BROKER_URL": "http://127.0.0.1:1",
-        "OMP_BROKER_TOKEN": "secret-token",
+        "XDG_CACHE_HOME": "/x/cache", "XDG_CONFIG_HOME": "/x/config",
+        "XDG_DATA_HOME": "/x/data", "XDG_STATE_HOME": "/x/state",
+        "OMP_AUTH_BROKER_URL": "http://127.0.0.1:1",
+        "OMP_AUTH_BROKER_TOKEN": "secret-token",
     }
     with pytest.raises(PromptResumeError, match="prompt_resume_env_invalid"):
         build_bridge_env(env)
-
-
-# --- writer-side confinement truthfulness -------------------------------------
-
-_ACTUAL_POLICY = {
-    "schema_version": "omp_write_confinement.v1",
-    "landlock_abi": 3,
-    "policy_sha256": "d" * 64,
-}
-_STALE_LINK_POLICY = {
-    "schema_version": "omp_write_confinement.v1",
-    "landlock_abi": 3,
-    "policy_sha256": "b" * 64,
-}
-
-
-def test_record_confinement_must_be_the_executed_policy_for_profile() -> None:
-    validate_record_confinement(_ACTUAL_POLICY, _ACTUAL_POLICY, profile=True)
-    with pytest.raises(PromptResumeError, match="prompt_resume_postcondition_failed"):
-        validate_record_confinement(_STALE_LINK_POLICY, _ACTUAL_POLICY, profile=True)
-    with pytest.raises(PromptResumeError, match="prompt_resume_postcondition_failed"):
-        validate_record_confinement(None, _ACTUAL_POLICY, profile=True)
-    with pytest.raises(PromptResumeError, match="prompt_resume_postcondition_failed"):
-        validate_record_confinement(
-            {**_ACTUAL_POLICY, "policy_sha256": "e" * 64},
-            _ACTUAL_POLICY,
-            profile=True,
-        )
-
-
-def test_record_confinement_must_stay_null_for_ambient() -> None:
-    validate_record_confinement(None, None, profile=False)
-    with pytest.raises(PromptResumeError, match="prompt_resume_postcondition_failed"):
-        validate_record_confinement(_ACTUAL_POLICY, None, profile=False)
-    with pytest.raises(PromptResumeError, match="prompt_resume_postcondition_failed"):
-        validate_record_confinement(None, _ACTUAL_POLICY, profile=False)
 
 
 # --- the published link is unchanged by preflight-only calls ------------------

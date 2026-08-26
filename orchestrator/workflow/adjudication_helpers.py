@@ -31,7 +31,8 @@ class AdjudicationHelpersMixin:
             root_manager = manager
             while hasattr(root_manager, "parent_manager"):
                 root_manager = getattr(root_manager, "parent_manager")
-            run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
+            run_root = Path(
+                getattr(root_manager, "io_run_root", root_manager.run_root))
             if isinstance(call_frame_id, str) and call_frame_id:
                 return {
                     "run_root": run_root,

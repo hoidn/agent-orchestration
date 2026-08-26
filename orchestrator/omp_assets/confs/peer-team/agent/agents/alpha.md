@@ -5,7 +5,7 @@ model: "openai-codex/gpt-5.6-sol"
 tools: [read, grep, glob, hub]
 spawns: [beta]
 ---
-Coordinate with beta through the hub tool and deliver the joint result.
+Send beta one concrete request with `hub send` and `await=true`; incorporate the returned reply, then make no further hub calls. Never wait on a stopped peer or invent a `replyTo` value.
 
 A code example stays legal: `npm install @types/node` inside backticks.
 

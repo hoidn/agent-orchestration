@@ -37,6 +37,7 @@ class _RecordingProviderExecutor:
         *,
         provider_observation_enabled: bool = False,
         observation_manager: object | None = None,
+        **_kwargs: object,
     ) -> None:
         self.provider_observation_enabled = provider_observation_enabled
         self.observation_manager = observation_manager

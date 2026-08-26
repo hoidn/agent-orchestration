@@ -481,6 +481,12 @@ def test_terminal_safe_text_passes_printable_unicode_lf_and_tab():
     assert terminal_safe_text(plain) == plain
 
 
+def test_terminal_safe_line_escapes_line_breaks_tabs_and_controls():
+    from orchestrator.providers.observation import terminal_safe_line
+
+    assert terminal_safe_line("a\n\t\x1bb") == r"a\n\t\u001bb"
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     (

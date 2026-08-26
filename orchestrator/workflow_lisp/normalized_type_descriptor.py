@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.workflow.type_descriptor import (
     validate_compiler_normalized_type_descriptor,
 )
@@ -83,7 +84,7 @@ def _module_export_info(
     if source_read_trace is None:
         if source_path.startswith("<prelude:"):
             return None
-        canonical_source_path = Path(source_path).resolve()
+        canonical_source_path = resolve_path_preserving_fd(source_path)
         raw_bytes = canonical_source_path.read_bytes()
         return _cached_module_export_info(
             _ModuleExportCacheInput(

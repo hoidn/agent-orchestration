@@ -2,7 +2,7 @@
 
 Narrowly named sibling of ``orchestrator.cli.commands.prompt``: the
 component-wise no-follow conf/run-root openers, the generated-root creator,
-run-root reservation/revalidation, and the inference snapshot materializer.
+run-root reservation, and the inference snapshot materializer.
 Everything here raises ``PromptCliError``/``PromptRunError`` (defined here
 and re-exported by the CLI module) so admission failures keep the documented
 exit codes (2 before any provider call or write, 1 afterwards).
@@ -91,19 +91,30 @@ def _admit_conf_dir(conf_path: Path) -> object:
 
 
 def _create_prompt_inputs_root(
-    run_root: Path, identity: tuple[int, int]
-) -> Path:
+    run_root: Path,
+    identity: tuple[int, int],
+    *,
+    run_root_fd: int | None = None,
+) -> tuple[Path, int]:
+    if run_root_fd is None:
+        try:
+            fd = open_generated_root(run_root)
+        except ScaffoldVerificationError as exc:
+            raise PromptRunError(
+                f"cannot open reserved run root {run_root}: {exc}") from exc
+    else:
+        fd = os.dup(run_root_fd)
     try:
-        fd = open_generated_root(run_root)
-    except ScaffoldVerificationError as exc:
-        raise PromptRunError(
-            f"cannot open reserved run root {run_root}: {exc}") from exc
-    try:
-        stat = os.fstat(fd)
-        if (stat.st_dev, stat.st_ino) != identity:
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) != identity:
             raise PromptRunError(
                 f"reserved run root {run_root} changed identity")
         os.mkdir(_SNAPSHOT_DIR, 0o700, dir_fd=fd)
+        prompt_inputs_fd = os.open(
+            _SNAPSHOT_DIR,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=fd,
+        )
     except FileExistsError as exc:
         raise PromptRunError(f"prompt-inputs already exists under {run_root}") from exc
     except OSError as exc:
@@ -111,7 +122,7 @@ def _create_prompt_inputs_root(
             f"cannot create prompt-inputs under {run_root}: {exc}") from exc
     finally:
         os.close(fd)
-    return run_root / _SNAPSHOT_DIR
+    return run_root / _SNAPSHOT_DIR, prompt_inputs_fd
 
 
 def _ensure_generated_root(workspace: Path) -> Path:
@@ -142,20 +153,21 @@ def _new_reserved_run(
     return run_id, run_root, identity
 
 
-def _revalidate_run_root(run_root: Path, identity: tuple[int, int]) -> None:
-    try:
-        current = directory_identity(str(run_root))
-    except (LaunchFsError, OSError) as exc:
-        raise PromptRunError(
-            f"reserved run root {run_root} cannot be inspected: {exc}") from exc
-    if current != identity:
-        raise PromptRunError(
-            f"reserved run root {run_root} changed identity ({identity} != {current})"
-        )
+
+
+def _write_bytes_at(directory_fd: int, filename: str, payload: bytes) -> None:
+    descriptor = os.open(
+        filename,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+        dir_fd=directory_fd,
+    )
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
 
 
 def _write_inference_snapshot(
-    prompt_inputs: Path, model: str, inference_prompt: str, asset_path: str
+    prompt_inputs_fd: int, model: str, inference_prompt: str, asset_path: str
 ) -> None:
     """Materialize the inference workflow, code-owned prompt, and externs."""
     try:
@@ -175,15 +187,26 @@ def _write_inference_snapshot(
                 f'      :model "{wfl_string_literal(model)}"\n'
             ).encode("utf-8"),
         )
-        (prompt_inputs / "infer-output-contract.orc").write_bytes(rendered)
-        (prompt_inputs / "inference-prompt.md").write_text(
-            inference_prompt, encoding="utf-8")
-        (prompt_inputs / "providers.json").write_text(
-            json.dumps({"providers.inference": INFERENCE_PROVIDER},
-                       sort_keys=True) + "\n", encoding="utf-8")
-        (prompt_inputs / "prompts.json").write_text(
-            json.dumps({"prompts.inference": {"asset_file": "inference-prompt.md"}},
-                       sort_keys=True) + "\n", encoding="utf-8")
+        _write_bytes_at(
+            prompt_inputs_fd, "infer-output-contract.orc", rendered
+        )
+        _write_bytes_at(
+            prompt_inputs_fd, "inference-prompt.md", inference_prompt.encode()
+        )
+        _write_bytes_at(
+            prompt_inputs_fd,
+            "providers.json",
+            (json.dumps({"providers.inference": INFERENCE_PROVIDER},
+                        sort_keys=True) + "\n").encode(),
+        )
+        _write_bytes_at(
+            prompt_inputs_fd,
+            "prompts.json",
+            (json.dumps(
+                {"prompts.inference": {"asset_file": "inference-prompt.md"}},
+                sort_keys=True,
+            ) + "\n").encode(),
+        )
     except ValueError as exc:
         raise PromptRunError(
             f"cannot render the model into the inference workflow: {exc}"

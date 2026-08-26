@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
 from .._common.io_atomic import atomic_write_text, durable_atomic_write
 from .._common.status import is_step_settled
+from .._common.safe_tree import resolve_path_preserving_fd
 
 from ..state import StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -274,6 +275,7 @@ class WorkflowExecutor:
         no_tools_conf_root: str | None = None,
         no_tools_conf_identity: tuple[int, int] | None = None,
         no_tools_conf_manifest_sha256: str | None = None,
+        profile_conf_fd: int | None = None,
     ):
         """
         Initialize workflow executor.
@@ -358,6 +360,7 @@ class WorkflowExecutor:
             no_tools_conf_root=no_tools_conf_root,
             no_tools_conf_identity=no_tools_conf_identity,
             no_tools_conf_manifest_sha256=no_tools_conf_manifest_sha256,
+            profile_conf_fd=profile_conf_fd,
         )
         self.dependency_resolver = DependencyResolver(str(workspace))
         self.dependency_injector = DependencyInjector(str(workspace))
@@ -528,7 +531,7 @@ class WorkflowExecutor:
             try:
                 self.provider_observation_manager = (
                     ProviderObservationManager(
-                        Path(self.state_manager.run_root)
+                        Path(self.state_manager.io_run_root)
                     )
                 )
             except Exception:
@@ -2781,8 +2784,9 @@ class WorkflowExecutor:
         relative_root = Path(
             visit_root_template.replace("{visit}", str(visit_count))
         )
-        run_root = Path(self.state_manager.run_root).resolve()
-        metadata_path = (run_root / relative_root / "metadata.json").resolve()
+        run_root = resolve_path_preserving_fd(self.state_manager.io_run_root)
+        metadata_path = resolve_path_preserving_fd(
+            run_root / relative_root / "metadata.json")
         if metadata_path == run_root or run_root not in metadata_path.parents:
             raise ValueError(
                 "provider supervision visit metadata path escapes run root"
@@ -2899,8 +2903,8 @@ class WorkflowExecutor:
         relative_root = Path(
             node_root
         ) / "visit-metadata" / f"{visit_count}.json"
-        run_root = Path(self.state_manager.run_root).resolve()
-        metadata_path = (run_root / relative_root).resolve()
+        run_root = resolve_path_preserving_fd(self.state_manager.io_run_root)
+        metadata_path = resolve_path_preserving_fd(run_root / relative_root)
         if metadata_path == run_root or run_root not in metadata_path.parents:
             raise ValueError(
                 "provider peer group visit metadata path escapes run root"
@@ -3064,7 +3068,7 @@ class WorkflowExecutor:
             or visit_count <= 0
         ):
             return None
-        run_root = Path(self.state_manager.run_root)
+        run_root = Path(self.state_manager.io_run_root)
         if family == "session":
             safe_step_id = step_id.replace("/", "_")
             return (
@@ -5427,9 +5431,10 @@ class WorkflowExecutor:
         root_manager = self.state_manager
         while hasattr(root_manager, "parent_manager"):
             root_manager = getattr(root_manager, "parent_manager")
-        aggregate_run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
+        aggregate_run_root = Path(
+            getattr(root_manager, "io_run_root", root_manager.run_root))
         return SummaryObserver(
-            run_root=self.state_manager.run_root,
+            run_root=self.state_manager.io_run_root,
             provider_executor=self.provider_executor,
             provider_name=provider_name,
             mode=mode,
@@ -5467,7 +5472,8 @@ class WorkflowExecutor:
         root_manager = self.state_manager
         while hasattr(root_manager, "parent_manager"):
             root_manager = getattr(root_manager, "parent_manager")
-        aggregate_run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
+        aggregate_run_root = Path(
+            getattr(root_manager, "io_run_root", root_manager.run_root))
         return LiveAgentNoteObserver(
             aggregate_run_root=aggregate_run_root,
             provider_executor=self.provider_executor,
@@ -6885,8 +6891,10 @@ class WorkflowExecutor:
         if path.is_absolute() or ".." in path.parts:
             return None
 
-        candidate = (self.state_manager.run_root / path).resolve()
-        run_root = self.state_manager.run_root.resolve()
+        candidate = resolve_path_preserving_fd(
+            self.state_manager.io_run_root / path)
+        run_root = resolve_path_preserving_fd(
+            self.state_manager.io_run_root)
         try:
             candidate.relative_to(run_root)
         except ValueError:
@@ -9606,6 +9614,7 @@ class WorkflowExecutor:
             # fresh launches; the adapter converts it to OMP's --session-dir
             # and the reserved carrier wins over authored parameters.
             provider_session_dir = None
+            provider_session_identity = None
             if (
                 session_request is not None
                 and session_request.mode == ProviderSessionMode.FRESH
@@ -9641,11 +9650,15 @@ class WorkflowExecutor:
                             # The run-owned parent is created privately and
                             # must verify as a current-user 0700 directory
                             # before the bare live-directory mkdir (never repaired).
-                            session_dir.parent.mkdir(
+                            session_parent = (
+                                self.state_manager.io_run_root
+                                / "provider_sessions"
+                            )
+                            session_parent.mkdir(
                                 parents=True, exist_ok=True, mode=0o700
                             )
                             parent_fd = os.open(
-                                session_dir.parent,
+                                session_parent,
                                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                             )
                             try:
@@ -9658,26 +9671,36 @@ class WorkflowExecutor:
                                         f"OMP fresh visit parent is not private: "
                                         f"{session_dir.parent}"
                                     )
+                                try:
+                                    os.mkdir(
+                                        session_dir.name, 0o700, dir_fd=parent_fd
+                                    )
+                                except FileExistsError:
+                                    raise RuntimeError(
+                                        "OMP fresh visit directory already exists: "
+                                        f"{session_dir}"
+                                    ) from None
+                                live_fd = os.open(
+                                    session_dir.name,
+                                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                    dir_fd=parent_fd,
+                                )
+                                try:
+                                    live_st = os.fstat(live_fd)
+                                    if (
+                                        live_st.st_uid != os.getuid()
+                                        or live_st.st_mode & 0o077
+                                    ):
+                                        raise RuntimeError(
+                                            "OMP fresh visit directory is not private: "
+                                            f"{session_dir}"
+                                        )
+                                    provider_session_identity = (
+                                        live_st.st_dev, live_st.st_ino)
+                                finally:
+                                    os.close(live_fd)
                             finally:
                                 os.close(parent_fd)
-                            try:
-                                session_dir.mkdir(mode=0o700)
-                            except FileExistsError:
-                                raise RuntimeError(
-                                    f"OMP fresh visit directory already exists: {session_dir}"
-                                ) from None
-                            live_fd = os.open(
-                                session_dir,
-                                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            )
-                            try:
-                                live_st = os.fstat(live_fd)
-                                if live_st.st_uid != os.getuid() or live_st.st_mode & 0o077:
-                                    raise RuntimeError(
-                                        f"OMP fresh visit directory is not private: {session_dir}"
-                                    )
-                            finally:
-                                os.close(live_fd)
                         provider_session_dir = str(session_dir)
 
             invocation, error = self.provider_executor.prepare_invocation(
@@ -9701,6 +9724,7 @@ class WorkflowExecutor:
                     if value is not None
                 },
                 provider_session_dir=provider_session_dir,
+                provider_session_identity=provider_session_identity,
             )
 
             if error or invocation is None:
@@ -9900,7 +9924,7 @@ class WorkflowExecutor:
                 if isinstance(step_visits, dict) and isinstance(step_visits.get(step_name), int):
                     visit_count = step_visits[step_name]
                 invocation = ManagedProviderRuntime(
-                    run_root=self.state_manager.run_root,
+                    run_root=self.state_manager.io_run_root,
                     workspace=self.workspace,
                 ).wrap_invocation(
                     invocation,
@@ -11886,7 +11910,7 @@ class WorkflowExecutor:
             char if char.isalnum() or char in "._-" else "_"
             for char in self._step_id(step)
         ).strip("._-") or "step"
-        return self.state_manager.run_root / "snapshots" / safe_step_id
+        return self.state_manager.io_run_root / "snapshots" / safe_step_id
 
     def _project_snapshot_record(
         self,
@@ -11902,7 +11926,7 @@ class WorkflowExecutor:
         sidecar_path = snapshot_dir / f"{snapshot_name}.json"
         sidecar_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(sidecar_path, payload)
-        sidecar_rel = sidecar_path.relative_to(self.state_manager.run_root).as_posix()
+        sidecar_rel = sidecar_path.relative_to(self.state_manager.io_run_root).as_posix()
         return {
             "schema": snapshot_record["schema"],
             "digest": snapshot_record["digest"],
@@ -14007,7 +14031,7 @@ class WorkflowExecutor:
         manager = self.provider_observation_manager
         if manager is not None:
             return manager
-        manager = ProviderObservationManager(Path(self.state_manager.run_root))
+        manager = ProviderObservationManager(Path(self.state_manager.io_run_root))
         self.provider_observation_manager = manager
         self.provider_executor.observation_manager = manager
         self._owns_provider_observation_manager = True

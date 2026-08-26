@@ -13,10 +13,13 @@ import json
 import os
 import select
 import subprocess
+import shutil
 import sys
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -26,10 +29,10 @@ from orchestrator.prompt_resume import (
 )
 from orchestrator.prompt_session import PromptSessionError, resolve_prompt_session
 from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
     build_interactive_argv,
+    valid_launch_env_names,
 )
-from orchestrator.providers.omp_pin import OMP_BINARY_PIN
+from orchestrator.providers.omp_pin import OMP_BINARY_PIN, OmpBinaryPin
 from orchestrator.providers.omp_session import parse_journal_bytes, validate_session_graph
 from orchestrator.providers.omp_write_confinement import canonical_policy_digest
 from tests.test_prompt_resume import (
@@ -44,7 +47,7 @@ from tests.test_prompt_resume import (
 from tests.test_prompt_session import SESSION_ID, _canonical
 
 PRIMARY = "2026-08-23T22-33-31-340Z_11111111-1111-7111-8111-111111111111.jsonl"
-CONTROL = json.dumps({"fake": 1}, separators=(",", ":"))
+CONTROL = json.dumps({"fake": 1}, separators=(",", ":")).encode() + b"\n"
 
 
 def _control(**extra: object) -> bytes:
@@ -66,30 +69,28 @@ def _launcher() -> Path:
             capture_output=True,
             env={**os.environ, "TMPDIR": str(cache)},
         )
-        launcher.chmod(0o700)
+    launcher.chmod(0o500)
     return launcher
 
 
-def _launcher_pin():
-    return replace(_fake_pin(), executable_sha256=hashlib.sha256(_launcher().read_bytes()).hexdigest())
+def _launcher_pin() -> OmpBinaryPin:
+    return replace(cast(OmpBinaryPin, _fake_pin()), executable_sha256=hashlib.sha256(_launcher().read_bytes()).hexdigest())
 
 
 def _staged_private(env: dict, *, provider: str = "omp") -> str:
-    if provider in ("omp_no_tools", "omp_conf"):
-        source, pin = _launcher(), _launcher_pin()
-    else:
-        source, pin = FAKE_INTERACTIVE, _fake_pin()
+    pin = _launcher_pin()
     return os.path.join(
-        env["XDG_CACHE_HOME"], "omp-i1", "private",
-        pin.executable_sha256, os.path.basename(str(source)),
+        env["XDG_CACHE_HOME"],
+        "omp-i1",
+        "private",
+        pin.executable_sha256,
+        f"attempt-{'0' * 32}",
+        "omp",
     )
 
 
 def _bridge(manager, tmp_path: Path, *, in_place: bool = False, env=None, provider: str = "omp"):
-    if provider in ("omp_no_tools", "omp_conf"):
-        pin, resolver = _launcher_pin(), lambda: str(_launcher())
-    else:
-        pin, resolver = _fake_pin(), lambda: str(FAKE_INTERACTIVE)
+    pin, resolver = _launcher_pin(), lambda: str(_launcher())
     return dict(
         runs_root=manager.run_root.parent,
         identifier="run-1",
@@ -189,10 +190,6 @@ def _link_document(manager) -> dict:
 # --- inherited stdio and descriptor closure -----------------------------------
 
 
-def _assert_child_env_names(report: str) -> None:
-    names = json.loads(report)
-    assert names == sorted(POSITIVE_ENV_NAMES)
-
 
 # --- inherited stdio and descriptor closure -----------------------------------
 
@@ -210,6 +207,37 @@ def test_fork_child_inherits_pty_stdio_and_closes_other_fds(tmp_path: Path) -> N
     # child (the bridge's lock/session/live fds are all closed pre-exec).
     fds = json.loads(child.report("FDS"))
     assert {"0", "1", "2"} <= set(fds)
+
+
+@pytest.mark.parametrize("target_kind", ("current", "sibling"))
+def test_child_cannot_unlink_controller_lock(
+    tmp_path: Path, target_kind: str
+) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    if target_kind == "current":
+        lock_path = (
+            manager.run_root
+            / "provider_sessions"
+            / "task__v1.continuations.lock"
+        )
+    else:
+        sibling = manager.run_root.parent / "sibling"
+        sibling.mkdir()
+        lock_path = sibling / "controller.lock"
+        lock_path.write_bytes(b"")
+    child = _run_child(
+        manager,
+        tmp_path,
+        control=_control(
+            id="99999999-9999-7999-8999-999999999999",
+            deny_unlink_path=str(lock_path),
+        ),
+    )
+
+    assert child.errors == []
+    assert child.returned == [0]
+    assert child.report("DENIED_UNLINK") == "1"
+    assert lock_path.is_file()
 
 
 # --- exact four-lane X8 argv/env/cwd ------------------------------------------
@@ -248,12 +276,37 @@ def test_four_lane_argv_env_cwd_matrix(tmp_path: Path, provider: str, lane: str)
         workspace=link["workflow_workspace"],
         empty_cwd=empty_cwd,
     )
-    assert observed_argv == list(expected)
-    assert json.loads(child.report("ENV")) == sorted(POSITIVE_ENV_NAMES)
+    assert observed_argv == list(expected[1:])
+    observed_env_names = json.loads(child.report("ENV"))
+    assert valid_launch_env_names(provider, observed_env_names)
     if lane in ("ambient", "ambient-unrestricted"):
         assert observed_cwd == str(manager.workspace)
     else:
         assert observed_cwd.startswith(env["HOME"] + os.sep)
+        agent_dir = child.report("AGENT_DIR")
+        assert "/omp-i1/attempts/omp-attempt-" in agent_dir
+        assert agent_dir.endswith("/home/.omp/agent")
+        frozen_config = (
+            manager.run_root / link["paths"]["conf"] / "config.yml"
+        )
+        assert child.report("CONFIG_SHA256") == hashlib.sha256(
+            frozen_config.read_bytes()
+        ).hexdigest()
+
+
+def test_ambient_inherits_caller_env_without_broker(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    env = _bridge_env(tmp_path, marker="ambient-value")
+    env.pop("OMP_AUTH_BROKER_URL")
+    env.pop("OMP_AUTH_BROKER_TOKEN")
+    child = _run_child(
+        manager,
+        tmp_path,
+        env=env,
+        control=_control(id="99999999-9999-7999-8999-999999999999"),
+    )
+    assert child.returned == [0]
+    assert "TASK10_MARKER" in json.loads(child.report("ENV"))
 
 
 # --- fork postconditions -------------------------------------------------------
@@ -286,6 +339,22 @@ def test_fork_keeps_source_and_creates_one_direct_primary(tmp_path: Path) -> Non
     }
 
 
+def test_fork_accepts_result_sidecar_artifacts(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    child = _run_child(
+        manager,
+        tmp_path,
+        control=_control(
+            id="99999999-9999-7999-8999-999999999999",
+            advisor_sidecar=True,
+        ),
+    )
+    assert child.returned == [0]
+    result = _new_primary(manager)
+    assert (result.with_suffix("") / "__advisor.jsonl").is_file()
+    assert json.loads(_records(manager)[0].read_bytes())["status"] == "success"
+
+
 def test_fork_record_is_exact_closed_continuation(tmp_path: Path) -> None:
     manager, _setup = _resume_setup(tmp_path)
     env = _bridge_env(tmp_path)
@@ -295,7 +364,7 @@ def test_fork_record_is_exact_closed_continuation(tmp_path: Path) -> None:
     assert len(records) == 1
     record = json.loads(records[0].read_bytes())
     link = _link_document(manager)
-    pin = _fake_pin()
+    pin = _launcher_pin()
     assert record["schema_version"] == "session_continuation.v1"
     assert record["sequence"] == 1
     assert record["previous_sha256"] == hashlib.sha256(
@@ -310,8 +379,8 @@ def test_fork_record_is_exact_closed_continuation(tmp_path: Path) -> None:
         "version": pin.version, "sha256": pin.executable_sha256,
     }
     assert record["conf_manifest_sha256"] == link["digests"]["conf_manifest_sha256"]
-    assert record["launch"]["argv"] == json.loads(child.report("ARGS"))
-    assert record["launch"]["env_names"] == list(POSITIVE_ENV_NAMES)
+    assert record["launch"]["argv"][1:] == json.loads(child.report("ARGS"))
+    assert record["launch"]["env_names"] == json.loads(child.report("ENV"))
     assert record["confinement"] is None
     assert record["pre_live_manifest_sha256"] == link["digests"]["live_manifest_sha256"]
     assert record["post_live_manifest_sha256"] != record["pre_live_manifest_sha256"]
@@ -336,7 +405,7 @@ def test_fork_record_is_exact_closed_continuation(tmp_path: Path) -> None:
     }
     real_private = os.path.join(
         manager.workspace, "cache", "omp-i1", "private",
-        OMP_BINARY_PIN.executable_sha256, "omp",
+        OMP_BINARY_PIN.executable_sha256, f"attempt-{'0' * 32}", "omp",
     )
     record["launch"]["argv"] = [real_private, *record["launch"]["argv"][1:]]
     from orchestrator.prompt_session import validate_continuation_chain
@@ -485,33 +554,61 @@ def test_profile_confinement_mutation_boundaries(
     child = _run_child(manager, tmp_path, control=_control(id="99999999-9999-7999-8999-999999999999", probe=True), provider=provider)
     assert child.returned == [0]
     output = child.output.decode("utf-8", errors="replace")
-    home = _bridge_env(tmp_path)["HOME"]
-    denied_roots = [
-        os.path.join(home, ".omp"),
+    env = _bridge_env(tmp_path)
+    lines = output.splitlines()
+    discovery = [
+        line
+        for line in lines
+        if line.startswith("FAKE_PROBE ")
+        and line.endswith("/home/.omp create=denied")
     ]
-    base = os.path.join(home, ".omp-i1-runtime")
-    denied_roots += [
-        os.path.join(base, nonce, "conf")
-        for nonce in sorted(os.listdir(base))
-        if os.path.isdir(os.path.join(base, nonce, "conf"))
-    ]
-    for root in denied_roots:
-        assert ("%s create=denied" % root) in output, output
-        assert ("%s write=denied" % root) in output, output
-    allowed = []
-    for name in ("XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR"):
-        allowed.append(_bridge_env(tmp_path)[name])
-    allowed.append(str(_live(manager)))
+    assert len(discovery) == 1, output
+    attempt_prefix = os.path.join(
+        env["XDG_CACHE_HOME"], "omp-i1", "attempts", "omp-attempt-"
+    )
+    assert discovery[0].startswith(f"FAKE_PROBE {attempt_prefix}"), output
+    assert (
+        f"FAKE_PROBE {os.path.join(env['HOME'], '.omp')} create=denied"
+        not in lines
+    )
+    for name in ("data", "state", "cache", "tmp"):
+        assert any(
+            line.startswith(f"FAKE_PROBE {attempt_prefix}")
+            and line.endswith(f"/{name} create=ok")
+            for line in lines
+        ), output
+    for env_name in (
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "TMPDIR",
+    ):
+        assert f"FAKE_PROBE {env[env_name]} create=ok" not in lines
+    allowed = [str(_live(manager))]
     if provider == "omp_conf":
         allowed.append(str(manager.workspace))
     for root in allowed:
-        assert ("%s create=ok" % root) in output, output
+        assert f"FAKE_PROBE {root} create=ok" in lines
     assert "SPAWNED_PROBE" in output, output
 
 
 def test_profile_record_binds_the_executed_policy_not_the_link(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from orchestrator import prompt_resume_preflight
+
+    captured: dict[str, object] = {}
+    original_digest = prompt_resume_preflight.canonical_policy_digest
+
+    def capture_digest(**kwargs):
+        captured.update(kwargs)
+        captured["digest"] = original_digest(**kwargs)
+        return captured["digest"]
+
+    monkeypatch.setattr(
+        prompt_resume_preflight, "canonical_policy_digest", capture_digest
+    )
     manager, _setup = _resume_setup(tmp_path, provider="omp_conf")
     link = _link_document(manager)
     assert link["confinement"]["policy_sha256"] == "b" * 64
@@ -523,28 +620,16 @@ def test_profile_record_binds_the_executed_policy_not_the_link(
     assert record["confinement"]["schema_version"] == "omp_write_confinement.v1"
     recorded = record["confinement"]["policy_sha256"]
     assert recorded != link["confinement"]["policy_sha256"]
-    cwd = child.report("CWD")
-    home = env["HOME"]
-    base = os.path.join(home, ".omp-i1-runtime")
-    copies = [
-        os.path.join(base, nonce, "conf")
-        for nonce in sorted(os.listdir(base))
-        if os.path.isdir(os.path.join(base, nonce, "conf"))
-    ]
-    assert len(copies) == 1
-    expected = canonical_policy_digest(
-        lane="conf",
-        home_omp=os.path.join(home, ".omp"),
-        session_dir=str(_live(manager)),
-        conf_root=copies[0],
-        workspace=link["workflow_workspace"],
-        empty_cwd=cwd,
-        env_roots={
-            "data": env["XDG_DATA_HOME"], "state": env["XDG_STATE_HOME"],
-            "cache": env["XDG_CACHE_HOME"], "temp": env["TMPDIR"],
-        },
+    assert recorded == captured["digest"]
+    attempt = os.path.dirname(os.path.dirname(str(captured["home_omp"])))
+    assert "/omp-i1/attempts/omp-attempt-" in attempt
+    env_roots = captured["env_roots"]
+    assert isinstance(env_roots, dict)
+    assert all(
+        os.path.commonpath([attempt, path]) == attempt
+        for path in env_roots.values()
     )
-    assert recorded == expected
+    assert not os.path.exists(attempt)
 
 
 # --- actual fake PTY subprocess (production path) ------------------------------
@@ -585,10 +670,13 @@ def test_cli_pty_subprocess_fork_end_to_end(tmp_path: Path) -> None:
     driver = tmp_path / "resume_driver.py"
     driver.write_text(_DRIVER)
     env = _bridge_env(tmp_path)
+    fake = tmp_path / "fake-omp"
+    fake.write_bytes(_launcher().read_bytes())
+    fake.chmod(0o500)
     master_in, slave_in = os.openpty()
     master_out, slave_out = os.openpty()
     proc = subprocess.Popen(
-        [sys.executable, str(driver), str(FAKE_INTERACTIVE), "run-1"],
+        [sys.executable, str(driver), str(fake), "run-1"],
         cwd=str(manager.workspace),
         env=env,
         stdin=slave_in,
@@ -624,32 +712,313 @@ def test_cli_pty_subprocess_fork_end_to_end(tmp_path: Path) -> None:
     text = output.decode("utf-8", errors="replace")
     assert "FAKE_DONE 1" in text
     assert "prompt resume: argv:" in text
-    assert "OMP_BROKER_TOKEN" in text
+    assert "OMP_AUTH_BROKER_TOKEN" in text
     assert "secret-token" not in text and ("t" * 64) not in text
     os.close(master_out)
 
 
+
+@pytest.mark.parametrize(
+    "authority,provider",
+    (
+        ("scaffold", "omp"),
+        ("private_binary", "omp"),
+    ),
+)
+def test_child_input_mutation_publishes_failed_record(
+    tmp_path: Path, authority: str, provider: str
+) -> None:
+    manager, _setup = _resume_setup(tmp_path, provider=provider)
+    env = _bridge_env(tmp_path)
+    link = _link_document(manager)
+    child = _Child(_bridge(manager, tmp_path, env=env, provider=provider))
+    if authority == "scaffold":
+        target = (
+            manager.workspace
+            / link["scaffold_relpath"]
+            / "prompt.md"
+        )
+    else:
+        candidates = []
+        for _ in range(1000):
+            candidates = list(
+                Path(env["XDG_CACHE_HOME"]).glob(
+                    "omp-i1/private/*/attempt-*/omp"
+                )
+            )
+            if candidates:
+                break
+            time.sleep(0.01)
+        assert len(candidates) == 1
+        target = candidates[0]
+    original = target.read_bytes()
+
+    child.feed(
+        _control(
+            id="99999999-9999-7999-8999-999999999999",
+            mutate_path=str(target),
+        )
+    )
+
+    assert target.read_bytes() != original
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_postcondition_failed"
+    records = _records(manager)
+    assert len(records) == 1
+    record = json.loads(records[0].read_bytes())
+    assert record["status"] == "failed"
+    assert record["failure"] == "prompt_resume_postcondition_failed"
+
+
+def test_child_cannot_mutate_frozen_conf_authority(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path, provider="omp_conf")
+    link = _link_document(manager)
+    target = manager.run_root / link["paths"]["conf"] / "config.yml"
+    original = target.read_bytes()
+    child = _run_child(
+        manager,
+        tmp_path,
+        provider="omp_conf",
+        control=_control(mutate_path=str(target)),
+    )
+
+    assert target.read_bytes() == original
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_child_failed"
+    record = json.loads(_records(manager)[0].read_bytes())
+    assert record["status"] == "failed"
+    assert record["failure"] == "prompt_resume_child_failed"
+
+
+@pytest.mark.parametrize("provider", ("omp_no_tools", "omp_conf"))
+@pytest.mark.parametrize(
+    "env_name",
+    ("XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR"),
+)
+def test_profile_child_cannot_mutate_caller_runtime_roots(
+    tmp_path: Path,
+    provider: str,
+    env_name: str,
+) -> None:
+    manager, _setup = _resume_setup(tmp_path, provider=provider)
+    env = _bridge_env(tmp_path)
+    target = Path(env[env_name]) / "caller-owned"
+    target.write_bytes(b"safe")
+    child = _run_child(
+        manager,
+        tmp_path,
+        env=env,
+        provider=provider,
+        control=_control(mutate_path=str(target)),
+    )
+
+    assert target.read_bytes() == b"safe"
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_child_failed"
+    record = json.loads(_records(manager)[0].read_bytes())
+    assert record["failure"] == "prompt_resume_child_failed"
+
+
+def test_malformed_live_tree_publishes_failed_record(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    nested = _live(manager) / "empty"
+    nested.mkdir()
+    child = _Child(_bridge(manager, tmp_path))
+    child.feed(
+        _control(
+            id="99999999-9999-7999-8999-999999999999",
+            plant_nested_symlink=str(nested),
+        )
+    )
+
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_postcondition_failed"
+    records = _records(manager)
+    assert len(records) == 1
+    record = json.loads(records[0].read_bytes())
+    assert record["status"] == "failed"
+    assert record["failure"] == "prompt_resume_postcondition_failed"
+
+
+def test_child_cannot_hardlink_result_outside_live_tree(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    alias = manager.workspace / "outside-live.jsonl"
+    child = _Child(_bridge(manager, tmp_path))
+    child.feed(
+        _control(
+            id="99999999-9999-7999-8999-999999999999",
+            hardlink_alias=str(alias),
+        )
+    )
+
+    assert not alias.exists()
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_child_failed"
+    records = _records(manager)
+    assert len(records) == 1
+    record = json.loads(records[0].read_bytes())
+    assert record["status"] == "failed"
+    assert record["failure"] == "prompt_resume_child_failed"
+
+
+
+
+def test_ambient_binary_swap_after_probe_never_executes_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator import prompt_resume
+
+    manager, _setup = _resume_setup(tmp_path)
+    marker = tmp_path / "payload-ran"
+
+    def swap_then_popen(argv, *args, **kwargs):
+        private = next(
+            Path(part)
+            for part in argv
+            if "/omp-i1/private/" in part and part.endswith("/omp")
+        )
+        private.chmod(0o700)
+        private.write_text(
+            f"#!/bin/sh\nprintf hacked > {marker}\n",
+            encoding="utf-8",
+        )
+        private.chmod(0o500)
+        return subprocess.Popen(argv, *args, **kwargs)
+
+    monkeypatch.setattr(prompt_resume, "_Popen", swap_then_popen)
+    child = _run_child(manager, tmp_path, control=_control())
+
+    assert not marker.exists()
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_child_failed"
+    record = json.loads(_records(manager)[0].read_bytes())
+    assert record["failure"] == "prompt_resume_child_failed"
+
+
+@pytest.mark.parametrize("change", ("content", "canonical"))
+def test_post_snapshot_live_drift_cannot_publish_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    from orchestrator import prompt_resume
+
+    manager, _setup = _resume_setup(tmp_path)
+    original = prompt_resume.revalidate_post_live
+
+    def drift_then_revalidate(**kwargs):
+        live = _live(manager)
+        if change == "content":
+            result = _new_primary(manager)
+            result.write_bytes(result.read_bytes() + b" ")
+        else:
+            detached = live.with_name(live.name + ".detached")
+            live.rename(detached)
+            shutil.copytree(detached, live)
+        return original(**kwargs)
+
+    monkeypatch.setattr(
+        prompt_resume, "revalidate_post_live", drift_then_revalidate
+    )
+    child = _run_child(
+        manager,
+        tmp_path,
+        control=_control(id="99999999-9999-7999-8999-999999999999"),
+    )
+
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_postcondition_failed"
+    record = json.loads(_records(manager)[0].read_bytes())
+    assert record["status"] == "failed"
+    assert record["failure"] == "prompt_resume_postcondition_failed"
+
+
+def test_descendant_cannot_mutate_after_child_exit(tmp_path: Path) -> None:
+    manager, _setup = _resume_setup(tmp_path)
+    source = _live(manager) / PRIMARY
+    before = source.read_bytes()
+    child = _run_child(
+        manager,
+        tmp_path,
+        control=_control(background_mutate_path=str(source)),
+    )
+    time.sleep(0.7)
+
+    assert source.read_bytes() == before
+    assert child.errors == []
+    assert child.returned == [0]
+    record = json.loads(_records(manager)[0].read_bytes())
+    assert record["status"] == "success"
+
+
+def test_under_lock_link_swap_starts_no_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import orchestrator.prompt_resume as prompt_resume
+
+    manager, _setup = _resume_setup(tmp_path)
+    link_path = (
+        manager.run_root
+        / "provider_sessions"
+        / "task__v1.session-link.json"
+    )
+    original = prompt_resume.read_regular_file
+    swapped = False
+
+    def swap_before_read(root_fd, relative, **kwargs):
+        nonlocal swapped
+        if not swapped and relative == "task__v1.session-link.json":
+            document = json.loads(link_path.read_bytes())
+            document["provider"]["model"] = "other-model"
+            link_path.write_bytes(_canonical(document))
+            swapped = True
+        return original(root_fd, relative, **kwargs)
+
+    monkeypatch.setattr(prompt_resume, "read_regular_file", swap_before_read)
+    child = _run_child(manager, tmp_path, control=_control())
+
+    assert swapped
+    assert child.returned == []
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_invalid"
+    assert _records(manager) == []
 # --- exact-once post-start lifecycle (Main blocker) ---------------------------
 
 
 class _FailingWaitProc:
-    """Spawn seam: the child starts, then wait() explodes with OSError."""
+    """Spawn seam: initial wait fails; termination wait reaps the child."""
+
+    instances = []
 
     def __init__(self, *args, **kwargs):
-        pass
+        self.calls = []
+        self.instances.append(self)
 
-    def wait(self):
-        raise OSError("wait exploded")
+    def wait(self, timeout=None):
+        self.calls.append(("wait", timeout))
+        if timeout is None:
+            raise OSError("wait exploded")
+        return 0
+
+    def terminate(self):
+        self.calls.append(("terminate", None))
+
+    def kill(self):
+        self.calls.append(("kill", None))
 
 
 class _InterruptProc:
     """Spawn seam: the child starts, then wait() raises KeyboardInterrupt."""
 
     def __init__(self, *args, **kwargs):
-        pass
+        self.waits = 0
 
-    def wait(self):
-        raise KeyboardInterrupt()
+    def wait(self, timeout=None):
+        self.waits += 1
+        if self.waits == 1:
+            raise KeyboardInterrupt()
+        return 0
 
     def terminate(self):
         pass
@@ -658,11 +1027,61 @@ class _InterruptProc:
         pass
 
 
+class _UnsettledProc:
+    """Spawn seam: neither graceful nor forced termination can reap the child."""
+
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        self.calls = []
+        self.instances.append(self)
+
+    def wait(self, timeout=None):
+        self.calls.append(("wait", timeout))
+        raise OSError("child remains live")
+
+    def terminate(self):
+        self.calls.append(("terminate", None))
+
+    def kill(self):
+        self.calls.append(("kill", None))
+
+
+def test_unsettled_child_skips_postconditions_and_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator import prompt_resume
+
+    _UnsettledProc.instances.clear()
+    manager, _setup = _resume_setup(tmp_path)
+    post_calls = []
+    monkeypatch.setattr(prompt_resume, "_Popen", _UnsettledProc)
+    monkeypatch.setattr(
+        prompt_resume,
+        "capture_post_live",
+        lambda *_args, **_kwargs: post_calls.append(True),
+    )
+    child = _run_child(manager, tmp_path, control=_control())
+
+    assert post_calls == []
+    assert child.errors and isinstance(child.errors[0], PromptResumeError)
+    assert child.errors[0].code == "prompt_resume_child_unsettled"
+    assert _records(manager) == []
+    assert _UnsettledProc.instances[0].calls == [
+        ("wait", None),
+        ("terminate", None),
+        ("wait", 10),
+        ("kill", None),
+        ("wait", 10),
+    ]
+
+
 def test_wait_error_publishes_exactly_one_failed_record(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from orchestrator import prompt_resume
 
+    _FailingWaitProc.instances.clear()
     manager, _setup = _resume_setup(tmp_path)
     monkeypatch.setattr(prompt_resume, "_Popen", _FailingWaitProc)
     child = _run_child(manager, tmp_path, control=_control(id="99999999-9999-7999-8999-999999999999"))
@@ -678,6 +1097,11 @@ def test_wait_error_publishes_exactly_one_failed_record(
     assert record["result"] == {
         "session_id": None, "primary_basename": None, "journal_sha256": None,
     }
+    assert _FailingWaitProc.instances[0].calls == [
+        ("wait", None),
+        ("terminate", None),
+        ("wait", 10),
+    ]
 
 
 def test_keyboard_interrupt_publishes_record_then_re_raises(
@@ -698,6 +1122,43 @@ def test_keyboard_interrupt_publishes_record_then_re_raises(
     assert record["result"] == {
         "session_id": None, "primary_basename": None, "journal_sha256": None,
     }
+
+
+def test_record_write_error_cleans_temp_and_raises_stable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator import prompt_resume_record
+
+    manager, _setup = _resume_setup(tmp_path)
+    sessions = manager.run_root / "provider_sessions"
+    run_fd = os.open(manager.run_root, os.O_RDONLY | os.O_DIRECTORY)
+    sessions_fd = os.open(sessions, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        identity = os.fstat(sessions_fd)
+
+        def fail_write(_fd: int, _payload: bytes) -> int:
+            raise OSError("injected write failure")
+
+        monkeypatch.setattr(prompt_resume_record.os, "write", fail_write)
+        with pytest.raises(
+            prompt_resume_record.ContinuationRecordError,
+            match="injected write failure",
+        ):
+            prompt_resume_record.publish_continuation(
+                run_fd=run_fd,
+                sessions_fd=sessions_fd,
+                sessions_identity=(identity.st_dev, identity.st_ino),
+                visit_key="task__v1",
+                records=[],
+                expected_chain_identity=None,
+                expected_names=(),
+                payload=b"{}\n",
+            )
+    finally:
+        os.close(sessions_fd)
+        os.close(run_fd)
+    assert list(_chain(manager).iterdir()) == []
 
 
 def test_publication_collision_surfaces_record_error_and_adds_nothing(
@@ -726,6 +1187,81 @@ def test_publication_collision_surfaces_record_error_and_adds_nothing(
     assert child.errors[0].code == "prompt_resume_record_failed"
     # The pre-existing record is untouched and no new record or temp remains.
     assert sorted(path.name for path in chain.iterdir()) == ["1.json"]
+
+
+def test_two_successful_resumes_extend_one_valid_chain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator import prompt_session_chain
+
+    manager, _setup = _resume_setup(tmp_path)
+    monkeypatch.setattr(
+        prompt_session_chain, "OMP_BINARY_PIN", _launcher_pin()
+    )
+    first = _run_child(
+        manager,
+        tmp_path,
+        control=_control(id="99999999-9999-7999-8999-999999999999"),
+    )
+    second = _run_child(
+        manager,
+        tmp_path,
+        control=_control(id="88888888-8888-7888-8888-888888888888"),
+    )
+
+    assert first.returned == [0]
+    assert second.returned == [0]
+    records = _records(manager)
+    assert len(records) == 2
+    one, two = (json.loads(path.read_bytes()) for path in records)
+    assert two["sequence"] == 2
+    assert two["previous_sha256"] == hashlib.sha256(
+        records[0].read_bytes()
+    ).hexdigest()
+    assert two["source"] == one["result"]
+
+
+def test_existing_chain_swap_at_publication_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from orchestrator import prompt_resume
+
+    from orchestrator import prompt_session_chain
+
+    manager, _setup = _resume_setup(tmp_path)
+    monkeypatch.setattr(
+        prompt_session_chain, "OMP_BINARY_PIN", _launcher_pin()
+    )
+    first = _run_child(
+        manager,
+        tmp_path,
+        control=_control(id="99999999-9999-7999-8999-999999999999"),
+    )
+    assert first.returned == [0]
+    chain = _chain(manager)
+    backup = chain.with_name(chain.name + ".detached")
+    original = prompt_resume.publish_continuation
+
+    def swap_then_publish(**kwargs):
+        chain.rename(backup)
+        chain.mkdir()
+        return original(**kwargs)
+
+    monkeypatch.setattr(
+        prompt_resume, "publish_continuation", swap_then_publish
+    )
+    second = _run_child(
+        manager,
+        tmp_path,
+        control=_control(id="88888888-8888-7888-8888-888888888888"),
+    )
+
+    assert second.errors and isinstance(second.errors[0], PromptResumeError)
+    assert second.errors[0].code == "prompt_resume_record_failed"
+    assert sorted(path.name for path in backup.iterdir()) == ["1.json"]
+    assert list(chain.iterdir()) == []
 
 
 def test_post_start_commits_exactly_one_record_on_success(

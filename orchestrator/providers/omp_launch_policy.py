@@ -1,45 +1,47 @@
-"""OMP launch policy layer (Task 5 fix round 3, T5-SEC-003/005/006).
-
-The launch filesystem primitives live in ``omp_launch_fs``; this module
-carries the code-owned ADMISSION and BINDING policy shared by the adapter,
-the parent expectation derivation, and the confinement helper:
-
-- code-owned internal environment carriers for the per-invocation empty cwd
-  and the fresh session-dir identity (rejected if authored, stripped before
-  the exact positive child env);
-- mount-topology admission: a write root on the same superblock as a guarded
-  root but under a different mount is a bind-mounted alias view and fails
-  closed; genuine separate superblocks stay admissible;
-- opened-identity relations (duplicate / ancestor / descendant) that back
-  the overlapping-write-root contract;
-- the fresh visit directory opened ONCE, identity-compared, and reused
-  descriptor-relatively for inventory and primary-journal derivation.
-
-A separate module is required only because ``omp_launch_fs`` and the helper
-both hit the 500-line production cap after round-3 hardening.
-"""
+"""Code-owned OMP launch admission and binding policy."""
 from __future__ import annotations
 
+from collections.abc import Mapping, MutableMapping
+import json
 import os
+import re
 
-from .omp_launch_fs import LaunchFsError, open_dir_no_follow, open_session_dir
+from .._common.safe_tree import remove_tree_contents
+from .omp_launch_fs import (
+    LaunchFsError,
+    open_dir_no_follow,
+    open_session_dir,
+    profile_attempt_key,
+)
 
-# Code-owned internal environment carriers: the parent (workflow prepare)
-# carries the per-invocation empty cwd and the fresh session-dir identity to
-# the adapter/helper through these names. They win over inputs, are rejected
-# if authored at the provider/workflow boundary, and are stripped before the
-# child exec (never part of the positive child environment).
 EMPTY_CWD_ENV = "_OMP_I1_EMPTY_CWD"
 SESSION_DIR_ENV = "_OMP_I1_SESSION_DIR"
 SESSION_IDENTITY_ENV = "_OMP_I1_SESSION_DIR_IDENTITY"
-CARRIER_ENV_NAMES = (EMPTY_CWD_ENV, SESSION_DIR_ENV, SESSION_IDENTITY_ENV)
+SESSION_PATH_FD_ENV = "_OMP_I1_SESSION_PATH_FD"
+ATTEMPT_FDS_ENV = "_OMP_I1_ATTEMPT_FDS"
+CARRIER_ENV_NAMES = (
+    EMPTY_CWD_ENV, SESSION_DIR_ENV, SESSION_IDENTITY_ENV,
+    SESSION_PATH_FD_ENV, ATTEMPT_FDS_ENV,
+)
 
 
-def strip_omp_carriers(env: dict[str, str]) -> None:
+def strip_omp_carriers(env: MutableMapping[str, str]) -> None:
     """Remove the code-owned carriers from an environment in place."""
     for name in CARRIER_ENV_NAMES:
         env.pop(name, None)
 
+
+_EMPTY_CWD_CARRIER = re.compile(r"omp-empty-([0-9a-f]{16})(?:-([0-9a-f]+))?\Z")
+
+
+def empty_omp_cwd_nonce(path: str, *, expected_key: str) -> str | None:
+    """Return the validated nonce carried in an empty-cwd basename."""
+    match = _EMPTY_CWD_CARRIER.fullmatch(os.path.basename(path))
+    if match is None or match.group(1) != expected_key:
+        raise LaunchFsError(
+            f"empty OMP cwd carrier does not match the derived key: {path!r}"
+        )
+    return match.group(2)
 
 def parse_session_identity(text: str) -> tuple[int, int]:
     """Parse the trusted ``dev:ino`` session-dir identity carrier."""
@@ -56,12 +58,7 @@ def open_session_dir_verified(
     session_dir: str,
     expected_identity: tuple[int, int] | None = None,
 ) -> int:
-    """Open the visit directory ONCE, verifying privacy and expected identity.
-
-    The retained fd backs the identity comparison AND the descriptor-relative
-    inventory/primary derivation (T5-SEC-006): a path swap between checks
-    cannot redirect attribution.
-    """
+    """Open the visit directory once and verify its prepared identity."""
     fd = open_session_dir(session_dir)
     try:
         if expected_identity is not None:
@@ -79,15 +76,9 @@ def open_session_dir_verified(
 def verify_session_identity(
     rows: list[tuple[str, str, str]],
     fds: list[int],
-    env: dict[str, str],
+    env: Mapping[str, str],
 ) -> None:
-    """Helper-side pre-exec fresh session identity compare (T5-SEC-005).
-
-    When the trusted carrier is present, the session write root (or the
-    carrier-named visit dir for coalesced conf lanes) must be the SAME
-    directory the parent froze at prepare time; a replacement fails before
-    ``add_rule``/exec.
-    """
+    """Match a fresh session root or retained path fd to its prepared identity."""
     carrier = env.get(SESSION_IDENTITY_ENV)
     if carrier is None:
         return
@@ -100,27 +91,19 @@ def verify_session_identity(
                     "fresh session directory identity does not match the prepared visit"
                 )
             return
-    path = env.get(SESSION_DIR_ENV)
-    if not path:
-        raise LaunchFsError("missing fresh session directory carrier")
-    fd = open_dir_no_follow(path)
+    value = env.get(SESSION_PATH_FD_ENV)
     try:
-        st = os.fstat(fd)
-    finally:
-        os.close(fd)
-    if (st.st_dev, st.st_ino) != expected:
+        st = os.fstat(int(value)) if value is not None else None
+    except (OSError, TypeError, ValueError) as exc:
+        raise LaunchFsError("invalid retained session path descriptor") from exc
+    if st is None or (st.st_dev, st.st_ino) != expected:
         raise LaunchFsError(
             "fresh session directory identity does not match the prepared visit"
         )
 
 
 def _fd_is_descendant(ancestor_fd: int, descendant_fd: int) -> bool:
-    """Whether ``descendant_fd`` equals ``ancestor_fd`` or is beneath it.
-
-    Walks ``..`` through duplicated fds (never closing a caller fd), stopping
-    at the FS root via a seen-identity set; rejects write-root nesting by
-    opened identity, never by lexical path.
-    """
+    """Return whether one retained directory fd is at/beneath another."""
     target = os.fstat(ancestor_fd)
     if target.st_dev == 0:
         return False
@@ -150,15 +133,7 @@ def _fd_is_same_superblock(fd_a: int, fd_b: int) -> bool:
 
 
 def _fd_mount_id(fd: int) -> int:
-    """``stx_mnt_id`` of the RETAINED fd via libc statx(fd, "", AT_EMPTY_PATH).
-
-    No pathname and no /proc lookup: the mount identity is read from the
-    already-opened directory object itself, so a mount-capable process that
-    swapped the pathname cannot make the check report a covering ordinary
-    mount while the fd still names the protected subtree. Kernels without
-    STATX_MNT_ID fail closed (the helper already requires Landlock ABI 3,
-    i.e. kernel >= 5.13, where the field is guaranteed).
-    """
+    """Read ``stx_mnt_id`` from one retained fd via ``AT_EMPTY_PATH``."""
     import ctypes
 
     class _StatxTimestamp(ctypes.Structure):
@@ -277,3 +252,244 @@ def verify_root_identity_relations(
                     f"write root {wlabel}={wpath!r} is a bind-mounted alias view "
                     f"of the {olabel} root's filesystem ({opath!r})"
                 )
+
+
+
+def profile_attempt_roots(
+    *,
+    env_roots: dict[str, str],
+    lane: str,
+    workspace: str,
+    session_dir: str | None,
+    conf_root: str | None,
+    nonce: str | None,
+) -> dict[str, str]:
+    """Return the deterministic path projection for one profile attempt."""
+    key = profile_attempt_key(
+        lane=lane, workspace=workspace, session_dir=session_dir,
+        conf_root=conf_root, env_roots=env_roots,
+    )
+    base = os.path.join(
+        env_roots["cache"], "omp-i1", "attempts",
+        "omp-attempt-" + key + (f"-{nonce}" if nonce else ""),
+    )
+    return {
+        "HOME": os.path.join(base, "home"),
+        "XDG_CONFIG_HOME": os.path.join(base, "config"),
+        "XDG_DATA_HOME": os.path.join(base, "data"),
+        "XDG_STATE_HOME": os.path.join(base, "state"),
+        "XDG_CACHE_HOME": os.path.join(base, "cache"),
+        "TMPDIR": os.path.join(base, "tmp"),
+    }
+
+
+def attempt_env_roots(attempt: dict[str, str]) -> dict[str, str]:
+    """The 4-key env_roots shape (data/state/cache/temp) of an attempt."""
+    return {"data": attempt["XDG_DATA_HOME"], "state": attempt["XDG_STATE_HOME"],
+            "cache": attempt["XDG_CACHE_HOME"], "temp": attempt["TMPDIR"]}
+
+
+class ProfileAttemptAuthority:
+    """Retained descriptor authority for one exclusive profile attempt."""
+
+    def __init__(
+        self,
+        paths: dict[str, str],
+        parent_fd: int,
+        base_fd: int,
+        root_fds: dict[str, int],
+        omp_fd: int,
+        agent_fd: int,
+    ) -> None:
+        self.paths = paths
+        self.parent_fd = parent_fd
+        self.base_fd = base_fd
+        self.root_fds = root_fds
+        self.omp_fd = omp_fd
+        self.agent_fd = agent_fd
+        self.base_name = os.path.basename(os.path.dirname(paths["HOME"]))
+        self.path_fds = {
+            **{paths[name]: fd for name, fd in root_fds.items() if name in paths},
+            os.path.join(paths["HOME"], ".omp"): omp_fd}
+
+    @property
+    def descriptors(self) -> tuple[int, ...]:
+        return (self.parent_fd, self.base_fd, *self.root_fds.values(),
+                self.omp_fd, self.agent_fd)
+
+    def carrier(self) -> str:
+        return json.dumps(
+            {"parent": self.parent_fd, "base": self.base_fd,
+             "roots": self.root_fds, "omp": self.omp_fd,
+             "agent": self.agent_fd},
+            separators=(",", ":"), sort_keys=True)
+
+    def _release(self, *, cleanup: bool) -> None:
+        if self.base_fd < 0:
+            return
+        if cleanup:
+            base_kind = os.fstat(self.base_fd)
+            remove_tree_contents(self.base_fd)
+            try:
+                current = os.stat(
+                    self.base_name,
+                    dir_fd=self.parent_fd,
+                    follow_symlinks=False,
+                )
+                if (current.st_dev, current.st_ino) == (
+                    base_kind.st_dev,
+                    base_kind.st_ino,
+                ):
+                    os.rmdir(self.base_name, dir_fd=self.parent_fd)
+            except OSError:
+                pass
+        for descriptor in self.descriptors:
+            os.close(descriptor)
+        self.base_fd = -1
+
+    def close(self) -> None:
+        self._release(cleanup=True)
+
+    def detach(self) -> None:
+        self._release(cleanup=False)
+
+
+def _private_child(parent_fd: int, name: str, *, exclusive: bool) -> int:
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent_fd)
+    except FileExistsError:
+        if exclusive:
+            raise LaunchFsError(f"attempt root already exists: {name!r}")
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
+    except OSError as exc:
+        raise LaunchFsError(f"attempt directory cannot be opened: {name!r}") from exc
+    kind = os.fstat(descriptor)
+    if kind.st_uid != os.geteuid() or kind.st_mode & 0o077:
+        os.close(descriptor)
+        raise LaunchFsError(
+            f"attempt directory is not private current-user authority: {name!r}"
+        )
+    return descriptor
+
+
+def create_profile_attempt_authority(attempt: dict[str, str]) -> ProfileAttemptAuthority:
+    """Create the attempt exclusively and retain every writable root fd."""
+    base = os.path.dirname(attempt["HOME"])
+    attempts = os.path.dirname(base)
+    cache_home = os.path.dirname(os.path.dirname(attempts))
+    if attempts != os.path.join(cache_home, "omp-i1", "attempts"):
+        raise LaunchFsError("attempt paths are outside the pinned cache shape")
+    current = open_dir_no_follow(cache_home)
+    base_fd = -1
+    roots: dict[str, int] = {}
+    omp_fd = agent_fd = -1
+    try:
+        for component in ("omp-i1", "attempts"):
+            child = _private_child(current, component, exclusive=False)
+            os.close(current)
+            current = child
+        base_fd = _private_child(
+            current, os.path.basename(base), exclusive=True
+        )
+        for env_name, path in attempt.items():
+            name = os.path.basename(path)
+            if path != os.path.join(base, name):
+                raise LaunchFsError("attempt child escaped its exclusive base")
+            roots[env_name] = _private_child(base_fd, name, exclusive=True)
+        for env_name in ("XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+            os.close(_private_child(roots[env_name], "omp", exclusive=True))
+        omp_fd = _private_child(roots["HOME"], ".omp", exclusive=True)
+        agent_fd = _private_child(omp_fd, "agent", exclusive=True)
+        return ProfileAttemptAuthority(
+            attempt, current, base_fd, roots, omp_fd, agent_fd
+        )
+    except BaseException:
+        if base_fd >= 0:
+            remove_tree_contents(base_fd)
+            try:
+                os.rmdir(os.path.basename(base), dir_fd=current)
+            except OSError:
+                pass
+        for fd in (agent_fd, omp_fd, *roots.values(), base_fd, current):
+            if fd >= 0:
+                os.close(fd)
+        raise
+
+
+def inherited_profile_conf_fd(carrier: str) -> int | None:
+    """Return the optional code-owned conf fd from an attempt carrier."""
+    try:
+        roots = json.loads(carrier)["roots"]
+        descriptor = roots.get("__conf__")
+        if descriptor is None:
+            return None
+        if not isinstance(descriptor, int) or descriptor < 3:
+            raise ValueError
+        os.fstat(descriptor)
+        return descriptor
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+        raise LaunchFsError("invalid inherited profile conf descriptor") from exc
+
+def adopt_profile_attempt_authority(
+    attempt: dict[str, str], carrier: str
+) -> ProfileAttemptAuthority:
+    """Adopt the parent-prepared descriptor set inherited by this process."""
+    try:
+        payload = json.loads(carrier)
+        if set(payload) != {"parent", "base", "roots", "omp", "agent"}:
+            raise ValueError
+        roots = payload["roots"]
+        if set(roots) not in (set(attempt), set(attempt) | {"__conf__"}):
+            raise ValueError
+        descriptors = [
+            payload["parent"],
+            payload["base"],
+            *roots.values(),
+            payload["omp"],
+            payload["agent"],
+        ]
+        if (
+            not all(isinstance(fd, int) and fd >= 3 for fd in descriptors)
+            or len(descriptors) != len(set(descriptors))
+        ):
+            raise ValueError
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise LaunchFsError("invalid profile attempt descriptor carrier") from exc
+    authority = ProfileAttemptAuthority(
+        attempt,
+        payload["parent"],
+        payload["base"],
+        roots,
+        payload["omp"],
+        payload["agent"],
+    )
+    base = os.path.dirname(attempt["HOME"])
+    links = [
+        (authority.parent_fd, os.path.basename(base), authority.base_fd),
+        *[
+            (authority.base_fd, os.path.basename(path), roots[name])
+            for name, path in attempt.items()
+        ],
+        (roots["HOME"], ".omp", authority.omp_fd),
+        (authority.omp_fd, "agent", authority.agent_fd),
+    ]
+    try:
+        for parent_fd, name, descriptor in links:
+            kind = os.fstat(descriptor)
+            current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (
+                kind.st_uid != os.geteuid()
+                or kind.st_mode & 0o077
+                or (kind.st_dev, kind.st_ino)
+                != (current.st_dev, current.st_ino)
+            ):
+                raise LaunchFsError("profile attempt descriptor identity mismatch")
+        return authority
+    except BaseException:
+        authority.close()
+        raise

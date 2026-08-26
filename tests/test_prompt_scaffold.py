@@ -823,6 +823,29 @@ def test_verify_then_swap_then_snapshot_keeps_verified_bytes(tmp_path: Path) -> 
     assert derived.mode == "scalar"
     assert derived.type == PrimitiveType("String")
 
+def test_compile_snapshot_keeps_fd_authority_after_snapshot_path_swap(
+    tmp_path: Path,
+) -> None:
+    result, _ = _generate(tmp_path, b"p", provider="omp")
+    snapshot = materialize_run_snapshot(
+        result.verification, create_run_root(tmp_path / "runs", "r")
+    )
+    original = snapshot.root.with_name("r-original")
+    os.replace(snapshot.root, original)
+    snapshot.root.mkdir()
+    (snapshot.root / "run.orc").write_text("(malicious replacement)\n")
+    (snapshot.root / "prompt.md").write_text("malicious replacement")
+
+    _compiled, derived = compile_snapshot(snapshot, "omp")
+    from orchestrator.workflow.assets import WorkflowAssetResolver
+    resolver = WorkflowAssetResolver(
+        Path(f"/proc/self/fd/{snapshot.root_fd}/run.orc")
+    )
+
+    assert derived.mode == "scalar"
+    assert derived.type == PrimitiveType("String")
+    assert resolver.read_text("prompt.md") == "p"
+
 
 # --- inferred generation provenance binding ----------------------------------
 

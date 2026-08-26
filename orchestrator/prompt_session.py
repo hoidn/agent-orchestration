@@ -13,13 +13,7 @@ from orchestrator.providers.omp_session import (
     validate_session_graph,
 )
 from orchestrator.providers.omp_protocol import _is_rfc3339, loads_strict
-from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
-    build_interactive_argv,
-    valid_fresh_child_cwd,
-    valid_private_binary_path,
-)
-from orchestrator.providers.omp_pin import OMP_BINARY_PIN
+from orchestrator.prompt_session_chain import validate_continuation_launch
 _LINK_KEYS = frozenset({
     "schema_version", "run_id", "step_id", "visit_key",
     "workflow_workspace", "scaffold_relpath", "paths", "session", "digests",
@@ -90,6 +84,7 @@ class ResolvedPrimary:
     run_root: Path
     run_identity: tuple[int, int]
     journal_bytes: bytes
+    initial_journal_sha256: str
 
 
 def _invalid(detail: str) -> PromptSessionError:
@@ -180,6 +175,7 @@ def parse_session_link_bytes(data: bytes) -> SessionLink:
     session = _closed(link["session"], _SESSION_KEYS, "session")
     _nonempty(session["id"], "session.id")
     basename = _basename(session["primary_basename"], "session.primary_basename")
+    assert basename is not None
     if not basename.endswith(".jsonl"):
         raise _invalid("session.primary_basename must end .jsonl")
 
@@ -307,6 +303,7 @@ def _parse_continuation(data: bytes, sequence: int, previous: bytes) -> dict[str
         result = _closed(record["result"], _ENDPOINT_KEYS, "continuation.result")
         _nonempty(source["session_id"], "continuation.source.session_id")
         source_name = _basename(source["primary_basename"], "continuation.source.primary_basename")
+        assert source_name is not None
         if not source_name.endswith(".jsonl"):
             raise _invalid("continuation source basename must end .jsonl")
         _digest(source["journal_sha256"], "continuation.source.journal_sha256")
@@ -335,6 +332,7 @@ def _parse_continuation(data: bytes, sequence: int, previous: bytes) -> dict[str
                 raise _invalid("successful continuation has inconsistent outcome")
             _nonempty(result["session_id"], "continuation.result.session_id")
             result_name = _basename(result["primary_basename"], "continuation.result.primary_basename")
+            assert result_name is not None
             if not result_name.endswith(".jsonl"):
                 raise _invalid("continuation result basename must end .jsonl")
             _digest(result["journal_sha256"], "continuation.result.journal_sha256")
@@ -344,6 +342,8 @@ def _parse_continuation(data: bytes, sequence: int, previous: bytes) -> dict[str
         return record
     except (UnicodeDecodeError, ValueError, PromptSessionError) as exc:
         raise PromptSessionError("session_continuation_invalid", str(exc)) from exc
+
+
 
 
 def _validate_continuation_confinement(record: dict[str, Any], link: SessionLink) -> None:
@@ -379,61 +379,6 @@ def _validate_continuation_confinement(record: dict[str, Any], link: SessionLink
         )
 
 
-def _validate_continuation_launch(
-    record: dict[str, Any],
-    link: SessionLink,
-    active: ContinuationState,
-    run_root: Path,
-) -> None:
-    expected_binary = {
-        "platform": OMP_BINARY_PIN.platform,
-        "arch": OMP_BINARY_PIN.arch,
-        "version": OMP_BINARY_PIN.version,
-        "sha256": OMP_BINARY_PIN.executable_sha256,
-    }
-    launch = record["launch"]
-    argv = launch["argv"]
-    provider = link.document["provider"]["name"]
-    workspace = link.document["workflow_workspace"]
-    if (
-        record["binary"] != expected_binary
-        or launch["env_names"] != list(POSITIVE_ENV_NAMES)
-        or not valid_private_binary_path(argv[0], OMP_BINARY_PIN.executable_sha256)
-    ):
-        raise PromptSessionError(
-            "session_continuation_invalid", "continuation launch authority is invalid"
-        )
-    empty_cwd = None
-    if provider in ("omp_no_tools", "omp_conf"):
-        try:
-            empty_cwd = argv[argv.index("--cwd") + 1]
-        except (ValueError, IndexError):
-            raise PromptSessionError(
-                "session_continuation_invalid", "profile continuation cwd is missing"
-            ) from None
-        if not valid_fresh_child_cwd(provider, empty_cwd, workspace):
-            raise PromptSessionError(
-                "session_continuation_invalid", "profile continuation cwd is invalid"
-            )
-    try:
-        expected = build_interactive_argv(
-            provider,
-            link.document["provider"]["model"],
-            private_binary=argv[0],
-            live_dir=str(run_root / link.document["paths"]["live"]),
-            mode=record["mode"],
-            source_session_id=active.session_id,
-            workspace=workspace,
-            empty_cwd=empty_cwd,
-        )
-    except ValueError as exc:
-        raise PromptSessionError("session_continuation_invalid", str(exc)) from exc
-    if tuple(argv) != expected:
-        raise PromptSessionError(
-            "session_continuation_invalid", "continuation argv disagrees with link"
-        )
-
-
 def validate_continuation_chain(
     link_bytes: bytes,
     records: list[bytes],
@@ -465,7 +410,7 @@ def validate_continuation_chain(
             raise PromptSessionError(
                 "session_continuation_invalid", "continuation run root is required"
             )
-        _validate_continuation_launch(record, link, active, run_root)
+        validate_continuation_launch(record, link, active, run_root)
         source = record["source"]
         if (
             source["session_id"] != active.session_id

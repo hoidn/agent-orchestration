@@ -130,6 +130,27 @@ def test_packaged_preset_manifests_are_distinct() -> None:
     }
     assert len(set(digests.values())) == len(FIXTURE_PRESETS)
 
+def test_packaged_fanout_presets_allow_headless_task_dispatch() -> None:
+    for name in ("fanout", "peer-team", "advised-fanout"):
+        config = yaml.safe_load(
+            Path(preset_conf_root(name), "config.yml").read_text(encoding="utf-8")
+        )
+        assert config["tools"]["approval"] == {"task": "allow"}
+
+
+def test_packaged_canary_agents_use_current_model() -> None:
+    expected = "openai-codex/gpt-5.6-sol"
+    for name in FIXTURE_PRESETS:
+        root = Path(preset_conf_root(name))
+        for agent in root.glob("agent/agents/*.md"):
+            frontmatter = yaml.safe_load(agent.read_text(encoding="utf-8").split("---", 2)[1])
+            assert frontmatter.get("model", expected) == expected
+        watchdog = root / "agent" / "WATCHDOG.yml"
+        if watchdog.is_file():
+            document = yaml.safe_load(watchdog.read_text(encoding="utf-8"))
+            assert all(advisor["model"] == expected for advisor in document["advisors"])
+
+
 
 def test_preset_conf_root_is_importlib_resources_based() -> None:
     root = preset_conf_root("neutral")

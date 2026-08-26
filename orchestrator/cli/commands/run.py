@@ -15,8 +15,15 @@ from types import MappingProxyType
 from typing import Dict, Any, Mapping, Optional
 from argparse import Namespace
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.state import StateManager
-from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
+from orchestrator.run_lock import (
+    ReservedRunRootError,
+    RunAlreadyActiveError,
+    reserved_run_writer_lock,
+    run_root_matches_fd,
+    run_writer_lock,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_bundle as loaded_workflow_bundle,
@@ -35,7 +42,6 @@ from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_fronten
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
-from orchestrator.providers.omp_launch_fs import directory_identity
 
 
 logger = logging.getLogger(__name__)
@@ -450,16 +456,19 @@ def run_workflow(
     *,
     run_id: Optional[str] = None,
     expected_run_identity: Optional[tuple[int, int]] = None,
+    reserved_run_fd: Optional[int] = None,
+    logical_workflow_path: Optional[Path] = None,
     no_tools_conf_root: Optional[str] = None,
     no_tools_conf_identity: Optional[tuple[int, int]] = None,
     no_tools_conf_manifest_sha256: Optional[str] = None,
+    profile_conf_fd: Optional[int] = None,
 ) -> RunWorkflowResult:
     """
     Run a workflow with safety checks.
 
-    Implements AT-11, AT-12, AT-16. When ``run_id`` and
-    ``expected_run_identity`` are supplied, the reserved run root is
-    revalidated here, immediately before ``StateManager.initialize``.
+    Implements AT-11, AT-12, AT-16. Prompt callers may supply their already
+    locked ``reserved_run_fd`` so one descriptor authority covers prompt
+    materialization, execution, and publication.
     """
     # Set up logging
     log_level = getattr(logging, args.log_level.upper())
@@ -479,6 +488,7 @@ def run_workflow(
     writer_lock_stack = ExitStack()
     session_id: str | None = None
     session_status: str | None = None
+    reserved_fd: int | None = None
 
     try:
         # Determine workspace
@@ -486,7 +496,7 @@ def run_workflow(
         state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
         run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
-        workflow_path = Path(args.workflow).resolve()
+        workflow_path = resolve_path_preserving_fd(args.workflow)
         if workflow_path.suffix.lower() != ".orc":
             logger.error(
                 ".orc required: authored workflows must use the Workflow Lisp frontend"
@@ -501,15 +511,22 @@ def run_workflow(
             frontend_build = build_frontend_bundle(
                 FrontendBuildRequest(
                     source_path=workflow_path,
-                    source_roots=tuple(Path(path) for path in (getattr(args, "source_root", None) or ())),
+                    source_roots=tuple(
+                        resolve_path_preserving_fd(path)
+                        for path in (getattr(args, "source_root", None) or ())
+                    ),
                     entry_workflow=getattr(args, "entry_workflow", None),
-                    provider_externs_path=Path(args.provider_externs_file).resolve()
+                    provider_externs_path=resolve_path_preserving_fd(
+                        args.provider_externs_file)
                     if getattr(args, "provider_externs_file", None) else None,
-                    prompt_externs_path=Path(args.prompt_externs_file).resolve()
+                    prompt_externs_path=resolve_path_preserving_fd(
+                        args.prompt_externs_file)
                     if getattr(args, "prompt_externs_file", None) else None,
-                    imported_workflow_bundles_path=Path(args.imported_workflow_bundles_file).resolve()
+                    imported_workflow_bundles_path=resolve_path_preserving_fd(
+                        args.imported_workflow_bundles_file)
                     if getattr(args, "imported_workflow_bundles_file", None) else None,
-                    command_boundaries_path=Path(args.command_boundaries_file).resolve()
+                    command_boundaries_path=resolve_path_preserving_fd(
+                        args.command_boundaries_file)
                     if getattr(args, "command_boundaries_file", None) else None,
                     emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
                     workspace_root=workspace,
@@ -594,23 +611,23 @@ def run_workflow(
             state_dir=state_dir_override,
             run_id=run_id,
         )
-        state_manager.run_root.mkdir(parents=True, exist_ok=True)
-        writer_lock_stack.enter_context(
-            run_writer_lock(state_manager.run_root)
-        )
-        # Revalidate an externally reserved run root immediately before state
-        # initialization: the mkdir and writer lock above must not mask a
-        # moved or replaced root.
         if run_id is not None and expected_run_identity is not None:
-            reserved_root = state_manager.run_root
-            try:
-                actual = directory_identity(str(reserved_root))
-            except OSError:
-                actual = None
-            if actual != expected_run_identity:
+            # R7: prompt callers acquire this lock before their first write
+            # and pass the retained authority through the whole lifecycle.
+            if reserved_run_fd is None:
+                reserved_fd = writer_lock_stack.enter_context(
+                    reserved_run_writer_lock(
+                        state_manager.run_root, expected_run_identity
+                    )
+                )
+            else:
+                reserved_fd = reserved_run_fd
+            if not run_root_matches_fd(
+                state_manager.run_root, reserved_fd
+            ):
                 logger.error(
-                    f"Reserved run root {reserved_root} changed identity "
-                    f"({expected_run_identity} != {actual})"
+                    f"Reserved run root {state_manager.run_root} was swapped "
+                    "after the writer lock"
                 )
                 return _run_result(
                     1,
@@ -618,15 +635,30 @@ def run_workflow(
                     session_id=session_id,
                     session_status=session_status,
                 )
+        else:
+            state_manager.run_root.mkdir(parents=True, exist_ok=True)
+            writer_lock_stack.enter_context(
+                run_writer_lock(state_manager.run_root)
+            )
 
-        # Create new run
         run_state = state_manager.initialize(
-            _workflow_path_for_state(workspace, workflow_path),
+            _workflow_path_for_state(
+                workspace, logical_workflow_path or workflow_path
+            ),
             context,
             bound_inputs=bound_inputs,
             observability=observability,
             result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+            run_root_fd=reserved_fd,
         )
+        if reserved_fd is not None and not run_root_matches_fd(
+            state_manager.run_root, reserved_fd
+        ):
+            logger.error(
+                f"Reserved run root {state_manager.run_root} was swapped "
+                "during initialization"
+            )
+            return _run_result(1, state_manager=state_manager)
         if getattr(args, "run_ref_root", None) is not None:
             state_manager.bind_run_ref_root(run_ref_root)
         if frontend_build is not None:
@@ -649,7 +681,7 @@ def run_workflow(
             session_status = "failed"
             try:
                 write_process_metadata(
-                    state_manager.run_root,
+                    state_manager.io_run_root,
                     executor_session_id=session_id,
                 )
             except OSError as exc:
@@ -669,6 +701,7 @@ def run_workflow(
                 no_tools_conf_root=no_tools_conf_root,
                 no_tools_conf_identity=no_tools_conf_identity,
                 no_tools_conf_manifest_sha256=no_tools_conf_manifest_sha256,
+                profile_conf_fd=profile_conf_fd,
             )
 
             result = executor.execute(
@@ -724,6 +757,11 @@ def run_workflow(
         return _run_result(
             1, state_manager=state_manager, session_id=session_id,
             session_status="failed" if session_id is not None else None)
+    except ReservedRunRootError as e:
+        logger.error(str(e))
+        return _run_result(
+            1, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         return _run_result(
@@ -742,4 +780,6 @@ def run_workflow(
             1, state_manager=state_manager, session_id=session_id,
             session_status="failed" if session_id is not None else None)
     finally:
+        if state_manager is not None:
+            state_manager.close()
         writer_lock_stack.close()

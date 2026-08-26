@@ -393,14 +393,22 @@ def test_rerun_accepts_scaffold_root_only(tmp_path, monkeypatch):
               tmp_path, monkeypatch)
         == 2
     )
-    scaffold_root = tmp_path / "scaffold-root"
-    scaffold_root.mkdir()
-    (scaffold_root / "run.orc").write_text("x")
-    assert (
-        _exit(["prompt", "run", "--scaffold", str(scaffold_root / "run.orc")],
-              tmp_path, monkeypatch)
-        == 2
-    )
+def test_rerun_shallow_scaffold_paths_return_stable_prompt_error(
+    tmp_path, monkeypatch, capsys
+):
+    # R8: shallow or wrong-shape absolute --scaffold paths return the stable
+    # prompt error (exit 1), never an IndexError traceback.
+    for shallow in ("/x", "/x/y", "/"):
+        code = _exit(
+            ["prompt", "run", "--scaffold", shallow],
+            tmp_path,
+            monkeypatch,
+        )
+        assert code == 1, shallow
+        err = capsys.readouterr().err
+        assert "Traceback" not in err, shallow
+        assert "prompt run:" in err, shallow
+        assert not (tmp_path / ".orchestrate").exists(), shallow
 
 
 def test_grammar_errors_precede_provider_calls_and_destination_creation(

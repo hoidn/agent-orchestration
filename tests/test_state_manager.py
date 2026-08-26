@@ -566,6 +566,37 @@ steps:
         assert observed.current_step is None
         assert observed.step_visits == {witness.presentation_key: 1}
 
+    def test_retained_run_root_fd_keeps_later_state_writes_on_original_inode(
+        self, temp_workspace, workflow_file
+    ):
+        manager = StateManager(temp_workspace, run_id="retained-root")
+        run_root = manager.run_root
+        run_root.mkdir(parents=True)
+        original = run_root.with_name("retained-root-original")
+        run_fd = os.open(
+            run_root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        try:
+            manager.initialize(workflow_file, run_root_fd=run_fd)
+            os.replace(run_root, original)
+            run_root.mkdir()
+            manager.initialize_provider_session_visit(
+                provider_name="omp",
+                step_name="task",
+                step_id="root.task",
+                visit_count=1,
+                mode="fresh",
+            )
+            manager.fail_run({"type": "expected"})
+        finally:
+            os.close(run_fd)
+
+        assert list(run_root.iterdir()) == []
+        assert json.loads((original / "state.json").read_text())["status"] == "failed"
+        assert (original / "provider_sessions" / "root.task__v1.json").is_file()
+
+
     def test_custom_state_dir_overrides_default_runs_root(self, temp_workspace, workflow_file):
         """Custom state-dir roots should store runs outside WORKSPACE/.orchestrate."""
         custom_state_dir = temp_workspace / "external-runs"

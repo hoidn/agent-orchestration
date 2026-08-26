@@ -188,8 +188,8 @@ class StepExecutor:
             allow_parse_error=allow_parse_error,
             exit_code=exit_code,
             redact_token=(
-                (env or {}).get("OMP_BROKER_TOKEN")
-                or os.environ.get("OMP_BROKER_TOKEN")
+                (env or {}).get("OMP_AUTH_BROKER_TOKEN")
+                or os.environ.get("OMP_AUTH_BROKER_TOKEN")
             ),
         )
 

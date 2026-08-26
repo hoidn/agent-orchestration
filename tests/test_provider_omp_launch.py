@@ -14,7 +14,9 @@ import io
 import json
 import os
 import re
+import secrets
 import socket
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,6 +27,8 @@ from pathlib import Path
 import pytest
 
 import orchestrator.providers.omp_launch as omp_launch
+from orchestrator.providers import omp_launch_contract
+from orchestrator.providers import omp_launch_policy
 from orchestrator.providers.omp_conf import admit_conf_tree
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
 from orchestrator.providers.omp_transport import OmpJsonStdoutAccumulator
@@ -52,12 +56,19 @@ _POSITIVE_ENV_NAMES = frozenset(
     }
 )
 
+# Task 10 R2 closed profile schema: adapter-owned attempt roots + broker pair.
+_PROFILE_ENV_NAMES = frozenset(omp_launch_contract.PROFILE_ENV_NAMES)
+
 _FAKE_SOURCE = Path(__file__).parent / "fixtures" / "omp" / "fake_omp.py"
 _FAKE_SOURCE_ABS = str(_FAKE_SOURCE.resolve())
 
 
 def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _fake_pin() -> OmpBinaryPin:
@@ -90,7 +101,7 @@ def _compile_launcher(script: Path) -> Path:
             capture_output=True,
             env={**os.environ, "TMPDIR": str(cache)},  # /tmp can be full
         )
-        launcher.chmod(0o700)  # the adapter rejects group/other-writable sources
+    launcher.chmod(0o500)
     return launcher
 
 
@@ -113,6 +124,15 @@ def _make_home(root: Path) -> Path:
     home = root / "home"
     home.chmod(0o700)  # a real private home; the machine umask is not 0o022
     return home
+
+
+def _private_fixture(root: Path, digest: str, payload: bytes) -> Path:
+    private = root / digest / f"attempt-{'0' * 32}" / "omp"
+    private.parent.mkdir(parents=True)
+    private.parent.chmod(0o700)
+    private.write_bytes(payload)
+    private.chmod(0o500)
+    return private
 
 
 def _make_conf(root: Path) -> Path:
@@ -148,9 +168,7 @@ def _std_env(home: Path, root: Path) -> dict[str, str]:
         "XDG_STATE_HOME": str(root / "state"),
         "XDG_CONFIG_HOME": str(root / "config"),
         "SECRET_CANARY": "must-not-leak",
-        "LD_PRELOAD": "/lib/evil.so",
-        "OMP_BROKER_TOKEN": "caller-token-must-not-leak",
-        "OMP_BROKER_URL": "http://caller.invalid:1",
+        "CALLER_CANARY": "caller-only",
     }
     for path in (env["TMPDIR"], env["XDG_CACHE_HOME"], env["XDG_DATA_HOME"],
                  env["XDG_STATE_HOME"], env["XDG_CONFIG_HOME"]):
@@ -182,13 +200,20 @@ def _adapter_argv(lane: str, **extra) -> list[str]:
     return argv
 
 
-def _run(*, argv, env, workspace, stdin, pin, out, err, resolver_path=_FAKE_SOURCE) -> int:
+def _run(*, argv, env, workspace, stdin, pin, out, err, resolver_path=_FAKE_SOURCE,
+         resolver=None) -> int:
     previous = os.getcwd()
     os.chdir(workspace)
     try:
+        if resolver is None:
+            resolver = (
+                lambda: resolver_path
+                if os.path.isabs(str(resolver_path))
+                else str(Path(resolver_path).resolve())
+            )
         return omp_launch.run(
             argv=argv, env=env, stdin=stdin, out=out, err=err,
-            pin=pin, binary_resolver=lambda: resolver_path if os.path.isabs(str(resolver_path)) else str(Path(resolver_path).resolve()),
+            pin=pin, binary_resolver=resolver,
         )
     finally:
         os.chdir(previous)
@@ -226,7 +251,8 @@ def _assert_success(*, rc, out, err, expectation) -> dict:
 
 
 def _expectation(pin, argv, *, lane="ambient", persistence="none", session_dir=None,
-                 conf_root=None, env=None, visit_key=None, observed=(), **extra) -> OmpTransportExpectation:
+                 conf_root=None, env=None, visit_key=None, observed=(), nonce=None,
+                 **extra) -> OmpTransportExpectation:
     kwargs = dict(
         lane=lane,
         persistence=persistence,
@@ -243,15 +269,20 @@ def _expectation(pin, argv, *, lane="ambient", persistence="none", session_dir=N
         kwargs["conf_manifest_sha256"] = admit_conf_tree(
             os.open(conf_root, os.O_RDONLY)
         ).manifest_sha256
+        attempt = omp_launch_policy.profile_attempt_roots(
+            env_roots=_env_roots(env), lane=lane, workspace=str(workspace_path),
+            session_dir=session_dir, conf_root=conf_root, nonce=nonce,
+        )
         empty_cwd = omp_launch.empty_omp_cwd(
             home=env["HOME"], lane=lane, workspace=str(workspace_path),
             session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
+            nonce=nonce,
         )
         kwargs["confinement_policy_sha256"] = canonical_policy_digest(
-            lane=lane, home_omp=os.path.join(env["HOME"], ".omp"),
+            lane=lane, home_omp=os.path.join(attempt["HOME"], ".omp"),
             session_dir=session_dir, conf_root=conf_root,
             workspace=str(workspace_path), empty_cwd=empty_cwd,
-            env_roots=_env_roots(env),
+            env_roots=omp_launch_policy.attempt_env_roots(attempt),
         )
     kwargs.update(extra)
     return OmpTransportExpectation(**kwargs)
@@ -269,19 +300,40 @@ def _frozen_profile_expectation(pin, argv, *, lane, env, conf_root=None,
     therefore returns ``(expectation, run_env)`` with the carrier injected so
     the adapter's digest matches the frozen one exactly.
     """
-    from orchestrator.providers.omp_launch_policy import EMPTY_CWD_ENV
+    from orchestrator.providers.omp_launch_policy import (
+        ATTEMPT_FDS_ENV,
+        EMPTY_CWD_ENV,
+        create_profile_attempt_authority,
+        profile_attempt_roots,
+    )
 
     if conf_root is None and lane in ("no-tools", "conf", "conf-inference"):
         conf_root = str(omp_launch.neutral_conf_root())
+    nonce = secrets.token_hex(8)
     empty_cwd = omp_launch.empty_omp_cwd(
         home=env["HOME"], lane=lane, workspace=str(workspace_path),
         session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
+        nonce=nonce,
     )
     omp_launch.create_empty_omp_cwd(empty_cwd)
-    run_env = {**env, EMPTY_CWD_ENV: str(empty_cwd)}
+    attempt = profile_attempt_roots(
+        env_roots=_env_roots(env),
+        lane=lane,
+        workspace=str(workspace_path),
+        session_dir=session_dir,
+        conf_root=conf_root,
+        nonce=nonce,
+    )
+    authority = create_profile_attempt_authority(attempt)
+    run_env = {
+        **env,
+        EMPTY_CWD_ENV: str(empty_cwd),
+        ATTEMPT_FDS_ENV: authority.carrier(),
+    }
     return _expectation(
         pin, argv, lane=lane, persistence=persistence, session_dir=session_dir,
         conf_root=conf_root, env=env, visit_key=visit_key, observed=observed,
+        nonce=nonce,
     ), run_env
 
 
@@ -350,7 +402,7 @@ def test_no_tools_frozen_conf_rejects_swap_between_executor_and_adapter(
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(
         argv=argv,
-        env=_std_env(home, tmp_path),
+        env=_broker_env(home, tmp_path),
         workspace=workspace_path,
         stdin=_control(),
         pin=_fake_pin(),
@@ -370,31 +422,33 @@ def test_no_tools_frozen_conf_rejects_swap_between_executor_and_adapter(
 def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
+    env["PI_CODING_AGENT_DIR"] = str(home / ".omp" / "agent")
+    env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] = "state/run-root/result.json"
     pin = _launcher_pin()
     argv = _adapter_argv("omp")
-    token_file = tmp_path / "token.out"
-    stdin = _control(token_file=str(token_file))
+    stdin = _control()
 
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=stdin, pin=pin,
               out=out, err=err, resolver_path=_fake_launcher())
 
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL]
+    assert json.loads(reports["ARGS"][0]) == [
+        "-p", "--mode", "json", "--no-title", "--model", MODEL,
+        "--approval-mode", "write", "--no-session",
+    ]
     assert reports["CWD"][0] == str(workspace_path)
     assert reports["STDIN"][0] == base64.b64encode(stdin).decode("ascii")
-    assert set(json.loads(reports["ENV"][0])) == _POSITIVE_ENV_NAMES
+    # Ambient children inherit the parent environment except runtime-owned
+    # bundle authority, which stays in the orchestrator parent.
+    expected_env = set(env) - {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH"}
+    assert set(json.loads(reports["ENV"][0])) == expected_env
     assert json.loads(reports["AGENTS"][0]) == ["custom.md"]
     broker = json.loads(reports["BROKER"][0])
-    assert _BROKER_URL_RE.fullmatch(broker["url"])
-    # The relay redacts the generated token from the child stderr, so the
-    # broker report reaches us scrubbed; the token itself is observable only
-    # through the fake's side channel.
-    assert broker["token"] == "[redacted]"
+    assert broker["url"] is None and broker["token"] is None, (
+        "ambient lanes carry no fabricated broker credential"
+    )
     assert broker["agent_dir"] == str(home / ".omp" / "agent")
-    generated = token_file.read_text(encoding="utf-8")
-    assert _HEX64_RE.fullmatch(generated)
-    assert generated != "caller-token-must-not-leak"
 
     frame = _assert_success(
         rc=rc, out=out, err=err,
@@ -405,7 +459,7 @@ def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     assert frame["persistence"] == "none"
     assert frame["child"] == {
         "argv": argv, "cwd": str(workspace_path),
-        "env_names": sorted(_POSITIVE_ENV_NAMES), "exit_code": 0,
+        "env_names": sorted(expected_env), "exit_code": 0,
     }
     assert frame["session"] == {"id": SESSION_ID, "visit_key": None,
                                 "primary_relpath": None, "primary_sha256": None}
@@ -416,14 +470,18 @@ def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     # Ambient probe is unconfined: the marker write succeeds.
     assert (home / ".omp" / "version-probe-marker").read_text(encoding="utf-8") == "probe-unconfined"
 
-    # Private digest-named copy, owner-exec, whole-file hash, source substitution.
-    private = (
-        Path(env["XDG_CACHE_HOME"]) / "omp-i1" / "private"
-        / pin.executable_sha256 / os.path.basename(os.fspath(_fake_launcher()))
+    # Fresh private attempt copy, owner-exec, whole-file hash.
+    private = list(
+        (
+            Path(env["XDG_CACHE_HOME"])
+            / "omp-i1"
+            / "private"
+            / pin.executable_sha256
+        ).glob("attempt-*/omp")
     )
-    assert private.is_file()
-    assert (private.stat().st_mode & 0o777) == 0o500
-    assert _sha256_file(private) == pin.executable_sha256
+    assert len(private) == 1
+    assert (private[0].stat().st_mode & 0o777) == 0o500
+    assert _sha256_file(private[0]) == pin.executable_sha256
     for values in reports.values():
         for value in values:
             assert _FAKE_SOURCE_ABS not in value
@@ -440,6 +498,27 @@ def test_ambient_transient_exact_argv_stream_env_and_frame(tmp_path) -> None:
     assert child_bytes == direct
 
 
+def test_ambient_missing_cache_root_fails_as_launch_error(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    del env["XDG_CACHE_HOME"]
+    out, err = io.BytesIO(), io.StringIO()
+
+    rc = _run(
+        argv=_adapter_argv("omp"),
+        env=env,
+        workspace=workspace_path,
+        stdin=_control(),
+        pin=_launcher_pin(),
+        out=out,
+        err=err,
+        resolver_path=_fake_launcher(),
+    )
+
+    assert rc == 2
+    assert "ambient launch requires XDG_CACHE_HOME" in err.getvalue()
+
+
 def test_ambient_unrestricted_yolo_and_fresh_handoff(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
@@ -450,7 +529,10 @@ def test_ambient_unrestricted_yolo_and_fresh_handoff(tmp_path) -> None:
               workspace=workspace_path, stdin=_control(), pin=pin, out=out, err=err,
               resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--yolo"]
+    assert json.loads(reports["ARGS"][0]) == [
+        "-p", "--mode", "json", "--no-title", "--model", MODEL, "--yolo",
+        "--no-session",
+    ]
     _assert_success(
         rc=rc, out=out, err=err,
         expectation=_expectation(pin, _adapter_argv("omp_unrestricted_workspace"),
@@ -463,22 +545,65 @@ def test_ambient_unrestricted_yolo_and_fresh_handoff(tmp_path) -> None:
     rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(), pin=pin,
               out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == [
-        "--session-dir", str(session_dir), "--mode=json", "--model", MODEL,
+    child_args = json.loads(reports["ARGS"][0])
+    assert child_args[:-1] == [
+        "-p", "--mode", "json", "--no-title", "--model", MODEL,
+        "--approval-mode", "write", "--session-dir",
     ]
+    assert re.fullmatch(r"/proc/self/fd/[0-9]+", child_args[-1])
     journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
     assert journal.is_file()
     frame = _assert_success(
         rc=rc, out=out, err=err,
         expectation=_expectation(pin, argv, env=env, persistence="fresh",
                                  session_dir=str(session_dir), visit_key=VISIT_KEY,
-                                 observed=(journal.name,)),
+                                                                  observed=()),
     )
     assert frame["session"] == {
         "id": SESSION_ID, "visit_key": VISIT_KEY,
         "primary_relpath": journal.name, "primary_sha256": _sha256_file(journal),
     }
-    assert frame["observed"]["child_relpaths"] == [journal.name]
+    assert frame["observed"] == {"advisor_relpaths": [], "child_relpaths": []}
+
+
+def test_fresh_child_writes_through_retained_session_fd_after_path_swap(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    moved = session_dir.with_name("retained")
+    ready = tmp_path / "child-ready"
+    argv = _adapter_argv("omp", session_dir=str(session_dir))
+    out, err = io.BytesIO(), io.StringIO()
+    result: dict[str, int] = {}
+
+    def launch() -> None:
+        result["rc"] = _run(
+            argv=argv,
+            env=env,
+            workspace=workspace_path,
+            stdin=_control(pre_write_sleep=1, pre_write_ready_file=str(ready)),
+            pin=pin,
+            out=out,
+            err=err,
+            resolver_path=_fake_launcher(),
+        )
+
+    thread = threading.Thread(target=launch)
+    thread.start()
+    for _ in range(1000):
+        if ready.exists():
+            break
+        time.sleep(0.01)
+    assert ready.exists(), err.getvalue()
+    session_dir.rename(moved)
+    session_dir.mkdir(mode=0o700)
+    thread.join(timeout=30)
+    assert result.get("rc") == 0, err.getvalue()
+    assert list(session_dir.iterdir()) == []
+    assert [path.name for path in moved.glob("*.jsonl")] == [
+        f"{TS_STEM}_{SESSION_ID}.jsonl"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -486,36 +611,63 @@ def test_ambient_unrestricted_yolo_and_fresh_handoff(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _profile_assertions(reports, env, home, lane, *, session_dir=None, workspace_add=False,
-                        conf_root=None):
+def _profile_assertions(reports, env, home, lane, *, empty_cwd=None,
+                        session_dir=None, workspace_add=False, conf_root=None):
     if conf_root is None and lane in ("no-tools", "conf-inference"):
         conf_root = omp_launch.neutral_conf_root()
-    empty_cwd = omp_launch.empty_omp_cwd(
-        home=env["HOME"], lane=lane, workspace=str(workspace_path),
+    attempt_key = omp_launch_policy.profile_attempt_key(
+        lane=lane, workspace=str(workspace_path),
         session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
     )
+    if empty_cwd is None:
+        nonce = None
+        empty_cwd = omp_launch.empty_omp_cwd(
+            home=env["HOME"], lane=lane, workspace=str(workspace_path),
+            session_dir=session_dir, conf_root=conf_root, env_roots=_env_roots(env),
+        )
+    else:
+        nonce = omp_launch_policy.empty_omp_cwd_nonce(empty_cwd, expected_key=attempt_key)
+    attempt = omp_launch_policy.profile_attempt_roots(
+        env_roots=_env_roots(env), lane=lane, workspace=str(workspace_path),
+        session_dir=session_dir, conf_root=conf_root, nonce=nonce,
+    )
     assert reports["CWD"][0] == empty_cwd
-    # The adapter removes the exclusive empty cwd at run end (the confined
-    # child holds it read-only, so the rmdir is deterministic).
+    # The adapter removes the exclusive empty cwd and the attempt tree at run
+    # end (the confined child holds the cwd read-only, so the rmdir is
+    # deterministic).
     assert not os.path.exists(empty_cwd)
-    assert set(json.loads(reports["ENV"][0])) == _POSITIVE_ENV_NAMES
-    for secret in ("SECRET_CANARY", "LD_PRELOAD", "caller-token"):
+    assert not os.path.exists(os.path.dirname(attempt["HOME"])), "attempt tree removed"
+    child_env = json.loads(reports["ENV"][0])
+    assert set(child_env) <= _PROFILE_ENV_NAMES, set(child_env) - _PROFILE_ENV_NAMES
+    required = {"HOME", "PATH", "SHELL", "PI_CODING_AGENT_DIR", "TMPDIR",
+                "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+                "XDG_CONFIG_HOME", "OMP_AUTH_BROKER_URL", "OMP_AUTH_BROKER_TOKEN"}
+    assert required <= set(child_env)
+    values = json.loads(reports["VALUES"][0])
+    assert values["HOME"] == attempt["HOME"]
+    assert values["PI_CODING_AGENT_DIR"] == os.path.join(attempt["HOME"], ".omp", "agent")
+    assert values["XDG_CACHE_HOME"] == attempt["XDG_CACHE_HOME"]
+    assert values["TMPDIR"] == attempt["TMPDIR"]
+    assert values["OMP_AUTH_BROKER_TOKEN"] == "[redacted]"
+    for secret in ("SECRET_CANARY", "CALLER_CANARY", "caller-token"):
         assert secret not in reports["ENV"][0] + reports["BROKER"][0]
     assert not (home / ".omp" / "version-probe-marker").exists()
 
-    denied = [v for v in reports["PROBE"] if v.startswith(str(home / ".omp") + " ")]
+    denied = [v for v in reports["PROBE"] if v.startswith(attempt["HOME"] + "/.omp ")]
     assert sorted(denied) == sorted(
-        f"{home}/.omp {op}=denied"
+        f"{attempt['HOME']}/.omp {op}=denied"
         for op in ("create", "write", "truncate", "replace", "rename", "restore")
     )
-    spawned = [v for v in reports["SPAWNED_PROBE"] if v.startswith(str(home / ".omp") + " ")]
+    spawned = [v for v in reports["SPAWNED_PROBE"] if v.startswith(attempt["HOME"] + "/.omp ")]
     assert sorted(spawned) == sorted(
-        f"{home}/.omp {op}=denied"
+        f"{attempt['HOME']}/.omp {op}=denied"
         for op in ("create", "write", "truncate", "replace", "rename", "restore")
     )
-    write_roots = [env["XDG_DATA_HOME"], env["XDG_STATE_HOME"], env["XDG_CACHE_HOME"], env["TMPDIR"]]
+    write_roots = [attempt["XDG_DATA_HOME"], attempt["XDG_STATE_HOME"],
+                   attempt["XDG_CACHE_HOME"], attempt["TMPDIR"]]
     if session_dir is not None:
-        write_roots.append(session_dir)
+        args = json.loads(reports["ARGS"][0])
+        write_roots.append(args[args.index("--session-dir") + 1])
     if workspace_add:
         write_roots.append(str(workspace_path))
     for root in write_roots:
@@ -527,7 +679,7 @@ def _profile_assertions(reports, env, home, lane, *, session_dir=None, workspace
 
 def test_profile_no_tools_confined_probe_and_child(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _launcher_pin()
     argv = _adapter_argv("omp_no_tools")
     expectation, run_env = _frozen_profile_expectation(
@@ -539,8 +691,13 @@ def test_profile_no_tools_confined_probe_and_child(tmp_path) -> None:
     rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
-    empty_cwd = _profile_assertions(reports, env, home, "no-tools")
+    empty_cwd = run_env[omp_launch_policy.EMPTY_CWD_ENV]
+    assert json.loads(reports["ARGS"][0]) == [
+        "-p", "--mode", "json", "--no-title", "--no-extensions", "--no-skills",
+        "--no-rules", "--no-tools", "--model", MODEL, "--approval-mode", "write",
+        "--cwd", empty_cwd, "--no-session",
+    ]
+    empty_cwd = _profile_assertions(reports, env, home, "no-tools", empty_cwd=empty_cwd)
 
     frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
     assert frame["child"]["cwd"] == empty_cwd
@@ -554,7 +711,7 @@ def test_profile_no_tools_confined_probe_and_child(tmp_path) -> None:
 
 def test_profile_conf_lane_add_dir(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     conf_root = _make_conf(tmp_path)
     pin = _launcher_pin()
     argv = _adapter_argv("omp_conf", conf_root=str(conf_root))
@@ -566,16 +723,52 @@ def test_profile_conf_lane_add_dir(tmp_path) -> None:
     rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
+    empty_cwd = run_env[omp_launch_policy.EMPTY_CWD_ENV]
     assert json.loads(reports["ARGS"][0]) == [
-        "--no-session", "--mode=json", "--model", MODEL, "--add-dir", str(workspace_path),
+        "-p", "--mode", "json", "--no-title", "--no-extensions", "--no-skills",
+        "--no-rules", "--model", MODEL, "--approval-mode", "write",
+        "--cwd", empty_cwd, "--add-dir", str(workspace_path), "--no-session",
     ]
-    _profile_assertions(reports, env, home, "conf", workspace_add=True, conf_root=str(conf_root))
+    _profile_assertions(reports, env, home, "conf", empty_cwd=empty_cwd,
+                        workspace_add=True, conf_root=str(conf_root))
+    _assert_success(rc=rc, out=out, err=err, expectation=expectation)
+
+def test_profile_conf_lane_uses_inherited_conf_fd_after_path_swap(
+    tmp_path
+) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    conf_root = _make_conf(tmp_path)
+    pin = _launcher_pin()
+    argv = _adapter_argv("omp_conf", conf_root=str(conf_root))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="conf", env=env, conf_root=str(conf_root),
+    )
+    conf_fd = os.open(
+        conf_root,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    carrier = json.loads(run_env[omp_launch_policy.ATTEMPT_FDS_ENV])
+    carrier["roots"]["__conf__"] = conf_fd
+    run_env[omp_launch_policy.ATTEMPT_FDS_ENV] = json.dumps(carrier)
+    original = conf_root.with_name("conf-original")
+    os.replace(conf_root, original)
+    conf_root.mkdir()
+    (conf_root / "config.yml").write_text("advisor:\n  enabled: maybe\n")
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=argv, env=run_env, workspace=workspace_path,
+        stdin=_control(), pin=pin, out=out, err=err,
+        resolver_path=_fake_launcher(),
+    )
+
     _assert_success(rc=rc, out=out, err=err, expectation=expectation)
 
 
 def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _launcher_pin()
 
     argv = _adapter_argv("omp_conf_inference")
@@ -587,8 +780,13 @@ def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     rc = _run(argv=argv, env=run_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == ["--no-session", "--mode=json", "--model", MODEL, "--no-tools"]
-    _profile_assertions(reports, env, home, "conf-inference")
+    empty_cwd = run_env[omp_launch_policy.EMPTY_CWD_ENV]
+    assert json.loads(reports["ARGS"][0]) == [
+        "-p", "--mode", "json", "--no-title", "--no-extensions", "--no-skills",
+        "--no-rules", "--no-tools", "--model", MODEL, "--approval-mode", "write",
+        "--cwd", empty_cwd, "--no-session",
+    ]
+    _profile_assertions(reports, env, home, "conf-inference", empty_cwd=empty_cwd)
     _assert_success(rc=rc, out=out, err=err, expectation=expectation)
 
     session_dir = _live_dir(tmp_path)
@@ -601,16 +799,50 @@ def test_profile_conf_inference_and_fresh_no_tools(tmp_path) -> None:
     rc = _run(argv=argv, env=fresh_env, workspace=workspace_path, stdin=_control(probe=True),
               pin=pin, out=out, err=err, resolver_path=_fake_launcher())
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == [
-        "--session-dir", str(session_dir), "--mode=json", "--model", MODEL, "--no-tools",
+    empty_cwd = fresh_env[omp_launch_policy.EMPTY_CWD_ENV]
+    child_args = json.loads(reports["ARGS"][0])
+    assert child_args[:-1] == [
+        "-p", "--mode", "json", "--no-title", "--no-extensions", "--no-skills",
+        "--no-rules", "--no-tools", "--model", MODEL, "--approval-mode", "write",
+        "--cwd", empty_cwd, "--session-dir",
     ]
-    _profile_assertions(reports, env, home, "no-tools", session_dir=str(session_dir))
+    assert re.fullmatch(r"/proc/self/fd/[0-9]+", child_args[-1])
+    _profile_assertions(reports, env, home, "no-tools", empty_cwd=empty_cwd,
+                        session_dir=str(session_dir))
     journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
-    observed = tuple(sorted(entry.name for entry in session_dir.iterdir()))
-    fresh_expectation = dataclasses.replace(
-        fresh_expectation, observed_relpaths=observed
+    assert journal.is_file()
+    frame = _assert_success(rc=rc, out=out, err=err, expectation=fresh_expectation)
+    assert frame["observed"] == {"advisor_relpaths": [], "child_relpaths": []}
+    assert frame["session"]["primary_relpath"] == journal.name
+
+
+def test_profile_conf_launches_with_prompt_snapshot_nested_under_workspace(
+    tmp_path,
+) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    snapshot_parent = (
+        workspace_path / ".orchestrate" / "runs" / "run-1" / "prompt-inputs"
     )
-    _assert_success(rc=rc, out=out, err=err, expectation=fresh_expectation)
+    snapshot_parent.mkdir(parents=True)
+    conf_root = _make_conf(snapshot_parent)
+    pin = _launcher_pin()
+    argv = _adapter_argv("omp_conf", conf_root=str(conf_root))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="conf", env=env, conf_root=str(conf_root)
+    )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=argv,
+        env=run_env,
+        workspace=workspace_path,
+        stdin=_control(),
+        pin=pin,
+        out=out,
+        err=err,
+        resolver_path=_fake_launcher(),
+    )
+    _assert_success(rc=rc, out=out, err=err, expectation=expectation)
 
 
 def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
@@ -624,7 +856,7 @@ def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
     journal write succeeds with no overlapping write-root pair.
     """
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     conf_root = _make_conf(tmp_path)
     pin = _launcher_pin()
     session_dir = (
@@ -646,36 +878,38 @@ def test_profile_conf_fresh_session_under_workspace_coalesces(tmp_path) -> None:
               resolver_path=_fake_launcher())
     assert rc == 0, err.getvalue()
     reports = _reports(err.getvalue())
-    assert json.loads(reports["ARGS"][0]) == [
-        "--session-dir", str(session_dir), "--mode=json", "--model", MODEL,
-        "--add-dir", str(workspace_path),
+    empty_cwd = run_env[omp_launch_policy.EMPTY_CWD_ENV]
+    child_args = json.loads(reports["ARGS"][0])
+    assert child_args[:-1] == [
+        "-p", "--mode", "json", "--no-title", "--no-extensions", "--no-skills",
+        "--no-rules", "--model", MODEL, "--approval-mode", "write",
+        "--cwd", empty_cwd, "--add-dir", str(workspace_path), "--session-dir",
     ]
+    assert re.fullmatch(r"/proc/self/fd/[0-9]+", child_args[-1])
     # The workspace write root covers the nested session dir: probe writes
     # succeed there, and no separate session rule exists to overlap it.
-    _profile_assertions(reports, env, home, "conf", session_dir=str(session_dir),
+    _profile_assertions(reports, env, home, "conf", empty_cwd=empty_cwd,
+                        session_dir=str(session_dir),
                         workspace_add=True, conf_root=str(conf_root))
     journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
     assert journal.is_file(), "the fresh conf journal must be written under the workspace root"
-    observed = tuple(sorted(entry.name for entry in session_dir.iterdir()))
-    fresh_expectation = dataclasses.replace(
-        expectation, observed_relpaths=observed
-    )
-    frame = _assert_success(rc=rc, out=out, err=err, expectation=fresh_expectation)
+    frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
     assert frame["session"] == {
         "id": SESSION_ID, "visit_key": VISIT_KEY,
         "primary_relpath": journal.name,
         "primary_sha256": _sha256_file(journal),
     }
+    assert frame["observed"] == {"advisor_relpaths": [], "child_relpaths": []}
     assert frame["confinement"] == {
         "schema_version": "omp_write_confinement.v1",
         "landlock_abi": omp_launch.landlock_abi(),
-        "policy_sha256": fresh_expectation.confinement_policy_sha256,
+        "policy_sha256": expectation.confinement_policy_sha256,
     }
 
 
 def test_planted_fd_not_inherited(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     planted = socket.socketpair()[0]
     try:
         for argv in (_adapter_argv("omp"), _adapter_argv("omp_no_tools")):
@@ -691,36 +925,47 @@ def test_planted_fd_not_inherited(tmp_path) -> None:
 
 def test_no_spool_and_repeated_agent_discovery(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _launcher_pin()
     session_dir = _live_dir(tmp_path)
+    conf = _make_conf(tmp_path)
+    (conf / "agent" / "agents").mkdir(parents=True)
+    (conf / "agent" / "agents" / "custom.md").write_text(
+        "---\nname: custom\ndescription: test agent\n---\nbody\n",
+        encoding="utf-8",
+    )
 
     before = {str(p) for p in tmp_path.rglob("*") if p.is_file()}
     journals = set()
-    for index in range(2):
-        control = _control() if index == 0 else _control(ts="2026-08-24T01:02:03.456Z")
+    # R5: each fresh run owns exactly one direct journal per session dir, so
+    # the repeated discovery launch uses its own fresh visit directory.
+    for index, (control, run_dir) in enumerate((
+        (_control(), session_dir),
+        (_control(ts="2026-08-24T01:02:03.456Z"), _live_dir(tmp_path, key="step-1__v2b")),
+    )):
         out, err = io.BytesIO(), io.StringIO()
-        rc = _run(argv=_adapter_argv("omp_no_tools", session_dir=str(session_dir)),
+        rc = _run(argv=_adapter_argv("omp_no_tools", session_dir=str(run_dir),
+                                     conf_root=str(conf)),
                   env=env, workspace=workspace_path, stdin=control, pin=pin,
                   out=out, err=err, resolver_path=_fake_launcher())
         assert rc == 0, err.getvalue()
         assert json.loads(_reports(err.getvalue())["AGENTS"][0]) == ["custom.md"]
-    journal = session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"
     journals = {
-        str(journal),
-        str(session_dir / f"2026-08-24T01-02-03-456Z_{SESSION_ID}.jsonl"),
+        str(session_dir / f"{TS_STEM}_{SESSION_ID}.jsonl"),
+        str(tmp_path / "visits" / "step-1__v2b" / f"2026-08-24T01-02-03-456Z_{SESSION_ID}.jsonl"),
     }
     after = {str(p) for p in tmp_path.rglob("*") if p.is_file()}
     private_prefix = str(tmp_path / "cache" / "omp-i1" / "private")
     new_files = {p for p in (after - before) if not p.startswith(private_prefix)}
     assert new_files == journals
-    assert sorted(entry.name for entry in session_dir.iterdir()) == sorted(
-        Path(name).name for name in journals
-    )
+    assert sorted(entry.name for entry in session_dir.iterdir()) == [f"{TS_STEM}_{SESSION_ID}.jsonl"]
+    # R2: the child discovers the MATERIALIZED conf inside the attempt tree,
+    # never the caller's live agent dir, and the attempt tree is removed at
+    # run end (no spool across repeated launches).
     assert sorted(entry.name for entry in (home / ".omp" / "agent").iterdir()) == ["agents"]
-    # The fake lists $PI_CODING_AGENT_DIR/agents; only the authored custom
-    # agent is visible across repeated launches (bundled/user/global absent).
     assert sorted(entry.name for entry in (home / ".omp" / "agent" / "agents").iterdir()) == ["custom.md"]
+    attempts = list((tmp_path / "cache" / "omp-i1" / "attempts").rglob("omp-attempt-*"))
+    assert attempts == [], f"attempt trees must not accumulate: {attempts}"
 
 
 # ---------------------------------------------------------------------------
@@ -750,18 +995,28 @@ def test_source_verification_failures(tmp_path) -> None:
     writable.write_bytes(_FAKE_SOURCE.read_bytes())
     writable.chmod(0o666)
     _fails(writable, "writable")
-    _fails(Path(_FAKE_SOURCE_ABS), "digest", dataclasses.replace(pin, executable_sha256="0" * 64))
+    _fails(
+        _fake_launcher(),
+        "digest",
+        dataclasses.replace(_launcher_pin(), executable_sha256="0" * 64),
+    )
 
 
 def test_version_probe_contract_and_drift(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    pin = _fake_pin()
-
+    pin = _launcher_pin()
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
-              stdin=_control(), pin=dataclasses.replace(pin, version="999.0.0"),
-              out=out, err=err)
+    rc = _run(
+        argv=_adapter_argv("omp"),
+        env=env,
+        workspace=workspace_path,
+        stdin=_control(),
+        pin=dataclasses.replace(pin, version="999.0.0"),
+        out=out,
+        err=err,
+        resolver_path=_fake_launcher(),
+    )
     assert rc == 2
     assert "version probe" in err.getvalue()
     assert b"orchestrator.omp_launch.v1" not in out.getvalue()
@@ -784,11 +1039,11 @@ def test_helper_rejects_bad_roots_digest_and_target(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     roots = _env_roots(env)
-    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
-    private.parent.mkdir(parents=True)
-    private.parent.chmod(0o700)  # the helper requires a private current-user copy dir
-    private.write_bytes(_FAKE_SOURCE.read_bytes())
-    private.chmod(0o500)
+    private = _private_fixture(
+        tmp_path / "private",
+        _fake_pin().executable_sha256,
+        _FAKE_SOURCE.read_bytes(),
+    )
     (tmp_path / "empty").mkdir()
 
     base = [
@@ -824,7 +1079,7 @@ def test_helper_rejects_bad_roots_digest_and_target(tmp_path) -> None:
     bad_target = [t for t in base]
     bad_target[bad_target.index("--") + 1] = str(tmp_path / "fake_omp.py")
     (tmp_path / "fake_omp.py").write_bytes(_FAKE_SOURCE.read_bytes())
-    _fails(bad_target, "digest-named copy directory")
+    _fails(bad_target, "digest-named launch attempt")
 
 
 # ---------------------------------------------------------------------------
@@ -834,7 +1089,7 @@ def test_helper_rejects_bad_roots_digest_and_target(tmp_path) -> None:
 
 def test_conf_runtime_mutation_fails_at_close(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     conf_root = _make_conf(tmp_path)
     pin = _launcher_pin()
 
@@ -864,7 +1119,7 @@ def test_conf_runtime_mutation_fails_at_close(tmp_path) -> None:
 
 def test_primary_mismatch_fails_without_frame(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     session_dir = _live_dir(tmp_path)
 
     out, err = io.BytesIO(), io.StringIO()
@@ -910,56 +1165,163 @@ def test_spoofed_frame_rejected_by_accumulator(tmp_path) -> None:
     rc = _run(argv=argv, env=env, workspace=workspace_path,
               stdin=_control(mode="spoof", spoof_line=spoof), pin=pin, out=out, err=err,
               resolver_path=_fake_launcher())
-    assert rc == 0
-    _, error = _accumulate(out.getvalue(), _expectation(pin, argv, env=env))
-    assert error is not None
-    assert "header" in error["message"]
+    assert rc == 1
+    assert out.getvalue().count(b'"type":"orchestrator.omp_launch.v1"') == 1
+    assert "did not settle" in err.getvalue()
+
+
+def _real_binary_resolver(tmp_path):
+    """R1: resolve the real pinned build from PATH (hard link, never symlink).
+
+    The source must be a regular file owned by the effective user; symlinks
+    are rejected by the resolver, so the test stages a hard link exactly like
+    a deployed install.
+    """
+    installed = Path.home() / ".local" / "bin" / "omp"
+    bindir = tmp_path / "real-bin"
+    bindir.mkdir()
+    if not installed.is_file():
+        pytest.skip("real pinned build not installed at ~/.local/bin/omp")
+    if _sha256_file(installed) != OMP_BINARY_PIN.executable_sha256:
+        pytest.skip("installed omp is not the pinned acceptance build (R1 refuses)")
+    # copy (not hard link): the installed home may be on another filesystem
+    shutil.copyfile(installed, bindir / "omp")
+    bindir.joinpath("omp").chmod(0o555)
+    return bindir
+
+
 
 
 @pytest.mark.e2e
-def test_real_pinned_binary_smoke(tmp_path) -> None:
-    """Launch mechanics against the real pinned acceptance build (Task 5).
+@pytest.mark.requires_secrets
+def test_real_pinned_binary_no_tools_transient_completes(tmp_path) -> None:
 
-    The profile lane runs the real pinned binary confined: the version probe
-    passes through the helper, the child launches with the exact positive
-    environment, and its first mutation under ``$HOME/.omp`` is denied by the
-    Landlock write allowlist, so the child fails at its storage initialization
-    and the adapter relays the nonzero exit.
-    """
+
+    """Real profile completion requires a live operator-supplied auth broker."""
+    broker_url = os.environ.get("OMP_AUTH_BROKER_URL")
+    broker_token = os.environ.get("OMP_AUTH_BROKER_TOKEN")
+    if not broker_url or not broker_token:
+        pytest.skip("live OMP auth broker pair is not configured")
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
+    env.update({
+        "OMP_AUTH_BROKER_URL": broker_url,
+        "OMP_AUTH_BROKER_TOKEN": broker_token,
+    })
+    bindir = _real_binary_resolver(tmp_path)
+    assert bindir is not None
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    argv = _adapter_argv("omp_no_tools")
+    expectation, run_env = _frozen_profile_expectation(
+        OMP_BINARY_PIN, argv, lane="no-tools", env=env,
+        conf_root=str(omp_launch.neutral_conf_root()),
+    )
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(
-        argv=_adapter_argv("omp_no_tools"),
-        env=env,
-        workspace=workspace_path,
-        stdin=b"Reply exactly OK\n",
-        pin=OMP_BINARY_PIN,
-        resolver_path=omp_launch.PRODUCTION_BINARY_PATH,
-        out=out,
-        err=err,
+        argv=argv, env=run_env, workspace=workspace_path,
+        stdin=b"Reply with exactly: PROFILE-NO-TOOLS-OK\n",
+        pin=OMP_BINARY_PIN, out=out, err=err,
+        resolver=lambda: omp_launch.resolve_omp_binary(run_env),
     )
-    text = err.getvalue()
-    assert rc != 2, text
-    assert "version probe" not in text
-    assert "positive launch environment" not in text
-    assert "child exited 1" in text, text
-    assert "permission denied" in text, text
+    assert rc == 0, err.getvalue()
+    child_bytes, frame = _frame_bytes(out.getvalue())
+    session_id = json.loads(child_bytes.splitlines()[0])["id"]
+    accumulator = OmpJsonStdoutAccumulator(
+        expectation=dataclasses.replace(
+            expectation, stdout_session_id=session_id))
+    accumulator.feed(out.getvalue())
+    metadata, error = accumulator.finalize(
+        expected_session_id=session_id, require_terminal=True)
+    assert error is None and metadata is not None, error
+    assert frame["lane"] == "no-tools"
+    assert frame["persistence"] == "none"
+    assert frame["child"]["exit_code"] == 0
+
+
+@pytest.mark.e2e
+@pytest.mark.requires_secrets
+def test_real_pinned_binary_conf_fresh_completes(tmp_path) -> None:
+    broker_url = os.environ.get("OMP_AUTH_BROKER_URL")
+    broker_token = os.environ.get("OMP_AUTH_BROKER_TOKEN")
+    if not broker_url or not broker_token:
+        pytest.skip("live OMP auth broker pair is not configured")
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    env.update({
+        "OMP_AUTH_BROKER_URL": broker_url,
+        "OMP_AUTH_BROKER_TOKEN": broker_token,
+    })
+    bindir = _real_binary_resolver(tmp_path)
+    assert bindir is not None
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    conf_root = _make_conf(tmp_path)
+    conf_bytes = (conf_root / "config.yml").read_bytes()
+    session_dir = _live_dir(tmp_path, "real-conf__v1")
+    argv = _adapter_argv(
+        "omp_conf", conf_root=str(conf_root),
+        session_dir=str(session_dir),
+    )
+    expectation, run_env = _frozen_profile_expectation(
+        OMP_BINARY_PIN, argv, lane="conf", env=env,
+        conf_root=str(conf_root), session_dir=str(session_dir),
+        visit_key=session_dir.name, persistence="fresh",
+    )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=argv, env=run_env, workspace=workspace_path,
+        stdin=b"Reply with exactly: PROFILE-CONF-OK\n",
+        pin=OMP_BINARY_PIN, out=out, err=err,
+        resolver=lambda: omp_launch.resolve_omp_binary(run_env),
+    )
+    assert rc == 0, err.getvalue()
+    child_bytes, frame = _frame_bytes(out.getvalue())
+    session_id = json.loads(child_bytes.splitlines()[0])["id"]
+    accumulator = OmpJsonStdoutAccumulator(
+        expectation=dataclasses.replace(
+            expectation, stdout_session_id=session_id))
+    accumulator.feed(out.getvalue())
+    metadata, error = accumulator.finalize(
+        expected_session_id=session_id, require_terminal=True)
+    assert error is None and metadata is not None, error
+    assert frame["lane"] == "conf"
+    assert frame["persistence"] == "fresh"
+    assert frame["session"]["visit_key"] == session_dir.name
+    assert frame["session"]["primary_relpath"]
+    assert (conf_root / "config.yml").read_bytes() == conf_bytes
 
 
 # The real pinned acceptance build needs the real auth home (agent.db with the
 # stored provider credentials); both ambient smokes make one real model call.
-REAL_AUTH_HOME = "/home/ollie"
+def _real_auth_home() -> str:
+    """Portable real auth home; skip when no validated credential state.
+
+    Honors ``OMP_E2E_AUTH_HOME`` explicitly; otherwise accepts the current
+    HOME only after it carries the OMP agent credential store. Never hardcodes
+    a developer path.
+    """
+    from tests.test_omp_integration import real_auth_home
+
+    home = real_auth_home()
+    if home is None:
+        pytest.skip(
+            "no validated real auth home (set OMP_E2E_AUTH_HOME or provide "
+            "the OMP agent credential store under $HOME/.omp/agent)"
+        )
+    return str(home)
 
 
 @pytest.mark.e2e
+@pytest.mark.requires_secrets
 def test_real_pinned_binary_ambient_transient_completes(tmp_path) -> None:
     """Real pinned binary, ambient transient lane: a real session completes
     through the adapter with the OMP JSON transport on stdout and one real
     adapter frame (lane ambient, null confinement, no session dir)."""
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    env["HOME"] = REAL_AUTH_HOME
+    env["HOME"] = _real_auth_home()
+    bindir = _real_binary_resolver(tmp_path)
+    assert bindir is not None, "real pinned build must be installed at ~/.local/bin/omp"
+    env["PATH"] = f"{bindir}:{env['PATH']}"
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(
         argv=_adapter_argv("omp"),
@@ -967,9 +1329,9 @@ def test_real_pinned_binary_ambient_transient_completes(tmp_path) -> None:
         workspace=workspace_path,
         stdin=b"Reply with exactly: SMOKE-OK\n",
         pin=OMP_BINARY_PIN,
-        resolver_path=omp_launch.PRODUCTION_BINARY_PATH,
         out=out,
         err=err,
+        resolver=lambda: omp_launch.resolve_omp_binary(env),
     )
     text = err.getvalue()
     assert rc == 0, f"rc={rc} stderr={text}"
@@ -989,13 +1351,17 @@ def test_real_pinned_binary_ambient_transient_completes(tmp_path) -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.requires_secrets
 def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
     """Real pinned binary, ambient fresh lane: the exclusive live session dir
     receives the child-written journal; the adapter scans it and frames the
     real session id and primary journal (relpath + sha256)."""
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
-    env["HOME"] = REAL_AUTH_HOME
+    env["HOME"] = _real_auth_home()
+    bindir = _real_binary_resolver(tmp_path)
+    assert bindir is not None, "real pinned build must be installed at ~/.local/bin/omp"
+    env["PATH"] = f"{bindir}:{env['PATH']}"
     live = tmp_path / "visits" / "v1"
     live.mkdir(parents=True)
     live.chmod(0o700)
@@ -1006,9 +1372,9 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
         workspace=workspace_path,
         stdin=b"Reply with exactly: SMOKE-OK\n",
         pin=OMP_BINARY_PIN,
-        resolver_path=omp_launch.PRODUCTION_BINARY_PATH,
         out=out,
         err=err,
+        resolver=lambda: omp_launch.resolve_omp_binary(env),
     )
     text = err.getvalue()
     assert rc == 0, f"rc={rc} stderr={text}"
@@ -1027,7 +1393,10 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
     assert isinstance(primary, str) and primary.endswith(".jsonl"), frame
     assert primary.rsplit("_", 1)[-1][: -len(".jsonl")] == header["id"], frame
     assert _HEX64_RE.fullmatch(frame["session"]["primary_sha256"]), frame
-    assert primary in frame["observed"]["child_relpaths"], frame
+    advisors = frame["observed"]["advisor_relpaths"]
+    assert advisors and all(path.endswith("/__advisor.jsonl") for path in advisors), frame
+    assert frame["observed"]["child_relpaths"] == [], frame
+    assert primary not in advisors, frame
 
 
 # ---------------------------------------------------------------------------
@@ -1038,11 +1407,11 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
 def _helper_base(home: Path, env: dict, tmp_path: Path) -> tuple[list[str], Path]:
     """Helper argv with a REAL digest over the same roots the adapter uses."""
     roots = _env_roots(env)
-    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
-    private.parent.mkdir(parents=True)
-    private.parent.chmod(0o700)  # the helper requires a private current-user copy dir
-    private.write_bytes(_FAKE_SOURCE.read_bytes())
-    private.chmod(0o500)
+    private = _private_fixture(
+        tmp_path / "private",
+        _fake_pin().executable_sha256,
+        _FAKE_SOURCE.read_bytes(),
+    )
     (tmp_path / "empty").mkdir()
     digest = canonical_policy_digest(
         lane="no-tools", home_omp=str(home / ".omp"), session_dir=None,
@@ -1117,18 +1486,18 @@ def test_helper_rejects_non_private_copy_directory(tmp_path) -> None:
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     base, _private = _helper_base(home, env, tmp_path)
-    os.chmod(tmp_path / "private" / _fake_pin().executable_sha256, 0o777)
+    _private.parent.chmod(0o777)
     _helper_fails(base, "private copy directory")
 
 
 def _overlap_argv(home: Path, env: dict, tmp_path: Path, **root_mutations: str):
     """Helper argv whose digest matches a mutated write-root set."""
     roots = {**_env_roots(env), **root_mutations}
-    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
-    private.parent.mkdir(parents=True)
-    private.parent.chmod(0o700)
-    private.write_bytes(_FAKE_SOURCE.read_bytes())
-    private.chmod(0o500)
+    launcher = _fake_launcher()  # native ELF: fd-exec refuses shebang scripts
+    digest_dir = _sha256_file(launcher)
+    private = _private_fixture(
+        tmp_path / "private", digest_dir, launcher.read_bytes()
+    )
     (tmp_path / "empty").mkdir()
     digest = canonical_policy_digest(
         lane="no-tools", home_omp=str(home / ".omp"), session_dir=None,
@@ -1208,7 +1577,7 @@ def test_helper_rejects_nested_write_data_under_state(tmp_path) -> None:
 
 def test_adapter_rejects_symlink_at_empty_cwd_path(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _fake_pin()
     target = tmp_path / "real-empty"
     target.mkdir()
@@ -1229,7 +1598,7 @@ def test_adapter_rejects_symlink_at_empty_cwd_path(tmp_path) -> None:
 
 def test_adapter_rejects_preexisting_nonempty_empty_cwd(tmp_path) -> None:
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _fake_pin()
     empty = omp_launch.empty_omp_cwd(
         home=str(home), lane="no-tools", workspace=str(workspace_path),
@@ -1247,19 +1616,43 @@ def test_adapter_rejects_preexisting_nonempty_empty_cwd(tmp_path) -> None:
     assert b"orchestrator.omp_launch.v1" not in out.getvalue()
 
 
-def test_adapter_relay_redacts_the_broker_token(tmp_path) -> None:
+def test_adapter_relay_redacts_the_profile_broker_token(tmp_path) -> None:
+    """R2: the relay redacts the real operator token in a profile lane."""
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _launcher_pin()
 
     out, err = io.BytesIO(), io.StringIO()
-    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+    rc = _run(argv=_adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root())),
+              env=env, workspace=workspace_path,
               stdin=_control(leak_token=True), pin=pin, out=out, err=err,
               resolver_path=_fake_launcher())
     assert rc == 0, err.getvalue()
     text = err.getvalue()
     assert "TOKEN_LEAK [redacted]" in text, text
-    assert not re.search(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", text), text
+    assert "caller-token-must-not-leak" not in text, text
+    assert "caller-token-must-not-leak" not in out.getvalue().decode("utf-8"), out
+
+
+def test_adapter_relay_redacts_an_inherited_ambient_broker_token(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=_adapter_argv("omp"),
+        env=env,
+        workspace=workspace_path,
+        stdin=_control(leak_token=True),
+        pin=_launcher_pin(),
+        out=out,
+        err=err,
+        resolver_path=_fake_launcher(),
+    )
+
+    assert rc == 0, err.getvalue()
+    assert "TOKEN_LEAK [redacted]" in err.getvalue()
+    assert "caller-token-must-not-leak" not in err.getvalue()
 
 
 def test_adapter_fresh_session_rejects_symlink_journal_entry(tmp_path) -> None:
@@ -1319,9 +1712,11 @@ def test_ambient_exec_is_not_mutable_after_verify(tmp_path, monkeypatch) -> None
     evil = tmp_path / "evil_omp.py"
     evil.write_text("print('SWAPPED_MARKER')\n", encoding="utf-8")
     evil_launcher = _compile_launcher(evil)
-    private = (
-        Path(env["XDG_CACHE_HOME"]) / "omp-i1" / "private"
-        / pin.executable_sha256 / os.path.basename(os.fspath(_fake_launcher()))
+    private_root = (
+        Path(env["XDG_CACHE_HOME"])
+        / "omp-i1"
+        / "private"
+        / pin.executable_sha256
     )
 
     import subprocess as _subprocess
@@ -1330,17 +1725,21 @@ def test_ambient_exec_is_not_mutable_after_verify(tmp_path, monkeypatch) -> None
 
     def _swapping_popen(args, *a, **kw):
         argv = list(args) if isinstance(args, (list, tuple)) else [args]
-        if "--version" not in argv and str(private) in argv:
-            # Swap the verified private copy for attacker bytes between the
-            # version probe and the child spawn. The staged copy is 0o500
-            # (owner r-x), so open it for writing first; a real swap must
-            # happen or this test only exercises Popen OSError handling.
+        private = next(
+            (
+                Path(arg)
+                for arg in argv
+                if isinstance(arg, str)
+                and arg.startswith(f"{private_root}{os.sep}attempt-")
+                and arg.endswith(f"{os.sep}omp")
+            ),
+            None,
+        )
+        if "--version" not in argv and private is not None:
             private.chmod(0o700)
             private.write_bytes(evil_launcher.read_bytes())
             private.chmod(0o500)
-            assert private.read_bytes() == evil_launcher.read_bytes(), (
-                "the swap must actually replace the staged file"
-            )
+            assert private.read_bytes() == evil_launcher.read_bytes()
         return real_popen(args, *a, **kw)
 
     monkeypatch.setattr(_subprocess, "Popen", _swapping_popen)
@@ -1371,11 +1770,11 @@ def _symlink_root_argv(home: Path, env: dict, tmp_path: Path, data_path: Path):
     roots = {**_env_roots(env), "data": str(data_path)}
     resolved_data = os.path.realpath(str(data_path))
     digest_roots = {**roots, "data": resolved_data}
-    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
-    private.parent.mkdir(parents=True)
-    private.parent.chmod(0o700)
-    private.write_bytes(_FAKE_SOURCE.read_bytes())
-    private.chmod(0o500)
+    private = _private_fixture(
+        tmp_path / "private",
+        _fake_pin().executable_sha256,
+        _FAKE_SOURCE.read_bytes(),
+    )
     (tmp_path / "empty").mkdir()
     digest = canonical_policy_digest(
         lane="no-tools", home_omp=str(home / ".omp"), session_dir=None,
@@ -1593,11 +1992,11 @@ def test_profile_helper_rejects_mismatched_session_identity(tmp_path) -> None:
     env = _std_env(home, tmp_path)
     roots = _env_roots(env)
     session_dir = _live_dir(tmp_path)
-    private = tmp_path / "private" / _fake_pin().executable_sha256 / "fake_omp.py"
-    private.parent.mkdir(parents=True)
-    private.parent.chmod(0o700)
-    private.write_bytes(_FAKE_SOURCE.read_bytes())
-    private.chmod(0o500)
+    private = _private_fixture(
+        tmp_path / "private",
+        _fake_pin().executable_sha256,
+        _FAKE_SOURCE.read_bytes(),
+    )
     (tmp_path / "empty").mkdir()
     digest = canonical_policy_digest(
         lane="no-tools", home_omp=str(home / ".omp"), session_dir=str(session_dir),
@@ -1629,7 +2028,7 @@ def test_adapter_direct_seam_rejects_preplanted_empty_cwd(tmp_path) -> None:
     """Finding 4: direct mode exclusive-creates its cwd; an EMPTY preplanted
     directory at the deterministic path must fail closed, never be adopted."""
     home = _make_home(tmp_path)
-    env = _std_env(home, tmp_path)
+    env = _broker_env(home, tmp_path)
     pin = _launcher_pin()
     empty = omp_launch.empty_omp_cwd(
         home=str(home), lane="no-tools", workspace=str(workspace_path),
@@ -1877,92 +2276,705 @@ def test_verify_root_identity_admits_distinct_superblocks(tmp_path, monkeypatch)
             os.close(fd)
 
 
-def test_parent_final_acceptance_admits_matching_visit(tmp_path) -> None:
-    """Finding 2 (T5-SEC-006): inventory + primary accepted on ONE retained fd."""
-    from orchestrator.providers.omp_launch_fs import (
-        accept_fresh_session_fd,
-        primary_journal_identity,
-        session_dir_identity,
-    )
-    from orchestrator.providers.omp_launch_policy import open_session_dir_verified
+# ---------------------------------------------------------------------------
+# Task 10 remediation R5 REDs (recursive close-time observation in launch)
+# ---------------------------------------------------------------------------
 
-    live = tmp_path / "v1.live"
-    live.mkdir()
-    live.chmod(0o700)
-    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
-    journal.write_text("payload", encoding="utf-8")
-    (live / "note.txt").write_text("extra", encoding="utf-8")
-    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
-    expected_observed = tuple(sorted(entry.name for entry in live.iterdir()))
-    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
+
+def _session_fixture(name: str) -> bytes:
+    return (
+        Path(__file__).parent / "fixtures" / "omp" / "sessions" / name
+    ).read_bytes()
+
+
+def _r5_preset_env(home: Path, root: Path) -> dict:
+    """Profile env with a live broker pair; the conf root is the packaged
+    advised-fanout preset so the canonical digest selects its topology."""
+    env = _broker_env(home, root)
+    return env
+
+
+def _artifacts_dir(session_dir: Path, journal_name: str) -> Path:
+    artifacts = session_dir / journal_name[: -len(".jsonl")]
+    artifacts.mkdir(parents=True, exist_ok=True)
+    return artifacts
+
+
+def test_r5_fresh_launch_duplicate_direct_primary_fails(tmp_path) -> None:
+    """R5: the close-time observer selects exactly one direct primary by the
+    stdout session id; a second direct journal (even for another id) fails
+    the adapter before any frame is written."""
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    other = "2026-08-24T00-00-00-000Z_99999999-9999-7999-8999-999999999999.jsonl"
+    (session_dir / other).write_bytes(
+        _session_fixture("2026-08-23T22-33-31-340Z_11111111-1111-7111-8111-111111111111.jsonl")
+    )
+    argv = _adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root()),
+                         session_dir=str(session_dir))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh",
+    )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 2, (rc, err.getvalue())
+    assert "more than one direct journal" in err.getvalue(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_r5_fresh_launch_recognized_preset_topology_and_observation(tmp_path) -> None:
+    """R5: a real fresh launch through the packaged advised-fanout conf runs
+    the recursive close-time observer: the planted advisor and two child
+    journals satisfy the X5 predicates, the canonical digest enforces the
+    counts, and the frame binds the recursive relpaths under observed while
+    the primary stays under session."""
+    from orchestrator.omp_assets import preset_conf_root
+    from orchestrator.providers.omp_conf import admit_conf_tree
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    artifacts = _artifacts_dir(session_dir, f"{TS_STEM}_{SESSION_ID}.jsonl")
+    (artifacts / "__advisor.jsonl").write_bytes(_session_fixture("__advisor.jsonl"))
+    (artifacts / "alpha.jsonl").write_bytes(_session_fixture("alpha.jsonl"))
+    (artifacts / "beta.jsonl").write_bytes(_session_fixture("beta.jsonl"))
+    conf_root = preset_conf_root("advised-fanout")
+    argv = _adapter_argv("omp_no_tools", conf_root=str(conf_root),
+                         session_dir=str(session_dir))
+    prefix = f"{TS_STEM}_{SESSION_ID}.jsonl"[: -len(".jsonl")]
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh", conf_root=str(conf_root),
+        observed=(f"{prefix}/alpha.jsonl", f"{prefix}/beta.jsonl"),
+    )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 0, (rc, err.getvalue())
+    frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
+    journal = f"{TS_STEM}_{SESSION_ID}.jsonl"
+    prefix = journal[: -len(".jsonl")]
+    assert frame["session"]["primary_relpath"] == journal
+    assert frame["observed"] == {
+        "advisor_relpaths": [f"{prefix}/__advisor.jsonl"],
+        "child_relpaths": [f"{prefix}/alpha.jsonl", f"{prefix}/beta.jsonl"],
+    }
+    # The canonical packaged digest is the only selector for the counts.
+    fd = os.open(conf_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        accept_fresh_session_fd(fd, SESSION_ID, expected_observed, relpath, sha)
+        digest = admit_conf_tree(fd).manifest_sha256
     finally:
         os.close(fd)
+    assert digest == expectation.conf_manifest_sha256
 
 
-def test_parent_final_acceptance_rejects_drifted_non_primary_entry(tmp_path) -> None:
-    """Finding 2 (T5-SEC-006): a non-primary entry changed after the retained
-    fd was opened must fail the FINAL acceptance even though the primary
-    journal still matches (the observation scan alone is not acceptance)."""
-    from orchestrator.providers.omp_launch_fs import (
-        accept_fresh_session_fd,
-        primary_journal_identity,
-        session_dir_identity,
+def test_r5_fresh_launch_malformed_advisor_journal_fails(tmp_path) -> None:
+    """R5: a planted malformed advisor journal fails the recursive observer
+    and the adapter writes no frame."""
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    artifacts = _artifacts_dir(session_dir, f"{TS_STEM}_{SESSION_ID}.jsonl")
+    (artifacts / "__advisor.jsonl").write_bytes(b'{"type":"title","v":1}\nbroken\n')
+    argv = _adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root()),
+                         session_dir=str(session_dir))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh",
     )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 2, (rc, err.getvalue())
+    assert "advisor" in err.getvalue().lower(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def _child_journal_with_cwd(fixture: bytes, cwd: str) -> bytes:
+    """Rewrite a child fixture journal's session-header cwd (line 2, after the
+    256-byte title slot) so the close-time worktree predicate sees the path."""
+    import json as _json
+
+    lines = fixture.split(b"\n")
+    header = _json.loads(lines[1])
+    header["cwd"] = cwd
+    lines[1] = _json.dumps(header, separators=(",", ":")).encode("utf-8")
+    return b"\n".join(lines)
+
+
+def _profile_attempt_home(env, session_dir, conf_root) -> str:
+    """Re-derive the adapter-owned attempt HOME exactly like the adapter
+    (same nonce as the frozen empty-cwd carrier)."""
     from orchestrator.providers.omp_launch_policy import (
-        LaunchFsError,
-        open_session_dir_verified,
+        EMPTY_CWD_ENV,
+        empty_omp_cwd_nonce,
+        profile_attempt_key,
+        profile_attempt_roots,
     )
 
-    live = tmp_path / "v1.live"
-    live.mkdir()
-    live.chmod(0o700)
-    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
-    journal.write_text("payload", encoding="utf-8")
-    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
-    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
-    try:
-        (live / "note.txt").write_text("racer", encoding="utf-8")
-        with pytest.raises(LaunchFsError, match="inventory"):
-            accept_fresh_session_fd(fd, SESSION_ID, (journal.name,), relpath, sha)
-    finally:
-        os.close(fd)
-
-
-def test_final_acceptance_rejects_in_window_non_primary_drift(tmp_path, monkeypatch) -> None:
-    """Finding (T5-SEC-006): a non-primary entry created between inventory
-    scan A and primary validation must fail the FINAL acceptance via the
-    scan-B equality check, even though the primary journal still matches."""
-    from orchestrator.providers import omp_launch_fs as fs_mod
-    from orchestrator.providers.omp_launch_fs import (
-        accept_fresh_session_fd,
-        primary_journal_identity,
-        revalidate_primary_journal_fd as real_revalidate,
-        session_dir_identity,
+    empty_cwd = env[EMPTY_CWD_ENV]
+    nonce = empty_omp_cwd_nonce(
+        empty_cwd,
+        expected_key=profile_attempt_key(
+            lane="no-tools", workspace=str(workspace_path),
+            session_dir=str(session_dir), conf_root=str(conf_root),
+            env_roots=_env_roots(env),
+        ),
     )
+    attempt = profile_attempt_roots(
+        env_roots=_env_roots(env), lane="no-tools",
+        workspace=str(workspace_path), session_dir=str(session_dir),
+        conf_root=str(conf_root), nonce=nonce,
+    )
+    return attempt["HOME"]
+
+
+def test_r5_fresh_launch_isolated_worktree_present_at_close_fails(tmp_path) -> None:
+    """R5 RED: a child journal whose cwd lies under the pinned ~/.omp/wt base
+    of the ACTUAL child HOME fails close-time observation while the worktree
+    directory still exists; the adapter writes no frame."""
+    from orchestrator.omp_assets import preset_conf_root
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    conf_root = preset_conf_root("advised-fanout")
+    argv = _adapter_argv("omp_no_tools", conf_root=str(conf_root),
+                         session_dir=str(session_dir))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh", conf_root=str(conf_root),
+    )
+    attempt_home = _profile_attempt_home(run_env, session_dir, conf_root)
+    wt_dir = os.path.join(attempt_home, ".omp", "wt", "wt-1")
+    os.makedirs(wt_dir)
+    artifacts = _artifacts_dir(session_dir, f"{TS_STEM}_{SESSION_ID}.jsonl")
+    (artifacts / "__advisor.jsonl").write_bytes(_session_fixture("__advisor.jsonl"))
+    (artifacts / "alpha.jsonl").write_bytes(
+        _child_journal_with_cwd(_session_fixture("alpha.jsonl"), wt_dir)
+    )
+    (artifacts / "beta.jsonl").write_bytes(_session_fixture("beta.jsonl"))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 2, (rc, err.getvalue())
+    assert "worktree" in err.getvalue(), err.getvalue()
+    assert b"orchestrator.omp_launch.v1" not in out.getvalue()
+
+
+def test_r5_fresh_launch_isolated_worktree_cleaned_up_passes(tmp_path) -> None:
+    """R5 positive: the same tree passes close-time observation once the
+    worktree directory is gone; the recursive relpaths bind in the frame."""
+    from orchestrator.omp_assets import preset_conf_root
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    conf_root = preset_conf_root("advised-fanout")
+    argv = _adapter_argv("omp_no_tools", conf_root=str(conf_root),
+                         session_dir=str(session_dir))
+    prefix = f"{TS_STEM}_{SESSION_ID}.jsonl"[: -len(".jsonl")]
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh", conf_root=str(conf_root),
+        observed=(f"{prefix}/alpha.jsonl", f"{prefix}/beta.jsonl"),
+    )
+    attempt_home = _profile_attempt_home(run_env, session_dir, conf_root)
+    wt_dir = os.path.join(attempt_home, ".omp", "wt", "wt-1")
+    artifacts = _artifacts_dir(session_dir, f"{TS_STEM}_{SESSION_ID}.jsonl")
+    (artifacts / "__advisor.jsonl").write_bytes(_session_fixture("__advisor.jsonl"))
+    (artifacts / "alpha.jsonl").write_bytes(
+        _child_journal_with_cwd(_session_fixture("alpha.jsonl"), wt_dir)
+    )
+    (artifacts / "beta.jsonl").write_bytes(_session_fixture("beta.jsonl"))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 0, (rc, err.getvalue())
+    journal = f"{TS_STEM}_{SESSION_ID}.jsonl"
+    frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
+    assert frame["observed"] == {
+        "advisor_relpaths": [f"{prefix}/__advisor.jsonl"],
+        "child_relpaths": [f"{prefix}/alpha.jsonl", f"{prefix}/beta.jsonl"],
+    }
+
+# ---------------------------------------------------------------------------
+# Task 10 remediation R1-R3 REDs (integration repairs)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+
+def _path_resolver_env(tmp_path, binary: Path, *, name: str = "omp") -> tuple[Path, dict]:
+    """One PATH dir containing ``name`` copied from ``binary``; returns (dir, env)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / name).write_bytes(binary.read_bytes())
+    (bindir / name).chmod(0o555)
+    env = _std_env(_make_home(tmp_path), tmp_path)
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    return bindir, env
+
+
+# -- R1: deployable binary admission -----------------------------------------
+
+
+def test_r1_source_owner_admission_is_effective_user_or_root() -> None:
+    from orchestrator.providers.omp_launch_fs import source_owner_admitted
+
+    euid = os.geteuid()
+    foreign = 65534 if euid != 65534 else 65533
+    assert source_owner_admitted(euid) is True
+    assert source_owner_admitted(0) is True
+    assert source_owner_admitted(0, euid=euid) is True
+    assert source_owner_admitted(euid, euid=euid) is True
+    assert source_owner_admitted(foreign, euid=euid) is False
+    assert source_owner_admitted(0, euid=foreign) is True
+
+
+def test_r1_resolver_absent_omp_fails_before_probe(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _std_env(home, tmp_path)
+    empty_dir = tmp_path / "empty-path"
+    empty_dir.mkdir()
+    env["PATH"] = str(empty_dir)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_fake_pin(), out=out, err=err,
+              resolver=lambda: omp_launch.resolve_omp_binary(env))
+    assert rc == 2, (rc, err.getvalue())
+    assert "omp" in err.getvalue() and "PATH" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r1_resolver_finds_path_installed_pinned_binary_and_launches(tmp_path) -> None:
+    pin = _launcher_pin()
+    _bindir, env = _path_resolver_env(tmp_path, _fake_launcher())
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver=lambda: omp_launch.resolve_omp_binary(env))
+    assert rc == 0, err.getvalue()
+    _assert_success(rc=rc, out=out, err=err,
+                    expectation=_expectation(pin, _adapter_argv("omp"), env=env))
+    private = list(
+        (
+            Path(env["XDG_CACHE_HOME"])
+            / "omp-i1"
+            / "private"
+            / pin.executable_sha256
+        ).glob("attempt-*/omp")
+    )
+    assert len(private) == 1
+    assert _sha256_file(private[0]) == pin.executable_sha256
+
+
+
+
+def test_r1_private_copy_is_fresh_per_launch(tmp_path) -> None:
+    from orchestrator.providers.omp_launch_fs import stage_private_copy
+
+    source = tmp_path / "omp"
+    source.write_bytes(_fake_launcher().read_bytes())
+    source.chmod(0o500)
+    pin = dataclasses.replace(
+        _launcher_pin(), executable_sha256=_sha256_file(source)
+    )
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    first = stage_private_copy(str(source), pin, str(cache))
+    second = stage_private_copy(str(source), pin, str(cache))
+    assert first != second
+    assert Path(first).is_file()
+    assert Path(second).is_file()
+
+
+def test_profile_attempt_precreates_xdg_app_roots(tmp_path) -> None:
     from orchestrator.providers.omp_launch_policy import (
-        LaunchFsError,
-        open_session_dir_verified,
+        create_profile_attempt_authority,
+        profile_attempt_roots,
     )
 
-    live = tmp_path / "v1.live"
-    live.mkdir()
-    live.chmod(0o700)
-    journal = live / f"{TS_STEM}_{SESSION_ID}.jsonl"
-    journal.write_text("payload", encoding="utf-8")
-    relpath, sha = primary_journal_identity(str(live), SESSION_ID)
-
-    def _racer_revalidate(dir_fd, session_id, relpath_arg, sha256):
-        # Simulates a child descendant adding a non-primary entry between
-        # scan A and primary validation on the SAME retained visit fd.
-        (live / "racer.txt").write_text("in-window", encoding="utf-8")
-        return real_revalidate(dir_fd, session_id, relpath_arg, sha256)
-
-    monkeypatch.setattr(fs_mod, "revalidate_primary_journal_fd", _racer_revalidate)
-    fd = open_session_dir_verified(str(live), session_dir_identity(str(live)))
+    roots = {
+        name: str(tmp_path / name)
+        for name in ("data", "state", "cache", "temp")
+    }
+    for path in roots.values():
+        Path(path).mkdir()
+    attempt = profile_attempt_roots(
+        env_roots=roots, lane="no-tools", workspace=str(tmp_path),
+        session_dir=None, conf_root=None, nonce="1",
+    )
+    authority = create_profile_attempt_authority(attempt)
     try:
-        with pytest.raises(LaunchFsError, match="inventory"):
-            accept_fresh_session_fd(fd, SESSION_ID, (journal.name,), relpath, sha)
+        for name in ("XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"):
+            app_root = Path(attempt[name]) / "omp"
+            assert app_root.is_dir()
+            assert app_root.stat().st_mode & 0o077 == 0
     finally:
-        os.close(fd)
+        authority.close()
+
+
+def test_r1_foreign_owner_source_fails_before_probe(tmp_path, monkeypatch) -> None:
+    _bindir, env = _path_resolver_env(tmp_path, _fake_launcher())
+    monkeypatch.setattr(os, "geteuid", lambda: 65534)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_launcher_pin(), out=out, err=err,
+              resolver=lambda: omp_launch.resolve_omp_binary(env))
+    assert rc == 2, (rc, err.getvalue())
+    assert "owned" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r1_owner_writable_source_fails_before_probe(tmp_path) -> None:
+    bindir, env = _path_resolver_env(tmp_path, _fake_launcher())
+    (bindir / "omp").chmod(0o700)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(
+        argv=_adapter_argv("omp"),
+        env=env,
+        workspace=workspace_path,
+        stdin=_control(),
+        pin=_launcher_pin(),
+        out=out,
+        err=err,
+        resolver=lambda: omp_launch.resolve_omp_binary(env),
+    )
+    assert rc == 2, (rc, err.getvalue())
+    assert "writable" in err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r1_wrong_digest_on_path_fails_before_probe(tmp_path) -> None:
+    _bindir, env = _path_resolver_env(tmp_path, _fake_launcher())
+    pin = dataclasses.replace(_launcher_pin(), executable_sha256="0" * 64)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=pin, out=out, err=err,
+              resolver=lambda: omp_launch.resolve_omp_binary(env))
+    assert rc == 2, (rc, err.getvalue())
+    assert "digest" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r1_symlinked_omp_on_path_fails_closed(tmp_path) -> None:
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "omp").symlink_to(_FAKE_SOURCE_ABS)
+    env = _std_env(_make_home(tmp_path), tmp_path)
+    env["PATH"] = str(bindir)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_fake_pin(), out=out, err=err,
+              resolver=lambda: omp_launch.resolve_omp_binary(env))
+    assert rc == 2, (rc, err.getvalue())
+    assert "regular file" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+# -- R2: real broker pair and lane environments -------------------------------
+
+
+def _broker_env(home: Path, root: Path, **overrides) -> dict:
+    env = _std_env(home, root)
+    env["OMP_AUTH_BROKER_URL"] = "http://127.0.0.1:1"
+    env["OMP_AUTH_BROKER_TOKEN"] = "caller-token-must-not-leak"
+    env.update(overrides)
+    return env
+
+
+def test_r2_profile_missing_broker_pair_refused_before_probe(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    env.pop("OMP_AUTH_BROKER_URL")
+    env.pop("OMP_AUTH_BROKER_TOKEN")
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_fake_pin(), out=out, err=err)
+    assert rc == 2, (rc, err.getvalue())
+    assert "omp auth-broker serve" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r2_profile_misspelled_broker_variable_refused_before_probe(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    env.pop("OMP_AUTH_BROKER_TOKEN")
+    env["OMP_AUTH_BROKER_TOKNE"] = "typo-secret"
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_fake_pin(), out=out, err=err)
+    assert rc == 2, (rc, err.getvalue())
+    assert "omp auth-broker serve" in err.getvalue(), err.getvalue()
+    assert "FAKE_" not in err.getvalue()
+    assert out.getvalue() == b""
+
+
+def test_r2_profile_malformed_broker_url_refused_before_probe(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    for bad in ("https://127.0.0.1:1", "http://localhost:1", "http://127.0.0.1",
+                "http://user@127.0.0.1:1", "http://127.0.0.1:1?x=1",
+                "http://127.0.0.1:1#frag", "http://127.0.0.1:0",
+                "http://127.0.0.1:65536", "not-a-url", ""):
+        env = _broker_env(home, tmp_path, OMP_AUTH_BROKER_URL=bad)
+        out, err = io.BytesIO(), io.StringIO()
+        rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+                  stdin=_control(), pin=_fake_pin(), out=out, err=err)
+        assert rc == 2, (bad, rc, err.getvalue())
+        assert "OMP_AUTH_BROKER_URL" in err.getvalue(), (bad, err.getvalue())
+        assert "FAKE_" not in err.getvalue(), bad
+        assert out.getvalue() == b"", bad
+    # The token value must never appear in the refusal text.
+    token = "must-never-appear-" + "x" * 12
+    env = _broker_env(home, tmp_path, OMP_AUTH_BROKER_URL="http://localhost:1",
+                      OMP_AUTH_BROKER_TOKEN=token)
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=_adapter_argv("omp_no_tools"), env=env, workspace=workspace_path,
+              stdin=_control(), pin=_fake_pin(), out=out, err=err)
+    assert rc == 2
+    assert token not in err.getvalue(), err.getvalue()
+
+
+def test_r2_valid_unreachable_broker_reaches_child_without_fallback(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    session_dir = _live_dir(tmp_path)
+    token_file = session_dir / "token.out"
+    argv = _adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root()),
+                         session_dir=str(session_dir))
+    expectation, run_env = _frozen_profile_expectation(
+        pin, argv, lane="no-tools", env=env, session_dir=str(session_dir),
+        visit_key=VISIT_KEY, persistence="fresh",
+    )
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=run_env, workspace=workspace_path,
+              stdin=_control(token_file=str(token_file)), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    broker = json.loads(reports["BROKER"][0])
+    assert broker["url"] == "http://127.0.0.1:1"
+    assert broker["token"] == "[redacted]"
+    assert token_file.read_text(encoding="utf-8") == "caller-token-must-not-leak", (
+        "the child must receive the operator-supplied token, never a fabricated one"
+    )
+    observed = tuple(sorted(entry.name for entry in session_dir.iterdir()))
+    assert observed == (f"{TS_STEM}_{SESSION_ID}.jsonl", "token.out"), observed
+    frame = _assert_success(rc=rc, out=out, err=err, expectation=expectation)
+    # The non-journal token.out is manifest-only: the close-time observer
+    # classifies only journals, so the frame carries no inventory entry.
+    assert frame["observed"] == {"advisor_relpaths": [], "child_relpaths": []}
+
+
+def test_r2_ambient_child_inherits_parent_environment(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    argv = _adapter_argv("omp")
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(),
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    child_env = json.loads(reports["ENV"][0])
+    assert set(child_env) == set(env), "ambient children inherit the parent environment"
+    assert "SECRET_CANARY" in child_env and "CALLER_CANARY" in child_env
+    frame = _assert_success(rc=rc, out=out, err=err,
+                            expectation=_expectation(pin, argv, env=env))
+    assert frame["child"]["env_names"] == sorted(env)
+
+
+def _profile_attempt(env: dict, lane: str, *, session_dir=None, conf_root=None) -> dict:
+    from orchestrator.providers.omp_launch_policy import profile_attempt_roots
+
+    if conf_root is None and lane in ("no-tools", "conf", "conf-inference"):
+        conf_root = str(omp_launch.neutral_conf_root())
+    return profile_attempt_roots(
+        env_roots=_env_roots(env), lane=lane, workspace=str(workspace_path),
+        session_dir=session_dir, conf_root=conf_root, nonce=None,
+    )
+
+
+def test_r2_profile_child_env_is_closed_attempt_schema(tmp_path) -> None:
+    from orchestrator.providers.omp_launch_contract import (
+        BROKER_TOKEN_ENV,
+        BROKER_URL_ENV,
+        PROFILE_ENV_NAMES,
+    )
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    attempt = _profile_attempt(env, "no-tools")
+    argv = _adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root()))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(probe=True),
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    child_env = json.loads(reports["ENV"][0])
+    assert set(child_env) <= set(PROFILE_ENV_NAMES), set(child_env) - set(PROFILE_ENV_NAMES)
+    required = {"HOME", "PATH", "SHELL", "PI_CODING_AGENT_DIR", "TMPDIR",
+                "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+                "XDG_CONFIG_HOME", BROKER_URL_ENV, BROKER_TOKEN_ENV}
+    assert required <= set(child_env)
+    for secret in ("SECRET_CANARY", "CALLER_CANARY", "caller-token"):
+        assert secret not in reports["ENV"][0] + reports["BROKER"][0]
+    values = json.loads(reports["VALUES"][0])
+    assert values["HOME"] == attempt["HOME"]
+    assert values["PI_CODING_AGENT_DIR"] == os.path.join(attempt["HOME"], ".omp", "agent")
+    assert values["SHELL"] == "/bin/bash"
+    assert values["XDG_CACHE_HOME"] == attempt["XDG_CACHE_HOME"]
+    assert values["XDG_DATA_HOME"] == attempt["XDG_DATA_HOME"]
+    assert values["XDG_STATE_HOME"] == attempt["XDG_STATE_HOME"]
+    assert values["XDG_CONFIG_HOME"] == attempt["XDG_CONFIG_HOME"]
+    assert values["TMPDIR"] == attempt["TMPDIR"]
+    assert values[BROKER_URL_ENV] == "http://127.0.0.1:1"
+    assert values[BROKER_TOKEN_ENV] == "[redacted]"
+    assert not os.path.exists(attempt["HOME"]), "attempt roots are removed at run end"
+    assert not os.path.exists(os.path.dirname(attempt["HOME"])), "attempt tree removed"
+
+
+def test_r2_x2_exact_child_argv_all_lanes(tmp_path) -> None:
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+
+    def _empty(lane: str, *, session_dir=None,
+               conf_root=str(omp_launch.neutral_conf_root())) -> str:
+        return omp_launch.empty_omp_cwd(
+            home=env["HOME"], lane=lane, workspace=str(workspace_path),
+            session_dir=session_dir, conf_root=conf_root,
+            env_roots=_env_roots(env),
+        )
+
+    base = ["-p", "--mode", "json", "--no-title"]
+    expected = {
+        "omp": base + ["--model", MODEL, "--approval-mode", "write", "--no-session"],
+        "omp_unrestricted_workspace": base + ["--model", MODEL, "--yolo", "--no-session"],
+        "omp_no_tools": base + ["--no-extensions", "--no-skills", "--no-rules",
+                                "--no-tools", "--model", MODEL, "--approval-mode",
+                                "write", "--cwd", _empty("no-tools"), "--no-session"],
+        "omp_conf_inference": base + ["--no-extensions", "--no-skills", "--no-rules",
+                                      "--no-tools", "--model", MODEL,
+                                      "--approval-mode", "write",
+                                      "--cwd", _empty("conf-inference"),
+                                      "--no-session"],
+    }
+    for lane, want in expected.items():
+        argv = _adapter_argv(lane)
+        if lane == "omp_no_tools":
+            argv = _adapter_argv(lane, conf_root=str(omp_launch.neutral_conf_root()))
+        out, err = io.BytesIO(), io.StringIO()
+        rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(),
+                  pin=pin, out=out, err=err, resolver_path=_fake_launcher())
+        assert rc == 0, (lane, err.getvalue())
+        reports = _reports(err.getvalue())
+        assert json.loads(reports["ARGS"][0]) == want, lane
+    # conf lane carries --add-dir; fresh carries --session-dir.
+    conf_root = _make_conf(tmp_path)
+    session_dir = _live_dir(tmp_path)
+    argv = _adapter_argv("omp_conf", conf_root=str(conf_root),
+                         session_dir=str(session_dir))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(),
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    child_args = json.loads(reports["ARGS"][0])
+    assert child_args[:-1] == base + [
+        "--no-extensions", "--no-skills", "--no-rules", "--model", MODEL,
+        "--approval-mode", "write", "--cwd",
+        _empty("conf", session_dir=str(session_dir), conf_root=str(conf_root)),
+        "--add-dir", str(workspace_path), "--session-dir",
+    ]
+    assert re.fullmatch(r"/proc/self/fd/[0-9]+", child_args[-1])
+
+
+def test_r2_conf_materialized_at_pinned_discovery_path(tmp_path) -> None:
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    conf = tmp_path / "discovery-conf"
+    (conf / "agent" / "agents").mkdir(parents=True)
+    from orchestrator.providers.omp_conf import BUNDLED_AGENT_NAMES
+
+    (conf / "config.yml").write_text(
+        "advisor:\n  enabled: false\nmemory:\n  backend: \"off\"\n"
+        "task:\n  maxConcurrency: 1\n  maxRecursionDepth: 0\n"
+        "  disabledAgents: [" + ", ".join(BUNDLED_AGENT_NAMES) + "]\n",
+        encoding="utf-8",
+    )
+    (conf / "agent" / "agents" / "materialized.md").write_text(
+        "---\nname: materialized\ndescription: discovery seed\n---\nbody\n",
+        encoding="utf-8",
+    )
+    attempt = _profile_attempt(env, "no-tools", conf_root=str(conf))
+    argv = _adapter_argv("omp_no_tools", conf_root=str(conf))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=env, workspace=workspace_path, stdin=_control(),
+              pin=pin, out=out, err=err, resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    assert json.loads(reports["AGENTS"][0]) == ["materialized.md"], (
+        "the admitted conf must be materialized at the pinned discovery path"
+    )
+    assert not os.path.exists(attempt["HOME"]), "attempt roots removed at run end"
+
+
+# -- R3: real profile completion wiring (fake child; real checks stay Main's) --
+
+
+def test_r3_profile_fake_completion_with_broker_positives_and_negatives(
+    tmp_path,
+) -> None:
+
+    home = _make_home(tmp_path)
+    env = _broker_env(home, tmp_path)
+    pin = _launcher_pin()
+    attempt = _profile_attempt(env, "no-tools")
+    argv = _adapter_argv("omp_no_tools", conf_root=str(omp_launch.neutral_conf_root()))
+    out, err = io.BytesIO(), io.StringIO()
+    rc = _run(argv=argv, env=env, workspace=workspace_path,
+              stdin=_control(probe=True), pin=pin, out=out, err=err,
+              resolver_path=_fake_launcher())
+    assert rc == 0, err.getvalue()
+    reports = _reports(err.getvalue())
+    denied = [v for v in reports["PROBE"] if v.startswith(str(attempt["HOME"]) + "/.omp ")]
+    assert sorted(denied) == sorted(
+        f"{attempt['HOME']}/.omp {op}=denied"
+        for op in ("create", "write", "truncate", "replace", "rename", "restore")
+    )
+    spawned = [v for v in reports["SPAWNED_PROBE"]
+               if v.startswith(str(attempt["HOME"]) + "/.omp ")]
+    assert sorted(spawned) == sorted(
+        f"{attempt['HOME']}/.omp {op}=denied"
+        for op in ("create", "write", "truncate", "replace", "rename", "restore")
+    )
+    for root in (attempt["XDG_DATA_HOME"], attempt["XDG_STATE_HOME"],
+                 attempt["XDG_CACHE_HOME"], attempt["TMPDIR"]):
+        assert sorted(v for v in reports["PROBE"] if v.startswith(root + " ")) == sorted(
+            f"{root} {op}=ok" for op in ("create", "write")
+        ), root
+    assert not os.path.exists(attempt["HOME"]), "attempt roots removed at run end"

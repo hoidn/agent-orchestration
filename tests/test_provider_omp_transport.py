@@ -214,7 +214,7 @@ def test_omp_transport_accepts_captured_fresh_fixture_with_persisted_frame():
         persistence="fresh",
         visit_key="step-1__v1",
         confinement_policy_sha256="a" * 64,
-        observed_relpaths=("provider_sessions/step-1__v1/1.jsonl",),
+                observed_relpaths=(),
     )
     accumulator = _new_accumulator(expectation=expectation)
     accumulator.feed(_fixture(FRESH))
@@ -235,7 +235,7 @@ def test_omp_transport_accepts_captured_fresh_fixture_with_persisted_frame():
         },
         observed={
             "advisor_relpaths": [],
-            "child_relpaths": ["provider_sessions/step-1__v1/1.jsonl"],
+                        "child_relpaths": [],
         },
     )
     accumulator.feed(_jsonl(frame) + b"\n")
@@ -1035,6 +1035,55 @@ def test_omp_transport_text_blocks_and_messages_join_in_validated_order():
     ]
 
 
+def test_omp_transport_non_assistant_lifecycle_starts_new_output_epoch():
+    first = _minimal_assistant_message_end()
+    first["message"]["content"] = [{"type": "text", "text": "stale"}]
+    final = _minimal_assistant_message_end()
+    final["message"]["content"] = [{"type": "text", "text": "final"}]
+    lines = _fixture_lines()
+    head = b"\n".join(lines[:5]) + b"\n"
+    assistant_start = _jsonl(
+        {"type": "message_start", "message": {"role": "assistant"}}
+    ) + b"\n"
+    custom_lifecycle = (
+        _jsonl({"type": "message_start", "message": {"role": "custom"}})
+        + b"\n"
+        + _jsonl(
+            {
+                "type": "message_end",
+                "message": {"role": "custom", "content": []},
+            }
+        )
+        + b"\n"
+    )
+    emitted: list[str] = []
+    accumulator = _new_accumulator(
+        expectation=_expectation(),
+        assistant_text_callback=emitted.append,
+    )
+    accumulator.feed(
+        head
+        + assistant_start
+        + _jsonl(first)
+        + b"\n"
+        + custom_lifecycle
+        + assistant_start
+        + _jsonl(final)
+        + b"\n"
+        + _jsonl({"type": "agent_end", "messages": []})
+        + b"\n"
+        + _jsonl(_launch_frame(_header_id(TRANSIENT)))
+        + b"\n"
+    )
+
+    metadata, error = _finalize(accumulator)
+
+    assert error is None
+    assert metadata is not None
+    assert accumulator.normalized_stdout == "final"
+    assert emitted == ["stale", "final"]
+
+
 def test_omp_transport_conflicting_error_updates_fail():
     lines = _fixture_lines()
     head = b"\n".join(lines[:6]) + b"\n"  # through assistant message_start
@@ -1126,6 +1175,26 @@ def test_omp_transport_agent_end_is_terminal_semantics(
         # Nonterminal returns to streaming pre-settlement: a later terminal
         # end is still required before the adapter frame.
         accumulator.feed(_jsonl({"type": "agent_end", "messages": []}) + b"\n")
+    accumulator.feed(_jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n")
+
+    metadata, error = _finalize(accumulator)
+
+    assert error is None
+    assert metadata is not None
+
+
+def test_omp_transport_formatted_whitespace_agent_end_settles():
+    """R4: formatted JSON (whitespace between tokens) settles exactly like
+    compact JSON through the shared parsed lifecycle authority; the parent
+    transport never requires a raw compact byte shape."""
+    lines = _fixture_lines()
+    pre_terminal = b"\n".join(lines[:11]) + b"\n"  # through turn_end
+    # One strict-JSON line with inter-token whitespace: the settlement
+    # authority must parse, not match a raw compact byte shape.
+    formatted = b'{ "type" : "agent_end", "messages" : [ ] }\n'
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(pre_terminal)
+    accumulator.feed(formatted)
     accumulator.feed(_jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n")
 
     metadata, error = _finalize(accumulator)

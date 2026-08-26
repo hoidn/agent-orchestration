@@ -56,7 +56,7 @@ def _pin(**overrides: object) -> OmpBinaryPin:
         "rustc_executable_sha256": "aa" + "0" * 62,
         "cc_compile_executable_sha256": "bb" + "0" * 62,
         "link_executable_sha256": "cc" + "0" * 62,
-        "native_archive_patch_sha256": "ee" + "0" * 62,
+        "source_overlay_patch_sha256": "ee" + "0" * 62,
         "canonical_build_root": "/opt/omp-canonical",
         "bazel_jobs": "1",
         "bazel_spawn_strategy": "local",
@@ -90,7 +90,7 @@ def _observations(pin: OmpBinaryPin, **overrides: object) -> dict[str, object]:
         "bazel_jobs": pin.bazel_jobs,
         "bazel_spawn_strategy": pin.bazel_spawn_strategy,
         "native_addon_mtime_ns": pin.native_addon_mtime_ns,
-        "native_archive_patch_sha256": pin.native_archive_patch_sha256,
+        "source_overlay_patch_sha256": pin.source_overlay_patch_sha256,
         "bun": {
             "path": pin.bun_path,
             "version": pin.bun_version,
@@ -444,10 +444,10 @@ def test_other_build_input_hash_drift_rejected() -> None:
         "cargo_lock_sha256",
         "module_bazel_sha256",
         "bazelversion_sha256",
-        "native_archive_patch_sha256",
+        "source_overlay_patch_sha256",
     ):
         obs = _observations(pin)
-        obs[key] = "ab" + "0" * 62  # type: ignore[assignment]
+        obs[key] = "0" * 64  # type: ignore[assignment]
         with pytest.raises(OmpPinError):
             validate_build_observations(pin, observations=obs)
 
@@ -612,7 +612,7 @@ def test_frozen_pin_structure_is_complete_and_valid() -> None:
         "rustc_executable_sha256",
         "cc_compile_executable_sha256",
         "link_executable_sha256",
-        "native_archive_patch_sha256",
+        "source_overlay_patch_sha256",
         "executable_sha256",
     ):
         digest = getattr(pin, digest_field)
@@ -644,11 +644,11 @@ def test_frozen_pin_structure_is_complete_and_valid() -> None:
     )
 
 
-def test_native_archive_overlay_bytes_match_frozen_pin() -> None:
-    overlay = Path(__file__).parents[1] / "orchestrator/providers/omp_native_archive.patch"
+def test_source_overlay_bytes_match_frozen_pin() -> None:
+    overlay = Path(__file__).parents[1] / "orchestrator/providers/omp_source_overlay.patch"
     assert (
         hashlib.sha256(overlay.read_bytes()).hexdigest()
-        == OMP_BINARY_PIN.native_archive_patch_sha256
+        == OMP_BINARY_PIN.source_overlay_patch_sha256
     )
 
 
@@ -674,7 +674,7 @@ def _observations_from_pin(pin: OmpBinaryPin) -> Mapping[str, object]:
         "module_bazel_lock_sha256": pin.module_bazel_lock_sha256,
         "module_bazel_lock_effective_sha256": pin.module_bazel_lock_effective_sha256,
         "bazelversion_sha256": pin.bazelversion_sha256,
-        "native_archive_patch_sha256": pin.native_archive_patch_sha256,
+        "source_overlay_patch_sha256": pin.source_overlay_patch_sha256,
         "rust_toolchain_label": pin.rust_toolchain_label,
         "cc_toolchain_label": pin.cc_toolchain_label,
         "rustc_executable_sha256": pin.rustc_executable_sha256,

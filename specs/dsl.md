@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.26"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (supported revisions extend through `"2.27"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -97,6 +97,23 @@ source.
     - When exceeded, the target step fails pre-execution with `error.type: "cycle_guard_exceeded"`.
   - `observability` is intentionally not a DSL key; run observability is configured via CLI/runtime flags (see `cli.md`).
 
+  - Workflow Lisp explicit fresh-session artifact (target 2.27):
+    - A `provider-result` may include exactly one
+      `:session-artifact <bare-symbol>`. The clause is admitted only in the
+      selected entry workflow at its root or along its sequential `let*`
+      spine. It is rejected in imported/called workflows, procedures,
+      functions, branches, loops, trials, live supervision, peer groups,
+      nested provider expressions, and any second occurrence.
+    - The symbol must be a previously undeclared top-level artifact name. The
+      compiler synthesizes exactly one `kind: scalar`, `type: string` artifact
+      and lowers the provider step to existing
+      `provider_session: {mode: fresh, publish_artifact: <symbol>}`. The
+      provider template must declare fresh-session support. No new Core,
+      Semantic IR, Executable IR, runtime step, or state family is introduced.
+    - Omission preserves the provider template's ordinary transient command
+      and creates no session artifact. Targets through 2.26 reject the clause.
+      The clause publishes only the validated session ID; the provider's typed
+      structured return remains the semantic result.
 - Step schema (consolidated; MVP + v1.1.1)
   - Required: `name: string`.
   - Optional metadata: `agent: string` (informational).

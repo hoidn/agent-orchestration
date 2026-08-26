@@ -168,6 +168,30 @@ class TestExecutionSafety:
         assert result.error is not None
         assert "execution_error" in result.error.get("type", "")
 
+    def test_step_executor_redacts_the_omp_auth_broker_token(self, tmp_path):
+        """R2: the generic exec seam redacts the exact OMP_AUTH_BROKER_TOKEN
+        value from captured stderr before persistence. A stale
+        OMP_BROKER_TOKEN-only env must never select the redaction source."""
+        executor = StepExecutor(tmp_path)
+        token = "live-" + "x" * 20
+        result = executor.execute_command(
+            step_name="leak-check",
+            command=[
+                "python3", "-c",
+                "import os,sys; sys.stderr.write(os.environ.get('OMP_AUTH_BROKER_TOKEN', 'EMPTY'))",
+            ],
+            env={
+                "OMP_AUTH_BROKER_TOKEN": token,
+                "OMP_BROKER_TOKEN": "stale-name-must-not-redact",
+            },
+            output_capture="text",
+        )
+        assert result.exit_code == 0, result.error
+        stderr_log = executor.output_capture._log_file("leak-check", "stderr")
+        text = stderr_log.read_text(encoding="utf-8")
+        assert token not in text, text
+        assert "[redacted]" in text, text
+
 
 class TestWorkflowCommandExecution:
     """Test command execution through the workflow executor."""

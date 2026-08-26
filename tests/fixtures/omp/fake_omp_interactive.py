@@ -38,6 +38,7 @@ Control directives (first stdin line, JSON object with ``"fake": 1``)
 ``probe``: bool - run confinement probes (denied: $HOME/.omp and fresh conf
   copies; allowed: XDG roots, session dir, --add-dir workspace, TMPDIR)
 ``exit``: int - child exit code (default 0)
+``mutate_path``: absolute path - chmod it owner-writable and append one byte
 
 The fixture uses only the standard library and writes no locale/TZ files so it
 runs under the Landlock write-confinement helper.
@@ -48,6 +49,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 
 VERSION = "17.3.4"
 DEFAULT_ID = "22222222-2222-7222-8222-222222222222"
@@ -87,8 +89,10 @@ def _malformed_slot() -> str:
 
 def _flags() -> dict:
     argv = sys.argv[1:]
-    flags = {"fork": None, "resume": None, "session_dir": None, "cwd": None,
-             "add_dir": None, "model": None}
+    flags: dict[str, str | None] = {
+        "fork": None, "resume": None, "session_dir": None, "cwd": None,
+        "add_dir": None, "model": None,
+    }
     index = 0
     while index < len(argv):
         token = argv[index]
@@ -229,6 +233,25 @@ def _fork(flags: dict, control: dict) -> int:
     result_path = os.path.join(flags["session_dir"], result_name)
     with open(result_path, "x") as handle:
         handle.write(payload)
+    if control.get("advisor_sidecar") is True:
+        artifacts = result_path.removesuffix(".jsonl")
+        os.mkdir(artifacts)
+        advisor_header = {
+            **header,
+            "id": "77777777-7777-7777-8777-777777777777",
+            "parentSession": new_id,
+        }
+        with open(os.path.join(artifacts, "__advisor.jsonl"), "x") as handle:
+            handle.write(
+                _slot()
+                + json.dumps(advisor_header, separators=(",", ":"))
+                + "\n"
+                + "\n".join(entries)
+                + "\n"
+            )
+    hardlink_alias = control.get("hardlink_alias")
+    if isinstance(hardlink_alias, str):
+        os.link(result_path, hardlink_alias)
     if control.get("extra_file") is True:
         extra = os.path.join(flags["session_dir"], "extra.txt")
         with open(extra, "x") as handle:
@@ -308,6 +331,18 @@ def _main() -> int:
     flags = _flags()
     _report("ARGS", json.dumps(argv))
     _report("ENV", json.dumps(sorted(os.environ)))
+    agent_dir = os.environ.get("PI_CODING_AGENT_DIR")
+    if agent_dir:
+        _report("AGENT_DIR", agent_dir)
+        try:
+            with open(
+                os.path.join(agent_dir, "config.yml"), "rb"
+            ) as handle:
+                config = handle.read()
+        except OSError:
+            pass
+        else:
+            _report("CONFIG_SHA256", hashlib.sha256(config).hexdigest())
     _report("CWD", os.getcwd())
     try:
         _report("FDS", json.dumps(sorted(os.listdir("/proc/self/fd"))))
@@ -321,6 +356,31 @@ def _main() -> int:
         _resume(flags, control)
     else:
         raise SystemExit("fake-omp-interactive: expected --fork or --resume")
+    mutate_path = control.get("mutate_path")
+    if isinstance(mutate_path, str):
+        os.chmod(mutate_path, 0o700)
+        with open(mutate_path, "ab") as handle:
+            handle.write(b"x")
+    nested = control.get("plant_nested_symlink")
+    if isinstance(nested, str):
+        os.symlink("/tmp", os.path.join(nested, "escape"))
+    deny_unlink_path = control.get("deny_unlink_path")
+    if isinstance(deny_unlink_path, str):
+        try:
+            os.unlink(deny_unlink_path)
+        except OSError:
+            denied = True
+        else:
+            denied = False
+        _report("DENIED_UNLINK", "1" if denied else "0")
+    background_mutate_path = control.get("background_mutate_path")
+    if isinstance(background_mutate_path, str):
+        child = os.fork()
+        if child == 0:
+            time.sleep(0.5)
+            with open(background_mutate_path, "ab") as handle:
+                handle.write(b"x")
+            os._exit(0)
 
     if control.get("probe") is True:
         _run_probes(flags, "PROBE")

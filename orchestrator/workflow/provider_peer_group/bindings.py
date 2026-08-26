@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from ..._common.canonical import compact_ascii_json_dumps
 from ..._common.io_atomic import atomic_write_bytes
+from ..._common.safe_tree import resolve_path_preserving_fd
 from ..._common.validation import nonempty_string as _nonempty
 from ...contracts.output_contract import (
     OutputContractError,
@@ -637,7 +638,7 @@ class WorkflowProviderPeerGroupBindings:
         if self._allocation is not None:
             raise ValueError("provider peer group is already allocated")
         self.assert_current_step()
-        run_root = Path(self.executor.state_manager.run_root)
+        run_root = Path(self.executor.state_manager.io_run_root)
         preflight_provider_peer_group_visit_root(
             run_root=run_root,
             plan=self.config.paths,
@@ -1070,20 +1071,21 @@ class WorkflowProviderPeerGroupBindings:
             document = json.loads(exact_bytes.decode("utf-8"))
             validation_contract = dict(prompt_contract)
             validation_contract["path"] = path.relative_to(
-                Path(self.executor.state_manager.run_root).resolve()
+                resolve_path_preserving_fd(
+                    self.executor.state_manager.io_run_root)
             ).as_posix()
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(
                     validation_contract,
                     workspace=Path(
-                        self.executor.state_manager.run_root
+                        self.executor.state_manager.io_run_root
                     ),
                 )
             else:
                 validate_output_bundle(
                     validation_contract,
                     workspace=Path(
-                        self.executor.state_manager.run_root
+                        self.executor.state_manager.io_run_root
                     ),
                 )
             if path.read_bytes() != exact_bytes:
@@ -1233,7 +1235,8 @@ class WorkflowProviderPeerGroupBindings:
         self._write_no_replace(path, payload)
         self._terminal_evidence_written = True
         relative = path.relative_to(
-            Path(self.executor.state_manager.run_root).resolve()
+            resolve_path_preserving_fd(
+                self.executor.state_manager.io_run_root)
         ).as_posix()
         return {
             "terminal_evidence_path": relative,

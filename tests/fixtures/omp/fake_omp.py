@@ -296,6 +296,16 @@ def _write_journal(session_dir: str, ts: str, session_id: str, journal_id: str, 
     lines = stream.rstrip("\n").split("\n")
     header = json.loads(lines[0])
     entries = []
+
+    def _entry_ts(ms: int) -> str:
+        # The persisted schema pins RFC3339 string entry timestamps even
+        # though the streamed messages carry integer milliseconds.
+        return (
+            datetime.datetime.fromtimestamp(ms / 1000, datetime.timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z")
+        )
+
     for line in lines[1:]:
         event = json.loads(line)
         if event.get("type") == "message_end":
@@ -307,7 +317,7 @@ def _write_journal(session_dir: str, ts: str, session_id: str, journal_id: str, 
                         "type": "message",
                         "id": "u1",
                         "parentId": None,
-                        "timestamp": message.get("timestamp"),
+                        "timestamp": _entry_ts(message.get("timestamp")),
                         "message": message,
                     }
                 )
@@ -317,7 +327,7 @@ def _write_journal(session_dir: str, ts: str, session_id: str, journal_id: str, 
                         "type": "message",
                         "id": "a1",
                         "parentId": "u1",
-                        "timestamp": message.get("timestamp"),
+                        "timestamp": _entry_ts(message.get("timestamp")),
                         "message": message,
                     }
                 )
@@ -353,28 +363,39 @@ def _main() -> int:
     flags = _argv_flags()
     _report("ARGS", json.dumps(argv))
     _report("ENV", json.dumps(sorted(os.environ)))
-    _report("CWD", os.getcwd())
-    try:
-        _report("FDS", json.dumps(sorted(os.listdir("/proc/self/fd"))))
-    except OSError:
-        pass
     _report("STDIN", base64.b64encode(prompt).decode("ascii"))
+    _report("CWD", os.getcwd())
+    _report("FDS", json.dumps(sorted(os.listdir("/proc/self/fd"))))
     _report(
         "BROKER",
         json.dumps(
             {
-                "url": os.environ.get("OMP_BROKER_URL"),
-                "token": os.environ.get("OMP_BROKER_TOKEN"),
+                "url": os.environ.get("OMP_AUTH_BROKER_URL"),
+                "token": os.environ.get("OMP_AUTH_BROKER_TOKEN"),
                 "agent_dir": os.environ.get("PI_CODING_AGENT_DIR"),
             }
         ),
     )
+    _report(
+        "VALUES",
+        json.dumps(
+            {
+                name: os.environ.get(name)
+                for name in (
+                    "HOME", "PATH", "SHELL", "PI_CODING_AGENT_DIR", "TMPDIR",
+                    "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+                    "XDG_CONFIG_HOME", "OMP_AUTH_BROKER_URL",
+                    "OMP_AUTH_BROKER_TOKEN", "LANG", "LC_ALL",
+                )
+            }
+        ),
+    )
     if control.get("leak_token") is True:
-        sys.stderr.write("TOKEN_LEAK %s\n" % os.environ.get("OMP_BROKER_TOKEN", ""))
+        sys.stderr.write("TOKEN_LEAK %s\n" % os.environ.get("OMP_AUTH_BROKER_TOKEN", ""))
     token_file = control.get("token_file")
     if token_file:
         with open(token_file, "w", encoding="utf-8") as handle:
-            handle.write(os.environ.get("OMP_BROKER_TOKEN", ""))
+            handle.write(os.environ.get("OMP_AUTH_BROKER_TOKEN", ""))
         sys.stderr.flush()
     agents_dir = os.environ.get("PI_CODING_AGENT_DIR")
     if isinstance(agents_dir, str) and os.path.isdir(agents_dir):
@@ -396,6 +417,13 @@ def _main() -> int:
     journal_id = control.get("journal_id")
     if not isinstance(journal_id, str) or not journal_id:
         journal_id = session_id
+    pre_write_sleep = control.get("pre_write_sleep")
+    if isinstance(pre_write_sleep, (int, float)) and pre_write_sleep > 0:
+        ready_file = control.get("pre_write_ready_file")
+        if isinstance(ready_file, str):
+            with open(ready_file, "w", encoding="utf-8") as handle:
+                handle.write("ready")
+        time.sleep(pre_write_sleep)
     if flags["session_dir"] and mode != "primary-mismatch":
         _write_journal(flags["session_dir"], ts, session_id, session_id, stream)
     elif flags["session_dir"] and mode == "primary-mismatch":

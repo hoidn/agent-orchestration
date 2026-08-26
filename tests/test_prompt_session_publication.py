@@ -40,6 +40,24 @@ def _user(content: object) -> dict:
     )
 
 
+def _settled_assistant() -> dict:
+    """A settled assistant turn: last closed message stops with no tool call,
+    so close-time observation classifies the journal as settled."""
+    return _entry(
+        "message", "a", "u",
+        message={
+            "role": "assistant",
+            "content": [{"type": "text", "text": "ok"}],
+            "api": "a", "provider": "p", "model": "m",
+            "stopReason": "stop", "timestamp": 2,
+            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                      "totalTokens": 0,
+                      "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0,
+                               "cacheWrite": 0.0, "total": 0.0}},
+        },
+    )
+
+
 def _journal(*entries: dict, session_id: str = SESSION_ID) -> bytes:
     header = {
         "type": "session", "version": 3, "id": session_id,
@@ -55,7 +73,21 @@ def _canonical(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
 
 
-def _setup_publication(tmp_path: Path, *, provider: str = "omp"):
+def _setup_publication(
+    tmp_path: Path,
+    *,
+    provider: str = "omp",
+    plant: str | None = None,
+    conf_source: Path | None = None,
+):
+    """Build a publishable run.
+
+    ``plant``: None | "advised" | "advised-fanout" — additionally plants the
+    matching fixture journals under the primary artifacts dir and binds
+    their recursive relpaths in the frame observed lists. ``conf_source``:
+    for ``omp_conf``, the packaged preset conf tree whose canonical digest
+    selects the X5 topology counts (default: the neutral fixture conf).
+    """
     from orchestrator.prompt_contract import default_semantic_contract
     from orchestrator.prompt_scaffold import (
         ScaffoldInputs,
@@ -112,8 +144,28 @@ def _setup_publication(tmp_path: Path, *, provider: str = "omp"):
     sessions = manager.run_root / "provider_sessions"
     live = sessions / "task__v1"
     live.mkdir(parents=True)
-    journal = _journal(_user(prompt.decode()))
+    journal = _journal(_user(prompt.decode()), _settled_assistant())
     (live / PRIMARY).write_bytes(journal)
+    stem = PRIMARY[: -len(".jsonl")]
+    advisor_relpaths: list[str] = []
+    child_relpaths: list[str] = []
+    if plant in ("advised", "advised-fanout"):
+        artifacts = live / stem
+        artifacts.mkdir()
+        fixtures = Path(__file__).parent / "fixtures" / "omp" / "sessions"
+        (artifacts / "__advisor.jsonl").write_bytes(
+            (fixtures / "__advisor.jsonl").read_bytes()
+        )
+        advisor_relpaths.append(f"{stem}/__advisor.jsonl")
+    if plant == "advised-fanout":
+        fixtures = Path(__file__).parent / "fixtures" / "omp" / "sessions"
+        (artifacts / "alpha.jsonl").write_bytes(
+            (fixtures / "alpha.jsonl").read_bytes()
+        )
+        (artifacts / "beta.jsonl").write_bytes(
+            (fixtures / "beta.jsonl").read_bytes()
+        )
+        child_relpaths.extend((f"{stem}/alpha.jsonl", f"{stem}/beta.jsonl"))
     state = {
         "run_id": "run-1",
         "status": "completed",
@@ -132,7 +184,7 @@ def _setup_publication(tmp_path: Path, *, provider: str = "omp"):
         encoding="utf-8",
     )
     from orchestrator.providers.omp_launch_contract import (
-        POSITIVE_ENV_NAMES,
+        PROFILE_ENV_NAMES,
         build_fresh_adapter_argv,
         resolved_adapter_command,
     )
@@ -195,7 +247,7 @@ def _setup_publication(tmp_path: Path, *, provider: str = "omp"):
         "child": {
             "argv": argv,
             "cwd": child_cwd,
-            "env_names": list(POSITIVE_ENV_NAMES),
+            "env_names": sorted(PROFILE_ENV_NAMES),
             "exit_code": 0,
         },
         "session": {
@@ -206,7 +258,10 @@ def _setup_publication(tmp_path: Path, *, provider: str = "omp"):
         },
         "conf": {"manifest_sha256": conf_digest},
         "confinement": confinement,
-        "observed": {"advisor_relpaths": [], "child_relpaths": [PRIMARY]},
+                "observed": {
+                    "advisor_relpaths": advisor_relpaths,
+                    "child_relpaths": child_relpaths,
+                },
     }
     metadata = {
         "run_id": "run-1",
@@ -330,7 +385,7 @@ def test_publish_rejects_metadata_frame_or_spool_disagreement(
     elif mismatch == "extra-argv":
         frame["child"]["argv"].extend(["--unknown", "value"])
     elif mismatch == "env":
-        frame["child"]["env_names"].append("UNOWNED")
+        frame["child"]["env_names"].append(frame["child"]["env_names"][0])
         frame["child"]["env_names"].sort()
     elif mismatch == "cwd":
         frame["child"]["cwd"] = "/wrong"
@@ -485,5 +540,91 @@ def test_lookup_rejects_unsafe_persisted_observed_relpath(
         "child_relpaths"
     ].insert(0, planted)
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+# ---------------------------------------------------------------------------
+# Task 10 R6: advised / advised-fanout observed trees publish and resolve
+# (importing only the linked primary), while extra / malformed / unsettled
+# journals refuse the link.
+# ---------------------------------------------------------------------------
+
+
+def _preset_conf_source(name: str) -> Path:
+    from orchestrator.omp_assets import preset_conf_root
+
+    return Path(preset_conf_root(name))
+
+
+def test_r6_publish_resolve_advised_tree_imports_only_primary(tmp_path: Path) -> None:
+    from orchestrator.prompt_session import resolve_prompt_session
+
+    setup = _setup_publication(
+        tmp_path, provider="omp_conf",
+        plant="advised", conf_source=_preset_conf_source("advised"),
+    )
+    manager = setup[0]
+    _publish(setup)
+    resolved = resolve_prompt_session(manager.run_root.parent, "run-1")
+    assert resolved.link.document["provider"]["name"] == "omp_conf"
+    stem = PRIMARY[: -len(".jsonl")]
+    frame = setup[3]
+    assert frame["observed"] == {
+        "advisor_relpaths": [f"{stem}/__advisor.jsonl"],
+        "child_relpaths": [],
+    }
+
+
+def test_r6_publish_resolve_advised_fanout_imports_only_primary(tmp_path: Path) -> None:
+    from orchestrator.prompt_session import resolve_prompt_session
+
+    setup = _setup_publication(
+        tmp_path, provider="omp_conf",
+        plant="advised-fanout", conf_source=_preset_conf_source("advised-fanout"),
+    )
+    manager = setup[0]
+    _publish(setup)
+    resolved = resolve_prompt_session(manager.run_root.parent, "run-1")
+    assert resolved.link.document["provider"]["name"] == "omp_conf"
+    stem = PRIMARY[: -len(".jsonl")]
+    frame = setup[3]
+    assert frame["observed"] == {
+        "advisor_relpaths": [f"{stem}/__advisor.jsonl"],
+        "child_relpaths": [f"{stem}/alpha.jsonl", f"{stem}/beta.jsonl"],
+    }
+
+
+def test_r6_publish_refuses_extra_journal_not_in_frame(tmp_path: Path) -> None:
+    """An observed child journal outside the frame's recursive lists refuses
+    the link: the publisher's close-time classification must match the frame."""
+    setup = _setup_publication(tmp_path, plant="advised-fanout")
+    manager = setup[0]
+    # Plant a valid settled child the frame never names.
+    stem = PRIMARY[: -len(".jsonl")]
+    (manager.run_root / "provider_sessions" / "task__v1" / stem / "gamma.jsonl").write_bytes(
+        (Path(__file__).parent / "fixtures" / "omp" / "sessions" / "beta.jsonl").read_bytes()
+    )
     with pytest.raises(PromptSessionError, match="session_link_invalid"):
-        resolve_prompt_session(manager.run_root.parent, "run-1")
+        _publish(setup)
+    assert not list((manager.run_root / "provider_sessions").glob("*.snapshot"))
+
+
+def test_r6_publish_refuses_malformed_advisor_journal(tmp_path: Path) -> None:
+    setup = _setup_publication(tmp_path, plant="advised")
+    manager = setup[0]
+    stem = PRIMARY[: -len(".jsonl")]
+    (manager.run_root / "provider_sessions" / "task__v1" / stem / "__advisor.jsonl").write_bytes(
+        b'{"type":"title","v":1}\nbroken\n'
+    )
+    with pytest.raises(PromptSessionError, match="session_link_invalid"):
+        _publish(setup)
+    assert not list((manager.run_root / "provider_sessions").glob("*.snapshot"))
+
+
+def test_r6_publish_refuses_unsettled_advisor_journal(tmp_path: Path) -> None:
+    setup = _setup_publication(tmp_path, plant="advised")
+    manager = setup[0]
+    stem = PRIMARY[: -len(".jsonl")]
+    (manager.run_root / "provider_sessions" / "task__v1" / stem / "__advisor.jsonl").write_bytes(
+        (Path(__file__).parent / "fixtures" / "omp" / "sessions" / "unsettled-user.jsonl").read_bytes()
+    )
+    with pytest.raises(PromptSessionError, match="session_link_invalid"):
+        _publish(setup)
+    assert not list((manager.run_root / "provider_sessions").glob("*.snapshot"))

@@ -99,7 +99,11 @@ def test_summary_observer_uses_parent_run_root_for_call_frame_hub(tmp_path: Path
     frame_root = parent_root / "call_frames" / "frame_a"
     executor.state_manager = SimpleNamespace(
         run_root=frame_root,
-        parent_manager=SimpleNamespace(run_root=parent_root),
+        io_run_root=frame_root,
+        parent_manager=SimpleNamespace(
+            run_root=parent_root,
+            io_run_root=parent_root,
+        ),
     )
     executor.provider_executor = object()
     executor.workflow_context_defaults = {}

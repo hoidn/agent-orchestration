@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from orchestrator._common.canonical import compact_ascii_json_dumps
 from orchestrator._common.io_atomic import atomic_write_bytes
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator._common.validation import nonempty_string as _nonempty
 from ...contracts.output_contract import (
     OutputContractError,
@@ -543,7 +544,8 @@ class WorkflowProviderSupervisionBindings:
             "supervisor_directive": config.paths.supervisor_directive,
         }
         turns: dict[str, ProviderSupervisionTurnBinding] = {}
-        run_root = Path(self.executor.state_manager.run_root).resolve()
+        run_root = resolve_path_preserving_fd(
+            self.executor.state_manager.io_run_root)
         realized_paths: dict[str, tuple[Path, Path]] = {}
         for role, path_spec in {
             **path_specs,
@@ -645,7 +647,7 @@ class WorkflowProviderSupervisionBindings:
         if template.count("{visit}") != 1:
             raise ValueError("provider supervision path template is invalid")
         relative = Path(template.replace("{visit}", str(visit_count)))
-        candidate = (run_root / relative).resolve()
+        candidate = resolve_path_preserving_fd(run_root / relative)
         if candidate == run_root or run_root not in candidate.parents:
             raise ValueError("provider supervision path escapes run root")
         return candidate
@@ -1182,10 +1184,11 @@ class WorkflowProviderSupervisionBindings:
         validation_contract = dict(prompt_contract)
         validation_contract["path"] = (
             request.turn.provisional_bundle_path.relative_to(
-                Path(self.executor.state_manager.run_root).resolve()
+                resolve_path_preserving_fd(
+                    self.executor.state_manager.io_run_root)
             ).as_posix()
         )
-        run_root = Path(self.executor.state_manager.run_root)
+        run_root = Path(self.executor.state_manager.io_run_root)
         try:
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(

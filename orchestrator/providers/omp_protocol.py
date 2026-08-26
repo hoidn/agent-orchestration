@@ -15,7 +15,6 @@ from .types import OmpTransportExpectation, _OMP_AMBIENT_LANES, _OMP_PROFILE_LAN
 _RFC3339_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
 
 def _is_rfc3339(value: str) -> bool:
-    """Return whether a value is a real RFC 3339 timestamp (leap second allowed)."""
     if _RFC3339_PATTERN.fullmatch(value) is None:
         return False
     candidate = value.replace("Z", "+00:00")
@@ -25,13 +24,13 @@ def _is_rfc3339(value: str) -> bool:
     except ValueError:
         pass
     leap = re.search(r"^(.*T\d{2}:\d{2}):60(\.\d*)?([+-]\d{2}:\d{2})$", candidate)
-    if leap is not None:
-        try:
-            datetime.fromisoformat(leap.group(1) + ":59" + (leap.group(2) or "") + leap.group(3))
-            return True
-        except ValueError:
-            pass
-    return False
+    if leap is None:
+        return False
+    try:
+        datetime.fromisoformat(leap.group(1) + ":59" + (leap.group(2) or "") + leap.group(3))
+        return True
+    except ValueError:
+        return False
 _HEX64_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _BASE64_PATTERN = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
 _HEADER_REQUIRED = frozenset({"type", "id", "timestamp", "cwd"})
@@ -73,7 +72,6 @@ _TOOL_OPTIONAL_TYPES = {
 }
 
 def is_event_type(value: Any) -> bool:
-    """Return whether one discriminator is an admitted OMP event type."""
     return value in _EVENT_TYPES
 
 def is_nonempty_string(value: Any) -> bool:
@@ -85,8 +83,7 @@ def is_finite_number(value: Any) -> bool:
     try:
         return math.isfinite(value)
     except OverflowError:
-        # JSON integers beyond IEEE double range are not representable and
-        # must never raise out of the transport; reject them fail-closed.
+        # JSON integers beyond IEEE double range reject fail-closed.
         return False
 
 def is_nonnegative_number(value: Any) -> bool:
@@ -102,10 +99,8 @@ def _parse_finite_float(value: str) -> float:
     return parsed
 
 def loads_strict(text: str) -> dict[str, Any]:
-    """Parse one transport line rejecting duplicate keys and non-finite numbers."""
     def _reject_duplicate_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        keys = [key for key, _ in pairs]
-        if len(keys) != len(set(keys)):
+        if len({key for key, _ in pairs}) != len(pairs):
             raise ValueError("duplicate JSON object key")
         return dict(pairs)
 
@@ -373,6 +368,13 @@ def validate_agent_end(obj: Any) -> str | None:
             return f"agent_end {key} must be a JSON object"
     return None
 
+def validate_agent_end_terminal(obj: Any) -> tuple[bool, str | None]:
+    """Shared parsed lifecycle authority; omitted isTerminal settles."""
+    error = validate_agent_end(obj)
+    if error is not None:
+        return False, error
+    return obj.get("isTerminal", True) is True, None
+
 def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, header_session_id: str) -> str | None:
     error = _closed_object(obj, _FRAME_REQUIRED, "adapter launch frame", required=_FRAME_REQUIRED)
     if error is not None:
@@ -419,8 +421,8 @@ def validate_launch_frame(obj: Any, expectation: OmpTransportExpectation, *, hea
         return "adapter launch frame observed inventory does not match the expectation"
     if obj["persistence"] == "fresh":
         primary = obj["session"].get("primary_relpath")
-        if primary not in observed["child_relpaths"]:
-            return "adapter launch frame observed inventory must contain the primary session file"
+        if primary in observed["child_relpaths"] or primary in observed["advisor_relpaths"]:
+            return "adapter launch frame observed inventory must not classify the primary as advisor/child"
     return None
 
 def _validate_frame_child(child: Any) -> str | None:
@@ -488,7 +490,6 @@ def _validate_frame_confinement(confinement: Any, expectation: OmpTransportExpec
     return None
 
 def freeze_frame(frame: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return a deeply frozen copy of one validated adapter launch frame."""
     return MappingProxyType({key: _freeze_value(value) for key, value in frame.items()})
 
 def _freeze_value(value: Any) -> Any:

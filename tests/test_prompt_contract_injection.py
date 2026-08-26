@@ -2403,7 +2403,6 @@ def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_pa
         "selection_decision": "READY",
         "selected_item_path": "docs/backlog/item.md",
     }
-    assert "Write the following JSON bundle exactly as specified." in captured["prompt"]
     assert "ORCHESTRATOR_OUTPUT_BUNDLE_PATH" in captured["prompt"]
     assert "path: state/run-root/test-run/selection.json" in captured["prompt"]
     assert "path: ${inputs.state_root}/${run.id}/selection.json" not in captured["prompt"]
@@ -3161,7 +3160,6 @@ def test_provider_output_bundle_root_result_appends_json_value_contract_and_pers
     assert state["steps"]["Decide"]["exit_code"] == 0
     assert state["steps"]["Decide"]["artifacts"] == {"__result__": True}
     assert captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/run-root/test-run/result.json"
-    assert "Write one JSON value exactly as specified." in captured["prompt"]
     assert "format: JSON value" in captured["prompt"]
     assert "format: JSON object" not in captured["prompt"]
     assert "name: __result__" not in captured["prompt"]

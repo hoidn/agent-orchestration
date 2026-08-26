@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.workflow.core_ast import (
     _load_command_boundary_metadata,
     build_core_workflow_ast,
@@ -355,23 +356,25 @@ def load_frontend_initialization_configuration(
 ) -> FrontendInitializationConfiguration:
     """Load one frontend context without requiring or compiling an entry source."""
 
-    canonical_workspace_root = workspace_root.resolve()
-    canonical_source_roots = tuple(root.resolve() for root in source_roots)
+    canonical_workspace_root = resolve_path_preserving_fd(workspace_root)
+    canonical_source_roots = tuple(
+        resolve_path_preserving_fd(root) for root in source_roots
+    )
     canonical_provider_path = (
-        provider_externs_path.resolve() if provider_externs_path is not None else None
+        resolve_path_preserving_fd(provider_externs_path)
+        if provider_externs_path is not None else None
     )
     canonical_prompt_path = (
-        prompt_externs_path.resolve() if prompt_externs_path is not None else None
+        resolve_path_preserving_fd(prompt_externs_path)
+        if prompt_externs_path is not None else None
     )
     canonical_command_path = (
-        command_boundaries_path.resolve()
-        if command_boundaries_path is not None
-        else None
+        resolve_path_preserving_fd(command_boundaries_path)
+        if command_boundaries_path is not None else None
     )
     canonical_imported_path = (
-        imported_workflow_bundles_path.resolve()
-        if imported_workflow_bundles_path is not None
-        else None
+        resolve_path_preserving_fd(imported_workflow_bundles_path)
+        if imported_workflow_bundles_path is not None else None
     )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     source_read_trace = SourceReadTrace()

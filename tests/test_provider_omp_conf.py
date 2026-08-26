@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import tempfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +23,9 @@ from orchestrator.providers.omp_conf import (
     OmpConfError,
     admit_conf_tree,
     load_yaml_document,
+    materialize_conf_at_discovery_path,
     revalidate_conf_tree,
+    revalidate_materialized_conf,
 )
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "omp", "conf")
@@ -138,6 +141,20 @@ def test_admits_config_boundaries(tmp_path):
     ):
         with _root(_tree(tmp_path, {"config.yml": config_text})) as fd:
             admit_conf_tree(fd)
+
+
+def test_admits_exact_noninteractive_task_approval(tmp_path):
+    config = _config(extra="tools:\n  approval:\n    task: allow")
+    files = {"config.yml": config, "agent/agents/a.md": _agent_md()}
+    with _root(_tree(tmp_path, files)) as fd:
+        admit_conf_tree(fd)
+
+
+@pytest.mark.parametrize("policy", ["deny", "prompt", "allow\n    bash: allow"])
+def test_rejects_wider_task_approval_policy(tmp_path, policy):
+    config = _config(extra=f"tools:\n  approval:\n    task: {policy}")
+    files = {"config.yml": config, "agent/agents/a.md": _agent_md()}
+    _reject(tmp_path, files)
 
 
 @pytest.mark.parametrize(
@@ -465,27 +482,56 @@ def test_revalidate_detects_drift(tmp_path):
             with pytest.raises(OmpConfError):
                 revalidate_conf_tree(fd, snapshot)
 
+    agent_path = os.path.join(root, "agent/agents/a.md")
+    original = _agent_md(name="alpha")
     # content mutation
-    with open(os.path.join(root, "agent/agents/a.md"), "a", encoding="utf-8") as handle:
+    with open(agent_path, "a", encoding="utf-8") as handle:
         handle.write("extra\n")
     reject()
+    with open(agent_path, "w", encoding="utf-8") as handle:
+        handle.write(original)
+    with _root(root) as fd:
+        revalidate_conf_tree(fd, snapshot)
     # extra file
-    with open(os.path.join(root, "stray.txt"), "w", encoding="utf-8") as handle:
+    stray = os.path.join(root, "stray.txt")
+    with open(stray, "w", encoding="utf-8") as handle:
         handle.write("x")
     reject()
-    os.remove(os.path.join(root, "stray.txt"))
-    # deletion
-    os.remove(os.path.join(root, "agent/agents/a.md"))
-    reject()
-    # inode swap via atomic rename
-    os.makedirs(os.path.join(root, "agent/agents"), exist_ok=True)
-    with open(os.path.join(root, "agent/agents/a.md"), "w", encoding="utf-8") as handle:
-        handle.write(_agent_md(name="alpha"))
-    tmp_copy = os.path.join(root, "agent/agents", ".a.md.tmp")
+    os.remove(stray)
+    with _root(root) as fd:
+        revalidate_conf_tree(fd, snapshot)
+    # Allocate the replacement outside the admitted tree while its original
+    # inode is live, guaranteeing a distinct identity on inode-reusing filesystems.
+    tmp_copy = os.path.join(tmp_path, ".a.md.tmp")
     with open(tmp_copy, "w", encoding="utf-8") as handle:
-        handle.write(_agent_md(name="alpha"))
-    os.rename(tmp_copy, os.path.join(root, "agent/agents/a.md"))
+        handle.write(original)
+    # deletion
+    os.remove(agent_path)
     reject()
+    # same-content inode swap via atomic rename
+    os.rename(tmp_copy, agent_path)
+    reject()
+
+
+def test_revalidate_materialized_conf_detects_same_inventory_content_drift(tmp_path):
+    source = _tree(tmp_path, {"config.yml": _config()})
+    with _root(source) as source_fd:
+        snapshot = admit_conf_tree(source_fd)
+    destination = tmp_path / "agent"
+    destination.mkdir()
+    with _root(destination) as destination_fd:
+        authority = SimpleNamespace(agent_fd=destination_fd)
+        materialize_conf_at_discovery_path(authority, snapshot)
+        revalidate_materialized_conf(authority, snapshot)
+        config = destination / "config.yml"
+        original = config.read_bytes()
+        config.write_bytes(b"X" + original[1:])
+        with pytest.raises(OmpConfError, match="bytes changed"):
+            revalidate_materialized_conf(authority, snapshot)
+        config.write_bytes(original)
+        os.link(config, tmp_path / "external-link")
+        with pytest.raises(OmpConfError, match="authority changed"):
+            revalidate_materialized_conf(authority, snapshot)
 
 
 def test_pinned_agent_tool_sets_are_exact():

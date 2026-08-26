@@ -1,4 +1,4 @@
-"""Task 10: standalone foreground TTY fork/resume of linked OMP sessions.
+"""Task 11: standalone foreground TTY fork/resume of linked OMP sessions.
 
 Grammar: ``prompt resume ID [--in-place]``. fds 0/1/2 must be TTYs before any
 lookup/lock/write/child. The exact Task 9 active-primary lookup runs first; a
@@ -8,11 +8,8 @@ continuation publication. Fork = full-id ``--fork``; in-place = full-id
 ``--resume`` (exact X8 argv/env/cwd per lane). Profile lanes spawn through
 the Task 5 Landlock exec helper with a fresh verified frozen-conf copy and a
 new empty cwd; ambient lanes spawn directly with null confinement in the
-workspace. Once the child has STARTED, every outcome — normal exit, wait
-failure, KeyboardInterrupt, or postcondition failure — commits exactly one
-next closed continuation record at a single publication boundary, and a
-publication failure surfaces as its own stable bridge error. Broker values
-are consumed into the child environment but never printed or recorded.
+workspace. Every post-start outcome commits one closed continuation record;
+publication failures are stable, and broker values are never printed or recorded.
 """
 
 from __future__ import annotations
@@ -29,25 +26,29 @@ from typing import Callable, Mapping
 
 from orchestrator._common.safe_tree import read_regular_file
 from orchestrator.cli.commands.prompt_io import PromptCliError
-from orchestrator.providers.omp_launch_fs import (
-    LaunchFsError,
-    open_dir_no_follow,
-    session_inventory_fd,
+from orchestrator.providers.omp_launch_fs import LaunchFsError, open_dir_no_follow
+from orchestrator.providers.omp_launch import resolve_omp_binary
+from orchestrator.providers.omp_launch_contract import (
+    BROKER_TOKEN_ENV,
+    BROKER_URL_ENV,
+    PROFILE_ENV_NAMES,
+    validate_broker_pair,
 )
-from orchestrator.providers.omp_launch import PRODUCTION_BINARY_PATH
-from orchestrator.providers.omp_launch_contract import POSITIVE_ENV_NAMES
+from orchestrator.providers.omp_launch_policy import strip_omp_carriers
+from orchestrator.providers.observation import terminal_safe_line
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
-from orchestrator.providers.omp_session import (
-    OmpSessionError,
-    build_session_manifest,
-)
+from orchestrator.providers.omp_session import OmpSessionError
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 from orchestrator.providers.omp_write_confinement import (
     SCHEMA_VERSION,
     landlock_abi,
 )
+from orchestrator.prompt_resume_namespace import ResumeNamespaceError
 from orchestrator.prompt_resume_postconditions import (
     ResumePostconditionError,
-    post_live_manifest,
+    capture_post_live,
+    revalidate_launch_inputs,
+    revalidate_post_live,
     validate_fork_result,
     validate_in_place_result,
 )
@@ -67,15 +68,24 @@ from orchestrator.prompt_session_chain import read_continuations, read_manifest_
 from orchestrator.prompt_session_lookup import resolve_prompt_session
 
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-_PASS_THROUGH_ENV = frozenset(POSITIVE_ENV_NAMES) - {
-    "PI_CODING_AGENT_DIR", "OMP_BROKER_URL", "OMP_BROKER_TOKEN",
-}
+_BRIDGE_REQUIRED_ENV: frozenset[str] = frozenset({
+    "HOME", "PATH", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME", "XDG_STATE_HOME",
+})
+_BRIDGE_OPTIONAL_ENV: frozenset[str] = frozenset(
+    name
+    for name in PROFILE_ENV_NAMES
+    if name not in _BRIDGE_REQUIRED_ENV
+    and name not in {
+        "PI_CODING_AGENT_DIR", "SHELL", BROKER_URL_ENV, BROKER_TOKEN_ENV,
+    }
+)
 # Aliased so failure-injection tests can patch the spawn seam narrowly.
 _Popen = subprocess.Popen
 
 
 class PromptResumeError(Exception):
-    """A stable, non-secret Task 10 bridge failure."""
+    """A stable, non-secret Task 11 bridge failure."""
 
     def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
@@ -83,56 +93,42 @@ class PromptResumeError(Exception):
 
 
 def build_bridge_env(caller_env: Mapping[str, str]) -> dict[str, str]:
-    """Reconstruct the exact 12-name positive environment for the child.
-
-    Nine names pass through from the ambient caller environment (required),
-    ``PI_CODING_AGENT_DIR`` derives from ``HOME``, and the CURRENT broker pair
-    is required from the ambient environment — never re-derived. Broker values
-    are consumed here and never printed or recorded.
-    """
-    missing = sorted(name for name in _PASS_THROUGH_ENV if not caller_env.get(name))
+    """Build the closed profile environment with the current AUTH broker."""
+    missing = sorted(
+        name for name in _BRIDGE_REQUIRED_ENV if not caller_env.get(name)
+    )
     if missing:
         raise PromptResumeError(
             "prompt_resume_env_invalid", f"missing {', '.join(missing)}"
         )
-    url = caller_env.get("OMP_BROKER_URL")
-    token = caller_env.get("OMP_BROKER_TOKEN")
-    if not url or not token:
+    if not caller_env.get(BROKER_URL_ENV) or not caller_env.get(BROKER_TOKEN_ENV):
         raise PromptResumeError(
             "prompt_resume_broker_missing", "current broker pair is required"
         )
-    return {
-        **{name: caller_env[name] for name in sorted(_PASS_THROUGH_ENV)},
-        "PI_CODING_AGENT_DIR": os.path.join(caller_env["HOME"], ".omp", "agent"),
-        "OMP_BROKER_URL": url,
-        "OMP_BROKER_TOKEN": token,
-    }
-
-
-def validate_record_confinement(
-    record_confinement: object, actual_policy: object, *, profile: bool
-) -> None:
-    """Writer-side truthfulness: the record must carry the executed policy."""
-    if not profile:
-        if record_confinement is not None or actual_policy is not None:
-            raise PromptResumeError(
-                "prompt_resume_postcondition_failed",
-                "ambient continuation must keep null confinement",
-            )
-        return
-    if (
-        not isinstance(actual_policy, dict)
-        or not isinstance(record_confinement, dict)
-        or record_confinement != actual_policy
-    ):
+    try:
+        url, token = validate_broker_pair(caller_env)
+    except ValueError as exc:
         raise PromptResumeError(
-            "prompt_resume_postcondition_failed",
-            "continuation confinement is not the executed policy",
-        )
+            "prompt_resume_env_invalid", "current broker pair is malformed"
+        ) from exc
+    built = {
+        name: caller_env[name]
+        for name in sorted(_BRIDGE_REQUIRED_ENV | _BRIDGE_OPTIONAL_ENV)
+        if caller_env.get(name)
+    }
+    built.update({
+        "PI_CODING_AGENT_DIR": os.path.join(caller_env["HOME"], ".omp", "agent"),
+        "SHELL": "/bin/bash",
+        BROKER_URL_ENV: url,
+        BROKER_TOKEN_ENV: token,
+    })
+    return built
+
+
 
 
 def _terminate_child(proc) -> None:
-    """Deterministically stop an interrupted child; never raises."""
+    """Stop and reap an interrupted child or fail without snapshotting."""
     try:
         proc.terminate()
         proc.wait(timeout=10)
@@ -140,8 +136,10 @@ def _terminate_child(proc) -> None:
         try:
             proc.kill()
             proc.wait(timeout=10)
-        except BaseException:
-            pass
+        except BaseException as exc:
+            raise PromptResumeError(
+                "prompt_resume_child_unsettled", "child could not be stopped and reaped"
+            ) from exc
 
 
 def resume_prompt_session(
@@ -165,19 +163,28 @@ def resume_prompt_session(
             "prompt_resume_tty_required", "stdin, stdout, and stderr must be TTYs"
         )
     resolved = resolve_prompt_session(Path(runs_root), identifier)
+    if resolved is None:
+        raise PromptSessionError("prompt_session_not_found")
     mode = "in_place" if in_place else "fork"
-    bridge_env = build_bridge_env(env)
     link = resolved.link.document
     lane = link["provider"]["lane"]
     profile = lane in ("no-tools", "conf")
+    if profile:
+        bridge_env = build_bridge_env(env)
+    else:
+        bridge_env = dict(env)
+        strip_omp_carriers(bridge_env)
+        bridge_env.pop("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", None)
     workspace = link["workflow_workspace"]
     runtime_base = (
         runtime_root if runtime_root is not None else os.path.join(env["HOME"], ".omp-i1-runtime")
     )
     timestamp = now if now is not None else now_iso
-    run_fd = sessions_fd = live_fd = lock_fd = -1
-    empty_cwd: str | None = None
+    run_fd = sessions_fd = live_fd = lock_fd = control_fd = -1
+    plan = None
+    control_path = os.fspath(Path(runs_root).parent)
     try:
+        control_fd = open_dir_no_follow(control_path)
         run_fd = open_dir_no_follow(os.fspath(resolved.run_root))
         run_stat = os.fstat(run_fd)
         if (run_stat.st_dev, run_stat.st_ino) != resolved.run_identity:
@@ -204,27 +211,53 @@ def resume_prompt_session(
         # Re-read and re-validate the chain under the lock; it must equal the
         # primary that the pre-lock lookup resolved.
         link_raw = read_regular_file(sessions_fd, f"{resolved.visit_key}.session-link.json")
-        records, _names, _identity = read_continuations(sessions_fd, resolved.visit_key)
+        if link_raw != resolved.link.raw_bytes:
+            raise PromptResumeError(
+                "prompt_resume_invalid", "session link changed before lock acquisition"
+            )
+        records, chain_names, chain_identity = read_continuations(
+            sessions_fd, resolved.visit_key
+        )
         active = validate_continuation_chain(
             link_raw,
             records,
-            initial_journal_sha256=hashlib.sha256(resolved.journal_bytes).hexdigest(),
+            initial_journal_sha256=resolved.initial_journal_sha256,
             run_root=resolved.run_root,
         )
+        if active is None:
+            raise PromptResumeError(
+                "prompt_resume_invalid", "continuation chain has no active primary"
+            )
+        active_journal_sha256 = active.journal_sha256
+        if not isinstance(active_journal_sha256, str):
+            raise PromptResumeError(
+                "prompt_resume_invalid", "active journal digest is absent"
+            )
         live_manifest = build_session_manifest(live_fd)
         if live_manifest.manifest_sha256 != active.live_manifest_sha256:
             raise PromptResumeError("prompt_resume_invalid", "live manifest drifted since lookup")
-        pre_journal = read_manifest_bound(live_fd, live_manifest, active.primary_basename)
-        if hashlib.sha256(pre_journal).hexdigest() != active.journal_sha256:
+        pre_journal = read_manifest_bound(
+            live_fd, live_manifest, active.primary_basename
+        )
+        if hashlib.sha256(pre_journal).hexdigest() != active_journal_sha256:
             raise PromptResumeError("prompt_resume_invalid", "active journal drifted since lookup")
-        pre_inventory = session_inventory_fd(live_fd)
-        if (active.session_id, active.primary_basename) != (
-            resolved.session_id, resolved.primary_basename
+        pre_inventory = tuple(row.relative_path for row in live_manifest.rows)
+        if (
+            active.session_id,
+            active.primary_basename,
+            active.journal_sha256,
+        ) != (
+            resolved.session_id,
+            resolved.primary_basename,
+            hashlib.sha256(resolved.journal_bytes).hexdigest(),
         ):
             raise PromptResumeError("prompt_resume_invalid", "continuation chain changed during lookup")
 
         plan = prepare_launch(
             run_fd=run_fd,
+            live_fd=live_fd,
+            control_fd=control_fd,
+            control_path=control_path,
             resolved=resolved,
             active=active,
             mode=mode,
@@ -235,15 +268,11 @@ def resume_prompt_session(
             runtime_base=runtime_base,
             stderr_fd=stderr_fd,
         )
-        empty_cwd = plan.empty_cwd
 
         started_at = timestamp()
         try:
-            child_argv = (
-                [*plan.helper_prefix, "--", plan.private, *plan.interactive_argv]
-                if plan.helper_prefix is not None
-                else [plan.private, *plan.interactive_argv]
-            )
+            plan.namespace.revalidate()
+            child_argv = [*plan.helper_prefix, "--", *plan.interactive_argv]
             proc = _Popen(
                 child_argv,
                 stdin=stdin_fd,
@@ -252,10 +281,17 @@ def resume_prompt_session(
                 cwd=plan.child_cwd,
                 env=bridge_env,
                 close_fds=True,
+                pass_fds=plan.namespace.pass_fds,
             )
+        except ResumeNamespaceError as exc:
+            raise PromptResumeError(
+                "prompt_resume_namespace_unavailable", str(exc)
+            ) from exc
         except OSError as exc:
             # The child never started: no outcome to record (preflight parity).
-            raise PromptResumeError("prompt_resume_child_failed", f"child could not start: {exc}") from exc
+            raise PromptResumeError(
+                "prompt_resume_child_failed", f"child could not start: {exc}"
+            ) from exc
 
         # --- mandatory post-start outcome path: one outcome, one record -------
         interrupt: BaseException | None = None
@@ -266,9 +302,19 @@ def resume_prompt_session(
             _terminate_child(proc)
             child_exit = 130
         except OSError:
+            _terminate_child(proc)
             child_exit = -1
         ended_at = timestamp()
-        post_manifest = post_live_manifest(live_fd)
+        post_snapshot = None
+        try:
+            post_snapshot = capture_post_live(live_fd)
+        except KeyboardInterrupt as exc:
+            interrupt = exc
+        except ResumePostconditionError:
+            pass
+        post_manifest = (
+            post_snapshot.manifest_sha256 if post_snapshot is not None else None
+        )
 
         result: dict[str, str | None] | None = None
         failure: str | None = None
@@ -276,25 +322,37 @@ def resume_prompt_session(
             failure = "prompt_resume_interrupted"
         elif child_exit != 0:
             failure = "prompt_resume_child_failed"
+        elif post_snapshot is None:
+            failure = "prompt_resume_postcondition_failed"
         else:
             try:
+                revalidate_launch_inputs(
+                    run_fd=run_fd,
+                    resolved=resolved,
+                    plan=plan,
+                    pin=pin,
+                    binary_resolver=binary_resolver,
+                    workspace=workspace,
+                )
                 if mode == "fork":
-                    new_name, new_id, new_sha = validate_fork_result(
+                    snapshot = validate_fork_result(
                         live_fd=live_fd,
+                        snapshot=post_snapshot,
                         pre_inventory=pre_inventory,
                         pre_manifest_sha256=active.live_manifest_sha256,
                         source_primary=active.primary_basename,
-                        source_sha256=active.journal_sha256,
+                        source_sha256=active_journal_sha256,
                         source_session_id=active.session_id,
                     )
                     result = {
-                        "session_id": new_id,
-                        "primary_basename": new_name,
-                        "journal_sha256": new_sha,
+                        "session_id": snapshot.session_id,
+                        "primary_basename": snapshot.primary_basename,
+                        "journal_sha256": snapshot.journal_sha256,
                     }
                 else:
-                    new_sha = validate_in_place_result(
+                    snapshot = validate_in_place_result(
                         live_fd=live_fd,
+                        snapshot=post_snapshot,
                         pre_inventory=pre_inventory,
                         pre_manifest_sha256=active.live_manifest_sha256,
                         pre_bytes=pre_journal,
@@ -302,21 +360,33 @@ def resume_prompt_session(
                         source_session_id=active.session_id,
                     )
                     result = {
-                        "session_id": active.session_id,
-                        "primary_basename": active.primary_basename,
-                        "journal_sha256": new_sha,
+                        "session_id": snapshot.session_id,
+                        "primary_basename": snapshot.primary_basename,
+                        "journal_sha256": snapshot.journal_sha256,
                     }
-            except ResumePostconditionError:
-                failure = "prompt_resume_postcondition_failed"
-        if failure is None:
-            try:
-                validate_record_confinement(
-                    plan.actual_confinement, plan.actual_confinement, profile=profile
+                revalidate_post_live(
+                    run_fd=run_fd,
+                    live_fd=live_fd,
+                    live_relpath=link["paths"]["live"],
+                    snapshot=post_snapshot,
                 )
-            except PromptResumeError:
+            except KeyboardInterrupt as exc:
+                interrupt = exc
+                failure = "prompt_resume_interrupted"
+            except Exception:
                 failure = "prompt_resume_postcondition_failed"
-                result = None
 
+        if failure is None and result is None:
+            failure = "prompt_resume_postcondition_failed"
+        record_result: dict[str, str | None] = (
+            result
+            if result is not None
+            else {
+                "session_id": None,
+                "primary_basename": None,
+                "journal_sha256": None,
+            }
+        )
         record = build_record(
             link_raw=link_raw,
             records=records,
@@ -324,11 +394,7 @@ def resume_prompt_session(
             mode=mode,
             child_exit_code=child_exit,
             failure=failure,
-            result=(
-                result
-                if failure is None
-                else {"session_id": None, "primary_basename": None, "journal_sha256": None}
-            ),
+            result=record_result,
             started_at=started_at,
             ended_at=ended_at,
             pin=pin,
@@ -336,6 +402,7 @@ def resume_prompt_session(
             confinement=plan.actual_confinement,
             conf_manifest=plan.conf_manifest,
             post_manifest=post_manifest,
+            env_names=sorted(bridge_env),
         )
         label = "success" if failure is None else "failed"
         try:
@@ -345,7 +412,9 @@ def resume_prompt_session(
                 sessions_identity=sessions_identity,
                 visit_key=resolved.visit_key,
                 records=records,
+                expected_chain_identity=chain_identity,
                 payload=record,
+                expected_names=chain_names,
             )
         except ContinuationRecordError as exc:
             raise PromptResumeError(
@@ -364,7 +433,9 @@ def resume_prompt_session(
     except (OSError, LaunchFsError, OmpSessionError, TypeError, ValueError) as exc:
         raise PromptResumeError("prompt_resume_invalid", str(exc)) from exc
     finally:
-        for fd in (lock_fd, live_fd, sessions_fd, run_fd):
+        if plan is not None:
+            plan.close()
+        for fd in (lock_fd, live_fd, sessions_fd, run_fd, control_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
@@ -386,7 +457,7 @@ def prompt_resume_workflow(args: Namespace) -> int:
             identifier=args.session_id,
             in_place=bool(repeats),
             pin=OMP_BINARY_PIN,
-            binary_resolver=lambda: PRODUCTION_BINARY_PATH,
+            binary_resolver=lambda: resolve_omp_binary(os.environ),
             env=os.environ,
             stdin_fd=0,
             stdout_fd=1,
@@ -394,8 +465,8 @@ def prompt_resume_workflow(args: Namespace) -> int:
             cwd=os.getcwd(),
         )
     except PromptCliError as exc:
-        print(f"prompt resume: {exc}", file=sys.stderr)
+        print(terminal_safe_line(f"prompt resume: {exc}"), file=sys.stderr)
         return 2
     except (PromptResumeError, PromptSessionError) as exc:
-        print(f"prompt resume: {exc}", file=sys.stderr)
+        print(terminal_safe_line(f"prompt resume: {exc}"), file=sys.stderr)
         return 1

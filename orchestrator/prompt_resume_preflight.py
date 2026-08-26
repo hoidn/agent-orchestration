@@ -1,12 +1,4 @@
-"""Task 10: preflight/launch preparation for the foreground TTY bridge.
-
-Everything here runs before the interactive child spawns and writes nothing
-to the run: launch-frame binary read, no-replace scaffold pin, frozen-conf
-verify plus a fresh private copy, the profile policy/empty-cwd/helper prefix,
-private staging, the exact X8 interactive argv, the argv/env-names print, and
-the pinned version probe. A failure raises ``PreflightError`` and the
-orchestrator publishes nothing.
-"""
+"""Fail-closed launch preparation for the foreground OMP TTY bridge."""
 
 from __future__ import annotations
 
@@ -14,7 +6,6 @@ import hashlib
 import json
 import os
 import secrets
-import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,9 +16,28 @@ from orchestrator._common.safe_tree import (
     read_regular_file,
     walk_regular_files,
 )
-from orchestrator.providers.omp_conf import OmpConfError, admit_conf_tree
+from orchestrator.prompt_scaffold import ScaffoldVerification
+from orchestrator.prompt_session import PromptSessionError
+from orchestrator.prompt_session_scaffold import (
+    verify_captured_occupant,
+    verify_private_scaffold,
+)
+from orchestrator.prompt_resume_namespace import (
+    ResumeNamespace,
+    ResumeNamespaceError,
+    prepare_resume_namespace,
+    run_version_probe,
+)
+from orchestrator.providers.omp_conf import (
+    ConfSnapshot,
+    OmpConfError,
+    admit_conf_tree,
+    materialize_conf_at_discovery_path,
+)
+from orchestrator.providers.omp_launch import EXEC_ONLY_PREFIX, build_profile_env
 from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
+    BROKER_TOKEN_ENV,
+    BROKER_URL_ENV,
     build_interactive_argv,
 )
 from orchestrator.providers.omp_launch_fs import (
@@ -37,6 +47,13 @@ from orchestrator.providers.omp_launch_fs import (
     open_dir_no_follow,
     stage_private_copy,
 )
+from orchestrator.providers.omp_launch_policy import (
+    ProfileAttemptAuthority,
+    attempt_env_roots,
+    create_profile_attempt_authority,
+    profile_attempt_roots,
+)
+from orchestrator.providers.observation import terminal_safe_line
 from orchestrator.providers.omp_protocol import loads_strict
 from orchestrator.providers.omp_write_confinement import (
     MIN_LANDLOCK_ABI,
@@ -48,6 +65,10 @@ from orchestrator.providers.omp_write_confinement import (
 
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _BINARY_KEYS = frozenset({"platform", "arch", "version", "sha256"})
+
+
+def _write_diagnostic(descriptor: int, text: str) -> None:
+    os.write(descriptor, (terminal_safe_line(text) + "\n").encode())
 
 
 class PreflightError(Exception):
@@ -64,12 +85,23 @@ class LaunchPlan:
     """Everything the orchestrator needs to spawn one TTY child exactly."""
 
     private: str
+    source_binary: str
+    frame_binary: dict[str, str]
+    scaffold: ScaffoldVerification
     interactive_argv: tuple[str, ...]
-    helper_prefix: tuple[str, ...] | None
+    helper_prefix: tuple[str, ...]
+    namespace: ResumeNamespace
     child_cwd: str
     actual_confinement: dict[str, object] | None
     conf_manifest: str | None
     empty_cwd: str | None
+    profile_attempt: ProfileAttemptAuthority | None
+    conf_snapshot: ConfSnapshot | None
+
+    def close(self) -> None:
+        self.namespace.close()
+        if self.profile_attempt is not None:
+            self.profile_attempt.close()
 
 
 def now_iso() -> str:
@@ -108,63 +140,76 @@ def read_frame_binary(run_fd: int, visit_key: str) -> dict[str, str]:
     return dict(binary)
 
 
-def verify_scaffold(
-    *,
-    workspace: str,
-    scaffold_relpath: str,
-    expected_digest: str,
-    frame_binary: dict[str, str],
-    provider_name: str,
-) -> None:
-    """Pin the no-replace scaffold: digest, frame binary, and provider."""
+def _open_public_scaffold(workspace: str, scaffold_relpath: str) -> int:
     try:
-        workspace_fd = open_dir_no_follow(workspace)
+        descriptor = open_dir_no_follow(workspace)
     except LaunchFsError as exc:
         raise PreflightError(
-            "prompt_resume_scaffold_invalid", f"workspace cannot be opened: {exc}"
+            "prompt_resume_scaffold_invalid",
+            f"workspace cannot be opened: {exc}",
         ) from exc
-    descriptor = os.dup(workspace_fd)
-    os.close(workspace_fd)
     try:
         for part in PurePosixPath(scaffold_relpath).parts:
             child = os.open(part, _DIR_FLAGS, dir_fd=descriptor)
             os.close(descriptor)
             descriptor = child
-        try:
-            raw = read_regular_file(descriptor, "scaffold.json")
-        finally:
-            os.close(descriptor)
-    except (OSError, SafeTreeError) as exc:
-        raise PreflightError(
-            "prompt_resume_scaffold_invalid", f"scaffold cannot be admitted: {exc}"
-        ) from exc
-    if hashlib.sha256(raw).hexdigest() != expected_digest:
+        return descriptor
+    except OSError as exc:
+        os.close(descriptor)
         raise PreflightError(
             "prompt_resume_scaffold_invalid",
-            "scaffold manifest digest disagrees with the link",
-        )
+            f"scaffold cannot be opened: {exc}",
+        ) from exc
+
+
+def capture_scaffold_inputs(
+    *,
+    run_fd: int,
+    workspace: str,
+    scaffold_relpath: str,
+    link,
+    frame_binary: dict[str, str],
+) -> ScaffoldVerification:
+    private_fd = public_fd = -1
     try:
-        manifest = loads_strict(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise PreflightError(
-            "prompt_resume_scaffold_invalid", "scaffold manifest cannot be parsed"
-        ) from exc
-    binary = manifest.get("binary") if isinstance(manifest, dict) else None
-    provider = manifest.get("provider") if isinstance(manifest, dict) else None
-    if binary != frame_binary:
+        private_fd = open_relative(run_fd, "prompt-inputs")
+        public_fd = _open_public_scaffold(workspace, scaffold_relpath)
+        verification = verify_private_scaffold(private_fd, link)
+        verify_captured_occupant(public_fd, verification, private=False)
+        manifest = loads_strict(
+            verification.manifest_bytes.decode("utf-8")
+        )
+        binary = (
+            manifest.get("binary")
+            if isinstance(manifest, dict)
+            else None
+        )
+        if binary != frame_binary:
+            raise PromptSessionError(
+                "session_link_invalid",
+                "captured scaffold binary disagrees with the launch frame",
+            )
+        return verification
+    except (
+        OSError,
+        PromptSessionError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as exc:
         raise PreflightError(
             "prompt_resume_scaffold_invalid",
-            "scaffold binary disagrees with the launch frame",
-        )
-    if not isinstance(provider, dict) or provider.get("registry_name") != provider_name:
-        raise PreflightError(
-            "prompt_resume_scaffold_invalid", "scaffold provider disagrees with the link"
-        )
+            f"captured scaffold cannot be admitted: {exc}",
+        ) from exc
+    finally:
+        if public_fd >= 0:
+            os.close(public_fd)
+        if private_fd >= 0:
+            os.close(private_fd)
 
 
 def copy_conf_tree(
     *, run_fd: int, frozen_relpath: str, expected_digest: str, runtime_base: str
-) -> str:
+) -> tuple[str, ConfSnapshot]:
     """Verify the frozen conf manifest, then materialize a fresh private copy."""
     try:
         frozen_fd = open_relative(run_fd, frozen_relpath)
@@ -230,9 +275,11 @@ def copy_conf_tree(
                 "prompt_resume_conf_invalid",
                 "fresh conf copy manifest disagrees with the link",
             )
-        return dest
+        return dest, copy_manifest
     finally:
         os.close(copy_fd)
+
+
 
 
 def env_roots(env: dict[str, str]) -> dict[str, str]:
@@ -263,39 +310,12 @@ def helper_prefix(*, digest: str, protected, write, read) -> tuple[str, ...]:
     return tuple(argv)
 
 
-def run_version_probe(
-    *, private: str, env: dict[str, str], cwd: str, pin, prefix: tuple[str, ...] | None
-) -> None:
-    argv = (
-        [*prefix, "--", private, "--version"]
-        if prefix is not None
-        else [private, "--version"]
-    )
-    try:
-        proc = subprocess.run(
-            argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=cwd,
-            env=env,
-            close_fds=True,
-        )
-    except OSError as exc:
-        raise PreflightError(
-            "prompt_resume_probe_failed", f"version probe could not start: {exc}"
-        ) from exc
-    expected = f"omp/{pin.version}\n".encode("utf-8")
-    if proc.returncode != 0 or proc.stderr or proc.stdout != expected:
-        raise PreflightError(
-            "prompt_resume_probe_failed",
-            "version probe did not match the pinned executable",
-        )
-
-
 def prepare_launch(
     *,
     run_fd: int,
+    live_fd: int,
+    control_fd: int,
+    control_path: str,
     resolved,
     active,
     mode: str,
@@ -313,89 +333,165 @@ def prepare_launch(
     profile = lane in ("no-tools", "conf")
     live_dir = os.path.join(os.fspath(resolved.run_root), link["paths"]["live"])
     frame_binary = read_frame_binary(run_fd, resolved.visit_key)
-    verify_scaffold(
+    scaffold = capture_scaffold_inputs(
+        run_fd=run_fd,
         workspace=workspace,
         scaffold_relpath=link["scaffold_relpath"],
-        expected_digest=link["digests"]["scaffold_manifest_sha256"],
+        link=resolved.link,
         frame_binary=frame_binary,
-        provider_name=provider_name,
     )
     conf_manifest = link["digests"]["conf_manifest_sha256"]
+    source_binary = binary_resolver()
+    private = stage_private_copy(
+        source_binary, pin, bridge_env["XDG_CACHE_HOME"]
+    )
     actual_confinement: dict[str, object] | None = None
-    helper_prefix_: tuple[str, ...] | None = None
+    helper_prefix_: tuple[str, ...] | None = tuple(EXEC_ONLY_PREFIX)
+    policy_paths: tuple[str, ...] = ()
     child_cwd = workspace
     empty_cwd: str | None = None
+    profile_attempt: ProfileAttemptAuthority | None = None
+    conf_snapshot: ConfSnapshot | None = None
     if profile:
-        conf_copy = copy_conf_tree(
-            run_fd=run_fd,
-            frozen_relpath=link["paths"]["conf"],
-            expected_digest=conf_manifest,
-            runtime_base=runtime_base,
-        )
-        roots = env_roots(bridge_env)
-        home_omp = os.path.join(bridge_env["HOME"], ".omp")
-        empty_cwd = empty_omp_cwd_path(
-            home=bridge_env["HOME"],
-            lane=lane,
-            workspace=workspace,
-            session_dir=live_dir,
-            conf_root=conf_copy,
-            env_roots=roots,
-            nonce=secrets.token_hex(8),
-        )
-        create_empty_omp_cwd(empty_cwd)
-        policy_digest = canonical_policy_digest(
-            lane=lane,
-            home_omp=home_omp,
-            session_dir=live_dir,
-            conf_root=conf_copy,
+        try:
+            conf_copy, conf_snapshot = copy_conf_tree(
+                run_fd=run_fd,
+                frozen_relpath=link["paths"]["conf"],
+                expected_digest=conf_manifest,
+                runtime_base=runtime_base,
+            )
+            caller_roots = env_roots(bridge_env)
+            nonce = secrets.token_hex(8)
+            empty_cwd = empty_omp_cwd_path(
+                home=bridge_env["HOME"],
+                lane=lane,
+                workspace=workspace,
+                session_dir=live_dir,
+                conf_root=conf_copy,
+                env_roots=caller_roots,
+                nonce=nonce,
+            )
+            create_empty_omp_cwd(empty_cwd)
+            attempt = profile_attempt_roots(
+                env_roots=caller_roots,
+                lane=lane,
+                workspace=workspace,
+                session_dir=live_dir,
+                conf_root=conf_copy,
+                nonce=nonce,
+            )
+            profile_attempt = create_profile_attempt_authority(attempt)
+            materialize_conf_at_discovery_path(profile_attempt, conf_snapshot)
+            roots = attempt_env_roots(attempt)
+            home_omp = os.path.join(attempt["HOME"], ".omp")
+            policy_digest = canonical_policy_digest(
+                lane=lane,
+                home_omp=home_omp,
+                session_dir=live_dir,
+                conf_root=conf_copy,
+                workspace=workspace,
+                empty_cwd=empty_cwd,
+                env_roots=roots,
+            )
+            protected, write, read = profile_root_sets(
+                lane=lane,
+                home_omp=home_omp,
+                session_dir=live_dir,
+                conf_root=conf_copy,
+                workspace=workspace,
+                empty_cwd=empty_cwd,
+                env_roots=roots,
+            )
+            policy_paths = tuple(
+                path for _label, path in protected + write + read
+            )
+            helper_prefix_ = helper_prefix(
+                digest=policy_digest,
+                protected=protected,
+                write=write,
+                read=read,
+            )
+            child_cwd = empty_cwd
+            child_env = build_profile_env(
+                bridge_env,
+                attempt,
+                bridge_env[BROKER_URL_ENV],
+                bridge_env[BROKER_TOKEN_ENV],
+            )
+            bridge_env.clear()
+            bridge_env.update(child_env)
+            actual_confinement = {
+                "schema_version": SCHEMA_VERSION,
+                "landlock_abi": landlock_abi(),
+                "policy_sha256": policy_digest,
+            }
+        except BaseException:
+            if profile_attempt is not None:
+                profile_attempt.close()
+            raise
+    try:
+        interactive_argv = build_interactive_argv(
+            provider_name,
+            link["provider"]["model"],
+            private_binary=private,
+            live_dir=live_dir,
+            mode=mode,
+            source_session_id=active.session_id,
             workspace=workspace,
             empty_cwd=empty_cwd,
-            env_roots=roots,
         )
-        protected, write, read = profile_root_sets(
-            lane=lane,
-            home_omp=home_omp,
-            session_dir=live_dir,
-            conf_root=conf_copy,
-            workspace=workspace,
-            empty_cwd=empty_cwd,
-            env_roots=roots,
+        _write_diagnostic(
+            stderr_fd, f"prompt resume: argv: {' '.join(interactive_argv)}"
         )
-        helper_prefix_ = helper_prefix(
-            digest=policy_digest, protected=protected, write=write, read=read
+        _write_diagnostic(
+            stderr_fd, f"prompt resume: env names: {' '.join(sorted(bridge_env))}"
         )
-        child_cwd = empty_cwd
-        actual_confinement = {
-            "schema_version": SCHEMA_VERSION,
-            "landlock_abi": landlock_abi(),
-            "policy_sha256": policy_digest,
-        }
-    private = stage_private_copy(binary_resolver(), pin, bridge_env["XDG_CACHE_HOME"])
-    interactive_argv = build_interactive_argv(
-        provider_name,
-        link["provider"]["model"],
-        private_binary=private,
-        live_dir=live_dir,
-        mode=mode,
-        source_session_id=active.session_id,
-        workspace=workspace,
-        empty_cwd=empty_cwd,
-    )
-    os.write(stderr_fd, f"prompt resume: argv: {' '.join(interactive_argv)}\n".encode("utf-8"))
-    os.write(
-        stderr_fd,
-        f"prompt resume: env names: {' '.join(sorted(POSITIVE_ENV_NAMES))}\n".encode("utf-8"),
-    )
-    run_version_probe(
-        private=private, env=bridge_env, cwd=child_cwd, pin=pin, prefix=helper_prefix_
-    )
+    except BaseException:
+        if profile_attempt is not None:
+            profile_attempt.close()
+        raise
+    try:
+        namespace = prepare_resume_namespace(
+            control_fd=control_fd,
+            live_fd=live_fd,
+            control_path=control_path,
+            live_path=live_dir,
+            child_cwd=child_cwd,
+            policy_paths=policy_paths,
+        )
+    except ResumeNamespaceError as exc:
+        if profile_attempt is not None:
+            profile_attempt.close()
+        raise PreflightError(
+            "prompt_resume_namespace_unavailable", str(exc)
+        ) from exc
+    helper_prefix_ = namespace.wrap_command(helper_prefix_)
+    try:
+        run_version_probe(
+            namespace=namespace,
+            prefix=helper_prefix_,
+            private=private,
+            env=bridge_env,
+            cwd=child_cwd,
+            version=pin.version,
+        )
+    except ResumeNamespaceError as exc:
+        namespace.close()
+        if profile_attempt is not None:
+            profile_attempt.close()
+        raise PreflightError("prompt_resume_probe_failed", str(exc)) from exc
     return LaunchPlan(
         private=private,
+        source_binary=source_binary,
+        frame_binary=dict(frame_binary),
+        scaffold=scaffold,
         interactive_argv=interactive_argv,
         helper_prefix=helper_prefix_,
+        namespace=namespace,
         child_cwd=child_cwd,
         actual_confinement=actual_confinement,
         conf_manifest=conf_manifest,
         empty_cwd=empty_cwd,
+        profile_attempt=profile_attempt,
+        conf_snapshot=conf_snapshot,
     )

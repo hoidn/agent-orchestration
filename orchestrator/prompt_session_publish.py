@@ -6,7 +6,12 @@ import os
 import stat
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
-from orchestrator._common.safe_tree import SafeTreeError, read_regular_file, walk_regular_files
+from orchestrator._common.safe_tree import (
+    SafeTreeError,
+    copy_regular_file,
+    read_regular_file,
+    walk_regular_files,
+)
 from orchestrator.prompt_session_scaffold import (
     verify_captured_occupant,
     with_private_execution_authority,
@@ -14,9 +19,19 @@ from orchestrator.prompt_session_scaffold import (
 from orchestrator.prompt_session_agreement import validate_publication_agreement
 from orchestrator.providers.omp_conf import OmpConfError, admit_conf_tree
 from orchestrator.providers.omp_protocol import loads_strict
-from orchestrator.providers.omp_session import OmpSessionError, build_session_manifest, parse_journal_bytes
-from orchestrator.providers.omp_launch_fs import LaunchFsError, session_inventory_fd
+from orchestrator.providers.omp_observation import (
+    OmpObservationError,
+    SESSION_TREE_MAX_BYTES,
+    SESSION_TREE_MAX_DEPTH,
+    SESSION_TREE_MAX_FILES,
+    observe_close,
+    recognized_preset_topologies,
+)
+from orchestrator.providers.omp_session import OmpSessionError, parse_journal_bytes
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 
+_MAX_METADATA_FILES = 128
+_MAX_METADATA_BYTES = 8 * 1024 * 1024
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
@@ -119,30 +134,83 @@ def _freeze_bytes(
 
 def _freeze_tree(source_fd: int, parent_fd: int, name: str):
     try:
-        rows = list(walk_regular_files(source_fd))
-        files = {
-            row.relative_path: read_regular_file(source_fd, row.relative_path, expected=row)
-            for row in rows
-        }
+        rows = list(walk_regular_files(
+            source_fd,
+            max_depth=SESSION_TREE_MAX_DEPTH,
+            max_entries=SESSION_TREE_MAX_FILES,
+        ))
     except SafeTreeError as exc:
         raise _error("live session tree cannot be captured", exc)
-    modes = {row.relative_path: row.mode for row in rows}
-    return _freeze_bytes(files, parent_fd, name, modes)
+    if sum(row.size_bytes for row in rows) > SESSION_TREE_MAX_BYTES:
+        raise _error("live session tree exceeds the byte bound")
+    created = False
+    target_fd = -1
+    try:
+        os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        created = True
+        target_fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
+        for row in rows:
+            leaf_parent, owned = _open_parents(target_fd, row.relative_path)
+            try:
+                descriptor = os.open(
+                    PurePosixPath(row.relative_path).name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=leaf_parent,
+                )
+                try:
+                    copy_regular_file(
+                        source_fd,
+                        row.relative_path,
+                        descriptor,
+                        expected=row,
+                        max_bytes=row.size_bytes,
+                    )
+                    os.fchmod(descriptor, stat.S_IMODE(row.mode))
+                finally:
+                    os.close(descriptor)
+            finally:
+                for descriptor in reversed(owned):
+                    os.close(descriptor)
+        return build_session_manifest(target_fd)
+    except BaseException as exc:
+        if target_fd >= 0:
+            os.close(target_fd)
+            target_fd = -1
+        if created:
+            try:
+                _remove_tree(parent_fd, name)
+            except OSError:
+                pass
+        if isinstance(exc, SafeTreeError):
+            raise _error("live session tree cannot be captured", exc)
+        raise
+    finally:
+        if target_fd >= 0:
+            os.close(target_fd)
 
 
 
 
 def _single_metadata(session_fd: int) -> tuple[str, dict[str, Any]]:
+    names = []
     found = []
     try:
-        names = os.listdir(session_fd)
+        with os.scandir(session_fd) as entries:
+            for entry in entries:
+                if len(names) >= _MAX_METADATA_FILES:
+                    raise _error("provider session directory exceeds the entry bound")
+                names.append(entry.name)
     except OSError as exc:
         raise _error("provider session directory cannot be listed", exc)
     for name in names:
         if not name.endswith(".json") or name.endswith(".session-link.json"):
             continue
         try:
-            value = loads_strict(read_regular_file(session_fd, name).decode("utf-8"))
+            value = loads_strict(read_regular_file(
+                session_fd, name, max_bytes=_MAX_METADATA_BYTES
+            ).decode("utf-8"))
         except (SafeTreeError, UnicodeDecodeError, ValueError) as exc:
             raise _error("provider metadata cannot be admitted", exc)
         if isinstance(value, dict) and value.get("publication_state") == "published":
@@ -265,17 +333,27 @@ def publish_prompt_run_link(
         )
         primary = frame["session"]
         basename = _basename(primary["primary_relpath"], "frame primary")
-        if not basename.endswith(".jsonl"):
+        if basename is None or not basename.endswith(".jsonl"):
             raise _error("primary basename is invalid")
         live_fd = os.open(visit_key, _DIR_FLAGS, dir_fd=session_fd)
         try:
             live_manifest = build_session_manifest(live_fd)
             try:
-                live_inventory = list(session_inventory_fd(live_fd))
-            except LaunchFsError as exc:
-                raise _error("live inventory cannot be admitted", exc)
-            if frame["observed"]["child_relpaths"] != live_inventory:
-                raise _error("adapter observed inventory disagrees with live tree")
+                report = observe_close(
+                    session_root_fd=live_fd,
+                    stdout_session_id=primary["id"],
+                    conf_manifest_sha256=conf_digest,
+                    recognized_topologies=recognized_preset_topologies(),
+                    isolated_worktree_root=None,
+                )
+            except OmpObservationError as exc:
+                raise _error(f"live tree fails close-time observation: {exc}", exc)
+            if (
+                report.primary_relpath != primary["primary_relpath"]
+                or list(report.advisor_relpaths) != frame["observed"]["advisor_relpaths"]
+                or list(report.child_relpaths) != frame["observed"]["child_relpaths"]
+            ):
+                raise _error("adapter observed classification disagrees with live tree")
             rows = [row for row in live_manifest.rows if row.relative_path == basename]
             if len(rows) != 1:
                 raise _error("live manifest lacks exact primary")

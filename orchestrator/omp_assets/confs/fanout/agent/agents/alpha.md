@@ -2,7 +2,7 @@
 name: alpha
 description: First fanout worker that implements the plan
 model: "openai-codex/gpt-5.6-sol"
-tools: [read, grep, glob, bash, edit, write]
+tools: [read, grep, glob, edit, write]
 spawns: [beta]
 ---
 Implement the accepted plan in the workspace.

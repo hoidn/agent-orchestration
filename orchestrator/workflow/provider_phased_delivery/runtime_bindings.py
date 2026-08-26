@@ -163,7 +163,7 @@ class _WorkflowPhasedProviderAttemptBindings:
             else None
         )
         runtime_root = (
-            Path(executor.state_manager.run_root)
+            Path(executor.state_manager.io_run_root)
             / "provider-phased-delivery"
         )
         self.adapter = _WorkflowPhasedAdapter(
@@ -807,7 +807,7 @@ class _WorkflowPhasedProviderAttemptBindings:
         )
 
         return ProviderPromptPhaseLedgerWriter.create(
-            self.executor.state_manager.run_root,
+            self.executor.state_manager.io_run_root,
             scope=allocation.scope,
             ordinal=allocation.attempt_ordinal,
             cut=composition.cut,

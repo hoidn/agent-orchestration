@@ -511,9 +511,22 @@
     and effect-free selection uses the existing pure-projection `kind: "if"`
     payload. State schema stays `2.1`. Targets through 2.25 remain
     byte-compatible in accepted source, compiler, IR, state, checkpoint,
-    runtime, and provider behavior; targets above 2.26 remain unsupported.
+    runtime, and provider behavior. Target 2.27 adds only the explicit
+    fresh-session artifact contract below; higher targets remain unsupported.
   - Existing `match` source remains valid; no automatic rewrite or migration is
     required.
+- v2.27 additions (Workflow Lisp explicit fresh-session artifact)
+  - Target `2.27` admits one optional
+    `provider-result :session-artifact <bare-symbol>` only in the selected
+    entry workflow at its root or sequential `let*` spine. The compiler
+    synthesizes one top-level scalar String artifact and lowers the call to the
+    existing fresh `provider_session` publication contract.
+  - Placement, duplicate, collision, non-symbol, unsupported-template,
+    imported/called-workflow, branch/loop/trial, supervision, and peer-group
+    uses fail at compile time. Omission is byte-compatible transient behavior.
+  - No public Core/Semantic/Executable IR or state schema changes. State schema
+    remains `2.1`; targets through 2.26 keep their existing accepted source and
+    target 2.28 remains unsupported.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
@@ -548,6 +561,8 @@
   - `v2.23`: Workflow Lisp phased contract delivery
   - `v2.24`: Workflow Lisp pinned child execution through `run-ref`
   - `v2.25`: Workflow Lisp bounded static trials over `run-ref`
+  - `v2.26`: Workflow Lisp strict Boolean control flow
+  - `v2.27`: explicit fresh provider-session artifact
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -690,6 +705,7 @@ Planned acceptance:
 | 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
 | 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is deferred. State schema remains `2.1`. |
 | 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, M2-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
-| 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form; targets above 2.26 remain unsupported. |
+| 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form. |
+| 2.27 | Workflow Lisp explicit fresh-session artifact | Adds one optional entry-root/sequential-spine `provider-result :session-artifact <bare-symbol>` that synthesizes a scalar String artifact and reuses existing fresh `provider_session` publication. Omission stays transient; invalid placement, duplicates, collisions, unsupported templates, and targets below 2.27 reject. State schema remains `2.1`; no new public IR/runtime form. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

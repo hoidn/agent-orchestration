@@ -181,7 +181,10 @@ def test_phased_constructor_caches_timeout_without_later_step_reread(
     )
     executor = SimpleNamespace(
         current_step=0,
-        state_manager=SimpleNamespace(run_root=tmp_path),
+        state_manager=SimpleNamespace(
+            run_root=tmp_path,
+            io_run_root=tmp_path,
+        ),
     )
     monkeypatch.setattr(
         "orchestrator.providers.interactive_terminal."

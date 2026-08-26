@@ -13,9 +13,9 @@ from orchestrator.prompt_session import (
     validate_continuation_chain,
 )
 from orchestrator.providers.omp_pin import OMP_BINARY_PIN
-from orchestrator.providers.omp_session import build_session_manifest
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 from orchestrator.providers.omp_launch_contract import (
-    POSITIVE_ENV_NAMES,
+    PROFILE_ENV_NAMES,
     build_interactive_argv,
 )
 from tests.test_prompt_session import (
@@ -103,7 +103,8 @@ def _write_successful_fork(runs: Path, *, child: bool) -> Path:
                     link["provider"]["model"],
                     private_binary=str(
                         runs.parent / "cache" / "omp-i1" / "private"
-                        / OMP_BINARY_PIN.executable_sha256 / "omp"
+                        / OMP_BINARY_PIN.executable_sha256
+                        / f"attempt-{'0' * 32}" / "omp"
                     ),
                     live_dir=str(live),
                     mode="fork",
@@ -111,7 +112,7 @@ def _write_successful_fork(runs: Path, *, child: bool) -> Path:
                     workspace=link["workflow_workspace"],
                 )
             ),
-            "env_names": list(POSITIVE_ENV_NAMES),
+            "env_names": sorted(PROFILE_ENV_NAMES),
         },
         "confinement": None,
         "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],
@@ -187,7 +188,7 @@ def test_failed_tail_blocks_before_damaged_live_validation(tmp_path: Path) -> No
         resolve_prompt_session(runs, "run-1")
 
 
-@pytest.mark.parametrize("drift", ("binary", "model", "extra-argv", "env"))
+@pytest.mark.parametrize("drift", ("binary", "model", "extra-argv"))
 def test_continuation_rejects_unowned_launch_authority(
     tmp_path: Path, drift: str
 ) -> None:
@@ -199,11 +200,8 @@ def test_continuation_rejects_unowned_launch_authority(
     elif drift == "model":
         index = record["launch"]["argv"].index("--model") + 1
         record["launch"]["argv"][index] = "other-model"
-    elif drift == "extra-argv":
-        record["launch"]["argv"].extend(["--extra", "value"])
     else:
-        record["launch"]["env_names"].append("UNOWNED")
-        record["launch"]["env_names"].sort()
+        record["launch"]["argv"].extend(["--extra", "value"])
     record_path.write_bytes(_canonical(record))
     with pytest.raises(PromptSessionError, match="session_continuation_invalid"):
         resolve_prompt_session(runs, "run-1")
@@ -228,7 +226,8 @@ def _in_place_record(
         link["provider"]["model"],
         private_binary=str(
             live.parents[3] / "cache" / "omp-i1" / "private"
-            / OMP_BINARY_PIN.executable_sha256 / "omp"
+            / OMP_BINARY_PIN.executable_sha256
+            / f"attempt-{'0' * 32}" / "omp"
         ),
         live_dir=str(live),
         mode="in_place",
@@ -262,7 +261,7 @@ def _in_place_record(
             "sha256": OMP_BINARY_PIN.executable_sha256,
         },
         "conf_manifest_sha256": None,
-        "launch": {"argv": list(argv), "env_names": list(POSITIVE_ENV_NAMES)},
+        "launch": {"argv": list(argv), "env_names": sorted(PROFILE_ENV_NAMES)},
         "confinement": None,
         "pre_live_manifest_sha256": pre_manifest,
         "post_live_manifest_sha256": post_manifest,
@@ -487,7 +486,8 @@ def test_profile_continuation_accepts_fresh_policy_digest_distinct_from_link(
                     "gpt-5.6-sol",
                     private_binary=str(
                         runs.parent / "cache" / "omp-i1" / "private"
-                        / OMP_BINARY_PIN.executable_sha256 / "omp"
+                        / OMP_BINARY_PIN.executable_sha256
+                        / f"attempt-{'0' * 32}" / "omp"
                     ),
                     live_dir=str(live),
                     mode="in_place",
@@ -496,7 +496,7 @@ def test_profile_continuation_accepts_fresh_policy_digest_distinct_from_link(
                     empty_cwd=str(runs.parent / "omp-empty-1111111111111111-2222222222222222"),
                 )
             ),
-            "env_names": list(POSITIVE_ENV_NAMES),
+            "env_names": sorted(PROFILE_ENV_NAMES),
         },
         "confinement": fresh,
         "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],
@@ -550,7 +550,8 @@ def test_profile_continuation_rejects_malformed_or_missing_policy(
                     "gpt-5.6-sol",
                     private_binary=str(
                         runs.parent / "cache" / "omp-i1" / "private"
-                        / OMP_BINARY_PIN.executable_sha256 / "omp"
+                        / OMP_BINARY_PIN.executable_sha256
+                        / f"attempt-{'0' * 32}" / "omp"
                     ),
                     live_dir=str(live),
                     mode="in_place",
@@ -559,7 +560,7 @@ def test_profile_continuation_rejects_malformed_or_missing_policy(
                     empty_cwd=str(runs.parent / "omp-empty-1111111111111111-2222222222222222"),
                 )
             ),
-            "env_names": list(POSITIVE_ENV_NAMES),
+            "env_names": sorted(PROFILE_ENV_NAMES),
         },
         "confinement": None,  # profile lanes may never drop confinement
         "pre_live_manifest_sha256": link["digests"]["live_manifest_sha256"],

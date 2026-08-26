@@ -22,8 +22,10 @@ from contextlib import contextmanager
 from ._common.io_atomic import (
     RenameNoreplaceError,
     atomic_write_text,
+    atomic_write_text_at,
     rename_noreplace_at,
 )
+from ._common.safe_tree import hash_regular_file
 
 
 StateStatus = Literal["running", "suspended", "completed", "failed"]
@@ -408,6 +410,7 @@ class StateManager:
             else self.workspace / ".orchestrate" / "runs"
         )
         self.run_root = self.runs_root / self.run_id
+        self._run_root_fd: int | None = None
         self.state_file = self.run_root / "state.json"
         self.logs_dir = self.run_root / "logs"
 
@@ -418,6 +421,40 @@ class StateManager:
         # Current state (loaded or new)
         self.state: Optional[RunState] = None
         self._lock = threading.RLock()
+
+    @property
+    def logical_run_root(self) -> Path:
+        return self.run_root
+
+
+    @property
+    def io_run_root(self) -> Path:
+        """Filesystem authority used for run-owned reads and writes."""
+        if self._run_root_fd is None:
+            return self.run_root
+        return Path(f"/proc/self/fd/{self._run_root_fd}")
+
+    def _retain_run_root_fd(self, run_root_fd: int) -> None:
+        if self._run_root_fd is None:
+            self._run_root_fd = os.dup(run_root_fd)
+        else:
+            retained = os.fstat(self._run_root_fd)
+            supplied = os.fstat(run_root_fd)
+            if (retained.st_dev, retained.st_ino) != (
+                supplied.st_dev,
+                supplied.st_ino,
+            ):
+                raise ValueError("run root descriptor authority changed")
+        self.state_file = self.io_run_root / "state.json"
+        self.logs_dir = self.io_run_root / "logs"
+
+    def close(self) -> None:
+        """Release retained run-root authority; safe to repeat."""
+        if self._run_root_fd is not None:
+            os.close(self._run_root_fd)
+            self._run_root_fd = None
+            self.state_file = self.run_root / "state.json"
+            self.logs_dir = self.run_root / "logs"
 
     @contextmanager
     def _state_mutation(self):
@@ -573,6 +610,7 @@ class StateManager:
         bound_inputs: Optional[Dict[str, Any]] = None,
         observability: Optional[Dict[str, Any]] = None,
         result_persistence_profile: Optional[str] = None,
+        run_root_fd: int | None = None,
     ) -> RunState:
         """Initialize a new run state.
 
@@ -594,16 +632,34 @@ class StateManager:
                 )
 
         with self._state_mutation():
-            # Create run directory structure
-            self.run_root.mkdir(parents=True, exist_ok=True)
-            self.logs_dir.mkdir(exist_ok=True)
-
-            # Calculate workflow checksum
             workflow_path = self.workspace / workflow_file
-            if not workflow_path.exists():
-                raise FileNotFoundError(f"Workflow file not found: {workflow_file}")
-
-            workflow_checksum = self.calculate_checksum(workflow_path)
+            if run_root_fd is None:
+                self.run_root.mkdir(parents=True, exist_ok=True)
+                self.logs_dir.mkdir(exist_ok=True)
+                if not workflow_path.exists():
+                    raise FileNotFoundError(
+                        f"Workflow file not found: {workflow_file}"
+                    )
+                workflow_checksum = self.calculate_checksum(workflow_path)
+            else:
+                self._retain_run_root_fd(run_root_fd)
+                os.mkdir("logs", dir_fd=run_root_fd)
+                absolute_workflow = Path(os.path.abspath(workflow_path))
+                try:
+                    relative_workflow = absolute_workflow.relative_to(
+                        self.run_root
+                    )
+                except ValueError:
+                    if not workflow_path.exists():
+                        raise FileNotFoundError(
+                            f"Workflow file not found: {workflow_file}"
+                        )
+                    workflow_checksum = self.calculate_checksum(workflow_path)
+                else:
+                    workflow_checksum = (
+                        "sha256:"
+                        f"{hash_regular_file(run_root_fd, relative_workflow.as_posix())}"
+                    )
 
             # Create initial state
             now = datetime.now(timezone.utc).isoformat()
@@ -623,7 +679,7 @@ class StateManager:
             )
 
             # Write initial state
-            self._write_state()
+            self._write_state(run_root_fd=run_root_fd)
 
             return self.state
 
@@ -647,7 +703,7 @@ class StateManager:
             self.state = RunState.from_dict(data)
             return self.state
 
-    def _write_state(self):
+    def _write_state(self, *, run_root_fd: int | None = None):
         """Write state atomically (temp file + rename)."""
         with self._state_mutation():
             if not self.state:
@@ -655,8 +711,11 @@ class StateManager:
 
             # Update timestamp
             self.state.updated_at = datetime.now(timezone.utc).isoformat()
-
-            atomic_write_text(self.state_file, json.dumps(self.state.to_dict(), indent=2))
+            payload = json.dumps(self.state.to_dict(), indent=2)
+            if run_root_fd is None:
+                atomic_write_text(self.state_file, payload)
+            else:
+                atomic_write_text_at(run_root_fd, "state.json", payload)
 
     def _write_json_atomic(self, path: Path, payload: Dict[str, Any]) -> None:
         """Write an arbitrary JSON payload atomically."""
@@ -682,15 +741,15 @@ class StateManager:
 
     def workflow_lisp_checkpoint_shadow_report_path(self) -> Path:
         """Return the canonical runtime shadow-report path for Workflow Lisp sidecars."""
-        return self.run_root / "workflow_lisp" / "checkpoints" / "shadow_report.json"
+        return self.io_run_root / "workflow_lisp" / "checkpoints" / "shadow_report.json"
 
     def workflow_lisp_checkpoint_restore_report_path(self) -> Path:
         """Return the canonical runtime restore-report path for Workflow Lisp sidecars."""
-        return self.run_root / "workflow_lisp" / "checkpoints" / "restore_report.json"
+        return self.io_run_root / "workflow_lisp" / "checkpoints" / "restore_report.json"
 
     def workflow_lisp_checkpoint_default_resume_report_path(self) -> Path:
         """Return the canonical runtime default-resume report path for Workflow Lisp sidecars."""
-        return self.run_root / "workflow_lisp" / "checkpoints" / "default_resume_report.json"
+        return self.io_run_root / "workflow_lisp" / "checkpoints" / "default_resume_report.json"
 
     def publish_provider_session_link(
         self,
@@ -718,7 +777,7 @@ class StateManager:
         temp_created = False
         try:
             run_fd = os.open(
-                self.run_root,
+                self.io_run_root,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
             )
             sessions_fd = os.dup(session_dir_fd)
@@ -811,7 +870,7 @@ class StateManager:
     def provider_session_paths(self, step_id: str, visit_count: int) -> tuple[Path, Path]:
         """Return the canonical metadata and transport-spool paths for one session visit."""
         safe_step_id = step_id.replace("/", "_")
-        session_root = self.run_root / "provider_sessions"
+        session_root = self.io_run_root / "provider_sessions"
         session_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         visit_key = f"{safe_step_id}__v{visit_count}"
         return (
@@ -834,7 +893,7 @@ class StateManager:
         ):
             raise ValueError("provider session visit_count must be a positive integer")
         metadata_path, _ = self.provider_session_paths(step_id, visit_count)
-        return metadata_path.with_suffix("")
+        return self.logical_run_root / "provider_sessions" / metadata_path.stem
 
     def initialize_provider_session_visit(
         self,
@@ -867,7 +926,9 @@ class StateManager:
                 "updated_at": now,
                 "captured_transport_bytes": 0,
                 "parser_summary": {},
-                "transport_spool_path": str(transport_spool_path),
+                "transport_spool_path": str(
+                    self.run_root / "provider_sessions" / transport_spool_path.name
+                ),
             }
             self._write_json_atomic(metadata_path, metadata)
             return {
@@ -1283,29 +1344,30 @@ class StateManager:
             if not self.state:
                 raise RuntimeError("State not initialized")
             current = self.state.current_step
+            current_values = current if isinstance(current, dict) else {}
             guard_matches = (
                 commit_guard is None
                 or commit_guard() is True
             ) and isinstance(current, dict)
             if guard_matches and expected_enclosing_step_id is not None:
                 guard_matches = (
-                    current.get("step_id") == expected_enclosing_step_id
+                    current_values.get("step_id") == expected_enclosing_step_id
                 )
             if guard_matches and expected_enclosing_step_name is not None:
                 guard_matches = (
-                    current.get("name") == expected_enclosing_step_name
+                    current_values.get("name") == expected_enclosing_step_name
                 )
             if guard_matches and expected_enclosing_step_type is not None:
                 guard_matches = (
-                    current.get("type") == expected_enclosing_step_type
+                    current_values.get("type") == expected_enclosing_step_type
                 )
             if guard_matches and expected_enclosing_step_status is not None:
                 guard_matches = (
-                    current.get("status") == expected_enclosing_step_status
+                    current_values.get("status") == expected_enclosing_step_status
                 )
             if guard_matches and expected_visit_count is not None:
                 guard_matches = (
-                    current.get("visit_count") == expected_visit_count
+                    current_values.get("visit_count") == expected_visit_count
                 )
             if not guard_matches:
                 raise TimeoutError(

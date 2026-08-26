@@ -18,6 +18,8 @@ import shutil
 import pytest
 
 from orchestrator._common.safe_tree import SafeTreeError
+from orchestrator.prompt_session_chain import read_manifest_bound
+from orchestrator.prompt_session import PromptSessionError
 from orchestrator.providers.omp_session import (
     KNOWN_ENTRY_TYPES,
     OmpSessionError,
@@ -34,6 +36,7 @@ from orchestrator.providers.omp_session import (
     session_leaf,
     validate_session_graph,
 )
+from orchestrator.providers.omp_session_manifest import build_session_manifest
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "omp", "sessions")
 PRIMARY = "2026-08-23T22-33-31-340Z_11111111-1111-7111-8111-111111111111.jsonl"
@@ -497,5 +500,55 @@ def test_parse_journal_via_root_fd_and_missing(tmp_path):
     try:
         with pytest.raises(SafeTreeError):
             parse_journal(fd, "missing.jsonl")
+    finally:
+        os.close(fd)
+
+
+def test_session_manifest_rejects_hardlinked_file(tmp_path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    journal = session_dir / PRIMARY
+    journal.write_bytes(_journal(_entry("message", "m1", None)))
+    os.link(journal, tmp_path / "outside.jsonl")
+    fd = os.open(session_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with pytest.raises(OmpSessionError, match="hard-linked"):
+            build_session_manifest(fd)
+    finally:
+        os.close(fd)
+
+
+def test_manifest_bound_read_rejects_current_drift(tmp_path) -> None:
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    journal = session_dir / PRIMARY
+    original = _journal(_entry("message", "m1", None))
+    journal.write_bytes(original)
+    fd = os.open(session_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        manifest = build_session_manifest(fd)
+        journal.write_bytes(b"changed")
+        with pytest.raises(PromptSessionError, match="session_link_invalid"):
+            read_manifest_bound(fd, manifest, PRIMARY)
+    finally:
+        os.close(fd)
+
+
+def test_session_manifest_enforces_total_byte_bound(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.providers import omp_session_manifest
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    journal = _journal(_entry("message", "m1", None))
+    (session_dir / PRIMARY).write_bytes(journal)
+    monkeypatch.setattr(
+        omp_session_manifest, "_SESSION_TREE_MAX_BYTES", len(journal) - 1
+    )
+    fd = os.open(session_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with pytest.raises(OmpSessionError, match="byte bound"):
+            build_session_manifest(fd)
     finally:
         os.close(fd)

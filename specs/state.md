@@ -52,6 +52,41 @@
     - canonical visit metadata records live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.json`
     - stable masked transport spools live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.transport.log`
     - successful fresh session steps may expose `steps.<Step>.debug.provider_session = {mode, session_id, metadata_path, publication_state, ...}`
+    - target-2.27 Workflow Lisp `:session-artifact <name>` is compile-time
+      sugar for one existing fresh provider-session publication. On successful
+      atomic step finalization, the validated session ID is stored at
+      `steps.<Step>.artifacts.<name>` and participates in the ordinary typed
+      artifact/version lineage contract. Failure publishes neither a handle
+      nor a partial authoritative artifact.
+    - A persisted OMP visit owns these run-root-relative siblings:
+      `provider_sessions/<visit-key>.json` (credential-minimized parent
+      metadata), `provider_sessions/<visit-key>/` (child-writable live
+      journals), `provider_sessions/<visit-key>.snapshot/` (immutable
+      close-time journal observation), optional
+      `provider_sessions/<visit-key>.conf/` (admitted profile conf),
+      `provider_sessions/<visit-key>.session-link.json`, and
+      `provider_sessions/<visit-key>.continuations/<n>.json`.
+    - A successful `prompt run` publishes the closed `session_link.v1`
+      no-replace only after state, provider-session metadata, scaffold, live
+      tree, frozen snapshot, optional conf, launch frame, and the unique
+      primary journal agree. It binds run/step/visit/workspace identity,
+      run-relative paths, active session id and primary basename, canonical
+      live/snapshot/conf/scaffold/prompt/source/semantic digests, public
+      provider/model/lane, scaffold identity, non-secret launch argv and
+      sorted environment names, and the lane's null-or-closed confinement
+      record. It is a consistency record under an operator-trusted run root,
+      not authenticated provenance.
+    - `session_continuation.v1` records are a no-replace contiguous chain
+      beginning at 1. Each `previous_sha256` binds exact link bytes or the
+      preceding record; each record binds source/result journal identity,
+      mode, timestamps, child exit, stable failure, binary/conf/launch/
+      confinement observations, and pre/post live-tree manifests. Preflight
+      failures start no child and append nothing. Every post-start outcome
+      appends exactly one success or failure record; only a successful fork or
+      in-place resume advances the active primary.
+    - Live and frozen journal bytes remain sensitive, model-authored local
+      observations. They never replace typed result bundles, state, scaffold
+      source, or artifact lineage as semantic authority.
   - v2.13 managed provider observability:
     - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
     - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
@@ -111,6 +146,9 @@
   - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
   - v2.7 `repeat_until` extends schema `2.1` additively; loop-frame bookkeeping lives under the new top-level `repeat_until` map.
   - v2.13 managed provider jobs extend schema `2.1` additively; managed recovery metadata lives on the step result and run-owned sidecars rather than the artifact lineage surfaces.
+  - v2.27 Workflow Lisp session-artifact publication reuses schema `2.1` and
+    the existing v2.10 fresh provider-session step/result fields; it adds no
+    top-level state member or alternate journal authority.
 
 ## Derived Pure-Result Persistence Profile
 

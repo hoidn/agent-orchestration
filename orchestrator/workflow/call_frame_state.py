@@ -153,7 +153,11 @@ class _CallFrameStateManager:
         self.resume_scope_path = resume_scope_path
         self.run_id = parent_manager.run_id
         frame_root_name = _path_safe_frame_scope_token(frame_id)
-        self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
+        parent_logical_root = getattr(
+            parent_manager, "logical_run_root", parent_manager.run_root
+        )
+        self.logical_run_root = parent_logical_root / "call_frames" / frame_root_name
+        self.run_root = parent_manager.io_run_root / "call_frames" / frame_root_name
         self.logs_dir = self.run_root / "logs"
         recorded_validation = (
             existing_frame.get("bound_input_resume_validation")
@@ -195,7 +199,7 @@ class _CallFrameStateManager:
                 updated_at=now,
                 status="running",
                 result_persistence_profile=result_persistence_profile,
-                run_root=str(self.run_root),
+                run_root=str(self.logical_run_root),
                 context=dict(workflow_context(workflow)),
                 bound_inputs=dict(bound_inputs),
                 observability=observability,
@@ -203,6 +207,11 @@ class _CallFrameStateManager:
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
         self._persist()
+
+    @property
+    def io_run_root(self) -> Path:
+        return self.run_root
+
 
     def _snapshot(self) -> Dict[str, Any]:
         """Build the persisted call-frame metadata snapshot."""

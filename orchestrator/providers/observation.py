@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
 
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 
 _RECORD_SCHEMA_VERSION = "provider_observation.v1"
 # Tmux's AF_UNIX address must not inherit an unbounded caller TMPDIR.
@@ -63,6 +64,11 @@ def terminal_safe_text(text: str) -> str:
         )
         for character in text
     )
+
+
+def terminal_safe_line(text: str) -> str:
+    """Project untrusted text onto one terminal-safe display line."""
+    return terminal_safe_text(text).replace("\n", r"\n").replace("\t", r"\t")
 
 
 class TerminalSafeWriter:
@@ -389,7 +395,7 @@ class ProviderObservationManager:
         *,
         backend: _ObservationBackend | None = None,
     ) -> None:
-        self._run_root = Path(run_root).resolve()
+        self._run_root = resolve_path_preserving_fd(run_root)
         self._artifact_root = self._run_root / "provider-observation"
         self._display_root = self._artifact_root / "display"
         self._transcript_root = self._artifact_root / "transcripts"
@@ -573,5 +579,6 @@ __all__ = [
     "ProviderObservationHandle",
     "ProviderObservationManager",
     "TerminalSafeWriter",
+    "terminal_safe_line",
     "terminal_safe_text",
 ]

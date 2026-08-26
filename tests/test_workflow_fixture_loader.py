@@ -60,7 +60,7 @@ def test_json_fixture_loader_rejects_non_json_fixture_text(tmp_path: Path) -> No
         WorkflowLoader(tmp_path).load_bundle(path)
 
 
-def test_product_tree_has_no_yaml_parser_import_or_loader_module() -> None:
+def test_yaml_parser_is_confined_to_omp_conf_admission() -> None:
     offenders: list[str] = []
     for root in (
         REPO_ROOT / "orchestrator",
@@ -75,16 +75,20 @@ def test_product_tree_has_no_yaml_parser_import_or_loader_module() -> None:
                         offenders.append(path.relative_to(REPO_ROOT).as_posix())
                 elif isinstance(node, ast.ImportFrom) and node.module == "yaml":
                     offenders.append(path.relative_to(REPO_ROOT).as_posix())
-    assert offenders == []
+    assert offenders == ["orchestrator/providers/omp_conf.py"]
     assert not (REPO_ROOT / "orchestrator" / "loader.py").exists()
     assert not (REPO_ROOT / "scripts" / "e2e" / "run_real_agent_test.py").exists()
     assert not (REPO_ROOT / "orchestrator" / "demo" / "trial_runner.py").exists()
     assert not (REPO_ROOT / "scripts" / "demo" / "run_trial.py").exists()
 
 
-def test_runtime_dependencies_do_not_include_pyyaml() -> None:
+def test_runtime_pyyaml_dependency_is_pinned_for_omp_conf() -> None:
     pyproject = tomllib.loads(
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     dependencies = pyproject["project"]["dependencies"]
-    assert all(not dependency.lower().startswith("pyyaml") for dependency in dependencies)
+    assert [
+        dependency
+        for dependency in dependencies
+        if dependency.lower().startswith("pyyaml")
+    ] == ["PyYAML>=6.0.2,<7"]

@@ -14,14 +14,22 @@ from orchestrator.prompt_session import (
     with_private_execution_authority,
 )
 from tests.test_cli_prompt import TASK_TEXT, fake_runtime
-from tests.test_prompt_session import PRIMARY, SESSION_ID, _canonical, _journal, _link, _user
+from tests.test_prompt_session import (
+    PRIMARY,
+    SESSION_ID,
+    _canonical,
+    _journal,
+    _link,
+    _settled_assistant,
+    _user,
+)
 
 
 def _invoke(argv: list[str]) -> int:
     try:
         return main(argv)
     except SystemExit as exc:
-        return int(exc.code)
+        return int(exc.code or 0)
 
 
 def _resolved(tmp_path: Path, prompt: str = "imported prompt") -> ResolvedPrimary:
@@ -35,6 +43,7 @@ def _resolved(tmp_path: Path, prompt: str = "imported prompt") -> ResolvedPrimar
     return ResolvedPrimary(
         "run-1", "task__v1", SESSION_ID, PRIMARY, SessionLink(document, raw),
         tmp_path / "runs" / "run-1", (1, 2), _journal(_user(prompt)),
+        hashlib.sha256(_journal(_user(prompt))).hexdigest(),
     )
 
 
@@ -122,6 +131,7 @@ def _real_private_resolved(
         run,
         (stat.st_dev, stat.st_ino),
         _journal(_user(prompt.decode())),
+        hashlib.sha256(_journal(_user(prompt.decode()))).hexdigest(),
     )
     return resolved, private
 
@@ -202,6 +212,7 @@ def test_reuse_import_verifies_composed_digest_before_private_reuse(
             resolved.run_id, resolved.visit_key, resolved.session_id,
             resolved.primary_basename, bad_link, resolved.run_root,
             resolved.run_identity, resolved.journal_bytes,
+            resolved.initial_journal_sha256,
         ),
     )
     calls.clear()
@@ -393,7 +404,7 @@ def test_private_reuse_executes_full_import_and_publishes_new_link(
         ProviderExecutionResult,
         ProviderExecutor,
     )
-    from orchestrator.providers.omp_launch_contract import POSITIVE_ENV_NAMES
+    from orchestrator.providers.omp_launch_contract import PROFILE_ENV_NAMES
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
@@ -408,10 +419,12 @@ def test_private_reuse_executes_full_import_and_publishes_new_link(
         expectation = invocation.omp_transport_expectation
         assert expectation is not None
         session_id = f"00000000-0000-4000-8000-{invocation_count:012d}"
-        primary = f"{session_id}.jsonl"
+        primary = f"2026-08-23T22-33-31-340Z_{session_id}.jsonl"
         prompt = invocation.prompt
         assert isinstance(prompt, str)
-        journal = _journal(_user(prompt), session_id=session_id)
+        journal = _journal(
+            _user(prompt), _settled_assistant(), session_id=session_id
+        )
         session_root = Path(invocation.provider_session_dir)
         (session_root / primary).write_bytes(journal)
         confinement = (
@@ -431,7 +444,7 @@ def test_private_reuse_executes_full_import_and_publishes_new_link(
             "child": {
                 "argv": list(expectation.child_argv),
                 "cwd": str(tmp_path / ("omp-empty-" + "1" * 16 + "-" + "2" * 16)),
-                "env_names": list(POSITIVE_ENV_NAMES),
+                "env_names": sorted(PROFILE_ENV_NAMES),
                 "exit_code": 0,
             },
             "session": {
@@ -446,7 +459,7 @@ def test_private_reuse_executes_full_import_and_publishes_new_link(
             "confinement": confinement,
             "observed": {
                 "advisor_relpaths": [],
-                "child_relpaths": [primary],
+                "child_relpaths": [],
             },
         }
         Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(
@@ -476,11 +489,22 @@ def test_private_reuse_executes_full_import_and_publishes_new_link(
     source_prompt = fake_runtime.executed[0].prompt
     assert isinstance(source_prompt, str)
     guidance = source_prompt.removeprefix("authored prompt")
-    assert guidance.startswith("\n\n## Output Contract")
+    assert guidance
     runs_root = tmp_path / ".orchestrate" / "runs"
     source_run = next(runs_root.iterdir())
     source_link_path = next((source_run / "provider_sessions").glob("*.session-link.json"))
     source_link = json.loads(source_link_path.read_text(encoding="utf-8"))
+    # R8: composition is pinned by digest, not by literal prompt headings: the
+    # composed prompt's digest matches the published link, and the authored
+    # prompt digest matches the input bytes.
+    assert (
+        hashlib.sha256(source_prompt.encode("utf-8")).hexdigest()
+        == source_link["digests"]["composed_prompt_sha256"]
+    )
+    assert (
+        hashlib.sha256(b"authored prompt").hexdigest()
+        == source_link["digests"]["authored_prompt_sha256"]
+    )
 
     assert _invoke(
         ["prompt", "import", source_link["session"]["id"], "--reuse-run-contract"]

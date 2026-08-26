@@ -366,7 +366,10 @@ def _freeze_directory_modes(root_fd: int) -> None:
 
 
 def materialize_run_snapshot(
-    verification: ScaffoldVerification, run_root: Path
+    verification: ScaffoldVerification,
+    run_root: Path,
+    *,
+    run_root_fd: int | None = None,
 ) -> RunSnapshot:
     """Materialize the private snapshot from verification-captured bytes only.
 
@@ -377,10 +380,16 @@ def materialize_run_snapshot(
     compilation happens through a retained descriptor path. Files swapped in
     the published scaffold after verification can never reach the snapshot.
     """
-    try:
-        root_fd = open_generated_root(Path(run_root))
-    except ScaffoldVerificationError as exc:
-        raise ScaffoldSnapshotError(f"run root is unusable: {exc}") from exc
+    if run_root_fd is None:
+        try:
+            root_fd = open_generated_root(Path(run_root))
+        except ScaffoldVerificationError as exc:
+            raise ScaffoldSnapshotError(f"run root is unusable: {exc}") from exc
+    else:
+        root_fd = os.dup(run_root_fd)
+        if not stat.S_ISDIR(os.fstat(root_fd).st_mode):
+            os.close(root_fd)
+            raise ScaffoldSnapshotError("run root descriptor is not a directory")
     try:
         for relative in sorted(
             verification.files, key=lambda p: (p.count("/"), p)

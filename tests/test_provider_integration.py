@@ -395,6 +395,7 @@ def test_omp_json_transport_end_to_end_execution(tmp_path):
 
 def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
     """Fresh OMP frames re-validate against the real visit inventory (Task 5)."""
+    import hashlib
     import sys
 
     from orchestrator.providers import (
@@ -404,8 +405,10 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
     )
     from orchestrator.providers.types import OmpTransportExpectation
 
-    fixture_dir = Path(__file__).parent / "fixtures" / "omp" / "protocol"
-    fixture = (fixture_dir / "transient.stdout.jsonl").read_bytes()
+    fixture_root = Path(__file__).parent / "fixtures" / "omp"
+    stream_path = fixture_root / "protocol" / "fresh-session.stdout.jsonl"
+    primary_path = fixture_root / "protocol" / "fresh-session.primary.jsonl"
+    fixture = stream_path.read_bytes()
     header_id = json.loads(fixture.split(b"\n")[0])["id"]
     expected_binary = {
         "platform": "linux",
@@ -416,7 +419,7 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
     visit_dir = tmp_path / "provider_sessions" / "step-1__v1"
     visit_dir.mkdir(parents=True)
     visit_dir.chmod(0o700)
-    journal = f"2026-08-23T22-33-14-831Z_{header_id}.jsonl"
+    journal = f"2026-08-23T22-33-31-340Z_{header_id}.jsonl"
     frame = {
         "type": "orchestrator.omp_launch.v1",
         "lane": "ambient",
@@ -427,14 +430,26 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
             "id": header_id,
             "visit_key": "step-1__v1",
             "primary_relpath": journal,
-            "primary_sha256": "a" * 64,
+            "primary_sha256": hashlib.sha256(primary_path.read_bytes()).hexdigest(),
         },
         "conf": {"manifest_sha256": None},
         "confinement": None,
-        "observed": {"advisor_relpaths": [], "child_relpaths": [journal]},
+        "observed": {
+            "advisor_relpaths": [],
+            "child_relpaths": [f"{journal[:-6]}/alpha.jsonl"],
+        },
     }
     frame_path = tmp_path / "frame.json"
     frame_path.write_text(json.dumps(frame), encoding="utf-8")
+    isolated_root = tmp_path / "isolated"
+    child_path = tmp_path / "alpha.jsonl"
+    child_lines = (
+        fixture_root / "sessions" / "alpha.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    child_header = json.loads(child_lines[1])
+    child_header["cwd"] = str(isolated_root / "wt-1")
+    child_lines[1] = json.dumps(child_header, separators=(",", ":"))
+    child_path.write_text("\n".join(child_lines) + "\n", encoding="utf-8")
     script = tmp_path / "child.py"
     script.write_text(
         "import os, sys, json\n"
@@ -442,13 +457,25 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
         "frame = json.loads(open(sys.argv[2]).read())\n"
         "stream = open(sys.argv[3], 'rb').read()\n"
         "sid = json.loads(stream.split(b'\\n')[0])['id']\n"
-        "journal = os.path.join(d, '2026-08-23T22-33-14-831Z_' + sid + '.jsonl')\n"
+        "journal = os.path.join(d, '2026-08-23T22-33-31-340Z_' + sid + '.jsonl')\n"
         "with open(journal, 'wb') as h:\n"
-        "    h.write(b'{\"fake\": true}\\n')\n"
+        "    h.write(open(sys.argv[4], 'rb').read())\n"
+        "artifacts = journal[:-6]\n"
+        "os.mkdir(artifacts)\n"
+        "with open(os.path.join(artifacts, 'alpha.jsonl'), 'wb') as h:\n"
+        "    h.write(open(sys.argv[5], 'rb').read())\n"
         "sys.stdout.buffer.write(stream + json.dumps(frame, separators=(',', ':')).encode() + b'\\n')\n",
         encoding="utf-8",
     )
-    command = [sys.executable, str(script), str(visit_dir), str(frame_path), str(fixture_dir / "transient.stdout.jsonl")]
+    command = [
+        sys.executable,
+        str(script),
+        str(visit_dir),
+        str(frame_path),
+        str(stream_path),
+        str(primary_path),
+        str(child_path),
+    ]
     frame["child"]["argv"] = command
     frame_path.write_text(json.dumps(frame), encoding="utf-8")
     template = ProviderTemplate(
@@ -477,6 +504,7 @@ def test_omp_fresh_transport_rederives_observed_inventory(tmp_path):
         visit_key="step-1__v1",
         child_argv=tuple(command),
         observed_relpaths=(),
+        isolated_worktree_root=str(isolated_root),
     )
     invocation.provider_session_dir = str(visit_dir)
     result = executor.execute(invocation)

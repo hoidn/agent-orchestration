@@ -19,10 +19,10 @@ def test_private_reuse_preplanted_snapshot_exits_one_without_traceback(
     )
     original = prompt_run_service._create_prompt_inputs_root
 
-    def preplanted(run_root, identity):
-        root = original(run_root, identity)
+    def preplanted(run_root, identity, *, run_root_fd=None):
+        root, root_fd = original(run_root, identity, run_root_fd=run_root_fd)
         (root / "prompt.md").write_bytes(b"planted")
-        return root
+        return root, root_fd
 
     monkeypatch.setattr(
         prompt_run_service, "_create_prompt_inputs_root", preplanted

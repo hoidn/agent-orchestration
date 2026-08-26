@@ -57,13 +57,63 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     behavior, or session support without that declaration never implies the
     capability.
 
+  - The code-owned OMP registry family consists of public `omp`,
+    `omp_unrestricted_workspace`, `omp_no_tools`, and `omp_conf`, plus internal
+    `omp_conf_inference`. All five use stdin, default to
+    `openai-codex/gpt-5.6-sol`, declare `omp_json_stdout` metadata for transient
+    and fresh commands, and invoke OMP only through
+    `python -m orchestrator.providers.omp_launch`; workflows cannot override
+    the executable path, lane, approval mode, or launch environment.
+  - `omp` and `omp_unrestricted_workspace` are ambient lanes for trusted
+    workspaces and operator configuration. They run in the workflow workspace
+    with inherited ambient profile state and have null confinement;
+    `omp` selects write approval and `omp_unrestricted_workspace` selects
+    `--yolo`. They are not hermetic or closed capability inventories.
+  - `omp_no_tools`, `omp_conf`, and internal `omp_conf_inference` are
+    profile-isolated lanes. Every attempt gets fresh HOME/XDG/temp/process-cwd
+    roots, a positive child environment, descriptor-safe admitted conf bytes,
+    and a code-owned Landlock ABI-3-or-newer write policy. `omp_no_tools` binds
+    the packaged neutral conf and exposes no workspace context or tools;
+    `omp_conf` requires the admitted `${omp_conf_root}` and exposes the
+    workflow workspace as repository context; `omp_conf_inference` is reserved
+    for prompt output-contract inference and is not a public author choice.
+  - `omp_conf` is a trusted, credential-bearing tool lane, not a secret
+    sandbox. It retains same-UID read, network, and process access;
+    model-facing tools can observe the current `OMP_AUTH_BROKER_TOKEN` through
+    the process environment or procfs, and assistant, tool, or session output
+    may persist it. Use `omp_conf` only with trusted repository, conf, and
+    model inputs. `omp_no_tools` and internal inference disable this
+    model-to-tool path but are not general OS sandboxes.
+  - The family is admitted only on Linux `x86_64` with AVX2 and Landlock ABI 3
+    or newer, using the exact version and executable digest in
+    `OmpBinaryPin`. The adapter resolves a current-user/root-owned regular
+    non-symlink from `PATH`, validates version and digest, copies it by
+    descriptor into a private execution root, and fails closed on any drift.
+  - Ordinary calls use native `--no-session`. A call requests fresh
+    publication only through the existing `provider_session` contract or the
+    target-2.27 Workflow Lisp `:session-artifact` lowering. OMP journal trees
+    and launch frames are bounded observations; structured result bundles and
+    workflow state remain semantic authority.
+  - OMP normalized output joins validated text blocks and consecutive assistant
+    messages only within one response epoch. A closed non-assistant lifecycle
+    arms a boundary that replaces prior output when the next assistant message
+    closes; if no next assistant closes, the prior output remains. Observation
+    callbacks still receive every validated assistant text fragment.
 - Step usage
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
   - `provider` may contain `${run|context|inputs|steps.*}` substitutions. The resolved provider name is validated immediately before provider template lookup and execution.
   - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In this tranche, `provider_session` steps require a static provider alias because frontend-build-time session-support validation must inspect the provider template.
-  - Provider steps with `output_bundle.path` or `variant_output.path` receive the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved workspace-relative bundle target. The runtime creates or validates the declared parent directory before launch, and that declared bundle file remains the only structured-output authority.
+  - Except for `omp_json_stdout`, provider steps with `output_bundle.path` or
+    `variant_output.path` receive the runtime-owned
+    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved
+    workspace-relative bundle target. Provider-session command selection
+    preserves that binding. OMP JSON-transport children never receive the
+    binding. They emit one validated final assistant JSON value, and the parent
+    materializes it only into an absent leaf using descriptor-relative
+    no-follow traversal and exclusive creation; an existing or
+    provider-planted leaf fails closed.
   - For v2.15 contracts, provider prompt composition renders validated
     effect-boundary `guidance`, field guidance, ordered `guidance_context`, and
     discriminant-ordered `guidance_by_variant` as data in the output-contract
@@ -73,7 +123,7 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     opaque JSON document at the direct root. It may include authored
     description and format hint, but never a `Value` example, invented fields,
     the compiler-owned `__result__` name, or a `{"value": ...}` envelope.
-  - `provider_session` command selection changes only the provider command template. It preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding on the prepared invocation.
+  - `provider_session` command selection changes only the provider command template. It preserves the applicable runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding on the prepared invocation; OMP JSON transport uses the parent-materialization exception above.
   - v2.13 provider steps may declare `managed_jobs` as a step modifier. The provider template remains ordinary; after existing provider and provider-session command selection, the runtime wraps the selected invocation with the managed-job guard and owns audit/recovery state.
   - `managed_jobs` wrapping preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding while adding `MANAGED_JOB_*` transport metadata. Guard state, audit files, and provider-session spools are not alternate structured-output authorities.
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
@@ -336,7 +386,7 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
       from an example payload.
     - `expected_outputs.path`, `output_bundle.path`, and `variant_output.path` entries in this suffix are rendered after applying the same runtime variable substitution used for output-contract validation, so provider prompts show workspace-relative concrete paths rather than unresolved `${...}` templates.
     - Optional `expected_outputs` guidance annotations (`description`, `format_hint`, `example`) are included in this suffix when present.
-    - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding or change runtime contract validation semantics.
+    - These annotations and rendered concrete paths are prompt guidance only. Prompt text does not replace the applicable runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding, or the OMP parent-materialization exception above, and does not change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Workflow Lisp typed provider inputs

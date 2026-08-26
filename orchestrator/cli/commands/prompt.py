@@ -25,7 +25,6 @@ from orchestrator.cli.commands.prompt_io import (
     _create_prompt_inputs_root,
     _ensure_generated_root,
     _new_reserved_run,
-    _revalidate_run_root,
     _thaw_frozen,
     _read_prompt_file,
     _write_inference_snapshot,
@@ -34,9 +33,11 @@ from orchestrator.cli.commands.prompt_run_service import (
     materialize_and_run,
     run_namespace,
 )
+from orchestrator.run_lock import ReservedRunRootError, reserved_run_writer_lock
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.omp_assets import inference_output_contract_path
 from orchestrator.prompt_contract import (
+    SemanticContract,
     PromptContractError,
     canonical_json_bytes,
     default_semantic_contract,
@@ -140,6 +141,7 @@ def _parse_prompt_run(args: Namespace) -> dict:
         prompt_bytes = prompt.encode("utf-8")
         slug = _inline_slug()
     else:
+        assert prompt_file is not None
         prompt_path = Path(prompt_file).expanduser()
         prompt_bytes = _read_prompt_file(prompt_path)
         if not prompt_bytes:
@@ -252,7 +254,7 @@ def _capture_rerun(scaffold: Path) -> tuple[_Captured, ScaffoldInputs]:
     return captured, inputs
 
 
-def _exact_contract(payload: str) -> object:
+def _exact_contract(payload: str) -> SemanticContract:
     try:
         return parse_semantic_contract(payload)
     except PromptContractError as exc:
@@ -267,7 +269,7 @@ def _exact_contract(payload: str) -> object:
 
 def _infer_output_contract(
     captured: _Captured, runs_root: Path, workspace: Path
-) -> tuple[object, dict]:
+) -> tuple[SemanticContract, dict[str, object]]:
     """Run the packaged inference workflow; parse only the typed draft."""
     if captured.provider in ("omp", "omp_unrestricted_workspace"):
         raise PromptCliError(
@@ -277,23 +279,37 @@ def _infer_output_contract(
     if captured.contract_request is None:
         raise PromptRunError("--output requires an output request")
     run_id, run_root, identity = _new_reserved_run(runs_root, workspace)
-    prompt_inputs = _create_prompt_inputs_root(run_root, identity)
-    _write_inference_snapshot(
-        prompt_inputs, captured.model, _INFERENCE_PROMPT,
-        inference_output_contract_path())
-    _revalidate_run_root(run_root, identity)
-    ns = run_namespace(
-        workflow=str(prompt_inputs / "infer-output-contract.orc"),
-        input=[
-            f"task_prompt={captured.prompt.decode('utf-8')}",
-            f"output_request={captured.contract_request}",
-        ],
-        state_dir=str(runs_root),
-        source_root=[str(prompt_inputs)],
-        provider_externs_file=str(prompt_inputs / "providers.json"),
-        prompt_externs_file=str(prompt_inputs / "prompts.json"),
-    )
-    result = run_workflow(ns, run_id=run_id, expected_run_identity=identity)
+    with reserved_run_writer_lock(run_root, identity) as run_root_fd:
+        prompt_inputs, prompt_inputs_fd = _create_prompt_inputs_root(
+            run_root, identity, run_root_fd=run_root_fd
+        )
+        try:
+            _write_inference_snapshot(
+                prompt_inputs_fd, captured.model, _INFERENCE_PROMPT,
+                inference_output_contract_path())
+            authority = Path(f"/proc/self/fd/{prompt_inputs_fd}")
+            ns = run_namespace(
+                workflow=str(authority / "infer-output-contract.orc"),
+                input=[
+                    f"task_prompt={captured.prompt.decode('utf-8')}",
+                    f"output_request={captured.contract_request}",
+                ],
+                state_dir=str(runs_root),
+                source_root=[str(authority)],
+                provider_externs_file=str(authority / "providers.json"),
+                prompt_externs_file=str(authority / "prompts.json"),
+            )
+            result = run_workflow(
+                ns,
+                run_id=run_id,
+                logical_workflow_path=(
+                    prompt_inputs / "infer-output-contract.orc"
+                ),
+                expected_run_identity=identity,
+                reserved_run_fd=run_root_fd,
+            )
+        finally:
+            os.close(prompt_inputs_fd)
     if result.run_id != run_id or result.run_root != run_root:
         raise PromptRunError(
             f"inference run identity mismatch: {result.run_id!r}/{result.run_root!r} "
@@ -308,7 +324,8 @@ def _infer_output_contract(
         )
     except PromptContractError as exc:
         raise PromptRunError(f"invalid inferred output contract: {exc}") from exc
-    usage_rows = _thaw_frozen(result.usage)
+    thawed_usage = _thaw_frozen(result.usage)
+    usage_rows = thawed_usage if isinstance(thawed_usage, Mapping) else {}
     record = next(
         (r for r in usage_rows.values()
          if isinstance(r, dict) and r.get("session_id")),
@@ -331,7 +348,7 @@ def _infer_output_contract(
 
 def _resolve_contract(
     captured: _Captured, runs_root: Path, workspace: Path
-) -> tuple[object, dict]:
+) -> tuple[SemanticContract, dict[str, object]]:
     """The admitted contract/authoring from the captured mode/payload only.
 
     ``_Captured`` freezes the contract mode and payload before any inference
@@ -339,6 +356,7 @@ def _resolve_contract(
     cannot change which contract runs.
     """
     if captured.contract_mode == "exact":
+        assert captured.contract_request is not None
         return _exact_contract(captured.contract_request), {"mode": "exact"}
     if captured.contract_mode == "inferred":
         return _infer_output_contract(captured, runs_root, workspace)
@@ -360,7 +378,12 @@ def prompt_workflow(args: Namespace) -> int:
         workspace = Path.cwd()
         runs_root = workspace / ".orchestrate" / "runs"
         if mode["kind"] == "rerun":
-            scaffold_workspace = mode["scaffold"].resolve().parents[2]
+            resolved_scaffold = mode["scaffold"].resolve()
+            if len(resolved_scaffold.parents) < 3:
+                raise PromptRunError(
+                    f"rerun scaffold path is too shallow: {mode['scaffold']}"
+                )
+            scaffold_workspace = resolved_scaffold.parents[2]
             if scaffold_workspace != workspace.resolve():
                 raise PromptRunError(
                     "rerun scaffold must belong to the current workspace"
@@ -405,7 +428,8 @@ def prompt_workflow(args: Namespace) -> int:
     except PromptCliError as exc:
         print(f"prompt run: {exc}", file=sys.stderr)
         return 2
-    except (PromptRunError, PromptSessionError, ScaffoldCompileError,
-            ScaffoldVerificationError, ScaffoldSnapshotError) as exc:
+    except (PromptRunError, PromptSessionError, ReservedRunRootError,
+            ScaffoldCompileError, ScaffoldVerificationError,
+            ScaffoldSnapshotError) as exc:
         print(f"prompt run: {exc}", file=sys.stderr)
         return 1

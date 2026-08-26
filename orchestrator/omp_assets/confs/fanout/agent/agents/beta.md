@@ -1,7 +1,7 @@
 ---
 name: beta
 description: Second fanout worker that reviews the plan
-model: "x-ai/grok-code-fast:high"
+model: "openai-codex/gpt-5.6-sol"
 tools: [read, grep, glob]
 spawns: [alpha]
 ---

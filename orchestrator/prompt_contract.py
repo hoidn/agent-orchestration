@@ -305,6 +305,7 @@ def parse_semantic_contract(payload: str | bytes) -> SemanticContract:
 def semantic_contract_object(contract: SemanticContract) -> dict[str, object]:
     """The closed JSON object for one normalized semantic contract."""
     if contract.mode == "scalar":
+        assert contract.type is not None
         return {"mode": "scalar", "type": render_type(contract.type)}
     return {
         "mode": "record",
@@ -493,4 +494,3 @@ def __getattr__(name: str):
         globals()[name] = value
         return value
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
