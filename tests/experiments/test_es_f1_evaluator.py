@@ -288,22 +288,38 @@ def _synthetic_owner_route(
     owner: str,
     source: str,
     available_external_imports: frozenset[str] = frozenset(),
+    tainted_formals: tuple[str, ...] | None = None,
 ) -> tuple[list[str], set[str], bool]:
     path = tmp_path.joinpath(*module.split(".")).with_suffix(".py")
     path.parent.mkdir(parents=True)
     path.write_text(source, encoding="utf-8")
+    entry = (
+        owner
+        if tainted_formals is None
+        else f"@context:{owner}:{','.join(tainted_formals)}"
+    )
+    consumer_row = (
+        {"public_entry_route": owner}
+        if tainted_formals is None
+        else {
+            "context_symbol": entry,
+            "public_entry_route": owner,
+            "tainted_formals": list(tainted_formals),
+            "fresh_formals": [],
+        }
+    )
     graph, bypasses, _, terminals, _ = evaluator._module_functions(
         path,
         module,
         authority_symbols={"candidate.config.resolve"},
-        consumer_rows=[{"public_entry_route": owner}],
+        consumer_rows=[consumer_row],
         workspace_module_roots=frozenset({module.split(".", 1)[0]}),
         available_external_imports=available_external_imports,
     )
     result = evaluator.walk_consumer_routes(
         consumer_rows=[{
             "consumer_id": "synthetic-owner",
-            "entry_symbol": owner,
+            "entry_symbol": entry,
             "requires_authority": False,
         }],
         call_graph=graph,
@@ -311,7 +327,7 @@ def _synthetic_owner_route(
         bypass_symbols=bypasses,
         terminal_symbols=terminals,
     )
-    return graph[owner], terminals, result["closed"]
+    return graph[entry], terminals, result["closed"]
 
 
 @pytest.mark.parametrize(
@@ -362,6 +378,23 @@ def test_contextual_external_target_is_terminal(
         bypass_symbols=bypasses,
         terminal_symbols=terminals,
     )["closed"] is True
+
+
+def test_contextual_container_assignment_reaches_authority(tmp_path: Path) -> None:
+    leaves, _, _ = _synthetic_owner_route(
+        tmp_path,
+        module="package.projector",
+        owner="package.projector.project",
+        source=(
+            "from candidate.config import resolve\n"
+            "def project(value):\n"
+            "    incoming = {'model': vars(value)}\n"
+            "    return resolve({}, incoming)\n"
+        ),
+        tainted_formals=("value",),
+    )
+
+    assert "candidate.config.resolve" in leaves
 
 
 def test_contextual_tolerant_external_loader_is_not_terminal(tmp_path: Path) -> None:
@@ -1591,6 +1624,60 @@ def resolve(config):
     )
 
 
+@pytest.mark.parametrize("failure_exit", (1, -1))
+def test_explicit_failure_exit_is_not_a_tolerant_config_fallback(
+    failure_exit: int,
+) -> None:
+    source = f"""
+def main(config):
+    try:
+        strict_load(config)
+        return 0
+    except ValueError:
+        return {failure_exit}
+"""
+    assert evaluator.detect_ast_bypasses(
+        source, _tainted_names=("config",)
+    ) == ()
+
+
+@pytest.mark.parametrize("failure_exit", (1, -1))
+def test_exact_consumer_failure_exit_is_not_a_tolerant_config_fallback(
+    tmp_path: Path,
+    failure_exit: int,
+) -> None:
+    path = tmp_path / "package/cli.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def main(config):\n"
+        "    try:\n"
+        "        strict_load(config)\n"
+        "        return 0\n"
+        "    except ValueError:\n"
+        f"        return {failure_exit}\n",
+        encoding="utf-8",
+    )
+    consumer = "@consumer:failure-exit"
+
+    _, bypasses, _, _, _ = evaluator._module_functions(
+        path,
+        "package.cli",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "consumer_id": "failure-exit",
+            "public_entry_route": "package.cli.main",
+            "source_span": {
+                "start_line": 3,
+                "start_col": 8,
+                "end_line": 3,
+                "end_col": 27,
+            },
+        }],
+    )
+
+    assert consumer not in bypasses
+
+
 @pytest.mark.parametrize(
     ("statement", "expected"),
     [
@@ -1667,7 +1754,7 @@ def test_nested_config_route_reaches_authority_without_external_call_dead_ends(
         consumer_census={"rows": [dict(row, consumer_id="frozen-wrapper")]},
         workspace=workspace,
     )
-    assert result["closed"] is True
+    assert result["closed"] is True, result["traces"]
     assert result["paired_consumer_count"] == 1
 
 
@@ -1693,6 +1780,120 @@ def test_cross_module_context_treats_a_non_tolerant_value_method_as_terminal(
     )
     row = {
         "consumer_id": "cross-module-context",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config.mode"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_stable_method_routes_to_external_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "import json\n"
+        "class Adapter:\n"
+        "    def emit(self, value):\n"
+        "        return json.dumps(value)\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import Adapter\n"
+        "def consume(runtime_config, adapter):\n"
+        "    mode = runtime_config.mode\n"
+        "    return Adapter.emit(adapter, mode)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "cross-module-method",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 30,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume", "runtime_config.mode"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    _, _, function_nodes = evaluator._workspace_callable_index(
+        workspace, frozenset({"candidate", "ptycho", "scripts"})
+    )
+    assert function_nodes["ptycho.helper.Adapter.emit"][1] is not None
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_bound_method_taints_its_receiver(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "helper.py").write_text(
+        "import json\n"
+        "class Adapter:\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value\n"
+        "    def emit(self):\n"
+        "        return json.dumps(self.value)\n",
+        encoding="utf-8",
+    )
+    (package / "consumer.py").write_text(
+        "from ptycho.helper import Adapter\n"
+        "def consume(runtime_config):\n"
+        "    mode = runtime_config.mode\n"
+        "    adapter = Adapter(mode)\n"
+        "    return adapter.emit()\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "bound-method-receiver",
         "match_kind": "CONFIGURATION_READ",
         "path": "ptycho/consumer.py",
         "public_entry_route": "ptycho.consumer.consume",
@@ -2171,6 +2372,7 @@ def test_retained_root_distinguishes_deleted_and_surviving_unpaired_rows(
     assert surviving["disposed_consumer_ids"] == ["legacy-a"]
     assert surviving["retired_consumer_ids"] == []
     assert surviving["traces"] == []
+
 
     (workspace / "ptycho/legacy.py").unlink()
     deleted = evaluator.inspect_candidate_consumers(
@@ -3633,6 +3835,49 @@ def test_consumer_inspection_handles_class_methods_retired_paths_and_new_consume
     assert result["removed_consumer_count"] == 1
 
 
+def test_retired_route_does_not_require_ambiguous_suffix_resolution(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body=(
+            "def resolve(file_mapping, cli_patch): "
+            "return {**file_mapping, **cli_patch}\n"
+        ),
+    )
+    path = workspace / "scripts/retired.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        "class A:\n"
+        "    def run(self): return 1\n"
+        "class B:\n"
+        "    def run(self): return 2\n",
+        encoding="utf-8",
+    )
+    census = {"rows": [{
+        "consumer_id": "retired",
+        "match_kind": "CONFIGURATION_READ",
+        "path": "scripts/retired.py",
+        "public_entry_route": "scripts.retired.Removed.run",
+        "source_span": {
+            "start_line": 99,
+            "start_col": 0,
+            "end_line": 99,
+            "end_col": 1,
+        },
+    }]}
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census=census,
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["retired_consumer_ids"] == ["retired"]
+
+
+
 def test_consumer_inspection_fails_closed_on_ambiguous_method_resolution(
     tmp_path: Path,
 ) -> None:
@@ -3709,6 +3954,114 @@ def test_new_configuration_constructor_must_close_to_authority(tmp_path: Path) -
     )
     assert result["closed"] is False
     assert "scripts.new_config_constructor.consume" in result["introduced_consumer_symbols"]
+
+
+def test_default_configuration_constructor_delegates_to_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "view.py").write_text(
+        "from candidate.config import resolve\n"
+        "class TrainingConfig:\n"
+        "    def __init__(self, **values):\n"
+        "        self.values = resolve(values, {})\n",
+        encoding="utf-8",
+    )
+    path = workspace / "ptycho/consumer.py"
+    path.write_text(
+        "from ptycho.view import TrainingConfig\n"
+        "def consume():\n"
+        "    return TrainingConfig()\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "default-constructor",
+        "match_kind": "CONFIGURATION_CONSTRUCTION",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 27,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_configuration_construction_taints_all_workspace_wrapper_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, evidence_path = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    package = workspace / "ptycho"
+    package.mkdir(exist_ok=True)
+    (package / "view.py").write_text(
+        "from candidate.config import resolve\n"
+        "class TrainingConfig:\n"
+        "    def __init__(self, **values):\n"
+        "        self.values = resolve(values, {})\n"
+        "def build_config(values):\n"
+        "    return TrainingConfig(**values)\n",
+        encoding="utf-8",
+    )
+    path = workspace / "ptycho/consumer.py"
+    path.write_text(
+        "from ptycho.view import build_config\n"
+        "def consume(mapping):\n"
+        "    return build_config(mapping)\n",
+        encoding="utf-8",
+    )
+    row = {
+        "consumer_id": "wrapped-default-constructor",
+        "match_kind": "CONFIGURATION_CONSTRUCTION",
+        "path": "ptycho/consumer.py",
+        "public_entry_route": "ptycho.consumer.consume",
+        "source_span": {
+            "start_line": 3,
+            "start_col": 11,
+            "end_line": 3,
+            "end_col": 32,
+        },
+        "transitive_wrapper_chain": ["ptycho.consumer.consume"],
+    }
+    monkeypatch.setattr(
+        evaluator,
+        "scan_workspace_configuration_consumers",
+        lambda workspace: {"rows": [row]},
+    )
+
+    result = evaluator.inspect_candidate_consumers(
+        candidate_evidence=evaluator.load_candidate_config_evidence(evidence_path),
+        consumer_census={"rows": [row]},
+        workspace=workspace,
+    )
+
+    assert result["closed"] is True, result["traces"]
+    assert result["bypass_classes"] == []
 
 
 def test_module_level_ambient_read_is_not_hidden_by_missing_function_graph(
@@ -4880,6 +5233,184 @@ def test_synthetic_owner_keeps_dynamic_receiver_unresolved(
     assert "package.sink.receiver.info" not in terminals
 
 
+def test_annotated_external_receiver_method_is_an_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config, receiver: external.Target):\n"
+            "    receiver.info(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Target.info"}),
+    )
+
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+    assert calls[0] in terminals
+    assert closed is True
+
+
+def test_optional_annotated_receiver_with_none_default_is_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config, receiver: external.Target | None = None):\n"
+            "    if receiver is None:\n"
+            "        receiver = external.Target()\n"
+            "    receiver.fit(runtime_config)\n"
+        ),
+        available_external_imports=frozenset(
+            {"dependency.Target", "dependency.Target.fit"}
+        ),
+    )
+
+    assert any(call.startswith("@terminal:") and call.endswith(".fit") for call in calls)
+    assert closed is True
+
+
+def test_annotated_workspace_receiver_routes_to_its_method(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "runtime.py").write_text(
+        "class Runtime:\n"
+        "    def send(self, value):\n"
+        "        return value\n",
+        encoding="utf-8",
+    )
+    consumer = package / "consumer.py"
+    consumer.write_text(
+        "from package.runtime import Runtime\n"
+        "def consume(runtime_config, receiver: Runtime):\n"
+        "    receiver.send(runtime_config)\n",
+        encoding="utf-8",
+    )
+    _, _, workspace_nodes = evaluator._workspace_callable_index(
+        tmp_path, frozenset({"package"})
+    )
+    context = "@context:package.consumer.consume:runtime_config"
+    graph, _, _, _, _ = evaluator._module_functions(
+        consumer,
+        "package.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.consumer.consume",
+            "tainted_formals": ["runtime_config"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        workspace_function_nodes=workspace_nodes,
+    )
+
+    assert graph[context] == ["@context:package.runtime.Runtime.send:value"]
+
+
+def test_same_module_annotated_workspace_receiver_routes_to_its_method(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    consumer = package / "consumer.py"
+    consumer.write_text(
+        "class Runtime:\n"
+        "    def send(self, value):\n"
+        "        return value\n"
+        "def consume(runtime_config, receiver: Runtime):\n"
+        "    receiver.send(runtime_config)\n",
+        encoding="utf-8",
+    )
+    _, _, workspace_nodes = evaluator._workspace_callable_index(
+        tmp_path, frozenset({"package"})
+    )
+    context = "@context:package.consumer.consume:runtime_config"
+    graph, _, _, _, _ = evaluator._module_functions(
+        consumer,
+        "package.consumer",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "package.consumer.consume",
+            "tainted_formals": ["runtime_config"],
+        }],
+        workspace_module_roots=frozenset({"package"}),
+        workspace_function_nodes=workspace_nodes,
+    )
+
+    assert graph[context] == ["@context:package.consumer.Runtime.send:value"]
+
+
+def test_rebound_annotated_external_receiver_remains_unresolved(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config, receiver: external.Target):\n"
+            "    receiver = replacement\n"
+            "    receiver.info(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Target.info"}),
+    )
+
+    assert calls == ["package.sink.receiver.info"]
+    assert "package.sink.receiver.info" not in terminals
+    assert closed is False
+
+
+def test_isinstance_guarded_external_receiver_is_an_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "from collections.abc import Mapping\n"
+            "def consume(runtime_config):\n"
+            "    receiver = runtime_config['payload']\n"
+            "    if not isinstance(receiver, Mapping):\n"
+            "        raise TypeError('payload must be a mapping')\n"
+            "    tuple(receiver.items())\n"
+        ),
+        available_external_imports=frozenset({"collections.abc.Mapping.items"}),
+    )
+
+    assert any(call.endswith("receiver.items") for call in calls)
+    assert closed is True
+
+
+
+def test_external_factory_fluent_receiver_is_an_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "import dependency as external\n"
+            "def consume(runtime_config):\n"
+            "    external.Factory(runtime_config).batch(runtime_config.batch_size)\n"
+        ),
+        available_external_imports=frozenset({"dependency.Factory"}),
+    )
+
+    assert any(call.endswith(":batch") for call in calls)
+    assert closed is True
+
 def test_direct_local_external_receiver_calls_are_occurrence_terminals(
     tmp_path: Path,
 ) -> None:
@@ -5084,6 +5615,87 @@ def test_direct_builtin_type_method_descriptor_is_occurrence_terminal(
     assert calls[0].startswith("@terminal:")
 
 
+def test_object_setattr_on_fresh_constructor_target_is_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "def initialize(instance, primary):\n"
+        "    object.__setattr__(instance, 'primary', primary)\n"
+        "@dataclass(frozen=True, init=False, slots=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        initialize(self, primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_object_setattr_from_authority_field_loop_is_terminal(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, fields\n"
+        "from candidate.config import resolve\n"
+        "def initialize(instance, primary):\n"
+        "    resolved = resolve(primary, {})\n"
+        "    source = getattr(resolved, 'model')\n"
+        "    for item in fields(source):\n"
+        "        object.__setattr__(instance, item.name, getattr(source, item.name))\n"
+        "@dataclass(frozen=True, init=False)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        initialize(self, primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_prior_authority_call_does_not_authorize_arbitrary_setattr(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "from candidate.config import resolve\n"
+        "def initialize(instance, primary):\n"
+        "    resolved = resolve(primary, {})\n"
+        "    object.__setattr__(instance, 'missing', resolved)\n"
+        "@dataclass(frozen=True, init=False)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __init__(self, primary):\n"
+        "        initialize(self, primary)\n",
+    )
+
+    assert result["closed"] is False
+
+
+def test_unknown_local_receiver_config_loader_remains_unresolved(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "def consume(runtime_config, obj):\n"
+            "    return obj.load_config(runtime_config)\n"
+        ),
+    )
+
+    assert closed is False
+    assert calls == ["package.sink.obj.load_config"]
+    assert calls[0] not in terminals
+
+
+
 @pytest.mark.parametrize(
     ("owner", "source"),
     (
@@ -5274,6 +5886,25 @@ def test_stable_module_dict_literal_receiver_is_occurrence_terminal(
         bypass_symbols=bypasses,
         terminal_symbols=terminals,
     )["closed"]
+
+    assert closed is True
+    assert len(calls) == 1
+    assert calls[0].startswith("@terminal:")
+
+
+def test_stable_module_dict_comprehension_receiver_is_occurrence_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, _, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.sink",
+        owner="package.sink.consume",
+        source=(
+            "LOOKUP = {key: key for key in ('A', 'B')}\n"
+            "def consume(runtime_config):\n"
+            "    return LOOKUP.get(runtime_config)\n"
+        ),
+    )
 
     assert closed is True
     assert len(calls) == 1
@@ -6617,6 +7248,34 @@ def test_cross_module_generated_dataclass_traces_strict_post_init(
     )
 
 
+def test_workspace_callable_index_resolves_relative_import_alias(
+    tmp_path: Path,
+) -> None:
+    workspace, _ = _candidate_workspace(
+        tmp_path,
+        resolver_body="def resolve(file_mapping, cli_patch): return {**file_mapping, **cli_patch}\n",
+    )
+    (workspace / "scripts/schema.py").write_text(
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class Record:\n"
+        "    value: object\n",
+        encoding="utf-8",
+    )
+    (workspace / "scripts/facade.py").write_text(
+        "from .schema import Record\n",
+        encoding="utf-8",
+    )
+
+    _, _, function_nodes = evaluator._workspace_callable_index(
+        workspace, frozenset({"candidate", "scripts"})
+    )
+
+    assert function_nodes["scripts.facade.Record"] == function_nodes[
+        "scripts.schema.Record"
+    ]
+
+
 def _inspect_cross_module_resolved_records(
     tmp_path: Path,
     record_source: str,
@@ -6653,6 +7312,29 @@ def _inspect_cross_module_resolved_records(
         },
         workspace=workspace,
     )
+
+
+def test_generated_dataclass_allows_stable_fields_introspection(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    def __post_init__(self):\n"
+        "        pass\n",
+        consumer_prelude=(
+            "from dataclasses import fields\n"
+            "KNOWN_FIELDS = tuple(item.name for item in fields(ResolvedRecords))\n"
+        ),
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
 
 
 @pytest.mark.parametrize("cross_module", (False, True), ids=("same", "cross"))
@@ -6829,6 +7511,26 @@ def test_cross_module_generated_dataclass_retains_stable_direct_alias(
     assert result["bypass_classes"] == []
 
 
+
+
+def test_cross_module_generated_dataclass_allows_empty_frozenset_default(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    flags: frozenset[str] = frozenset()\n"
+        "    def __post_init__(self):\n"
+        "        if not isinstance(self.flags, frozenset):\n"
+        "            raise TypeError('flags must be a frozenset')\n",
+    )
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
 def test_cross_module_generated_dataclass_allows_builtin_method_decorators(
     tmp_path: Path,
 ) -> None:
@@ -6869,6 +7571,24 @@ def test_cross_module_generated_dataclass_allows_metadata_only_required_field(
     assert result["traces"][0]["paths"][-1][-1] == (
         "scripts.resolved_records.ResolvedRecords"
     )
+
+
+def test_cross_module_generated_dataclass_allows_init_false_metadata_field(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    cached: object = field(init=False, repr=False, compare=False)\n"
+        "    def __post_init__(self):\n"
+        "        object.__setattr__(self, 'cached', self.primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
 
 
 def test_cross_module_generated_dataclass_duplicate_metadata_keywords_fail_closed(
@@ -6926,6 +7646,25 @@ def test_frozen_custom_dataclass_init_allows_declared_field_setattr(
     assert result["closed"] is True
     assert result["bypass_classes"] == []
 
+
+def test_frozen_custom_dataclass_subclass_allows_declared_field_setattr(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "@dataclass(frozen=True)\n"
+        "class RuntimeRecord:\n"
+        "    inherited: object = None\n"
+        "@dataclass(frozen=True, init=False)\n"
+        "class ResolvedRecords(RuntimeRecord):\n"
+        "    primary: object = None\n"
+        "    def __init__(self, primary):\n"
+        "        object.__setattr__(self, 'primary', primary)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
 
 def test_frozen_custom_dataclass_allows_native_classmethod_factory(
     tmp_path: Path,
@@ -7183,6 +7922,66 @@ def test_cross_module_generated_dataclass_allows_stable_dict_factory(
     assert result["traces"][0]["paths"][-1][-1] == (
         "scripts.resolved_records.ResolvedRecords"
     )
+
+
+def test_cross_module_generated_dataclass_allows_stable_dataclass_factory(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass(frozen=True)\n"
+        "class NestedRecords:\n"
+        "    value: str = 'fixed'\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    nested: NestedRecords = field(default_factory=NestedRecords)\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_generated_dataclass_allows_literal_path_default(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass\n"
+        "from pathlib import Path\n"
+        "def normalize(value):\n"
+        "    return str(value) if isinstance(value, Path) else value\n"
+        "@dataclass\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    output_dir: Path = Path('.')\n",
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_generated_dataclass_rebound_factory_fails_closed(
+    tmp_path: Path,
+) -> None:
+    result = _inspect_cross_module_resolved_records(
+        tmp_path,
+        "from dataclasses import dataclass, field\n"
+        "@dataclass(frozen=True)\n"
+        "class NestedRecords:\n"
+        "    value: str = 'fixed'\n"
+        "def capture():\n"
+        "    return object()\n"
+        "NestedRecords = capture\n"
+        "@dataclass(frozen=True)\n"
+        "class ResolvedRecords:\n"
+        "    primary: object\n"
+        "    nested: object = field(default_factory=NestedRecords)\n",
+    )
+
+    assert result["closed"] is False
+    assert result["unresolved_consumers"]
 
 
 @pytest.mark.parametrize(
@@ -8462,6 +9261,66 @@ def test_class_decorator_occurrence_is_not_absorbed_by_explicit_init(
     )
 
 
+def test_explicit_config_initializer_routes_all_inputs_to_authority(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ptycho/config.py"
+    path.parent.mkdir()
+    path.write_text(
+        "from candidate.config import resolve\n"
+        "def normalize(values):\n"
+        "    return resolve(values, {})\n"
+        "class TrainingConfig:\n"
+        "    def __init__(self, **values):\n"
+        "        self.values = normalize(values)\n",
+        encoding="utf-8",
+    )
+
+    graph, _, _, _, _ = evaluator._module_functions(
+        path,
+        "ptycho.config",
+
+        authority_symbols={"candidate.config.resolve"},
+        workspace_module_roots=frozenset({"candidate", "ptycho"}),
+        available_external_imports=frozenset(),
+        consumer_rows=(),
+    )
+
+    assert graph["ptycho.config.TrainingConfig.__init__"] == [
+        "ptycho.config.normalize"
+    ]
+    assert graph["ptycho.config.normalize"] == ["candidate.config.resolve"]
+
+
+def test_contextual_stable_builtin_call_is_a_terminal(tmp_path: Path) -> None:
+    path = tmp_path / "ptycho/provenance.py"
+    path.parent.mkdir()
+    path.write_text(
+        "def normalize(payload):\n"
+        "    return dict(payload)\n",
+        encoding="utf-8",
+    )
+    context = "@context:ptycho.provenance.normalize:payload"
+
+    graph, _, _, terminals, _ = evaluator._module_functions(
+        path,
+        "ptycho.provenance",
+        authority_symbols={"candidate.config.resolve"},
+        consumer_rows=[{
+            "context_symbol": context,
+            "public_entry_route": "ptycho.provenance.normalize",
+            "tainted_formals": ["payload"],
+            "fresh_formals": [],
+        }],
+        workspace_module_roots=frozenset({"candidate", "ptycho"}),
+        available_external_imports=frozenset(),
+    )
+
+    assert graph[context] == ["builtins.dict"]
+    assert "builtins.dict" in terminals
+
+
+
 def test_class_decorator_missing_span_or_mismatched_owner_fails_closed(
     tmp_path: Path,
 ) -> None:
@@ -8678,6 +9537,25 @@ def test_canonical_dataclass_decorators_create_all_sixteen_exact_routes(
         == {"dataclasses.dataclass", "pydantic.with_config"}
         for trace in result["traces"]
     )
+
+
+def test_callable_index_includes_methods_from_external_receiver_annotations(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "consumer.py").write_text(
+        "import pathlib\n"
+        "def consume(value, path: pathlib.Path):\n"
+        "    return path.joinpath(value)\n",
+        encoding="utf-8",
+    )
+
+    _, imported_targets, _ = evaluator._workspace_callable_index(
+        tmp_path, frozenset({"package"})
+    )
+
+    assert "pathlib.Path.joinpath" in imported_targets
 
 
 def test_external_import_probe_requires_the_exact_target() -> None:
@@ -9128,6 +10006,94 @@ def test_same_suite_same_target_reimports_remain_definite(
     )
 
     assert calls == ["candidate.config.resolve"]
+    assert closed is True
+
+
+def test_same_suite_external_reimport_uses_latest_proven_target(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.reimports",
+        owner="package.reimports.consume",
+        source=(
+            "import dependency as backend\n"
+            "import dependency.compat as backend\n"
+            "def consume(runtime_config):\n"
+            "    return backend.normalize(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({
+            "dependency.compat.normalize"
+        }),
+    )
+
+    assert calls == ["dependency.compat.normalize"]
+    assert "dependency.compat.normalize" in terminals
+    assert closed is True
+
+
+def test_nested_import_attribute_call_does_not_invalidate_external_terminal(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.external",
+        owner="package.external.consume",
+        source=(
+            "import json\n"
+            "def consume(runtime_config):\n"
+            "    json.encoder.JSONEncoder()\n"
+            "    return json.dumps(runtime_config)\n"
+        ),
+        available_external_imports=frozenset({"json.dumps"}),
+    )
+
+    assert calls == ["json.dumps"]
+    assert "json.dumps" in terminals
+    assert closed is True
+
+
+
+def test_native_expression_is_a_configuration_terminal(tmp_path: Path) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.native",
+        owner="package.native.consume",
+        source=(
+            "def consume(runtime_config):\n"
+            "    return runtime_config['count'] + 1\n"
+        ),
+        tainted_formals=("runtime_config",),
+    )
+
+    assert calls == []
+    assert any(
+        symbol.startswith("@context:package.native.consume:runtime_config")
+        for symbol in terminals
+    )
+    assert closed is True
+
+
+def test_referenced_closure_preserves_captured_configuration_taint(
+    tmp_path: Path,
+) -> None:
+    calls, terminals, closed = _synthetic_owner_route(
+        tmp_path,
+        module="package.closure",
+        owner="package.closure.consume",
+        source=(
+            "import json\n"
+            "def consume(runtime_config):\n"
+            "    def emit():\n"
+            "        return json.dumps(runtime_config)\n"
+            "    return emit()\n"
+        ),
+        available_external_imports=frozenset({"json.dumps"}),
+        tainted_formals=("runtime_config",),
+    )
+
+    assert calls == ["json.dumps"]
+    assert "json.dumps" in terminals
     assert closed is True
 
 
@@ -11036,6 +12002,46 @@ def test_cross_module_derived_return_does_not_taint_the_caller_result(
         tmp_path,
         monkeypatch,
         helper_source=f"def derive(value): return {expression}\n",
+
+        imported_symbol="derive",
+        assign_result=True,
+    )
+
+    assert result["closed"] is True
+    assert result["bypass_classes"] == []
+
+
+def test_cross_module_authority_wrapper_does_not_emit_unresolved_carrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=(
+            "from candidate.config import resolve\n"
+            "def normalize(value): return resolve(value, {})\n"
+        ),
+        imported_symbol="normalize",
+        assign_result=False,
+    )
+
+    assert result["closed"] is True
+    assert result["unresolved_consumers"] == []
+
+
+
+def test_cross_module_terminal_call_result_does_not_remain_a_carrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _inspect_cross_module_carrier_return(
+        tmp_path,
+        monkeypatch,
+        helper_source=(
+            "from math import sqrt\n"
+            "def derive(value): return sqrt(value)\n"
+        ),
         imported_symbol="derive",
         assign_result=True,
     )
@@ -11344,6 +12350,30 @@ def test_direct_resolver_protocol_derives_strict_and_validation_facts(
         and row["outcome"]["kind"] in {"returned", "raised"}
         for row in result["transcript"]["rows"]
     )
+
+
+def test_direct_resolver_replay_evidence_excludes_process_identity(
+    tmp_path: Path,
+) -> None:
+    workspace, evidence_path = _conforming_protocol_workspace(tmp_path)
+    first = evaluator.run_direct_resolver_probe(
+        candidate_evidence_path=evidence_path,
+        output_root=tmp_path / "direct-probe-first",
+        python_executable=Path(sys.executable),
+        timeout_seconds=30,
+        workspace=workspace,
+    )
+    second = evaluator.run_direct_resolver_probe(
+        candidate_evidence_path=evidence_path,
+        output_root=tmp_path / "direct-probe-second",
+        python_executable=Path(sys.executable),
+        timeout_seconds=30,
+        workspace=workspace,
+    )
+
+    assert first["transcript"]["pid"] != second["transcript"]["pid"]
+    assert "replay_evidence" in first
+    assert first["replay_evidence"] == second["replay_evidence"]
 
 
 def test_direct_resolver_transcript_order_and_digest_tamper_fail_closed(
