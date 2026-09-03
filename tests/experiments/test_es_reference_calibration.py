@@ -891,6 +891,15 @@ def test_task3a_closed_reference_product_or_nonpromotable_disposition_exists() -
     assert schema["additionalProperties"] is False
     assert set(schema["properties"]) == set(REFERENCE_TOP_LEVEL_FIELDS)
     assert set(schema["required"]) == set(REFERENCE_TOP_LEVEL_FIELDS)
+    assert REFERENCE_RECORD.is_file()
+    record = _json_record(REFERENCE_RECORD)
+    loaded = calibration.load_reference_product(
+        REFERENCE_RECORD,
+        schema_path=REFERENCE_SCHEMA,
+        expected_record_sha256=record["record_sha256"],
+    )
+    assert loaded.record == record
+    assert loaded.record["metric"]["implementation_additions"] == 14_538
     assert REFERENCE_DISPOSITION.is_file()
     disposition = _json_record(REFERENCE_DISPOSITION)
     assert REFERENCE_DISPOSITION.read_bytes() == calibration.canonical_json_bytes(
