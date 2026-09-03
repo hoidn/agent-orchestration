@@ -946,19 +946,21 @@ fresh-census consumer, reject the facade-only and wrapper-deep negatives,
 derive public field names, leave invalid torch resolution state unchanged, and
 preserve source provenance and bridge/sampling fields across a fresh process.
 
-Launch eligibility is exactly inclusive:
+The implementation delta is measured and reported after behavioral
+conformance. The original range
 
 ```text
 5000 <= implementation_delta_physical_lines <= 10000
 ```
 
-There is no 20-percent escape band. If an honest complete reference is below
-5,000 or above 10,000, F1v2 is unsuitable at the requested scale in this
-shape. Stop for owner disposition; do not reinterpret the historical
-`+8,698` per-commit churn as the metric result. None of the six
-required items may be trimmed, deferred, or treated as a removable scale
-tranche; padding, copied branches, formatting churn, and line-driven deletion
-of required behavior are forbidden.
+is a planning target, not launch eligibility or a correctness formula. An
+honest complete reference outside that range keeps its exact measurement and
+may proceed when the owner accepts its scope after the evaluator and review
+gates pass. The owner accepted the measured `+14,538/-21,269` reference on
+that basis. Do not reinterpret the historical `+8,698` per-commit churn as
+the metric result. None of the six required items may be trimmed, deferred,
+or treated as a removable scale tranche; padding, copied branches, formatting
+churn, and line-driven deletion of required behavior remain forbidden.
 
 The no-delivery proof establishes that the task-seed reachable closure remains
 exactly the projection plus visible child; reference-only commits, trees, and
@@ -1825,11 +1827,11 @@ Keep every existing metric, A1-anchor, and rejection-disposition test green.
 Add failing tests requiring exact campaign parent/range identities, a complete
 adaptation ledger, the Task-1 census and selector bindings, all ten Task-2
 clause results, exact three-class bypass results, explicit separation of
-historical churn from the authoritative adapted endpoint metric, and the
-strict inclusive band. Reject replay/cherry-pick ancestry, an unassigned
-production path, missing consumer, facade-only closure, stale selector/census
-digest, historical `8,698` copied into the metric result, padding-only change,
-or an out-of-band total.
+historical churn from the authoritative adapted endpoint metric, and exact
+reporting against the original scale target. Reject replay/cherry-pick
+ancestry, an unassigned production path, missing consumer, facade-only
+closure, stale selector/census digest, historical `8,698` copied into the
+metric result, padding-only change, or an unmeasured/incorrect total.
 
 ```bash
 pytest --collect-only -q tests/experiments/test_es_reference_calibration.py
@@ -1864,19 +1866,22 @@ fresh-process provenance/round-trip checks, every census consumer, the three
 bypass classes, and all negative calibration cases. Require byte-identical
 normalized results and bind every observation to the exact reference tree.
 
-- [ ] **Step 5: Apply the strict reference-only scale decision**
+- [ ] **Step 5: Report the reference-only scale target**
 
-Measure only after the reference is behaviorally conforming. Continue only
-when:
+Measure only after the reference is behaviorally conforming. Report the exact
+`implementation_delta_physical_lines.v1` additions and compare them with the
+original planning target:
 
 ```text
 5000 <= implementation_delta_physical_lines.v1 additions <= 10000
 ```
 
-The historical churn and approximate endpoint diagnostic cannot satisfy this
-gate. An out-of-band adapted product stops F1v2 for owner disposition. Never
-add or remove behavior merely to cross the threshold, and never apply this
-metric to a candidate product.
+The target is diagnostic, not a hard promotion gate or candidate correctness
+formula. The historical churn and approximate endpoint diagnostic cannot
+replace the measured value. The owner accepted the conforming `14,538`
+addition reference after all ten hard clauses and the deterministic replay
+passed. Never add or remove behavior merely to hit the target, and never apply
+this metric to a candidate product.
 
 - [ ] **Step 6: Prove non-delivery, freeze, and commit**
 
@@ -2078,7 +2083,7 @@ IDs.
 
 | Risk | Positive proof | Negative proof |
 | --- | --- | --- |
-| Scope still too small | behaviorally conforming adapted reference measures 5,000–10,000 inclusive | out-of-band endpoint, historical churn, or unmeasured estimate blocks freeze |
+| Reference scope drifts | exact endpoint metric is reported against the 5,000–10,000 planning target after behavioral conformance; owner accepted `14,538` after all quality gates passed | historical churn, an unmeasured estimate, hidden scope, padding, or trimming required behavior rejects |
 | Historical campaign is replayed | adaptation repository is projection-child lineage with a complete path disposition ledger | merge/rebase/apply/cherry-pick ancestry or unresolved campaign path rejects |
 | Consumer inventory is incomplete | two byte-identical projection scans assign every configuration read/construction site | missing, invented, stale-digest, or unassigned consumer rejects |
 | Public resolution diverges | file mapping and CLI patch use one strict route and frozen precedence | divergent entry point or reversed precedence fails H03 |

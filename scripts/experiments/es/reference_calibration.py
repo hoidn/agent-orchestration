@@ -2029,12 +2029,6 @@ def build_reference_metric(
             allowed_responsibility_ids=_F1V2_RESPONSIBILITY_IDS,
             git_contract=git_contract,
         )
-    if not 5_000 <= measurement.implementation_additions <= 10_000:
-        raise CalibrationError(
-            "reference_metric_invalid",
-            measurement.implementation_additions,
-            "adapted reference is outside the inclusive calibration band",
-        )
     result = json.loads(canonical_json_bytes(asdict(measurement)))
     result["base_commit"] = task_seed_commit
     result["base_tree"] = _reference_git_bytes(
@@ -3096,7 +3090,6 @@ def _validate_f1v2_reference_product(record: Mapping[str, object]) -> None:
         != metric["implementation_additions"]
         or not isinstance(metric["implementation_additions"], int)
         or isinstance(metric["implementation_additions"], bool)
-        or not 5_000 <= metric["implementation_additions"] <= 10_000
         or metric["base_commit"] != lineage["task_seed_commit"]
         or metric["base_tree"] != lineage["task_seed_tree"]
         or metric["reference_commit"] != lineage["reference_commit"]

@@ -973,10 +973,10 @@ def test_task3a_f1v2_reference_schema_replaces_extension_boundary_shape() -> Non
 
 
 F1V2_REPRESENTATIVE_PATH_LINES = {
-    "ptycho/config/resolution.py": 2_200,
-    "ptycho/config/strict_types.py": 2_200,
-    "ptycho_torch/config_resolution.py": 2_200,
-    "ptycho_torch/execution_request.py": 2_098,
+    "ptycho/config/resolution.py": 5_000,
+    "ptycho/config/strict_types.py": 4_000,
+    "ptycho_torch/config_resolution.py": 3_000,
+    "ptycho_torch/execution_request.py": 2_538,
 }
 F1V2_REPRESENTATIVE_RESPONSIBILITIES = {
     "ptycho/config/resolution.py": ("PUBLIC_RESOLUTION",),
@@ -1161,7 +1161,7 @@ def test_task3a_f1v2_metric_replays_the_adapted_endpoint(tmp_path: Path) -> None
         ),
     )
 
-    assert metric["implementation_additions"] == 8_698
+    assert metric["implementation_additions"] == 14_538
     assert metric["implementation_deletions"] == 0
     assert metric["base_commit"] == seed["recipe"]["commit"]
     assert metric["base_tree"] == seed["recipe"]["tree"]
@@ -1864,7 +1864,7 @@ def f1v2_reference_product(tmp_path_factory):
         reference_commit=reference_commit,
         reference_tree=reference_tree,
         canonical_patch=patch,
-        implementation_additions=8_698,
+        implementation_additions=14_538,
     )
     evidence_root = root / "evidence"
     evaluator = importlib.import_module("scripts.experiments.es.f1_evaluator")
