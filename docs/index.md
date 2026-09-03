@@ -16,6 +16,7 @@ Informative guidance and mental models live in `docs/`.
 | Review the retired YAML/YML workflow estate | [YAML Workflow Estate Triage](workflow_yaml_estate_triage.md) | Frozen historical projection of the content-addressed five-queue handoff; all queues are drained and the authored workflow estate is empty. |
 | Check the current Workflow Lisp pure-expression, projection, materialized-view, resource-transition, or stdlib phase/drain surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` / `materialize_view` runtime surfaces, the declared/runtime-native `resource-transition` lane, and the `phase-scope` / `finalize-selected-item` / `backlog-drain` stdlib contract. |
 | Review the accepted design and implementation for arbitrary strict-`Bool` `if` conditions, `cond`, and predicate-derived union proof | [Workflow Lisp Strict Boolean Control Flow](design/workflow_lisp_strict_boolean_control_flow.md) | Target-2.26 is implemented; below 2.26, source still follows the frontend specification and capability matrix. |
+| Review the proposed effect-ledger simplification (optional coverage-ceiling `:effects`, inferred runtime footprint, relocated call edges) | [Workflow Lisp Effect Ledger Simplification](design/workflow_lisp_effect_ledger_simplification.md) | Proposed design only, tracked as unselected off-spine item EL-1; current source still authors mandatory exact `:effects` per the drafting guide and effect-graph contract. |
 | Author or audit bounded live provider coordination | [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md) and [Provider Peer Messaging](design/workflow_lisp_provider_peer_messaging.md) | The distinct target-2.16 one-worker/one-supervisor surface and target-2.17 static 2..8-member cooperative-peer surface are implemented. |
 | Review the completed Stage-7 v1.1 implementation | [Provider Peer Messaging v1.1 Implementation Plan](plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md) | Historical execution evidence for exact attempt-bound ingress, append-before-offer ledgers, cooperative receipts, typed settlement, no forcing edge, and both ordered final reviews. |
 | Check whether imported generic helpers can compose constrained `match`, imported transitions/resources, and `materialize-view` through ordinary specialization | [Capability Status Matrix](capability_status_matrix.md) | Routes to the landed G5A proof surface and its owning evidence lanes. |
@@ -278,24 +279,29 @@ The Task-5 authority began with the ordered
 
 ### [ES F1 Large-Scope Pre-Run Refreeze Plan](plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
 **Description:** Selected provider-free replacement sequence for the
-superseded two-architecture F1 task, calibrated against the retained A1 product
-and requiring a genuine controller-only reference product of 5,000–10,000
-physical implementation delta lines; tests and documentation are additional.
+superseded two-architecture F1 task, calibrated against the retained A1
+product. The genuine controller-only reference records its exact implementation
+delta against the original 5,000–10,000 planning target; tests and
+documentation remain additional.
 **Keywords:** es, f1, effectiveness, scope-amendment, source-census,
 reference-calibration, preregistration, refreeze
 **Use this when:** Implementing or auditing the exact fourteen frozen built-ins
-plus one candidate-declared witness refreeze. Task 0 closes the projection-wide
-census, selector/proof authority, A1 anchor, and ordered machine-adopted reviews
-before task-package edits. The owner-selected operational multi-context
-criterion combines the strict reference-size gate, four independently unmet
-clusters, three authenticated cross-blob edges, remove-one failures, and the
-non-collapse requirement; it is not a universal mathematical impossibility
-theorem about provider contexts. Refreeze Tasks 1–8 satisfy, replace, and
-subsume the component plan's old Task 6 work around the prospective
-`decision_lock.v3` and one owner adoption; existing ES Task 7 is next after
-Task 8. The sequence allocates no provider and consumes no F1 arm, study
-attempt, invalid-attempt allowance, or denominator row; live allocation
-remains prohibited until that one gate closes.
+plus one candidate-declared witness refreeze. Tasks 0, 1, 2, 3, and 3A are
+complete. Task 3A's quality-qualified reference is published at
+`experiments/orc_effectiveness/f1_es/reference-product.json` under record
+SHA-256
+`aca98a87a0f7a65032d610f8114ce146468ea90ab24f38bc65358fdcea2ae26f`.
+Its measured delta is +14,538/-21,269 production-Python lines; all ten hard
+evaluator clauses and the byte-identical two-run replay passed. The
+owner-selected operational multi-context criterion combines four independently
+unmet clusters, three authenticated cross-blob edges, remove-one failures, and
+the non-collapse requirement; it is not a universal mathematical impossibility
+theorem about provider contexts. The consolidated Task 4 bind/freeze/review/
+adopt gate is next and subsumes the old Tasks 4–8 around one
+`decision_lock.v3`; existing ES Task 7 follows. The sequence allocates no
+provider and consumes no F1 arm, study attempt, invalid-attempt allowance, or
+denominator row; live allocation remains prohibited until the Task 4 adoption
+gate closes.
 
 ### [LSP Frontend Prerequisites P-Series Roadmap](plans/2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
 **Description:** Tracked P-series roadmap (2026-07-30): P1 diagnostic accumulation, P2 reader recovery, P3 span-to-type metadata, P4 source overlays, and P5 compile caching/incrementality, sequenced after the E program. Technical definitions stay owned by the language server design; no P item is selected by listing. Owner-slated behind E by the [2026-08-01 slating record](plans/2026-08-01-workflow-lisp-p-series-owner-slating.md).

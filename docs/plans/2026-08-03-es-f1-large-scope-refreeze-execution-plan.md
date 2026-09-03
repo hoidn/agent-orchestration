@@ -1,11 +1,12 @@
 # ES F1v2 Configuration-Ownership Pre-Run Refreeze Implementation Plan
 
 **Status:** Owner-authorized replacement-task refreeze. The rejected F1
-extension-boundary package is terminally recorded as
-`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`, its Task 3A apparatus is committed,
-and its scale-rejection post-mortem is complete. F1v2 Tasks 1–4 remain
-provider-free; no F1 arm, provider session, study attempt, invalid-attempt
-allowance, or denominator row has been consumed.
+extension-boundary package remains terminally recorded as
+`SUPERSEDED_PRELAUNCH_SCOPE_TOO_SMALL`. F1v2 Tasks 0, 1, 2, 3, and 3A are
+complete, including the quality-qualified controller-only reference product;
+the consolidated provider-free Task 4 bind/freeze/review/adopt gate is next.
+No F1 arm, provider session, study attempt, invalid-attempt allowance, or
+denominator row has been consumed.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` (recommended) or
@@ -17,11 +18,11 @@ solution-neutral F1v2 configuration-ownership campaign: strict public
 configuration resolution, transactional torch-side application, retirement of
 tolerant compatibility paths, isolation of legacy state, boundary validation
 with derived public field names, and migration of every supported downstream
-consumer. A controller-only adapted reference must measure 5,000–10,000
-`implementation_delta_physical_lines.v1` additions; tests and docs are
-additional. The four-arm treatment topology remains unchanged, and no live
-attempt may be consumed before the replacement package and scientific lock
-pass every gate.
+consumer. A controller-only adapted reference must report its exact
+`implementation_delta_physical_lines.v1` additions against the original
+5,000–10,000 planning target; tests and docs are additional.
+The four-arm treatment topology remains unchanged, and no live attempt may be
+consumed before the replacement package and scientific lock pass every gate.
 
 **Architecture:** Retain the history-free PtychoPINN source projection and the
 landed DIRECT/DESIGN_QA/PRODUCT_QA/RICH apparatus. Version the task/evaluator
@@ -186,14 +187,16 @@ The owner-directed amendment binds these requirements:
    calibration anchor: its retained product delta contains 667 production
    additions and 2 production deletions, with 690 physical production lines
    in the postimage. Before launch, a controller-only conforming F1v2 reference
-   product must measure inclusively between 5,000 and 10,000
-   `implementation_delta_physical_lines.v1` units. Tests and documentation are
-   additional, are recorded separately, and do not count toward that band.
-   Relative to the measured 667-line A1 delta, the requested band is approximately
-   7.50x–14.99x. This is a strict prelaunch task-scale calibration gate, not a
-   candidate acceptance, ranking, or stopping predicate.
-   The real campaign and the adapted Task-3A reference provide the scale
-   evidence; historical churn is not substituted for the endpoint metric.
+   product must report its exact `implementation_delta_physical_lines.v1`
+   result against the original 5,000–10,000 planning target. Tests and
+   documentation are additional and recorded separately. Relative to the
+   measured 667-line A1 delta, that planning range is approximately
+   7.50x–14.99x. It is neither a prelaunch gate nor a candidate acceptance,
+   ranking, or stopping predicate. The owner accepted the measured
+   `+14,538/-21,269` reference after all behavioral, evaluator, provenance, and
+   non-delivery gates passed. The real campaign and adapted Task-3A reference
+   provide the scale evidence; historical churn is not substituted for the
+   endpoint metric.
    DIRECT nevertheless retains its one-call treatment contract;
    inability to finish is a treatment outcome, not authority to add hidden
    calls, resume, or relax the task.
@@ -856,21 +859,23 @@ independent clusters. Padding, copied branches, format churn, or a synthetic
 failure is a spike failure.
 
 In this plan, “genuinely cannot fit one provider context” means only the
-owner-selected operational multi-context criterion: the complete Task-3A
-reference must pass the strict 5,000–10,000 physical implementation-delta-line
-gate, and the authenticated Task-0 capture must show four independently unmet
-clusters, three authenticated cross-blob edges, remove-one failures for every
-implemented cluster slice, and the non-collapse requirement that the vertical
-slice cannot reduce to one already-centralized edit. All parts are conjunctive.
-This is not a universal mathematical impossibility theorem about every model or
-provider context, and it creates no tokenizer or context-capacity gate.
+owner-selected operational multi-context criterion: the authenticated Task-0
+capture must show four independently unmet clusters, three authenticated
+cross-blob edges, remove-one failures for every implemented cluster slice, and
+the non-collapse requirement that the vertical slice cannot reduce to one
+already-centralized edit. The complete Task-3A reference must pass every hard
+behavioral gate and report its exact physical implementation delta against the
+planning target, but that target is not another conjunctive gate. This is not a
+universal mathematical impossibility theorem about every model or provider
+context, and it creates no tokenizer or context-capacity gate.
 
 If any structural part of the operational criterion fails, Task 0 stops for an
-owner-reviewed scope amendment. If the later complete conforming reference
-honestly measures below 5,000 or above 10,000, Task 3A likewise stops and
-restarts the amendment. Neither gate may invent work merely to cross the line
-threshold. Candidate contracts and outcomes remain free of LOC, cluster-count,
-file-count, and churn acceptance criteria.
+owner-reviewed scope amendment. An honest complete reference outside the
+planning target retains its exact measurement and requires explicit owner
+acceptance rather than padding, trimming, or automatic rejection; the owner
+accepted the conforming 14,538-addition reference. Candidate contracts and
+outcomes remain free of LOC, cluster-count, file-count, and churn acceptance
+criteria.
 
 #### Authenticated feasibility capture and deletion lifecycle
 
@@ -887,16 +892,19 @@ One capture performs two green executions and retains their elapsed times; two
 independent derivations of the package must be byte-identical after excluding
 only declared volatile fields. Before purge, the capture truthfully retains all
 disposable source, test, and object bytes through ordered specification then
-quality review. Both reviewers must adopt the anti-padding and non-synthetic
-findings, four-cluster evidence, three authenticated cross-blob edges,
-remove-one failures, non-collapse requirement, and the rule that the criterion
-cannot close until Task 3A passes the strict 5,000–10,000 reference-size gate.
-After both approvals, the runner purges the exact disposable roots and emits a
-post-purge tombstone that binds the capture and both review digests and records
-`lstat` absence. The selector binds the capture; each review row retains the
-five common digests; and the top-level adoption additionally binds the
-tombstone, avoiding a digest cycle. Committed evidence contains no source,
-snippets, patches, or tracebacks, and the runner is never provider-visible.
+quality review.
+Both reviewers must adopt the anti-padding and non-synthetic findings,
+four-cluster evidence, three authenticated cross-blob edges, remove-one
+failures, and the non-collapse requirement. Their historical statement that
+the operational criterion also required a strict 5,000–10,000 size gate is
+superseded only by the owner-approved scale amendment in Task 3A; every
+structural and quality finding remains binding. After both approvals, the
+runner purges the exact disposable roots and emits a post-purge tombstone that
+binds the capture and both review digests and records `lstat` absence. The
+selector binds the capture; each review row retains the five common digests;
+and the top-level adoption additionally binds the tombstone, avoiding a digest
+cycle. Committed evidence contains no source, snippets, patches, or tracebacks,
+and the runner is never provider-visible.
 
 The exact adjacent selector includes two tests whose unmodified production
 path writes relative `training_outputs` artifacts. The capture therefore uses
@@ -1058,8 +1066,9 @@ The closed resource record names this basis
 `confidence=low` and `is_runtime_cap=false`, binds
 `receipt_authority=usage-receipt.v1`, and records that estimates may not enter
 candidate validity, treatment settlement, stopping, or synthesis. The
-5,000–10,000 reference gate is nevertheless exact and inclusive because the
-owner explicitly selected it as the pre-run calibration contract.
+5,000–10,000 interval remains an exact planning input, not a reference gate;
+the measured 14,538-addition reference does not retroactively alter the frozen
+capacity estimates.
 
 Derived planning ranges are 1–24 million reported tokens for any valid block,
 4–24 million for a completed-treatment block, 3–72 million across the three
@@ -1462,9 +1471,10 @@ unmapped consumer, missing required provider/class representative, witness on
 an `inherited`/`open` consumer, unobserved required witness, unsatisfied
 required proof kind, or failed structural proxy blocks review. A disclosed
 individual open row does not. Publish the A1 anchor through the
-already-implemented shared metric. Do not derive the 5,000–10,000 gate by
-summing estimates; Task 3A alone supplies the measured complete reference
-value. Treat any contrary consumption fact or census mismatch as a stop.
+already-implemented shared metric. Do not derive the complete Task-3A metric
+by summing estimates; report its measured value against the 5,000–10,000
+planning target. Treat any contrary consumption fact or census mismatch as a
+stop.
 
 - [x] **Step 6: Prove deterministic completeness and rerun GREEN**
 
@@ -1546,14 +1556,14 @@ view contains exact `verdict:`, `reviewer:`, `reviewed_at:`, five authority-
 binding, and seven finding lines. The purge gate requires those lines to name
 the same five exact authority digests, requires distinct reviewer identities,
 requires the quality timestamp not to predate specification, and requires the
-view to explicitly adopt the
-anti-padding finding, the non-synthetic baseline and remove-one failures, all
-three authenticated AST-plus-trace cross-blob edges, the four independently
-unmet clusters, and the non-collapse requirement. Each view also adopts the
-owner-selected operational criterion and its boundary: only a later complete
-reference measuring 5,000–10,000 implementation-delta physical lines can close
-the strict size part, and the criterion is not a universal mathematical
-impossibility theorem about provider contexts.
+view to explicitly adopt the anti-padding finding, the non-synthetic baseline
+and remove-one failures, all three authenticated AST-plus-trace cross-blob
+edges, the four independently unmet clusters, and the non-collapse requirement.
+Each view also adopts the owner-selected operational criterion and its
+boundary. The reviews' historical 5,000–10,000 closure threshold is superseded
+only by the owner-approved Task-3A scale amendment; their structural findings
+remain binding, and the criterion remains a bounded operational test rather
+than a universal mathematical impossibility theorem about provider contexts.
 
 After both approved pre-purge views exist, use the authenticated runner to
 purge exactly the closed, enumerated disposable roots and no other path. Then
@@ -2006,11 +2016,12 @@ digests over already-reviewed apparatus plus the Task 1–3A task, evaluator, an
 reference content.
 
 The review must confirm the six-outcome scope and ten-clause evaluator matrix,
-transitive three-class bypass oracle, adapted reference-product band result,
-unchanged apparatus, lock contents, and absence of campaign/reference
-identities, decomposition, locator, or measured count on a provider-visible
-surface. A finding that names a concrete contract violation blocks; prose
-preference does not. Record the verdict in the closed adoption bindings.
+transitive three-class bypass oracle, exact adapted-reference measurement
+against the planning target, unchanged apparatus, lock contents, and absence
+of campaign/reference identities, decomposition, locator, or measured count
+on a provider-visible surface. A finding that names a concrete contract
+violation blocks; prose preference does not. Record the verdict in the closed
+adoption bindings.
 
 - [ ] **Step 5: Obtain exact owner adoption**
 
@@ -2030,13 +2041,15 @@ scientific lock decision:
    workflow components, study scripts, and every frozen census consumer. I
    confirm the transitive oracle for exactly ambient reads, tolerant loaders,
    and legacy-state mutation, including facade-only and wrapper-deep cases.
-3. I confirm the exact measured 667-production-addition A1 anchor, the
-   fresh Task-1 selector count/order/digest, the controller-only adapted
-   reference-product manifest, and its inclusive 5,000–10,000
-   `implementation_delta_physical_lines.v1` result. I confirm that historical
-   `+8,698/-11,197` is per-commit churn rather than that metric result;
-   tests/docs are additional, and no candidate is accepted, ranked, or stopped
-   by LOC, file count, cluster count, or churn.
+3. I confirm the exact measured 667-production-addition A1 anchor, the fresh
+   Task-1 selector count/order/digest, and the controller-only adapted
+   reference-product manifest. I confirm its measured `+14,538/-21,269`
+   `implementation_delta_physical_lines.v1` result, reported against the
+   original 5,000–10,000 planning target and accepted by me after every hard
+   quality gate passed. I confirm that historical `+8,698/-11,197` is
+   per-commit churn rather than that metric result; tests/docs are additional,
+   and no candidate is accepted, ranked, or stopped by LOC, file count, cluster
+   count, or churn.
 4. I confirm the exact existing-field visible/hidden/check/arm/trial timeout and
    byte envelope, observed positive packet headroom, the 120-hour
    planning-only allowance that adds no runtime deadline, low-confidence token
@@ -2118,10 +2131,11 @@ The scope amendment is complete only when:
 2. the new visible task, evaluator, seed, controller-only reference product,
    resource plan, lineage, schedule, decision lock, and controller package are
    canonical and content-addressed;
-3. the conforming reference measures 5,000–10,000 inclusive under the exact
-   metric, separately reports the non-authoritative historical churn, passes
-   all six outcomes and the transitive three-class bypass oracle, and is proven
-   absent from every provider-visible closure/surface;
+3. the conforming reference records its exact `+14,538/-21,269` endpoint
+   measurement against the non-gating 5,000–10,000 planning target, separately
+   reports the non-authoritative historical churn, passes all six outcomes and
+   the transitive three-class bypass oracle, and is proven absent from every
+   provider-visible closure/surface;
 4. the exact Task-1 configuration census and observed selector baseline are
    bound; every ten-clause positive passes and every fix-tail, partial-mutation,
    duplicated-field, facade-only, and wrapper-deep negative fails in its
