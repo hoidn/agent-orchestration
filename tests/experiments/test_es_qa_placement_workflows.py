@@ -74,6 +74,14 @@ ARMS_SOURCE = WORKFLOW_ROOT / "qa_placement_arms.orc"
 TRIAL_SOURCE = WORKFLOW_ROOT / "qa_placement_trial.orc"
 PROVIDERS = WORKFLOW_ROOT / "providers.json"
 PROMPTS = WORKFLOW_ROOT / "prompts.json"
+TASK_SEED_MANIFEST = (
+    REPOSITORY_ROOT
+    / "experiments"
+    / "orc_effectiveness"
+    / "f1_es"
+    / "task-seed-manifest.json"
+)
+VISIBLE_CHECK_MANIFEST = TASK_SEED_MANIFEST.with_name("task") / "visible-check-manifest.json"
 
 ARM_ENTRYPOINTS = {
     "DIRECT": "direct",
@@ -170,14 +178,40 @@ def test_four_cell_trial_compiles_through_the_public_target_225_entry() -> None:
         if isinstance(step, TrialSurfaceStep)
     ]
     assert len(trial_steps) == 1
-    trial = trial_steps[0]
-    trial_config = trial.trial
-    assert trial_config is not None
-    assert tuple(arm.arm_id for arm in trial_config.arms) == tuple(ARM_ENTRYPOINTS)
+    trial = trial_steps[0].trial
+    assert trial is not None
+    assert tuple(arm.arm_id for arm in trial.arms) == tuple(ARM_ENTRYPOINTS)
+
+    seed = json.loads(TASK_SEED_MANIFEST.read_text(encoding="utf-8"))
     assert all(
-        arm.run_ref.source.commit == "93e0eb08e092fed177316517328b7effc2893399"
-        for arm in trial_config.arms
+        arm.run_ref.source.locator == f"file://{seed['repository']['locator']}"
+        and arm.run_ref.source.commit == seed["recipe"]["commit"]
+        for arm in trial.arms
     )
+    visible = json.loads(VISIBLE_CHECK_MANIFEST.read_text(encoding="utf-8"))
+    runner = visible["runner"]
+    expected_command = [
+        "env",
+        *(f"{row['name']}={row['value']}" for row in runner["required_environment"]),
+        runner["python_executable"],
+        *runner["argv_prefix"],
+    ]
+    for invocation in visible["invocations"]:
+        expected_command.extend(invocation["selectors"])
+        for deselector in invocation["deselectors"]:
+            expected_command.extend(("--deselect", deselector))
+    [check] = trial.evaluation["checks"]
+    assert check["command"] == expected_command
+    assert check["timeout_ms"] == 14_400_000
+    assert trial.evaluation["max_item_bytes"] == 4_194_304
+    assert trial.evaluation["diff_cap_bytes"] == 2_097_152
+    assert trial.evaluation["max_packet_bytes"] == 8_388_608
+    assert trial.budget == {
+        "arm_timeout_ms": 172_800_000,
+        "trial_timeout_ms": 216_000_000,
+        "max_evaluator_attempts": 4,
+        "max_evaluator_concurrency": 4,
+    }
 
 
 def test_public_trial_scorer_prepares_the_locked_unrestricted_profile(
