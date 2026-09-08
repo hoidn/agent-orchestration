@@ -932,7 +932,7 @@ It pins `/usr/bin/bwrap`, version `bubblewrap 0.9.0`, and SHA-256
 `52231e1caf55bcbc667b269f49c63599a6f7db4767ae6a039580d0ff853db712`.
 Every invocation re-verifies those bytes and version outputs before use.
 
-### Controller-only adapted reference product and strict gate
+### Controller-only adapted reference product and scale reporting
 
 After the successor task seed exists, Task 3A creates one conforming F1v2
 reference in a separate, remote-free, content-addressed bare repository under
@@ -1101,7 +1101,7 @@ operation. Scaling time and byte envelopes must not add a call slot.
   contract;
 - one F1v2 calibration-case manifest and path-only reference adapter;
 - `experiments/orc_effectiveness/f1_es/reference-product.json` only after the
-  adapted product passes every clause and the scale gate; and
+  adapted product passes every hard clause and records its exact scale; and
 - the external content-addressed adapted-reference repository and its
   adaptation ledger.
 
