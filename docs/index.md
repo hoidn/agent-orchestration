@@ -290,7 +290,7 @@ plus one candidate-declared witness refreeze. Tasks 0, 1, 2, 3, and 3A are
 complete. Task 3A's quality-qualified reference is published at
 `experiments/orc_effectiveness/f1_es/reference-product.json` under record
 SHA-256
-`7d5ba609b13256f8bc3a2b551e3d217519a65fecfedd1e585183b26ef885aa27`.
+`2fe211a9b17b022f00ac016e75996e9e8f04d461905eb8059b7fa7b20e366444`.
 Its measured delta is +14,538/-21,269 production-Python lines; all ten hard
 evaluator clauses and the byte-identical two-run replay passed. The
 owner-selected operational multi-context criterion combines four independently

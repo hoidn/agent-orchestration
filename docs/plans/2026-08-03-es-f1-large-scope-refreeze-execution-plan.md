@@ -1008,8 +1008,16 @@ The replacement resource plan uses these conservative bounds:
 | One four-arm trial | 216,000,000 ms | 60-hour concurrent trial deadline |
 | One complete attempt/block planning allowance | 120 h | Capacity estimate only; not a new runtime deadline |
 | Packet item | 4,194,304 bytes | Per evidence item, including workspace-delta envelope |
-| Candidate diff observation | 2,097,152 bytes | Full-task diff capacity |
+| Candidate diff observation | 4,194,304 bytes | Full-task diff capacity |
 | Frozen evaluation packet | 8,388,608 bytes | Per candidate packet |
+
+Task-4 pre-freeze measurement on 2026-08-31 found that the clean accepted
+reference endpoint's runtime-normalized diff is 3,526,987 bytes. The former
+2,097,152-byte cap would omit 1,429,835 bytes. The owner therefore selected
+4,194,304 bytes, leaving 667,317 bytes of diff headroom; the resulting
+3,785,948-byte workspace-delta item also remains 408,356 bytes below the
+unchanged item cap. This value-only amendment adds no transport, truncation
+mechanism, runtime deadline, provider call, or call slot.
 
 The 120-hour planning allowance follows the current sequential critical path:
 at most 60 hours for the concurrent four-arm E2 trial, 16 hours for four
@@ -1935,7 +1943,7 @@ provider-visible pre-edit pytest count/order plus the one candidate-owned
 selector; separately assert that every controller-only proof
 selector remains outside the authored workflow and provider-visible manifest,
 14,400,000 ms check timeout, 172,800,000 ms arm timeout, 216,000,000 ms trial
-timeout, 4 MiB item cap, 2 MiB diff cap, and 8 MiB packet cap. Separately hash
+timeout, 4 MiB item cap, 4 MiB diff cap, and 8 MiB packet cap. Separately hash
 `qa_placement_arms.orc`, `providers.json`, `prompts.json`, and
 `trial_rubric.md` and require no amendment diff.
 
@@ -2111,7 +2119,7 @@ IDs.
 | Adapter claims authority | evaluator derives all observations, provenance, closure, and bypass results | adapter-authored observation/provenance/classification/pass field rejects |
 | Old seed leaks | new child has only projection parent | old-task-seed parent or old asset rejected |
 | Apparatus drift | same arm topology and call tables | extra call/role/retry/review fails lock validation |
-| Large diff truncation | 2 MiB diff, 4 MiB item, and 8 MiB packet calibration passes | oversized/truncated/unbound packet fails closed |
+| Large diff truncation | 4 MiB diff, 4 MiB item, and 8 MiB packet calibration passes | oversized/truncated/unbound packet fails closed |
 | Estimate mistaken for cost | actual receipts are sole synthesis authority | estimate in receipt or imputation rejected |
 | Line census drifts | strict-UTF-8 `splitlines()` totals count an unterminated final line | LF-only subtotal or changed line method fails validation |
 | Selector coverage is asserted rather than observed | Task 1 reproduces the exact 15-module digest, 386-node collection, 385 passes, and one H10-conflicting exact-node deselection before freezing | stale F1 digest, unknown selector, wrong order, different deselection, controller-only leakage, or a red reconnaissance candidate in the baseline rejects |

@@ -204,7 +204,7 @@ def test_four_cell_trial_compiles_through_the_public_target_225_entry() -> None:
     assert check["command"] == expected_command
     assert check["timeout_ms"] == 14_400_000
     assert trial.evaluation["max_item_bytes"] == 4_194_304
-    assert trial.evaluation["diff_cap_bytes"] == 2_097_152
+    assert trial.evaluation["diff_cap_bytes"] == 4_194_304
     assert trial.evaluation["max_packet_bytes"] == 8_388_608
     assert trial.budget == {
         "arm_timeout_ms": 172_800_000,

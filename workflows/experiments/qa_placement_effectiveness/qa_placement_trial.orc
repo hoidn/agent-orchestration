@@ -165,7 +165,7 @@
           :include
           (list "task_spec" "validated_result" "workspace_delta"
                 "check_results" "declared_artifacts" "failure_evidence")
-          :diff-cap-bytes 2097152
+          :diff-cap-bytes 4194304
           :reveal-provider-identity false)
         :aggregation
         (record
