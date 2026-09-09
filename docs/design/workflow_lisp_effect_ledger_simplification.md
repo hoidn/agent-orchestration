@@ -7,7 +7,8 @@
 - **Owner:** Workflow Lisp frontend
 - **Created:** 2026-08-15
 - **Last material update:** 2026-09-08
-- **Implementation target:** unassigned; selection belongs to roadmap EL-1
+- **Implementation target:** unassigned; selection and bounded steps belong to
+  [roadmap EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
 - **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
 - **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)
 

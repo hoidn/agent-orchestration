@@ -7,6 +7,7 @@
 - **Owner:** Workflow Lisp typechecking, pure-expression lowering, and WCC
 - **Created:** 2026-09-08
 - **Implementation target:** unassigned; this draft selects no work or version
+- **Roadmap:** [EC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#ec-1--pure-call-expression-composition-pending-unselected)
 - **Companion:** [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 - **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
 - **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)

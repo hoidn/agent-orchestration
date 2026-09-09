@@ -61,11 +61,12 @@ from the axis lifecycle below. An improvement or retirement can follow R1a,
 R1b, R2, or R3 without waiting for all five axes to be tested. Execution still
 requires explicit selection and its own bounded allocation.
 
-First-class provider context is tracked separately as
-[PC-1](#pc-1--first-class-provider-context-pending-unselected), a candidate
-language/foundation improvement with its own feasibility and consequence gates.
-It is not a sixth research unit, a new R1a deliverable, or an automatic
-prerequisite for the five-axis studies.
+Language/foundation improvements are tracked independently:
+[EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected),
+[EC-1](#ec-1--pure-call-expression-composition-pending-unselected), and
+[PC-1](#pc-1--first-class-provider-context-pending-unselected).
+Each has its own feasibility and consequence gates. They are not extra research
+units, new R1a deliverables, or automatic prerequisites for the five-axis studies.
 
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
@@ -227,6 +228,76 @@ and updated discovery/selection routing, not just a report saying “abandon.”
 Historical results and pinned ES assets are not deletion targets. This amendment
 selects no removals and does not reopen or cancel independent P/ME/OMP/EL-1 work.
 
+## EL-1 — Effect Contracts And Analysis Cleanup (Pending, Unselected)
+
+**Governing proposal:**
+[Effect Ledger Simplification](../design/workflow_lisp_effect_ledger_simplification.md).
+**Status:** pending, unselected; this incorporation assigns no language target,
+implementation plan, or allocation. The
+[audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
+provides current-behavior counterexamples, not implementation or utility proof.
+
+Prioritize inference-default authoring with meaningful optional restrictions and
+inferred inspection over the existing analysis representation. Internal cleanup
+is a separate conditional decision, not the price of obtaining those benefits.
+
+| Step | Bounded work and evidence | Consequence / next decision |
+| --- | --- | --- |
+| EL-1a — resolve contracts and feasibility | Reuse audit evidence; settle the target/version boundary, defining-scope named subjects, authored versus generated omission, imported contract origin, post-specialization checking, and inferred editor projections. Distinguish an accepted design from remaining compiler feasibility. | Produce a reviewed bounded implementation plan only when its prerequisites are resolved. Revise the contract or language foundation if a real restriction/reuse case cannot be expressed; do not preserve false-empty exemptions or unchecked names merely to pass a fixture. |
+| EL-1b — authoring and inspection vertical slice | Implement omission, checked identity-aware subset/empty clauses, migration of selected forwarding helpers, and resolved-call inspection using existing inference. Exercise ordinary and imported/generic procedures through compile/run/resume, with old-target controls and unchanged runtime evidence. | Record the supported contract and actual limitations. A passing example permits representative adaptation and utility work, not a claim that composition or internal cleanup is complete. |
+| EL-1c — improve or narrow from authoring evidence | Compare dependency addition/removal, provider substitution, imported hook adaptation, and agent-authored revisions under equivalent intentional constraints. Assess source edits, failed compile rounds, coupled changes, diagnosis, and actual effort across the five axes where testable. | Improve recurring resolution, migration, or inspection obstacles. Reconsider type/callable assumptions when implicated; retain useful inference and constraints, but cancel or simplify machinery whose cost is not justified. Untested axes remain untested; no requirement that every axis pass. |
+| EL-1d — optional consumer-led analysis cleanup | Select only for a named maintenance or measured performance problem. Inventory actual consumers; separate located calls from effects where useful; preserve or explicitly version persisted admission facts. Verify same-target decision/identity equivalence only for representation changes. | Delete displaced propagation and temporary comparison paths. If existing summaries are simpler or the gain is absent, cancel this cleanup and retain EL-1b's independent benefit. Do not mandate a fixed footprint, facts-schema change, or permanent dual analysis. |
+
+**Entry and dependencies:** retain EL-1's existing ES hand-back and separate
+owner-selection conditions. Each selected step needs a bounded scope and finite
+allocation; implementation additionally needs accepted governing/version
+contracts and a reviewed plan. EL-1b follows EL-1a; EL-1c follows a working
+authoring slice. EL-1d depends on its own consumer/equivalence evidence, not on a
+positive result on every axis, and is never a prerequisite for EL-1b or EC-1.
+There is no implementation-ready component plan merely because these rows exist.
+
+**Compatibility and closure:** intentionally new syntax gets versioned
+acceptance/rejection tests; internal cleanup gets unchanged-behavior checks.
+Preserve completed-result reuse, concrete operation/source identity, and
+historical evidence. Each completed step records supported behavior, utility
+limits, the next justified improvement or cancellation, and any displaced
+machinery to remove. This work neither gates an E/ES/P exit nor changes studies.
+
+## EC-1 — Pure-Call Expression Composition (Pending, Unselected)
+
+**Governing proposal:**
+[Pure-Call Expression Composition](../design/workflow_lisp_pure_call_composition.md).
+**Status:** the previously listed companion design is now an explicit pending,
+unselected workstream. No implementation, target version, or allocation is
+selected. It is separate from EL-1 and may retain today's effect annotations.
+
+| Step | Bounded work and evidence | Consequence / next decision |
+| --- | --- | --- |
+| EC-1a — prove the normalization boundary | Name a repeated composition obstruction and compare existing `defun`/explicit-binding controls. Resolve phase placement before source rejection, once-only argument representation, specialization/proof scope, private-boundary identity, and target/version semantics. Start with the audit's inline helper but include a runtime-dependent case. | Produce the smallest reviewed implementation plan supported by evidence. Classify actual effects, type/transport, representation, and identity limitations separately; consider shared normalization or a foundational correction before declaring the consumer infeasible. |
+| EC-1b — supported inline composition | Admit the design's resolved-inline subset across record/union fields, list elements, pure maps, and pure callers; include nested/imported/selected-hook cases, not just a constant. Verify argument order/count, branch and map scope, errors, source attribution, and public-entry run/resume; retain real effect/type/transport restrictions. | Publish an honest supported subset and remaining gaps. Delete displaced edge-only rejection or duplicate conversion paths for the new regime; do not count a fixture-specific bypass or helper duplication as completion. |
+| EC-1c — principled expansion or retirement | Apply the subset to recurring reuse/context consumers and assess all five axes independently where evidence exists. Measure duplicate helpers, coupled edits, diagnosis, author/agent repair effort, and useful candidate quality/cost. Compare simpler controls; investigate expansion/control costs rather than assume normalization is free. | Extend shared mechanisms where worthwhile. Revisit callable roles, types, collection transport, or language/lowering assumptions when they repeatedly obstruct useful work. Retain a valuable subset, redesign its foundation, or retire the approach and remove scaffolding; a passing minimum is not the endpoint and one failed axis does not cancel the others. |
+
+**Entry and dependencies:** a named consumer, explicit selection, and a finite
+bounded allocation; accepted design/version contracts and reviewed plan before
+implementation. EC-1b follows EC-1a; EC-1c follows a working representative
+subset. Preserve the compiler/frozen-study hand-back boundary for overlapping
+work. Neither EL-1 completion nor a successful RICH study is required. Prefer
+EC-1 ahead of annotation relief when the actual obstruction is expression
+composition; do not force an unrelated cleanup first.
+
+**Foundation review:** bounded loops, static references, the `defun`/`defproc`
+split, and absent unbounded recursion are revisable design choices, not automatic
+abandonment criteria. A concrete need may justify a type-system or language
+redesign, but this listing does not authorize general effect polymorphism,
+runtime evaluation, new execution engines, or erasure of private checkpoints.
+Completion evidence must name the retained contract and consequent action.
+
+**Coordination with PC-1:** select only a demonstrated shared prerequisite.
+Materialized context transformations can exercise EC-1, while loading/capture
+and context transport have different owners. PC-1a does not require all of
+EL-1/EC-1, and neither is funded by R1a. Scheduling and source ownership for
+overlapping compiler edits must be coordinated before execution.
+
 ## PC-1 — First-Class Provider Context (Pending, Unselected)
 
 **Governing proposal:**
@@ -306,22 +377,12 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - [OMP-I1](2026-08-14-omp-integration-design-and-roadmap.md) remains complete;
   OMP-I2 remains pending and unselected under its existing named-consumer,
   loading-evidence, and owner-activation conditions. Neither gates this spine.
-- [EL-1](../design/workflow_lisp_effect_ledger_simplification.md) remains
-  pending and unselected. Its existing ES hand-back and separate owner-selection
-  entry conditions remain intact. The 2026-09-08 revision separates
-  inference-default identity-aware restrictions and inspection from optional
-  consumer-led metadata cleanup. Accepted baseline/version and specialization
-  migration contracts precede implementation; decision-equivalence comparison
-  applies to representation-only cleanup, not intentionally changed language
-  acceptance. No fixed footprint or new path-facts schema is mandated.
-  It is not an E/ES/P exit gate; runtime checkpoint, resource-transition,
-  Semantic IR, and lineage contracts remain unchanged.
-- [Pure-call expression composition](../design/workflow_lisp_pure_call_composition.md)
-  is a separately reviewable, unselected companion design, not automatically
-  part of EL-1 execution or a new research allocation. Its resolved-inline proof,
-  representative expansion, and improve/reconsider/retire consequences are
-  independent of optional annotations. Select a bounded plan only when justified
-  by a composition consumer; preserve existing compiler/frozen-study boundaries.
+- [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected) and
+  [EC-1](#ec-1--pure-call-expression-composition-pending-unselected) remain
+  independently pending and unselected. Their sections own bounded steps,
+  dependencies, and improvement/redesign/retirement decisions. Neither gates an
+  E/ES/P exit or changes a research allocation; existing runtime evidence and
+  frozen-study boundaries remain intact.
 - C1–C3, E2O, the historical execution registry/fragment machinery, and other
   unselected work remain unselected. The completed REC and Q/L programs are
   not reopened.
@@ -334,6 +395,13 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 This is an authored roadmap, not an executable selector. No E-series tranche
 manifest or queue is introduced. Existing route-readiness records continue to
 describe implemented execution capabilities, not research selection.
+
+This incorporation elaborates the existing EL-1 listing and promotes its
+previously unnumbered pure-call companion to EC-1; PC-1 is unchanged in scope.
+There are now three named pending language/foundation workstreams rather than
+two named entries plus a companion. The five research units, selected work,
+allocations, and completed records are unchanged. No executable manifest/queue
+row, ready-to-run implementation plan, or live workflow selection is added.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector
