@@ -276,6 +276,13 @@ Core authoring forms should include:
 A real frontend should enable typed calls, lexical bindings, pattern matching,
 and reusable workflow functions.
 
+Design direction: a procedure may be effect-free even when `defproc` is useful
+for its reuse or compile-time hook role. Separate semantic effects from whether
+a call can be represented in a pure expression and from its execution/identity
+boundary. The [pure-call composition target](workflow_lisp_pure_call_composition.md)
+specifies the proposed correction; it does not make every current procedure
+expression-compatible or erase private/public workflow boundaries.
+
 ## 14. Macros Are Syntax; Procedures Are Behavior
 
 Status: `frontend requirement`
@@ -309,6 +316,18 @@ Effects include:
 - `materializes_pointer`
 
 No macro, procedure, or frontend form may hide effects from the semantic IR.
+
+Explicit to validation and IR does not necessarily mean handwritten on every
+wrapper. Inferred effects describe possible work; an authored restriction
+expresses a deliberate constraint; runtime evidence records actual execution.
+These must remain distinguishable in inspection. Effect membership alone proves
+neither required execution, termination, nor result quality.
+
+The [effect-contract target](workflow_lisp_effect_ledger_simplification.md)
+proposes inference by default with optional identity-aware upper bounds.
+Until that target is accepted and implemented, current declaration/version
+rules remain unchanged. This direction does not add a provider-tool permission
+system or require a general effect-polymorphic language.
 
 ## 16. Command Adapters Are Explicit Boundaries
 

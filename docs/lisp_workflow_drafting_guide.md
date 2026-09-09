@@ -928,6 +928,14 @@ remains compatibility-gated, and the completed migration wave retained many
 workflow boundaries. Do not promote a family on this guidance alone; use the
 capability matrix and current roadmap evidence for route availability.
 
+Current `defproc` syntax still requires `:effects`; ordinary authored
+procedures are checked for an exact inferred match, while current specialization
+exceptions mean an empty generic clause is not a universal purity promise.
+[Optional effect restrictions](design/workflow_lisp_effect_ledger_simplification.md)
+and [pure-call expression composition](design/workflow_lisp_pure_call_composition.md)
+are separate proposals, not copy-safe current features. Use `defun` or supported
+explicit `let*` binding for today's pure-helper placement needs.
+
 ```lisp
 (defproc ensure-approved-plan
   ((ctx PhaseCtx)

@@ -61,6 +61,12 @@ from the axis lifecycle below. An improvement or retirement can follow R1a,
 R1b, R2, or R3 without waiting for all five axes to be tested. Execution still
 requires explicit selection and its own bounded allocation.
 
+First-class provider context is tracked separately as
+[PC-1](#pc-1--first-class-provider-context-pending-unselected), a candidate
+language/foundation improvement with its own feasibility and consequence gates.
+It is not a sixth research unit, a new R1a deliverable, or an automatic
+prerequisite for the five-axis studies.
+
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
 R1a replaces the earlier fixture/fault/proposal allocation with 24 behavior
@@ -221,6 +227,56 @@ and updated discovery/selection routing, not just a report saying “abandon.”
 Historical results and pinned ES assets are not deletion targets. This amendment
 selects no removals and does not reopen or cancel independent P/ME/OMP/EL-1 work.
 
+## PC-1 — First-Class Provider Context (Pending, Unselected)
+
+**Governing proposal:**
+[Provider Context Values](../design/workflow_lisp_provider_context_values.md).
+**Status:** pending roadmap work; design proposed, implementation unselected,
+no target DSL version or provider allocation assigned. The owner's 2026-09-08
+instruction incorporates the proposal into this roadmap, not into the active
+R1a study or its research allocation.
+
+The intended capability is explicit immutable conversational dataflow: capture
+context, pass/return it through ordinary reusable procedures, transform it, and
+bind it to another provider call. Portable content and native continuation have
+different promises; existing session handles, private execution `RunCtx`, and
+content-free prompt evidence are not implementations of this proposal. Tools
+remain provider/agent-owned. Use the proposal for semantics rather than copying
+its illustrative syntax into runnable workflows.
+
+| Step | Bounded work and evidence | Consequence / next decision |
+| --- | --- | --- |
+| PC-1a — resolve feasibility and design | Name a recurring investigation/handoff consumer and its artifact/skill/SDK baseline. Review the proposal and qualify real adapter capture/import; separately prove immutable native branching if claimed. Test the required generic, aggregate, imported-return, and loop-carried value path, and atomic result/context publication. | Select a reviewed implementation plan only for a demonstrated useful direction. Classify failures as adapter, representation, type/transport, or conceptual limitations; consider a coherent foundation redesign before abandoning the capability. An unsupported native route need not stop a viable portable route. |
+| PC-1b — compositional vertical slice | Implement capture → reusable return → explicit transformation → two independent bindings, with source/coverage/loss inspection and completed-boundary resume. Use declared provider identities initially; runtime-selected provider identity is separate optional foundation work. Verify actual delivered context and absence of sibling conversational leakage. | A passing example establishes the mechanism only. Accept the supported scope, identify actual recurring costs/limitations, and proceed to an explicitly budgeted utility/improvement decision rather than declaring all five axes proved. |
+| PC-1c — improve and compare | Measure shared adaptation, diagnosis, agent-authored context-policy revision, and whole-task context-policy search where each is justified. Compare total authoring, capture/conversion, input-token, storage, and maintenance cost with credible ordinary handoffs on fresh tasks. Improve the identified bottleneck one bounded cycle at a time. | Apply independent five-axis outcomes and the assumption review. Extend selection/compaction, adapter coverage, or language foundations only when evidence supports them; do not require every axis to succeed before retaining a useful subset. |
+| PC-1d — retain, redesign, or retire and simplify | Record retained representations/operations, unsupported claims, affected consumers, and the evidence behind the chosen consequence. Re-evaluate any foundational alternative before committing to migration. | Retain demonstrated useful context flow; replace an obstructive foundation where justified; otherwise remove/cancel unused context operators, duplicate session/transcript plumbing, and experiment-only machinery. Preserve independently useful provider/session and artifact contracts. Cancellation is sufficient for never-built work. |
+
+**Entry:** explicit owner selection of the bounded PC-1 step, accepted governing
+design where implementation is proposed, reviewed component plan, and a finite
+allocation. A named obstruction or useful ordinary-code control can justify
+PC-1a; neither a positive result on all five axes nor completion of R3 is
+required. Do not demand that today's type system first express the capability
+whose obstruction motivates its redesign.
+
+**Foundation review:** preserve ordinary composition as the goal, not a root-only
+session-artifact workaround. Reconsider type/transport, module/control-flow,
+static provider selection, and recursion assumptions when concrete uses justify
+it. Native opacity limits introspection; context does not clone a workspace or
+establish independent judgments. Avoid a universal memory service or parallel
+session manager. Reconcile the separate prompt-queue proposal before any shared
+transport work creates duplicate owners.
+
+The [pure-call composition target](../design/workflow_lisp_pure_call_composition.md)
+and [revised effect proposal](../design/workflow_lisp_effect_ledger_simplification.md)
+identify possible shared foundation corrections. PC-1a distinguishes actual I/O,
+transport/type gaps, expression representation, and private-boundary identity;
+it does not make either entire proposal a prerequisite or treat optional
+annotations as proof of context composition.
+
+**Routing:** this adds one pending, unselected workstream and no executable
+manifest/queue row. The five research units and their current allocations stay
+unchanged. PC-1 requires separate selection/funding.
+
 ## Current ES Boundary
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
@@ -250,9 +306,28 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - [OMP-I1](2026-08-14-omp-integration-design-and-roadmap.md) remains complete;
   OMP-I2 remains pending and unselected under its existing named-consumer,
   loading-evidence, and owner-activation conditions. Neither gates this spine.
+- [EL-1](../design/workflow_lisp_effect_ledger_simplification.md) remains
+  pending and unselected. Its existing ES hand-back and separate owner-selection
+  entry conditions remain intact. The 2026-09-08 revision separates
+  inference-default identity-aware restrictions and inspection from optional
+  consumer-led metadata cleanup. Accepted baseline/version and specialization
+  migration contracts precede implementation; decision-equivalence comparison
+  applies to representation-only cleanup, not intentionally changed language
+  acceptance. No fixed footprint or new path-facts schema is mandated.
+  It is not an E/ES/P exit gate; runtime checkpoint, resource-transition,
+  Semantic IR, and lineage contracts remain unchanged.
+- [Pure-call expression composition](../design/workflow_lisp_pure_call_composition.md)
+  is a separately reviewable, unselected companion design, not automatically
+  part of EL-1 execution or a new research allocation. Its resolved-inline proof,
+  representative expansion, and improve/reconsider/retire consequences are
+  independent of optional annotations. Select a bounded plan only when justified
+  by a composition consumer; preserve existing compiler/frozen-study boundaries.
 - C1–C3, E2O, the historical execution registry/fragment machinery, and other
   unselected work remain unselected. The completed REC and Q/L programs are
   not reopened.
+- [PC-1](#pc-1--first-class-provider-context-pending-unselected) is pending and
+  unselected under its own feasibility, design, plan, and allocation gates.
+  Listing it neither reopens completed programs nor makes it an E/ES/P exit gate.
 
 ## Routing And Historical Records
 
@@ -268,7 +343,7 @@ research direction if that example is used later.
 ## Superseded Historical Routing And Completion Evidence
 
 Everything below is preserved verbatim from the prior roadmap, including
-completion evidence. Its historical
+completion evidence and the owner's pending EL-1 additions. Its historical
 uses of “current,” “active,” “selected,” and imperative next-step language have
 no prospective scheduling authority. Read the current sequence above for new
 work; preserved claims and digests remain attributable to their original
@@ -440,6 +515,24 @@ owner-prioritized OMP follow-on. Neither item may execute against, modify, or
 consume the frozen ES arms or evidence, and neither can gate the ES exit, E3
 review, E-program completion, or the P-series successor route. OMP-I2 owns only
 its deferred capability-selection checks.
+
+The [effect ledger simplification design](../design/workflow_lisp_effect_ledger_simplification.md)
+was incorporated on 2026-08-15 as pending, unselected off-spine item **EL-1**.
+Its 2026-09-08 revision supersedes the original fixed-footprint/call-bit
+implementation order and blanket shadow gate: optional identity-aware
+restrictions, explicit specialization/import migration, and inferred inspection
+are distinct from consumer-led internal cleanup. Pure-call expression composition
+has its own companion design. Accepted effect-graph/frontend/version amendments
+precede implementation; representation-only cleanup preserves existing decisions,
+while language changes require their own acceptance/rejection cases.
+EL-1's earliest eligibility is after hand-back of
+the frozen ES apparatus, because it refactors the same compiler the frozen
+study package uses; incorporation is not selection, and a separate owner
+selection is required. EL-1 never gates the ES exit, E3 review, E-program
+completion, the P-series route, or either OMP item, and checkpoint
+replay/resource-transition/lineage contracts are explicitly out of its
+scope.
+
 Selection does not waive the feasibility, spec-first, ordered-review,
 focused, broad non-security, end-to-end, or exit gates attached to
 roadmap-level units: E exits, ES component tasks, and owner adoptions.
@@ -493,8 +586,8 @@ The historical ledger below is provenance only and cannot redefine or select
 these tranches. C1 is a companion design; C2/C3 from that companion remain
 deferred unless separately incorporated.
 
-Tracked off-spine integrations (owner-directed 2026-08-14; OMP-I1 selected
-2026-08-21 and completed 2026-08-26):
+Tracked off-spine integrations (owner-directed 2026-08-14; EL-1 added
+2026-08-15; OMP-I1 selected 2026-08-21 and completed 2026-08-26):
 
 - **OMP-I1 — generic OMP harness integration:** the exact scope is owned by
   [`2026-08-14-omp-integration-design-and-roadmap.md`](2026-08-14-omp-integration-design-and-roadmap.md):
@@ -525,6 +618,21 @@ Tracked off-spine integrations (owner-directed 2026-08-14; OMP-I1 selected
   E-program closure and the P-series. The metaharness spike, RPC interactive
   lane, and supervision-as-variable study remain separately gated follow-ons,
   not implied OMP-I1 or OMP-I2 scope.
+- **EL-1 — effect ledger simplification:** the exact scope is owned by
+  [`workflow_lisp_effect_ledger_simplification.md`](../design/workflow_lisp_effect_ledger_simplification.md):
+  inference-default optional identity-aware restrictions, enforced authored
+  empty after specialization, explicit imported/generated contract migration,
+  and inferred inspection. Internal metadata cleanup is independently justified
+  by consumers; no fixed footprint or path-facts schema is required. The separate
+  pure-call composition design owns placement/normalization improvements.
+  Checkpoint replay, resource transition, Semantic IR, and lineage contracts
+  remain unchanged.
+- **EL-1 state:** pending, unselected. ES hand-back and separate owner
+  selection are entry conditions; accepted baseline/version amendments precede
+  implementation. Decision identity is required for representation-only cleanup;
+  intended language changes have separate versioned acceptance tests. These are
+  item-local criteria, not a new E/ES/P gate. It has no ordering relation to OMP-I1/OMP-I2 beyond
+  sharing the post-hand-back eligibility boundary.
 
 Sequencing prerequisites (owner-directed 2026-07-30):
 

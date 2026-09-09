@@ -23,6 +23,12 @@ and
 and
 [Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
 
+Proposed, not current: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
+owns optional identity-aware effect restrictions and their migration;
+[pure-call composition](workflow_lisp_pure_call_composition.md) owns expression
+admission and normalization for effect-free procedures. These targets do not
+change this baseline's current syntax, placement, lowering, or identity rules.
+
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
 The compact operating rule is:

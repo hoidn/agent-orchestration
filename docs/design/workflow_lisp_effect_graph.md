@@ -4,6 +4,13 @@ Status: current-checkout component contract
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`,
 `docs/design/workflow_command_adapter_contract.md`
 
+Proposed changes are owned by
+[effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
+(inference-default optional restrictions and consumer-led metadata cleanup) and
+[pure-call composition](workflow_lisp_pure_call_composition.md)
+(semantic effects versus expression representation). Neither is implemented by
+this routing note. Current source retains its declaration and placement rules.
+
 ## Purpose
 
 `EffectGraph` records the side effects of workflow procedures, macros, and
@@ -57,13 +64,22 @@ effect hierarchy.
   Its selected monomorphic specialization contributes the chosen hook's
   effects after resolution.
 
+Current declaration validation is narrower than a universal contract claim:
+ordinary authored procedures require an exact declared/inferred match;
+specializations and generated names are exempted by the current compiler.
+An empty clause on an unresolved generic is therefore not proof that every
+selected call is pure. The proposed target defines a migration, not a silent
+reinterpretation of those definitions.
+
 Inline lowering expands the resolved procedure into its owning workflow. The
 owner-visible carrier is the enclosing `TypedWorkflowDef.effect_summary`,
 which already contains the resolved call summary; there is no separately
 authoritative inline `CompositionFragment.effect_summary`. For
 `:lowering private-workflow`, the generated private `TypedWorkflowDef` carries
-the procedure's resolved transitive summary directly. Semantic IR derives the
-selected effect entries and source provenance from those workflow carriers.
+the procedure's resolved transitive summary directly. These carriers feed
+frontend analysis and lowering. Semantic IR reconstructs concrete operation
+entries and provenance from lowered operations and source metadata; it is not a
+serialization of the typed `EffectSummary`.
 
 These views change compiler bookkeeping only. They do not authorize a workflow
 family migration, a new runtime effect kind, or a weaker declared-effect
@@ -125,9 +141,12 @@ or provider call is invalid.
 
 ## Validation Responsibilities
 
-Effect validation checks:
+Effect validation responsibilities (implemented scope follows the procedure
+views above and current frontend tests):
 
-- declared effects cover inferred effects
+- ordinary authored declarations equal inferred effects; the broader coverage
+  direction does not override current specialization exceptions or make clauses
+  optional
 - disallowed effects are rejected in pure contexts
 - workflow summaries include nested procedure effects
 - resource transitions have required capabilities
