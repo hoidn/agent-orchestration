@@ -4,7 +4,8 @@
   (defmodule lisp_frontend_design_delta/selector)
   (import lisp_frontend_design_delta/types :only
     (BaselineDesignDoc CheckCommandsValue DesignDeltaDrainCtx SelectionBundlePath
-      SelectionStatus SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
+      ProgressLedger SelectionStatus StateFileExisting SteeringDoc TargetDesignDoc
+      WorkItemBootstrapSeed WorkReport))
   (export SelectorPublicResult select-next-work)
 
   (defrecord SelectorInputs
@@ -13,7 +14,10 @@
   (defrecord SelectorPromptSubject
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
-    (baseline_design BaselineDesignDoc))
+    (baseline_design BaselineDesignDoc)
+    (selector_manifest StateFileExisting)
+    (progress_ledger ProgressLedger)
+    (existing_architecture_index WorkReport))
 
   (defrecord SelectorRequest
     (subject SelectorPromptSubject))
@@ -38,7 +42,10 @@
              (record SelectorPromptSubject
                :steering inputs.ctx.steering_path
                :target_design inputs.ctx.target_design_path
-               :baseline_design inputs.ctx.baseline_design_path))
+               :baseline_design inputs.ctx.baseline_design_path
+               :selector_manifest inputs.ctx.manifest
+               :progress_ledger inputs.ctx.progress_ledger_path
+               :existing_architecture_index inputs.ctx.existing_architecture_index_path))
            (request
              (record SelectorRequest
                :subject subject))

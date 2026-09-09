@@ -132,9 +132,10 @@ What the typed declarations buy:
 - The returned bundle is validated against the type before anything
   downstream can see it. There is no parsing code to write, and a
   wrong-shape or wrong-path result fails closed instead of flowing onward.
-- `match` is the only way to reach `c.execution-report` or
-  `b.blocker-class`. Touching a variant field without proof is a compile
-  error; the lowered graph keeps a runtime guard.
+- `match` establishes the variant proof needed to reach `c.execution-report`
+  or `b.blocker-class`. Touching a variant field without proof is a compile
+  error; the lowered graph keeps a runtime guard. Target 2.26 also supports
+  proof from typed discriminant comparisons in conditionals.
 - The bookkeeping — phase state bundles, snapshots, candidate and result
   paths — never appears in the source. It is allocated, tracked, and kept
   private by the runtime; the agent's human-readable report is a view, not
@@ -176,8 +177,8 @@ targets and runtime semantics, not a second authored frontend.
 Fresh `run` accepts only a path whose suffix compares case-insensitively as
 `.orc`; every other source path fails with `.orc required` before run state is
 created. Reports and dashboards may render persisted legacy state without
-parsing its source. Normal resume may acknowledge a completed YAML/YML run as
-already complete; nonterminal legacy resume fails closed.
+parsing its source. Resume rejects every recorded non-`.orc` source with
+`.orc required`, regardless of run terminality or force-restart selection.
 
 Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
 check whether a given surface is implemented, partial, designed, or legacy
@@ -387,8 +388,8 @@ python -m orchestrator dashboard --workspace "$(pwd)"
 # Inspect the target-2.25 terminal trial entry
 python -m orchestrator trial --help
 
-# Run the default non-e2e test loop
-pytest -m "not e2e" -v
+# Run the broad non-e2e test loop from a tmux session
+pytest -q -n 16 --dist=worksteal -m "not e2e"
 ```
 
 ## Versioning

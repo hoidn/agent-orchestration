@@ -1,8 +1,9 @@
-Read the consumed steering, target design, and selector manifest before acting.
-Use `attempt_history_summary` when present to avoid repeating failed or
-completed attempts.
-Use the target design, current source/runtime behavior, and compact selector
-manifest to determine remaining work and DONE eligibility.
+Read `request.subject`: the steering, target design, baseline design,
+selector manifest, progress ledger, and existing architecture index. Use the
+manifest and ledger, including `attempt_history_summary` when present, to avoid
+repeating failed or completed attempts. Use the target design, current
+source/runtime behavior, and manifest to determine remaining work and DONE
+eligibility.
 
 Select exactly one next implementation unit for the target design.
 
@@ -39,48 +40,22 @@ files, move backlog items, or draft architecture content. For design gaps,
 identify one bounded unit for the architect step to turn into an implementation
 architecture.
 
-Write the output bundle JSON to the output-contract path.
+Write the `SelectorPublicResult` JSON bundle required by the output contract
+at its exact runtime-bound path. Set `selection_bundle_path` to that same
+path. Populate `work_item_bootstrap` from the manifest-backed work-item context:
+`work_item_source`, `work_item_id`, `plan_target_path`,
+`check_commands: {"commands": [...]}`, and `architecture_path`.
+Keep `selection_status` and the four routing booleans consistent:
 
-Backlog selection:
+| selection_status | is_selected | is_design_gap | is_done | is_blocked |
+| --- | --- | --- | --- | --- |
+| SELECT_BACKLOG_ITEM | true | false | false | false |
+| DRAFT_DESIGN_GAP | false | true | false | false |
+| DONE | false | false | true | false |
+| BLOCKED | false | false | false | true |
 
-```json
-{
-  "selection_status": "SELECT_BACKLOG_ITEM",
-  "selected_item_id": "<selected_item_id>",
-  "selected_item_path": "<selected_item_path>",
-  "selection_rationale": "short reason"
-}
-```
-
-Design gap:
-
-```json
-{
-  "selection_status": "DRAFT_DESIGN_GAP",
-  "design_gap_id": "<design_gap_id>",
-  "source_design_path": "<target_design_path>",
-  "source_sections": ["Target design section name"],
-  "missing_component": "Under-specified or unimplemented target design unit",
-  "proposed_scope": "Draft one bounded implementation architecture only.",
-  "selection_rationale": "short reason"
-}
-```
-
-Done:
-
-```json
-{
-  "selection_status": "DONE",
-  "selection_rationale": "The target design is implemented and no target design gaps remain."
-}
-```
-
-Blocked:
-
-```json
-{
-  "selection_status": "BLOCKED",
-  "selection_rationale": "short reason",
-  "blocking_reasons": ["short reason"]
-}
-```
+Set `blocked_reason` to the concrete reason for `BLOCKED`, or an empty string
+otherwise. For inactive bootstrap fields, use only existing manifest-backed
+context; do not invent an item or make a terminal result select work merely to
+populate the record. The output contract still requires those fields for
+terminal results.

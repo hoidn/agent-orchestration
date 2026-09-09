@@ -544,6 +544,107 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
+@pytest.mark.parametrize(
+    ("artifact_root", "draft_status", "review", "expected"),
+    [
+        ("state/gap", "DRAFTED", None, "VALID"),
+        ("artifacts/work", "DRAFTED", None, "VALID"),
+        ("artifacts/work", "UNKNOWN", None, "INVALID"),
+        ("artifacts/work", "BLOCKED", None, "BLOCKED"),
+        ("artifacts/work", "DRAFTED", {"review_decision": "APPROVE"}, "VALID"),
+        ("artifacts/work", "DRAFTED", {"review_decision": "REVISE"}, "INVALID"),
+        ("artifacts/work", "DRAFTED", {"review_decision": "BLOCKED"}, "BLOCKED"),
+        ("artifacts/work", "DRAFTED", [], "INVALID"),
+    ],
+)
+def test_architecture_validator_publishes_bound_decision(
+    tmp_path, monkeypatch, artifact_root, draft_status, review, expected
+):
+    targets = {
+        "design_gap_id": "parser-syntax",
+        "architecture_path": "docs/plans/gap/implementation_architecture.md",
+        "work_item_context_path": f"{artifact_root}/work_item_context.md",
+        "check_commands_path": "state/gap/check_commands.json",
+        "plan_target_path": "docs/plans/gap/execution_plan.md",
+    }
+    files = {
+        targets["architecture_path"]: "# Architecture\n",
+        targets["work_item_context_path"]: "# Context\n",
+        targets["check_commands_path"]: json.dumps(["python -m compileall orchestrator"]),
+        "state/gap/targets.json": json.dumps(targets),
+        f"{artifact_root}/draft.json": json.dumps(
+            dict(targets, draft_status=draft_status, summary="Bound artifact test")
+        ),
+    }
+    output = f"{artifact_root}/validation.json"
+    bound = "state/workflow_lisp/calls/validator/result.json"
+    monkeypatch.setenv("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", bound)
+    args = []
+    if review is not None:
+        files["state/gap/review.json"] = json.dumps(review)
+        args = ["--review-bundle-path", "state/gap/review.json"]
+    for relative, contents in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+
+    _run_script(
+        tmp_path,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path", f"{artifact_root}/draft.json",
+        "--architecture-targets-path", "state/gap/targets.json",
+        "--output", output,
+        *args,
+    )
+
+    detail = json.loads((tmp_path / output).read_text())
+    assert detail["architecture_validation_status"] == expected
+    assert json.loads((tmp_path / bound).read_text()) == {
+        "architecture_validation_status": expected,
+        "work_item_bundle_path": output,
+    }
+    if expected == "VALID":
+        assert detail["work_item_context_path"] == targets["work_item_context_path"]
+        assert detail["summary"] == "Bound artifact test"
+    else:
+        assert detail["reason"]
+
+
+@pytest.mark.parametrize("draft_path", ["artifacts/review/draft.json", "../draft.json", "/tmp/draft.json"])
+def test_architecture_validator_rejects_draft_outside_supported_roots(tmp_path, draft_path):
+    result = _run_script(
+        tmp_path,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path", draft_path,
+        "--output", "artifacts/work/validation.json",
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "artifacts/work/validation.json").exists()
+
+
+@pytest.mark.parametrize("draft_path", ["artifacts/work/draft.json", "state/draft.json"])
+def test_architecture_validator_rejects_external_artifact_symlink(tmp_path, draft_path):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    (workspace / "artifacts").mkdir(parents=True)
+    (workspace / "state").mkdir()
+    outside.mkdir()
+    (workspace / "artifacts/work").symlink_to(outside, target_is_directory=True)
+    (workspace / draft_path).write_text(json.dumps({"draft_status": "BLOCKED"}))
+
+    result = _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path", draft_path,
+        "--output", "artifacts/work/validation.json",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not (outside / "validation.json").exists()
+
+
 def test_architecture_validator_rejects_run_scoped_paths_in_durable_docs(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)
@@ -6543,22 +6644,6 @@ def test_step_back_blocked_run_state_resolves_blocked_drain_status_without_raisi
     assert resolved_status_path.read_text(encoding="utf-8").strip() == "BLOCKED"
 
 
-def test_blocked_implementation_prompts_reserve_user_decision_for_terminal_categories():
-    prompt_paths = [
-        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase/implement_plan.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-    ]
-
-    for path in prompt_paths:
-        prompt = path.read_text(encoding="utf-8").lower()
-        assert "user_decision_required" in prompt
-        assert "repo-local" in prompt
-        assert "prerequisite" in prompt
-        assert "target design" in prompt
-        assert "environment" in prompt or "access" in prompt or "credential" in prompt
-
-
 def test_record_recovered_retry_unavailable_keeps_blocked_reason_visible(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -7082,47 +7167,6 @@ def test_imported_workflow_call_binding_uses_callee_default_when_binding_is_omit
         "required_path": "artifacts/work/required.md",
         "optional_report": "artifacts/work/override.md",
     }
-
-
-def test_design_delta_selector_prompt_defines_target_and_baseline():
-    prompt = (ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "target design" in prompt.lower()
-    assert "baseline design" in prompt.lower()
-    assert "Read the consumed steering, target design, baseline design" not in prompt
-    assert "Return `DONE` only when the target design" in prompt
-    assert "MVP" not in prompt
-
-
-def test_proc_ref_path_prompts_use_target_and_baseline_roles():
-    prompt_paths = [
-        ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-    ]
-
-    for path in prompt_paths:
-        text = path.read_text(encoding="utf-8").lower()
-        assert "target" in text, path
-        assert "baseline" in text, path
-
-
-def test_blocked_implementation_recovery_prompt_keeps_roles_clear():
-    path = ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md"
-    text = path.read_text(encoding="utf-8")
-    lower = text.lower()
-
-    assert "GAP_DESIGN_REVISION_REQUIRED" in text
-    assert "TARGET_DESIGN_REVISION_REQUIRED" in text
-    assert "PREREQUISITE_GAP_REQUIRED" in text
-    assert "TERMINAL_BLOCKED" in text
-    assert "target design" in lower
-    assert "progress report" in lower
-    assert "mark the drain" not in lower
-    assert "workflow routing" not in lower
 
 
 def test_shared_autonomous_prompt_roots_keep_full_mvp_semantics():

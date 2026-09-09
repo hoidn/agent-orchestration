@@ -44,11 +44,13 @@ Write:
 - a work-item context Markdown file at the target context path;
 - a JSON list of deterministic check commands at the target check-commands
   path;
-- the draft bundle JSON at the output-contract path.
+- the complete draft artifact JSON at `request.targets.draft_bundle_path`;
+- the separate typed result `{"draft_status": "DRAFTED"}` at the runtime-bound
+  output-contract path.
 
 Do not edit source code, backlog queues, run state, or unrelated docs.
 
-Use this bundle shape:
+Use this shape for the complete draft artifact:
 
 ```json
 {
@@ -62,7 +64,9 @@ Use this bundle shape:
 }
 ```
 
-If the gap cannot be safely architected:
+If the gap cannot be safely architected, write this draft artifact at
+`request.targets.draft_bundle_path` and return `{"draft_status": "BLOCKED"}`
+at the output-contract path:
 
 ```json
 {

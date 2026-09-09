@@ -29,7 +29,11 @@ Use these labels consistently:
   primitive.
 - `Designed`: design exists, but implementation is not complete enough for
   normal use.
+- `Planned`: roadmap position and a gated plan exist, but the governing design
+  is not yet accepted and implementation must not begin.
 - `Future`: intentionally deferred.
+- `Retired`: removed from the live product or evidence surface; retained
+  references are historical provenance.
 - `Legacy`: retained for compatibility or migration comparison, not preferred
   for new authoring.
 - `Historical`: useful context, but not a current authority.
@@ -42,14 +46,25 @@ into current guidance by omission.
 - Runtime and DSL behavior: `specs/` wins.
 - Current Workflow Lisp contracts: accepted component docs under `docs/design/`
   and current tests/examples provide the implementation-facing contract.
-- Authoring guidance: `docs/workflow_drafting_guide.md` and
-  `docs/lisp_workflow_drafting_guide.md`.
+- Runnable workflow authoring: `docs/lisp_workflow_drafting_guide.md`.
+- Historical YAML/YML interpretation and translation:
+  `docs/workflow_drafting_guide.md`; the retired frontend cannot execute it.
 - Design routing: `docs/design/README.md`.
 - Surface status: `docs/capability_status_matrix.md`.
 - Historical orientation: `MIND_MAP.md`.
 
 If two docs disagree, fix the lower-authority or stale doc rather than copying
 the disagreement forward.
+
+Indexes, catalogs, maps, and README hubs own discoverability: links, reading
+paths, status, and evidence routing. They do not redefine the behavior or policy
+owned by the linked spec, design, plan, or artifact contract.
+
+## Durable References
+
+Reference mutable source and documentation by path, symbol, or section. Use
+exact line numbers only for immutable evidence artifacts or when the line itself
+is the claim under review.
 
 ## Copy-Safe Examples
 

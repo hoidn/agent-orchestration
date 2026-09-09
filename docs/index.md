@@ -200,7 +200,7 @@ navigation are complete.
 ### [M0 Green Baseline Implementation Plan](plans/2026-07-29-m0-green-baseline-component-plan.md)
 **Description:** Historical reviewed five-task M0 plan. The exact candidate closed at `f15b888d`, tree `8a75f24f`, after ordered external reviews and a 418-pass postcommit control.
 **Keywords:** workflow-lisp, substrate, m0, green-baseline, refusal-diagnostic, routing
-**Use this when:** Auditing historical-complete M0. Use the M1 component plan for the current selected substrate tranche.
+**Use this when:** Auditing historical-complete M0 and its handoff to the now-completed M1 estate-shrink work. Use the substrate track for current selection status.
 
 ### [M1 Estate Shrink Implementation Plan](plans/2026-07-29-m1-estate-shrink-component-plan.md)
 **Description:** Historical complete M1 execution record. Tasks 0–7 deleted served-purpose retirement, migration, queue, and gate machinery, narrowed bounded compatibility shims, and excluded demo support from wheels; Task 8 reversibly archived 4,168 closed/legacy run directories while retaining six current `.orc` runs; Task 9 and the postcommit selector closed at `57c2604e`, tree `fc0fdbef`.
@@ -362,7 +362,7 @@ Historical ES tranche reviews remain at
 **Use this when:** Reviewing the completed family-wave classifications, retention decisions, exact evidence, or Stage-6 handoff; do not re-execute it as the live selector.
 
 ### [User-Facing YAML Retirement Program](plans/2026-07-07-yaml-retirement-program.md)
-**Description:** Completed Stage-6 retirement program. All five deletion/archive queues are drained, the authored YAML/YML workflow estate is empty, both `.orc` ports are promoted, fresh non-`.orc` execution rejects before state creation, the production YAML parser and PyYAML dependency are removed, and Task 7 passed its final comparison and review gates.
+**Description:** Completed Stage-6 retirement program. All five deletion/archive queues are drained, the authored YAML/YML workflow estate is empty, both `.orc` ports are promoted, fresh non-`.orc` execution rejects before state creation, the production YAML workflow parser is removed, and Task 7 passed its final comparison and review gates. OMP configuration separately uses PyYAML; authored YAML workflows remain retired.
 **Keywords:** yaml, yml, retirement, complete, deletion-first, orc
 **Use this when:** Reviewing the completed deletion queues, ORC-only frontend contract, final baseline comparison, or Stage-6 review closure.
 
@@ -372,9 +372,9 @@ Historical ES tranche reviews remain at
 **Use this when:** Reviewing the lifecycle-specific v2 archive/replay contract for the invalidated Task 2 attempt. It corrects that attempt only and does not alter YAML-retirement roadmap ordering.
 
 ### [YAML-Retirement Task 2 Commit-Lineage Restart Implementation Plan](plans/2026-07-22-yaml-retirement-task-2-commit-lineage-restart-implementation-plan.md)
-**Description:** Active execution plan for reviewed implementation authority, exact incident/disposition capture, byte-preserving relocation, tracked-ledger restoration, and a fresh Task 2 attempt at the real HEAD.
+**Description:** Historical corrective plan for a Stage-6 Task-2 incident: reviewed implementation authority, exact incident/disposition capture, byte-preserving relocation, tracked-ledger restoration, and commit-aligned restart.
 **Keywords:** yaml, retirement, task-2, implementation, evidence, restart
-**Use this when:** Executing or auditing the corrective recovery sequence for the owner-adopted uncommitted Task 2 attempt. It remains subordinate to the Stage-6 Task-6 plan and does not reorder the roadmap.
+**Use this when:** Auditing the incident-specific corrective sequence under the completed Stage-6 retirement program. This preserved plan does not select a new Task-2 attempt or reorder current work.
 
 ### [YAML-to-Workflow-Lisp Gap List](workflow_yaml_orc_gap_list.md)
 **Description:** Completed Stage-6 Task-1 contract that governed the two promoted `.orc` ports and the owner-dispositioned holdout through their now-complete fail-closed gates; specification PASS and quality APPROVED.
@@ -437,9 +437,9 @@ Historical ES tranche reviews remain at
 **Use this when:** Reviewing why Task 6 performed no source/history migration before the completed Task 7 handoff and Task 8 closeout.
 
 ### [Procedure-First Reuse Inventory](plans/2026-07-13-procedure-first-reuse-inventory.md)
-**Description:** Reviewed current inventory of 95 active internal authored call sites—0 procedure candidates, 32 effect adapters, and 63 legacy-retire sites—plus 13 separately recorded public entries and one append-only migrated-history row, with machine-readable provenance in the adjacent JSON file.
+**Description:** Frozen Stage-5 handoff inventory of 95 internal authored call sites—0 procedure candidates, 32 effect adapters, and 63 legacy-retire sites—plus 13 public entries and one migrated-history row. Stage 6 subsequently drained all 63 YAML retirement rows; the adjacent JSON preserves that historical population.
 **Keywords:** procedure-first, inventory, migration, effect-adapter, legacy-retire, public-boundary
-**Use this when:** Selecting a concrete migration family or checking why a call site is migrated, retained, or routed to YAML retirement.
+**Use this when:** Auditing historical migration and retention decisions. Use the current roadmap and route-readiness registry for new work, not this frozen inventory.
 
 **Component-plan routing:** The refactoring, drain/G8 retirement, Stage-4 design, native returns, typed guidance, resolved-effect substrate, identity prerequisites, [tracked-plan pilot](plans/2026-07-13-procedure-first-pilot-plan.md), and [resume projection-integrity hardening implementation](plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md) are complete. The hardening design/specification/planning commits remain `1cd60767`, `52e2b05f`, `00135832`, and `26a5d3db`; runtime implementation and its reviewed gate closed at `fdf1e06b`. **The [procedure-first migration waves implementation plan](plans/2026-07-13-procedure-first-migration-waves-plan.md) is historical complete. Task 1 rebaselined at `4983afff` plus `fa16bcf0`; Task 2 completed at `daff694c`: Step 1's [tracked-design identity decision](plans/2026-07-16-tracked-design-phase-identity-retirement-plan.md) and Step 2's [implementation-phase identity decision](plans/2026-07-16-design-plan-impl-implementation-phase-identity-retirement-plan.md) retained 26- and 24-consumer boundaries, while Step 3's [same-file strict-compatibility decision](plans/2026-07-16-same-file-build-checks-identity-retirement-plan.md) retained the live route. Task 3's [exported-workflow retention decision](plans/2026-07-16-design-delta-exported-workflow-retention-plan.md) retained seven calls. Task 4 closed at `c9687539`, `26d9ecd0`, and `848ceb52`. Task 5 retained 4 + 6 + 9 + 2 = 21 calls under the [finalizer-projection](plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md), [blocked-recovery](plans/2026-07-16-design-delta-blocked-recovery-lowering-retention-plan.md), [phase-orchestration](plans/2026-07-16-design-delta-phase-orchestration-retention-plan.md), and [completed-finalization](plans/2026-07-16-design-delta-completed-finalization-lowering-retention-plan.md) decisions. Task 6's [drain-builder checkpoint-retention decision](plans/2026-07-16-design-delta-drain-builder-checkpoint-retention-plan.md) retained the sole private builder call; Task 6 is complete. Task 7 handed all 63 legacy-retire rows to Stage 6 at `7e6adc36`. Task 8 sealed 565 passed/6 skipped focused, 36 passed routing, and 4992 passed/17 skipped with six established unrelated broad failures adjudicated as four digest-exact plus two logger-location-only; specification PASS and quality APPROVED closed the wave. The final inventory is 0 procedure candidates, 32 effect adapters, 63 legacy-retire rows, 13 public entries, and one history row, so procedure-first adoption is not universal.** Stage 6 YAML retirement Tasks 1-7 are complete: the ORC-only frontend, parser removal, 1,020-passed/5-skipped focused gate, fresh smoke, zero-new-failure scoped broad comparison, and ordered specification PASS/quality APPROVED reviews closed the stage at `d9baa120`. Its owner is the [YAML retirement program](plans/2026-07-07-yaml-retirement-program.md). [Provider live binding](design/workflow_lisp_provider_live_binding.md) v1 implementation landed through `4d4f05c7` and is complete through Task 15 and Gate S7-v1 under its reviewed [execution plan](plans/2026-07-23-provider-live-binding-implementation-plan.md); the separate target-2.17 [v1.1 peer-messaging design](design/workflow_lisp_provider_peer_messaging.md) and reviewed [implementation plan](plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md) are implemented through `b08c04a6`. Task 12's documentation, verification, and ordered `TASK12_FINAL_SPEC_APPROVED` / `TASK12_FINAL_QUALITY_APPROVED` reviews close Gate S7-v1.1 and Stage 7. The [pure list-traversal design](design/workflow_lisp_pure_list_traversal.md) and its reviewed [implementation plan](plans/2026-07-25-workflow-lisp-pure-list-traversal-implementation-plan.md) are implemented and complete for the exact target-2.18 bounded surface. The final [language-server design](design/workflow_lisp_language_server.md) and its reviewed nine-task [implementation plan](plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md) are implemented; Stage 8 and the numbered roadmap are complete. The completed pilot remains one narrow evidence-only exception. The [Stage-0 activation plan](plans/2026-07-09-procedure-first-roadmap-activation-plan.md) is historical activation evidence.
 
@@ -498,14 +498,14 @@ re-reviewed. No successor substrate tranche is selected.
 **Current procedure-first substrate:** Native returns, typed guidance, the resolved-effect substrate, lowering/checkpoint/provenance prerequisites, generic resume projection-integrity hardening, the bounded migration wave, provider-supervision v1, cooperative peer messaging v1.1, bounded target-2.18 list traversal, prompt-calculus Q0–Q3, and language-server v1 plus its L0 reliability, L1 authored-symbol/signature, L2 recovery-static-completion, L3 per-source-entry-selection, and L5 authored-reference-navigation tranches are implemented and gated. The match-scoped retirement scanner/record implementation and the one reviewed internal pilot are historical evidence after M1, not a current generator route. The wave intentionally retains 32 effect adapters and therefore does not establish universal procedure-first conversion. Its 63 YAML legacy rows completed the Stage-6 deletion queues; no numbered roadmap stage remains active. No current non-numbered substrate tranche is selected; the incorporated E track owns its own unselected gates.
 
 ### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
-**Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
+**Description:** Historical work instructions for the incorporated post-foundation composition target, preserving its state-reuse policy, source material, work order, and claim boundaries.
 **Keywords:** lisp-frontend, autonomous-drain, work-instructions, full-design, procedural-prescriptions
-**Use this when:** Preparing or reviewing Workflow Lisp drain work that needs the upfront procedure separated from semantic specs and workflow mechanics.
+**Use this when:** Auditing the original drain procedure and state-reuse rationale. Current component contracts and the active roadmap own later work.
 
 ### [Local Workflow Steering](steering.md)
-**Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the released v2.14 runtime surface and current Phase 2 workflow-translation gate.
+**Description:** Local steering input path, currently empty in the checkout; it does not select a phase or establish a v2.14 translation gate.
 **Keywords:** steering, backlog-drain, dsl-v214, roadmap-gate
-**Use this when:** Launching or reviewing the local NeurIPS-style workflow for DSL v2.14 materialization and variants.
+**Use this when:** Checking local steering supplied to a workflow. Use the current roadmap for project work selection and provide the steering required by the chosen workflow.
 
 ### [Verified-Iteration Drain](design/verified_iteration_drain.md)
 **Description:** Implemented verified-iteration drain whose promoted Workflow Lisp primary runs a single fused-session select/plan/implement/verify loop and treats the repo, git history, and check exit codes as sole authority. New launches use `workflows/library/verified_iteration_drain/drain.orc`; its retired YAML twin survives only in history and parity evidence.
@@ -573,19 +573,19 @@ re-reviewed. No successor substrate tranche is selected.
 **Use this when:** Aligning implementation, tests, and docs for the current Workflow Lisp macro surface rather than the broader future macro design.
 
 ### [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
-**Description:** Narrow MVP tranche for proving the Lisp frontend with typed records/unions, `provider-result`, `command-result`, `match`, source-span diagnostics, and one real v2.14 phase translation before adding user macros or the full procedural library.
+**Description:** Historical first-tranche scope for the Lisp frontend with typed records/unions, `provider-result`, `command-result`, `match`, source-span diagnostics, and a v2.14 phase translation. Later implemented surfaces are owned by the current frontend baseline.
 **Keywords:** lisp-frontend, mvp, workflow-language, core-ast, typed-unions, match
-**Use this when:** Planning the first implementable Lisp frontend tranche or deciding which parts of the full frontend specification are intentionally deferred.
+**Use this when:** Auditing the original MVP boundary; use the capability matrix and current frontend baseline for availability and authoring.
 
 ### [Workflow Lisp Procedure References And Partial Application](design/workflow_lisp_proc_refs_partial_application.md)
-**Description:** Accepted design delta and active implementation target for compile-time `ProcRef` and `bind-proc` partial application without runtime procedure values.
+**Description:** Implemented design delta for compile-time `ProcRef` and `bind-proc` partial application without runtime procedure values.
 **Keywords:** lisp-frontend, procref, defproc, partial-application, higher-order
-**Use this when:** Implementing, reviewing, or planning the focused ProcRef / partial-application extension to the Workflow Lisp frontend.
+**Use this when:** Authoring or reviewing the implemented ProcRef / partial-application contract and its compile-time-only boundary.
 
 ### [Workflow Lisp Local ProcRef Bindings](design/workflow_lisp_let_proc_local_proc_refs.md)
-**Description:** Proposed follow-on design delta for `let-proc`, a compile-time lexical procedure-binding form that closure-converts to generated `defproc` plus existing `ProcRef` semantics.
+**Description:** Implemented bounded V1 `let-proc` contract: one local typed binding with explicit captures specializes through generated private `defproc` plus existing `ProcRef` semantics.
 **Keywords:** lisp-frontend, let-proc, procref, lexical-procedure, compile-time
-**Use this when:** Reviewing local procedure authoring ergonomics without runtime closures or a second lowering path.
+**Use this when:** Authoring or reviewing supported local procedure bindings and their explicit scope/capture restrictions, without runtime closures or a second lowering path.
 
 ### [Workflow Lisp Provider Prompt Queue](design/workflow_lisp_provider_prompt_queue.md)
 **Description:** Proposed design for a static `prompt-queue` grouping on provider invocation forms: one atomic runtime step drives N sequential turns against one persisted provider session, with step-level prompt injections on the first turn and the output contract plus result bundle on the final turn only.
@@ -644,9 +644,11 @@ atomic validation, a real review consumer, resume evidence, and Q3 handoff.
 **Keywords:** lisp-frontend, prompt-calculus, output-position, implementation-plan, target-2.21
 **Use this when:** Auditing Q2 implementation order, verification, the bounded
 Task-7 capture incident, and ordered final reviews. Q2 is shipped; Q3
-subsequently closed. Current selection comes from the active
+subsequently closed. The
 [language-quality roadmap](plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md)
-according to its remaining entry gates.
+is completed history. Current selection routes through the
+[evolution follow-on roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
+and its existing entry gates.
 
 ### [Workflow Lisp Prompt Identity Diagnostics](design/workflow_lisp_prompt_identity_diagnostics.md)
 **Description:** Implemented target-2.22 Q3 design for content-free,
@@ -660,8 +662,8 @@ its direct-fragment-only target boundary, content-free evidence/report schema,
 fixed drift order, or compatibility/non-authority guarantees. Q4's concrete
 consumer is bound, and its original design and pre-Q5 plan were accepted after
 ordered reviews. Q5 Task 14 and the canonical transplant are complete; the
-Q5-era Q4 design amendment is accepted at `3c21ceb4`; Q4 is now an implemented
-closure candidate under reviewed amended plan `0f21636b`.
+Q5-era Q4 design amendment is accepted at `3c21ceb4`; Q4 is complete under reviewed amended plan `0f21636b`; the judgment-views
+entry below routes to its closure evidence.
 
 ### [Workflow Lisp Judgment Views](design/workflow_lisp_judgment_views.md)
 **Description:** Implemented Q4 inspection-only design joining validated provider
@@ -833,9 +835,9 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Use this when:** Evaluating future runtime closure pressure without weakening `ProcRef` or `let-proc`.
 
 ### [Lisp ProcRef Partial Application Work Instructions](plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md)
-**Description:** Procedural instructions for the focused ProcRef / `bind-proc` implementation tranche, separating the active delta target from the parent frontend baseline.
+**Description:** Historical instructions for the implemented ProcRef / `bind-proc` tranche, preserving its original target/baseline separation.
 **Keywords:** lisp-frontend, procref, work-instructions, proc-ref-drain, procedural-prescriptions
-**Use this when:** Launching or reviewing the focused ProcRef drain workflow.
+**Use this when:** Auditing the original focused ProcRef drain; use the implemented component contract for current work.
 
 ### [Workflow Lisp Refactoring Backlog](plans/2026-05-23-workflow-lisp-refactoring-backlog.md)
 **Description:** Refactoring backlog for reducing maintenance cost in `orchestrator/workflow_lisp/` while preserving the current compiler architecture, diagnostics, provenance, type safety, effect visibility, and lowering behavior.
@@ -897,14 +899,14 @@ and closure. The plan passed `L3_PLAN_SPEC_APPROVED` then
 **Use this when:** Planning or reviewing compiler-lane post-foundation work, especially nested structured control, loops, stdlib review/revise composition, returned-variant lowering, route compatibility, or WCC evidence.
 
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
-**Description:** Approved execution-ready plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.
+**Description:** Historical execution plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.
 **Keywords:** lisp-frontend, migration, workflow-lisp, parity, execution-plan
-**Use this when:** Reproducing or reviewing the exact migration scope, file ownership, and required verification checks.
+**Use this when:** Auditing the original migration scope, file ownership, and verification requirements; current regression claims use route readiness and direct owner tests.
 
 ### [Lisp Migrate Key Workflows Execution Summary](plans/2026-05-29-lisp-migrate-key-workflows-execution-summary.md)
-**Description:** Durable implementation summary for the 2026-05-29 migration pass, including delivered artifacts, verification outcomes, and current parity status against YAML primaries.
+**Description:** Historical implementation summary for the 2026-05-29 migration pass, including delivered artifacts, verification outcomes, and its then-current parity status against YAML primaries.
 **Keywords:** lisp-frontend, migration, execution-summary, parity-status
-**Use this when:** You need a concise durable record of what shipped and what parity gaps remain.
+**Use this when:** Auditing what shipped in that migration pass and which parity gaps remained at its recorded revision. YAML primaries and their live promotion generator are now retired.
 
 ### [Dashboard Observability Summary GUI](design/dashboard_observability_summary_gui.md)
 **Description:** Design note for the dashboard summary-hub page that renders provider/phase summaries from `RUN_ROOT/summaries/index.json` and links detailed call-frame summaries through safe run-file routes.
@@ -1005,9 +1007,9 @@ before adding or preserving the command boundary.
 **Use this when:** Interpreting or translating retired YAML/YML source; do not use it as a runnable authoring guide.
 
 ### [Local Workflow Steering](steering.md)
-**Description:** Current local steering for the DSL v2.14 backlog-drain run, including selectable and deferred roadmap phases.  
+**Description:** Local steering input path, currently empty; project phase selection remains owned by the current roadmap.
 **Keywords:** steering, local-run, roadmap-gate, dsl-v214  
-**Use this when:** Running or auditing the local NeurIPS-style backlog workflow.
+**Use this when:** Checking the local steering input required by a chosen workflow; this path is not a project roadmap.
 
 ## Normative Spec Modules (`specs/`)
 
@@ -1127,6 +1129,11 @@ before adding or preserving the command boundary.
 
 ## Testing and Validation
 
+### [Project Consistency Quality Pass — 2026-09-08](reports/2026-09-08-project-consistency-quality-pass.md)
+**Description:** Project-wide consistency findings, bounded corrections, authority choices, verification, and remaining selector, recovery, legacy-test, and historical-evidence limitations.
+**Keywords:** consistency, audit, contracts, routing, prompts, verification
+**Use this when:** Reviewing this pass's corrections and evidence limits; it does not select roadmap work or supply research adoption.
+
 ### [E2E Testing Guide](../tests/README.md)
 **Description:** Canonical testing guidance for this repo, including targeted pytest usage, collection checks for new tests, and workflow/demo smoke commands.  
 **Keywords:** testing, e2e, pytest, verification, smoke-checks  
@@ -1202,5 +1209,5 @@ before adding or preserving the command boundary.
 
 ---
 
-*Last updated: July 2026*
+*Last updated: September 2026*
 *Style: detailed catalog with descriptions, keywords, and task-oriented navigation*

@@ -118,9 +118,13 @@ the current codebase. Use it to understand the target architecture, the semantic
 constraints that must not be weakened, and the staged path from MVP to full
 frontend.
 
-For current implementation status, use the active Lisp frontend run state,
-implementation plans, test results, and the MVP comparison document. For the
-bounded first tranche, start with
+For current implementation status, start with the
+[capability matrix](../capability_status_matrix.md), its linked component
+contracts and tests, and the
+[route-readiness registry](../workflow_lisp_route_readiness_registry.json).
+The [documentation hub](../index.md) routes current work selection; an older
+drain state or MVP report is not a current selector. For the historical
+bounded first tranche, read
 [Workflow Lisp Frontend MVP Specification](workflow_lisp_frontend_mvp_specification.md)
 and [Workflow Lisp MVP Comparison](../workflow_lisp_mvp_comparison.md).
 
@@ -1018,6 +1022,12 @@ The accepted model is:
 
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
+
+Bounded V1 `let-proc` adds one local typed procedure with explicit identifier
+captures and `(proc-ref local-name)` references. It specializes a private
+generated procedure through ordinary `defproc` lowering; nested or recursive
+local procedures and escaping procedure references remain rejected. See the
+[implemented local-binding contract](workflow_lisp_let_proc_local_proc_refs.md).
 
 ### 7.9 Type Parameters And Structural Constraints
 

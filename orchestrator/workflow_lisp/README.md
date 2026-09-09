@@ -18,13 +18,15 @@ Start with these project docs before changing the package:
   accepted WCC/schema-2 compiler substrate for migrated Workflow Lisp routes.
 - [Workflow Lisp Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md):
   completed foundation target for structured output authority, private value
-  transport, strict parity gates, and generated path allocation.
+  transport, and generated path allocation; its manifest-driven parity gates
+  are historical evidence.
 - [Workflow Lisp Post-Foundation Composition And Stdlib Migration](../../docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md):
-  active migration target for nested composition, stdlib reuse, private
-  executable context, typed projection, resource transitions, and parent
-  callable parity evidence.
+  incorporated historical target for nested composition, stdlib reuse,
+  private executable context, typed projection, resource transitions, and
+  parent-callable parity evidence. Use the frontend and component contracts
+  for current behavior; the inventory and parity generator are retired.
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](../../docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md):
-  target design for the small runtime core, pure expression surface,
+  incorporated historical target for the small runtime core, pure expression surface,
   materialized views, typed transitions, context generalization, and retiring
   workflow-semantics Python adapters.
 - [Workflow Lisp Frontend MVP Specification](../../docs/design/workflow_lisp_frontend_mvp_specification.md):

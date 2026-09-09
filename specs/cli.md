@@ -92,8 +92,12 @@
 - Output control
   - `--quiet`, `--verbose`, `--json` (optional/post-MVP), `--log-level debug|info|warn|error`
 
-- Environment variables
+- Planned environment defaults (not implemented)
   - `ORCHESTRATE_DEBUG=1`, `ORCHESTRATE_STATE_DIR=/tmp/runs`, `ORCHESTRATE_LOG_LEVEL=debug`, `ORCHESTRATE_KEEP_RUNS=30`
+  - These reserved names currently have no CLI effect. Use `run --debug`,
+    `run --log-level`, and `run`/`resume --state-dir` for supported controls.
+    Automatic retention is not implemented; its deletion and precedence
+    contract must be specified before `ORCHESTRATE_KEEP_RUNS` is activated.
 
 - Safety
   - `--clean-processed` only operates on the configured `processed_dir` when it resolves within WORKSPACE.
@@ -176,7 +180,11 @@ orchestrate watch workflows/examples/cycle_guard_demo.orc
 --log-level debug|info|warn|error
 ```
 
-### Environment Variables
+### Planned Environment Defaults
+
+The following legacy proposal is not implemented. Setting these variables
+does not change run location, logging, or retention. Use the supported flags
+listed above; these names do not imply an automatic cleanup policy.
 
 ```bash
 ORCHESTRATE_DEBUG=1

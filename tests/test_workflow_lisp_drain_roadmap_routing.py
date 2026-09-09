@@ -1068,7 +1068,22 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     assert "| Retired |" in yaml_row
     assert "all five content addressed queues are drained" in normalized_yaml_row
     assert "fresh run is orc only" in normalized_yaml_row
-    assert "loader and project pyyaml dependency are removed" in normalized_yaml_row
+    assert "tests/test_yaml_frontend_retirement.py" in yaml_row
+    assert ".orc required" in yaml_row
+    assert "yaml workflow loader is removed" in normalized_yaml_row
+    assert "omp configuration" in normalized_yaml_row
+    omp_row = _markdown_table_row(
+        capability_matrix_path, "OMP-I1 provider, prompt-scaffold, and session bridge"
+    )
+    assert "specs/providers.md" in omp_row
+    assert "docs/omp_upgrade_runbook.md" in omp_row
+    assert "orchestrator/omp_assets/confs/" in omp_row
+    from orchestrator.providers.omp_conf import load_yaml_document
+
+    config_path = REPO_ROOT / "orchestrator/omp_assets/confs/neutral/config.yml"
+    assert isinstance(
+        load_yaml_document(config_path.read_bytes(), source="config.yml"), dict
+    )
     assert "task 7" in normalized_yaml_row and "complete" in normalized_yaml_row
     assert "1,020 passed" in normalized_yaml_row
     assert "5 skipped" in normalized_yaml_row
@@ -2208,7 +2223,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "not yet available" not in normalized_value_index
 
 
-def test_historical_q2_index_routes_current_selection_to_remaining_entry_gates() -> None:
+def test_historical_q2_index_routes_current_selection_to_evolution_entry_gates() -> None:
     index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     q2_section = _markdown_heading_section(
         index,
@@ -2218,10 +2233,22 @@ def test_historical_q2_index_routes_current_selection_to_remaining_entry_gates()
 
     assert "q3" in normalized_q2_section
     assert "closed" in normalized_q2_section
-    assert Path(LANGUAGE_QUALITY_ROADMAP_PATH).name in q2_section
-    assert "active" in normalized_q2_section
-    assert "language quality roadmap" in normalized_q2_section
-    assert "remaining entry gates" in normalized_q2_section
+    canonical = _canonical_routing_paths(q2_section)
+    for path in (LANGUAGE_QUALITY_ROADMAP_PATH, EVOLUTION_FOLLOW_ON_ROADMAP_PATH):
+        assert path in canonical
+        assert (REPO_ROOT / path).is_file()
+    historical_roadmap = (REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH).read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"(?m)^- \*\*Status:\*\* complete\b", historical_roadmap)
+    entry_gate = _markdown_table_row(
+        REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH, "| R1a "
+    ).split("|")[3]
+    assert re.search(r"\bOwner\b.*\bbefore execution\b", entry_gate)
+    assert all(
+        prerequisite in entry_gate
+        for prerequisite in ("design", "scope", "budget", "ES disposition")
+    )
     assert (
         "current q series selection starts with q3 implementation"
         not in normalized_q2_section
@@ -2566,7 +2593,17 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     ).read_text(encoding="utf-8")
 
     normalized_master = _normalized_routing_text(master)
-    assert "v1.1 through v2.26" in normalized_master
+    from orchestrator.workflow.validation import DEFAULT_SUPPORTED_VERSIONS
+
+    summary_bounds = re.search(
+        r"\(v([0-9.]+) through v([0-9.]+)\)", master.splitlines()[0]
+    )
+    assert summary_bounds is not None
+    supported_versions = sorted(
+        DEFAULT_SUPPORTED_VERSIONS,
+        key=lambda version: tuple(map(int, version.split("."))),
+    )
+    assert summary_bounds.groups() == (supported_versions[0], supported_versions[-1])
     assert "v2.22 adds direct fragment prompt attempt identity" in (
         normalized_master
     )
@@ -3027,24 +3064,38 @@ def test_migration_wave_closeout_preserves_history_and_routes_yaml_task_7_verifi
         ) == ["x"] * expected_step_count
     normalized_task_7 = _normalized_routing_text(remaining_tasks[7])
     assert "complete" in normalized_task_7
-    normalized_status = _normalized_routing_text(_migration_plan_status(plan))
+    status = _migration_plan_status(plan)
+    normalized_status = _normalized_routing_text(status)
     assert "complete" in normalized_status
     assert "historical" in normalized_status
     assert re.search(
-        r"\byaml retirement\b.{0,100}\btasks? 1[ -]4\b.{0,80}\bcomplete\b",
+        r"\bstage 6\b.{0,80}\byaml retirement\b.{0,80}\bcomplete\b",
         normalized_status,
     )
+    retirement_path = "docs/plans/2026-07-07-yaml-retirement-program.md"
+    assert retirement_path in _canonical_routing_paths(status)
+    assert "docs/index.md" in status
+    retirement = (REPO_ROOT / retirement_path).read_text(encoding="utf-8")
+    for task_number in range(1, 8):
+        steps = re.findall(
+            r"(?m)^- \[([ xX])\]",
+            _migration_task_section(retirement, task_number),
+        )
+        assert steps and all(step.lower() == "x" for step in steps), task_number
+    retirement_status = retirement.split("**Status:**", 1)[1].split(
+        "**Architecture:**", 1
+    )[0]
     assert re.search(
-        r"\bcurrent selector\b.{0,80}\btask 5\b",
-        normalized_status,
+        r"\bstage 6\b.{0,80}\bcomplete\b",
+        _normalized_routing_text(retirement_status),
     )
-    for stale_task in (1, 2, 3, 4, 6, 7):
+    for stale_task in range(1, 8):
         assert re.search(
             rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
             rf"[^.;]{{0,40}}\bcurrent\b"
             rf"|\bcurrent selector\b[^.;]{{0,120}}\byaml retirement\b"
             rf"[^.;]{{0,80}}\btask {stale_task}\b",
-            _normalized_routing_text(plan),
+            normalized_status,
         ) is None, stale_task
 
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:

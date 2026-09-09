@@ -5,9 +5,9 @@ multiline commit message.
 Take the role of a principal engineer, expert in PLs, compilers, and agentic
 engineering. Review the implementation against the approved design and plan.
 
-Read the `Consumed Artifacts` section first and treat it as the authoritative
-input list. Read the consumed target design, gap architecture, plan, and
-execution_report artifacts before acting.
+Read the typed `request.subject` first. Read its target design, baseline design,
+plan, execution report, and checks report; follow the plan's gap-architecture
+reference before acting.
 
 Review the implementation against the target design, the gap architecture, the
 approved plan, the plan's stated current implementation scope, and any explicit
@@ -61,12 +61,15 @@ cleanup-only lint noise.
 Leave unrelated pre-existing changes unstaged, and record the commit hash in
 the review report.
 
-For the output contract's `implementation_review_report_path`, read the path
-recorded in that file and write the review markdown to that
-current-checkout-relative path. Leave the
-`implementation_review_report_path` file containing only the path.
-Write `APPROVE` or `REVISE` to the `implementation_review_decision` path
-specified in the Output Contract.
+Write the review markdown directly to
+`request.targets.implementation_review_report_target_path`. Write a findings
+JSON object with a top-level `items` array under `artifacts/work`, including an
+empty array when there are no findings.
+Return the `ReviewDecision` bundle at the output-contract path with `variant`
+`APPROVE` or `REVISE`, `review_report` referencing that report, and
+`findings: {"schema_version": "ReviewFindings.v1", "items_path": "<findings path>"}`.
+If a concrete blocker prevents review, return `BLOCKED` with the same report
+and findings fields plus the output contract's `blocker_class`.
 
 Group findings by severity.
 Include a section `## Follow-Up Work` for unfinished plan work that is real but

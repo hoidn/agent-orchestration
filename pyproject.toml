@@ -16,6 +16,7 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.2",
 ]
 lsp = [
     "pygls>=2.1.1,<3",
@@ -34,7 +35,7 @@ exclude = ["orchestrator.demo", "orchestrator.demo.*"]
 
 [tool.pytest.ini_options]
 markers = [
-    "e2e: end-to-end tests that may require network or secrets; skipped by default",
+    "e2e: end-to-end checks, including opt-in live provider cases",
     "requires_secrets: tests that require secrets; must skip when secrets are absent",
 ]
 testpaths = ["tests"]

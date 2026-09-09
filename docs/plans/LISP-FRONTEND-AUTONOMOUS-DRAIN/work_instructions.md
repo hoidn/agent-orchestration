@@ -1,6 +1,11 @@
 # Workflow Lisp Post-Foundation Composition Drain Work Instructions
 
-Status: active work instructions
+Status: historical work instructions for the incorporated post-foundation target
+
+The target below is now incorporated into current component contracts, and its
+inventory/parity generator is retired. Preserve this procedure as execution
+history; use `docs/index.md` for current selection and
+`docs/workflow_lisp_route_readiness_registry.json` for current route evidence.
 
 These instructions retarget the existing `LISP-FRONTEND-AUTONOMOUS-DRAIN`
 workflow state to the post-foundation composition and stdlib migration body of

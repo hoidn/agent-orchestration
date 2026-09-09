@@ -1,6 +1,6 @@
 # Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement
 
-Status: draft target design
+Status: incorporated historical target
 Kind: architecture decision / runtime simplification and language-extension target
 Created: 2026-06-11
 Scope: generic runtime resource/context core; pure expression surface; typed
@@ -10,18 +10,24 @@ semantics; and Design Delta Drain family cleanup.
 
 Authority:
 
+The target and migration sequence below preserve the original design rationale.
+Landed contracts are incorporated into the frontend baseline and current
+component docs. Use the [capability matrix](../capability_status_matrix.md) and
+[route-readiness registry](../workflow_lisp_route_readiness_registry.json) for
+current availability and evidence; this document does not select new work or
+reactivate retired adapters or certification generators.
+
 - Normative runtime and DSL behavior remains in `specs/`.
 - `docs/design/workflow_lisp_frontend_specification.md` is the authoritative
-  Workflow Lisp language baseline. This document proposes deltas to merge into
-  that baseline; it does not fork it.
+  Workflow Lisp language baseline. This document records the deltas incorporated
+  into that baseline; it does not fork it.
 - `docs/design/workflow_lisp_generic_resource_context_core.md` is the decision
-  record for the small runtime core. This document is the executable target for
-  that decision.
+  record for the small runtime core. This document preserves the historical
+  implementation target for that decision.
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns the broader family migration sequence, readiness labels, parent-callable
-  parity evidence, and promotion gates. This document supplies the substrate
-  that its context, projection, adapter, resource-transition, and
-  post-promotion simplification tranches consume.
+  records the historical family migration sequence, parent-callable parity
+  evidence, and promotion gates. Its live inventory/parity generator is retired;
+  current component contracts and direct owner tests govern later changes.
 - `docs/design/workflow_lisp_core_calculus_middle_end.md` owns WCC, ANF
   normalization, scope/effect/proof analysis, and defunctionalization. This
   document extends the atom/projection/effect surfaces only; it adds no

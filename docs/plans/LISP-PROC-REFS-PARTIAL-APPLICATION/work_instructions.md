@@ -1,6 +1,11 @@
 # Lisp ProcRef Partial Application Work Instructions
 
-Status: active instructions for the ProcRef delta drain
+Status: historical instructions for the implemented ProcRef delta drain
+
+The `ProcRef` / `bind-proc` surface is implemented. The procedure below records
+its original drain scope and does not select another implementation pass.
+Use `docs/index.md` for current selection and
+`docs/design/workflow_lisp_proc_refs_partial_application.md` for the contract.
 
 These instructions are procedural guidance for the focused ProcRef / `bind-proc`
 implementation tranche. They are not a replacement for the parent Workflow Lisp

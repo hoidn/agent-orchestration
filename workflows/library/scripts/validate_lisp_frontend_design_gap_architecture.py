@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -21,12 +22,16 @@ def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _safe_relpath(value: str, *, under: str | None = None, must_exist: bool = False) -> Path:
+def _safe_relpath(value: str, *, under: str | tuple[str, ...] | None = None, must_exist: bool = False) -> Path:
     path = Path(str(value).strip())
     if path.is_absolute() or ".." in path.parts or not str(path):
         raise ValueError(f"Unsafe relative path: {value}")
-    if under is not None and path.parts[: len(Path(under).parts)] != Path(under).parts:
-        raise ValueError(f"Path {value} is not under {under}")
+    if under is not None:
+        roots = (under,) if isinstance(under, str) else under
+        if not any(path.is_relative_to(root) for root in roots):
+            raise ValueError(f"Path {value} is not under {under}")
+    if not (REPO_ROOT / path).resolve().is_relative_to(REPO_ROOT.resolve()):
+        raise ValueError(f"Path {value} resolves outside the workspace")
     if must_exist and not (REPO_ROOT / path).exists():
         raise ValueError(f"Required path does not exist: {value}")
     return path
@@ -35,6 +40,18 @@ def _safe_relpath(value: str, *, under: str | None = None, must_exist: bool = Fa
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    runtime_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if runtime_path:
+        runtime_bundle = REPO_ROOT / _safe_relpath(runtime_path)
+        if runtime_bundle != path:
+            runtime_bundle.parent.mkdir(parents=True, exist_ok=True)
+            runtime_bundle.write_text(
+                json.dumps(
+                    {key: payload[key] for key in ("architecture_validation_status", "work_item_bundle_path")},
+                    indent=2,
+                ) + "\n",
+                encoding="utf-8",
+            )
 
 
 def _validation_payload(
@@ -99,14 +116,14 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        draft_path = REPO_ROOT / _safe_relpath(args.draft_bundle_path, under="state", must_exist=True)
+        draft_path = REPO_ROOT / _safe_relpath(args.draft_bundle_path, under=("state", "artifacts/work"), must_exist=True)
         targets_path = None
         if args.architecture_targets_path:
             targets_path = REPO_ROOT / _safe_relpath(args.architecture_targets_path, under="state", must_exist=True)
         review_path = None
         if args.review_bundle_path:
             review_path = REPO_ROOT / _safe_relpath(args.review_bundle_path, under="state", must_exist=True)
-        output_rel = _safe_relpath(args.output, under="state", must_exist=False)
+        output_rel = _safe_relpath(args.output, under=("state", "artifacts/work"), must_exist=False)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     output_path = REPO_ROOT / output_rel
@@ -175,7 +192,7 @@ def main() -> int:
         if not item_id:
             raise ValueError("Missing design_gap_id")
         architecture_path = _safe_relpath(str(draft.get("architecture_path") or ""), under="docs/plans", must_exist=True)
-        context_path = _safe_relpath(str(draft.get("work_item_context_path") or ""), under="state", must_exist=True)
+        context_path = _safe_relpath(str(draft.get("work_item_context_path") or ""), under=("state", "artifacts/work"), must_exist=True)
         checks_path = _safe_relpath(str(draft.get("check_commands_path") or ""), under="state", must_exist=True)
         plan_path = _safe_relpath(str(draft.get("plan_target_path") or ""), under="docs/plans", must_exist=False)
         _validate_durable_doc_body(REPO_ROOT / architecture_path)

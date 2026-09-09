@@ -481,6 +481,13 @@ gates.
 Do not present a form as ordinary authoring guidance unless the guide labels
 whether it is implemented, library-backed, designed, future, or legacy.
 
+Bounded V1 `let-proc` is also implemented: declare one typed local procedure
+with explicit identifier captures, reference it through `(proc-ref local-name)`,
+and keep it within its lexical scope. It uses ordinary `defproc` lowering;
+nested bindings, recursion, capture aliases, and runtime closures remain
+excluded. See the [local-binding contract](design/workflow_lisp_let_proc_local_proc_refs.md)
+and `tests/fixtures/workflow_lisp/valid/let_proc_proc_ref_forwarding.orc`.
+
 ## 3. Semantic Authority Rules
 
 These rules apply across `.orc`, generated Core AST, the JSON-rendered

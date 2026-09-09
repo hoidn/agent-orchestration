@@ -15,8 +15,9 @@
 **Status:** Historical complete. Task 1's post-hardening rebaseline completed
 at `4983afff` with its narrative correction at `fa16bcf0`; the Task 7 Stage-6
 handoff landed at `7e6adc36`; and Task 8 passed both independent reviews.
-**Stage 6 YAML retirement Tasks 1-4 are complete; the current selector is Task 5 in
-`docs/plans/2026-07-07-yaml-retirement-program.md`.**
+**Stage 6 YAML retirement is complete under
+`docs/plans/2026-07-07-yaml-retirement-program.md`. The earlier Task-5 handoff is
+historical; use `docs/index.md` for current work selection.**
 The four-call finalizer-projection subfamily is retained by the reviewed
 strict-compatibility decision in
 `docs/plans/2026-07-16-design-delta-finalizer-projection-checkpoint-retention-plan.md`;

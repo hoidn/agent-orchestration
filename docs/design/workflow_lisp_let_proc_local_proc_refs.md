@@ -1,12 +1,18 @@
 # Workflow Lisp Local ProcRef Bindings Delta
 
-Status: proposed follow-on design delta
+Status: implemented bounded V1 design delta
 Extends: `workflow_lisp_proc_refs_partial_application.md`
 Parent contract: `workflow_lisp_frontend_specification.md`
 Primary feature: `let-proc` local compile-time procedure bindings
 Non-goal: runtime closures, runtime first-class procedures, or bypassing unresolved effectful-composition lowering gaps
 
-This draft assumes the accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...]` targets named `defproc`s, `(proc-ref name)` is explicit, `bind-proc` is keyword-only partial application, specialization happens before Core AST / Semantic IR lowering, and executable/runtime artifacts must not contain unresolved procedure values.
+The accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...]` targets named `defproc`s, `(proc-ref name)` is explicit, `bind-proc` is keyword-only partial application, specialization happens before Core AST / Semantic IR lowering, and executable/runtime artifacts must not contain unresolved procedure values.
+
+Current evidence lives in `tests/test_workflow_lisp_procedures.py` and
+`tests/fixtures/workflow_lisp/valid/let_proc_proc_ref_forwarding.orc`, including
+shared validation through the ordinary lowering routes. The V1 exclusions
+below remain in force; this status does not implement runtime closures or
+broader local-procedure syntax.
 
 It also keeps the parent frontend constraints intact: Workflow Lisp lowers through Core AST, shared validation, Semantic IR, and executable IR; it is not a runtime replacement, not a YAML text generator, and frontend forms are implementation-ready only when they can lower into the shared contracts. The effect and source-map constraints are likewise inherited: abstractions must not hide provider/command/state/artifact effects, and generated Core/Semantic/Executable nodes must remain source-mapped and diagnosable.
 
@@ -47,7 +53,7 @@ let-proc cannot lower it either.
 
 ## 2. Decision
 
-Add `let-proc` as a near-term ergonomic layer over accepted ProcRef / `bind-proc`.
+`let-proc` is a compile-time ergonomic layer over accepted ProcRef / `bind-proc`.
 
 A V1 `let-proc` binding:
 

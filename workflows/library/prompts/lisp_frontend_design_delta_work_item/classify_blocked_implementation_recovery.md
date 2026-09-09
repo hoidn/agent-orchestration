@@ -1,8 +1,8 @@
 You are classifying a blocked implementation attempt.
 
-Read the target design, baseline design, implementation architecture or work
-item context if present, approved plan if present, implementation state, and
-progress report.
+Read `request.subject`: its target design, baseline design, work-item context,
+approved plan, implementation state bundle, and progress report. Follow the
+work-item context's architecture path when present.
 
 Choose `GAP_DESIGN_REVISION_REQUIRED` when the target design is coherent but the
 selected gap's implementation architecture, decomposition, dependencies, or
@@ -37,25 +37,19 @@ target design needs to authorize or sequence the work, and
 completed first, including when that prerequisite must be drafted before it can
 be selected.
 
-Write one JSON bundle at the required output path:
+Write the typed classification at the runtime-bound output-contract path:
 
 ```json
 {
   "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED | TARGET_DESIGN_REVISION_REQUIRED | PREREQUISITE_GAP_REQUIRED | TERMINAL_BLOCKED",
   "reason": "implementation_architecture_under_scoped | target_design_contract_gap | prerequisite_gap_required | true_external_dependency | user_decision_required | unsupported_blocker",
-  "summary": "",
-  "waiting_on_work_id": "<existing prerequisite id when known, else omit>",
-  "waiting_on_work_source": "DESIGN_GAP | BACKLOG_ITEM (required only with waiting_on_work_id)",
-  "proposed_prerequisite": {
-    "id": "<stable proposed gap id when drafting is required>",
-    "title": "",
-    "scope": "",
-    "reason": ""
-  }
+  "summary": "Concrete causal finding and recovery details."
 }
 ```
 
-For `PREREQUISITE_GAP_REQUIRED`, include either `waiting_on_work_id` /
-`waiting_on_work_source` for an existing prerequisite or `proposed_prerequisite`
-for a prerequisite gap that must be drafted. If neither can be identified, use
-`TERMINAL_BLOCKED` with reason: unsupported_blocker.
+For `PREREQUISITE_GAP_REQUIRED`, identify an existing prerequisite by its id and
+`DESIGN_GAP` or `BACKLOG_ITEM` source, or describe the proposed prerequisite's
+stable id, title, scope, and reason. Preserve these details in `summary`; the
+current typed result has no separate prerequisite fields. If neither an
+existing prerequisite nor a bounded proposal can be identified, use
+`TERMINAL_BLOCKED` with reason `unsupported_blocker`.

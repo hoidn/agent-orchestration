@@ -1,6 +1,6 @@
 # Workflow Lisp Generic Resource And Context Core
 
-Status: draft design (executable target:
+Status: incorporated historical direction (historical implementation target:
 `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
 Kind: architecture decision / simplification target
 Created: 2026-06-09
@@ -9,9 +9,13 @@ the runtime/library boundary for post-foundation composition work.
 
 Authority:
 
+- Current semantics live in `docs/design/workflow_lisp_frontend_specification.md`
+  and its component contracts. Use `docs/capability_status_matrix.md` for
+  availability; this decision record does not select new migration work.
+
 - Normative runtime and DSL behavior remains in `specs/`.
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns the broader post-foundation migration sequence.
+  records the historical post-foundation migration sequence.
 - `docs/design/workflow_lisp_state_layout.md` owns generated path and state
   layout principles.
 - `docs/design/workflow_command_adapter_contract.md` owns adapter

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.validation import DEFAULT_SUPPORTED_VERSIONS
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
@@ -224,9 +226,16 @@ def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
     assert "raw executable configs" in version
     assert "not an OS sandbox" in version
     assert "| 2.25 |" in versioning
-    assert index.startswith(
-        "# Multi-Agent Orchestration — Master Spec (v1.1 through v2.26)"
+    summary_bounds = re.fullmatch(
+        r"# Multi-Agent Orchestration — Master Spec \(v([0-9.]+) through v([0-9.]+)\)",
+        index.splitlines()[0],
     )
+    assert summary_bounds is not None
+    supported_versions = sorted(
+        DEFAULT_SUPPORTED_VERSIONS,
+        key=lambda version: tuple(map(int, version.split("."))),
+    )
+    assert summary_bounds.groups() == (supported_versions[0], supported_versions[-1])
     assert "`trial` requires target `2.25`" in index
 
     current_contract = "\n".join((trial, version))

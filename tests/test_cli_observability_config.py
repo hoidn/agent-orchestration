@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from orchestrator.cli.commands.resume import resume_workflow
+from orchestrator.cli.commands.prompt_run_service import run_namespace
+from orchestrator.cli.commands.resume import _merge_observability_overrides, resume_workflow
 from orchestrator.cli.commands.run import build_observability_config
 from orchestrator.cli.main import create_parser
 from orchestrator.state import StateManager
@@ -158,6 +159,40 @@ def test_parser_defaults_retry_budget_on_run_and_resume():
     assert run_args.retry_delay == 1000
     assert resume_args.max_retries == 1
     assert resume_args.retry_delay == 1000
+
+
+def test_summary_timeout_defaults_agree_across_run_entry_points_and_resume():
+    public = create_parser().parse_args(['run', 'workflow.orc', '--step-summaries'])
+    configs = {
+        'public': build_observability_config(public),
+        'direct': build_observability_config(Namespace(step_summaries=True)),
+        'prompt': build_observability_config(run_namespace(step_summaries=True)),
+        'resume': _merge_observability_overrides(None, summary_mode='sync'),
+    }
+
+    assert {
+        name: config['step_summaries']['timeout_sec']
+        for name, config in configs.items()
+    } == dict.fromkeys(configs, 300)
+
+
+def test_summary_timeout_preserves_explicit_and_persisted_overrides():
+    public = create_parser().parse_args([
+        'run', 'workflow.orc', '--step-summaries', '--summary-timeout-sec', '45',
+    ])
+    for args in (
+        public,
+        Namespace(step_summaries=True, summary_timeout_sec=45),
+        run_namespace(step_summaries=True, summary_timeout_sec=45),
+    ):
+        assert build_observability_config(args)['step_summaries']['timeout_sec'] == 45
+
+    persisted = {'step_summaries': {'enabled': True, 'timeout_sec': 120}}
+    resumed = _merge_observability_overrides(persisted)
+    overridden = _merge_observability_overrides(persisted, summary_timeout_sec=45)
+    assert resumed['step_summaries']['timeout_sec'] == 120
+    assert overridden['step_summaries']['timeout_sec'] == 45
+    assert persisted['step_summaries']['timeout_sec'] == 120
 
 
 def test_parser_accepts_retry_flags_on_resume():

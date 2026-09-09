@@ -14,6 +14,7 @@ from orchestrator.cli.commands.prompt_io import (
     _create_prompt_inputs_root,
 )
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.prompt_contract import SemanticContract, contracts_structurally_equal
 from orchestrator.prompt_scaffold import (
     ScaffoldCompileError,
@@ -36,7 +37,7 @@ _RUN_NS = {
     "backup_state": False, "on_error": "stop", "max_retries": 0,
     "retry_delay": 1000, "stream_output": False, "step_summaries": False,
     "summary_mode": None, "summary_provider": "claude_sonnet_summary",
-    "summary_timeout_sec": 120, "summary_max_input_chars": 12000,
+    "summary_timeout_sec": DEFAULT_SUMMARY_TIMEOUT_SEC, "summary_max_input_chars": 12000,
     "summary_profile": None, "live_agent_notes": False,
     "live_agent_note_provider": None, "live_agent_note_interval_sec": 15.0,
     "live_agent_note_timeout_sec": 30, "live_agent_note_max_tail_chars": 6000,

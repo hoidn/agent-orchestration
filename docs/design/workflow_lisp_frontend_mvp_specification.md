@@ -1,10 +1,16 @@
 # Workflow Lisp Frontend MVP Specification
 
-Status: draft MVP
+Status: historical MVP scope; implemented baseline has advanced beyond this tranche
 Parent architecture: `docs/design/workflow_lisp_frontend_specification.md`
 Target substrate: v2.14+ Core Workflow AST and existing runtime
 Primary purpose: prove that a non-YAML frontend can reduce brittle workflow
 authoring without building the full language at once
+
+Read the deferred-feature lists and migration instructions below as the original
+MVP boundary. For current authoring, use the
+[frontend baseline](workflow_lisp_frontend_specification.md),
+[capability matrix](../capability_status_matrix.md), and
+[Workflow Lisp drafting guide](../lisp_workflow_drafting_guide.md).
 
 ## 1. Scope
 

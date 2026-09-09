@@ -1,14 +1,18 @@
 # Procedure-First Reuse Inventory
 
-Status: Task 4 complete at `c9687539`, `26d9ecd0`, and `848ceb52` after
-per-group specification and quality approval; all four Task 5 subfamilies are
-retained, Tasks 5–7 are complete, and Task 8 Step 4 is current.
+Status: frozen Stage-5 handoff inventory; migration waves and Stage-6 YAML
+retirement are complete. This document and the adjacent JSON preserve the
+recorded population; they are not a live source census or work selector.
+Use `2026-07-13-procedure-first-migration-waves-plan.md` for wave closure,
+`2026-07-07-yaml-retirement-program.md` for the drained retirement queues,
+and `docs/index.md` for current routing. The historical Task-4 commits remain
+`c9687539`, `26d9ecd0`, and `848ceb52`.
 Source commit: `db9889937a895d67810dee1ea0b1b53552d30eca`
 Schema: `procedure_first_reuse_inventory.v2`
 
 ## Outcome
 
-The current authored `workflows/` estate contains 101 direct reusable-call
+The recorded Stage-5 `workflows/` estate contained 101 direct reusable-call
 sites: 67 YAML and 34 Workflow Lisp. Six are excluded from the actionable
 migration population (four template calls and two runtime-fixture calls). The
 remaining 95 active internal calls classify as:

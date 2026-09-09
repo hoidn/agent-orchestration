@@ -268,6 +268,20 @@ def test_design_delta_parent_drain_smoke_compiles_production_entry(
     assert DESIGN_DELTA_PRODUCTION_MODULES.issubset(
         result.compiled_results_by_name
     )
+    selector = lowered_by_name["lisp_frontend_design_delta/selector::select-next-work"]
+    decision = next(step for step in selector["steps"] if "provider" in step)
+    subject = decision["typed_prompt_inputs"][0]["value_source"]["binding"]["subject"]
+    assert subject == {
+        name: {"ref": f"inputs.ctx__{field}"}
+        for name, field in (
+            ("steering", "steering_path"),
+            ("target_design", "target_design_path"),
+            ("baseline_design", "baseline_design_path"),
+            ("selector_manifest", "manifest"),
+            ("progress_ledger", "progress_ledger_path"),
+            ("existing_architecture_index", "existing_architecture_index_path"),
+        )
+    }
 
 
 @pytest.mark.parametrize(

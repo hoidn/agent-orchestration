@@ -95,7 +95,7 @@ def _run_args(workflow: Path) -> Namespace:
     )
 
 
-def test_summary_config_default_timeout_preserves_existing_run_default():
+def test_summary_config_default_timeout_uses_current_default():
     config = build_observability_config(
         Namespace(
             step_summaries=True,
@@ -107,7 +107,7 @@ def test_summary_config_default_timeout_preserves_existing_run_default():
         )
     )
 
-    assert config["step_summaries"]["timeout_sec"] == 120
+    assert config["step_summaries"]["timeout_sec"] == 300
 
 
 def _latest_state(workspace: Path) -> dict:

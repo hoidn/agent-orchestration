@@ -4,6 +4,8 @@ import argparse
 import sys
 from typing import Optional
 
+from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
+
 from .commands import run_workflow
 
 
@@ -237,7 +239,7 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         '--summary-timeout-sec',
         type=int,
-        default=120,
+        default=DEFAULT_SUMMARY_TIMEOUT_SEC,
         help='Timeout for a single summary request'
     )
     run_parser.add_argument(

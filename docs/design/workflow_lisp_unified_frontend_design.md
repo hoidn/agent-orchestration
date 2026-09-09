@@ -11,6 +11,12 @@ Does not supersede: current implementation behavior, current tests, shared workf
 
 ## 0. Purpose
 
+Current-status note: bounded V1 `let-proc` is implemented under
+[its component contract](workflow_lisp_let_proc_local_proc_refs.md). Part I
+preserves that tranche's design and acceptance rationale. Use the
+[capability matrix](../capability_status_matrix.md) to distinguish implemented
+portions from remaining targets; this historical proposal does not select work.
+
 This document is the unified design for Workflow Lisp features that are **not yet implemented**, are **only partially implemented**, or are **explicitly deferred**.
 
 It is intentionally **not** a full restatement of the current Workflow Lisp frontend. Existing implemented behavior is treated as the baseline substrate. This is a target-style delta: use it to identify, design, and implement the next missing increment, while preserving the current compiler/runtime contracts unless a section explicitly changes them.
@@ -78,7 +84,7 @@ This unified design covers the following non-implemented or incomplete surfaces.
 
 | Area | Status in this document | Implementation intent |
 | --- | --- | --- |
-| `let-proc` local procedure bindings | proposed near-term feature | implementable as compile-time syntax over generated private `defproc` plus existing `ProcRef` semantics |
+| `let-proc` local procedure bindings | bounded V1 implemented; retained design history | compile-time syntax over generated private `defproc` plus existing `ProcRef` semantics; V1 exclusions remain |
 | Effectful composition completion | partial/future compiler work | needed for realistic local procedure bodies and higher-level expression composition |
 | Full component-contract architecture | future/internal architecture | promote or formalize Core AST, Semantic IR, Executable IR, effect graph, proof graph, state layout, source map, and standard-library lowering contracts |
 | Full macro-system safety contract | future/finalization work | constrain any full `defmacro`/hygiene surface so expansion cannot hide effects or break source maps |
@@ -180,7 +186,7 @@ Frontend declarations and generated code may refine contracts into stricter form
 
 ## 5. Feature Summary
 
-`let-proc` is the near-term future feature that lets an author define a local procedure near the point of use while retaining the existing compile-time `ProcRef` model.
+`let-proc` is the implemented bounded V1 form that lets an author define a local procedure near the point of use while retaining the existing compile-time `ProcRef` model.
 
 It is not a runtime closure. It is not a runtime procedure value. It is not dynamic dispatch.
 
