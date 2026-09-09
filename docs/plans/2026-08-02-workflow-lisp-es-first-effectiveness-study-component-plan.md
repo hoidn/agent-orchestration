@@ -1,5 +1,35 @@
 # Workflow Lisp ES First Effectiveness Study Component Plan
 
+## Scheduling-Only Amendment (2026-09-08)
+
+The owner-requested [current research roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
+now owns prospective research sequence. Its R0 first coordinates with the
+active ES owner: bounded continuation under the existing owner-adoption gate,
+or an explicit owner prelaunch park/closure. This amendment neither launches
+nor cancels ES. A park is not scientific completion.
+
+The [pinned F1v2 refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
+owns authoritative execution status: its Tasks 0, 1, 2, 3, and 3A are complete
+and consolidated Task 4 is current at this update. Historical status and
+Task-8 adoption references below do not displace that plan's current task
+mapping or binding requirements. No frozen task, evaluator, reference-product,
+lock, review, or run-evidence bytes are changed here.
+
+The protocol, scientific decision rules, denominators, and claim limits below
+remain intact. `BLACK_BOX_SUFFICIENT`, `OBSERVATION_EXTENSION_REQUIRED`, and
+`STOP_E3_HYPOTHESIS` retain their frozen fixed-screen meanings and report bytes;
+their historical “E3 readiness” field name no longer selects, stops, or
+automatically expands future research. A RICH win is not a prerequisite for
+the five independent programmability/compositionality, reuse, introspection,
+self-programmability, and optimization hypotheses. Amended Task 9 owns
+the research handoff, not the superseded prospective routing preserved below.
+This is a scheduling change, not a reinterpretation of unfavorable results.
+
+The metadata and historical selection digests below record the original
+accepted/reviewed candidates; they do not certify later scheduling amendments
+as the original bytes. This amendment grants no implementation or live budget.
+
+
 ## Metadata
 
 - **Status:** accepted for provider-free ES execution; Tasks 0–5 are complete;
@@ -486,6 +516,12 @@ The reviewed ES closure then records one E3 readiness input:
   predeclared missing observation prevents the selected E3 contrast; or
 - `STOP_E3_HYPOTHESIS` for a failed/insufficient screen or invalid apparatus
   with no bounded correction.
+
+### Superseded Prospective Interpretation
+
+The following original routing interpretation is historical only; the
+scheduling amendment and Task 9 replace its future-work implications without
+changing the fixed-screen outputs above.
 
 No route is selected from prose sentiment. A positive route authorizes only a
 separate E3 component-plan review. A stop route performs the roadmap's early
@@ -1093,7 +1129,36 @@ update only current E routing/status surfaces and tests.
 - [ ] Commit the closure, run postcommit routing/readiness controls and the
       final broad non-security suite, and report exact fresh totals/digests.
 
-## Task 9: Continue the selected E3 route
+## Task 9: Hand Back Evidence To The Current Research Roadmap
+
+Scheduling amendment, 2026-09-08:
+
+- [ ] Preserve the reviewed fixed-screen result and every evidence identity.
+      Report precisely what ES did and did not establish.
+- [ ] Record the owner-coordinated ES disposition and hand-back in the
+      [current roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
+      If ES is parked before live execution, record a park rather than
+      satisfying the scientific completion criteria below.
+- [ ] Assess programmability/compositionality, reuse, introspection,
+      self-programmability, and optimization independently under the
+      [research plan](2026-09-08-orc-research-demonstration-plan.md).
+      R1a construction/reuse/diagnosis and R1b actual agent authoring/revision
+      have separate budgets; R1b needs working execution/oracles/composition
+      cases, not passing reuse/diagnosis screens. R2 catalog work may proceed
+      under its own approval without R1b success; R3 needs usable executable
+      program space and evaluation, not all five axes passing.
+      No fixed-screen label automatically selects or cancels these lanes;
+      no RICH win is required. Failed reuse/diagnosis does not automatically
+      park the project, and untested promise does not authorize expansion.
+- [ ] Preserve all existing no-live/adoption conditions and authorize no
+      E3, E2O, P-series, ME, or EL-1 work through this handoff alone.
+
+### Superseded Original Task 9 Routing
+
+The original checklist below is preserved as historical provenance only. It
+is not an executable task queue or current selection authority.
+
+#### Original: Continue the selected E3 route
 
 - [ ] If readiness is `BLACK_BOX_SUFFICIENT`, immediately draft and route the
       separate black-box E3 component plan through ordered specification then

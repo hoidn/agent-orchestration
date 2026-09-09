@@ -1,5 +1,279 @@
 # Workflow Lisp Evolution Follow-On Roadmap
 
+Status: current research sequencing, overhauled on 2026-09-08 at the owner's
+request. This roadmap owns prospective order and disposition; the
+[research charter](2026-09-08-orc-research-charter.md) owns the questions,
+the [demonstration design](../design/orc_reuse_introspection_search_experiment.md)
+owns the experiment, and the
+[implementation plan](2026-09-08-orc-research-demonstration-plan.md) describes
+work that still requires review and selection. Publication authorizes
+documentation preparation only, not implementation, provider allocation, a
+study attempt, or source promotion.
+
+## Direction And Evidence
+
+Start from ORC's existing composition and inspection capabilities without
+presuming its type system, language principles, or representation are the right
+final foundation. Test five axes independently: programmability/compositionality,
+reuse, introspection, self-programmability, and optimization. Tool execution
+belongs to the agents/providers; ORC describes and observes their composition.
+Novel construction, accepted shared adaptations, useful diagnosis, actual
+agent-authored feedback/revision, and search advantage need different evidence.
+A good fixed topology is not proof of a good search method, and neither
+proves that ORC is the best representation.
+
+Each axis receives its own supported-within-scope, adverse, inconclusive, or
+untested evidence assessment and a separate investment decision. Failed reuse
+and diagnosis screens do not automatically park the whole project; untested
+promise does not automatically authorize expansion. The
+[design](../design/orc_reuse_introspection_search_experiment.md) owns proof
+obligations; the consequent-action branches below own what to improve, retain,
+replace, or abandon after assessment.
+
+E0 direct control, E1 pinned child execution, and E2 trials are complete under
+their existing component contracts and recorded final reviews. Their evidence
+is preserved below. E3's historical selection is not implementation completion,
+a new selection by this document, or a waiver of the proposed research plan
+and budget gates. No new language surface or general optimizer is selected.
+
+ES tests a fixed QA-placement comparison. A RICH win is neither a prerequisite
+for any of the five axes nor evidence that they work.
+Existing `BLACK_BOX_SUFFICIENT`, `OBSERVATION_EXTENSION_REQUIRED`, and
+`STOP_E3_HYPOTHESIS` report values retain their fixed-screen meanings and
+bytes. They no longer select, stop, or automatically expand future research.
+The current roadmap disposition, not those legacy field names, owns that
+decision. Scientific rules, denominators, and unfavorable results remain
+unchanged.
+
+## Current Research Sequence
+
+| Unit | Question and bounded work | Entry and exit |
+| --- | --- | --- |
+| R0 — ES disposition | Resolve the already-prepared ES work with its active owner: bounded continuation under the existing adoption gate, or explicit owner prelaunch park/closure. | First coordination item. Do not cancel, launch, or rewrite ES implicitly. Record disposition and hand-back before work touching its frozen apparatus. |
+| R1a — construction, reuse, and introspection | Proposed 40 aggregate active person-hours, including preparation and assessment, with zero paid provider calls. Demonstrate novel compositions and one matched Python/native construction control; measure shared-module adaptation and diagnosis. Provider-backed leaves use test doubles. | Owner accepts design, scope, budget, and ES disposition before execution. Record independent axis outcomes and exact missing evidence; no automatic apparatus enlargement. |
+| R1b — agent authoring and self-programming | Separately budgeted actual agent authoring, feedback-driven revision, and one closed-loop self-programming case. Compilation checks belong inside authoring, not a standalone probe. | Requires a working execution path, oracle, and composition cases, not passing R1a's reuse/introspection utility screens. The plan's ceilings, a fixed monetary cap, and a named model require approval before allocation. Scripted leaf providers do not make authoring free or establish task efficacy. |
+| R2 — task qualification and finite catalog | Qualify one independently checked task family, then compare a finite catalog of authored provider workflows under a separately preregistered live budget. | Separate review and explicit allocation; R1b success is not required. Retain actual task failures and cost; no general effectiveness claim from a descriptive pilot. |
+| R3 — search and representation | Test adaptive topology/prompt search against fixed and enumeration/random controls; complete a credible reusable Python/native comparison before claiming ORC-specific superiority. | Requires a usable executable program space and evaluation, not all five axes passing. Separate bounded plan and budget. Broader generated provider-workflow execution is an implementation capability question, not a prerequisite safety project. |
+
+These units obtain evidence; they are not a demonstration-only roadmap or an
+automatic march toward R3. Each unit's review also selects a proposed action
+from the axis lifecycle below. An improvement or retirement can follow R1a,
+R1b, R2, or R3 without waiting for all five axes to be tested. Execution still
+requires explicit selection and its own bounded allocation.
+
+The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
+detailed ceilings and controls; no machine-readable roadmap manifest is added.
+R1a replaces the earlier fixture/fault/proposal allocation with 24 behavior
+cells: four frozen arms × three regression checks (12), three novel
+composition cases × three behavior checks (9), and one matched Python/native
+construction case × three checks (3). Keep six timed portfolio adaptations,
+each verifying all three consumers (eighteen consumer checks). Six paired
+diagnostic cases, one per category with two variants assigned one to each
+evidence condition, yield twelve assessments. The standalone twelve-proposal
+compile probe is retired; relevant compile checks are folded into authoring.
+
+R1b's actual authoring/revision budget is separate from R1a's zero-paid-provider
+ceiling. The early Python/native control tests construction feasibility, not
+general representation superiority; the fuller comparison remains required
+before a comparative claim. Mechanism checks and scripted-leaf success do not
+establish autonomous task quality, measured diagnosis benefit, or optimization
+advantage. Missing assessment evidence must remain missing, not be replaced
+with test counts.
+
+Execution safety is not an investment criterion or research objective in this
+sequence. Existing clone-path execution currently accepts deterministic
+effect-free programs; that is an implementation fact, not evidence that
+provider-backed ORC search lacks value. This documentation change does not
+alter runtime behavior. It does not adopt the historical generated-execution
+environment gates as prerequisites for the new research program.
+
+## Axis Lifecycle — Improve Or Retire, Then Simplify
+
+A minimum viable example establishes a starting point, not the finished
+capability or a permanent entitlement to maintenance. After each measurement:
+
+1. **Diagnose:** distinguish a real conceptual/economic limit from a library,
+   authoring, foundation, or evaluator defect. Preserve the adverse result;
+   a broken apparatus leaves the substantive claim untested.
+2. **Reconsider the solution, then choose a consequence:** retain a useful
+   bounded capability; improve a named bottleneck; investigate a type/language
+   redesign or replacement foundation; or retire the unsupported scope. Apply
+   the assumption review below before treating current-foundation limits as
+   grounds for abandonment. Inconclusive work may receive a specific uncertainty-resolving test,
+   not an open-ended extension. With no justified allocation, park the line
+   without new feature work and name what evidence could reopen it.
+3. **Improve and re-evaluate:** choose a direction with a causal account of why
+   it should help, a named recurring use, an expected measurable gain, and a
+   predeclared stop rule. Then build its smallest discriminating proof, which
+   need not be the smallest patch to today's architecture. Allocate one bounded
+   cycle at a time. Compare old/new behavior and total cost on fresh cases as
+   well as regressions; fixing the original example alone is not transfer.
+4. **Close the loop:** keep a change only for demonstrated benefit within its
+   stated scope. Further cycles require fresh evidence, not renewed promises.
+   If no credible affordable improvement or foundational alternative remains,
+   abandon that research claim and
+   execute its scoped simplification. Failure to improve a useful baseline can
+   retire the extension while retaining that baseline.
+
+The following are conditional development directions, not five preapproved
+feature projects. Metrics and resource ceilings are set before each selected
+cycle; the initial R1a/R1b allocations do not fund these additions.
+
+### Assumptions Are Revisable, Not Protected Assets
+
+Judge the user capability separately from its current realization. Failed ORC
+composition, typing, or generation is evidence about that realization—not proof
+that the capability is unhelpful or impossible. Existing design principles are
+choices to explain and, where evidence warrants, revise. Past investment and
+accepted documents do not make them permanent research constraints.
+
+When a foundational assumption appears responsible, compare materially different
+responses before prescribing local repair or abandonment: improve the current
+implementation; redesign the responsible subsystem or language; use a different
+foundation; or drop the capability. Judge each against the user objective,
+expressibility, predictable behavior, ergonomics, evidence quality, and lifetime
+cost. State what observation would distinguish the credible alternatives. A
+named obstruction or useful ordinary-code control can justify a bounded design
+investigation; do not require the obstructed ORC implementation to first prove
+the capability that it prevents.
+
+For example, if typing impedes useful composition or agent-authored changes,
+ask whether the cause is annotation burden/inference, insufficient expressiveness,
+the chosen type model, or the division between static and runtime contracts.
+Consider a type-system overhaul, weaker/different static guarantees with runtime
+validation, revised module/control-flow semantics, or a host-language foundation
+where relevant—not only more adapters around the current checker. These are
+alternatives to investigate, not a prescribed weakening or a claim that types
+are the problem. Preserve required observable behavior; do not protect a
+particular way of proving it without comparing its benefits and costs.
+
+Track design-derived language limitations in the same axis report: the owning
+rule and its rationale, the blocked use or workaround cost, and the evidence
+that would justify reconsideration. For example, the
+[core-calculus design](../design/workflow_lisp_core_calculus_middle_end.md)
+§13.3 excludes unbounded recursion, while its §15 discusses bounded general
+recursion as future work; the
+[frontend specification](../design/workflow_lisp_frontend_specification.md)
+§13 describes bounded loops. These are current design boundaries, not permanent
+research prohibitions or proof that recursion is unnecessary.
+
+If a useful recursively decomposed task or dynamically discovered search tree
+is awkward to express, compare explicit worklists/iteration, delegation to an
+agent, and revisiting recursion, call frames, or the execution model. Count
+whether a workaround hides composition, introspection, or editable program
+structure; delegation is not automatically equivalent for these axes. Reopen
+the relevant design when the blocked use or recurring workaround burden gives
+a credible reason, rather than merely raising a bound or rejecting the use case.
+Language-level expressiveness and a run's resource budget are separate: a study
+can have finite time/cost ceilings without requiring every program to have a
+statically known recursion depth. No recursion feature is selected here.
+
+Minimality applies after choosing a viable design. A larger coherent redesign
+may be simpler than accumulating local workarounds. Conversely, redesign is not
+an automatic escape from unfavorable results: use the smallest proof that tests
+its rationale before committing to migration, and revise governing designs/specs
+explicitly if chosen. Current runtime contracts still describe current behavior;
+they are not a prohibition on proposing replacements. Exhausted allocation is
+a funding/uncertainty result, not proof that redesign cannot work.
+
+| Axis | Principled improvement after the first evidence | Retirement trigger and consequent simplification |
+| --- | --- | --- |
+| Programmability / compositionality | Turn recurring glue, nonlocal edits, and failed combinations into explicit component-boundary or semantic problems. Compare interface/documentation fixes with type-system, module/control-flow, or language redesign when those assumptions cause the difficulty; local patches have no automatic priority. Recheck new combinations, predictable edit consequences, and construction effort against idiomatic Python/native composition. | If ordinary composition remains bespoke integration, or simpler composition meets the same needs at lower total cost and no credible redesign or remedy warrants a bounded proof, abandon the general-purpose ORC authoring claim. Keep only independently useful fixed workflows or the narrow composable subset; cancel unsupported generalization and migrate affected consumers to the simpler representation. Generated-space work must narrow to what remains expressible. |
+| Reusability | Improve boundaries around changes that actually recur: stable behavioral contracts, replaceable provider policy, and removal of caller-specific forks. Expand across real consumers only as shared adaptation plus verification repays extraction and maintenance; compare against reusable ordinary code as well as copied ORC. | If coupling/forks or setup costs erase savings over the named reuse horizon, retire those shared abstractions. Inline or specialize low-value helpers, collapse configuration and forwarding layers, and keep proven small shared components. Do not retain a general library or component registry solely for possible evolution. |
+| Introspection | Target observed attribution/recovery mistakes: make existing source, dependency, and attempt evidence answer those questions with fewer steps. Correct misleading mappings and remove redundant views before adding instrumentation. Recheck diagnosis correctness, time, and confidence on unseen faults against normal logs/debugging. | If structured inspection adds no practical diagnostic value after justified corrections, stop richer introspection work and remove experiment-only viewers, duplicate projections, or extra instrumentation with no other consumer. Retain compiler facts and run evidence required by actual execution, recovery, or another supported axis; failure of a view does not invalidate those contracts. |
+| Self-programmability | Identify whether failure is expressing a change, reading feedback, choosing a useful orchestration revision, or transferring it. Compare authoring/feedback fixes with a different source representation, type discipline, or edit model when those constrain agents; test agent-chosen revisions across fresh goals with less assistance and preserved unrelated behavior. Compare matched ordinary-code agents before claiming an ORC advantage. | If agents cannot produce beneficial revisions within viable total effort and no credible representation/feedback/foundation alternative warrants investigation, retire the unsupported autonomy claim. If ordinary-code agents succeed more economically, consider moving the capability there rather than abandoning autonomy itself. Remove displaced revision machinery and speculative self-modification surfaces; retain useful assisted authoring or human-authored workflows. This does not by itself retire non-agent search. |
+| Optimization / search | First establish useful behavioral diversity and affordable evaluation. Improve measured bottlenecks in mutation validity, edit locality, recombination, interactions, or evaluation cost. Add adaptive or genetic operators only where they can improve independent quality/cost outcomes over fixed, enumeration, and random controls, including search overhead amortized over actual future use. | If variants have no useful differences, evaluation cannot be made credible/affordable, or adaptive search offers no repayable advantage after justified corrections, abandon the unsupported search level. Use a fixed default or small enumerated catalog; cancel/remove optimizer loops, population/crossover stores, and search-only metadata where they exist and lack another consumer. Keep useful programs and their evidence. |
+
+### Portfolio Consequences And Completion
+
+All retirement triggers above include the assumption review, not merely failed
+local patches. An axis is not all-or-nothing: a useful inspection subset, assisted authoring,
+or finite catalog can survive failure of richer versions. Record the retained
+scope and the abandoned claim explicitly. A dependent branch must either use
+that retained subset or be retired too; it cannot silently assume the discarded
+capability. Fixed-catalog R2 does not require self-programming; non-agent search
+can survive failed agent authoring. If the executable composition space itself
+is inadequate, generated-program claims need narrowing or a demonstrated
+replacement before proceeding. Diagnosis/reuse utility failures alone are not
+automatic vetoes of those branches.
+
+Use this evidence to choose the project's foundation, not just its next demo:
+
+- **Build upon directly:** retained axes provide practical value and their
+  bottlenecks admit local improvements with worthwhile maintenance cost.
+- **Redesign, reimplement, or migrate:** a valuable capability is evidenced,
+  an obstruction belongs to this foundation, and a small alternative proof
+  removes it. Evidence of value can come from other implementations; current ORC
+  success is not required. Revisit the type system or language principles if
+  implicated, and compare adopting an adequate existing foundation; count migration
+  and ongoing ownership, and delete the displaced path rather than maintain
+  two permanent systems. No whole-project rewrite follows from one failed case.
+- **Abandon the custom platform:** fair alternatives cover every retained use
+  at lower total cost and no justified improvement remains. Stop expansion,
+  migrate or explicitly close remaining consumers, and retire the unsupported
+  platform. Archive research evidence rather than relabel unfavorable results.
+
+Every retirement must name the consumers to migrate or retain, speculative work
+to cancel, code/configuration/docs to remove or narrow, and contracts still
+needed elsewhere. For never-built machinery, cancellation is the simplification;
+do not invent code to delete. Closure requires verification of retained behavior
+and updated discovery/selection routing, not just a report saying “abandon.”
+Historical results and pinned ES assets are not deletion targets. This amendment
+selects no removals and does not reopen or cancel independent P/ME/OMP/EL-1 work.
+
+## Current ES Boundary
+
+The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
+retains its completed Tasks 0–5 and fixed-screen protocol. The
+[active F1v2 refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
+is the execution-status and binding authority: at this update its Tasks 0, 1,
+2, 3, and 3A are complete and consolidated Task 4 is current. Existing ES Task 7
+remains behind that plan's owner-adopted lock. No live permission follows from
+this roadmap.
+
+Coordinate with the active Task-4 owner before changing overlapping files.
+Do not edit reference products, evaluator assets, lock bytes, run evidence, or
+the refreeze plan to implement this scheduling change. The prior dated
+[E1–E3 selection](2026-07-31-workflow-lisp-e1-e3-owner-selection.md) and
+[post-E2 sequencing](2026-08-01-workflow-lisp-post-e2-stage-sequencing.md)
+remain provenance; their prospective ES-to-E3 implications are superseded by
+R0–R3. A parked study is recorded as parked, not scientifically completed.
+
+## Independent Work And Successor
+
+- The [P-series](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
+  remains the slated successor after recorded E-program completion or explicit
+  owner closure/re-park. No P item is selected or accelerated here.
+- Phase ME remains tracked and unselected, separately plan- and review-gated,
+  off-spine, and nonblocking under the
+  [substrate maintenance track](2026-07-26-substrate-maintenance-track.md).
+- [OMP-I1](2026-08-14-omp-integration-design-and-roadmap.md) remains complete;
+  OMP-I2 remains pending and unselected under its existing named-consumer,
+  loading-evidence, and owner-activation conditions. Neither gates this spine.
+- C1–C3, E2O, the historical execution registry/fragment machinery, and other
+  unselected work remain unselected. The completed REC and Q/L programs are
+  not reopened.
+
+## Routing And Historical Records
+
+This is an authored roadmap, not an executable selector. No E-series tranche
+manifest or queue is introduced. Existing route-readiness records continue to
+describe implemented execution capabilities, not research selection.
+
+`workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
+is a legacy review example with historical context, not a live stage selector
+or current research authority. Its old context must not overwrite this
+research direction if that example is used later.
+
+## Superseded Historical Routing And Completion Evidence
+
+Everything below is preserved verbatim from the prior roadmap, including
+completion evidence. Its historical
+uses of “current,” “active,” “selected,” and imperative next-step language have
+no prospective scheduling authority. Read the current sequence above for new
+work; preserved claims and digests remain attributable to their original
+recorded scope.
+
 Status: incorporated as the tracked E-series program (2026-07-30 owner
 decision), superseding the 2026-07-24 parked disposition that was recorded
 per the architectural critique at
