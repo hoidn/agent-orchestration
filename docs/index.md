@@ -241,19 +241,40 @@ navigation are complete.
 **Use this when:** Reviewing the historical rationale and task-selection inputs for the first fixed study, preregistering a related effectiveness study, or interpreting pilot treatment-failure accounting. It changes no locked pilot record and amends no accepted plan; the E2 Task-10 arm set stays owned by the [E2 plan](plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md). Future research selection now belongs to the [current roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md), not a prerequisite that RICH win.
 
 ### [ORC Research Charter](plans/2026-09-08-orc-research-charter.md)
-**Description:** Five independently assessed axes: programmability/compositionality, reuse, introspection, self-programmability, and optimization. Tools remain delegated to agents/providers.
+**Description:** Five independently assessed axes: programmability/compositionality, ergonomic reuse of `.orc`, introspection, self-programmability, and optimization. Authoring uses normal coding-agent sessions; tools remain delegated to agents/providers.
 **Keywords:** orc, research, programmability, composition, reuse, introspection, self-programming, optimization, representation
-**Use this when:** Assessing why this project should exist and which evidence distinguishes construction, shared adaptation, diagnosis, agent-driven revision, and search advantage. Each axis can be supported, adverse, inconclusive, or untested.
+**Use this when:** Assessing why this project should exist and which evidence distinguishes construction, ergonomic reuse, diagnosis, agent-driven revision, and search advantage. Each axis can be supported, adverse, inconclusive, or untested.
 
 ### [ORC Programmability, Composition, And Improvement](design/orc_reuse_introspection_search_experiment.md)
-**Description:** Draft five-axis experiment design: R1a construction/reuse/diagnosis, separately budgeted R1b actual agent authoring and closed-loop self-programming, later live catalog and adaptive/representation comparisons.
+**Description:** Five-axis research design with normal Codex/OMP authoring, external final evaluation, and qualitative assessment of ergonomic `.orc` reuse. Session-derived review handoffs and agent-chosen orchestration improvement motivate the work; later studies compare qualified live tasks and simpler skill/Python controls.
 **Keywords:** orc, research, programmability, reuse, diagnosis, self-programming, experiment, optimization
-**Use this when:** Reviewing the [demonstration implementation plan](plans/2026-09-08-orc-research-demonstration-plan.md): proposed R1a is capped at 40 aggregate active person-hours with zero paid provider calls; R1b requires its own authoring budget, model, and monetary cap. R1a's reduced 24-cell behavior allocation replaces the earlier matrix; compilation is part of authoring, not a standalone proposal probe. Publication selects no implementation or live allocation, and scripted leaf providers do not make actual agent authoring free.
+**Use this when:** Choosing the [normal author-session and evaluation boundary](design/orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary), or assessing reuse ergonomics from concrete abstractions/callers rather than a portfolio-change proxy. The [active plan](plans/2026-09-08-orc-research-demonstration-plan.md) selects assisted C1 ORC/Python development under the existing cap; its [execution record](reports/2026-09-08-orc-research-demonstration.md) preserves the earlier constrained-authoring pilot's partial results. R1b and fresh comparative studies remain separately selected. Working development examples and regression checks do not establish ergonomic reuse, human performance, or live task efficacy.
+
+### [ORC Session Patterns And Research Inputs](reports/2026-09-08-orc-session-patterns.md)
+**Description:** Sanitized orchestration-repo and PtychoPINN session evidence: review handoffs, adaptive scientific studies, selective evidence reuse, causal workflow improvement, and counterexamples to rigid gates or extra bookkeeping. Spawned-agent judgments and historical requests are distinguished from ORC effectiveness.
+**Keywords:** orc, session-mining, ptychopinn, scientific-transfer, steering, review, recovery, workflow-improvement, evaluation
+**Use this when:** Preparing realistic research requirements. Counts are recorded instructions, not independent failures or savings. Mined episodes are development evidence; fresh assessment and non-orchestrator transfer are required. The linked design owns the protocol, and the roadmap owns selection.
 
 ### [Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
-**Description:** Current research sequencing: R0 bounded ES disposition; R1a construction, reuse, and introspection; R1b separately approved agent authoring/self-programming; R2 separately approved task qualification and a live finite catalog; R3 conditional adaptive search and representation comparison. Each evidence review leads to axis-specific improvement, foundational reconsideration, retention, or retirement with consequent simplification—not just a minimum viable example. Type-system and language principles remain revisable. The previous routing and completion evidence remain explicitly superseded history.
+**Description:** Current research sequencing: R0 ES disposition; R1a session-derived composition, reuse, and introspection; R1b separately approved agent-chosen workflow improvement; R2 one qualified review/planning or repair family and a live finite catalog; R3 conditional adaptive search and skill/Python representation comparisons. Each review leads to axis-specific improvement, foundational reconsideration, retention, or retirement with simplification. Type-system and language principles remain revisable; historical routing remains explicitly superseded.
 **Keywords:** workflow-lisp, roadmap, research, e-series, es, programmability, reuse, introspection, self-programming, optimization
 **Use this when:** Choosing prospective research work. E0–E2 remain complete under their exact contracts. E3 is not completed or reselected by this documentation, and a RICH win is not required. R1b depends on working execution/oracles/composition cases, not positive reuse/diagnosis screens; R2 does not require R1b success; R3 requires a usable executable program space and evaluation, not all five axes passing. Existing ES labels retain their experimental meaning without selecting later work. The [active refreeze plan](plans/2026-08-03-es-f1-large-scope-refreeze-execution-plan.md) owns ES execution status and its outstanding owner-adoption gate. ME remains nonblocking; OMP-I1 remains complete; OMP-I2 and EL-1 remain unselected under their existing conditions; P remains the slated successor after E completion or explicit owner closure/re-park.
+
+**Current execution disposition:** ES remains owner-parked. The reduced pilot's
+partial construction, unavailable reuse-proxy measurements, limited diagnoses,
+charges and protocol deviations remain in the
+[execution record](reports/2026-09-08-orc-research-demonstration.md).
+The owner selected assisted C1 ORC/Python development under USD375 and corrected
+the default author profile to normal tool-enabled coding sessions with applicable
+project instructions and context management. Existing customized development
+sessions keep their actual labels; no historical score is rewritten or fresh
+benchmark inferred. Reuse means ergonomic reuse of `.orc`, assessed qualitatively
+from actual usage, optionally with LLM assistance. The contrived maintenance
+comparison is not a reuse test; absent credible examples, leave that axis
+unassessed. Retired identity/recovery gates stay retired. The active plan and
+design own these rules; this index only routes to them.
+The separate [PC-1 workstream](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected)
+tracks provider-context values without adding them to R1a or selecting implementation.
 
 ### [E0 Canonical Direct-Control Component Plan](plans/2026-07-31-workflow-lisp-e0-direct-control-component-plan.md)
 **Description:** Reviewed, selected E0-only component plan for one target-2.23 library workflow with typed task/model/effort inputs, exactly one composed provider boundary, a direct `Bool` result, committed-provider-boundary reuse, and accounting-parity conformance against an ordinary one-provider workflow.

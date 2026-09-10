@@ -6,9 +6,10 @@ request. This roadmap owns prospective order and disposition; the
 the [demonstration design](../design/orc_reuse_introspection_search_experiment.md)
 owns the experiment, and the
 [implementation plan](2026-09-08-orc-research-demonstration-plan.md) describes
-work that still requires review and selection. Publication authorizes
-documentation preparation only, not implementation, provider allocation, a
-study attempt, or source promotion.
+selected assisted development and conditional successors. The reduced R1a pilot
+has reported its partial results; the owner selected the C1 recovery below.
+Publication alone does not select
+later studies, new language surfaces, or source promotion.
 
 ## Direction And Evidence
 
@@ -17,7 +18,7 @@ presuming its type system, language principles, or representation are the right
 final foundation. Test five axes independently: programmability/compositionality,
 reuse, introspection, self-programmability, and optimization. Tool execution
 belongs to the agents/providers; ORC describes and observes their composition.
-Novel construction, accepted shared adaptations, useful diagnosis, actual
+Novel construction, ergonomic reuse of abstractions, useful diagnosis, actual
 agent-authored feedback/revision, and search advantage need different evidence.
 A good fixed topology is not proof of a good search method, and neither
 proves that ORC is the best representation.
@@ -49,11 +50,11 @@ unchanged.
 
 | Unit | Question and bounded work | Entry and exit |
 | --- | --- | --- |
-| R0 — ES disposition | Resolve the already-prepared ES work with its active owner: bounded continuation under the existing adoption gate, or explicit owner prelaunch park/closure. | First coordination item. Do not cancel, launch, or rewrite ES implicitly. Record disposition and hand-back before work touching its frozen apparatus. |
-| R1a — construction, reuse, and introspection | Proposed 40 aggregate active person-hours, including preparation and assessment, with zero paid provider calls. Demonstrate novel compositions and one matched Python/native construction control; measure shared-module adaptation and diagnosis. Provider-backed leaves use test doubles. | Owner accepts design, scope, budget, and ES disposition before execution. Record independent axis outcomes and exact missing evidence; no automatic apparatus enlargement. |
-| R1b — agent authoring and self-programming | Separately budgeted actual agent authoring, feedback-driven revision, and one closed-loop self-programming case. Compilation checks belong inside authoring, not a standalone probe. | Requires a working execution path, oracle, and composition cases, not passing R1a's reuse/introspection utility screens. The plan's ceilings, a fixed monetary cap, and a named model require approval before allocation. Scripted leaf providers do not make authoring free or establish task efficacy. |
-| R2 — task qualification and finite catalog | Qualify one independently checked task family, then compare a finite catalog of authored provider workflows under a separately preregistered live budget. | Separate review and explicit allocation; R1b success is not required. Retain actual task failures and cost; no general effectiveness claim from a descriptive pilot. |
-| R3 — search and representation | Test adaptive topology/prompt search against fixed and enumeration/random controls; complete a credible reusable Python/native comparison before claiming ORC-specific superiority. | Requires a usable executable program space and evaluation, not all five axes passing. Separate bounded plan and budget. Broader generated provider-workflow execution is an implementation capability question, not a prerequisite safety project. |
+| R0 — ES disposition | Owner selected **prelaunch park** on 2026-09-08; preserve the completed prompt correction and frozen scientific evidence. | Complete as a disposition, not scientific completion. [Recorded hand-back](#current-es-boundary); resumption needs explicit owner selection and the existing adoption gate. |
+| R1a — construction, reuse, and introspection | Reduced pilot closed out with partial construction, unavailable reuse-proxy measurements, and inconclusive diagnosis. Selected follow-up: assisted C1 ORC/Python development with normal agent sessions. Assess ergonomic `.orc` reuse qualitatively from real abstractions/callers, optionally with LLM-assisted judgment; the contrived maintenance comparison is withdrawn as a reuse test. The active plan retains USD375 and configured OpenAI roles. | Compare real behavior and actual development friction before substantial redesign. Neither three successful novice builds, shared-edit propagation, nor a token threshold defines reuse ergonomics. If representative evidence is absent, leave the axis unassessed. A fresh scored comparison needs its own selection and held-back final cases, not a rerun of the old matrix by default. |
+| R1b — agent authoring and self-programming | Separately budgeted actual agent authoring, feedback-driven revision, and one agent-chosen orchestration-improvement episode using the review-handoff family. Normal tools, execution and debugging belong inside each authoring session; scripted leaves do not test prompt-quality improvement. | Requires a working execution path, oracle, and composition cases, not passing R1a's reuse/introspection utility screens. A cost/time envelope appropriate to normal sessions and a named model require approval before allocation; task-level revision episodes do not impose a compiler-only or fixed-model-turn loop. Scripted leaf providers do not make authoring free or establish task efficacy. |
+| R2 — task qualification and finite catalog | Qualify one live family before candidate work: prefer session-derived review/planning improvement when independently evaluable, with linear-classifier repair as the hard-oracle alternative. Compare a finite authored catalog under one separately preregistered budget, not two studies. | Separate review and explicit allocation; R1b success is not required. Retain actual task failures and cost; no general effectiveness claim from a descriptive pilot. |
+| R3 — search and representation | Test adaptive topology/prompt search against fixed and enumeration/random controls; compare the same protocol as an agent skill and credible reusable Python/native orchestration before claiming ORC-specific superiority. Evaluate whole-program and combined-change effects. | Requires a usable executable program space and evaluation, not all five axes passing. Separate bounded plan and budget. Broader generated provider-workflow execution is an implementation capability question, not a prerequisite safety project. |
 
 These units obtain evidence; they are not a demonstration-only roadmap or an
 automatic march toward R3. Each unit's review also selects a proposed action
@@ -70,22 +71,96 @@ units, new R1a deliverables, or automatic prerequisites for the five-axis studie
 
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
-R1a replaces the earlier fixture/fault/proposal allocation with 24 behavior
+Its selected recovery follows the design's [normal agent sessions](../design/orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary):
+ordinary Codex/OMP authoring, with task delivery, accounting and final evaluation
+outside the coding loop. Keep normal project instructions, tools and context
+management; isolate final answers rather than disabling the agent's environment.
+The earlier no-tools/three-turn results remain constrained-generation evidence,
+not a verdict on practical tool-enabled authoring. Preserve successful development
+work and its actual configuration; no clean-benchmark relabeling or automatic rerun.
+
+The original R1a protocol replaced its earlier proposal with 24 behavior
 cells: four frozen arms × three regression checks (12), three novel
 composition cases × three behavior checks (9), and one matched Python/native
-construction case × three checks (3). Keep six timed portfolio adaptations,
-each verifying all three consumers (eighteen consumer checks). Six paired
-diagnostic cases, one per category with two variants assigned one to each
-evidence condition, yield twelve assessments. The standalone twelve-proposal
-compile probe is retired; relevant compile checks are folded into authoring.
+construction case × three checks (3), plus six metered portfolio adaptations,
+each verifying all three consumers (eighteen consumer checks). Owner subtraction
+removed exhaustive identity/recovery gates. Reduced construction and four available
+D3/D4 diagnostic assessments are now recorded; reuse lacks a complete measured
+baseline portfolio. See the execution report's reduced measurement closeout.
+The owner rejects that portfolio proxy as the meaning of reuse: the current
+question concerns ergonomic reuse of `.orc`, assessed through concrete usage and
+reasoned judgment. Already-produced maintenance tests check behavior only.
+The brittle aggregate/ledger rejections also exposed an avoidable evaluation
+design failure, not merely missing disclosure. Future selected checks must test
+meaningful task/consumer obligations and accept equivalent implementations;
+invalid rejections cannot support language-quality conclusions. Preserve the
+historical checker results without reviving their incidental constraints.
+Its reduced diagnostic allocation was D2/D3/D4: three pairs/six assessments.
+Preserve the original six-pair/twelve-assessment record and D1/D5/D6 limitations;
+do not claim its threshold from the reduced set. The active demonstration plan
+owns current selection; these retained counts do not prescribe another pilot or
+hold the selected development task behind unavailable historical cells.
+The standalone twelve-proposal compile probe remains retired;
+relevant compile checks belong inside authoring.
 
-R1b's actual authoring/revision budget is separate from R1a's zero-paid-provider
-ceiling. The early Python/native control tests construction feasibility, not
+R1b's authoring/revision and closed-loop budget is separate from the selected
+agent-assisted R1a allocation. The early Python/native control tests construction feasibility, not
 general representation superiority; the fuller comparison remains required
 before a comparative claim. Mechanism checks and scripted-leaf success do not
 establish autonomous task quality, measured diagnosis benefit, or optimization
 advantage. Missing assessment evidence must remain missing, not be replaced
 with test counts.
+
+### Session-Derived Priorities And Consequences
+
+The [mining report](../reports/2026-09-08-orc-session-patterns.md) supplies
+development examples, not independent task counts, current bug diagnoses, or
+evidence that the proposed workflows work. The [design](../design/orc_reuse_introspection_search_experiment.md#session-derived-workloads)
+owns their behavioral translation. These priorities specialize the existing
+R1a/R1b cases and conditional work; they add neither units nor allocations.
+
+First compose review/revision with the selected completion handoff, preserving
+accepted work whose relevant dependencies remain valid. Then test an agent
+choosing a useful orchestration revision from observed shortcomings. Keep
+fresh assessment families distinct from mined episodes and require a
+non-orchestrator consumer within the existing construction portfolio.
+
+Prefer the [adaptive scientific-study transfer](../design/orc_reuse_introspection_search_experiment.md#adaptive-scientific-transfer)
+motivated by PtychoPINN: reference-based diagnosis, pilot/value assessment,
+method reconsideration, and selective continuation with useful prior evidence.
+Qualify it inside the existing three requirements and their scenarios, not a
+fourth family or live GPU campaign. Native runners/scorers remain the baseline;
+providers perform tool use and scientific judgment. Initial scripted leaves
+test composition, not discovery of a physical cause. R2 may qualify scientific
+planning within its existing review/planning family under its separate budget.
+
+Carry the counterexamples into assessment and consequent action: do not rerun
+valid prior controls solely to make a pristine aggregate, optimize a proxy
+that misses the selected goal, or abandon a promising direction solely after
+a fixed number of low-gain attempts. Providers distinguish an implementation
+defect, inadequate evidence, a weak method, and a premise worth revisiting;
+current-comparison evidence still has to satisfy its actual contract. Reuse,
+repair, a different method, or an explicit changed comparison can each be the
+right consequence. A search claim must vary orchestration policy, not merely
+the scientific model or its hyperparameters. These refinements change no unit,
+sample count, execution allocation, or active accounting/recovery decision.
+
+Recovery, scoped steering, and batch-contribution attribution are pressure
+cases or separately selected consequences, not additional mandatory projects.
+After evidence, use Task 7 to improve the demonstrated bottleneck or retire its
+extra machinery: compose existing recovery with recurrence/progress checks;
+prove receiving/applying scoped guidance rather than merely sending it; or
+evaluate interacting changes before adding search operators. Prefer existing
+stdlib procedures, management skills, and ordinary tooling to duplicate engines.
+Preserve useful fixed workflows if a richer controller or autonomy claim fails.
+
+Repeated review churn, rising glue/bookkeeping cost, or metric gain without
+task progress should prompt provider-led reconsideration of the objective,
+decomposition, evaluator, or language assumptions. Do not prescribe more retries
+or reviewers by default. A changed evaluation contract requires an explicit
+new comparison and fresh assessment; it cannot improve an old score retroactively.
+External transfer and matched simpler controls distinguish user value from
+repairing complexity introduced by this orchestrator itself.
 
 Execution safety is not an investment criterion or research objective in this
 sequence. Existing clone-path execution currently accepts deterministic
@@ -97,7 +172,8 @@ environment gates as prerequisites for the new research program.
 ## Axis Lifecycle — Improve Or Retire, Then Simplify
 
 A minimum viable example establishes a starting point, not the finished
-capability or a permanent entitlement to maintenance. After each measurement:
+capability or a permanent entitlement to maintenance. After each assessment,
+whether an experiment or a grounded qualitative design/usage review:
 
 1. **Diagnose:** distinguish a real conceptual/economic limit from a library,
    authoring, foundation, or evaluator defect. Preserve the adverse result;
@@ -106,15 +182,17 @@ capability or a permanent entitlement to maintenance. After each measurement:
    bounded capability; improve a named bottleneck; investigate a type/language
    redesign or replacement foundation; or retire the unsupported scope. Apply
    the assumption review below before treating current-foundation limits as
-   grounds for abandonment. Inconclusive work may receive a specific uncertainty-resolving test,
+   grounds for abandonment. Inconclusive work may receive a specific uncertainty-resolving assessment,
    not an open-ended extension. With no justified allocation, park the line
    without new feature work and name what evidence could reopen it.
 3. **Improve and re-evaluate:** choose a direction with a causal account of why
-   it should help, a named recurring use, an expected measurable gain, and a
+   it should help, a named recurring use, an expected observable improvement, and a
    predeclared stop rule. Then build its smallest discriminating proof, which
    need not be the smallest patch to today's architecture. Allocate one bounded
-   cycle at a time. Compare old/new behavior and total cost on fresh cases as
-   well as regressions; fixing the original example alone is not transfer.
+   cycle at a time. For ergonomic reuse, compare real before/after usage and
+   explain the judgment; qualitative human/LLM review is valid and no numerical
+   proxy is compulsory. For behavioral claims, compare old/new behavior on
+   relevant cases and regressions; fixing one example alone is not transfer.
 4. **Close the loop:** keep a change only for demonstrated benefit within its
    stated scope. Further cycles require fresh evidence, not renewed promises.
    If no credible affordable improvement or foundational alternative remains,
@@ -123,7 +201,7 @@ capability or a permanent entitlement to maintenance. After each measurement:
    retire the extension while retaining that baseline.
 
 The following are conditional development directions, not five preapproved
-feature projects. Metrics and resource ceilings are set before each selected
+feature projects. Evidence criteria and resource ceilings are set before each selected
 cycle; the initial R1a/R1b allocations do not fund these additions.
 
 ### Assumptions Are Revisable, Not Protected Assets
@@ -186,7 +264,7 @@ a funding/uncertainty result, not proof that redesign cannot work.
 | Axis | Principled improvement after the first evidence | Retirement trigger and consequent simplification |
 | --- | --- | --- |
 | Programmability / compositionality | Turn recurring glue, nonlocal edits, and failed combinations into explicit component-boundary or semantic problems. Compare interface/documentation fixes with type-system, module/control-flow, or language redesign when those assumptions cause the difficulty; local patches have no automatic priority. Recheck new combinations, predictable edit consequences, and construction effort against idiomatic Python/native composition. | If ordinary composition remains bespoke integration, or simpler composition meets the same needs at lower total cost and no credible redesign or remedy warrants a bounded proof, abandon the general-purpose ORC authoring claim. Keep only independently useful fixed workflows or the narrow composable subset; cancel unsupported generalization and migrate affected consumers to the simpler representation. Generated-space work must narrow to what remains expressible. |
-| Reusability | Improve boundaries around changes that actually recur: stable behavioral contracts, replaceable provider policy, and removal of caller-specific forks. Expand across real consumers only as shared adaptation plus verification repays extraction and maintenance; compare against reusable ordinary code as well as copied ORC. | If coupling/forks or setup costs erase savings over the named reuse horizon, retire those shared abstractions. Inline or specialize low-value helpers, collapse configuration and forwarding layers, and keep proven small shared components. Do not retain a general library or component registry solely for possible evolution. |
+| Reusability | Review ergonomic reuse of actual `.orc` abstractions: discoverability, understandable contracts, parameterization/adaptation, composition, local reasoning, and required glue/type conversions/forks. Use concrete caller examples and qualitative human or LLM-assisted judgment; simpler ordinary-code examples can clarify the tradeoff. Improve the evidenced friction, not a contrived portfolio score. | If an abstraction remains awkward or adds no useful leverage, simplify its interface, inline/specialize it, or revisit the language/type assumptions causing the problem. Regression tests retain behavior but do not prove ergonomic value. Leave reuse unassessed when representative examples or credible judgment are unavailable; no fixed consumer count, token-saving threshold, or optimizer-driven library expansion. |
 | Introspection | Target observed attribution/recovery mistakes: make existing source, dependency, and attempt evidence answer those questions with fewer steps. Correct misleading mappings and remove redundant views before adding instrumentation. Recheck diagnosis correctness, time, and confidence on unseen faults against normal logs/debugging. | If structured inspection adds no practical diagnostic value after justified corrections, stop richer introspection work and remove experiment-only viewers, duplicate projections, or extra instrumentation with no other consumer. Retain compiler facts and run evidence required by actual execution, recovery, or another supported axis; failure of a view does not invalidate those contracts. |
 | Self-programmability | Identify whether failure is expressing a change, reading feedback, choosing a useful orchestration revision, or transferring it. Compare authoring/feedback fixes with a different source representation, type discipline, or edit model when those constrain agents; test agent-chosen revisions across fresh goals with less assistance and preserved unrelated behavior. Compare matched ordinary-code agents before claiming an ORC advantage. | If agents cannot produce beneficial revisions within viable total effort and no credible representation/feedback/foundation alternative warrants investigation, retire the unsupported autonomy claim. If ordinary-code agents succeed more economically, consider moving the capability there rather than abandoning autonomy itself. Remove displaced revision machinery and speculative self-modification surfaces; retain useful assisted authoring or human-authored workflows. This does not by itself retire non-agent search. |
 | Optimization / search | First establish useful behavioral diversity and affordable evaluation. Improve measured bottlenecks in mutation validity, edit locality, recombination, interactions, or evaluation cost. Add adaptive or genetic operators only where they can improve independent quality/cost outcomes over fixed, enumeration, and random controls, including search overhead amortized over actual future use. | If variants have no useful differences, evaluation cannot be made credible/affordable, or adaptive search offers no repayable advantage after justified corrections, abandon the unsupported search level. Use a fixed default or small enumerated catalog; cancel/remove optimizer loops, population/crossover stores, and search-only metadata where they exist and lack another consumer. Keep useful programs and their evidence. |
@@ -346,17 +424,49 @@ annotations as proof of context composition.
 
 **Routing:** this adds one pending, unselected workstream and no executable
 manifest/queue row. The five research units and their current allocations stay
-unchanged. PC-1 requires separate selection/funding.
+unchanged. The R1a recovery/continuation remains the next already-selected work;
+PC-1 cannot be launched by its coordinator without separate selection/funding.
 
 ## Current ES Boundary
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
 retains its completed Tasks 0–5 and fixed-screen protocol. The
-[active F1v2 refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
-is the execution-status and binding authority: at this update its Tasks 0, 1,
-2, 3, and 3A are complete and consolidated Task 4 is current. Existing ES Task 7
-remains behind that plan's owner-adopted lock. No live permission follows from
-this roadmap.
+[pinned F1v2 refreeze plan](2026-08-03-es-f1-large-scope-refreeze-execution-plan.md)
+retains execution progress and binding requirements: Tasks 0, 1, 2, 3, and 3A
+are complete; consolidated Task 4 remains incomplete and is now **parked**.
+Existing ES Task 7 remains behind that plan's owner-adopted lock.
+No live permission follows from this roadmap.
+
+**Owner disposition, 2026-09-08:** Ollie selected “Park ES; advance R1a entry”
+in the execution session. R0 is closed by this explicit prelaunch park. Retain
+the [verified prompt-authority correction and remaining gaps](es-f1-task4-runtime-prompt-authority-correction.json),
+all frozen task/evaluator/reference evidence, and the unconsumed canonical
+smoke/study allowances. This is neither cancellation nor scientific completion.
+The pinned refreeze plan and scientific package bytes are unchanged.
+
+The owner's subsequent instruction to finish roadmap execution accepted bounded
+R1a continuation under the proposed USD 50, 120-request, 1,000,000-token,
+eight-agent-hour and 40-human-person-hour first-exhausted ceilings. The earlier
+token-ceiling overrun remains preserved historical evidence. Under the later
+owner-approved dollar-cap recovery, current prospective work is instead gated by
+the qualified per-request admission ledger. Public Task-1 mechanism proof now
+includes a passing public scored-verdict smoke plus the known failing required-
+check control, while preserving the earlier accounting failure in the record.
+The later oracle-qualification claim was withdrawn: current oracle and case/truth
+artifacts are retained but not accepted as qualification or an assessment freeze.
+Measured construction, reuse, and diagnosis were not completed. The coordinator
+subsequently hit an actual per-request reservation denial under the same USD50
+total cap; that is not a claim that all USD50 was spent. The bounded
+[tighter-reservation investigation](2026-09-08-orc-request-reservation-recovery-plan.md)
+found no existing smaller enforced output limit on the pinned OpenRouter route;
+no behavior-preserving bound reduction was adopted. The owner subsequently
+authorized autonomous finite cap amendments in the OMP execution session, with
+an initial USD75 cumulative ceiling recorded in the owning demonstration plan.
+That continuation preserves all prior charges and remaining evidence obligations;
+it is separate from changing the model's output limit. The
+[execution record](../reports/2026-09-08-orc-research-demonstration.md) owns current
+receipts, recovery state, and any resumed process. R1b and later allocations
+retain their separate selection rules.
 
 Coordinate with the active Task-4 owner before changing overlapping files.
 Do not edit reference products, evaluator assets, lock bytes, run evidence, or

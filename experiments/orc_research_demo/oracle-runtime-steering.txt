@@ -1,0 +1,15 @@
+HISTORICAL STEERING — superseded; the old text below is preserved as evidence.
+Current authority is experiments/orc_research_demo/evidence/current-handoff.txt
+and experiments/orc_research_demo/inputs.json, not autonomous-continuation.txt.
+Do not follow the old costed_omp.py/profile, qualification or fixed-measurement
+instructions below. No additional work is selected by this historical record.
+
+Owner-requested steering: retain this coordinator session and shared cost ledger. Native interactive goal remains complete execution of the roadmap, not Task1 alone. Read autonomous-continuation.txt for the current scoped handoff.
+
+Historical oracle qualification claims were withdrawn for label/name-based acceptance. That development defect is now repaired and independently accepted: evidence/oracle-integration-check.json records seven passing demo/admission tests in40.92s; evidence/oracle-final-review.txt approves DEVELOPMENT review-completion only. Preserve the execution-backed oracle, distinct direct/gated compositions, rename equivalence, isolated skipped-work/block/stale controls and canonical call-frame evidence. Do not redo the accepted repair from stale session instructions.
+
+All three DEVELOPMENT operation families are now accepted;28 combined tests passed in82.63s and family-final-acceptance.txt approves that scope. Independent assessment preparation/qualification/freeze remains pending: follow evidence/current-handoff.txt and preserve the fresh preparer's explicit input exclusions. Mined episodes, concrete development fixtures and solved oracle programs are not unseen assessments by renaming. The admission-amendment review also exists and approves supplied facts/source excerpts, with native runtime tests separate; do not repeat it from stale pending labels. Preserve every failure, charge and hold, and retain the named native scientific-interface gap in fixture-only claims.
+
+Continue the selected roadmap through fixed measurements and evidence-backed consequent actions. Preserve role separation, all charges, frozen ES boundaries, and EL-1/EC-1/PC-1 as PENDING/UNSELECTED. Roadmap commit f0ddb5bd incorporates proposals, not execution selection. Finite recorded cap increases and fully held quarantine are authorized; use current inputs.json and ledger rather than old numeric snapshots. Coordinator and child inference use costed_omp.py and configured native OpenAI roles without model-id or thinking overrides. No automatic scientific-scope expansion or live GPU study.
+
+At each apparent completion, compare all selected deliverables with direct current evidence. Update truthful manifest/report state, not only final chat. A phase boundary, three passing tests, or process exit0 is not full research completion. If a real evidence/authority fork remains, preserve the exact incomplete state rather than marking the entire goal complete.
