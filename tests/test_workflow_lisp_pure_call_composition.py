@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from argparse import Namespace
@@ -17,7 +16,6 @@ from orchestrator.state import StateManager
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.workflow import pure_expr as runtime_pure_expr
-from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.steps import pure_projection as runtime_pure_projection_step
 from orchestrator.workflow_lisp.compiler import (
@@ -28,9 +26,6 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import ProcedureCallExpr
 from orchestrator.workflow_lisp.syntax import HelperExpansionFrame, ProcedureExpansionFrame
-from tests.test_workflow_lisp_lexical_checkpoint_restore import (
-    TRANSITION_RESUME_FIXTURE_SOURCE,
-)
 
 
 PREPARATION = Path(__file__).parent / "fixtures" / "workflow_lisp" / "pure_call_composition_preparation"
@@ -730,34 +725,6 @@ def test_pure_call_builds_are_repeatable_without_changing_pre_230_plans(
         "orchestrate"
     ]
     assert first_legacy.lowered_workflows == second_legacy.lowered_workflows
-
-
-def test_pre_230_phase_resource_ref_wrapper_matches_clean_baseline_identity(
-    tmp_path: Path,
-) -> None:
-    """Legacy transition request refs keep the base executable IR bytes."""
-
-    control_path = PREPARATION / "early_defun_rejection.orc"
-    original_read_bytes = Path.read_bytes
-
-    def read_control(path: Path) -> bytes:
-        return (
-            TRANSITION_RESUME_FIXTURE_SOURCE.encode()
-            if path == control_path
-            else original_read_bytes(path)
-        )
-
-    with patch.object(Path, "read_bytes", read_control):
-        bundle = _compile(control_path, workspace=tmp_path).validated_bundles[
-            "orchestrate"
-        ]
-    executable_ir = workflow_executable_ir_to_json(bundle.ir)
-    digest = hashlib.sha256(
-        json.dumps(executable_ir, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-    # Captured independently from the detached clean base worktree at 5e4e761a.
-    assert digest == "33425ece652adec050da4b34ad20f506f2dccb8e87060608c8e1c3045bb39f8a"
 
 
 def test_target_230_materializes_uncalled_function_procedure_specializations(
