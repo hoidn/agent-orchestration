@@ -63,6 +63,7 @@ from .procedure_refs import (
 from .type_env import (
     FrontendTypeEnvironment,
     ProcRefTypeRef,
+    RecordTypeRef,
     TypeParamRef,
     TypeRef,
     UnionTypeRef,
@@ -140,6 +141,8 @@ def typecheck_procedure_definitions(
     prompt_catalog: object | None = None,
     proc_ref_resolution_context=None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    function_body_normalizer: Callable[[ExprNode], ExprNode] | None = None,
+    allow_provisional_procedure_calls: bool = False,
     compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .typecheck import typecheck_expression
@@ -245,6 +248,8 @@ def typecheck_procedure_definitions(
             )
         else:
             body_expr = procedure_def.body
+        if function_body_normalizer is not None:
+            body_expr = function_body_normalizer(body_expr)
         previous_hidden_context_signature = session_state.procedure_hidden_context_signature
         # A defproc body may omit a callee's hidden private phase context under
         # the same derived-private-child eligibility rules as a defworkflow
@@ -276,6 +281,7 @@ def typecheck_procedure_definitions(
                 shared_union_field_capabilities=shared_union_field_capabilities,
                 expected_type=signature.return_type_ref,
                 compiler_session=compiler_session,
+                allow_provisional_procedure_calls=allow_provisional_procedure_calls,
             )
         except LispFrontendCompileError as exc:
             if specialization is None:
@@ -364,6 +370,15 @@ def _type_param_names_in_type_ref(type_ref: TypeRef) -> frozenset[str]:
             names.update(_type_param_names_in_type_ref(param_type))
         names.update(_type_param_names_in_type_ref(type_ref.return_type_ref))
         return frozenset(names)
+    if isinstance(type_ref, RecordTypeRef):
+        from .context_types import is_contextual_type
+
+        if is_contextual_type(type_ref):
+            return frozenset(
+                type_param_name
+                for field_type in type_ref.field_types.values()
+                for type_param_name in _type_param_names_in_type_ref(field_type)
+            )
     return frozenset()
 
 
@@ -903,6 +918,20 @@ def _infer_parametric_type_bindings(
             form_path=form_path,
         )
         return
+    if isinstance(expected_type, RecordTypeRef) and isinstance(actual_type, RecordTypeRef):
+        from .context_types import is_contextual_type
+
+        if is_contextual_type(expected_type) and is_contextual_type(actual_type):
+            for field_name in expected_type.field_types:
+                _infer_parametric_type_bindings(
+                    expected_type.field_types[field_name],
+                    actual_type.field_types[field_name],
+                    bindings=bindings,
+                    raise_error=raise_error,
+                    span=span,
+                    form_path=form_path,
+                )
+            return
     if not type_refs_compatible(expected_type, actual_type):
         raise_error(
             f"procedure argument expected `{type_label_for_inference(expected_type)}` but got `{type_label_for_inference(actual_type)}`",

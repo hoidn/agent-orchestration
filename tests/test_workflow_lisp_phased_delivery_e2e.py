@@ -39,6 +39,7 @@ from orchestrator.providers.interactive_terminal import (
 )
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.loaded_bundle import (
     LoadedWorkflowBundle,
     workflow_runtime_input_contracts,
@@ -74,6 +75,7 @@ from orchestrator.workflow_lisp import lexical_checkpoints
 from orchestrator.workflow.persisted_surface import (
     serialize_persisted_workflow_surface_graph,
 )
+from orchestrator.workflow.surface_ast import SurfaceStep
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
@@ -1113,6 +1115,7 @@ def _plain_boundary_value(value: object) -> object:
         return {
             item.name: _plain_boundary_value(getattr(value, item.name))
             for item in dataclass_fields(value)
+            if _legacy_carrier_field_is_visible(value, item.name)
         }
     if isinstance(value, Mapping):
         return {
@@ -1138,6 +1141,25 @@ def _plain_boundary_value(value: object) -> object:
     raise TypeError(
         f"unsupported compatibility boundary value {type(value).__name__}"
     )
+
+
+def _legacy_carrier_field_is_visible(value: object, field_name: str) -> bool:
+    """Project new inactive carriers as absent in the frozen old-target shape.
+
+    This is deliberately not a default-value scrubber: the compatibility
+    artifact models only the three D/E fields that did not exist when these
+    target-2.20--2.23 bytes were frozen.  Production serializers retain their
+    own explicit ``json_omit_if_none`` contracts.
+    """
+
+    if isinstance(value, SurfaceStep):
+        if field_name == "provider_context":
+            return value.provider_context is not None
+        if field_name == "request_input":
+            return bool(value.request_input)
+    if isinstance(value, ProviderStepConfig) and field_name == "provider_context":
+        return value.provider_context is not None
+    return True
 
 
 _PROMPT_DERIVED_FIELD_TOKENS = {
@@ -1368,6 +1390,38 @@ def test_compiler_boundary_detects_previously_unselected_common_field(
         )
     )
     assert tampered_bytes != original_bytes
+
+
+def test_compiler_carrier_projection_omits_inactive_context_and_host_input_fields(
+    tmp_path: Path,
+) -> None:
+    """New optional carriers must not alter an ordinary legacy projection."""
+
+    source = tmp_path / "ordinary.orc"
+    source.write_text(
+        _ordinary_source("2.20", explicit_composed=False),
+        encoding="utf-8",
+    )
+    bundle = compile_stage3_module(
+        source,
+        entry_workflow="review",
+        provider_externs={"providers.review": "codex"},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    ).validated_bundles["review"]
+
+    projection = _compiler_carrier_projection(bundle)
+    surface_step = projection["surface_step"]
+    executable_node = projection["executable_ir_node"]
+    assert isinstance(surface_step, dict)
+    assert isinstance(executable_node, dict)
+    assert "provider_context" not in surface_step
+    assert "request_input" not in surface_step
+    execution_config = executable_node["execution_config"]
+    assert isinstance(execution_config, dict)
+    assert "provider_context" not in execution_config
 
 
 def _persisted_carrier_projection(

@@ -34,6 +34,11 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.25",
         "2.26",
         "2.27",
+        "2.28",
+        "2.29",
+        "2.30",
+        "2.31",
+        "2.32",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -50,6 +55,12 @@ NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
 TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
 STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION = "2.26"
 SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION = "2.27"
+UNION_PROMPT_INPUT_MIN_TARGET_DSL_VERSION = "2.28"
+RICH_LOOP_VALUES_MIN_TARGET_DSL_VERSION = "2.29"
+PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION = "2.30"
+PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
+HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
+HUMAN_REPLY_TYPE_NAME = "HumanReply"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
 
@@ -75,6 +86,60 @@ def target_dsl_supports_session_artifact(target_dsl_version: str) -> bool:
         minimum = tuple(
             int(part)
             for part in SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_union_prompt_input(target_dsl_version: str) -> bool:
+    """Return whether a target admits whole tagged values in prompt inputs."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in UNION_PROMPT_INPUT_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_pure_call_composition(target_dsl_version: str) -> bool:
+    """Return whether a target admits resolved inline pure procedure calls."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part) for part in PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_provider_context_values(target_dsl_version: str) -> bool:
+    """Return whether a target has the provider-context value prelude."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_human_input(target_dsl_version: str) -> bool:
+    """Return whether a target has the reserved host-input expression surface."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part) for part in HUMAN_INPUT_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False
@@ -144,6 +209,20 @@ def target_dsl_supports_nested_structural_transport(
             for part in NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION.split(
                 "."
             )
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_supports_rich_loop_values(target_dsl_version: str) -> bool:
+    """Return whether complete rich loop-value descriptors are available."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in RICH_LOOP_VALUES_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False
@@ -286,6 +365,15 @@ class HelperExpansionFrame:
     """One helper-normalization provenance frame."""
 
     function_name: str
+    call_span: SourceSpan
+    definition_span: SourceSpan
+
+
+@dataclass(frozen=True)
+class ProcedureExpansionFrame:
+    """One resolved inline-procedure normalization provenance frame."""
+
+    procedure_name: str
     call_span: SourceSpan
     definition_span: SourceSpan
 

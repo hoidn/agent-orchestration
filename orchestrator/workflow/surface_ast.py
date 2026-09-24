@@ -64,6 +64,7 @@ class SurfaceStepKind(str, Enum):
     RUN_REF = "run_ref"
     TRIAL = "trial"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
+    REQUEST_INPUT = "request_input"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
@@ -271,8 +272,15 @@ class SurfaceStep:
     provider: Optional[str] = None
     provider_params: Any = None
     provider_call_policy: Optional[Mapping[str, object]] = None
+    provider_context: Optional[Mapping[str, Any]] = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     managed_jobs: Optional[SurfaceManagedJobsConfig] = None
     adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    request_input: Mapping[str, Any] = field(
+        default_factory=empty_frozen_mapping,
+    )
     input_file: Any = None
     asset_file: Any = None
     depends_on: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
@@ -345,6 +353,14 @@ class SurfaceStep:
     call_bindings: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
     def __post_init__(self) -> None:
+        if self.provider_context is not None and self.kind is not SurfaceStepKind.PROVIDER:
+            raise ValueError("provider_context requires an ordinary provider step")
+        if self.request_input and self.kind is not SurfaceStepKind.REQUEST_INPUT:
+            raise ValueError("request_input requires a request input step")
+        if self.kind is SurfaceStepKind.REQUEST_INPUT and (
+            self.common.output_bundle is not None or self.common.variant_output is not None
+        ):
+            raise ValueError("request input has a fixed reply, not an output bundle")
         if (self.kind is SurfaceStepKind.RUN_REF) != (self.run_ref is not None):
             raise ValueError("run_ref kind/config pairing is invalid")
         if self.run_ref is not None:
@@ -486,6 +502,7 @@ def _run_ref_conflicting_carriers(step: SurfaceStep) -> tuple[str, ...]:
         ("provider", step.provider is not None),
         ("provider_params", step.provider_params is not None),
         ("provider_call_policy", step.provider_call_policy is not None),
+        ("provider_context", step.provider_context is not None),
         ("managed_jobs", step.managed_jobs is not None),
         ("adjudicated_provider", bool(step.adjudicated_provider)),
         ("input_file", step.input_file is not None),

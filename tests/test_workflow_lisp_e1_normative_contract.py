@@ -67,6 +67,16 @@ def test_target_2_27_is_admitted(
     assert result.validated_bundles_by_name == {}
 
 
+def test_target_2_28_is_admitted(
+    tmp_path: Path,
+) -> None:
+    result = _compile(tmp_path, "2.28")
+
+    assert result.entry_result.module.target_dsl_version == "2.28"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
+
+
 def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:
     dsl = (SPECS_ROOT / "dsl.md").read_text(encoding="utf-8")
     state = (SPECS_ROOT / "state.md").read_text(encoding="utf-8")

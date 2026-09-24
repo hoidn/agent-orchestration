@@ -120,6 +120,10 @@ class CoreProviderStep:
     provider: str | None
     provider_params: Any = None
     provider_call_policy: Mapping[str, object] | None = None
+    provider_context: Mapping[str, Any] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     managed_jobs: Any = None
     input_file: Any = None
     asset_file: Any = None
@@ -233,6 +237,14 @@ class CoreAdjudicatedProviderStep:
     meta: CoreStmtMeta
     common: Any
     adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class CoreRequestInputStep:
+    meta: CoreStmtMeta
+    common: Any
+    request_input: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
 
 
@@ -717,6 +729,7 @@ def _build_statement(
             provider=step.provider,
             provider_params=step.provider_params,
             provider_call_policy=step.provider_call_policy,
+            provider_context=step.provider_context,
             managed_jobs=step.managed_jobs,
             input_file=step.input_file,
             asset_file=step.asset_file,
@@ -777,6 +790,13 @@ def _build_statement(
             meta=meta,
             common=step.common,
             adjudicated_provider=step.adjudicated_provider,
+            _surface_step=step,
+        )
+    if step.kind is SurfaceStepKind.REQUEST_INPUT:
+        return CoreRequestInputStep(
+            meta=meta,
+            common=step.common,
+            request_input=step.request_input,
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.WAIT_FOR:
@@ -1175,6 +1195,7 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
             provider=statement.provider,
             provider_params=statement.provider_params,
             provider_call_policy=statement.provider_call_policy,
+            provider_context=statement.provider_context,
             managed_jobs=statement.managed_jobs,
             input_file=statement.input_file,
             asset_file=statement.asset_file,
@@ -1211,6 +1232,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["trial"] = statement.trial
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
+    elif isinstance(statement, CoreRequestInputStep):
+        kwargs["request_input"] = statement.request_input
     elif isinstance(statement, CoreWaitForStep):
         kwargs["wait_for"] = statement.wait_for
     elif isinstance(statement, CoreAssertStep):
@@ -1413,6 +1436,8 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
             payload["provider_call_policy"] = _serialize_provider_call_policy(
                 statement.provider_call_policy
             )
+        if statement.provider_context is not None:
+            payload["provider_context"] = _json_data(statement.provider_context)
         if statement.prompt_attempt_identity_version is not None:
             payload["prompt_attempt_identity_version"] = (
                 statement.prompt_attempt_identity_version
@@ -1464,6 +1489,9 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
         return payload
     if isinstance(statement, CoreAdjudicatedProviderStep):
         payload.update({"kind": "adjudicated_provider", "adjudicated_provider": _json_data(statement.adjudicated_provider)})
+        return payload
+    if isinstance(statement, CoreRequestInputStep):
+        payload.update({"kind": "request_input", "request_input": _json_data(statement.request_input)})
         return payload
     if isinstance(statement, CoreWaitForStep):
         payload.update({"kind": "wait_for", "wait_for": _json_data(statement.wait_for)})

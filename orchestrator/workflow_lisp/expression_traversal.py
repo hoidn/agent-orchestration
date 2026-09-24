@@ -42,6 +42,7 @@ from .expressions import (
     ProduceOneOfExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordUpdateExpr,
     RecordExpr,
     ResourceTransitionExpr,
@@ -196,6 +197,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
             children.append(expr.model)
         if expr.effort is not None:
             children.append(expr.effort)
+        if expr.context_expr is not None:
+            children.append(expr.context_expr)
         return tuple(children)
     if isinstance(expr, ProviderBundlePathExpr):
         return (expr.source_expr,)
@@ -203,6 +206,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return expr.argv + tuple(
             value_expr for _, value_expr in expr.adapter_inputs
         )
+    if isinstance(expr, RequestInputExpr):
+        return (expr.question,)
     if isinstance(expr, ContinueExpr):
         return (expr.state_expr,)
     if isinstance(expr, DoneExpr):

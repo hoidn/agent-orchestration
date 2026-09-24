@@ -12,7 +12,8 @@ from orchestrator.workflow.statements import (
 )
 
 from ..conditionals import PureExprCondition, classify_condition_expr, render_condition_predicate
-from ..contracts import derive_workflow_boundary_fields
+from ..contracts import derive_union_workflow_output_metadata, derive_workflow_boundary_fields
+from ..diagnostics import LispFrontendCompileError
 from ..expressions import (
     ContinueExpr,
     DoneExpr,
@@ -39,6 +40,10 @@ from ..loops import (
     internal_loop_contract,
     projection_relpath_fields,
 )
+from ..syntax import (
+    target_dsl_supports_provider_context_values,
+    target_dsl_supports_rich_loop_values,
+)
 from ..procedures import TypedProcedureDef
 from ..type_env import (
     ListTypeRef,
@@ -64,6 +69,7 @@ from .values import (
     _inline_expr_field_value,
     _normalize_union_field_path,
     _phase_target_inline_ref,
+    projected_union_field_activity,
     _record_expr_value_at_path,
     _resolve_inline_expr_value,
     _resolve_inline_field_value,
@@ -153,9 +159,12 @@ def _iter_authored_step_mappings(
 def _capture_compiler_owned_repeat_until_metadata(
     authored_mapping: Mapping[str, object],
 ) -> Mapping[str, Mapping[str, Any]]:
-    """Capture the closed inert metadata emitted on generated repeat loops."""
+    """Capture compiler-owned repeat IDs and their optional inert metadata."""
 
     captured: dict[str, Mapping[str, Any]] = {}
+    include_empty_repeats = target_dsl_supports_rich_loop_values(
+        authored_mapping.get("version")
+    )
     for step in _iter_authored_step_mappings(authored_mapping.get("steps")):
         step_id = step.get("id")
         repeat_until = step.get("repeat_until")
@@ -166,7 +175,7 @@ def _capture_compiler_owned_repeat_until_metadata(
             for field_name in COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
             if field_name in repeat_until
         }
-        if not metadata:
+        if not metadata and not include_empty_repeats:
             continue
         if step_id in captured:
             raise ValueError(
@@ -178,10 +187,17 @@ def _capture_compiler_owned_repeat_until_metadata(
 
 def _capture_compiler_owned_nested_if_step_ids(
     authored_mapping: Mapping[str, object],
+    *,
+    compiler_owned_repeat_until_metadata: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[str, ...]:
     """Bind nested if descendants of compiler-coded repeat loops by step id."""
 
     captured: set[str] = set()
+    owned_repeats = (
+        compiler_owned_repeat_until_metadata
+        if compiler_owned_repeat_until_metadata is not None
+        else _capture_compiler_owned_repeat_until_metadata(authored_mapping)
+    )
 
     def visit(steps: object, *, inside_compiler_owned_repeat: bool) -> None:
         if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
@@ -237,7 +253,7 @@ def _capture_compiler_owned_nested_if_step_ids(
                     repeat.get("steps"),
                     inside_compiler_owned_repeat=(
                         inside_compiler_owned_repeat
-                        or "exhaustion_diagnostic_code" in repeat
+                        or step_id in owned_repeats
                     ),
                 )
 
@@ -354,6 +370,7 @@ def _emit_repeat_until_from_emitter_input(
         result_type_ref=result_type,
         span=expr.span,
         form_path=expr.form_path,
+        type_env=context.type_env,
     )
     seed_step_id = context.normalize_generated_step_id(plan.seed_step_name)
     repeat_step_id = context.normalize_generated_step_id(plan.repeat_step_name)
@@ -373,7 +390,7 @@ def _emit_repeat_until_from_emitter_input(
                 optional_relpath_fields=state_optional_relpath_fields,
             ),
         )
-    seed_steps = _build_loop_seed_steps(
+    seed_steps, seed_output_refs = _build_loop_seed_steps(
         expr=expr,
         state_type=state_type,
         state_projection=plan.state_projection,
@@ -390,6 +407,7 @@ def _emit_repeat_until_from_emitter_input(
         current_state_step_name=current_state_step_name,
         current_state_step_id=current_state_step_id,
         current_state_projection=plan.state_projection,
+        seed_output_refs=seed_output_refs,
         plan=plan,
         expr=expr,
         context=context,
@@ -464,6 +482,40 @@ def _emit_repeat_until_from_emitter_input(
             for field in plan.result_projection.flattened_fields
         }
     )
+    exhausted_placeholder_refs: dict[str, str] = {}
+    if (
+        expr.on_exhausted_result_expr is not None
+        and target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+    ):
+        placeholder_values = _exhausted_inactive_placeholder_values(
+            expr.on_exhausted_result_expr,
+            projection=plan.result_projection,
+            local_values=local_values,
+        )
+        if placeholder_values:
+            placeholder_step_name = f"{plan.repeat_step_name}__exhausted_placeholders"
+            placeholder_step_id = context.normalize_generated_step_id(
+                placeholder_step_name
+            )
+            _record_step_origin(
+                context,
+                step_name=placeholder_step_name,
+                step_id=placeholder_step_id,
+                source=expr.on_exhausted_result_expr,
+            )
+            seed_steps.append(
+                _materialize_values_step(
+                    step_name=placeholder_step_name,
+                    step_id=placeholder_step_id,
+                    values=placeholder_values,
+                )
+            )
+            exhausted_placeholder_refs = {
+                value["name"]: (
+                    f"root.steps.{placeholder_step_name}.artifacts.{value['name']}"
+                )
+                for value in placeholder_values
+            }
     repeat_step = {
         "name": plan.repeat_step_name,
         "id": repeat_step_id,
@@ -510,6 +562,7 @@ def _emit_repeat_until_from_emitter_input(
                 context=context,
                 local_values=exhaustion_local_values,
                 loop_binding_name=expr.binding_name,
+                exhausted_placeholder_refs=exhausted_placeholder_refs,
             )
         }
     _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=source_expr)
@@ -520,7 +573,29 @@ def _emit_repeat_until_from_emitter_input(
         source_path=("return",),
         span=expr.span,
         form_path=expr.form_path,
+        allow_transportable_value=target_dsl_supports_rich_loop_values(
+            context.type_env.target_dsl_version
+        ),
+        type_env=context.type_env,
     )
+    normalized_union_activity = (
+        derive_union_workflow_output_metadata(
+            result_type,
+            span=expr.span,
+            form_path=expr.form_path,
+            type_env=context.type_env,
+        )
+        if target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+        else {}
+    )
+
+    def normalized_contract(field) -> dict[str, Any]:
+        contract = dict(field.contract_definition)
+        activity = normalized_union_activity.get(field.generated_name)
+        if activity is not None:
+            contract["projection"] = dict(activity)
+        return contract
+
     if isinstance(
         result_type,
         (ListTypeRef, RecordTypeRef, PathTypeRef, PrimitiveTypeRef),
@@ -536,7 +611,7 @@ def _emit_repeat_until_from_emitter_input(
                 "source": {
                     "ref": f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
                 },
-                "contract": dict(field.contract_definition),
+                "contract": normalized_contract(field),
             }
             for field in normalized_result_fields
         ]
@@ -577,6 +652,11 @@ def _emit_repeat_until_from_emitter_input(
                             plan=plan,
                             variant_name=variant.name,
                             field_path=field.source_path[1:],
+                            allow_exhaustion_state_ref=(
+                                not target_dsl_supports_rich_loop_values(
+                                    context.type_env.target_dsl_version
+                                )
+                            ),
                         )
                         or f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
                     },
@@ -650,10 +730,11 @@ def _build_loop_current_state_steps(
     current_state_step_name: str,
     current_state_step_id: str,
     current_state_projection: LoopValueProjection,
+    seed_output_refs: Mapping[str, str],
     plan: Any,
     expr: LoopRecurExpr,
     context: _LoweringContext,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     seed_marker_name = f"{current_state_step_name}__seed_marker"
     seed_marker_id = context.normalize_generated_step_id(seed_marker_name)
     carried_copy_name = f"{current_state_step_name}__use_carried_state"
@@ -677,7 +758,7 @@ def _build_loop_current_state_steps(
     seed_values = [
         {
             "name": field.generated_name,
-            "source": {"ref": f"root.steps.{plan.seed_step_name}.artifacts.{field.generated_name}"},
+            "source": {"ref": seed_output_refs[field.generated_name]},
             "contract": internal_loop_contract(
                 field,
                 allow_missing_target_fields=current_state_projection.optional_relpath_fields,
@@ -754,7 +835,7 @@ def _build_loop_seed_steps(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     initial_state_value: Any,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     from .control_match import _binding_terminal_for_inline_match
 
     if not isinstance(state_type, UnionTypeRef):
@@ -762,6 +843,9 @@ def _build_loop_seed_steps(
             expr.initial_state_expr,
             state_type=state_type,
             local_values=local_values,
+            allow_whole_record_projection=target_dsl_supports_provider_context_values(
+                context.type_env.target_dsl_version
+            ),
         )
         if projection_expr is not None:
             lowered = lower_pure_projection_step(
@@ -780,8 +864,17 @@ def _build_loop_seed_steps(
                     )
                     for field in state_projection.flattened_fields
                 },
+                output_fields=state_projection.flattened_fields,
             )
-            return [lowered.step]
+            totalization_steps, output_refs = _totalize_sparse_loop_pure_projection(
+                projection=state_projection,
+                output_refs=lowered.output_refs,
+                step_name=step_name,
+                context=context,
+                source_expr=expr.initial_state_expr,
+                allow_missing_target_fields=state_projection.optional_relpath_fields,
+            )
+            return [lowered.step, *totalization_steps], output_refs
         component_steps, component_sources = _build_loop_seed_component_projections(
             expr=expr.initial_state_expr,
             state_type=state_type,
@@ -805,7 +898,10 @@ def _build_loop_seed_steps(
                     source_overrides=component_sources,
                 ),
             )
-        ]
+        ], {
+            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+            for field in state_projection.flattened_fields
+        }
 
     binding_terminal = _binding_terminal_for_inline_match(initial_state_value)
     if binding_terminal is None:
@@ -850,7 +946,10 @@ def _build_loop_seed_steps(
             "id": step_id,
             "match": {"ref": binding_terminal.output_refs["return__variant"], "cases": cases},
         }
-    ]
+    ], {
+        field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+        for field in state_projection.flattened_fields
+    }
 
 
 def _loop_seed_pure_projection_expr(
@@ -858,6 +957,7 @@ def _loop_seed_pure_projection_expr(
     *,
     state_type: TypeRef,
     local_values: Mapping[str, Any],
+    allow_whole_record_projection: bool = False,
 ) -> Any | None:
     projection_expr = _resolve_loop_pure_projection_expr(
         expr,
@@ -880,6 +980,10 @@ def _loop_seed_pure_projection_expr(
         local_values=local_values,
     )
     if isinstance(state_type, RecordTypeRef) and isinstance(resolved_seed, Mapping):
+        if allow_whole_record_projection and all(
+            field.name in resolved_seed for field in state_type.definition.fields
+        ):
+            return expr
         reconstructed_fields: list[tuple[str, Any]] = []
         for field in state_type.definition.fields:
             field_value = resolved_seed.get(field.name)
@@ -1007,6 +1111,115 @@ def _loop_case_outputs_from_projection(
         }
         for field in projection.flattened_fields
     }
+
+
+def _totalize_sparse_loop_pure_projection(
+    *,
+    projection: LoopValueProjection,
+    output_refs: Mapping[str, str],
+    step_name: str,
+    context: _LoweringContext,
+    source_expr: Any,
+    allow_missing_target_fields: frozenset[str],
+    nested_source_scope: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Turn sparse union artifacts into total loop-frame fields.
+
+    Each activity set gets one sibling conditional.  Independent union groups
+    never nest inside one another, and the active materializer carries the
+    exact discriminant guard that authorizes its field reads.
+    """
+    if not target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version):
+        return [], dict(output_refs)
+    groups: dict[str, list[tuple[Any, Mapping[str, Any]]]] = {}
+    for field in projection.flattened_fields:
+        activity = projection.nested_union_activity.get(field.generated_name)
+        if not isinstance(activity, Mapping):
+            continue
+        role = activity.get("field_role")
+        group = activity.get("union_output_group")
+        if role not in {"discriminant", "shared", "variant"} or not isinstance(group, str):
+            continue
+        groups.setdefault(group, []).append((field, activity))
+
+    current_refs = dict(output_refs)
+    steps: list[dict[str, Any]] = []
+    source_ref = _loop_parent_scope_value if nested_source_scope else lambda ref: ref
+    condition_ref = _loop_case_ref if nested_source_scope else lambda ref: ref
+    for group, grouped_fields in groups.items():
+        discriminant_name = next(
+            (
+                activity.get("discriminant_output")
+                for _field, activity in grouped_fields
+                if isinstance(activity.get("discriminant_output"), str)
+            ),
+            None,
+        )
+        if not isinstance(discriminant_name, str) or discriminant_name not in current_refs:
+            continue
+        group_suffix = group.replace("__", "_").replace("-", "_")
+        partitions: dict[tuple[str, ...], list[Any]] = {}
+        for field, activity in grouped_fields:
+            if activity.get("field_role") != "variant":
+                continue
+            active = tuple(sorted({value for value in activity.get("active_variants", ()) if isinstance(value, str)}))
+            if active:
+                partitions.setdefault(active, []).append(field)
+        for index, (active_variants, fields) in enumerate(partitions.items()):
+            branch_name = f"{step_name}__{group_suffix}__totalize__{index}"
+            if_id = context.normalize_generated_step_id(branch_name)
+            then_name = f"{branch_name}__active"
+            else_name = f"{branch_name}__inactive"
+            then_id = context.normalize_generated_step_id(then_name)
+            else_id = context.normalize_generated_step_id(else_name)
+            active_values = [
+                {
+                    "name": field.generated_name,
+                    "source": {"ref": source_ref(current_refs[field.generated_name])},
+                    "contract": internal_loop_contract(field, allow_missing_target_fields=allow_missing_target_fields),
+                }
+                for field in fields
+            ]
+            inactive_values = [
+                {
+                    "name": field.generated_name,
+                    "source": {"literal": projection.placeholder_literals[field.generated_name]},
+                    "contract": internal_loop_contract(field, allow_missing_target_fields=allow_missing_target_fields),
+                }
+                for field in fields
+            ]
+            active_step = _materialize_values_step(step_name=then_name, step_id=then_id, values=active_values)
+            active_step["requires_variant"] = {
+                "ref": source_ref(current_refs[discriminant_name]),
+                "allowed": list(active_variants),
+            }
+            inactive_step = _materialize_values_step(step_name=else_name, step_id=else_id, values=inactive_values)
+            _record_step_origin(context, step_name=then_name, step_id=then_id, source=source_expr)
+            _record_step_origin(context, step_name=else_name, step_id=else_id, source=source_expr)
+            outputs = lambda terminal_name: {
+                field.generated_name: {
+                    **internal_loop_contract(field, allow_missing_target_fields=allow_missing_target_fields),
+                    "from": {"ref": f"self.steps.{terminal_name}.artifacts.{field.generated_name}"},
+                }
+                for field in fields
+            }
+            predicate_items = [
+                {"compare": {"left": {"ref": condition_ref(current_refs[discriminant_name])}, "op": "eq", "right": variant}}
+                for variant in active_variants
+            ]
+            _record_step_origin(context, step_name=branch_name, step_id=if_id, source=source_expr)
+            steps.append(
+                {
+                    "name": branch_name,
+                    "id": if_id,
+                    "if": predicate_items[0] if len(predicate_items) == 1 else {"any_of": predicate_items},
+                    "then": {"id": context.normalize_generated_step_id(f"{branch_name}__then"), "outputs": outputs(then_name), "steps": [active_step]},
+                    "else": {"id": context.normalize_generated_step_id(f"{branch_name}__else"), "outputs": outputs(else_name), "steps": [inactive_step]},
+                }
+            )
+            for field in fields:
+                current_refs[field.generated_name] = f"root.steps.{branch_name}.artifacts.{field.generated_name}"
+    return steps, current_refs
 
 
 def _lower_loop_body_expr(
@@ -1602,11 +1815,22 @@ def _lower_loop_terminal_expr(
                 )
                 for field in state_projection.flattened_fields
             },
+            output_fields=state_projection.flattened_fields,
         )
         emitted_steps.append(lowered_state.step)
+        totalization_steps, totalized_output_refs = _totalize_sparse_loop_pure_projection(
+            projection=state_projection,
+            output_refs=lowered_state.output_refs,
+            step_name=state_step_name,
+            context=context,
+            source_expr=state_expr,
+            allow_missing_target_fields=state_projection.optional_relpath_fields,
+            nested_source_scope=True,
+        )
+        emitted_steps.extend(totalization_steps)
         state_projection_output_refs = {
             output_name: _loop_body_scope_value(output_ref)
-            for output_name, output_ref in lowered_state.output_refs.items()
+            for output_name, output_ref in totalized_output_refs.items()
         }
     else:
         projected_values.extend(
@@ -1676,9 +1900,20 @@ def _lower_loop_terminal_expr(
                     )
                     for field in result_projection.flattened_fields
                 },
+                output_fields=result_projection.flattened_fields,
             )
             emitted_steps.append(lowered_result.step)
-            for output_name, output_ref in lowered_result.output_refs.items():
+            totalization_steps, totalized_output_refs = _totalize_sparse_loop_pure_projection(
+                projection=result_projection,
+                output_refs=lowered_result.output_refs,
+                step_name=result_step_name,
+                context=context,
+                source_expr=result_expr,
+                allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                nested_source_scope=True,
+            )
+            emitted_steps.extend(totalization_steps)
+            for output_name, output_ref in totalized_output_refs.items():
                 projected_values.append(
                     {
                         "name": output_name,
@@ -1815,14 +2050,25 @@ def _rewrite_hoisted_loop_case_scope_value(
     self_scope_step_names: set[str],
     inside_structured_branch: bool = False,
 ) -> Any:
-    if isinstance(value, str):
+    from .values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
         if (
-            value.startswith("parent.steps.")
+            ref.startswith("parent.steps.")
             and not inside_structured_branch
-            and _structured_ref_step_name(value) in self_scope_step_names
+            and _structured_ref_step_name(ref) in self_scope_step_names
         ):
-            return "self.steps." + value.removeprefix("parent.steps.")
-        return value
+            return "self.steps." + ref.removeprefix("parent.steps.")
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
+    if isinstance(value, str):
+        return rewrite(value)
     if isinstance(value, list):
         return [
             _rewrite_hoisted_loop_case_scope_value(
@@ -1844,6 +2090,9 @@ def _rewrite_hoisted_loop_case_scope_value(
     if isinstance(value, Mapping):
         rewritten: dict[Any, Any] = {}
         for key, item in value.items():
+            if key == "__typed_union_prompt_source__":
+                rewritten[key] = rewrite_typed_union_prompt_source_references(item, rewrite)
+                continue
             child_inside_structured_branch = inside_structured_branch
             if key in {"then", "else", "cases"}:
                 child_inside_structured_branch = True
@@ -1950,6 +2199,9 @@ def _loop_projection_materialize_values(
         return current_value
 
     values: list[dict[str, Any]] = []
+    projection_fields_by_name = {
+        field.generated_name: field for field in projection.flattened_fields
+    }
     if projection.union_projection is not None and (
         active_variant_name is not None
         or isinstance(resolved_value, UnionVariantExpr)
@@ -2032,6 +2284,30 @@ def _loop_projection_materialize_values(
         return values
     for field in projection.flattened_fields:
         relative_path = field.source_path[1:]
+        activity = projection.nested_union_activity.get(field.generated_name, {})
+        if activity.get("field_role") == "variant":
+            discriminant_field = projection_fields_by_name.get(
+                activity.get("discriminant_output")
+            )
+            if discriminant_field is not None:
+                is_active = projected_union_field_activity(
+                    resolved_value,
+                    discriminant_path=discriminant_field.source_path[1:],
+                    active_variants=activity.get("active_variants", ()),
+                    local_values=local_values,
+                )
+                if is_active is False:
+                    values.append(
+                        {
+                            "name": field.generated_name,
+                            "source": {"literal": projection.placeholder_literals[field.generated_name]},
+                            "contract": internal_loop_contract(
+                                field,
+                                allow_missing_target_fields=allow_missing_target_fields,
+                            ),
+                        }
+                    )
+                    continue
         if field.contract_definition.get("type") in {"path", "relpath"}:
             field_origin = loop_state_field_origin(expr, relative_path)
             if field_origin is not None:
@@ -2097,6 +2373,42 @@ def _loop_placeholder_values(
     ]
 
 
+def _exhausted_inactive_placeholder_values(
+    expr: Any,
+    *,
+    projection: LoopValueProjection,
+    local_values: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Materialize only typed values needed for proven-inactive exhaustion arms."""
+
+    fields_by_name = {
+        field.generated_name: field for field in projection.flattened_fields
+    }
+    placeholders = {
+        value["name"]: value
+        for value in _loop_placeholder_values(
+            projection,
+            allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+        )
+        if value["contract"].get("kind") != "scalar"
+    }
+    required: list[dict[str, Any]] = []
+    for name, activity in projection.nested_union_activity.items():
+        if activity.get("field_role") != "variant" or name not in placeholders:
+            continue
+        discriminant = fields_by_name.get(activity.get("discriminant_output"))
+        if discriminant is None:
+            continue
+        if projected_union_field_activity(
+            expr,
+            discriminant_path=discriminant.source_path[1:],
+            active_variants=activity.get("active_variants", ()),
+            local_values=local_values,
+        ) is False:
+            required.append(placeholders[name])
+    return required
+
+
 def _loop_on_exhausted_outputs(
     expr: Any,
     *,
@@ -2105,10 +2417,17 @@ def _loop_on_exhausted_outputs(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     loop_binding_name: str,
+    exhausted_placeholder_refs: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
+    allow_rich_loop_values = target_dsl_supports_rich_loop_values(
+        context.type_env.target_dsl_version
+    )
     active_variant_name = expr.variant_name if isinstance(expr, UnionVariantExpr) else None
     outputs: dict[str, Any] = {LOOP_STATUS_OUTPUT_NAME: "DONE"}
-    result_fields_by_name = {field.generated_name: field for field in plan.result_projection.flattened_fields}
+    result_fields_by_name = {
+        field.generated_name: field
+        for field in plan.result_projection.flattened_fields
+    }
     for value in _loop_projection_materialize_values(
         expr,
         projection=plan.result_projection,
@@ -2118,6 +2437,21 @@ def _loop_on_exhausted_outputs(
         allow_missing_target_fields=_loop_result_optional_relpath_fields(plan.result_projection),
     ):
         result_field = result_fields_by_name[value["name"]]
+        activity = plan.result_projection.nested_union_activity.get(value["name"], {})
+        discriminant_field = result_fields_by_name.get(activity.get("discriminant_output"))
+        if (
+            activity.get("field_role") == "variant"
+            and discriminant_field is not None
+            and projected_union_field_activity(
+                expr,
+                discriminant_path=discriminant_field.source_path[1:],
+                active_variants=activity.get("active_variants", ()),
+                local_values=local_values,
+            ) is False
+            and value["name"] in exhausted_placeholder_refs
+        ):
+            outputs[value["name"]] = {"ref": exhausted_placeholder_refs[value["name"]]}
+            continue
         structured_ancestor_path = _loop_on_exhausted_structured_ancestor_path(
             expr,
             result_field.source_path[1:],
@@ -2129,7 +2463,11 @@ def _loop_on_exhausted_outputs(
                 expr,
                 loop_binding_name=loop_binding_name,
                 field_path=structured_ancestor_path,
-                require_exact_state_field_path=not isinstance(result_type, UnionTypeRef),
+                require_exact_state_field_path=(
+                    not isinstance(result_type, UnionTypeRef)
+                    and not allow_rich_loop_values
+                ),
+                allow_rich_loop_values=allow_rich_loop_values,
             ):
                 field_name = "__".join(structured_ancestor_path)
                 raise _compile_error(
@@ -2141,16 +2479,30 @@ def _loop_on_exhausted_outputs(
                     span=ancestor_expr.span,
                     form_path=ancestor_expr.form_path,
                 )
+            if allow_rich_loop_values:
+                source = value["source"]
+                if "ref" in source:
+                    outputs[value["name"]] = {"ref": source["ref"]}
+                elif "literal" in source:
+                    outputs[value["name"]] = source["literal"]
             continue
         if value.get("contract", {}).get("kind") != "scalar":
             field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
             if field_expr is None:
+                if allow_rich_loop_values and isinstance(expr, NameExpr) and expr.name == loop_binding_name:
+                    source = value["source"]
+                    if "ref" in source:
+                        outputs[value["name"]] = {"ref": source["ref"]}
                 continue
             if not _loop_on_exhausted_non_scalar_uses_loop_state(
                 expr,
                 loop_binding_name=loop_binding_name,
                 field_path=result_field.source_path[1:],
-                require_exact_state_field_path=not isinstance(result_type, UnionTypeRef),
+                require_exact_state_field_path=(
+                    not isinstance(result_type, UnionTypeRef)
+                    and not allow_rich_loop_values
+                ),
+                allow_rich_loop_values=allow_rich_loop_values,
             ):
                 field_name = "__".join(result_field.source_path[1:]) or result_field.generated_name
                 raise _compile_error(
@@ -2161,7 +2513,11 @@ def _loop_on_exhausted_outputs(
                     ),
                     span=field_expr.span,
                     form_path=field_expr.form_path,
-            )
+                )
+            if allow_rich_loop_values:
+                source = value["source"]
+                if "ref" in source:
+                    outputs[value["name"]] = {"ref": source["ref"]}
             continue
         source = value["source"]
         if "literal" in source:
@@ -2209,13 +2565,24 @@ def _loop_on_exhausted_non_scalar_uses_loop_state(
     loop_binding_name: str,
     field_path: tuple[str, ...],
     require_exact_state_field_path: bool,
+    allow_rich_loop_values: bool,
 ) -> bool:
     field_expr = _loop_on_exhausted_expr_at_path(expr, field_path)
+    if allow_rich_loop_values:
+        return field_expr is not None and _loop_on_exhausted_expr_uses_loop_state(
+            field_expr,
+            loop_binding_name=loop_binding_name,
+            allow_rich_loop_values=True,
+        )
     if isinstance(field_expr, NameExpr):
         return not field_path and field_expr.name == loop_binding_name
     if isinstance(field_expr, RecordExpr):
         return (not require_exact_state_field_path) and all(
-            _loop_on_exhausted_expr_uses_loop_state(value_expr, loop_binding_name=loop_binding_name)
+            _loop_on_exhausted_expr_uses_loop_state(
+                value_expr,
+                loop_binding_name=loop_binding_name,
+                allow_rich_loop_values=allow_rich_loop_values,
+            )
             for _, value_expr in field_expr.fields
         )
     if not isinstance(field_expr, FieldAccessExpr):
@@ -2228,7 +2595,14 @@ def _loop_on_exhausted_non_scalar_uses_loop_state(
     return isinstance(base, NameExpr) and base.name == loop_binding_name
 
 
-def _loop_on_exhausted_expr_uses_loop_state(expr: Any, *, loop_binding_name: str) -> bool:
+def _loop_on_exhausted_expr_uses_loop_state(
+    expr: Any,
+    *,
+    loop_binding_name: str,
+    allow_rich_loop_values: bool,
+) -> bool:
+    if isinstance(expr, LiteralExpr):
+        return allow_rich_loop_values
     if isinstance(expr, NameExpr):
         return expr.name == loop_binding_name
     if isinstance(expr, FieldAccessExpr):
@@ -2238,7 +2612,20 @@ def _loop_on_exhausted_expr_uses_loop_state(expr: Any, *, loop_binding_name: str
         return isinstance(base, NameExpr) and base.name == loop_binding_name
     if isinstance(expr, RecordExpr):
         return all(
-            _loop_on_exhausted_expr_uses_loop_state(value_expr, loop_binding_name=loop_binding_name)
+            _loop_on_exhausted_expr_uses_loop_state(
+                value_expr,
+                loop_binding_name=loop_binding_name,
+                allow_rich_loop_values=allow_rich_loop_values,
+            )
+            for _, value_expr in expr.fields
+        )
+    if isinstance(expr, UnionVariantExpr):
+        return allow_rich_loop_values and all(
+            _loop_on_exhausted_expr_uses_loop_state(
+                value_expr,
+                loop_binding_name=loop_binding_name,
+                allow_rich_loop_values=allow_rich_loop_values,
+            )
             for _, value_expr in expr.fields
         )
     return False
@@ -2262,7 +2649,16 @@ def _record_loop_on_exhausted_origins(
     _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=on_exhausted)
     output_origin = _origin_from_context_source(context, on_exhausted)
     for field in normalized_result_fields:
-        if _loop_on_exhausted_expr_at_path(on_exhausted, field.source_path[1:]) is None:
+        try:
+            field_expr = _loop_on_exhausted_expr_at_path(
+                on_exhausted,
+                field.source_path[1:],
+            )
+        except LispFrontendCompileError:
+            if not target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version):
+                raise
+            field_expr = None
+        if field_expr is None:
             continue
         context.generated_output_spans[field.generated_name] = output_origin
 
@@ -2316,7 +2712,10 @@ def _loop_result_case_output_ref(
     plan: LoopLoweringPlan,
     variant_name: str,
     field_path: tuple[str, ...],
+    allow_exhaustion_state_ref: bool,
 ) -> str | None:
+    if not allow_exhaustion_state_ref:
+        return None
     on_exhausted = loop_expr.on_exhausted_result_expr
     if not isinstance(on_exhausted, UnionVariantExpr) or on_exhausted.variant_name != variant_name:
         return None

@@ -117,6 +117,7 @@ class RunState:
     transition_count: int = 0
     step_visits: Dict[str, int] = field(default_factory=dict)
     provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
+    human_input: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         if self.result_persistence_profile is None:
@@ -171,6 +172,11 @@ class RunState:
             result["current_step"] = self.current_step
         if self.provider_attempt_allocations:
             result["provider_attempt_allocations"] = self.provider_attempt_allocations
+        if self.human_input is not None:
+            from .workflow.human_input import validate_human_input_record
+
+            validate_human_input_record(self.human_input)
+            result["human_input"] = deepcopy(self.human_input)
 
         # Convert step results - type assert for type checker
         steps_dict: Dict[str, Any] = result["steps"]
@@ -211,6 +217,11 @@ class RunState:
                 for_each[name] = ForEachState(**state_dict)
 
         provider_attempt_allocations = data.get("provider_attempt_allocations", {})
+        human_input = data.get("human_input")
+        if human_input is not None:
+            from .workflow.human_input import validate_human_input_record
+
+            human_input = validate_human_input_record(human_input)
         if "provider_attempt_allocations" in data:
             if (
                 not isinstance(provider_attempt_allocations, Mapping)
@@ -258,7 +269,34 @@ class RunState:
             transition_count=data.get("transition_count", 0),
             step_visits=data.get("step_visits", {}),
             provider_attempt_allocations=provider_attempt_allocations,
+            human_input=deepcopy(human_input),
         )
+
+
+def _apply_result_with_dataflow(
+    leaf: RunState,
+    *,
+    result_key: str,
+    result: StepResult,
+    clear_current_step: bool,
+    artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+    private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+) -> None:
+    """Apply one result/dataflow mutation without performing a state write."""
+
+    leaf.steps[result_key] = result
+    if artifact_versions is not None:
+        leaf.artifact_versions = artifact_versions
+    if artifact_consumes is not None:
+        leaf.artifact_consumes = artifact_consumes
+    if private_artifact_versions is not None:
+        leaf.private_artifact_versions = private_artifact_versions
+    if private_artifact_consumes is not None:
+        leaf.private_artifact_consumes = private_artifact_consumes
+    if clear_current_step:
+        leaf.current_step = None
 
 
 def _require_derived_pure_replay_profile(state: RunState) -> None:
@@ -1295,28 +1333,28 @@ class StateManager:
                     "state commit guard rejected before mutation"
                 )
 
-            self.state.steps[step_name] = result
-            if artifact_versions is not None:
-                self.state.artifact_versions = artifact_versions
-            if artifact_consumes is not None:
-                self.state.artifact_consumes = artifact_consumes
-            if private_artifact_versions is not None:
-                self.state.private_artifact_versions = private_artifact_versions
-            if private_artifact_consumes is not None:
-                self.state.private_artifact_consumes = private_artifact_consumes
-
             current_step = self.state.current_step
-            if isinstance(current_step, dict) and current_step.get("name") == step_name:
-                if expected_step_id is not None and current_step.get("step_id") != expected_step_id:
-                    self._write_state()
-                    return
-                if (
-                    expected_visit_count is not None
-                    and current_step.get("visit_count") != expected_visit_count
-                ):
-                    self._write_state()
-                    return
-                self.state.current_step = None
+            clear_current_step = (
+                isinstance(current_step, dict)
+                and current_step.get("name") == step_name
+                and (
+                    expected_step_id is None
+                    or current_step.get("step_id") == expected_step_id
+                )
+                and (
+                    expected_visit_count is None
+                    or current_step.get("visit_count") == expected_visit_count
+                )
+            )
+
+            _apply_result_with_dataflow(
+                self.state, result_key=step_name, result=result,
+                clear_current_step=clear_current_step,
+                artifact_versions=artifact_versions,
+                artifact_consumes=artifact_consumes,
+                private_artifact_versions=private_artifact_versions,
+                private_artifact_consumes=private_artifact_consumes,
+            )
 
             self._write_state()
 
@@ -1374,15 +1412,14 @@ class StateManager:
                     "state commit guard rejected before mutation"
                 )
 
-            self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
-            if artifact_versions is not None:
-                self.state.artifact_versions = artifact_versions
-            if artifact_consumes is not None:
-                self.state.artifact_consumes = artifact_consumes
-            if private_artifact_versions is not None:
-                self.state.private_artifact_versions = private_artifact_versions
-            if private_artifact_consumes is not None:
-                self.state.private_artifact_consumes = private_artifact_consumes
+            _apply_result_with_dataflow(
+                self.state, result_key=f"{loop_name}[{index}].{step_name}",
+                result=result, clear_current_step=False,
+                artifact_versions=artifact_versions,
+                artifact_consumes=artifact_consumes,
+                private_artifact_versions=private_artifact_versions,
+                private_artifact_consumes=private_artifact_consumes,
+            )
             self._write_state()
 
     def _mutate_scoped_state(
@@ -1390,7 +1427,8 @@ class StateManager:
         resume_scope_path: Any,
         *,
         commit_guard: Callable[[RunState], bool],
-        mutation: Callable[[RunState], None],
+        mutation: Optional[Callable[[RunState], None]] = None,
+        scoped_mutation: Optional[Callable[[RunState, tuple[RunState, ...]], None]] = None,
     ) -> RunState:
         """Mutate one reached call-frame leaf in one aggregate-root write."""
 
@@ -1403,17 +1441,20 @@ class StateManager:
                 None,
             )
             frame_ids = getattr(resume_scope_path, "call_frame_ids", None)
+            if (mutation is None) == (scoped_mutation is None):
+                raise ValueError("scoped state requires exactly one mutation")
             if (
                 root_workflow_file != self.state.workflow_file
                 or not isinstance(frame_ids, tuple)
-                or not frame_ids
             ):
                 raise ValueError("scoped state path is invalid")
 
+            previous_root = self.state
             candidate_root = RunState.from_dict(
                 deepcopy(self.state.to_dict())
             )
             current = candidate_root
+            reached_chain: list[RunState] = [candidate_root]
             ancestors: list[
                 tuple[RunState, str, Dict[str, Any]]
             ] = []
@@ -1431,12 +1472,17 @@ class StateManager:
                 current = RunState.from_dict(
                     deepcopy(frame["state"])
                 )
+                reached_chain.append(current)
 
             if commit_guard(current) is not True:
                 raise TimeoutError(
                     "state commit guard rejected before mutation"
                 )
-            mutation(current)
+            if mutation is not None:
+                mutation(current)
+            else:
+                assert scoped_mutation is not None
+                scoped_mutation(candidate_root, tuple(reached_chain))
             committed_leaf = current
             updated_child = current
             for parent, frame_id, frame in reversed(ancestors):
@@ -1455,6 +1501,8 @@ class StateManager:
             except BaseException:
                 if self.state_file.exists():
                     self.state = self._read_state_from_disk()
+                else:
+                    self.state = previous_root
                 raise
             return committed_leaf
 

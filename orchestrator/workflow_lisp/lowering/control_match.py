@@ -37,6 +37,7 @@ from .values import (
     _flatten_inline_output_refs,
     _normalize_union_field_path,
     _resolve_inline_expr_value,
+    union_prompt_source_from_output_refs,
 )
 
 
@@ -150,17 +151,31 @@ def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str
 
 
 def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
-    if isinstance(value, str):
+    from .values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
         for step_name in sibling_names:
             prefix = f"parent.steps.{step_name}."
-            if value.startswith(prefix):
-                return "self.steps." + value.removeprefix("parent.steps.")
-        return value
+            if ref.startswith(prefix):
+                return "self.steps." + ref.removeprefix("parent.steps.")
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
+    if isinstance(value, str):
+        return rewrite(value)
     if isinstance(value, list):
         return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
     if isinstance(value, Mapping):
         rewritten: dict[Any, Any] = {}
         for key, item in value.items():
+            if key == "__typed_union_prompt_source__":
+                rewritten[key] = rewrite_typed_union_prompt_source_references(item, rewrite)
+                continue
             if key == "steps" and isinstance(item, list):
                 rewritten[key] = item
                 continue
@@ -651,9 +666,17 @@ def _control_match_arm_local_values_impl(
             if output_name == "return__variant"
             or output_name.removeprefix("return__").split("__", 1)[0] in allowed_field_names
         }
+    binding_value = _build_output_step_local_value(localized_output_refs)
+    if isinstance(binding_type, UnionTypeRef):
+        source = union_prompt_source_from_output_refs(
+            binding_type,
+            output_refs=localized_output_refs,
+        )
+        if source is not None:
+            binding_value["__typed_union_prompt_source__"] = source
     return {
         **local_values,
-        binding_name: _build_output_step_local_value(localized_output_refs),
+        binding_name: binding_value,
     }
 
 

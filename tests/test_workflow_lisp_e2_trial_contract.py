@@ -75,6 +75,14 @@ def test_target_2_27_is_admitted(tmp_path: Path) -> None:
     assert result.validated_bundles_by_name == {}
 
 
+def test_target_2_28_is_admitted(tmp_path: Path) -> None:
+    result = _compile(tmp_path, "2.28")
+
+    assert result.entry_result.module.target_dsl_version == "2.28"
+    assert result.entry_result.lowered_workflows == ()
+    assert result.validated_bundles_by_name == {}
+
+
 def test_trial_compiles_and_lowers_at_inherited_target_2_26(tmp_path: Path) -> None:
     """A 2.26 workflow lowers its trial with the parent target, not a 2.25 pin."""
 
@@ -108,7 +116,7 @@ def test_trial_compiles_and_lowers_at_inherited_target_2_26(tmp_path: Path) -> N
     )
 
 
-def test_trial_config_rejects_unsupported_2_28() -> None:
+def test_trial_config_rejects_unsupported_catalog_version() -> None:
     """The trial static config rejects a target above the admitted catalog."""
 
     from orchestrator.workflow.trial.config import build_trial_static_config
@@ -124,7 +132,7 @@ def test_trial_config_rejects_unsupported_2_28() -> None:
             budget={},
             result_descriptor={},
             result_digest="sha256:" + "0" * 64,
-            target_dsl_version="2.28",
+            target_dsl_version="99.0",
         )
 
 

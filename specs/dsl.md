@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (supported revisions extend through `"2.27"`). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (admitted revisions extend through `"2.32"`; composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -114,6 +114,60 @@ source.
       and creates no session artifact. Targets through 2.26 reject the clause.
       The clause publishes only the validated session ID; the provider's typed
       structured return remains the semantic result.
+  - Workflow Lisp whole-union prompt inputs (target 2.28):
+    - Ordinary `provider-result :inputs` and prompt `:value` fills admit closed
+      unions and already-transportable lists containing them without new source
+      syntax, manual matching, or an explicit renderer. Existing canonical JSON
+      carries the discriminant and active payload, including nested values.
+    - Flattened boundaries use compiler-owned `typed_union_projection` sources:
+      one normalized descriptor and explicit reference/literal, record, or
+      union source nodes. Union nodes keep variant-specific fields separate,
+      including same-named fields with different scalar/record shapes. Resolve
+      the discriminant before active payload references; inactive references
+      are not prerequisites. Whole referenced and literal values remain data;
+      a payload key named `ref` is never an instruction to read another value.
+    - Unknown tags and missing/malformed active data fail before provider
+      launch. Existing type/proof validation, current provider output-contract
+      ownership, phase fallback, and one-binding/value/rendered-block/evidence
+      correspondence remain unchanged. Source-tree validation is shared by
+      ordinary, fragment, and phased prompt preparation.
+    - The new source kind is rejected below 2.28. Existing lower-target
+      scalar/record/path behavior is unchanged. No new workflow runtime node,
+      result store, or persisted state schema is introduced.
+  - Workflow Lisp rich loop values (target 2.29):
+    - `loop/recur` admits already-transportable `List[record]` and `List[union]`
+      state, at the root or inside a state record. Admission, projection and
+      generated contracts carry the actual target and defining type environment;
+      list elements retain their complete descriptors and tagged wire values.
+    - `:on-exhausted` supports direct state roots/fields and recursively nested
+      record/variant packaging, including renamed fields and scalar literals.
+      It uses the latest committed `continue` state through existing generated
+      result bindings, not an exhaustion-time evaluator. A normal `done` result
+      retains its own payload even if its variant matches the exhaustion variant.
+    - Top-level Optional/Map state and arbitrary computed/effectful exhaustion
+      expressions remain unsupported. This does not widen workflow-input
+      boundaries merely because a supported provider result can enter a loop.
+      Targets through 2.28 retain their previous admission and emitted mappings.
+      State schema remains `2.1`; end-to-end root-state/resume evidence is recorded
+      in implementation-plan Task 4.
+  - Workflow Lisp host input (target 2.32):
+    - `(request-input question)` accepts exactly one `String` expression and
+      returns the closed builtin `HumanReply` union:
+      `ANSWERED(text String) | CANCELLED`. It is one inferred `host-input`
+      effect, not a provider or command invocation. A procedure that declares
+      effects names it as `:effects ((host-input))`.
+    - The operation lowers to one bundle-free `request_input` leaf with exactly
+      `question: {literal: String}` or `question: {ref: String}`. Prefix work
+      from `let*`, control flow, or a supported effectful question completes
+      before that leaf; no prompt template, provider option, output bundle, or
+      per-question result descriptor is admitted.
+    - The runtime creates one root-owned durable request and suspends the root;
+      answer/cancel is recorded through the host-input API and ordinary
+      `resume` consumes the exact validated reply. At most one request may be
+      pending or answered at a time. Existing call/loop scope and visit
+      identity determine re-entry; this does not add arbitrary continuation
+      serialization or native provider-session resume. Targets through 2.31
+      reject the form and builtin type.
 - Step schema (consolidated; MVP + v1.1.1)
   - Required: `name: string`.
   - Optional metadata: `agent: string` (informational).
@@ -121,6 +175,7 @@ source.
   - Execution (mutually exclusive in a single step):
     - `provider: string` (+ optional `provider_params`; provider strings may use `${...}` substitution and resolve at provider-step execution time) OR
     - `command: string[]` OR
+    - `request_input: {question: {literal: String}|{ref: String}}` (compiler-generated, v2.32+; exactly one question source, mutually exclusive with other execution forms; see host input above) OR
     - `assert: Condition|TypedPredicate` (v1.5+; exclusive with provider/command/wait_for/for_each) OR
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
@@ -325,6 +380,13 @@ source.
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
       - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers used by the discriminant or any field in the same selected variant. Variant-only fields may reuse an artifact name or JSON pointer across distinct variants because only one variant is active.
       - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
+      - Inactive-field detection respects selected JSON-pointer ownership: an
+        inactive field is not present as a separate payload merely because its
+        pointer equals, contains, or lies within a selected field's pointer.
+        Comparisons use complete pointer segments, not textual prefixes.
+        Unrelated inactive siblings remain forbidden, and selected field types
+        remain authoritative. The same rule applies to union-projected
+        `output_bundle` fields.
       - v2.15 may add closed non-empty bundle `guidance`, direct field
         guidance, ordered `guidance_context`, and `guidance_by_variant` on a
         shared field. `guidance_by_variant` keys must be known variants in
@@ -423,6 +485,9 @@ source.
     - `requires_variant` (optional; v2.14+):
       - Provides an author-time proof that a step may reference fields available only for one selected variant from a variant-producing step.
       - Runtime still checks the producer discriminant before execution and fails with `variant_unavailable` if the selected variant does not match.
+      - Target 2.29: alongside legacy `{step, value}`, admit exactly `{ref, allowed}`. `ref` resolves through ordinary scoped output addresses to a declared persisted union discriminant; `allowed` is a nonempty, duplicate-free list of declared variants. Mixed forms, arbitrary enum artifacts, inaccessible/nonpersisted/multi-visit owners, and inconsistent group metadata reject.
+      - New-target proof identifies the resolved lexical producer and declared discriminant, not a producer display name. Match cases refine the exact selector; field reads require a nonempty possible-variant set contained in the field's declared activity set. Independent groups and same-named scoped producers cannot transfer proof; contradictory refinement rejects.
+      - The precise guard checks the bound current-scope/current-iteration discriminant before ordinary or nested execution and after restore/replay. Missing, malformed or disallowed values fail closed. At 2.29+, legacy guards require one unambiguous root discriminant; lower targets retain their historical behavior. No new opcode or persisted proof cache is introduced.
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
     - `retries: { max: number, delay_ms?: number }`
@@ -446,6 +511,15 @@ source.
         - `self.steps.<Step>...` addresses the current lexical scope
         - `parent.steps.<Step>...` addresses the immediately enclosing lexical scope
         - bare `steps.<Name>...` remains invalid in the structured `ref:` model
+      - v2.29 lexical forwarding: enclosing
+        scopes retain inherited lexical bindings. `parent` selects the nearest
+        enclosing producer with that name; `self` remains current-scope-only and
+        `root` remains root-only. Resolve the producer before checking its member:
+        missing members never fall through to a more distant producer. Forwarded
+        bindings retain the original producer identity, contracts, restrictions,
+        and union proofs; they introduce no materialized result or new reference
+        syntax. Sibling/descendant producers and stale loop iterations remain
+        inaccessible. Earlier targets retain immediate-parent semantics.
       - v2.1 workflow signatures:
         - `inputs.<name>` addresses one bound workflow input
       - v2.2 structured branch outputs:

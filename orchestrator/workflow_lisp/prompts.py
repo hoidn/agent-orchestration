@@ -232,7 +232,10 @@ def build_prompt_catalog(
             slot = resolved_slot.declaration
             if (
                 resolved_slot.refinement_type_ref is not None
-                and not _refinement_is_admissible(resolved_slot)
+                and not _refinement_is_admissible(
+                    resolved_slot,
+                    target_dsl_version=getattr(type_env, "target_dsl_version", None),
+                )
             ):
                 _raise_prompt_error(
                     "prompt_slot_refinement_invalid",
@@ -466,6 +469,7 @@ def typecheck_prompt_application(
             slot,
             typed.type_ref,
             fill=fill,
+            target_dsl_version=getattr(type_env, "target_dsl_version", None),
         )
         if (
             slot.refinement_type_ref is not None
@@ -642,7 +646,11 @@ def _is_workspace_output_relpath(type_ref: object) -> bool:
     )
 
 
-def _refinement_is_admissible(slot: ResolvedPromptSlot) -> bool:
+def _refinement_is_admissible(
+    slot: ResolvedPromptSlot,
+    *,
+    target_dsl_version: str | None,
+) -> bool:
     from .type_env import PathTypeRef
     from .typed_prompt_inputs import select_prompt_fragment_renderer
 
@@ -659,11 +667,19 @@ def _refinement_is_admissible(slot: ResolvedPromptSlot) -> bool:
     if kind is PromptSlotKind.PATH:
         return (
             isinstance(type_ref, PathTypeRef)
-            and select_prompt_fragment_renderer(type_ref, kind="path")
+            and select_prompt_fragment_renderer(
+                type_ref,
+                kind="path",
+                target_dsl_version=target_dsl_version,
+            )
             == "posix-path-line"
         )
     return (
-        select_prompt_fragment_renderer(type_ref, kind="value")
+        select_prompt_fragment_renderer(
+            type_ref,
+            kind="value",
+            target_dsl_version=target_dsl_version,
+        )
         == "canonical-json"
     )
 
@@ -673,6 +689,7 @@ def _renderer_for_fill(
     type_ref: object,
     *,
     fill: PromptFill,
+    target_dsl_version: str | None,
 ) -> str:
     from .type_env import PathTypeRef, PrimitiveTypeRef
     from .typed_prompt_inputs import select_prompt_fragment_renderer
@@ -703,6 +720,7 @@ def _renderer_for_fill(
     renderer_id = select_prompt_fragment_renderer(
         type_ref,
         kind=kind.value,
+        target_dsl_version=target_dsl_version,
     )
     if renderer_id is None:
         _raise_prompt_error(

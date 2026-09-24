@@ -420,6 +420,49 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
     `:prompt-dependencies` remains the separate mechanism for injecting a
     relpath target's contents.
 
+- Workflow Lisp portable provider context (target 2.31)
+  - An ordinary
+    `provider-result` may take `:context <Context expression>` and may select
+    `:capture-context :portable`. `Context` is the fixed closed
+    `portable-context.v1` record, and `Contextual[T]` is its ordinary record
+    wrapper `{result: T, context: Context}`. Without capture a call returns
+    its model result `T`; capture changes its expression result to
+    `Contextual[T]`. The model return declaration still describes `T`, never
+    the wrapper.
+  - The compiler owns the closed `provider_context` configuration:
+    `input?: {ref: String}`, `capture?: "portable"`, and
+    `result_descriptor?: <normalized descriptor for T>`. At least one of
+    input or capture is required; capture requires exactly the descriptor for
+    its model result. The runtime resolves the scoped input reference and
+    validates the complete fixed Context value before preparation. Computed
+    Context values use the existing typed pure projection; no ambient context,
+    source carrier, or context-specific reference syntax exists.
+  - Context input starts a fresh ordinary provider call. It is quoted history
+    data inserted by the ordinary prompt-composition owner before identity is
+    sealed; the current task, tools, and output contract remain authoritative.
+    Recorded commands are evidence, never requests to run them. Binding is not
+    native session resume, mutable-session sharing, or a claim to reproduce
+    hidden provider state. Reusing a Context creates fresh independent calls.
+  - Capture/input are rejected for native representation selection and for
+    phased, peer, supervised, adjudicated, or unsupported-adapter calls.
+    Capture also rejects simultaneous `:session-artifact` publication. Omitted
+    context fields preserve the existing call shape and behavior.
+  - The first supported codec is the settled `codex exec --json` transport for
+    Codex 0.155.1. It exposes only the supplied TASK, completed ASSISTANT text,
+    completed COMMAND exchanges (start/completion positions, command, final
+    output, and exit code), and terminal FILE_CHANGE metadata (completion
+    position, item ID, `completed`/`failed` status, and ordered `add`/
+    `delete`/`update` path rows). A FILE_CHANGE start or update must be
+    `in_progress` and is lifecycle-validated then collapsed; a completion-only
+    terminal item remains valid. Patch bytes, file contents, and filesystem
+    state are not captured.
+  - Coverage explicitly omits reasoning. A context containing FILE_CHANGE
+    records `codex-file-change-metadata-only`: terminal metadata is retained
+    while start/update transport and unavailable patch data are not. Unknown
+    envelopes or item kinds, malformed/conflicting/incomplete lifecycles, and
+    every other transport or adapter fail closed; no opaque payload fallback or
+    general provider portability is implied.
+
 - Workflow Lisp provider prompt dependencies
   - `provider-result :prompt-dependencies (:required ... :optional ...)` contributes typed required and optional exact workspace `relpath` operands to the ordinary workspace-dependency composition stage. Position defaults to `prepend`; `append` is the only alternative; an optional instruction is literal text and never provider-parameter substitution.
   - The composition pipeline first builds the base prompt plus source-relative `asset_depends_on`, applies the per-attempt dependency block at its declared position, then applies typed prompt inputs, consumed-artifact injection under its own position policy, and the output-contract suffix. Pipeline order does not override a stage's explicit prepend/append policy.

@@ -16,9 +16,16 @@ from orchestrator.workflow.executable_ir import (
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.runtime_step import RuntimeStep
 from orchestrator.workflow_lisp import build_artifacts
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    compile_stage1_module,
+    compile_stage3_entrypoint,
+    compile_stage3_module,
+)
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.loops import ensure_loop_projectable_type
 from orchestrator.workflow_lisp.lowering import control_loops
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, ListTypeRef
 from orchestrator.workflow_lisp.lowering import core as lowering_core
 from orchestrator.workflow_lisp.wcc import defunctionalize
 from orchestrator.workflow.validation import (
@@ -320,6 +327,102 @@ def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> N
         _compile(workflow_path, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
+    tmp_path: Path,
+) -> None:
+    """Target-2.29 admits complete root record-list descriptors."""
+
+    workflow_path = _write_module(
+        tmp_path / "rich_list_root_state.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task",
+                "    (task_id String))",
+                "  (defworkflow carry-tasks ((tasks List[Task])) -> List[Task]",
+                "    (loop/recur :max 1 :state tasks",
+                "      (fn (state) (done state)))))",
+            ]
+        ),
+    )
+
+    result = _compile(workflow_path, tmp_path=tmp_path)
+
+    assert {
+        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+    } == {"carry-tasks"}
+
+
+def test_typecheck_loop_recur_rich_list_root_union_uses_defining_type_env(tmp_path: Path) -> None:
+    """The target-2.29 loop check receives the defining union environment."""
+
+    definitions_path = _write_module(
+        tmp_path / "rich_list_root_union_types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task",
+                "    (task_id String))",
+                "  (defunion TaskOutcome",
+                "    (PENDING (task Task))",
+                "    (BLOCKED (reason String)))",
+                ")",
+            ]
+        ),
+    )
+    type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(definitions_path))
+    span = SourceSpan(
+        start=SourcePosition(path=str(definitions_path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(definitions_path), line=1, column=2, offset=1),
+    )
+    state_type = type_env.resolve_type(
+        "List[TaskOutcome]",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "carry-outcomes"),
+    )
+
+    assert isinstance(state_type, ListTypeRef)
+    assert state_type.item_type_ref.name == "TaskOutcome"
+    ensure_loop_projectable_type(
+        state_type,
+        code="loop_recur_state_type_invalid",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "carry-outcomes"),
+        type_env=type_env,
+    )
+
+
+def test_typecheck_loop_recur_rich_list_target_228_reports_descriptor_blocker(
+    tmp_path: Path,
+) -> None:
+    """Target 2.28 retains the pre-rich-loop descriptor refusal."""
+
+    workflow_path = _write_module(
+        tmp_path / "rich_list_target_228_blocker.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.28")',
+                "  (defrecord Task",
+                "    (task_id String))",
+                "  (defworkflow carry-tasks ((tasks List[Task])) -> List[Task]",
+                "    (loop/recur :max 1 :state tasks",
+                "      (fn (state) (done state)))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(workflow_path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "list_collection_contract_unsupported")
 
 
 def test_lowering_loop_recur_supports_union_return_fixture(tmp_path: Path) -> None:
@@ -740,6 +843,44 @@ def test_compiler_owned_repeat_metadata_declaration_walks_nested_structured_step
             "exhaustion_diagnostic_code": "bounded_traversal_cap_exceeded"
         }
     }
+
+
+def test_target_229_compiler_owned_repeat_captures_empty_metadata_and_nested_if() -> None:
+    mapping = {
+        "version": "2.29",
+        "steps": [
+            {
+                "name": "Loop",
+                "id": "owned_loop",
+                "repeat_until": {
+                    "steps": [
+                        {
+                            "name": "Outer",
+                            "id": "outer",
+                            "if": {"compare": {}},
+                            "then": {
+                                "steps": [
+                                    {
+                                        "name": "Deep",
+                                        "id": "deep",
+                                        "if": {"compare": {}},
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+
+    repeats = lowering_core._capture_compiler_owned_repeat_until_metadata(mapping)
+
+    assert repeats == {"owned_loop": {}}
+    assert lowering_core._capture_compiler_owned_nested_if_step_ids(
+        mapping,
+        compiler_owned_repeat_until_metadata=repeats,
+    ) == ("deep", "outer")
 
 
 def test_shared_validator_matches_nested_repeat_metadata_to_exact_declaration(

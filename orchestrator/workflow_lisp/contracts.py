@@ -24,6 +24,7 @@ from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
 from .syntax import (
     target_dsl_supports_nested_structural_transport,
+    target_dsl_supports_rich_loop_values,
     target_dsl_supports_trial,
 )
 from .type_env import (
@@ -256,6 +257,7 @@ def derive_structured_result_contract(
         guidance=None,
         type_env=None,
         include_guidance=False,
+        whole_value=False,
     )
 
 
@@ -268,6 +270,7 @@ def derive_prompt_guided_structured_result_contract(
     span: SourceSpan | None = None,
     form_path: tuple[str, ...] = (),
     guidance: ResultGuidance | None = None,
+    whole_value: bool = False,
 ) -> GeneratedBundleContract:
     """Derive a provider/command prompt contract with normalized guidance."""
 
@@ -282,6 +285,7 @@ def derive_prompt_guided_structured_result_contract(
         guidance=guidance,
         type_env=type_env,
         include_guidance=True,
+        whole_value=whole_value,
     )
 
 
@@ -295,6 +299,7 @@ def _derive_structured_result_contract(
     guidance: ResultGuidance | None,
     type_env: Any | None,
     include_guidance: bool,
+    whole_value: bool = False,
 ) -> GeneratedBundleContract:
     """Derive the runtime-validated result contract for a provider/command form.
 
@@ -320,25 +325,32 @@ def _derive_structured_result_contract(
         if include_guidance
         else None
     )
-    if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+    if whole_value or not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         root_subject = ValidationSubjectRef(
             subject_kind="output_bundle_field",
             subject_name=f"{step_id}::root-result::__result__",
             workflow_name=workflow_name,
         )
+        field_definition = _structured_result_field_definition(
+            type_ref,
+            span=span,
+            form_path=form_path,
+            type_env=type_env,
+            allow_nested_structures=allow_nested_structures,
+        )
+        if whole_value and include_guidance:
+            field_definition = _annotate_result_field_guidance(
+                field_definition,
+                type_ref=type_ref,
+                type_env=type_env,
+            )
         payload = {
             "path": path,
             "fields": [
                 {
                     "name": "__result__",
                     "json_pointer": "",
-                    **_structured_result_field_definition(
-                        type_ref,
-                        span=span,
-                        form_path=form_path,
-                        type_env=type_env,
-                        allow_nested_structures=allow_nested_structures,
-                    ),
+                    **field_definition,
                     **(root_guidance or {}),
                     "source_map_subject": serialize_validation_subject_ref(root_subject),
                 }
@@ -517,7 +529,7 @@ def derive_workflow_signature_contracts(
             allow_transportable_value=allow_compiler_direct_result,
             type_env=type_env,
         )
-        return_union_metadata = _derive_union_workflow_output_metadata(
+        return_union_metadata = derive_union_workflow_output_metadata(
             signature.return_type_ref,
             span=signature.span,
             form_path=signature.form_path,
@@ -577,12 +589,14 @@ def derive_workflow_signature_contracts(
     )
 
 
-def _derive_union_workflow_output_metadata(
+def derive_union_workflow_output_metadata(
     type_ref: TypeRef,
     *,
     span: SourceSpan,
     form_path: tuple[str, ...],
     type_env: Any | None,
+    generated_name: str = "return",
+    source_path: tuple[str, ...] = ("return",),
 ) -> Mapping[str, Mapping[str, Any]]:
     """Retain union activity metadata while flattening record returns."""
 
@@ -626,7 +640,7 @@ def _derive_union_workflow_output_metadata(
                 "projection"
             ]
 
-    visit(type_ref, generated_name="return", source_path=("return",))
+    visit(type_ref, generated_name=generated_name, source_path=source_path)
     return metadata_by_name
 
 
@@ -805,10 +819,18 @@ def derive_union_workflow_boundary_projection(
             "allowed": [variant.name for variant in type_ref.definition.variants],
         },
     )
+    structural_segments = target_dsl_supports_rich_loop_values(
+        getattr(type_env, "target_dsl_version", "")
+    )
+    source_segments = (
+        _structured_field_source_segments
+        if structural_segments
+        else _legacy_structured_field_source_segments
+    )
     shared_fields = tuple(
         FlattenedContractField(
             generated_name=f"{generated_name}__{field['name']}",
-            source_path=source_path + (field["name"],),
+            source_path=source_path + source_segments(field),
             contract_definition=_workflow_boundary_contract_from_structured_field(field),
         )
         for field in _shared_variant_structured_result_fields(
@@ -821,9 +843,9 @@ def derive_union_workflow_boundary_projection(
     variant_fields: dict[str, tuple[FlattenedContractField, ...]] = {}
     for variant in type_ref.definition.variants:
         variant_fields[variant.name] = tuple(
-            FlattenedContractField(
-                generated_name=f"{generated_name}__{field['name']}",
-                source_path=source_path + (field["name"],),
+                FlattenedContractField(
+                    generated_name=f"{generated_name}__{field['name']}",
+                    source_path=source_path + source_segments(field),
                 contract_definition=_workflow_boundary_contract_from_structured_field(field),
             )
             for field in _flatten_variant_structured_result_fields(
@@ -839,6 +861,28 @@ def derive_union_workflow_boundary_projection(
         shared_fields=shared_fields,
         variant_fields=variant_fields,
     )
+
+
+def _structured_field_source_segments(field: Mapping[str, Any]) -> tuple[str, ...]:
+    """Recover structural field segments from the contract pointer, not its flat name."""
+    pointer = field.get("json_pointer")
+    if isinstance(pointer, str) and pointer.startswith("/"):
+        return tuple(
+            token.replace("~1", "/").replace("~0", "~")
+            for token in pointer[1:].split("/")
+        )
+    name = field.get("name")
+    if isinstance(name, str) and name:
+        return (name,)
+    raise TypeError("structured result field requires a name or JSON pointer")
+
+
+def _legacy_structured_field_source_segments(field: Mapping[str, Any]) -> tuple[str, ...]:
+    """Preserve the historical flattened-name source path below rich loops."""
+    name = field.get("name")
+    if isinstance(name, str) and name:
+        return (name,)
+    raise TypeError("structured result field requires a name")
 
 
 def derive_reusable_state_contract_metadata(
@@ -1777,6 +1821,98 @@ def _structured_result_field_definition(
         form_path=form_path,
         type_env=type_env,
     )
+
+
+def _annotate_result_field_guidance(
+    definition: Mapping[str, Any],
+    *,
+    type_ref: TypeRef,
+    type_env: Any,
+) -> dict[str, Any]:
+    """Add authored field guidance to an already-derived transport schema."""
+
+    annotated = dict(definition)
+    if isinstance(type_ref, OptionalTypeRef):
+        annotated["item"] = _annotate_result_field_guidance(
+            definition["item"],
+            type_ref=type_ref.item_type_ref,
+            type_env=type_env,
+        )
+        return annotated
+    if isinstance(type_ref, ListTypeRef):
+        annotated["items"] = _annotate_result_field_guidance(
+            definition["items"],
+            type_ref=type_ref.item_type_ref,
+            type_env=type_env,
+        )
+        return annotated
+    if isinstance(type_ref, MapTypeRef):
+        annotated["values"] = _annotate_result_field_guidance(
+            definition["values"],
+            type_ref=type_ref.value_type_ref,
+            type_env=type_env,
+        )
+        return annotated
+    if isinstance(type_ref, RecordTypeRef):
+        fields_by_name = {
+            field.name: field for field in type_ref.definition.fields
+        }
+        field_types = type_ref.field_types
+        annotated["fields"] = [
+            {
+                **_annotate_result_field_guidance(
+                    field_definition,
+                    type_ref=field_types[field_definition["name"]],
+                    type_env=type_env,
+                ),
+                **(
+                    normalized_result_guidance_payload(
+                        fields_by_name[field_definition["name"]].guidance,
+                        expected_type=field_types[field_definition["name"]],
+                        type_env=type_env,
+                    )
+                    or {}
+                ),
+            }
+            for field_definition in definition["fields"]
+        ]
+        return annotated
+    if isinstance(type_ref, UnionTypeRef):
+        fields_by_variant = {
+            variant.name: {field.name: field for field in variant.fields}
+            for variant in type_ref.definition.variants
+        }
+        annotated["variants"] = {
+            variant.name: {
+                "fields": [
+                    {
+                        **_annotate_result_field_guidance(
+                            field_definition,
+                            type_ref=type_ref.variant_field_types[variant.name][
+                                field_definition["name"]
+                            ],
+                            type_env=type_env,
+                        ),
+                        **(
+                            normalized_result_guidance_payload(
+                                fields_by_variant[variant.name][
+                                    field_definition["name"]
+                                ].guidance,
+                                expected_type=type_ref.variant_field_types[
+                                    variant.name
+                                ][field_definition["name"]],
+                                type_env=type_env,
+                            )
+                            or {}
+                        ),
+                    }
+                    for field_definition in definition["variants"][variant.name]["fields"]
+                ]
+            }
+            for variant in type_ref.definition.variants
+        }
+        return annotated
+    return annotated
 
 
 def _raise_contract_error(

@@ -31,6 +31,7 @@ from .executable_ir import (
     ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
+    RequestInputStepConfig,
     ResourceTransitionStepConfig,
     RepeatUntilStepConfig,
     RunRefStepConfig,
@@ -284,6 +285,10 @@ class RuntimeStep(Mapping[str, Any]):
                 value = thaw_runtime_value(config.provider_call_policy)
                 if _include_value(value):
                     return value
+            if key == "provider_context":
+                value = thaw_runtime_value(config.provider_context)
+                if _include_value(value):
+                    return value
             if key == "input_file":
                 value = thaw_runtime_value(config.input_file)
                 if _include_value(value):
@@ -377,6 +382,11 @@ class RuntimeStep(Mapping[str, Any]):
                     return thaw_runtime_value(config.prompt_consumes)
             if key == "consumes_injection_position" and config.consumes_injection_position is not None:
                 return config.consumes_injection_position
+            raise KeyError(key)
+
+        if isinstance(config, RequestInputStepConfig):
+            if key == "request_input":
+                return thaw_runtime_value(config.request_input)
             raise KeyError(key)
 
         if isinstance(config, WaitForStepConfig):
@@ -475,6 +485,7 @@ class RuntimeStep(Mapping[str, Any]):
             for key in (
                 "provider_params",
                 "provider_call_policy",
+                "provider_context",
                 "input_file",
                 "asset_file",
                 "depends_on",
@@ -526,6 +537,10 @@ class RuntimeStep(Mapping[str, Any]):
                 except KeyError:
                     continue
                 yield key
+            return
+
+        if isinstance(config, RequestInputStepConfig):
+            yield "request_input"
             return
 
         if isinstance(config, WaitForStepConfig):

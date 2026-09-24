@@ -34,6 +34,8 @@ def execute_pure_projection(
     binding_refs = config.get("binding_refs")
     payload_digest = config.get("payload_digest")
     output_contracts = config.get("output_contracts")
+    output_bundle = step.get("output_bundle")
+    output_bundle_fields = output_bundle.get("fields") if isinstance(output_bundle, dict) else None
     if not isinstance(payload, dict) or not isinstance(binding_refs, dict) or not isinstance(payload_digest, str):
         return runtime._contract_violation_result(
             "Pure projection execution failed",
@@ -94,6 +96,7 @@ def execute_pure_projection(
                 artifacts = runtime._pure_projection_artifacts(
                     reused_result,
                     output_contracts=output_contracts,
+                    output_bundle_fields=output_bundle_fields,
                 )
             except OutputContractError as exc:
                 return runtime._contract_violation_result(
@@ -112,6 +115,7 @@ def execute_pure_projection(
         artifacts = runtime._pure_projection_artifacts(
             result_value,
             output_contracts=output_contracts,
+            output_bundle_fields=output_bundle_fields,
         )
     except OutputContractError as exc:
         return runtime._contract_violation_result(

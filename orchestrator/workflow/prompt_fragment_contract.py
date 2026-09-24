@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from .type_descriptor import validate_compiler_normalized_type_descriptor
+
 
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA = "compiler_prompt_fragment_contract.v1"
 COMPILER_PROMPT_FRAGMENT_CONTRACT_SCHEMA_V2 = "compiler_prompt_fragment_contract.v2"
@@ -99,12 +101,133 @@ def _require_non_empty_string(value: Any, *, context: str) -> str:
     return value
 
 
-def _validate_value_source(value_source: Mapping[str, Any]) -> None:
+def _validate_typed_union_projection_source_node(
+    node: Any,
+    *,
+    descriptor: Mapping[str, Any],
+    context: str,
+) -> None:
+    if not isinstance(node, Mapping):
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: "
+            f"{context} must be a mapping"
+        )
+    kind = node.get("kind")
+    if kind == "reference":
+        _require_exact_keys(node, {"kind", "reference"}, context=context)
+        ref = _require_non_empty_string(node["reference"], context=context + ".reference")
+        if not ref.startswith(("inputs.", "root.steps.", "self.steps.", "parent.steps.")):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "typed union projection ref is outside the admitted runtime namespaces"
+            )
+        return
+    if kind == "literal":
+        _require_exact_keys(node, {"kind", "value"}, context=context)
+        try:
+            _canonical_json_bytes(node["value"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context}.value must be finite JSON"
+            ) from exc
+        return
+    if kind == "record":
+        _require_exact_keys(node, {"kind", "fields"}, context=context)
+        fields = node["fields"]
+        if descriptor["kind"] not in {"record", "variant_case"} or not isinstance(fields, Mapping):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context} record fields do not match the descriptor"
+            )
+        expected = {field["name"] for field in descriptor["fields"]}
+        if set(fields) != expected:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context} record fields do not match the descriptor"
+            )
+        for field in descriptor["fields"]:
+            _validate_typed_union_projection_source_node(
+                fields[field["name"]], descriptor=field["type"], context=context + ".fields." + field["name"]
+            )
+        return
+    if kind == "union":
+        _require_exact_keys(node, {"kind", "discriminant", "variants"}, context=context)
+        if descriptor["kind"] != "union" or not isinstance(node["variants"], Mapping):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context} union does not match the descriptor"
+            )
+        _validate_typed_union_projection_source_node(
+            node["discriminant"],
+            descriptor={"kind": "primitive", "name": "String"},
+            context=context + ".discriminant",
+        )
+        variants = {variant["name"]: variant for variant in descriptor["variants"]}
+        known_tag = (
+            node["discriminant"].get("value")
+            if isinstance(node["discriminant"], Mapping)
+            and node["discriminant"].get("kind") == "literal"
+            and isinstance(node["discriminant"].get("value"), str)
+            else None
+        )
+        expected_variants = set(variants) if known_tag is None else {known_tag}
+        if known_tag is not None and known_tag not in variants:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context} union tag is unknown"
+            )
+        if set(node["variants"]) != expected_variants:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                f"{context} union variants do not match the descriptor"
+            )
+        for name in expected_variants:
+            variant = variants[name]
+            fields = node["variants"][name]
+            if not isinstance(fields, Mapping) or set(fields) != {field["name"] for field in variant["fields"]}:
+                raise ValueError(
+                    "compiler_prompt_fragment_contract_invalid: "
+                    f"{context} union fields do not match the descriptor"
+                )
+            for field in variant["fields"]:
+                _validate_typed_union_projection_source_node(
+                    fields[field["name"]], descriptor=field["type"], context=context + ".variants." + name + "." + field["name"]
+                )
+        return
+    raise ValueError(
+        "compiler_prompt_fragment_contract_invalid: "
+        f"{context}.kind must be reference or literal"
+    )
+
+
+def validate_typed_prompt_value_source(value_source: Mapping[str, Any]) -> None:
+    """Validate the closed runtime value source shared by prompt carriers."""
+
     _require_exact_keys(
         value_source,
-        {"kind", "binding"},
+        {"kind", "binding"} if value_source.get("kind") == "typed_binding_ref" else {"kind", "descriptor", "source"},
         context="value_source",
     )
+    if value_source["kind"] == "typed_union_projection":
+        descriptor = value_source["descriptor"]
+        source = value_source["source"]
+        if not isinstance(descriptor, Mapping):
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "typed union projection descriptor must be a mapping"
+            )
+        try:
+            validate_compiler_normalized_type_descriptor(descriptor)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError(
+                "compiler_prompt_fragment_contract_invalid: "
+                "typed union projection descriptor is invalid"
+            ) from exc
+        _validate_typed_union_projection_source_node(
+            source, descriptor=descriptor, context="value_source.source"
+        )
+        return
     if value_source["kind"] != "typed_binding_ref":
         raise ValueError(
             "compiler_prompt_fragment_contract_invalid: "
@@ -133,6 +256,10 @@ def _validate_value_source(value_source: Mapping[str, Any]) -> None:
         "compiler_prompt_fragment_contract_invalid: "
         "value_source binding must be one admitted ref or JSON scalar literal"
     )
+
+
+def _validate_value_source(value_source: Mapping[str, Any]) -> None:
+    validate_typed_prompt_value_source(value_source)
 
 
 def _scan_placeholders(template: str) -> tuple[str, ...]:
@@ -839,6 +966,11 @@ def _path_template_from_rendered_slot(
     """Derive one output template solely from the frozen Q1 value source."""
 
     _validate_value_source(slot.value_source)
+    if slot.value_source["kind"] != "typed_binding_ref":
+        raise ValueError(
+            "compiler_prompt_fragment_contract_invalid: "
+            "output-position value source must be a binding ref or string literal"
+        )
     binding = slot.value_source["binding"]
     if isinstance(binding, Mapping):
         return "${" + str(binding["ref"]) + "}"

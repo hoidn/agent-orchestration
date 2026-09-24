@@ -345,9 +345,14 @@ machinery to remove. This work neither gates an E/ES/P exit nor changes studies.
 
 **Governing proposal:**
 [Pure-Call Expression Composition](../design/workflow_lisp_pure_call_composition.md).
-**Status:** the previously listed companion design is now an explicit pending,
-unselected workstream. No implementation, target version, or allocation is
-selected. It is separate from EL-1 and may retain today's effect annotations.
+**Status:** research workstream pending and unselected. Separately owner-requested
+Package C of the [composition implementation plan](2026-09-22-value-and-continuation-composition-implementation-plan.md)
+implements the resolved-inline subset at target 2.30, with selected-hook,
+once-only evaluation and public committed-boundary resume evidence. Reuse that
+mechanical evidence when selecting EC-1 work; do not repeat implementation merely
+to satisfy the historical sequence below. Practical benefit and principled
+expansion/retirement remain separate decisions. No research allocation changes;
+EL-1's optional annotations are not a prerequisite.
 
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
@@ -380,18 +385,24 @@ overlapping compiler edits must be coordinated before execution.
 
 **Governing proposal:**
 [Provider Context Values](../design/workflow_lisp_provider_context_values.md).
-**Status:** pending roadmap work; design proposed, implementation unselected,
-no target DSL version or provider allocation assigned. The owner's 2026-09-08
-instruction incorporates the proposal into this roadmap, not into the active
-R1a study or its research allocation.
+**Status:** research workstream pending and unselected. Separately owner-requested
+Package D of the [composition implementation plan](2026-09-22-value-and-continuation-composition-implementation-plan.md)
+implements portable ordinary Codex context at target 2.31. Public typed/private/
+generic/loop carriage, pure editing, independent branches, committed-boundary
+resume and real normal-tools capture/fresh binding are verified. This is not
+native/cross-provider support or research utility evidence; the small comparison
+did not establish an advantage over a result handoff. No R1a allocation or
+research selector changes follow from implementation.
 
 The intended capability is explicit immutable conversational dataflow: capture
 context, pass/return it through ordinary reusable procedures, transform it, and
 bind it to another provider call. Portable content and native continuation have
 different promises; existing session handles, private execution `RunCtx`, and
 content-free prompt evidence are not implementations of this proposal. Tools
-remain provider/agent-owned. Use the proposal for semantics rather than copying
-its illustrative syntax into runnable workflows.
+remain provider/agent-owned. Use the [authoring guide](../lisp_workflow_drafting_guide.md#portable-provider-context)
+for the implemented slice; broader design sketches remain proposals. A selected
+PC-1 task should audit and reuse the existing implementation/evidence, then
+address a real consumer or unsupported boundary, not recreate the same minimum.
 
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |

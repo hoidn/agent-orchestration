@@ -17,7 +17,7 @@ from typing import Any
 
 
 PURE_EXPR_SCHEMA_VERSION = 1
-PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
+PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 DEFAULT_PURE_EXPR_MAX_NODES = 256
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
@@ -42,10 +42,16 @@ _PURE_EXPR_SCHEMA_2_NODE_KINDS = _PURE_EXPR_SCHEMA_1_NODE_KINDS | frozenset(
         "list_nonempty_head",
     }
 )
+_PURE_EXPR_SCHEMA_3_NODE_KINDS = _PURE_EXPR_SCHEMA_2_NODE_KINDS | frozenset(
+    {
+        "let",
+    }
+)
 PURE_EXPR_NODE_KINDS_BY_SCHEMA = MappingProxyType(
     {
         1: _PURE_EXPR_SCHEMA_1_NODE_KINDS,
         2: _PURE_EXPR_SCHEMA_2_NODE_KINDS,
+        3: _PURE_EXPR_SCHEMA_3_NODE_KINDS,
     }
 )
 _LIST_OPERATOR_NAMES = frozenset(
@@ -561,6 +567,49 @@ def _validate_expr_node(
             count += validate_child(field.get("value"))
         return count
 
+    if kind == "let":
+        if set(node) != {"kind", "bindings", "body"}:
+            _raise(
+                "pure_expr_payload_invalid",
+                "let nodes must contain exactly `kind`, `bindings`, and `body`",
+            )
+        declared_bindings = node["bindings"]
+        if not _is_sequence(declared_bindings):
+            _raise("pure_expr_payload_invalid", "let nodes must declare a `bindings` list")
+        scope = dict(local_bindings)
+        seen_names: set[str] = set()
+        for index, declared_binding in enumerate(declared_bindings):
+            if not isinstance(declared_binding, Mapping) or set(declared_binding) != {
+                "name",
+                "type",
+                "value",
+            }:
+                _raise(
+                    "pure_expr_payload_invalid",
+                    "let bindings must contain exactly `name`, `type`, and `value`",
+                    metadata={"binding_index": index},
+                )
+            name = declared_binding["name"]
+            if not isinstance(name, str) or not name:
+                _raise(
+                    "pure_expr_payload_invalid",
+                    "let binding names must be non-empty strings",
+                    metadata={"binding_index": index},
+                )
+            if name in seen_names:
+                _raise(
+                    "pure_expr_payload_invalid",
+                    f"let declares duplicate binding `{name}`",
+                    metadata={"binding": name},
+                )
+            seen_names.add(name)
+            declared_type = declared_binding["type"]
+            _validate_type_descriptor(declared_type, context=f"expr.bindings[{index}].type")
+            value = declared_binding["value"]
+            count += validate_child(value, child_locals=scope)
+            scope[name] = declared_type
+        return count + validate_child(node["body"], child_locals=scope)
+
     if kind == "list":
         _validate_type_descriptor(
             node.get("element_type"),
@@ -895,6 +944,27 @@ def _derive_static_expr_type(
                 },
             )
         return descriptor
+
+    if kind == "let":
+        scope = dict(local_bindings)
+        for declared_binding in node["bindings"]:
+            declared_type = declared_binding["type"]
+            observed_type = derive_child(
+                declared_binding["value"],
+                child_locals=scope,
+            )
+            _require_matching_descriptor(
+                observed_type,
+                declared_type,
+                message="let binding value does not match its declared type",
+                metadata={
+                    "binding": declared_binding["name"],
+                    "observed_type": observed_type,
+                    "declared_type": declared_type,
+                },
+            )
+            scope[declared_binding["name"]] = declared_type
+        return derive_child(node["body"], child_locals=scope)
 
     if kind == "list":
         element_type = node["element_type"]
@@ -1357,6 +1427,31 @@ def _evaluate_expr(
             _, updated_value = evaluate_child(field_update["value"])
             result[field_name] = _coerce_value(updated_value, field_type, context=f"record_update.{field_name}")
         return descriptor, result
+
+    if kind == "let":
+        scope = dict(local_bindings)
+        for declared_binding in node["bindings"]:
+            name = declared_binding["name"]
+            declared_type = declared_binding["type"]
+            observed_type, value = evaluate_child(
+                declared_binding["value"],
+                child_locals=scope,
+            )
+            _require_matching_descriptor(
+                observed_type,
+                declared_type,
+                message="let binding value does not match its declared type",
+                metadata={
+                    "binding": name,
+                    "observed_type": observed_type,
+                    "declared_type": declared_type,
+                },
+            )
+            scope[name] = (
+                declared_type,
+                _coerce_value(value, declared_type, context=f"let binding `{name}`"),
+            )
+        return evaluate_child(node["body"], child_locals=scope)
 
     if kind == "list":
         element_type = node["element_type"]

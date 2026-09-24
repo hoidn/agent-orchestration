@@ -48,6 +48,7 @@ from orchestrator.workflow_lisp.lowering import (
     lower_workflow_definitions,
     validate_lowered_workflows,
 )
+from orchestrator.workflow_lisp.loops import build_loop_lowering_plan
 from orchestrator.workflow_lisp.type_env import (
     PRELUDE_PATH_TYPES,
     FrontendTypeEnvironment,
@@ -3555,6 +3556,683 @@ def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: P
         "status": "DONE",
     }
     assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+
+
+def test_lowering_rich_list_preserves_root_and_nested_loop_descriptors(tmp_path: Path) -> None:
+    """Task 3 preserves rich descriptors; renamed/nested exits are Task 4."""
+
+    workflow_path = _write_module(
+        tmp_path / "rich_list_loop_lowering.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task",
+                "    (task_id String))",
+                "  (defunion TaskOutcome",
+                "    (PENDING (task Task))",
+                "    (BLOCKED (reason String)))",
+                "  (defrecord Progress",
+                "    (tasks List[Task]))",
+                "  (defworkflow root-loop ((tasks List[Task]) (finish Bool)) -> List[Task]",
+                "    (loop/recur :max 1 :state tasks :on-exhausted state",
+                "      (fn (state) (if finish (done state) (continue state)))))",
+                "  (defworkflow nested-loop",
+                "    ((tasks List[Task]) (finish Bool))",
+                "    -> Progress",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :tasks tasks)",
+                "      :on-exhausted state",
+                "      (fn (state) (if finish (done state) (continue state)))))",
+                "  (defworkflow union-provider-loop ((finish Bool)) -> List[TaskOutcome]",
+                "    (let* ((outcomes",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs ()",
+                "               :returns List[TaskOutcome])))",
+                "      (loop/recur :max 1 :state outcomes :on-exhausted state",
+                "        (fn (state) (if finish (done state) (continue state))))))",
+                ")",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+    )
+
+    lowered = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for workflow in result.lowered_workflows
+    }
+    root_repeat = next(step for step in lowered["root-loop"]["steps"] if "repeat_until" in step)
+    nested_repeat = next(step for step in lowered["nested-loop"]["steps"] if "repeat_until" in step)
+    union_repeat = next(
+        step for step in lowered["union-provider-loop"]["steps"] if "repeat_until" in step
+    )
+
+    for field_name in ("state", "result"):
+        assert root_repeat["repeat_until"]["outputs"][field_name]["kind"] == "collection"
+        assert root_repeat["repeat_until"]["outputs"][field_name]["items"]["type"] == "record"
+    assert root_repeat["repeat_until"]["on_exhausted"]["outputs"]["result"]["ref"].endswith(
+        ".artifacts.state"
+    )
+
+    nested_outputs = nested_repeat["repeat_until"]["outputs"]
+    for field_name in ("state__tasks", "result__tasks"):
+        assert nested_outputs[field_name]["kind"] == "collection"
+        assert nested_outputs[field_name]["items"]["type"] == "record"
+    assert set(nested_repeat["repeat_until"]["on_exhausted"]["outputs"]) >= {
+        "result__tasks",
+    }
+    for field_name in ("state", "result"):
+        assert union_repeat["repeat_until"]["outputs"][field_name]["items"]["type"] == "union"
+    assert union_repeat["repeat_until"]["on_exhausted"]["outputs"]["result"]["ref"].endswith(
+        ".artifacts.state"
+    )
+
+    type_env = FrontendTypeEnvironment.from_module(_compile_definition_module(workflow_path))
+    span = SourceSpan(
+        start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(workflow_path), line=1, column=2, offset=1),
+    )
+    union_list = type_env.resolve_type(
+        "List[TaskOutcome]",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "root-loop"),
+    )
+    union_plan = build_loop_lowering_plan(
+        step_name_prefix="rich-list-union",
+        state_type_ref=union_list,
+        result_type_ref=union_list,
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "root-loop"),
+        type_env=type_env,
+    )
+    for projection in (union_plan.state_projection, union_plan.result_projection):
+        assert projection.flattened_fields[0].contract_definition["kind"] == "collection"
+        assert projection.flattened_fields[0].contract_definition["items"]["type"] == "union"
+
+
+@pytest.mark.parametrize(
+    ("item_type", "expected_item_type"),
+    [("Task", "record"), ("TaskOutcome", "union")],
+)
+def test_lowering_rich_list_on_exhausted_packages_renamed_nested_return(
+    tmp_path: Path,
+    item_type: str,
+    expected_item_type: str,
+) -> None:
+    """Target 2.29 preserves nested record and union list returns at exhaustion."""
+
+    workflow_path = _write_module(
+        tmp_path / f"rich_list_{item_type.lower()}_exhaustion.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task (task_id String))",
+                "  (defunion TaskOutcome",
+                "    (PENDING (task Task))",
+                "    (BLOCKED (reason String)))",
+                f"  (defrecord Progress (remaining List[{item_type}]) (label String))",
+                f"  (defrecord Summary (work List[{item_type}]) (note String))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow nested-rich-list-loop ((finish Bool)) -> Outcome",
+                "    (let* ((outcomes",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs ()",
+                f"               :returns List[{item_type}])))",
+                "      (loop/recur :max 1",
+                "        :state (record Progress :remaining outcomes :label \"state\")",
+                "        :on-exhausted",
+                "          (variant Outcome INCOMPLETE",
+                "            :summary (record Summary :work state.remaining :note \"exhausted\"))",
+                "        (fn (state)",
+                "          (if finish",
+                "              (done (variant Outcome COMPLETE :note \"done\"))",
+                "              (continue state))))))",
+                ")",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "nested-rich-list-loop"
+    )
+    output = lowered["outputs"]["return__summary__work"]
+    assert output["kind"] == "collection"
+    assert output["type"] == "list"
+    assert output["items"]["type"] == expected_item_type
+    assert output["from"]["ref"].endswith(".artifacts.return__summary__work")
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    assert repeat_step["repeat_until"]["on_exhausted"]["outputs"][
+        "result__summary__work"
+    ]["ref"].endswith(".artifacts.state__remaining")
+
+
+def test_lowering_rich_list_union_exhaustion_return_remains_unavailable_before_229(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "rich_list_union_exhaustion_old_target.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.28")',
+                "  (defrecord Task (task_id String))",
+                "  (defunion TaskOutcome (PENDING (task Task)) (BLOCKED (reason String)))",
+                "  (defrecord Progress (remaining List[TaskOutcome]) (label String))",
+                "  (defrecord Summary (work List[TaskOutcome]) (note String))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow nested-rich-list-loop ((finish Bool)) -> Outcome",
+                "    (let* ((outcomes",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs ()",
+                "               :returns List[TaskOutcome])))",
+                "      (loop/recur :max 1",
+                "        :state (record Progress :remaining outcomes :label \"state\")",
+                "        :on-exhausted",
+                "          (variant Outcome INCOMPLETE",
+                "            :summary (record Summary :work state.remaining :note \"exhausted\"))",
+                "        (fn (state)",
+                "          (if finish",
+                "              (done (variant Outcome COMPLETE :note \"done\"))",
+                "              (continue state))))))",
+                ")",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_type_invalid"
+
+
+def test_lowering_nested_exhaustion_literal_remains_unavailable_before_229(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "nested_exhaustion_literal_old_target.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.28")',
+                "  (defrecord Progress (remaining String))",
+                "  (defrecord Summary (work String) (note String))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow nested-exhaustion-literal ((finish Bool)) -> Outcome",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :remaining \"state\")",
+                "      :on-exhausted",
+                "        (variant Outcome INCOMPLETE",
+                "          :summary (record Summary :work state.remaining :note \"exhausted\"))",
+                "      (fn (state)",
+                "        (if finish",
+                "            (done (variant Outcome COMPLETE :note \"done\"))",
+                "            (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_return_not_exportable"
+
+
+def test_lowering_nested_exhaustion_literal_is_admitted_at_229(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "nested_exhaustion_literal_target_229.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Progress (remaining String))",
+                "  (defrecord Summary (work String) (note String))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow nested-exhaustion-literal ((finish Bool)) -> Outcome",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :remaining \"state\")",
+                "      :on-exhausted",
+                "        (variant Outcome INCOMPLETE",
+                "          :summary (record Summary :work state.remaining :note \"exhausted\"))",
+                "      (fn (state)",
+                "        (if finish",
+                "            (done (variant Outcome COMPLETE :note \"done\"))",
+                "            (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "nested-exhaustion-literal"
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "expected_error"),
+    [("2.28", "loop_recur_state_type_invalid"), ("2.29", None)],
+)
+def test_lowering_outer_record_exhaustion_variant_is_target_gated(
+    tmp_path: Path,
+    target_dsl: str,
+    expected_error: str | None,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / f"outer_record_exhaustion_variant_{target_dsl.replace('.', '_')}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{target_dsl}")',
+                "  (defrecord Task (task_id String))",
+                "  (defrecord Progress (remaining List[Task]))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (remaining List[Task]) (note String))",
+                "    (COMPLETE (note String)))",
+                "  (defrecord Result (outcome Outcome))",
+                "  (defworkflow outer-record-exhaustion",
+                "    ((tasks List[Task]) (finish Bool)) -> Result",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :remaining tasks)",
+                "      :on-exhausted",
+                "        (record Result",
+                "          :outcome (variant Outcome INCOMPLETE",
+                "            :remaining state.remaining",
+                "            :note \"exhausted\"))",
+                "      (fn (state)",
+                "        (if finish",
+                "            (done (record Result",
+                "              :outcome (variant Outcome COMPLETE :note \"done\")))",
+                "            (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    if expected_error is None:
+        result = compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+        assert result.lowered_workflows[0].typed_workflow.definition.name == "outer-record-exhaustion"
+        return
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+    assert excinfo.value.diagnostics[0].code == expected_error
+
+
+def test_lowering_outer_record_exhaustion_omits_inactive_nested_union_fields(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "outer_record_exhaustion_disjoint_union_229.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task (task_id String))",
+                "  (defrecord Progress (remaining List[Task]) (label String))",
+                "  (defrecord Summary (work List[Task]) (note String))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defrecord Result (outcome Outcome))",
+                "  (defworkflow outer-record-disjoint-exhaustion",
+                "    ((tasks List[Task]) (finish Bool)) -> Result",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :remaining tasks :label \"state\")",
+                "      :on-exhausted",
+                "        (record Result",
+                "          :outcome (variant Outcome INCOMPLETE",
+                "            :summary (record Summary",
+                "              :work state.remaining",
+                "              :note state.label)))",
+                "      (fn (state)",
+                "        (if finish",
+                "            (done (record Result",
+                "              :outcome (variant Outcome COMPLETE :note \"done\")))",
+                "            (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "outer-record-disjoint-exhaustion"
+    lowered = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    exhausted_outputs = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+    assert "projection" not in repeat_step["repeat_until"]["outputs"][
+        "result__outcome__note"
+    ]
+    assert exhausted_outputs["result__outcome__note"] == ""
+    assert exhausted_outputs["result__outcome__summary__work"]["ref"].endswith(
+        ".artifacts.state__remaining"
+    )
+    normalization_step = next(
+        step for step in lowered["steps"] if step["name"].endswith("__result")
+    )
+    note_value = next(
+        value
+        for value in normalization_step["materialize_artifacts"]["values"]
+        if value["name"] == "return__outcome__note"
+    )
+    assert note_value["contract"]["projection"] == {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "return__outcome",
+        "discriminant_output": "return__outcome__variant",
+        "field_role": "variant",
+        "active_variants": ["COMPLETE"],
+    }
+    body_step = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step["name"] == "outer-record-disjoint-exhaustion__body"
+    )
+    pure_result_step = next(
+        step
+        for step in body_step["then"]["steps"]
+        if step["name"] == "outer-record-disjoint-exhaustion__body__then__result"
+    )
+    pure_pointers = {
+        field["name"]: field["json_pointer"]
+        for field in pure_result_step["output_bundle"]["fields"]
+    }
+    assert pure_pointers["result__outcome__summary__work"] == "/result/outcome/summary/work"
+    assert pure_pointers["result__outcome__summary__note"] == "/result/outcome/summary/note"
+
+
+def test_lowering_root_rich_state_can_package_into_named_return_field_at_229(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "root_rich_state_named_return_229.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task (task_id String))",
+                "  (defrecord Remaining (tasks List[Task]))",
+                "  (defworkflow root-rich-state ((tasks List[Task]) (finish Bool)) -> Remaining",
+                "    (loop/recur :max 1 :state tasks",
+                "      :on-exhausted (record Remaining :tasks state)",
+                "      (fn (state) (if finish (done (record Remaining :tasks state)) (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "root-rich-state"
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "list_type"),
+    [
+        ("2.27", "List[Task]"),
+        ("2.28", "List[Task]"),
+        ("2.28", "List[Optional[Task]]"),
+    ],
+)
+def test_lowering_legacy_nested_rich_loop_state_remains_refused(
+    tmp_path: Path,
+    target_dsl: str,
+    list_type: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / f"legacy_nested_{target_dsl.replace('.', '_')}_{list_type.replace('[', '_').replace(']', '').lower()}.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                f'  (:target-dsl "{target_dsl}")',
+                "  (defrecord Task (task_id String))",
+                f"  (defrecord Progress (tasks {list_type}))",
+                "  (defworkflow legacy-nested ((tasks " + list_type + ") (finish Bool)) -> Progress",
+                "    (loop/recur :max 1",
+                "      :state (record Progress :tasks tasks)",
+                "      :on-exhausted state",
+                "      (fn (state) (if finish (done state) (continue state)))))",
+                ")",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "loop_recur_state_type_invalid"
+
+
+@pytest.mark.parametrize(
+    ("bad_type", "expected_code"),
+    [
+        ("Provider", "workflow_boundary_type_invalid"),
+        ("Prompt", "workflow_boundary_type_invalid"),
+        ("Json", "json_surface_unsupported"),
+    ],
+)
+def test_lowering_rich_return_admission_retains_unsupported_leaf_refusals(
+    tmp_path: Path,
+    bad_type: str,
+    expected_code: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / f"rich_return_{bad_type.lower()}_rejected.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                f"  (defrecord Summary (work List[{bad_type}]))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow invalid-rich-return ((finish Bool)) -> Outcome",
+                "    (if finish",
+                "        (variant Outcome COMPLETE :note \"done\")",
+                "        (variant Outcome COMPLETE :note \"not-done\")))",
+                ")",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            lowering_route="wcc_m4",
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
+def test_build_workflow_catalog_reconstructs_imported_rich_union_return_at_229(
+    tmp_path: Path,
+) -> None:
+    imported_source = _write_module(
+        tmp_path / "imported_rich_union_return.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task (task_id String))",
+                "  (defunion TaskOutcome",
+                "    (PENDING (task Task))",
+                "    (BLOCKED (reason String)))",
+                "  (defrecord Summary (work List[TaskOutcome]))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                "  (defworkflow imported-rich-return ((finish Bool)) -> Outcome",
+                "    (if finish",
+                "        (variant Outcome COMPLETE :note \"done\")",
+                "        (variant Outcome COMPLETE :note \"not-done\")))",
+                ")",
+            ]
+        ),
+    )
+    imported = compile_stage3_module(
+        imported_source,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    caller_types = _write_module(
+        tmp_path / "caller_rich_union_return_types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord Task (task_id String))",
+                "  (defunion TaskOutcome",
+                "    (PENDING (task Task))",
+                "    (BLOCKED (reason String)))",
+                "  (defrecord Summary (work List[TaskOutcome]))",
+                "  (defunion Outcome",
+                "    (INCOMPLETE (summary Summary))",
+                "    (COMPLETE (note String)))",
+                ")",
+            ]
+        ),
+    )
+    caller_module = _compile_definition_module(caller_types)
+    workflow_catalog = build_workflow_catalog(
+        caller_module,
+        (),
+        FrontendTypeEnvironment.from_module(caller_module),
+        imported_workflow_bundles={
+            "imported-rich-return": _validated_bundle_by_local_name(
+                imported,
+                "imported-rich-return",
+            ),
+        },
+    )
+
+    assert workflow_catalog.signatures_by_name[
+        "imported-rich-return"
+    ].return_type_ref.name == "Outcome"
+
+
+def test_lowering_target_229_preserves_done_payload_over_same_variant_exhaustion_state(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "same_variant_done.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.29")',
+                "  (defrecord LoopState (message String))",
+                "  (defunion Outcome (COMPLETE (message String)))",
+                "  (defworkflow preserve-done ((finish Bool)) -> Outcome",
+                "    (loop/recur :max 1",
+                '      :state (record LoopState :message "state")',
+                "      :on-exhausted (variant Outcome COMPLETE :message state.message)",
+                "      (fn (state)",
+                '        (if finish (done (variant Outcome COMPLETE :message "done")) (continue state))))))',
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        lowering_route="wcc_m4",
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered = result.lowered_workflows[0].authored_mapping
+    result_step = next(step for step in lowered["steps"] if step["name"].endswith("__result"))
+    message_ref = result_step["match"]["cases"]["COMPLETE"]["outputs"]["return__message"][
+        "from"
+    ]["ref"]
+
+    assert message_ref.endswith(".artifacts.result__message")
 
 
 def test_lowering_loop_recur_exports_active_union_variant_fields(tmp_path: Path) -> None:

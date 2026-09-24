@@ -18,6 +18,7 @@ from ..state import (
     RunState,
     StateManager,
     StepResult,
+    _apply_result_with_dataflow,
     _begin_eligible_pure_visit_state,
     _require_interrupted_eligible_pure_visit,
     _settle_eligible_pure_failure_state,
@@ -103,7 +104,10 @@ def load_existing_call_frame_read_only(
     candidate_state = existing_frame.get("state")
     if not isinstance(candidate_state, Mapping):
         raise ValueError("existing call-frame state is missing or invalid")
-    return RunState.from_dict(deepcopy(dict(candidate_state)))
+    state = RunState.from_dict(deepcopy(dict(candidate_state)))
+    if state.human_input is not None:
+        raise ValueError("human input is root-owned and cannot be in a call frame")
+    return state
 
 
 class _CallFrameStateManager:
@@ -174,6 +178,10 @@ class _CallFrameStateManager:
 
         if existing_state is not None:
             self.state = RunState.from_dict(dict(existing_state))
+            if self.state.human_input is not None:
+                raise ValueError(
+                    "human input is root-owned and cannot be in a call frame"
+                )
             if (
                 result_persistence_profile is not None
                 and self.state.result_persistence_profile
@@ -352,6 +360,10 @@ class _CallFrameStateManager:
             ):
                 raise RuntimeError("committed call-frame state is unavailable")
             child.state = RunState.from_dict(deepcopy(frame["state"]))
+            if child.state.human_input is not None:
+                raise ValueError(
+                    "human input is root-owned and cannot be in a call frame"
+                )
             current = child.state
 
     def _finalize_with_dataflow(
@@ -394,17 +406,16 @@ class _CallFrameStateManager:
             return bool(matches)
 
         def mutation(leaf: RunState) -> None:
-            leaf.steps[result_key] = result
-            if artifact_versions is not None:
-                leaf.artifact_versions = artifact_versions
-            if artifact_consumes is not None:
-                leaf.artifact_consumes = artifact_consumes
-            if private_artifact_versions is not None:
-                leaf.private_artifact_versions = private_artifact_versions
-            if private_artifact_consumes is not None:
-                leaf.private_artifact_consumes = private_artifact_consumes
-            if clear_current_step:
-                leaf.current_step = None
+            _apply_result_with_dataflow(
+                leaf,
+                result_key=result_key,
+                result=result,
+                clear_current_step=clear_current_step,
+                artifact_versions=artifact_versions,
+                artifact_consumes=artifact_consumes,
+                private_artifact_versions=private_artifact_versions,
+                private_artifact_consumes=private_artifact_consumes,
+            )
 
         with self._aggregate_state_mutation() as owner:
             try:

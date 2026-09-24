@@ -42,6 +42,7 @@ class StepRuntime(Protocol):
         target_path: str,
         *,
         output_contracts: Any,
+        output_bundle_fields: Any = None,
     ) -> Dict[str, Any]: ...
 
     def _materialize_view_evidence_path(self, target_path: Path) -> Path: ...
@@ -66,6 +67,7 @@ class StepRuntime(Protocol):
         result_value: Any,
         *,
         output_contracts: Any,
+        output_bundle_fields: Any = None,
     ) -> Dict[str, Any]: ...
 
     def _resolve_materialize_view_target_value(

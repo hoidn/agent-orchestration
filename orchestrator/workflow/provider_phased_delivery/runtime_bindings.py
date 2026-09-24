@@ -351,11 +351,8 @@ class _WorkflowPhasedProviderAttemptBindings:
         runtime_context = self._resolved_runtime_context()
         resolved_fragment_values: Dict[str, Any] = {}
         for slot in fragment_contract.rendered_slots:
-            binding = slot.value_source.get("binding")
-            if isinstance(binding, Mapping):
-                binding = dict(binding)
-            value, error = self.executor._resolve_typed_prompt_input_value(
-                binding,
+            value, error = self.executor._resolve_typed_prompt_value_source(
+                dict(slot.value_source),
                 self.state,
                 scope=runtime_context.scope(),
             )
@@ -383,12 +380,9 @@ class _WorkflowPhasedProviderAttemptBindings:
                 source = item.get("value_source")
                 if not isinstance(source, dict):
                     raise ValueError("typed prompt input source is invalid")
-                binding = source.get("binding")
-                if binding is None and isinstance(source.get("ref"), str):
-                    binding = {"ref": source["ref"]}
                 value, error = (
-                    self.executor._resolve_typed_prompt_input_value(
-                        binding,
+                    self.executor._resolve_typed_prompt_value_source(
+                        source,
                         self.state,
                         scope=runtime_context.scope(),
                     )

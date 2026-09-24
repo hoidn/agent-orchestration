@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field, replace
+from hashlib import sha1
 from typing import TYPE_CHECKING
 
 from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .expression_traversal import _rebuild_with_replacements, iter_child_exprs, walk_expr
+from .expression_traversal import (
+    _rebuild_with_replacements,
+    iter_child_exprs,
+    map_expr,
+    walk_expr,
+)
 from .expressions import (
+    BindProcExpr,
     CallExpr,
     CommandResultExpr,
     CompilerListNonemptyHeadExpr,
@@ -40,6 +47,7 @@ from .expressions import (
     PathJoinUnderExpr,
     PhaseTargetExpr,
     PureOpExpr,
+    ProcRefLiteralExpr,
     ProcedureCallExpr,
     ProduceOneOfExpr,
     ProviderResultExpr,
@@ -54,6 +62,7 @@ from .expressions import (
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
+    WorkflowRefLiteralExpr,
     elaborate_expression,
 )
 from .result_guidance import ReturnSpec, parse_return_spec
@@ -62,6 +71,7 @@ from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
     HelperExpansionFrame,
+    ProcedureExpansionFrame,
     SyntaxList,
     SyntaxNode,
     WorkflowLispSyntaxModule,
@@ -69,9 +79,16 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_supports_pure_call_composition,
     target_dsl_supports_strict_boolean_control_flow,
 )
-from .type_env import FrontendTypeEnvironment, TypeRef, type_refs_compatible
+from .type_env import (
+    FrontendTypeEnvironment,
+    ProcRefTypeRef,
+    TypeRef,
+    WorkflowRefTypeRef,
+    type_refs_compatible,
+)
 from .typecheck import TypedExpr, typecheck_expression
 
 if TYPE_CHECKING:
@@ -272,6 +289,7 @@ def typecheck_function_definitions(
             body_expr,
             function_def=function_def,
             procedure_catalog=procedure_catalog,
+            target_dsl_version=type_env.target_dsl_version,
         )
         typed_body = typecheck_expression(
             body_expr,
@@ -283,6 +301,11 @@ def typecheck_function_definitions(
             prompt_catalog=prompt_catalog,
             expected_type=signature.return_type_ref,
             compiler_session=compiler_session,
+            allow_provisional_procedure_calls=(
+                target_dsl_supports_pure_call_composition(
+                    type_env.target_dsl_version
+                )
+            ),
         )
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
@@ -307,6 +330,70 @@ def typecheck_function_definitions(
             )
         )
     return tuple(typed_functions)
+
+
+def retypecheck_resolved_function_definitions(
+    typed_functions: tuple[TypedFunctionDef, ...],
+    *,
+    type_env: FrontendTypeEnvironment,
+    function_catalog: FunctionCatalog,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: "ProcedureCatalog | None",
+    typed_procedures_by_name: Mapping[str, object],
+    typed_workflows_by_name: Mapping[str, object],
+    compiler_session: CompilerSession,
+) -> tuple[TypedFunctionDef, ...]:
+    """Strictly recheck every function after procedure selection has settled."""
+
+    if not target_dsl_supports_pure_call_composition(type_env.target_dsl_version):
+        return typed_functions
+
+    typed_functions_by_name = {
+        function.definition.name: function for function in typed_functions
+    }
+    rechecked: list[TypedFunctionDef] = []
+    for function in typed_functions:
+        normalized_functions = normalize_function_calls(
+            function.typed_body,
+            typed_functions_by_name=typed_functions_by_name,
+            target_dsl_version=type_env.target_dsl_version,
+        )
+        normalized_body = normalize_resolved_inline_procedure_calls(
+            normalized_functions,
+            typed_procedures_by_name=typed_procedures_by_name,
+            target_dsl_version=type_env.target_dsl_version,
+            procedure_catalog=procedure_catalog,
+            workflow_catalog=workflow_catalog,
+            typed_workflows_by_name=typed_workflows_by_name,
+            require_pure_procedure_calls=True,
+        )
+        typed_body = typecheck_expression(
+            normalized_body.expr,
+            type_env=type_env,
+            value_env=dict(function.signature.params),
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
+            expected_type=function.signature.return_type_ref,
+            compiler_session=compiler_session,
+        )
+        if not type_refs_compatible(function.signature.return_type_ref, typed_body.type_ref):
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="function_return_type_invalid",
+                        message=(
+                            f"function `{function.definition.name}` declared return type "
+                            f"`{function.definition.return_type_name}` but body returned a different type"
+                        ),
+                        span=function.definition.body.span,
+                        form_path=function.definition.body.form_path,
+                        expansion_stack=function.definition.body.expansion_stack,
+                    ),
+                )
+            )
+        rechecked.append(replace(function, typed_body=typed_body))
+    return tuple(rechecked)
 
 
 def validate_function_cycles(
@@ -362,8 +449,10 @@ def normalize_function_calls(
 
     from .conditionals import normalize_expanded_conditions
 
-    expand_admitted_containers = target_dsl_supports_strict_boolean_control_flow(
-        target_dsl_version or ""
+    expand_admitted_containers: bool | _HygienicExpansionMode = (
+        _HygienicExpansionMode()
+        if target_dsl_supports_pure_call_composition(target_dsl_version or "")
+        else target_dsl_supports_strict_boolean_control_flow(target_dsl_version or "")
     )
 
     def _rewrite(expr: ExprNode) -> ExprNode:
@@ -382,7 +471,7 @@ def _normalize_expr(
     expr: ExprNode,
     *,
     typed_functions_by_name: Mapping[str, TypedFunctionDef],
-    expand_admitted_containers: bool,
+    expand_admitted_containers: bool | _HygienicExpansionMode,
 ) -> ExprNode:
     if isinstance(expr, FunctionCallExpr):
         function_def = typed_functions_by_name[expr.callee_name]
@@ -402,15 +491,31 @@ def _normalize_expr(
             _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
             for arg in expr.args
         )
-        return LetStarExpr(
-            bindings=tuple(
+        call_bindings = (
+            _ordered_call_bindings(
+                params=function_def.signature.params,
+                args=normalized_args,
+                source_expr=expr,
+                role="function",
+                allocator=expand_admitted_containers,
+            )
+            if isinstance(expand_admitted_containers, _HygienicExpansionMode)
+            else tuple(
                 (param_name, arg_expr)
                 for (param_name, _), arg_expr in zip(
                     function_def.signature.params,
                     normalized_args,
                     strict=True,
                 )
-            ),
+            )
+        )
+        if isinstance(call_bindings, _OrderedCallBindings):
+            cloned_body = _rename_free_names(cloned_body, call_bindings.formal_names)
+            bindings = call_bindings.bindings
+        else:
+            bindings = call_bindings
+        return LetStarExpr(
+            bindings=bindings,
             body=_normalize_expr(
                 cloned_body,
                 typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
@@ -656,6 +761,11 @@ def _normalize_expr(
                 if expr.prompt_dependencies is not None
                 else None
             ),
+            context_expr=(
+                _normalize_expr(expr.context_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                if expr.context_expr is not None
+                else None
+            ),
         )
     if isinstance(expr, WithLiveProvidersExpr):
         return replace(
@@ -733,6 +843,498 @@ def _normalize_expr(
     return _rebuild_with_replacements(expr, replacements)
 
 
+def normalize_resolved_inline_procedure_calls(
+    node: TypedExpr | ExprNode,
+    *,
+    typed_procedures_by_name: Mapping[str, object],
+    target_dsl_version: str | None,
+    owning_proc_ref_bindings: Mapping[str, object] | None = None,
+    owning_workflow_ref_bindings: Mapping[str, object] | None = None,
+    procedure_catalog: "ProcedureCatalog | None" = None,
+    workflow_catalog: "WorkflowCatalog | None" = None,
+    typed_workflows_by_name: Mapping[str, object] | None = None,
+    require_pure_procedure_calls: bool = False,
+) -> TypedExpr | ExprNode:
+    """Reduce final-inline procedure calls through the shared typed-expression path."""
+
+    if not target_dsl_supports_pure_call_composition(target_dsl_version or ""):
+        return node
+
+    from .conditionals import normalize_expanded_conditions
+    from .procedure_refs import resolve_proc_ref_value
+    from .procedure_specialization import materialized_specialization_rows
+    from .workflow_refs import resolve_workflow_ref_expr
+
+    active_callees: set[str] = set()
+    allocator = _HygienicExpansionMode()
+
+    def select_materialized_procedure(
+        procedure: object,
+        *,
+        args: tuple[ExprNode, ...],
+        proc_ref_bindings: Mapping[str, object],
+        workflow_ref_bindings: Mapping[str, object],
+    ) -> object | None:
+        """Consume the exact settled row selected by shared ref resolvers."""
+
+        specialization = getattr(procedure, "specialization", None)
+        selected_proc_bindings = dict(
+            getattr(specialization, "proc_ref_bindings", {})
+        )
+        selected_workflow_bindings = dict(
+            getattr(specialization, "workflow_ref_bindings", {})
+        )
+        for arg, (param_name, param_type) in zip(
+            args, procedure.signature.params, strict=True
+        ):
+            if isinstance(param_type, ProcRefTypeRef) and procedure_catalog is not None:
+                resolved = resolve_proc_ref_value(
+                    arg,
+                    procedure_catalog=procedure_catalog,
+                    proc_ref_env=proc_ref_bindings,
+                    expected_type=param_type,
+                )
+                if resolved is not None:
+                    selected_proc_bindings[param_name] = resolved
+            elif isinstance(param_type, WorkflowRefTypeRef):
+                resolved = workflow_ref_bindings.get(arg.name) if isinstance(arg, NameExpr) else None
+                if (
+                    resolved is None
+                    and workflow_catalog is not None
+                    and isinstance(arg, WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr)
+                ):
+                    resolved = resolve_workflow_ref_expr(
+                        arg,
+                        workflow_catalog=workflow_catalog,
+                        span=arg.span,
+                        form_path=arg.form_path,
+                        expansion_stack=arg.expansion_stack,
+                        expected_type=param_type,
+                        typed_workflows_by_name=typed_workflows_by_name,
+                        allow_extern_rebinding=True,
+                    )
+                if resolved is not None:
+                    selected_workflow_bindings[param_name] = resolved
+        required_proc_bindings = {
+            param_name
+            for param_name, param_type in procedure.signature.params
+            if isinstance(param_type, ProcRefTypeRef)
+        }
+        required_workflow_bindings = {
+            param_name
+            for param_name, param_type in procedure.signature.params
+            if isinstance(param_type, WorkflowRefTypeRef)
+        }
+        if (
+            not required_proc_bindings.issubset(selected_proc_bindings)
+            or not required_workflow_bindings.issubset(selected_workflow_bindings)
+        ):
+            return None
+        if not selected_proc_bindings and not selected_workflow_bindings:
+            return procedure
+        rows = materialized_specialization_rows(
+            procedure,
+            workflow_ref_bindings=selected_workflow_bindings,
+            proc_ref_bindings=selected_proc_bindings,
+            typed_procedures=typed_procedures_by_name,
+        )
+        if len(rows) != 1:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="procedure_lowering_unresolved",
+                        message=(
+                            "compiler-owned procedure specialization row is "
+                            "missing or ambiguous during pure-call normalization"
+                        ),
+                        span=args[0].span if args else procedure.definition.span,
+                        form_path=(args[0].form_path if args else procedure.definition.form_path),
+                        expansion_stack=(
+                            args[0].expansion_stack if args else procedure.definition.expansion_stack
+                        ),
+                    ),
+                )
+            )
+        return rows[0]
+
+    def rewrite(
+        expr: ExprNode,
+        *,
+        proc_ref_bindings: Mapping[str, object],
+        workflow_ref_bindings: Mapping[str, object],
+    ) -> ExprNode:
+        def representation_unsupported() -> LispFrontendCompileError:
+            return LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="pure_call_representation_unsupported",
+                        message=(
+                            "procedure calls inside an expanded pure function "
+                            "must resolve to an effect-free inline specialization"
+                        ),
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                )
+            )
+
+        if isinstance(expr, LetStarExpr):
+            child_proc_ref_bindings = dict(proc_ref_bindings)
+            child_workflow_ref_bindings = dict(workflow_ref_bindings)
+            rewritten_bindings: list[tuple[str, ExprNode]] = []
+            for binding_name, binding_expr in expr.bindings:
+                rewritten_binding = rewrite(
+                    binding_expr,
+                    proc_ref_bindings=child_proc_ref_bindings,
+                    workflow_ref_bindings=child_workflow_ref_bindings,
+                )
+                rewritten_bindings.append((binding_name, rewritten_binding))
+                if procedure_catalog is not None:
+                    resolved_proc_ref = resolve_proc_ref_value(
+                        rewritten_binding,
+                        procedure_catalog=procedure_catalog,
+                        proc_ref_env=child_proc_ref_bindings,
+                    )
+                    if resolved_proc_ref is not None:
+                        child_proc_ref_bindings[binding_name] = resolved_proc_ref
+                if (
+                    workflow_catalog is not None
+                    and isinstance(
+                        rewritten_binding,
+                        WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr,
+                    )
+                ):
+                    resolved_workflow_ref = (
+                        child_workflow_ref_bindings.get(rewritten_binding.name)
+                        if isinstance(rewritten_binding, NameExpr)
+                        else resolve_workflow_ref_expr(
+                            rewritten_binding,
+                            workflow_catalog=workflow_catalog,
+                            span=rewritten_binding.span,
+                            form_path=rewritten_binding.form_path,
+                            expansion_stack=rewritten_binding.expansion_stack,
+                            typed_workflows_by_name=typed_workflows_by_name,
+                            allow_extern_rebinding=True,
+                        )
+                    )
+                    if resolved_workflow_ref is not None:
+                        child_workflow_ref_bindings[binding_name] = resolved_workflow_ref
+            return replace(
+                expr,
+                bindings=tuple(rewritten_bindings),
+                body=rewrite(
+                    expr.body,
+                    proc_ref_bindings=child_proc_ref_bindings,
+                    workflow_ref_bindings=child_workflow_ref_bindings,
+                ),
+            )
+        if isinstance(expr, ProcedureCallExpr):
+            rewritten_args = tuple(
+                rewrite(
+                    arg,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings,
+                )
+                for arg in expr.args
+            )
+            selected_binding = proc_ref_bindings.get(expr.callee_name)
+            selected_name = getattr(selected_binding, "call_target_name", expr.callee_name)
+            candidate_procedure = typed_procedures_by_name.get(selected_name)
+            procedure = candidate_procedure
+            expansion_args = rewritten_args
+            if candidate_procedure is not None:
+                authored_params = candidate_procedure.signature.params
+                selected_procedure = select_materialized_procedure(
+                    candidate_procedure,
+                    args=rewritten_args,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings,
+                )
+                if selected_procedure is None:
+                    return replace(expr, args=rewritten_args)
+                procedure = selected_procedure
+                selected_specialization = getattr(procedure, "specialization", None)
+                selected_compile_time_params = {
+                    *getattr(selected_specialization, "proc_ref_bindings", {}),
+                    *getattr(selected_specialization, "workflow_ref_bindings", {}),
+                }
+                if selected_compile_time_params and len(rewritten_args) == len(authored_params):
+                    expansion_args = tuple(
+                        arg
+                        for arg, (param_name, _) in zip(
+                            rewritten_args, authored_params, strict=True
+                        )
+                        if param_name not in selected_compile_time_params
+                    )
+            procedure_effect_summary = getattr(
+                procedure, "transitive_effect_summary", None
+            )
+            is_pure_function_expansion = require_pure_procedure_calls or any(
+                isinstance(frame, HelperExpansionFrame)
+                for frame in expr.expansion_stack
+            )
+            if (
+                procedure is not None
+                and is_pure_function_expansion
+                and procedure_effect_summary is not None
+                and (
+                    procedure_effect_summary.direct_effects
+                    or procedure_effect_summary.transitive_effects
+                )
+            ):
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="pure_function_has_effect",
+                            message=(
+                                "function calls may not expand an effectful procedure "
+                                "into a pure expression"
+                            ),
+                            span=expr.span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                    )
+                )
+            if (
+                procedure is not None
+                and is_pure_function_expansion
+                and (
+                    getattr(
+                        getattr(procedure, "resolved_lowering_mode", None), "value", None
+                    )
+                    != "inline"
+                    or procedure_effect_summary is None
+                )
+            ):
+                raise representation_unsupported()
+            if (
+                procedure is None
+                or getattr(getattr(procedure, "resolved_lowering_mode", None), "value", None)
+                != "inline"
+                or procedure_effect_summary is None
+                or procedure_effect_summary.direct_effects
+                or procedure_effect_summary.transitive_effects
+                or procedure.definition.name in active_callees
+            ):
+                return replace(expr, args=rewritten_args)
+            signature = procedure.signature
+            if len(expansion_args) != len(signature.params):
+                return replace(expr, args=rewritten_args)
+            if any(
+                isinstance(candidate, WorkflowRefLiteralExpr)
+                for candidate in walk_expr(procedure.typed_body.expr)
+            ):
+                if is_pure_function_expansion:
+                    raise representation_unsupported()
+                return replace(expr, args=rewritten_args)
+            active_callees.add(procedure.definition.name)
+            try:
+                helper_stack = expr.expansion_stack + (
+                    ProcedureExpansionFrame(
+                        procedure_name=procedure.definition.name,
+                        call_span=expr.span,
+                        definition_span=procedure.definition.span,
+                    ),
+                )
+                try:
+                    cloned_body = _clone_function_expr(
+                        procedure.typed_body.expr,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=helper_stack,
+                    )
+                except TypeError:
+                    if is_pure_function_expansion:
+                        raise representation_unsupported() from None
+                    return replace(expr, args=rewritten_args)
+                call_bindings = _ordered_call_bindings(
+                    params=signature.params,
+                    args=expansion_args,
+                    source_expr=expr,
+                    role="procedure",
+                    allocator=allocator,
+                )
+                specialization = getattr(procedure, "specialization", None)
+                bound_param_types = dict(
+                    getattr(specialization, "bound_param_types", {})
+                )
+                static_value_bindings = dict(
+                    getattr(specialization, "value_bindings", {})
+                )
+                static_params = tuple(
+                    (param_name, bound_param_types[param_name])
+                    for param_name in static_value_bindings
+                    if param_name in bound_param_types
+                )
+                static_call_bindings = _ordered_call_bindings(
+                    params=static_params,
+                    args=tuple(
+                        rewrite(
+                            static_value_bindings[param_name],
+                            proc_ref_bindings=proc_ref_bindings,
+                            workflow_ref_bindings=workflow_ref_bindings,
+                        )
+                        for param_name, _ in static_params
+                    ),
+                    source_expr=expr,
+                    role="procedure_bound",
+                    allocator=allocator,
+                )
+                body_proc_ref_bindings = dict(
+                    getattr(getattr(procedure, "specialization", None), "proc_ref_bindings", {})
+                )
+                body_workflow_ref_bindings = dict(
+                    getattr(
+                        getattr(procedure, "specialization", None),
+                        "workflow_ref_bindings",
+                        {},
+                    )
+                )
+                expanded = LetStarExpr(
+                    bindings=(
+                        *static_call_bindings.bindings,
+                        *call_bindings.bindings,
+                    ),
+                    body=_rename_free_names(
+                        rewrite(
+                            cloned_body,
+                            proc_ref_bindings=body_proc_ref_bindings,
+                            workflow_ref_bindings=body_workflow_ref_bindings,
+                        ),
+                        {
+                            **static_call_bindings.formal_names,
+                            **call_bindings.formal_names,
+                        },
+                    ),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=helper_stack,
+                )
+                return expanded
+            finally:
+                active_callees.remove(procedure.definition.name)
+        children = iter_child_exprs(expr)
+        if not children:
+            return expr
+        replacements = {
+            id(child): rewrite(
+                child,
+                proc_ref_bindings=proc_ref_bindings,
+                workflow_ref_bindings=workflow_ref_bindings,
+            )
+            for child in children
+            if isinstance(child, ExprNode)
+        }
+        return _rebuild_with_replacements(expr, replacements) if replacements else expr
+
+    if isinstance(node, TypedExpr):
+        return replace(
+            node,
+            expr=normalize_expanded_conditions(
+                rewrite(
+                    node.expr,
+                    proc_ref_bindings=dict(owning_proc_ref_bindings or {}),
+                    workflow_ref_bindings=dict(owning_workflow_ref_bindings or {}),
+                ),
+                target_dsl_version=target_dsl_version,
+            ),
+        )
+    return normalize_expanded_conditions(
+        rewrite(
+            node,
+            proc_ref_bindings=dict(owning_proc_ref_bindings or {}),
+            workflow_ref_bindings=dict(owning_workflow_ref_bindings or {}),
+        ),
+        target_dsl_version=target_dsl_version,
+    )
+
+
+@dataclass
+class _HygienicExpansionMode:
+    """Per-normalization allocator for compiler-owned lexical names."""
+
+    ordinal: int = 0
+    reserved_names: set[str] = field(default_factory=set)
+
+    def reserve_expr(self, expr: ExprNode) -> None:
+        self.reserved_names.update(
+            node.name for node in walk_expr(expr) if isinstance(node, NameExpr)
+        )
+
+    def fresh(self, *, role: str, source_expr: ExprNode) -> str:
+        self.ordinal += 1
+        basis = (
+            f"{role}:{source_expr.form_path}:{source_expr.span.start.offset}:{self.ordinal}"
+        )
+        digest = sha1(basis.encode("utf-8")).hexdigest()[:12]
+        candidate = f"__pure_{role}_{digest}"
+        suffix = 0
+        while candidate in self.reserved_names:
+            suffix += 1
+            candidate = f"__pure_{role}_{digest}_{suffix}"
+        self.reserved_names.add(candidate)
+        return candidate
+
+
+@dataclass(frozen=True)
+class _OrderedCallBindings:
+    bindings: tuple[tuple[str, ExprNode], ...]
+    formal_names: Mapping[str, str]
+
+
+def _ordered_call_bindings(
+    *,
+    params: tuple[tuple[str, TypeRef], ...],
+    args: tuple[ExprNode, ...],
+    source_expr: ExprNode,
+    role: str,
+    allocator: _HygienicExpansionMode,
+) -> _OrderedCallBindings:
+    """Evaluate caller arguments before binding formal names."""
+
+    allocator.reserve_expr(source_expr)
+    for arg in args:
+        allocator.reserve_expr(arg)
+    temp_names = tuple(
+        allocator.fresh(role=f"{role}_arg", source_expr=source_expr)
+        for _ in args
+    )
+    formal_names = {
+        param_name: allocator.fresh(role=f"{role}_param", source_expr=source_expr)
+        for param_name, _ in params
+    }
+    temporary_bindings = tuple(zip(temp_names, args, strict=True))
+    formal_bindings = tuple(
+        (
+            formal_names[param_name],
+            NameExpr(
+                name=temp_name,
+                span=source_expr.span,
+                form_path=source_expr.form_path,
+                expansion_stack=source_expr.expansion_stack,
+            ),
+        )
+        for (param_name, _), temp_name in zip(params, temp_names, strict=True)
+    )
+    return _OrderedCallBindings(
+        bindings=(*temporary_bindings, *formal_bindings),
+        formal_names=formal_names,
+    )
+
+
+def _rename_free_names(expr: ExprNode, names: Mapping[str, str]) -> ExprNode:
+    """Alpha-rename expanded formal references without crossing local binders."""
+
+    rewritten = map_expr(
+        expr,
+        lambda name: replace(name, name=names.get(name.name, name.name)),
+    )
+    assert isinstance(rewritten, ExprNode)
+    return rewritten
+
+
 def _clone_function_expr(
     expr: ExprNode,
     *,
@@ -740,7 +1342,7 @@ def _clone_function_expr(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack,
 ) -> ExprNode:
-    if isinstance(expr, NameExpr | LiteralExpr | EnumMemberExpr):
+    if isinstance(expr, NameExpr | LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr):
         return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack)
     if isinstance(expr, FieldAccessExpr):
         return replace(
@@ -1038,6 +1640,47 @@ def _clone_function_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+    if isinstance(expr, ProcedureCallExpr):
+        return replace(
+            expr,
+            args=tuple(
+                _clone_function_expr(
+                    arg,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for arg in expr.args
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, BindProcExpr):
+        return replace(
+            expr,
+            base_expr=_clone_function_expr(
+                expr.base_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            bindings=tuple(
+                replace(
+                    binding,
+                    value_expr=_clone_function_expr(
+                        binding.value_expr,
+                        span=span,
+                        form_path=form_path,
+                        expansion_stack=expansion_stack,
+                    ),
+                )
+                for binding in expr.bindings
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
     raise TypeError(f"unsupported pure helper expression clone: {type(expr)!r}")
 
 
@@ -1054,6 +1697,7 @@ def _validate_pure_function_expr(
     *,
     function_def: FunctionDef,
     procedure_catalog: "ProcedureCatalog | None" = None,
+    target_dsl_version: str | None = None,
 ) -> None:
     from .effects import RunsRefEffect, RunsTrialEffect, effect_summary
     from .expressions import TrialExpr
@@ -1083,7 +1727,12 @@ def _validate_pure_function_expr(
                         direct_effects=signature.declared_effects
                     ),
                 )
-    violation = _find_purity_violation(expr)
+    violation = _find_purity_violation(
+        expr,
+        allow_procedure_calls=target_dsl_supports_pure_call_composition(
+            target_dsl_version or ""
+        ),
+    )
     if violation is None:
         return
     raise LispFrontendCompileError(
@@ -1102,13 +1751,43 @@ def _validate_pure_function_expr(
     )
 
 
-def _find_purity_violation(expr: ExprNode) -> str | None:
+def _find_purity_violation(
+    expr: ExprNode,
+    *,
+    allow_procedure_calls: bool = False,
+) -> str | None:
     if isinstance(expr, TrialExpr):
         return "trial"
     if isinstance(expr, CallExpr):
         return "call"
     if isinstance(expr, ProcedureCallExpr):
-        return "defproc"
+        if not allow_procedure_calls:
+            return "defproc"
+        for arg in expr.args:
+            violation = _find_purity_violation(
+                arg,
+                allow_procedure_calls=allow_procedure_calls,
+            )
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, BindProcExpr):
+        if not allow_procedure_calls:
+            return "bind-proc"
+        violation = _find_purity_violation(
+            expr.base_expr,
+            allow_procedure_calls=allow_procedure_calls,
+        )
+        if violation is not None:
+            return violation
+        for binding in expr.bindings:
+            violation = _find_purity_violation(
+                binding.value_expr,
+                allow_procedure_calls=allow_procedure_calls,
+            )
+            if violation is not None:
+                return violation
+        return None
     if isinstance(expr, ProviderResultExpr):
         return "provider-result"
     if isinstance(expr, CommandResultExpr):
@@ -1137,109 +1816,112 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "loop/recur"
     if isinstance(expr, ListMapEffectExpr):
         return "list/map-effect"
-    if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr | EnumMemberExpr):
+    if isinstance(
+        expr,
+        FieldAccessExpr | NameExpr | LiteralExpr | EnumMemberExpr | ProcRefLiteralExpr,
+    ):
         return None
     if isinstance(expr, RecordExpr):
         for _, field_expr in expr.fields:
-            violation = _find_purity_violation(field_expr)
+            violation = _find_purity_violation(field_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, PureOpExpr):
         for arg in expr.args:
-            violation = _find_purity_violation(arg)
+            violation = _find_purity_violation(arg, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, ListExpr):
         for item in expr.items:
-            violation = _find_purity_violation(item)
+            violation = _find_purity_violation(item, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, ListMapExpr):
-        violation = _find_purity_violation(expr.source_expr)
+        violation = _find_purity_violation(expr.source_expr, allow_procedure_calls=allow_procedure_calls)
         if violation is not None:
             return violation
-        return _find_purity_violation(expr.body_expr)
+        return _find_purity_violation(expr.body_expr, allow_procedure_calls=allow_procedure_calls)
     if isinstance(expr, CompilerListNonemptyHeadExpr):
-        return _find_purity_violation(expr.source_expr)
+        return _find_purity_violation(expr.source_expr, allow_procedure_calls=allow_procedure_calls)
     if isinstance(expr, PathJoinUnderExpr):
-        return _find_purity_violation(expr.child_expr)
+        return _find_purity_violation(expr.child_expr, allow_procedure_calls=allow_procedure_calls)
     if isinstance(expr, RecordUpdateExpr):
-        violation = _find_purity_violation(expr.base_expr)
+        violation = _find_purity_violation(expr.base_expr, allow_procedure_calls=allow_procedure_calls)
         if violation is not None:
             return violation
         for _, field_expr in expr.overrides:
-            violation = _find_purity_violation(field_expr)
+            violation = _find_purity_violation(field_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, LoopStateSeedExpr):
         for field in expr.fields:
-            violation = _find_purity_violation(field.value_expr)
+            violation = _find_purity_violation(field.value_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, LoopStateUpdateExpr):
-        violation = _find_purity_violation(expr.base_expr)
+        violation = _find_purity_violation(expr.base_expr, allow_procedure_calls=allow_procedure_calls)
         if violation is not None:
             return violation
         for _, field_expr in expr.overrides:
-            violation = _find_purity_violation(field_expr)
+            violation = _find_purity_violation(field_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, UnionVariantExpr):
         for _, field_expr in expr.fields:
-            violation = _find_purity_violation(field_expr)
+            violation = _find_purity_violation(field_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, LetStarExpr):
         for _, binding_expr in expr.bindings:
-            violation = _find_purity_violation(binding_expr)
+            violation = _find_purity_violation(binding_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
-        return _find_purity_violation(expr.body)
+        return _find_purity_violation(expr.body, allow_procedure_calls=allow_procedure_calls)
     if isinstance(expr, IfExpr):
         for nested in (expr.condition_expr, expr.then_expr, expr.else_expr):
-            violation = _find_purity_violation(nested)
+            violation = _find_purity_violation(nested, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, CondExpr):
         for clause in expr.clauses:
             if clause.condition_expr is not None:
-                violation = _find_purity_violation(clause.condition_expr)
+                violation = _find_purity_violation(clause.condition_expr, allow_procedure_calls=allow_procedure_calls)
                 if violation is not None:
                     return violation
-            violation = _find_purity_violation(clause.result_expr)
+            violation = _find_purity_violation(clause.result_expr, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, MatchExpr):
-        violation = _find_purity_violation(expr.subject)
+        violation = _find_purity_violation(expr.subject, allow_procedure_calls=allow_procedure_calls)
         if violation is not None:
             return violation
         for arm in expr.arms:
-            violation = _find_purity_violation(arm.body)
+            violation = _find_purity_violation(arm.body, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, FunctionCallExpr):
         for arg in expr.args:
-            violation = _find_purity_violation(arg)
+            violation = _find_purity_violation(arg, allow_procedure_calls=allow_procedure_calls)
             if violation is not None:
                 return violation
         return None
     if isinstance(expr, ContinueExpr):
-        return _find_purity_violation(expr.state_expr)
+        return _find_purity_violation(expr.state_expr, allow_procedure_calls=allow_procedure_calls)
     if isinstance(expr, DoneExpr):
-        violation = _find_purity_violation(expr.result_expr)
+        violation = _find_purity_violation(expr.result_expr, allow_procedure_calls=allow_procedure_calls)
         if violation is not None or expr.terminal_state_expr is None:
             return violation
-        return _find_purity_violation(expr.terminal_state_expr)
+        return _find_purity_violation(expr.terminal_state_expr, allow_procedure_calls=allow_procedure_calls)
     return f"unsupported expression container {type(expr).__name__}"
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -40,6 +41,125 @@ def _family_profiles_module():
 def _generic_family_profile_catalog():
     return _family_profiles_module().load_workflow_family_profile_catalog(
         (GENERIC_FAMILY_PROFILE_FIXTURE,)
+    )
+
+
+def test_typed_union_source_rewriter_changes_only_explicit_source_references() -> None:
+    from orchestrator.workflow_lisp.lowering.values import (
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    literal_carrier = {
+        "kind": "typed_union_projection",
+        "descriptor": {"kind": "String"},
+        "source": {
+            "kind": "reference",
+            "reference": "parent.steps.sibling.artifacts.fake",
+        },
+    }
+    value = {
+        "__typed_union_prompt_source__": {
+            "kind": "union",
+            "discriminant": {
+                "kind": "reference",
+                "reference": "parent.steps.sibling.artifacts.variant",
+            },
+            "variants": {
+                "YES": {
+                    "value": {
+                        "kind": "literal",
+                        "value": {
+                            "ref": "parent.steps.sibling.artifacts.literal",
+                            "nested": literal_carrier,
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+    rewritten = rewrite_typed_union_prompt_source_references(
+        value["__typed_union_prompt_source__"],
+        lambda ref: ref.replace("parent.steps.", "self.steps."),
+    )
+
+    assert rewritten["discriminant"]["reference"] == "self.steps.sibling.artifacts.variant"
+    assert rewritten["variants"]["YES"]["value"]["value"] == {
+        "ref": "parent.steps.sibling.artifacts.literal",
+        "nested": literal_carrier,
+    }
+
+
+def test_union_source_scope_rewriters_and_parent_discovery_keep_literals_opaque() -> None:
+    from orchestrator.workflow_lisp.lowering import control_loops, control_match, core, procedures
+    from orchestrator.workflow_lisp.wcc import defunctionalize
+
+    literal = {
+        "ref": "parent.steps.sibling.artifacts.literal",
+        "nested": {
+            "kind": "typed_union_projection",
+            "descriptor": {"kind": "String"},
+            "source": {
+                "kind": "reference",
+                "reference": "parent.steps.sibling.artifacts.fake",
+            },
+        },
+    }
+
+    def local_value(reference: str) -> dict[str, object]:
+        return {
+            "__typed_union_prompt_source__": {
+                "kind": "union",
+                "discriminant": {"kind": "reference", "reference": reference},
+                "variants": {
+                    "YES": {
+                        "value": {"kind": "literal", "value": literal},
+                        "other": {"kind": "reference", "reference": reference},
+                    },
+                },
+            },
+        }
+
+    parent_value = local_value("parent.steps.sibling.artifacts.variant")
+    rewritten_parent = [
+        core._rewrite_case_sibling_refs_in_value(parent_value, sibling_names=("sibling",)),
+        control_match._rewrite_case_sibling_refs_in_value(
+            parent_value,
+            sibling_names=("sibling",),
+        ),
+        control_loops._rewrite_hoisted_loop_case_scope_value(
+            parent_value,
+            self_scope_step_names={"sibling"},
+        ),
+        defunctionalize._rewrite_case_sibling_refs_in_value(
+            parent_value,
+            sibling_names=("sibling",),
+        ),
+    ]
+    root_value = local_value("root.steps.sibling.artifacts.variant")
+    rewritten_root = [
+        procedures._rewrite_refs_in_sibling_scope(root_value, ("sibling",)),
+        defunctionalize._rewrite_case_sibling_refs_in_value(
+            root_value,
+            sibling_names=("sibling",),
+        ),
+        defunctionalize._rewrite_branch_local_refs_in_value(
+            root_value,
+            branch_step_prefix="sibling",
+        ),
+    ]
+
+    for rewritten in (*rewritten_parent, *rewritten_root):
+        source = rewritten["__typed_union_prompt_source__"]
+        assert source["discriminant"]["reference"] == "self.steps.sibling.artifacts.variant"
+        assert source["variants"]["YES"]["other"]["reference"] == "self.steps.sibling.artifacts.variant"
+        assert source["variants"]["YES"]["value"]["value"] == literal
+
+    from orchestrator.workflow_lisp.lowering.values import iter_parent_ref_strings
+
+    assert iter_parent_ref_strings(parent_value) == (
+        "parent.steps.sibling.artifacts.variant",
+        "parent.steps.sibling.artifacts.variant",
     )
 
 
@@ -166,18 +286,266 @@ def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists
     )
 
 
+@pytest.mark.parametrize("input_surface", ("ordinary_inputs", "prompt_value_fill"))
+@pytest.mark.parametrize(
+    "value",
+    (
+        {"variant": "PAYLOAD", "payload": {"ref": "literal-payload-key"}},
+        {"variant": "EMPTY"},
+    ),
+)
+def test_union_prompt_inputs_preserve_active_payload(
+    input_surface: str,
+    value: dict[str, object],
+) -> None:
+    """Target 2.28 renders one whole tagged value; payload `ref` stays data."""
+
+    from orchestrator.workflow_lisp.definitions import UnionDef
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+    from orchestrator.workflow_lisp.type_env import (
+        ListTypeRef,
+        PrimitiveTypeRef,
+        UnionTypeRef,
+    )
+
+    module = _typed_prompt_inputs_module()
+    span = read_sexpr_text('"x"', source_path="union_prompt_input.orc").span
+    outcome = UnionTypeRef(
+        name="Outcome",
+        definition=UnionDef(name="Outcome", variants=(), span=span),
+        variant_field_types={
+            "PAYLOAD": {"payload": PrimitiveTypeRef(name="Json")},
+            "EMPTY": {},
+        },
+    )
+    value_type = ListTypeRef(name="List[Outcome]", item_type_ref=outcome)
+
+    assert module.select_prompt_fragment_renderer(
+        value_type,
+        kind="value",
+        target_dsl_version="2.28",
+    ) == "canonical-json"
+    assert module.select_prompt_fragment_renderer(
+        value_type,
+        kind="value",
+        target_dsl_version="2.27",
+    ) is None
+
+    prompt_block, evidence = module.render_typed_prompt_inputs(
+        [
+            {
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "binding_name": input_surface,
+                "renderer": {
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "accepted_shape": "any_pure_value",
+                },
+                "value_source": {
+                    "kind": "typed_binding_ref",
+                    "ref": "root.steps.producer.artifacts.return",
+                },
+                "value_type_name": "List[Outcome]",
+                "source_map_origin_key": "union-input::consumer",
+                "injection_order": 0,
+            }
+        ],
+        resolved_typed_values={input_surface: [value]},
+        workflow_name="union-input::consumer",
+        step_id="root.consumer",
+    )
+
+    assert json.loads(prompt_block.split("\n", 2)[1]) == [value]
+    assert len(evidence) == 1
+
+
+def test_typed_union_projection_resolves_only_the_active_payload() -> None:
+    descriptor = {
+        "kind": "union",
+        "name": "Outcome",
+        "variants": [
+            {
+                "name": "PAYLOAD",
+                "fields": [
+                    {
+                        "name": "payload",
+                        "type": {"kind": "primitive", "name": "Value"},
+                    }
+                ],
+            },
+            {
+                "name": "REJECTED",
+                "fields": [
+                    {
+                        "name": "reason",
+                        "type": {"kind": "primitive", "name": "String"},
+                    }
+                ],
+            },
+        ],
+    }
+    source = {
+        "kind": "typed_union_projection",
+        "descriptor": descriptor,
+        "source": {
+            "kind": "union",
+            "discriminant": {
+                "kind": "reference",
+                "reference": "root.steps.source.artifacts.variant",
+            },
+            "variants": {
+                "PAYLOAD": {
+                    "payload": {
+                        "kind": "literal",
+                        "value": {"ref": "literal-payload-key"},
+                    },
+                },
+                "REJECTED": {
+                    "reason": {
+                        "kind": "reference",
+                        "reference": "root.steps.source.artifacts.reason",
+                    },
+                },
+            },
+        },
+    }
+    requested: list[str] = []
+    executor = object.__new__(WorkflowExecutor)
+
+    def resolve(ref: str, state, *, scope=None):
+        requested.append(ref)
+        if ref.endswith("variant"):
+            return "PAYLOAD", None
+        raise AssertionError(f"inactive source was resolved: {ref}")
+
+    executor._resolve_ref_value = resolve
+    value, error = executor._resolve_typed_prompt_value_source(source, {})
+
+    assert error is None
+    assert value == {"variant": "PAYLOAD", "payload": {"ref": "literal-payload-key"}}
+    assert requested == ["root.steps.source.artifacts.variant"]
+
+    nested_source = deepcopy(source)
+    nested_source["descriptor"]["variants"][0]["fields"][0]["type"] = {
+        "kind": "record",
+        "name": "Payload",
+        "fields": [
+            {
+                "name": "message",
+                "type": {"kind": "primitive", "name": "String"},
+            }
+        ],
+    }
+    nested_source["source"]["variants"]["PAYLOAD"]["payload"] = {
+        "kind": "literal",
+        "value": {"message": "whole nested payload"},
+    }
+    requested.clear()
+    value, error = executor._resolve_typed_prompt_value_source(nested_source, {})
+    assert error is None
+    assert value == {
+        "variant": "PAYLOAD",
+        "payload": {"message": "whole nested payload"},
+    }
+    assert requested == ["root.steps.source.artifacts.variant"]
+
+    malformed_source = deepcopy(source)
+    malformed_source["source"]["discriminant"] = {"kind": "literal", "value": []}
+    value, error = executor._resolve_typed_prompt_value_source(malformed_source, {})
+    assert value is None
+    assert error is not None
+    assert "typed_union_projection_unknown_variant" in str(error)
+
+    missing_payload_source = deepcopy(source)
+    del missing_payload_source["source"]["variants"]["PAYLOAD"]["payload"]
+    value, error = executor._resolve_typed_prompt_value_source(
+        missing_payload_source,
+        {},
+    )
+    assert value is None
+    assert error is not None
+    assert "union fields do not match the descriptor" in str(error)
+
+
+def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> None:
+    from orchestrator.workflow.prompt_fragment_contract import (
+        validate_typed_prompt_value_source,
+    )
+    from orchestrator.workflow_lisp.lowering.values import _flatten_inline_output_refs
+
+    assert _flatten_inline_output_refs(
+        {"__authored": "root.steps.source.artifacts.authored"}
+    ) == {"return____authored": "root.steps.source.artifacts.authored"}
+
+    validate_typed_prompt_value_source(
+        {
+            "kind": "typed_union_projection",
+            "descriptor": {
+                "kind": "union",
+                "name": "Outcome",
+                "variants": [
+                    {"name": "YES", "fields": []},
+                    {"name": "NO", "fields": []},
+                ],
+            },
+            "source": {
+                "kind": "union",
+                "discriminant": {"kind": "literal", "value": "YES"},
+                "variants": {"YES": {}},
+            },
+        }
+    )
+
+
+def test_authored_literal_union_prompt_source_emits_selected_branch_only(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "literal_union_prompt_input.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.28")
+  (defmodule literal_union_prompt_input)
+  (export summarize)
+  (defunion Outcome (YES) (NO))
+  (defworkflow summarize () -> Bool
+    (let* ((outcome (variant Outcome YES)))
+      (provider-result providers.summarize
+        :prompt prompts.summarize
+        :inputs (outcome)
+        :returns Bool))))
+""",
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        source_path,
+        entry_workflow="summarize",
+        provider_externs={"providers.summarize": "test-summarize"},
+        prompt_externs={"prompts.summarize": "prompts/summarize.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    step = next(iter(result.validated_bundles.values())).surface.steps[0]
+    source = step.typed_prompt_inputs[0]["value_source"]["source"]
+    assert source["discriminant"] == {"kind": "literal", "value": "YES"}
+    assert source["variants"] == {"YES": {}}
+
 def _compile_generic_ordinary_extern_input(
     tmp_path: Path,
     *,
     input_type: str,
     type_definitions: str = "",
+    target_dsl_version: str = "2.23",
+    boundary_admission_profile: str | None = None,
 ):
     source = tmp_path / "ordinary_extern_typed_input.orc"
     source.write_text(
         f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
+  (:target-dsl "{target_dsl_version}")
   (defmodule ordinary_extern_typed_input)
   (export summarize)
   (defpath ReportPath
@@ -201,6 +569,7 @@ def _compile_generic_ordinary_extern_input(
         validate_shared=True,
         workspace_root=tmp_path,
         lowering_route="wcc_m4",
+        boundary_admission_profile=boundary_admission_profile,
     )
     bundle = next(iter(result.validated_bundles.values()))
     return _provider_step(bundle)
@@ -265,6 +634,150 @@ def test_ordinary_extern_prompt_input_rejects_unsupported_containers(
         )
 
     assert exc_info.value.diagnostics[0].code == "workflow_boundary_type_invalid"
+
+
+@pytest.mark.parametrize(
+    ("target_dsl_version", "expected_kind"),
+    (("2.27", "typed_binding_ref"), ("2.28", "typed_union_projection")),
+)
+def test_ordinary_union_prompt_input_uses_closed_active_value_source(
+    tmp_path: Path,
+    target_dsl_version: str,
+    expected_kind: str,
+) -> None:
+    step = _compile_generic_ordinary_extern_input(
+        tmp_path,
+        input_type="Outcome",
+        target_dsl_version=target_dsl_version,
+        boundary_admission_profile="transportable_child",
+        type_definitions="""\
+  (defunion Outcome
+    (PAYLOAD (payload Value))
+    (EMPTY))
+""",
+    )
+
+    source = step.typed_prompt_inputs[0]["value_source"]
+    assert source["kind"] == expected_kind
+    if expected_kind == "typed_binding_ref":
+        return
+    assert source["descriptor"]["kind"] == "union"
+    assert source["source"]["discriminant"] == {
+        "kind": "reference", "reference": "inputs.value__variant"
+    }
+    assert source["source"]["variants"]["PAYLOAD"]["payload"] == {
+        "kind": "reference", "reference": "inputs.value__payload"
+    }
+
+
+def test_union_prompt_input_keeps_variant_specific_same_name_sources(
+    tmp_path: Path,
+) -> None:
+    step = _compile_generic_ordinary_extern_input(
+        tmp_path,
+        input_type="Outcome",
+        target_dsl_version="2.28",
+        boundary_admission_profile="transportable_child",
+        type_definitions="""\
+  (defrecord Nested (x Int))
+  (defunion Outcome
+    (SCALAR (value Int))
+    (RECORD (value Nested)))
+""",
+    )
+    source = step.typed_prompt_inputs[0]["value_source"]["source"]
+    assert source["variants"]["SCALAR"]["value"] == {
+        "kind": "reference", "reference": "inputs.value__value"
+    }
+    assert source["variants"]["RECORD"]["value"] == {
+        "kind": "record",
+        "fields": {
+            "x": {
+                "kind": "reference", "reference": "inputs.value__value__x"
+            }
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("tag", "expected_value", "active_branch"),
+    (
+        ("SCALAR", {"variant": "SCALAR", "value": 7}, "SCALAR"),
+        ("RECORD", {"variant": "RECORD", "value": {"x": 7}}, "RECORD"),
+    ),
+)
+def test_provider_union_prompt_input_keeps_active_same_name_branch(
+    tmp_path: Path,
+    tag: str,
+    expected_value: dict[str, object],
+    active_branch: str,
+) -> None:
+    source_path = tmp_path / "provider_union_prompt_input.orc"
+    source_path.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.28")
+  (defmodule provider_union_prompt_input)
+  (export summarize)
+  (defrecord Nested (x Int))
+  (defunion Outcome
+    (SCALAR (value Int))
+    (RECORD (value Nested)))
+  (defworkflow summarize () -> Bool
+    (let* ((outcome
+             (provider-result providers.produce
+               :prompt prompts.produce
+               :inputs ()
+               :returns Outcome)))
+      (provider-result providers.summarize
+        :prompt prompts.summarize
+        :inputs (outcome)
+        :returns Bool))))
+""",
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        source_path,
+        entry_workflow="summarize",
+        provider_externs={
+            "providers.produce": "test-produce",
+            "providers.summarize": "test-summarize",
+        },
+        prompt_externs={
+            "prompts.produce": "prompts/produce.md",
+            "prompts.summarize": "prompts/summarize.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    consumer = next(
+        step
+        for step in next(iter(result.validated_bundles.values())).surface.steps
+        if step.provider == "test-summarize"
+    )
+    source = consumer.typed_prompt_inputs[0]["value_source"]
+    assert source["kind"] == "typed_union_projection"
+    scalar_ref = source["source"]["variants"]["SCALAR"]["value"]["reference"]
+    nested_ref = source["source"]["variants"]["RECORD"]["value"]["fields"]["x"]["reference"]
+    requested: list[str] = []
+    executor = object.__new__(WorkflowExecutor)
+
+    def resolve(ref: str, state, *, scope=None):
+        requested.append(ref)
+        if ref.endswith("variant"):
+            return tag, None
+        if ref == (scalar_ref if active_branch == "SCALAR" else nested_ref):
+            return 7, None
+        raise AssertionError(f"inactive or missing ref was resolved: {ref}")
+
+    executor._resolve_ref_value = resolve
+    value, error = executor._resolve_typed_prompt_value_source(source, {})
+    assert error is None
+    assert value == expected_value
+    assert (scalar_ref if active_branch == "SCALAR" else nested_ref) in requested
+    assert (nested_ref if active_branch == "SCALAR" else scalar_ref) not in requested
 
 
 def _provider_step(bundle):

@@ -2,15 +2,21 @@
 
 ## Metadata
 
-- **Status:** proposed target; not implemented or copy-safe current syntax
-- **Kind:** language and frontend architecture decision
+- **Status:** implemented for the resolved-inline subset at target 2.30
+- **Kind:** companion architecture decision; implemented contract incorporated
+  into [frontend baseline §8.6](workflow_lisp_frontend_specification.md#86-defun)
 - **Owner:** Workflow Lisp typechecking, pure-expression lowering, and WCC
 - **Created:** 2026-09-08
-- **Implementation target:** unassigned; this draft selects no work or version
+- **Implementation target:** 2.30, Package C in the owner-requested composition
+  implementation plan. Forty-eight focused checks include selected hooks,
+  strict rechecking, once-only evaluation and public committed-boundary resume;
+  Astra approved the shared-owner correction and old-target compatibility proof.
+  This does not select a research allocation or establish superior reuse utility.
 - **Roadmap:** [EC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#ec-1--pure-call-expression-composition-pending-unselected)
 - **Companion:** [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 - **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
 - **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)
+- **Incremental integration:** [value and continuation composition](workflow_lisp_value_and_continuation_composition.md); its Increment 3 consumes this contract without making rendering, loop, context, or human-input work prerequisites.
 
 ## Summary And Current Fallback
 
@@ -164,6 +170,117 @@ Reuse existing traversal/conversion logic. If a shared resolved-call path is
 missing, name it as a feasibility gap; do not implement per-form exceptions or
 duplicate a general normalizer behind an apparently small API.
 
+### Selected Phase Placement
+
+For the new EC-1 target, reuse the existing function inliner before procedure
+and workflow body typechecking. This exposes procedure calls inside functions
+to the existing procedure effect fixed point; it does not require a second
+function-effect graph or a new effect atom. Historical targets retain their
+existing pipeline. Apply the same ordering in single-module and linked builds:
+
+1. Build catalogs and provisionally type function bodies. Preserve candidate
+   procedure-call edges and actual effects; defer only the placement verdict
+   that requires final resolution. Keep existing function-cycle detection.
+2. Expand function calls at the existing elaborated-body/typecheck seam for
+   procedures and workflows, including imported and specialized typed bodies.
+   Leave procedure calls visible to inference; do not assume they are pure.
+   During inference, defer candidate placement checks in procedure/workflow
+   containers as well as function bodies, retaining every call edge and effect.
+   Final strict rechecking enforces placement on the normalized result.
+3. Run existing procedure/workflow effect inference and specialization to
+   completion, then select final procedure lowering modes. Cross-kind recursion
+   exposed by function expansion must still fail existing cycle checks.
+   Seed existing specialization discovery/materialization from every function
+   body, including uncalled functions. Preserve requests across the inference
+   entry reset; final rechecking is too late to discover a specialization whose
+   effects and lowering have not been resolved.
+4. Use one resolved-call normalizer with the visible typed function and resolved
+   procedure bodies. Reduce only final-inline, transitively effect-free,
+   representable calls, rerun existing strict-Boolean
+   `normalize_expanded_conditions`, then strictly recheck before lowering.
+   No provisional purity exemption or stale call-edge summary survives admission.
+
+Resolved-call normalization must retain the selected callable's binding context.
+An authored hook name is not a global callee name, and a generic template's
+empty effect summary does not establish the selected hook's purity. Reuse the
+existing exact materialized-specialization selection owner; consume settled
+rows rather than discovering new specializations after inference. Normalize a
+selected body under its own compile-time hook bindings and defining-module
+environment before transplanting it into the caller. Runtime actual arguments
+are still evaluated in the caller's environment through ordered hygienic
+bindings. Missing or ambiguous concrete selection rejects; a same-named caller
+procedure must not capture a callee-local hook.
+
+Keep final strict retyping of every normalized procedure, including generic
+bases, and workflows in both compiler paths. The existing retyping owner
+preserves signatures, specialization metadata and type environments; skipping
+generic bases would hide a normalization defect. Preserve call/definition and
+specialization provenance. Astra identified this shared-owner correction after
+a selected-hook probe escaped its specialization as an unknown `hook` call.
+
+The final condition normalization keeps inserted bindings inside the selected
+`and`/`or` operand by using the existing conditional representation. The pure
+evaluator's ordinary operation arguments are eager; an inserted `let` alone does
+not establish short-circuiting. Procedure expansion must retain its actual
+call/definition provenance in a compiler-owned frame recognized by that pass's
+generated-helper predicate; the existing function-only predicate is insufficient.
+Do not broaden this into rewriting unrelated authored value-position operators.
+Test false-`and` and true-`or` with a failing
+skipped call, including inside map bodies.
+
+The linked path must supply actual defining-module bodies and specialized callee
+identities, not infer purity or expansion from imported signatures. Replace the
+late-only function expansion sites; do not maintain divergent inliners for each
+consumer. An uncalled function is still validated, not exempt from its contract.
+
+### Ordered Pure-Payload Binding
+
+The current pure-projection lowering substitutes `LetStarExpr` bindings: unused
+arguments can disappear and repeated uses can duplicate evaluation. EC-1 therefore
+requires an ordered lexical `let` node in version 3 of the existing pure-expression
+payload, rather than relying on substitution or hoisting work outside a map/branch.
+Its shape is `kind: let`, ordered `bindings` entries containing `name`, normalized
+`type`, and expression `value`, followed by a `body`. Validate, typecheck, and
+evaluate each binding in order in the preceding lexical environment; evaluate
+the body with all resulting bindings. Reuse the evaluator's existing lexical
+environment used by `list_map`. This adds no procedure interpreter or result store.
+Match existing authored `let*` scope semantics: initializers see preceding
+bindings, inner scopes may shadow outer names, duplicate names in one binding
+list reject, and local bindings do not escape the body. The separate list-map
+binder collision restriction does not require banning normal lexical shadowing
+in `let`. Hygienic argument temporaries are still required before introducing
+formal names, so a later actual argument cannot accidentally refer to an earlier
+formal instead of its caller binding.
+
+Preserve these bindings at the existing WCC binding/projection owner, not only
+when the remaining workflow is a pure terminal suffix. An expanded `defun` or
+procedure before a provider, private call, or control continuation still evaluates
+every actual argument once. Keep nested lexical scopes (including legal shadowing)
+and binding types; flattening their names into one payload binding list is invalid.
+Carry binding/call origins through the existing source-map owner, rather than
+assigning a reconstructed chain only its terminal reference's origin. Astra review
+rejected the terminal-suffix-only reconstruction on these concrete grounds.
+Use executable evaluation counts, an unused fallible argument before an effect,
+shadowing, and multiple call origins to prove the shared correction.
+
+Call normalization must first evaluate arguments in the caller's environment,
+using hygienic temporary bindings before introducing formal parameter names.
+For example, `f(x, y) = y` called as `f(2, x)` with caller `x = 9` returns 9,
+not 2. Body cloning retains lexical shadowing and call/definition provenance.
+
+Preparation fixtures under
+`tests/fixtures/workflow_lisp/pure_call_composition_preparation/` demonstrate
+that these are existing function-expansion defects, not merely risks of the
+new procedure-call surface: caller-name capture changes returned values and an
+unused fallible argument disappears. An equivalent `defun` is therefore not automatically a valid
+semantic control. Verify explicit-binding controls independently and repair the
+shared normalization/payload owners under the selected target.
+
+Only payloads needing the new node use schema 3, under the selected EC-1 target.
+Existing schema-1/2 payloads and old-target lowering remain unchanged; validators
+reject a `let` in those older payload schemas. The payload and its lexical
+structure participate in the existing deterministic identity/resume contract.
+
 ### Evaluation And Proof Invariants
 
 - Evaluate arguments in source order, once per call occurrence. Reusing a formal
@@ -206,16 +323,19 @@ authored workarounds or changing lowering does not promise reuse of old
 checkpoints. Preserve historical frames and reject incompatible reuse under
 the existing version/identity contract.
 
-No new runtime node or pure-payload schema is presumed necessary for the
-reducible subset. This is a feasibility target, not an established fact: if the
-representation needs an extension, revise the owning payload/WCC contract and
-its versioning explicitly before claiming support.
+The ordered binding extension above changes the existing pure-expression
+payload, not the runtime workflow node or durable-state families. Its evaluator,
+payload validation, lowering, and version contracts must land together before
+expression support is advertised.
 
 ## Dependencies, Scope, And Reconsideration
 
 This work is independent of optional `:effects` and a compact effect
-representation. A target/version boundary and phase-order/normalization proof
-are prerequisites. No target number is assigned by this draft.
+representation. Target 2.30 follows the independently selected union-input 2.28
+and rich-loop 2.29 increments. The reviewed phase order and schema-3 contract are
+implemented for the bounded subset; practical benefit remains unestablished. Historical
+targets keep their existing pipeline, diagnostics and schema-1/2 bytes, including
+characterized function-expansion limitations rather than rewriting checkpoints.
 
 The first supported subset excludes effectful expression composition, public
 workflow calls, private execution frames inside pure payloads, runtime-selected

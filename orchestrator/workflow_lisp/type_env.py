@@ -23,11 +23,15 @@ from .modules import canonical_callable_key
 from .result_guidance import ResultGuidance
 from .spans import SourcePosition, SourceSpan
 from .syntax import (
+    HUMAN_REPLY_TYPE_NAME,
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     target_dsl_supports_provider_supervision,
+    target_dsl_supports_provider_context_values,
+    target_dsl_supports_human_input,
     target_dsl_supports_value,
 )
 from .type_expressions import (
+    ContextualTypeExpr,
     ListTypeExpr,
     MapTypeExpr,
     NamedTypeExpr,
@@ -117,6 +121,17 @@ PRELUDE_PROVIDER_STEERING_DIRECTIVE = UnionDef(
     span=_prelude_span(PROVIDER_STEERING_DIRECTIVE_TYPE_NAME),
 )
 
+PRELUDE_HUMAN_REPLY = UnionDef(
+    name=HUMAN_REPLY_TYPE_NAME,
+    variants=(
+        UnionVariant(name="ANSWERED", fields=(
+            RecordField(name="text", type_name="String", span=_prelude_span("HumanReply.ANSWERED.text")),
+        ), span=_prelude_span("HumanReply.ANSWERED")),
+        UnionVariant(name="CANCELLED", fields=(), span=_prelude_span("HumanReply.CANCELLED")),
+    ),
+    span=_prelude_span(HUMAN_REPLY_TYPE_NAME),
+)
+
 
 PRELUDE_TYPE_NAMES = PRELUDE_PRIMITIVE_TYPE_NAMES | frozenset(PRELUDE_PATH_TYPES)
 
@@ -131,6 +146,12 @@ def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
         )
     if target_dsl_supports_value(target_dsl_version):
         names = names | frozenset({"Value"})
+    if target_dsl_supports_provider_context_values(target_dsl_version):
+        from .context_types import CONTEXT_TYPE_NAMES
+
+        names = names | CONTEXT_TYPE_NAMES
+    if target_dsl_supports_human_input(target_dsl_version):
+        names = names | frozenset({HUMAN_REPLY_TYPE_NAME})
     return names
 
 
@@ -379,6 +400,19 @@ class FrontendTypeEnvironment:
                     "STEER": {
                         "guidance": type_refs["String"],
                     },
+                },
+            )
+        if target_dsl_supports_provider_context_values(module.target_dsl_version):
+            from .context_types import context_fixed_types
+
+            type_refs.update(context_fixed_types(type_refs))
+        if target_dsl_supports_human_input(module.target_dsl_version):
+            type_refs[HUMAN_REPLY_TYPE_NAME] = UnionTypeRef(
+                name=HUMAN_REPLY_TYPE_NAME,
+                definition=PRELUDE_HUMAN_REPLY,
+                variant_field_types={
+                    "ANSWERED": {"text": type_refs["String"]},
+                    "CANCELLED": {},
                 },
             )
         for definition in module.definitions:
@@ -757,6 +791,21 @@ class FrontendTypeEnvironment:
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
+        if (
+            target_dsl_version is not None
+            and not target_dsl_supports_provider_context_values(target_dsl_version)
+            and _parsed_type_expr_contains_contextual(parsed)
+        ):
+            _raise_error(
+                (
+                    "`Contextual` requires target DSL 2.31 or newer; "
+                    f"module targets {target_dsl_version}"
+                ),
+                code="contextual_type_requires_dsl_2_31",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
         return _resolve_parsed_type_expr(
             parsed,
             authored_name=name,
@@ -776,7 +825,7 @@ def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
 
     if isinstance(parsed, NamedTypeExpr):
         return parsed.name == "Value"
-    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
         return _parsed_type_expr_contains_value(parsed.item_type)
     if isinstance(parsed, MapTypeExpr):
         return (
@@ -790,6 +839,31 @@ def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
                 for param_type in parsed.param_types
             )
             or _parsed_type_expr_contains_value(parsed.return_type)
+        )
+    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
+
+
+def _parsed_type_expr_contains_contextual(parsed: ParsedTypeExpr) -> bool:
+    """Return whether one parsed authored type contains ``Contextual``."""
+
+    if isinstance(parsed, NamedTypeExpr):
+        return False
+    if isinstance(parsed, ContextualTypeExpr):
+        return True
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+        return _parsed_type_expr_contains_contextual(parsed.item_type)
+    if isinstance(parsed, MapTypeExpr):
+        return (
+            _parsed_type_expr_contains_contextual(parsed.key_type)
+            or _parsed_type_expr_contains_contextual(parsed.value_type)
+        )
+    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
+        return (
+            any(
+                _parsed_type_expr_contains_contextual(param_type)
+                for param_type in parsed.param_types
+            )
+            or _parsed_type_expr_contains_contextual(parsed.return_type)
         )
     raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
@@ -933,6 +1007,22 @@ def _resolve_parsed_type_expr(
             key_type_ref=key_type_ref,
             value_type_ref=value_type_ref,
         )
+    if isinstance(parsed, ContextualTypeExpr):
+        from .context_types import contextual_type, fixed_context_type
+
+        item_type_ref = _resolve_parsed_type_expr(
+            parsed.item_type,
+            authored_name=_render_type_expr(parsed.item_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
+        )
+        return contextual_type(item_type_ref, fixed_context_type(type_refs))
     if isinstance(parsed, WorkflowRefTypeExpr):
         param_refs = tuple(
             _resolve_parsed_type_expr(
@@ -1124,6 +1214,8 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
         return f"List[{_render_type_expr(parsed.item_type)}]"
     if isinstance(parsed, MapTypeExpr):
         return f"Map[{_render_type_expr(parsed.key_type)}, {_render_type_expr(parsed.value_type)}]"
+    if isinstance(parsed, ContextualTypeExpr):
+        return f"Contextual[{_render_type_expr(parsed.item_type)}]"
     if isinstance(parsed, WorkflowRefTypeExpr):
         params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
         return f"WorkflowRef[({params}) -> {_render_type_expr(parsed.return_type)}]"
@@ -1362,13 +1454,18 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
             value_type_ref=value_type_ref,
         )
     if isinstance(type_ref, RecordTypeRef):
+        from .context_types import contextual_type, is_contextual_type
+
+        field_types = {
+            field_name: substitute_type_params(field_type, bindings)
+            for field_name, field_type in type_ref.field_types.items()
+        }
+        if is_contextual_type(type_ref):
+            return contextual_type(field_types["result"], field_types["context"])
         return RecordTypeRef(
             name=type_ref.name,
             definition=type_ref.definition,
-            field_types={
-                field_name: substitute_type_params(field_type, bindings)
-                for field_name, field_type in type_ref.field_types.items()
-            },
+            field_types=field_types,
         )
     if isinstance(type_ref, UnionTypeRef):
         return UnionTypeRef(

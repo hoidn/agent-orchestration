@@ -48,6 +48,20 @@
       command failure remains primary.
     - `variant_output.path` adds tagged-union validation and projection on top
       of this same runtime-owned explicit-path bundle contract.
+  - Target-2.29 projection contract:
+    - Pure bundles remain canonical sparse values. Generated bundle pointers
+      use declared source paths, not flattened artifact-name guessing. Resolve
+      each group's discriminant before reading or validating its active fields;
+      fresh and reused bundles follow the same rule.
+    - Variant availability retains declared group/discriminant identity through
+      shared contract normalization and materialization. Exact scoped
+      `requires_variant: {ref, allowed}` checks authorize only that group's
+      fields; an independent group's tag is not proof.
+    - Loop boundaries may totalize proven inactive fields with existing typed
+      internal placeholders through guarded conditional projections. Final
+      authored outputs remain sparse and active fields remain strictly
+      validated. Missing/invalid discriminants never authorize placeholders.
+      Prior-target extraction and guard behavior remain unchanged.
   - Provider structured-bundle environment:
     - For provider steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative logical bundle path before
@@ -70,6 +84,33 @@
       `__result__`, with `json_pointer: ""` and `type: value`. The bundle bytes
       are the JSON encoding of the value itself; neither the runtime nor the
       provider contract adds a `{"value": ...}` envelope.
+  - Workflow Lisp portable-context capture (target 2.31):
+    - For an ordinary portable capture whose declared
+      model result is `T`, the provider-facing `output_bundle` has exactly one
+      mandatory compiler-owned `__result__` field at JSON pointer `""`, with
+      the complete recursive schema of `T`. The provider writes `T` directly;
+      it never writes `{result, context}`, a context envelope, or a conditional
+      variant projection.
+    - The existing bundle validator first validates that whole `T` document.
+      The existing codec then captures and validates the settled portable
+      Context, and the existing finalization transaction validates the complete
+      `Contextual[T]` pair before atomically publishing its two typed artifacts,
+      `result: T` and `context: Context`. A failure before that commit publishes
+      neither successful member. Provider-created files and diagnostics may
+      remain; this is not rollback of provider side effects.
+    - The complete pair, including wrapper nesting, remains subject to the
+      ordinary recursive transport limits: maximum depth 64 and maximum value
+      size 16 MiB. Separately valid result/context members do not bypass those
+      limits. Capture failure is an ordinary failed boundary and does not
+      silently rerun a successful provider merely to obtain context.
+    - A compatible completed boundary reuses the committed pair without a
+      provider call or history export. Pending/interrupted calls retain the
+      existing discard-and-rerun behavior. Context content and selection take
+      part in the ordinary input/program identity; a changed Context is not a
+      patch to an existing checkpoint.
+    - Uncaptured providers and commands retain their prior bundle and artifact
+      contracts. The portable pair does not introduce a second state store,
+      an alternate result channel, or native-resume persistence.
   - Workflow Lisp prompt output-position composition (target 2.21):
     - A fragment-backed provider step may combine compiler-owned
       `expected_outputs` rows with exactly one prompt-owned `output_bundle` or

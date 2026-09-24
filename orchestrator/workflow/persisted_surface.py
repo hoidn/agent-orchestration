@@ -47,6 +47,8 @@ from orchestrator.workflow.prompt_fragment_contract import (
 from orchestrator.workflow.provider_phased_delivery.models import (
     partition_provider_call_policy,
 )
+from orchestrator.workflow.provider_context import validate_provider_context_config
+from orchestrator.workflow.executable_ir import validate_request_input_config
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 from orchestrator.workflow.trial.config import (
     TrialStaticConfig,
@@ -60,12 +62,16 @@ PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA = "persisted_workflow_surface_graph.v1"
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2 = "persisted_workflow_surface_graph.v2"
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3 = "persisted_workflow_surface_graph.v3"
 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4 = "persisted_workflow_surface_graph.v4"
+PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5 = "persisted_workflow_surface_graph.v5"
+PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6 = "persisted_workflow_surface_graph.v6"
 SUPPORTED_PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMAS = frozenset(
     {
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
     }
 )
 PERSISTED_WORKFLOW_SURFACE_FILENAME = "persisted_workflow_surface.json"
@@ -112,6 +118,8 @@ class PersistedSurfaceStep:
         CompilerPromptAttemptBindingPlan | None
     ) = None
     provider_call_policy: Mapping[str, object] | None = None
+    provider_context: Mapping[str, Any] | None = None
+    request_input: Mapping[str, Any] | None = None
     trial: TrialStaticConfig | None = None
 
 
@@ -243,15 +251,23 @@ def serialize_persisted_workflow_surface_graph(
     if resolved_entry_name != entry_workflow:
         raise ValueError("persisted workflow surface entry identity is inconsistent")
     schema_version = (
-        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
-        if _serialized_nodes_contain_trial(nodes)
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6
+        if _serialized_nodes_contain_request_input(nodes)
         else (
-            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
-            if _serialized_nodes_contain_q3(nodes)
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5
+            if _serialized_nodes_contain_provider_context(nodes)
+        else (
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+            if _serialized_nodes_contain_trial(nodes)
             else (
-                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
-                if _serialized_nodes_contain_q2(nodes)
-                else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+                if _serialized_nodes_contain_q3(nodes)
+                else (
+                    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+                    if _serialized_nodes_contain_q2(nodes)
+                    else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+                )
+            )
             )
         )
     )
@@ -362,20 +378,53 @@ def decode_persisted_workflow_surface_graph(
         _persisted_steps_contain_trial((*node.steps, *node.finalization_steps))
         for node in nodes.values()
     )
+    has_provider_context = any(
+        _persisted_steps_contain_provider_context(
+            (*node.steps, *node.finalization_steps)
+        )
+        for node in nodes.values()
+    )
+    has_request_input = any(
+        _persisted_steps_contain_request_input(
+            (*node.steps, *node.finalization_steps)
+        )
+        for node in nodes.values()
+    )
     expected_schema = (
-        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
-        if has_trial
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6
+        if has_request_input
         else (
-            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
-            if has_q3
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5
+            if has_provider_context
+        else (
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+            if has_trial
             else (
-                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
-                if has_fragment_carriage
-                else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3
+                if has_q3
+                else (
+                    PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V2
+                    if has_fragment_carriage
+                    else PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
+                )
+            )
             )
         )
     )
     if schema_version != expected_schema:
+        if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6 or has_request_input:
+            raise ValueError(
+                "request_input_persistence_mismatch: "
+                "persisted graph schema does not match its request input carriage"
+            )
+        if (
+            schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5
+            or has_provider_context
+        ):
+            raise ValueError(
+                "provider_context_persistence_mismatch: "
+                "persisted graph schema does not match its provider context carriage"
+            )
         if schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4 or has_trial:
             raise ValueError(
                 "trial_static_config_persistence_mismatch: "
@@ -451,6 +500,18 @@ def _serialize_step(
         identity_version=step.prompt_attempt_identity_version,
         target_dsl_version=target_dsl_version,
     )
+    if step.provider_context is not None:
+        validate_provider_context_config(
+            step.provider_context,
+            step_kind=step.kind.value,
+            target_dsl_version=target_dsl_version,
+            provider_call_policy=step.provider_call_policy,
+        )
+    if step.kind is SurfaceStepKind.REQUEST_INPUT:
+        validate_request_input_config(
+            step.request_input,
+            target_dsl_version=target_dsl_version,
+        )
     payload = {
         "name": step.name,
         "step_id": step.step_id,
@@ -559,6 +620,10 @@ def _serialize_step(
         )
     if persisted_provider_call_policy is not None:
         payload["provider_call_policy"] = persisted_provider_call_policy
+    if step.provider_context is not None:
+        payload["provider_context"] = _plain(step.provider_context)
+    if step.kind is SurfaceStepKind.REQUEST_INPUT:
+        payload["request_input"] = _plain(step.request_input)
     if step.kind is SurfaceStepKind.TRIAL:
         if step.trial is None:
             raise ValueError("trial_static_config_persistence_mismatch: trial is missing")
@@ -684,6 +749,70 @@ def _serialized_nodes_contain_q3(nodes: Mapping[str, Any]) -> bool:
     )
 
 
+def _serialized_nodes_contain_provider_context(nodes: Mapping[str, Any]) -> bool:
+    def step_contains(step: Any) -> bool:
+        if not isinstance(step, Mapping):
+            return False
+        if "provider_context" in step:
+            return True
+        nested_groups: list[Any] = [
+            step.get("for_each_steps"),
+            step.get("then_steps"),
+            step.get("else_steps"),
+        ]
+        match_cases = step.get("match_cases")
+        if isinstance(match_cases, Mapping):
+            nested_groups.extend(match_cases.values())
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            nested_groups.append(repeat_until.get("steps"))
+        return any(
+            isinstance(group, list)
+            and any(step_contains(child) for child in group)
+            for group in nested_groups
+        )
+
+    return any(
+        isinstance(node, Mapping)
+        and any(
+            isinstance(steps, list)
+            and any(step_contains(step) for step in steps)
+            for steps in (node.get("steps"), node.get("finalization_steps"))
+        )
+        for node in nodes.values()
+    )
+
+
+def _serialized_nodes_contain_request_input(nodes: Mapping[str, Any]) -> bool:
+    def step_contains(step: Any) -> bool:
+        if not isinstance(step, Mapping):
+            return False
+        if "request_input" in step:
+            return True
+        nested_groups: list[Any] = [
+            step.get("for_each_steps"), step.get("then_steps"), step.get("else_steps"),
+        ]
+        match_cases = step.get("match_cases")
+        if isinstance(match_cases, Mapping):
+            nested_groups.extend(match_cases.values())
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            nested_groups.append(repeat_until.get("steps"))
+        return any(
+            isinstance(group, list) and any(step_contains(child) for child in group)
+            for group in nested_groups
+        )
+
+    return any(
+        isinstance(node, Mapping)
+        and any(
+            isinstance(steps, list) and any(step_contains(step) for step in steps)
+            for steps in (node.get("steps"), node.get("finalization_steps"))
+        )
+        for node in nodes.values()
+    )
+
+
 def _persisted_steps_contain_q2(
     steps: tuple[PersistedSurfaceStep, ...],
 ) -> bool:
@@ -740,6 +869,42 @@ def _persisted_steps_contain_q3(
     return False
 
 
+def _persisted_steps_contain_provider_context(
+    steps: tuple[PersistedSurfaceStep, ...],
+) -> bool:
+    for step in steps:
+        if step.provider_context is not None:
+            return True
+        nested = (
+            *step.for_each_steps,
+            *step.then_steps,
+            *step.else_steps,
+            *(child for case_steps in step.match_cases.values() for child in case_steps),
+            *(() if step.repeat_until is None else step.repeat_until.steps),
+        )
+        if _persisted_steps_contain_provider_context(nested):
+            return True
+    return False
+
+
+def _persisted_steps_contain_request_input(
+    steps: tuple[PersistedSurfaceStep, ...],
+) -> bool:
+    for step in steps:
+        if step.request_input is not None:
+            return True
+        nested = (
+            *step.for_each_steps,
+            *step.then_steps,
+            *step.else_steps,
+            *(child for case_steps in step.match_cases.values() for child in case_steps),
+            *(() if step.repeat_until is None else step.repeat_until.steps),
+        )
+        if _persisted_steps_contain_request_input(nested):
+            return True
+    return False
+
+
 def _persisted_steps_contain_trial(
     steps: tuple[PersistedSurfaceStep, ...],
 ) -> bool:
@@ -790,6 +955,8 @@ _V3_OPTIONAL_STEP_KEYS = {
 _Q5_OPTIONAL_STEP_KEYS = {
     "provider_call_policy",
 }
+_V5_PROVIDER_CONTEXT_STEP_KEYS = {"provider_context"}
+_V6_REQUEST_INPUT_STEP_KEYS = {"request_input"}
 _V4_TRIAL_STEP_KEYS = {"trial"}
 _COMMON_KEYS = {
     "publishes",
@@ -819,11 +986,22 @@ def _optional_step_keys(
 ) -> set[str]:
     keys = set(_OPTIONAL_STEP_KEYS)
     if (
-        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+        schema_version
+        in {
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
+        }
         and kind is SurfaceStepKind.TRIAL
         and _target_dsl_at_least(target_dsl_version, (2, 25))
     ):
         keys.update(_V4_TRIAL_STEP_KEYS)
+    if (
+        schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6
+        and kind is SurfaceStepKind.REQUEST_INPUT
+        and _target_dsl_at_least(target_dsl_version, (2, 32))
+    ):
+        keys.update(_V6_REQUEST_INPUT_STEP_KEYS)
     if (
         kind is not SurfaceStepKind.PROVIDER
         or schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
@@ -836,6 +1014,8 @@ def _optional_step_keys(
         in {
             PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
             PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+            PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
         }
         and _target_dsl_at_least(target_dsl_version, (2, 22))
     ):
@@ -843,8 +1023,15 @@ def _optional_step_keys(
     if schema_version in {
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
         PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
     }:
         keys.update(_Q5_OPTIONAL_STEP_KEYS)
+    if schema_version in {
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+        PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
+    }:
+        keys.update(_V5_PROVIDER_CONTEXT_STEP_KEYS)
     return keys
 
 
@@ -860,9 +1047,16 @@ def _decode_step(
     except (KeyError, ValueError) as exc:
         raise ValueError("persisted surface step kind is unsupported") from exc
     has_trial = "trial" in raw
+    has_provider_context = "provider_context" in raw
+    has_request_input = "request_input" in raw
     if kind is SurfaceStepKind.TRIAL:
         if (
-            schema_version != PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4
+            schema_version
+            not in {
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
+            }
             or not _target_dsl_at_least(target_dsl_version, (2, 25))
             or not has_trial
         ):
@@ -874,6 +1068,26 @@ def _decode_step(
         raise ValueError(
             "trial_static_config_persistence_mismatch: "
             "trial carriage requires a trial step"
+        )
+    if has_provider_context and kind is not SurfaceStepKind.PROVIDER:
+        raise ValueError(
+            "provider_context_persistence_mismatch: "
+            "provider context requires a provider step"
+        )
+    if kind is SurfaceStepKind.REQUEST_INPUT:
+        if (
+            schema_version != PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6
+            or not _target_dsl_at_least(target_dsl_version, (2, 32))
+            or not has_request_input
+        ):
+            raise ValueError(
+                "request_input_persistence_mismatch: "
+                "request input requires v6 carriage at target DSL 2.32"
+            )
+    elif has_request_input:
+        raise ValueError(
+            "request_input_persistence_mismatch: "
+            "request input carriage requires a request input step"
         )
     if (
         schema_version == PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA
@@ -996,6 +1210,8 @@ def _decode_step(
             in {
                 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V3,
                 PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V4,
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V5,
+                PERSISTED_WORKFLOW_SURFACE_GRAPH_SCHEMA_V6,
             }
             and _target_dsl_at_least(target_dsl_version, (2, 22))
         )
@@ -1046,6 +1262,33 @@ def _decode_step(
         identity_version=decoded_q3_version,
         target_dsl_version=target_dsl_version,
     )
+    decoded_provider_context = (
+        _freeze(_mapping(raw["provider_context"], "persisted provider context"))
+        if has_provider_context
+        else None
+    )
+    if decoded_provider_context is not None:
+        validate_provider_context_config(
+            decoded_provider_context,
+            step_kind=kind.value,
+            target_dsl_version=target_dsl_version,
+            provider_call_policy=decoded_provider_call_policy,
+        )
+    decoded_request_input = None
+    if has_request_input:
+        try:
+            if common.get("output_bundle") is not None or common.get("variant_output") is not None:
+                raise ValueError("request input has a fixed reply, not an output bundle")
+            decoded_request_input = _freeze(_mapping(raw["request_input"], "persisted request input"))
+            validate_request_input_config(
+                decoded_request_input,
+                target_dsl_version=target_dsl_version,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "request_input_persistence_mismatch: "
+                f"persisted request input is invalid: {exc}"
+            ) from exc
     decoded_trial = None
     if has_trial:
         trial_payload = _mapping(raw["trial"], "persisted trial static config")
@@ -1140,6 +1383,8 @@ def _decode_step(
             if decoded_provider_call_policy is None
             else MappingProxyType(decoded_provider_call_policy)
         ),
+        provider_context=decoded_provider_context,
+        request_input=decoded_request_input,
         trial=decoded_trial,
     )
     validate_compiler_prompt_fragment_pair(

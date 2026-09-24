@@ -1045,16 +1045,16 @@ def test_trial_static_config_decoder_accepts_matching_target_2_26(
     assert encode_trial_static_config(decoded) == canonical
 
 
-def test_trial_static_config_decoder_rejects_unsupported_2_28(
+def test_trial_static_config_decoder_rejects_unsupported_target(
     tmp_path: Path,
 ) -> None:
-    """The decoder rejects a target above the admitted catalog (2.28)."""
+    """The decoder rejects a target above the admitted catalog."""
 
     _, result = _build_trial(tmp_path)
     config = _trial_node(result).execution_config.trial
 
     forged = deepcopy(config.record)
-    forged["target_dsl_version"] = "2.28"
+    forged["target_dsl_version"] = "9.99"
     forged_bytes = json.dumps(
         forged,
         sort_keys=True,

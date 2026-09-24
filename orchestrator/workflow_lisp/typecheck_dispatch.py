@@ -12,6 +12,7 @@ from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
     EffectSummary,
+    effect_summary_is_procedure_edge_only,
     merge_effect_summaries,
 )
 from .expressions import (
@@ -44,6 +45,7 @@ from .expressions import (
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordExpr,
     RecordUpdateExpr,
     ResourceTransitionExpr,
@@ -57,6 +59,7 @@ from .expressions import (
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
+from .syntax import target_dsl_supports_pure_call_composition
 from .loops import LoopControlTypeRef
 from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
 from .procedure_refs import (
@@ -97,6 +100,7 @@ from .typecheck_effects import (
     typecheck_command_result_expr as _typecheck_command_result_expr,
     typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
+    typecheck_request_input_expr as _typecheck_request_input_expr,
     typecheck_with_live_provider_peers_expr as _typecheck_with_live_provider_peers_expr,
     typecheck_with_live_providers_expr as _typecheck_with_live_providers_expr,
 )
@@ -120,6 +124,17 @@ from .typecheck_proofs import (
     typecheck_if_expr as _typecheck_if_expr,
     typecheck_match_expr as _typecheck_match_expr,
 )
+
+
+def _is_pure_or_provisional_procedure_call(
+    summary: EffectSummary, *, type_env, allow_provisional_procedure_calls: bool
+) -> bool:
+    return summary == EMPTY_EFFECT_SUMMARY or (
+        allow_provisional_procedure_calls
+        and
+        target_dsl_supports_pure_call_composition(type_env.target_dsl_version)
+        and effect_summary_is_procedure_edge_only(summary)
+    )
 from .type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,
@@ -158,6 +173,7 @@ def typecheck_expression(
     expected_type: TypeRef | None = None,
     compiler_session: CompilerSession | None = None,
     session_artifact_allowed: bool = False,
+    allow_provisional_procedure_calls: bool = False,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
@@ -201,6 +217,7 @@ def typecheck_expression(
             session_state=session_state,
             compiler_session=compiler_session,
             session_artifact_allowed=session_artifact_allowed,
+            allow_provisional_procedure_calls=allow_provisional_procedure_calls,
         )
         from .procedure_typecheck import _replace_eliminated_let_procs as _replace_eliminated_let_procs_owner
 
@@ -248,6 +265,7 @@ def _typecheck(
     session_state: TypecheckSessionState,
     compiler_session: CompilerSession,
     session_artifact_allowed: bool = False,
+    allow_provisional_procedure_calls: bool = False,
 ) -> TypedExpr:
     context = TypecheckContext(
         type_env=type_env,
@@ -267,12 +285,14 @@ def _typecheck(
         compiler_session=compiler_session,
         session_state=session_state,
         session_artifact_allowed=session_artifact_allowed,
+        allow_provisional_procedure_calls=allow_provisional_procedure_calls,
     )
     check = partial(
         _typecheck,
         session_state=session_state,
         compiler_session=compiler_session,
         binding_env=binding_env,
+        allow_provisional_procedure_calls=allow_provisional_procedure_calls,
     )
 
     def recurse(
@@ -623,7 +643,11 @@ def _typecheck(
                 prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
-            if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
+            if not _is_pure_or_provisional_procedure_call(
+                typed_field.effect_summary,
+                type_env=type_env,
+                allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
+            ):
                 _raise_error(
                     "record field expressions must be pure; bind effectful work in `let*` first",
                     code="effect_not_permitted",
@@ -718,7 +742,11 @@ def _typecheck(
                 prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
-            if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
+            if not _is_pure_or_provisional_procedure_call(
+                typed_field.effect_summary,
+                type_env=type_env,
+                allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
+            ):
                 _raise_error(
                     "union variant field expressions must be pure; bind effectful work in `let*` first",
                     code="effect_not_permitted",
@@ -1138,6 +1166,13 @@ def _typecheck(
         )
     if type(expr) is CommandResultExpr:
         return _typecheck_command_result_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
+    if type(expr) is RequestInputExpr:
+        return _typecheck_request_input_expr(
             expr,
             context=context,
             recurse=recurse,

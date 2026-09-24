@@ -110,6 +110,215 @@ def extract_codex_assistant_text(event: Mapping[str, Any]) -> str | None:
     return None
 
 
+def decode_codex_portable_context_v1(
+    raw_stdout: bytes,
+    *,
+    provider: str,
+    attempt: str,
+    task: str,
+) -> dict[str, Any]:
+    """Decode one settled Codex JSONL trace into the closed portable value."""
+
+    if not isinstance(raw_stdout, bytes):
+        raise ValueError("portable context transport must be raw bytes")
+    if not all(isinstance(value, str) and value for value in (provider, attempt)):
+        raise ValueError("portable context provider and attempt must be non-empty")
+    if not isinstance(task, str):
+        raise ValueError("portable context task must be a string")
+    try:
+        lines = raw_stdout.decode("utf-8", errors="strict").split("\n")
+    except UnicodeDecodeError as exc:
+        raise ValueError("portable context transport is not UTF-8") from exc
+    if lines[-1] == "":
+        lines.pop()
+
+    origin = {"variant": "CAPTURED", "provider": provider, "attempt": attempt}
+    events: list[dict[str, Any]] = [
+        {"variant": "TASK", "origin": origin, "sequence": 0, "text": task}
+    ]
+    item_lifecycles: dict[str, str] = {}
+    completed_item_ids: set[str] = set()
+    command_starts: dict[str, tuple[int, str]] = {}
+    thread_seen = turn_seen = terminal_seen = False
+    reasoning_seen = False
+    file_change_seen = False
+    for line_number, line in enumerate(lines, start=1):
+        if not line:
+            raise ValueError("portable context transport contains an empty JSONL record")
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"portable context transport line {line_number} is not JSON") from exc
+        if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+            raise ValueError("portable context transport event is malformed")
+        event_type = event["type"]
+        if terminal_seen:
+            raise ValueError("portable context transport contains data after settlement")
+        if event_type == "thread.started":
+            if thread_seen or not isinstance(event.get("thread_id"), str) or not event["thread_id"]:
+                raise ValueError("portable context thread start is malformed")
+            thread_seen = True
+            continue
+        if event_type == "turn.started":
+            if not thread_seen or turn_seen:
+                raise ValueError("portable context turn start is malformed")
+            turn_seen = True
+            continue
+        if event_type == "turn.completed":
+            if not turn_seen or item_lifecycles:
+                raise ValueError("portable context turn completion is incomplete")
+            terminal_seen = True
+            continue
+        if event_type in {"turn.failed", "error"}:
+            raise ValueError("portable context transport reports a failed turn")
+        if event_type not in {"item.started", "item.updated", "item.completed"} or not turn_seen:
+            raise ValueError(f"portable context transport envelope `{event_type}` is unsupported")
+        item = event.get("item")
+        if not isinstance(item, dict) or not isinstance(item.get("type"), str):
+            raise ValueError("portable context item is malformed")
+        item_type = item["type"]
+        if item_type not in {"agent_message", "command_execution", "reasoning", "file_change"}:
+            raise ValueError(f"portable context item `{item_type}` is unsupported")
+        item_id = item.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            raise ValueError("portable context item identity is malformed")
+        active_item_type = item_lifecycles.get(item_id)
+        if active_item_type is not None and active_item_type != item_type:
+            raise ValueError("portable context item identity changes kind")
+        if event_type == "item.started":
+            if item_id in item_lifecycles or item_id in completed_item_ids:
+                raise ValueError("portable context item start is duplicated")
+            item_lifecycles[item_id] = item_type
+        elif event_type == "item.updated":
+            if item_lifecycles.get(item_id) != item_type:
+                raise ValueError("portable context item update lacks a matching start")
+        elif item_type in {"agent_message", "reasoning", "file_change"} and item_id not in item_lifecycles:
+            if item_id in completed_item_ids:
+                raise ValueError("portable context item completion is duplicated")
+        elif item_lifecycles.get(item_id) != item_type:
+            raise ValueError("portable context item completion lacks a matching start")
+
+        if item_type == "reasoning":
+            reasoning_seen = True
+            if event_type == "item.completed":
+                item_lifecycles.pop(item_id, None)
+                completed_item_ids.add(item_id)
+            continue
+        if item_type == "agent_message":
+            if event_type == "item.started":
+                continue
+            if event_type == "item.updated":
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                raise ValueError("portable context assistant completion lacks text")
+            events.append(
+                {
+                    "variant": "ASSISTANT",
+                    "origin": origin,
+                    "sequence": line_number,
+                    "item_id": item_id,
+                    "text": text,
+                }
+            )
+            item_lifecycles.pop(item_id, None)
+            completed_item_ids.add(item_id)
+            continue
+        if item_type == "file_change":
+            status = item.get("status")
+            changes = item.get("changes")
+            if (
+                not isinstance(status, str)
+                or type(changes) is not list
+                or any(
+                    type(change) is not dict
+                    or set(change) != {"path", "kind"}
+                    or not isinstance(change["path"], str)
+                    or not isinstance(change["kind"], str)
+                    or change["kind"] not in {"add", "delete", "update"}
+                    for change in changes
+                )
+            ):
+                raise ValueError("portable context file change is malformed")
+            if event_type in {"item.started", "item.updated"}:
+                if status != "in_progress":
+                    raise ValueError("portable context file change progress is malformed")
+                continue
+            if status not in {"completed", "failed"}:
+                raise ValueError("portable context file change completion is malformed")
+            events.append(
+                {
+                    "variant": "FILE_CHANGE",
+                    "origin": origin,
+                    "sequence": line_number,
+                    "item_id": item_id,
+                    "status": status,
+                    "changes": changes,
+                }
+            )
+            item_lifecycles.pop(item_id, None)
+            completed_item_ids.add(item_id)
+            file_change_seen = True
+            continue
+        if event_type == "item.started":
+            command = item.get("command")
+            if not isinstance(command, str):
+                raise ValueError("portable context command start is malformed")
+            command_starts[item_id] = (line_number, command)
+            continue
+        if event_type == "item.updated":
+            continue
+        call_sequence, command = command_starts.pop(item_id)
+        output = item.get("aggregated_output")
+        exit_code = item.get("exit_code")
+        if (
+            not isinstance(item.get("command"), str)
+            or item["command"] != command
+            or not isinstance(output, str)
+            or type(exit_code) is not int
+        ):
+            raise ValueError("portable context command completion is malformed")
+        events.append(
+            {
+                "variant": "COMMAND",
+                "origin": origin,
+                "call_sequence": call_sequence,
+                "result_sequence": line_number,
+                "item_id": item_id,
+                "command": command,
+                "output": output,
+                "exit_code": exit_code,
+            }
+        )
+        item_lifecycles.pop(item_id)
+        completed_item_ids.add(item_id)
+    if not thread_seen or not turn_seen or not terminal_seen:
+        raise ValueError("portable context transport is not settled")
+
+    from .portable_context import validate_portable_context_v1
+
+    return validate_portable_context_v1(
+        {
+            "schema": "portable-context.v1",
+            "events": events,
+            "coverage": [
+                {
+                    "origin": origin,
+                    "scope": "codex-exec-jsonl",
+                    "retained_kinds": ["TASK", "ASSISTANT", "COMMAND", "FILE_CHANGE"],
+                    "omitted_kinds": ["REASONING"] if reasoning_seen else [],
+                    "conversions": (
+                        ["codex-file-change-metadata-only"]
+                        if file_change_seen
+                        else []
+                    ),
+                }
+            ],
+            "lineage": [],
+        }
+    )
+
+
 class CodexExecJsonlAccumulator:
     """Incrementally parse Codex ``exec --json`` stdout without altering it."""
 

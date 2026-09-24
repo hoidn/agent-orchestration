@@ -41,6 +41,7 @@ LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
         "persisted_workflow_surface_graph.v2",
         "persisted_workflow_surface_graph.v3",
         "persisted_workflow_surface_graph.v4",
+        "persisted_workflow_surface_graph.v5",
     ),
 )
 def test_persisted_surface_anchor_accepts_each_supported_schema(

@@ -38,6 +38,7 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.definitions import (
     PathDef,
     RecordField,
+    UnionDef,
     WorkflowLispModule,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -59,6 +60,7 @@ from orchestrator.workflow_lisp.type_env import (
     OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
+    UnionTypeRef,
 )
 from orchestrator.workflow_lisp.typecheck import typecheck_expression
 from orchestrator.workflow_lisp.workflows import ExternEnvironment, ProviderExtern
@@ -2178,6 +2180,103 @@ def test_prompt_fill_type_and_renderer_refusals(
             prompt_catalog=catalog,
         )
     assert _diagnostic_code(excinfo) == code
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "renderer_id"),
+    (("2.27", None), ("2.28", "canonical-json")),
+)
+def test_prompt_value_fill_selects_union_renderer_only_at_target_2_28(
+    target_dsl: str,
+    renderer_id: str | None,
+) -> None:
+    catalog = _catalog(
+        '(defprompt review (:fills (payload :value)) "Review {payload}")',
+        target_dsl=target_dsl,
+    )
+    expr = _elaborate_provider(
+        "(provider-result providers.review :prompt (review :payload payload))",
+        catalog=catalog,
+        bound_names=frozenset({"providers.review", "payload"}),
+        target_dsl=target_dsl,
+    )
+    union = UnionTypeRef(
+        name="Outcome",
+        definition=UnionDef(
+            name="Outcome",
+            variants=(),
+            span=expr.span,
+        ),
+        variant_field_types={},
+    )
+    fill = prompt_calculus.PromptFill(
+        name="payload",
+        value_expr=expr.prompt.fills[0].value_expr,
+        span=expr.prompt.fills[0].span,
+    )
+    slot = catalog.resolve("review").slots[0]
+    if renderer_id is None:
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            prompt_calculus._renderer_for_fill(
+                slot,
+                union,
+                fill=fill,
+                target_dsl_version=target_dsl,
+            )
+        assert _diagnostic_code(excinfo) == "prompt_fill_renderer_unsupported"
+    else:
+        assert prompt_calculus._renderer_for_fill(
+            slot,
+            union,
+            fill=fill,
+            target_dsl_version=target_dsl,
+        ) == renderer_id
+
+
+def test_prompt_value_fill_compiles_a_union_as_one_closed_value_source(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "union_prompt_fill.orc"
+    source.write_text(
+        """\
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.28")
+  (defmodule union_prompt_fill)
+  (export summarize)
+  (defunion Outcome
+    (PAYLOAD (payload Value))
+    (EMPTY))
+  (defprompt review
+    (:fills (outcome :value))
+    -> (result Bool)
+    "Review {outcome}")
+  (defworkflow summarize ((outcome Outcome)) -> Bool
+    (provider-result providers.review
+      :prompt (review :outcome outcome))))
+""",
+        encoding="utf-8",
+    )
+    result = workflow_lisp_compiler.compile_stage3_module(
+        source,
+        entry_workflow="summarize",
+        provider_externs={"providers.review": "test-provider"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+        boundary_admission_profile="transportable_child",
+    )
+    provider = next(
+        step
+        for step in next(iter(result.validated_bundles.values())).surface.steps
+        if step.provider == "test-provider"
+    )
+    slot = provider.compiler_prompt_fragment_contract.rendered_slots[0]
+    assert slot.value_source["kind"] == "typed_union_projection"
+    assert slot.value_source["source"]["discriminant"] == {
+        "kind": "reference",
+        "reference": "inputs.outcome__variant",
+    }
 
 
 def test_prompt_slot_refinements_only_narrow_admitted_renderer_types() -> None:

@@ -13,6 +13,30 @@
       fresh identities. Force restart is not required.
     - Missing, malformed, ambiguous, checksum-incompatible, or otherwise
       unprovable recovery state still fails before provider launch.
+    - A durable host request that is `pending` keeps the run suspended without
+      entering the execution prologue. An `answered` request is consumed only
+      after ordinary source, scope, node, visit, and reply validation; a
+      consumed reply uses the existing completed-effect recovery policy or
+      fails closed. Resume never creates a replacement question automatically.
+  - `orchestrate input get <run_id> [--state-dir <runs-root>]`
+    - Prints the current root host-request record. It does not resume or
+      mutate execution.
+  - `orchestrate input answer <run_id> <request_id> --text <text> [--state-dir <runs-root>]`
+    - Validates and records one `ANSWERED` reply under the existing root writer
+      lock. Empty text is valid. It does not execute or resume the workflow.
+  - `orchestrate input cancel <run_id> <request_id> [--state-dir <runs-root>]`
+    - Validates and records the `CANCELLED` reply under the same lock. It does
+      not execute or resume the workflow.
+    - Answer/cancel are idempotent only for an identical reply to the latest
+      request; conflicting, stale, or overlapping submissions fail without
+      replacing persisted data. They preserve the original bound inputs and
+      recorded launch arguments.
+    - These are thin clients of the durable host-input API. They apply only to
+      a target-2.32 run carrying a request record; they do not parse state,
+      acquire an alternate lock, or resume execution themselves.
+    - Each successful input command prints the complete current request record
+      as JSON and exits 0. Missing/invalid requests or submission conflicts
+      exit 2; they never launch a provider.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.

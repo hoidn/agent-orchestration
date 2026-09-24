@@ -45,6 +45,7 @@ from .executable_ir import (
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     PureProjectionStepConfig,
+    RequestInputStepConfig,
     ResourceTransitionStepConfig,
     RunRefStepConfig,
     TrialArmStepConfig,
@@ -63,7 +64,13 @@ from .executable_ir import (
 from .loaded_bundle import LoadedWorkflowBundle
 from .provider_peer_group.paths import derive_provider_peer_group_paths
 from .provider_supervision.paths import derive_provider_supervision_paths
-from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
+from .references import (
+    SelfOutputReference,
+    StructuredStepReference,
+    SurfaceRefScopeCatalog,
+    WorkflowInputReference,
+    parse_surface_ref,
+)
 from .runtime_plan import derive_workflow_runtime_plan, enrich_workflow_runtime_plan
 from .semantic_ir import derive_workflow_semantic_ir
 from .state_projection import (
@@ -237,6 +244,11 @@ class _BindingTarget:
         self.kind = kind
 
 
+class _BindingScopeFrame:
+    def __init__(self, targets: Mapping[str, _BindingTarget]) -> None:
+        self.targets = targets
+
+
 class _BindingContext:
     def __init__(
         self,
@@ -245,6 +257,8 @@ class _BindingContext:
         all_targets: Mapping[str, _BindingTarget],
         self_targets: Mapping[str, _BindingTarget],
         parent_targets: Mapping[str, _BindingTarget],
+        parent_frames: tuple[_BindingScopeFrame, ...] = (),
+        allow_lexical_parent_forwarding: bool = False,
         runtime_proof_parent_ref_allowances: frozenset[tuple[str, str]] = frozenset(),
         current_ref_owner: Optional[str] = None,
         current_loop_node_id: Optional[str] = None,
@@ -254,6 +268,8 @@ class _BindingContext:
         self.all_targets = all_targets
         self.self_targets = self_targets
         self.parent_targets = parent_targets
+        self.parent_frames = parent_frames
+        self.allow_lexical_parent_forwarding = allow_lexical_parent_forwarding
         self.runtime_proof_parent_ref_allowances = runtime_proof_parent_ref_allowances
         self.current_ref_owner = current_ref_owner
         self.current_loop_node_id = current_loop_node_id
@@ -267,11 +283,34 @@ class _BindingContext:
             all_targets=self.all_targets,
             self_targets=self.self_targets,
             parent_targets=self.parent_targets,
+            parent_frames=self.parent_frames,
+            allow_lexical_parent_forwarding=self.allow_lexical_parent_forwarding,
             runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
             current_ref_owner=owner,
             current_loop_node_id=self.current_loop_node_id,
             iteration_owner_node_id=self.iteration_owner_node_id,
         )
+
+    def child_scope(self, self_targets: Mapping[str, _BindingTarget]) -> "_BindingContext":
+        parent_frames = self.parent_frames
+        if self.allow_lexical_parent_forwarding and self.parent_targets:
+            parent_frames = (_BindingScopeFrame(self.parent_targets), *parent_frames)
+        return _BindingContext(
+            root_targets=self.root_targets,
+            all_targets=self.all_targets,
+            self_targets=self_targets,
+            parent_targets=self.self_targets,
+            parent_frames=parent_frames,
+            allow_lexical_parent_forwarding=self.allow_lexical_parent_forwarding,
+            runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
+            current_loop_node_id=self.current_loop_node_id,
+            iteration_owner_node_id=self.iteration_owner_node_id,
+        )
+
+    def inherited_parent_frames(self) -> tuple[_BindingScopeFrame, ...]:
+        if not self.allow_lexical_parent_forwarding or not self.parent_targets:
+            return self.parent_frames
+        return (_BindingScopeFrame(self.parent_targets), *self.parent_frames)
 
 
 class _IRBuilder:
@@ -285,6 +324,9 @@ class _IRBuilder:
         self.surface = surface
         self.private_artifact_ids = frozenset(private_artifact_ids)
         self.runtime_proof_parent_ref_allowances = frozenset(runtime_proof_parent_ref_allowances)
+        self._allow_lexical_parent_forwarding = tuple(
+            int(part) for part in surface.version.split(".")
+        ) >= (2, 29)
         self.nodes: Dict[str, ExecutableNode] = {}
         self.body_region: List[str] = []
         self.finalization_region: List[str] = []
@@ -301,6 +343,7 @@ class _IRBuilder:
                 all_targets=all_targets,
                 self_targets=root_targets,
                 parent_targets={},
+                allow_lexical_parent_forwarding=self._allow_lexical_parent_forwarding,
                 runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
             ),
             presentation_prefix=None,
@@ -317,6 +360,7 @@ class _IRBuilder:
                     all_targets=all_targets,
                     self_targets=final_targets,
                     parent_targets={},
+                    allow_lexical_parent_forwarding=self._allow_lexical_parent_forwarding,
                     runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
                 presentation_prefix="finally",
@@ -333,6 +377,7 @@ class _IRBuilder:
                 all_targets=all_targets,
                 self_targets=root_targets,
                 parent_targets={},
+                allow_lexical_parent_forwarding=self._allow_lexical_parent_forwarding,
                 runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
             ),
             private_artifact_ids=self.private_artifact_ids,
@@ -358,6 +403,7 @@ class _IRBuilder:
                     all_targets=all_targets,
                     self_targets=root_targets,
                     parent_targets={},
+                    allow_lexical_parent_forwarding=self._allow_lexical_parent_forwarding,
                     runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
             ),
@@ -381,6 +427,7 @@ class _IRBuilder:
                     all_targets=all_targets,
                     self_targets=root_targets,
                     parent_targets={},
+                    allow_lexical_parent_forwarding=self._allow_lexical_parent_forwarding,
                     runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
             ),
@@ -502,7 +549,7 @@ class _IRBuilder:
             "kind": leaf_kind,
             "region": region,
             "lexical_scope": tuple(token for token in step.step_id.split(".") if token),
-            "execution_config": _execution_config_for_step(step),
+            "execution_config": _execution_config_for_step(step, owner_context),
         }
         routed_transfers = _leaf_goto_transfers(step.common.on, context.root_targets, step.managed_jobs)
         if step.kind is SurfaceStepKind.CALL:
@@ -560,6 +607,8 @@ class _IRBuilder:
             all_targets=context.all_targets,
             self_targets=body_targets,
             parent_targets=context.self_targets,
+            parent_frames=context.inherited_parent_frames(),
+            allow_lexical_parent_forwarding=context.allow_lexical_parent_forwarding,
             runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
             current_loop_node_id=step.step_id,
             iteration_owner_node_id=step.step_id,
@@ -586,7 +635,7 @@ class _IRBuilder:
             kind=ExecutableNodeKind.REPEAT_UNTIL_FRAME,
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
-            execution_config=_execution_config_for_step(step),
+            execution_config=_execution_config_for_step(step, context.with_owner(step.name)),
             routed_transfers=MappingProxyType(
                 {
                     "loop_continue": ExecutableTransfer(
@@ -629,6 +678,8 @@ class _IRBuilder:
             all_targets=context.all_targets,
             self_targets=body_targets,
             parent_targets=context.self_targets,
+            parent_frames=context.inherited_parent_frames(),
+            allow_lexical_parent_forwarding=context.allow_lexical_parent_forwarding,
             runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
             iteration_owner_node_id=step.step_id,
         )
@@ -649,7 +700,7 @@ class _IRBuilder:
             kind=ExecutableNodeKind.FOR_EACH,
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
-            execution_config=_execution_config_for_step(step),
+            execution_config=_execution_config_for_step(step, context.with_owner(step.name)),
             routed_transfers=MappingProxyType(
                 {
                     "loop_continue": ExecutableTransfer(
@@ -704,6 +755,8 @@ class _IRBuilder:
                 all_targets=context.all_targets,
                 self_targets=branch_targets,
                 parent_targets=context.self_targets,
+                parent_frames=context.inherited_parent_frames(),
+                allow_lexical_parent_forwarding=context.allow_lexical_parent_forwarding,
                 runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
                 current_loop_node_id=context.current_loop_node_id,
                 iteration_owner_node_id=context.iteration_owner_node_id,
@@ -802,6 +855,8 @@ class _IRBuilder:
                 all_targets=context.all_targets,
                 self_targets=case_targets,
                 parent_targets=context.self_targets,
+                parent_frames=context.inherited_parent_frames(),
+                allow_lexical_parent_forwarding=context.allow_lexical_parent_forwarding,
                 runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
                 current_loop_node_id=context.current_loop_node_id,
                 iteration_owner_node_id=context.iteration_owner_node_id,
@@ -941,6 +996,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.RUN_REF: ExecutableNodeKind.RUN_REF,
         SurfaceStepKind.TRIAL: ExecutableNodeKind.TRIAL,
         SurfaceStepKind.ADJUDICATED_PROVIDER: ExecutableNodeKind.ADJUDICATED_PROVIDER,
+        SurfaceStepKind.REQUEST_INPUT: ExecutableNodeKind.REQUEST_INPUT,
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
         SurfaceStepKind.SET_SCALAR: ExecutableNodeKind.SET_SCALAR,
@@ -992,7 +1048,10 @@ def _managed_jobs_config(managed_jobs: Any) -> ManagedJobsConfig | None:
     )
 
 
-def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfig:
+def _common_execution_config(
+    common: SurfaceStepCommonConfig,
+    context: _BindingContext,
+) -> StepCommonConfig:
     return StepCommonConfig(
         on=_surface_on_mapping(common.on),
         consumes=common.consumes,
@@ -1002,7 +1061,7 @@ def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfi
         output_bundle=common.output_bundle,
         variant_output=common.variant_output,
         pre_snapshot=common.pre_snapshot,
-        requires_variant=common.requires_variant,
+        requires_variant=_bind_requires_variant(common.requires_variant, context),
         persist_artifacts_in_state=common.persist_artifacts_in_state,
         provider_session=common.provider_session,
         max_visits=common.max_visits,
@@ -1016,8 +1075,11 @@ def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfi
     )
 
 
-def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConfig]:
-    common = _common_execution_config(step.common)
+def _execution_config_for_step(
+    step: SurfaceStep,
+    context: _BindingContext,
+) -> Optional[ExecutableStepConfig]:
+    common = _common_execution_config(step.common, context)
 
     if step.kind is SurfaceStepKind.COMMAND:
         return CommandStepConfig(
@@ -1030,6 +1092,7 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             provider=step.provider or "",
             provider_params=step.provider_params,
             provider_call_policy=step.provider_call_policy,
+            provider_context=_bind_provider_context(step, context),
             input_file=step.input_file,
             asset_file=step.asset_file,
             depends_on=step.depends_on,
@@ -1055,6 +1118,11 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             compiler_prompt_attempt_binding_plan=(
                 step.compiler_prompt_attempt_binding_plan
             ),
+        )
+    if step.kind is SurfaceStepKind.REQUEST_INPUT:
+        return RequestInputStepConfig(
+            common=common,
+            request_input=_bind_request_input(step, context),
         )
     if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
         if not isinstance(
@@ -1450,10 +1518,76 @@ def _bind_private_artifacts(
     )
 
 
+def _bind_provider_context(
+    step: SurfaceStep, context: _BindingContext,
+) -> Mapping[str, Any] | None:
+    config = step.provider_context
+    if config is None or "input" not in config:
+        return config
+    parent_names = tuple(context.parent_targets)
+    if context.allow_lexical_parent_forwarding:
+        parent_names += tuple(
+            name for frame in context.parent_frames for name in frame.targets
+        )
+    ref = parse_surface_ref(
+        config["input"]["ref"],
+        SurfaceRefScopeCatalog(
+            root_step_names=tuple(context.root_targets),
+            self_step_names=tuple(context.self_targets),
+            parent_step_names=parent_names,
+        ),
+    )
+    return freeze_mapping({
+        **config,
+        "input": {"ref": _bind_surface_ref(
+            ref, context.with_owner(f"{step.name}.provider_context.input"),
+        )},
+    })
+
+
+def _bind_request_input(
+    step: SurfaceStep,
+    context: _BindingContext,
+) -> Mapping[str, Any]:
+    config = step.request_input
+    question = config.get("question") if isinstance(config, Mapping) else None
+    if not isinstance(question, Mapping) or set(question) != {"ref"}:
+        return config
+    ref = parse_surface_ref(
+        question["ref"],
+        SurfaceRefScopeCatalog(
+            root_step_names=tuple(context.root_targets),
+            self_step_names=tuple(context.self_targets),
+            parent_step_names=tuple(context.parent_targets),
+        ),
+    )
+    return freeze_mapping(
+        {
+            "question": {
+                "ref": _bind_surface_ref(
+                    ref,
+                    context.with_owner(f"{step.name}.request_input.question"),
+                )
+            }
+        }
+    )
+
+
 def _bind_literal_or_ref(value: Any, context: _BindingContext) -> Any:
     if isinstance(value, (WorkflowInputReference, StructuredStepReference, SelfOutputReference)):
         return _bind_surface_ref(value, context)
     return value
+
+
+def _bind_requires_variant(value: Any, context: _BindingContext) -> Any:
+    if not isinstance(value, Mapping) or set(value) != {"ref", "allowed"}:
+        return value
+    return MappingProxyType(
+        {
+            "ref": _bind_literal_or_ref(value.get("ref"), context),
+            "allowed": value.get("allowed"),
+        }
+    )
 
 
 def _bind_surface_ref(ref: Any, context: _BindingContext) -> Any:
@@ -1480,6 +1614,16 @@ def _bind_surface_ref(ref: Any, context: _BindingContext) -> Any:
         if (
             ref.scope == "parent"
             and ref.step_name not in (targets or {})
+            and context.allow_lexical_parent_forwarding
+        ):
+            targets = next(
+                (frame.targets for frame in context.parent_frames if ref.step_name in frame.targets),
+                targets,
+            )
+        if (
+            ref.scope == "parent"
+            and ref.step_name not in (targets or {})
+            and not context.allow_lexical_parent_forwarding
             and context.current_ref_owner is not None
             and (context.current_ref_owner, ref_string) in context.runtime_proof_parent_ref_allowances
             and ref.step_name in context.all_targets
@@ -1586,6 +1730,7 @@ def build_loaded_workflow_bundle(
         imports=imports,
         provenance=surface.provenance,
         source_map_payload=source_map_payload,
+        runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
     )
     return LoadedWorkflowBundle(
         surface=surface,

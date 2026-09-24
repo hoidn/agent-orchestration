@@ -564,6 +564,18 @@ _FORM_SPECS = (
         rationale="Command effects elaborate through a fixed compiler path.",
     ),
     _spec(
+        "request-input",
+        kind=FormKind.CORE_EFFECT,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_human_input",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="request_input",
+        rationale="Host input elaborates through one fixed compiler path.",
+        min_target_dsl_version="2.32",
+    ),
+    _spec(
         "run-ref",
         kind=FormKind.CORE_EFFECT,
         owner_module="expressions",

@@ -92,6 +92,11 @@ class RunsTrialEffect:
 
 
 @dataclass(frozen=True)
+class HostInputEffect:
+    """Compiler-inferred request for one host-mediated text reply."""
+
+
+@dataclass(frozen=True)
 class UpdatesStateEffect:
     """Declared mutation of workflow-owned state."""
 
@@ -144,6 +149,7 @@ EffectAtom = (
     | CallsWorkflowEffect
     | RunsRefEffect
     | RunsTrialEffect
+    | HostInputEffect
     | UpdatesStateEffect
     | MovesResourceEffect
     | UpdatesLedgerEffect
@@ -237,6 +243,16 @@ def effect_summary_contains_runs_ref(summary: EffectSummary) -> bool:
     ) or any(
         isinstance(effect, (RunsRefEffect, RunsTrialEffect))
         for effect in summary.transitive_effects
+    )
+
+
+def effect_summary_is_procedure_edge_only(summary: EffectSummary) -> bool:
+    """Whether a provisional summary carries call evidence but no effects."""
+
+    return (
+        bool(summary.procedure_edges)
+        and not summary.direct_effects
+        and not summary.transitive_effects
     )
 
 
@@ -354,6 +370,8 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "runs-ref"
     elif isinstance(effect, RunsTrialEffect):
         return "runs-trial"
+    elif isinstance(effect, HostInputEffect):
+        return "host-input"
     elif isinstance(effect, UpdatesStateEffect):
         label = "updates-state"
     elif isinstance(effect, MovesResourceEffect):
@@ -421,6 +439,15 @@ def _parse_effect_group(
                 expansion_stack=expansion_stack,
             )
         return (RunsTrialEffect(),)
+    if kind == "host-input":
+        if names:
+            _raise_invalid_effect(
+                "`host-input` does not accept an authored subject",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return (HostInputEffect(),)
     constructors = {
         "reads": lambda value: ReadEffect(subject=_normalize_subject(value)),
         "writes": lambda value: WriteEffect(subject=_normalize_subject(value)),

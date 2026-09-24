@@ -79,6 +79,45 @@ PROVIDER_PEER_GROUP_SCHEMA_VERSION = "provider_peer_group.v1"
 PROVIDER_PEER_GROUP_MESSAGING_POLICY = "all_other_members"
 RUN_REF_STEP_CONFIG_IDENTITY_SCHEMA = "run_ref_step_config_identity.v1"
 TRIAL_STEP_CONFIG_IDENTITY_SCHEMA = "trial_step_config_identity.v1"
+HUMAN_INPUT_MIN_TARGET_DSL_VERSION = (2, 32)
+
+
+def _target_dsl_at_least(value: str, minimum: tuple[int, int]) -> bool:
+    try:
+        parts = tuple(int(part) for part in value.split("."))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("target DSL version is invalid") from exc
+    return parts >= minimum
+
+
+def validate_request_input_config(
+    value: Any,
+    *,
+    target_dsl_version: str,
+    executable: bool = False,
+) -> Mapping[str, Any]:
+    """Validate the closed request-input question source."""
+
+    if not _target_dsl_at_least(target_dsl_version, HUMAN_INPUT_MIN_TARGET_DSL_VERSION):
+        raise ValueError("request input requires target DSL 2.32")
+    if not isinstance(value, Mapping) or set(value) != {"question"}:
+        raise ValueError("request input must be {question: {literal|ref: String}}")
+    question = value["question"]
+    if not isinstance(question, Mapping) or len(question) != 1:
+        raise ValueError("request input question must have exactly one source")
+    if "literal" in question:
+        if not isinstance(question["literal"], str):
+            raise ValueError("request input literal question must be a String")
+    elif "ref" in question:
+        ref = question["ref"]
+        if executable:
+            if not isinstance(ref, BoundAddress):
+                raise ValueError("request input question ref requires a bound address")
+        elif not isinstance(ref, str) or not ref:
+            raise ValueError("request input question ref must be a non-empty String")
+    else:
+        raise ValueError("request input question must use literal or ref")
+    return value
 
 
 def _serialize_provider_call_policy(
@@ -125,6 +164,7 @@ class ExecutableNodeKind(str, Enum):
     RUN_REF = "run_ref"
     TRIAL = "trial"
     ADJUDICATED_PROVIDER = "adjudicated_provider"
+    REQUEST_INPUT = "request_input"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
@@ -290,6 +330,10 @@ class ProviderStepConfig:
             "json_omit_if_none": True,
             "json_serializer": _serialize_provider_call_policy,
         },
+    )
+    provider_context: Mapping[str, Any] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
     )
     input_file: Any = None
     asset_file: Any = None
@@ -593,6 +637,14 @@ class AdjudicatedProviderStepConfig:
 
 
 @dataclass(frozen=True)
+class RequestInputStepConfig:
+    """Executable host-input request configuration."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    request_input: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class WaitForStepConfig:
     """Executable wait_for-step config."""
 
@@ -703,6 +755,7 @@ ExecutableStepConfig = (
     | RunRefStepConfig
     | TrialStepConfig
     | AdjudicatedProviderStepConfig
+    | RequestInputStepConfig
     | WaitForStepConfig
     | AssertStepConfig
     | SetScalarStepConfig
@@ -891,6 +944,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     RunRefStepConfig,
     TrialStepConfig,
     AdjudicatedProviderStepConfig,
+    RequestInputStepConfig,
     WaitForStepConfig,
     AssertStepConfig,
     SetScalarStepConfig,
@@ -919,6 +973,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.RUN_REF: RunRefStepConfig,
     ExecutableNodeKind.TRIAL: TrialStepConfig,
     ExecutableNodeKind.ADJUDICATED_PROVIDER: AdjudicatedProviderStepConfig,
+    ExecutableNodeKind.REQUEST_INPUT: RequestInputStepConfig,
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
     ExecutableNodeKind.SET_SCALAR: SetScalarStepConfig,
@@ -1076,6 +1131,65 @@ def validate_executable_workflow(ir: ExecutableWorkflow) -> None:
             known_node_ids=known_node_ids,
             target_dsl_version=ir.version,
         )
+        config = getattr(node, "execution_config", None)
+        if isinstance(config, ProviderStepConfig) and config.provider_context is not None:
+            from .provider_context import (
+                validate_capture_output_contract, validate_provider_context_config,
+            )
+
+            try:
+                validate_provider_context_config(
+                    config.provider_context, step_kind="provider",
+                    target_dsl_version=ir.version,
+                    provider_call_policy=config.provider_call_policy,
+                    executable=True,
+                )
+                if config.common.provider_session is not None:
+                    raise ValueError("provider context requires a fresh call without provider_session")
+                validate_capture_output_contract(
+                    config.provider_context, config.common.output_bundle, config.common.variant_output,
+                )
+                context_input = config.provider_context.get("input")
+                if context_input is not None:
+                    address = context_input["ref"]
+                    if isinstance(address, WorkflowInputAddress) and address.input_name not in ir.inputs:
+                        raise ValueError("provider context input targets an unknown workflow input")
+                    _validate_bound_address(
+                        address, workflow_name=ir.name, known_node_ids=known_node_ids,
+                        known_nodes=ir.nodes, current_node=node,
+                    )
+            except (TypeError, ValueError) as exc:
+                _raise_executable_ir_invalid(
+                    f"executable_ir_invalid: provider context is invalid: {exc}",
+                    workflow_name=ir.name, node=node,
+                )
+        if isinstance(config, RequestInputStepConfig):
+            try:
+                if config.common.output_bundle is not None or config.common.variant_output is not None:
+                    raise ValueError("request input has a fixed reply, not an output bundle")
+                request_input = validate_request_input_config(
+                    config.request_input,
+                    target_dsl_version=ir.version,
+                    executable=True,
+                )
+                question = request_input["question"]
+                if "ref" in question:
+                    address = question["ref"]
+                    if isinstance(address, WorkflowInputAddress) and address.input_name not in ir.inputs:
+                        raise ValueError("request input question targets an unknown workflow input")
+                    _validate_bound_address(
+                        address,
+                        workflow_name=ir.name,
+                        known_node_ids=known_node_ids,
+                        known_nodes=ir.nodes,
+                        current_node=node,
+                    )
+            except (TypeError, ValueError) as exc:
+                _raise_executable_ir_invalid(
+                    f"executable_ir_invalid: request input is invalid: {exc}",
+                    workflow_name=ir.name,
+                    node=node,
+                )
         _validate_target_node_id(
             node.fallthrough_node_id,
             known_node_ids=known_node_ids,

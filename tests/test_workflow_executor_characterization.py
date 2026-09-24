@@ -40,11 +40,11 @@ def _runtime_step_dict(executor: WorkflowExecutor, node_id: str) -> dict:
     return dict(executor._runtime_step_for_node_id(node_id))
 
 
-def _reference_resolution_executor(tmp_path: Path) -> WorkflowExecutor:
+def _reference_resolution_executor(tmp_path: Path, *, version: str = "2.7") -> WorkflowExecutor:
     bundle = _load_workflow_bundle(
         tmp_path,
         {
-            "version": "2.7",
+            "version": version,
             "name": "reference-resolution-characterization",
             "steps": [
                 {
@@ -61,6 +61,134 @@ def _reference_resolution_executor(tmp_path: Path) -> WorkflowExecutor:
     )
     state_manager.initialize("workflow.yaml")
     return WorkflowExecutor(bundle, tmp_path, state_manager)
+
+
+def test_materialize_artifacts_skips_only_proven_inactive_nested_union_relpath_at_229(
+    tmp_path: Path,
+) -> None:
+    executor = _reference_resolution_executor(tmp_path, version="2.29")
+    projection = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "return__outcome",
+        "discriminant_output": "return__outcome__variant",
+    }
+
+    def materialize(variant: str) -> dict:
+        return executor._execute_materialize_artifacts(
+            {
+                    "name": "final-normalize",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "return__outcome__variant",
+                            "source": {"literal": variant},
+                            "contract": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["INCOMPLETE", "COMPLETE"],
+                                "projection": {**projection, "field_role": "discriminant", "active_variants": ["INCOMPLETE", "COMPLETE"]},
+                            },
+                        },
+                        {
+                            "name": "return__outcome__note",
+                            "source": {"literal": "artifacts/work/missing.txt"},
+                            "contract": {
+                                "kind": "relpath",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                                "projection": {**projection, "field_role": "variant", "active_variants": ["COMPLETE"]},
+                            },
+                        },
+                    ]
+                },
+            },
+            {"steps": {}},
+        )
+
+    inactive = materialize("INCOMPLETE")
+    assert inactive["status"] == "completed"
+    assert inactive["artifacts"] == {"return__outcome__variant": "INCOMPLETE"}
+
+    active = materialize("COMPLETE")
+    assert active["status"] == "failed"
+    assert active["error"]["type"] == "target_missing"
+
+
+@pytest.mark.parametrize(
+    ("result_value", "expected"),
+    [
+        (
+            {"outcome": {"variant": "COMPLETE", "note": "done"}},
+            {
+                "result__outcome__variant": "COMPLETE",
+                "result__outcome__note": "done",
+            },
+        ),
+        (
+            {"outcome": {"variant": "INCOMPLETE", "summary": {"note": "retry"}}},
+            {
+                "result__outcome__variant": "INCOMPLETE",
+                "result__outcome__summary__note": "retry",
+            },
+        ),
+    ],
+)
+def test_pure_projection_artifacts_use_bundle_paths_and_nested_union_activity(
+    tmp_path: Path,
+    result_value: dict,
+    expected: dict,
+) -> None:
+    """Only the selected nested-union fields are read from sparse pure results."""
+    executor = _reference_resolution_executor(tmp_path, version="2.29")
+    projection = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "result__outcome",
+        "discriminant_output": "result__outcome__variant",
+    }
+    contracts = {
+        "result__outcome__variant": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["INCOMPLETE", "COMPLETE"],
+            "projection": {
+                **projection,
+                "field_role": "discriminant",
+                "active_variants": ["INCOMPLETE", "COMPLETE"],
+            },
+        },
+        "result__outcome__summary__note": {
+            "kind": "scalar",
+            "type": "string",
+            "projection": {
+                **projection,
+                "field_role": "variant",
+                "active_variants": ["INCOMPLETE"],
+            },
+        },
+        "result__outcome__note": {
+            "kind": "scalar",
+            "type": "string",
+            "projection": {
+                **projection,
+                "field_role": "variant",
+                "active_variants": ["COMPLETE"],
+            },
+        },
+    }
+    fields = [
+        {"name": "result__outcome__variant", "json_pointer": "/result/outcome/variant"},
+        {"name": "result__outcome__summary__note", "json_pointer": "/result/outcome/summary/note"},
+        {"name": "result__outcome__note", "json_pointer": "/result/outcome/note"},
+    ]
+
+    assert executor._pure_projection_artifacts(
+        result_value,
+        output_contracts=contracts,
+        output_bundle_fields=fields,
+    ) == expected
 
 
 def test_parent_ref_nested_projection_prefers_unique_current_self_scope(

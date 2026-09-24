@@ -32,6 +32,7 @@ from ..phase import (
     private_exec_context_capabilities,
     private_exec_context_kind,
 )
+from ..syntax import target_dsl_supports_rich_loop_values
 from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
 from .context import _compile_error, _TerminalResult
@@ -1481,10 +1482,15 @@ def _lower_pure_call_binding_if_eligible(
     call_step_name: str,
     context: Any,
     local_values: Mapping[str, Any],
+    allow_mapping: bool = False,
 ):
     if not exc.diagnostics or exc.diagnostics[0].code != "workflow_signature_mismatch":
         return None
-    candidate_expr = _pure_call_binding_candidate(expr, local_values=local_values)
+    candidate_expr = _pure_call_binding_candidate(
+        expr,
+        local_values=local_values,
+        allow_mapping=allow_mapping,
+    )
     if candidate_expr is None:
         return None
     binding_step_name = f"{call_step_name}__bind_{binding_name}"
@@ -1516,6 +1522,18 @@ def _lower_pure_call_binding_if_eligible(
             form_path=expr.form_path,
             type_env=context.type_env,
         ),
+        output_fields=(
+            derive_workflow_boundary_fields(
+                binding_type,
+                generated_name=binding_name,
+                source_path=(binding_name,),
+                span=expr.span,
+                form_path=expr.form_path,
+                type_env=context.type_env,
+            )
+            if target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+            else None
+        ),
     )
 
 
@@ -1523,6 +1541,7 @@ def _pure_call_binding_candidate(
     expr: Any,
     *,
     local_values: Mapping[str, Any],
+    allow_mapping: bool = False,
 ) -> Any | None:
     if isinstance(expr, EnumMemberExpr):
         return expr
@@ -1531,8 +1550,10 @@ def _pure_call_binding_candidate(
         if isinstance(local_binding, EnumMemberExpr):
             return local_binding
     candidate = _resolve_inline_expr_value(expr, local_values=local_values)
-    if candidate is None or isinstance(candidate, (str, Mapping)):
+    if candidate is None or isinstance(candidate, str):
         return None
+    if isinstance(candidate, Mapping):
+        return expr if allow_mapping else None
     if is_pure_projection_expr(candidate):
         return candidate
     return None

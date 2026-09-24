@@ -41,6 +41,11 @@ class MapTypeExpr:
     value_type: "ParsedTypeExpr"
 
 
+@dataclass(frozen=True)
+class ContextualTypeExpr:
+    item_type: "ParsedTypeExpr"
+
+
 ParsedTypeExpr = (
     NamedTypeExpr
     | WorkflowRefTypeExpr
@@ -48,6 +53,7 @@ ParsedTypeExpr = (
     | OptionalTypeExpr
     | ListTypeExpr
     | MapTypeExpr
+    | ContextualTypeExpr
 )
 
 
@@ -190,6 +196,22 @@ def parse_type_expression(
                 expansion_stack=expansion_stack,
             ),
         )
+    if head == "Contextual":
+        if len(args) != 1 or _contextual_has_empty_argument_position(args_text):
+            _raise_type_expression_error(
+                f"`Contextual` expects 1 type argument in `{authored}`",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return ContextualTypeExpr(
+            item_type=parse_type_expression(
+                args[0],
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        )
 
     _raise_type_expression_error(
         f"unknown generic type constructor `{head}` in `{authored}`",
@@ -205,6 +227,28 @@ def split_top_level_args(text: str) -> tuple[str, ...]:
     if not text.strip():
         return ()
     return tuple(_split_top_level(text, delimiter=","))
+
+
+def _contextual_has_empty_argument_position(text: str) -> bool:
+    """Return whether Contextual's raw argument list has an empty top-level slot."""
+
+    start = 0
+    paren_depth = 0
+    bracket_depth = 0
+    for index, char in enumerate(text):
+        if char == "(":
+            paren_depth += 1
+        elif char == ")":
+            paren_depth -= 1
+        elif char == "[":
+            bracket_depth += 1
+        elif char == "]":
+            bracket_depth -= 1
+        elif char == "," and paren_depth == 0 and bracket_depth == 0:
+            if not text[start:index].strip():
+                return True
+            start = index + 1
+    return not text[start:].strip()
 
 
 def top_level_arrow_index(text: str) -> int | None:

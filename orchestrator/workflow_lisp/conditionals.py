@@ -332,10 +332,10 @@ def _contains_effect(expr: ExprNode) -> bool:
 def _is_helper_expanded(expr: ExprNode) -> bool:
     """Return whether one expression was inserted by helper expansion."""
 
-    from .syntax import HelperExpansionFrame
+    from .syntax import HelperExpansionFrame, ProcedureExpansionFrame
 
     return any(
-        isinstance(frame, HelperExpansionFrame)
+        isinstance(frame, (HelperExpansionFrame, ProcedureExpansionFrame))
         for frame in getattr(expr, "expansion_stack", ())
     )
 

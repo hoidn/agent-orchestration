@@ -25,7 +25,7 @@ from .source import SourceRequest, canonical_source_request, source_request_from
 RUN_REF_STATIC_CONFIG_SCHEMA = "run_ref_static_config.v1"
 RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA = "run_ref_bundle_capsule_binding.v1"
 _DEFAULT_TARGET_DSL_VERSION = "2.24"
-_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26", "2.27"})
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26", "2.27", "2.28", "2.29", "2.30", "2.31", "2.32"})
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
 _PATH_ENVIRONMENT = "deterministic-effect-free"

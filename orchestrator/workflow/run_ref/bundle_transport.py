@@ -63,7 +63,7 @@ _PICKLE_PROTOCOL = 5
 _MAPPING_PROXY_TYPE = type(MappingProxyType({}))
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _CLOSURE_ROLES = frozenset({"orc", "prompt_asset", "workflow_asset"})
-_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26", "2.27"})
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26", "2.27", "2.28", "2.29", "2.30", "2.31", "2.32"})
 
 
 class BundleCapsuleValidationError(ValueError):

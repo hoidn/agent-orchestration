@@ -8,8 +8,15 @@
   - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
   - Timestamps: `started_at`, `updated_at`
-  - `status`: `running | completed | failed`
+  - `status`: `running | suspended | completed | failed`
   - `context`: key/value map
+  - Target-2.31 portable provider context is an ordinary typed result/artifact
+    value: it uses existing result validation, atomic finalization, and
+    artifact/dataflow lineage, not a new root context store or mutable session
+    authority. See [Providers](providers.md) and [Step IO](io.md).
+  - `human_input`: optional root-only durable host-request record. It is absent
+    from unaffected and historical runs; nested call-frame state never owns a
+    second request record.
   - `result_persistence_profile`: optional additive schema-2.1 selector. Absence
     means historical bundle-backed result persistence. The only supported
     present value is `derived_pure_replay.v1`; an unknown profile fails closed.
@@ -222,6 +229,55 @@ or frame. Existing roots and frames, non-Workflow-Lisp callees, and
 iteration-owned child frames remain historical-profile. Recurrent, loop-owned,
 and other multiply visited pure nodes remain fully durable even inside a
 profiled root.
+
+## Durable Host Input State And Recovery
+
+Target 2.32 defines one host-operation contract. A participating root run has
+at most one `human_input` record, with exactly `request_id`,
+`resume_scope` (`root_workflow_file` plus ordered `call_frame_ids`),
+`runtime_step_id`, `enclosing_step` (`step_name`, `step_id`, `visit_count`),
+`loop_iteration` (null or the existing loop identity), `question`, `status`,
+and, once settled, `reply`. The status is only `pending`, `answered`, or
+`consumed`; cancellation is `reply.variant: CANCELLED`, not a status. A
+reply is exactly `ANSWERED(text: String)` or `CANCELLED`; only the `ANSWERED`
+variant has text, while cancellation has no inactive text member.
+
+Creating a request preserves the reached root/frame/node/visit/loop identity,
+marks only the aggregate root `suspended`, and leaves reached child frames and
+their cursors `running`. A later overlapping pending or answered request is
+rejected. The latest request supplies the bounded idempotency window: an
+identical submission is accepted, conflicting submissions reject, and an ID is
+stale after another request replaces it. Submission holds the existing root
+writer lock, records only the validated reply, and never executes or resumes a
+workflow. It does not alter original `bound_inputs`, recorded launch arguments,
+or program identity.
+
+Consumption is one aggregate-root atomic write: it validates the exact answered
+request and reached position, finalizes the complete fixed `HumanReply` result,
+applies ordinary result/dataflow publication at the existing direct or
+iteration-qualified placement, marks the request consumed, and returns the root
+to `running`. No consumed record may exist without that finalized result, and a
+consumed request cannot republish it. Failed writes refresh from the durable
+snapshot and preserve atomicity; no separate request store, lock, child-frame
+status, or provider-style bundle is authoritative.
+
+Completed replies use only `reuse_validated_human_reply`. Its effect and
+boundary kinds are both `request_input`; its sole requirement is the fixed
+HumanReply result-contract digest. A completed reference contains the existing
+checkpoint base identity, `evidence_kind: human_reply`, that contract digest,
+and the canonical digest of the complete committed artifact mapping.
+Authoritative reuse resolves exactly one completed runtime node and positive
+visit through the existing scoped state/iteration projection, validates the
+full active reply, and compares both digests. Display names, highest visits,
+the latest root request, and fabricated provider bundles are not authority.
+Missing, malformed, ambiguous, or mismatched evidence fails closed.
+
+An unanswered resume remains suspended without dispatching work. An answered
+resume reaches and consumes the recorded reply through the normal checked
+path; completed upstream work remains subject to its existing reuse guards.
+For a crash after consumption and before checkpoint publication, recovery uses
+the existing completed-effect policy or fails closed. It never automatically
+creates or asks a replacement question.
 
 - Output contract failure shape
   - If `expected_outputs`, `output_bundle`, or another deterministic structured

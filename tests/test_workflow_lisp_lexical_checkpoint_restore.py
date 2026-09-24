@@ -749,6 +749,134 @@ def test_replay_profile_restore_payload_omits_derivable_pure_bindings(
     ] == ["e1"]
 
 
+@pytest.mark.parametrize(
+    ("target_dsl", "expected_state_value"),
+    (("2.28", {}), ("2.29", {"": [{"task_id": "one"}]})),
+)
+def test_loop_checkpoint_root_state_capture_is_target_gated(
+    target_dsl: str,
+    expected_state_value: dict[str, object],
+) -> None:
+    restore = _restore_module()
+    point = SimpleNamespace(
+        details={
+            "restore": restore.build_restore_metadata(
+                loop_frame_descriptor={
+                    "loop_site_id": "loop:root-state",
+                    "state_binding_name": "state",
+                    "state_type_ref": "List[Task]",
+                    "source_map_origin_key": "origin:loop",
+                }
+            )
+        },
+        point_kind="loop_back_edge",
+        presentation_key="loop",
+        program_point_id="point:loop",
+        step_id="loop",
+        origin_key="origin:loop",
+    )
+    run_state = {
+        "steps": {"loop": {"artifacts": {"state": [{"task_id": "one"}]}}},
+        "repeat_until": {"loop": {"condition_evaluated_for_iteration": 0}},
+    }
+    executor = SimpleNamespace(
+        state_manager=SimpleNamespace(
+            state=SimpleNamespace(to_dict=lambda: run_state),
+        ),
+        _workflow_version_at_least=lambda minimum: target_dsl == "2.29",
+    )
+
+    payload = restore.capture_restore_payload(
+        executor=executor,
+        point=point,
+        execution_index=1,
+        loop_iteration=0,
+        completed_effect_refs=(),
+    )
+
+    assert payload is not None
+    assert payload["loop_frame"]["state_value"] == expected_state_value
+
+
+@pytest.mark.parametrize(
+    ("target_dsl", "state_value", "expected_match"),
+    (
+        ("2.28", {}, True),
+        ("2.29", {}, False),
+        ("2.29", {"": []}, True),
+    ),
+)
+def test_loop_checkpoint_root_state_comparison_is_new_target_strict(
+    target_dsl: str,
+    state_value: dict[str, object],
+    expected_match: bool,
+) -> None:
+    restore = _restore_module()
+    loop_frame = {
+        "loop_id": "loop",
+        "iteration": 0,
+        "next_iteration": 1,
+        "state_value": state_value,
+    }
+    run_state = {
+        "repeat_until": {
+            "loop": {
+                "condition_evaluated_for_iteration": 0,
+                "current_iteration": 1,
+                "completed_iterations": [0],
+            }
+        },
+        "steps": {"loop": {"artifacts": {"state": []}}},
+    }
+
+    assert restore._loop_frame_matches_repeat_until_progress(
+        loop_frame,
+        run_state,
+        workflow_version=target_dsl,
+    ) is expected_match
+
+
+@pytest.mark.parametrize("target_dsl", ("2.28", "2.29"))
+def test_loop_restore_overlay_reads_root_state_only_at_new_target(
+    target_dsl: str,
+) -> None:
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workflow_version = target_dsl
+    executor._lexical_restore_overlay = {
+        "loop_frames": {"loop": {"state_value": {"": [{"task_id": "one"}]}}}
+    }
+
+    restored = executor._restore_overlay_loop_value("loop", "state")
+
+    if target_dsl == "2.29":
+        assert restored == [{"task_id": "one"}]
+    else:
+        assert restored != [{"task_id": "one"}]
+
+
+@pytest.mark.parametrize("target_dsl,expected", [("2.28", True), ("2.29", False)])
+@pytest.mark.parametrize("persisted_step", [None, {}, {"artifacts": {}}, {"artifacts": None}])
+def test_loop_checkpoint_rejects_missing_persisted_root_state_at_new_target(
+    target_dsl, expected, persisted_step,
+) -> None:
+    loop_frame = {
+        "loop_id": "loop", "iteration": 0, "next_iteration": 1,
+        "state_value": {"": []},
+    }
+    run_state = {
+        "repeat_until": {"loop": {
+            "condition_evaluated_for_iteration": 0,
+            "current_iteration": 1,
+            "completed_iterations": [0],
+        }},
+        "steps": {} if persisted_step is None else {"loop": persisted_step},
+    }
+
+    assert _restore_module()._loop_frame_matches_repeat_until_progress(
+        loop_frame, run_state, workflow_version=target_dsl,
+    ) is expected
+
+
 def _checkpoint_point_by_node_id(bundle, node_id: str):
     return next(point for point in bundle.runtime_plan.lexical_checkpoint_points if point.node_id == node_id)
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Callable
 
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
@@ -29,6 +29,7 @@ from ..expressions import (
     WorkflowRefLiteralExpr,
 )
 from ..procedures import TypedProcedureDef
+from ..syntax import target_dsl_supports_rich_loop_values
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from .context import _compile_error, _LoweringContext, _TerminalResult
@@ -173,6 +174,258 @@ def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> 
     for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name):
         _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
     return local_value
+
+
+def union_prompt_source_from_type(
+    type_ref: UnionTypeRef,
+    *,
+    generated_name: str,
+) -> dict[str, Any]:
+    def field_source(field_type: TypeRef, field_name: str) -> dict[str, Any]:
+        if isinstance(field_type, RecordTypeRef):
+            return {
+                "kind": "record",
+                "fields": {
+                    name: field_source(nested_type, f"{field_name}__{name}")
+                    for name, nested_type in field_type.field_types.items()
+                },
+            }
+        return {"kind": "reference", "reference": f"inputs.{field_name}"}
+
+    return {
+        "kind": "union",
+        "discriminant": {
+            "kind": "reference",
+            "reference": f"inputs.{generated_name}__variant",
+        },
+        "variants": {
+            variant_name: {
+                field_name: field_source(
+                    field_type,
+                    f"{generated_name}__{field_name}",
+                )
+                for field_name, field_type in fields.items()
+            }
+            for variant_name, fields in type_ref.variant_field_types.items()
+        },
+    }
+
+
+def union_prompt_source_from_output_refs(
+    type_ref: UnionTypeRef,
+    *,
+    output_refs: Mapping[str, str],
+) -> dict[str, Any] | None:
+    """Preserve branch-specific terminal refs before local-value nesting."""
+
+    def field_source(field_type: TypeRef, prefix: str) -> dict[str, Any] | None:
+        if isinstance(field_type, RecordTypeRef):
+            fields: dict[str, Any] = {}
+            for name, nested_type in field_type.field_types.items():
+                child = field_source(nested_type, f"{prefix}__{name}")
+                if child is None:
+                    return None
+                fields[name] = child
+            return {"kind": "record", "fields": fields}
+        ref = output_refs.get(prefix) or output_refs.get(prefix.removeprefix("return__"))
+        return (
+            {"kind": "reference", "reference": ref}
+            if isinstance(ref, str)
+            else None
+        )
+
+    discriminant = output_refs.get("return__variant") or output_refs.get("variant")
+    if not isinstance(discriminant, str):
+        return None
+    variants: dict[str, Any] = {}
+    for variant_name, fields in type_ref.variant_field_types.items():
+        variant_sources: dict[str, Any] = {}
+        for field_name, field_type in fields.items():
+            source = field_source(field_type, f"return__{field_name}")
+            if source is None:
+                return None
+            variant_sources[field_name] = source
+        variants[variant_name] = variant_sources
+    return {
+        "kind": "union",
+        "discriminant": {"kind": "reference", "reference": discriminant},
+        "variants": variants,
+    }
+
+
+def union_output_refs_from_source(
+    type_ref: UnionTypeRef,
+    source: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Recover original terminal refs from compiler-owned union source data."""
+
+    output_refs: dict[str, str] = {}
+
+    def add_ref(node: Any, output_name: str) -> bool:
+        if not isinstance(node, Mapping) or node.get("kind") != "reference":
+            return False
+        reference = node.get("reference")
+        if not isinstance(reference, str):
+            return False
+        return output_refs.setdefault(output_name, reference) == reference
+
+    def field_refs(field_type: TypeRef, node: Any, prefix: str) -> bool:
+        if isinstance(field_type, RecordTypeRef):
+            if not isinstance(node, Mapping) or node.get("kind") != "record":
+                return False
+            fields = node.get("fields")
+            return isinstance(fields, Mapping) and all(
+                field_refs(nested_type, fields.get(name), f"{prefix}__{name}")
+                for name, nested_type in field_type.field_types.items()
+            )
+        return add_ref(node, prefix)
+
+    if not isinstance(source, Mapping) or source.get("kind") != "union":
+        return None
+    if not add_ref(source.get("discriminant"), "return__variant"):
+        return None
+    variants = source.get("variants")
+    if not isinstance(variants, Mapping):
+        return None
+    for name, fields in type_ref.variant_field_types.items():
+        sources = variants.get(name)
+        if not isinstance(sources, Mapping) or not all(
+            field_refs(field_type, sources.get(field_name), f"return__{field_name}")
+            for field_name, field_type in fields.items()
+        ):
+            return None
+    return output_refs
+
+
+def rewrite_typed_union_projection_references(
+    value: Any,
+    rewrite_reference: Callable[[str], str],
+) -> Any | None:
+    """Rewrite explicit source refs while keeping literal payload data opaque."""
+
+    if not isinstance(value, Mapping) or set(value) != {
+        "kind",
+        "descriptor",
+        "source",
+    } or value.get("kind") != "typed_union_projection":
+        return None
+
+    return {
+        **value,
+        "source": rewrite_typed_union_prompt_source_references(
+            value["source"],
+            rewrite_reference,
+        ),
+    }
+
+
+def rewrite_typed_union_prompt_source_references(
+    source: Any,
+    rewrite_reference: Callable[[str], str],
+) -> Any:
+    """Rewrite a compiler-owned source tree; literal values are terminal data."""
+
+    def rewrite_source(source: Any) -> Any:
+        if not isinstance(source, Mapping):
+            return source
+        kind = source.get("kind")
+        if kind == "reference" and isinstance(source.get("reference"), str):
+            return {**source, "reference": rewrite_reference(source["reference"])}
+        if kind == "literal":
+            return dict(source)
+        if kind == "record":
+            return {
+                **source,
+                "fields": {
+                    name: rewrite_source(child)
+                    for name, child in source["fields"].items()
+                },
+            }
+        if kind == "union":
+            return {
+                **source,
+                "discriminant": rewrite_source(source["discriminant"]),
+                "variants": {
+                    tag: {
+                        name: rewrite_source(child)
+                        for name, child in fields.items()
+                    }
+                    for tag, fields in source["variants"].items()
+                },
+            }
+        return dict(source)
+
+    return rewrite_source(source)
+
+
+def iter_typed_union_prompt_source_references(source: Any) -> tuple[str, ...]:
+    """Return explicit source references without interpreting literal payloads."""
+
+    refs: list[str] = []
+
+    def visit(node: Any) -> None:
+        if not isinstance(node, Mapping):
+            return
+        kind = node.get("kind")
+        if kind == "reference":
+            reference = node.get("reference")
+            if isinstance(reference, str):
+                refs.append(reference)
+            return
+        if kind == "record":
+            for child in (node.get("fields") or {}).values():
+                visit(child)
+            return
+        if kind == "union":
+            visit(node.get("discriminant"))
+            for fields in (node.get("variants") or {}).values():
+                for child in fields.values():
+                    visit(child)
+
+    visit(source)
+    return tuple(refs)
+
+
+def iter_typed_union_projection_references(value: Any) -> tuple[str, ...] | None:
+    if not isinstance(value, Mapping) or set(value) != {
+        "kind",
+        "descriptor",
+        "source",
+    } or value.get("kind") != "typed_union_projection":
+        return None
+    return iter_typed_union_prompt_source_references(value["source"])
+
+
+def iter_parent_ref_strings(payload: object) -> tuple[str, ...]:
+    """Find compiler references while treating typed-union literals as data."""
+
+    refs: list[str] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, Mapping):
+            source_refs = iter_typed_union_projection_references(value)
+            if source_refs is not None:
+                refs.extend(ref for ref in source_refs if ref.startswith("parent.steps."))
+                return
+            ref = value.get("ref")
+            if isinstance(ref, str) and ref.startswith("parent.steps."):
+                refs.append(ref)
+            for key, nested in value.items():
+                if key == "__typed_union_prompt_source__":
+                    refs.extend(
+                        ref
+                        for ref in iter_typed_union_prompt_source_references(nested)
+                        if ref.startswith("parent.steps.")
+                    )
+                    continue
+                visit(nested)
+            return
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for nested in value:
+                visit(nested)
+
+    visit(payload)
+    return tuple(refs)
 
 
 def _build_nested_record_step_local_value(
@@ -335,6 +588,25 @@ def _resolve_inline_field_value(
     return current
 
 
+def projected_union_field_activity(
+    value: Any,
+    *,
+    discriminant_path: tuple[str, ...],
+    active_variants: Sequence[str],
+    local_values: Mapping[str, Any],
+) -> bool | None:
+    """Return known union-field activity without reading its variant payload."""
+
+    discriminant = _resolve_inline_field_value(
+        value,
+        field_path=discriminant_path,
+        local_values=local_values,
+    )
+    if isinstance(discriminant, LiteralExpr) and isinstance(discriminant.value, str):
+        return discriminant.value in active_variants
+    return None
+
+
 def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
     """Resolve literals, names, fields, and record expressions for inline use."""
 
@@ -447,12 +719,31 @@ def _clone_inline_value(value: Any) -> Any:
     return value
 
 
-def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+def _build_output_step_local_value(
+    output_refs: Mapping[str, str],
+    *,
+    type_ref: RecordTypeRef | UnionTypeRef | None = None,
+    type_env: Any | None = None,
+) -> dict[str, Any]:
     """Convert flattened terminal output refs into nested local-value shape."""
 
+    field_paths = (
+        dict(
+            _flatten_boundary_leaf_paths(
+                type_ref,
+                generated_name="return",
+                type_env=type_env,
+            )
+        )
+        if type_ref is not None
+        else {}
+    )
     local_value: dict[str, Any] = {}
     for output_name, ref in output_refs.items():
-        field_path = output_name.removeprefix("return__").split("__")
+        field_path = field_paths.get(
+            output_name,
+            tuple(output_name.removeprefix("return__").split("__")),
+        )
         current = local_value
         for field_name in field_path[:-1]:
             next_current = current.get(field_name)
@@ -474,7 +765,10 @@ def _flatten_inline_output_refs(local_value: Any) -> dict[str, str]:
     def visit(value: Any, *, path: tuple[str, ...]) -> None:
         if isinstance(value, Mapping):
             for key, item in value.items():
-                if key == "__lowering_returned_union_type":
+                if key in {
+                    "__lowering_returned_union_type",
+                    "__typed_union_prompt_source__",
+                }:
                     continue
                 if isinstance(key, str):
                     visit(item, path=path + (key,))
@@ -491,6 +785,7 @@ def _flatten_boundary_leaf_paths(
     *,
     generated_name: str,
     field_path: tuple[str, ...] = (),
+    type_env: Any | None = None,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Return generated boundary names paired with frontend field paths."""
 
@@ -503,6 +798,7 @@ def _flatten_boundary_leaf_paths(
                 source_path=(generated_name,),
                 span=type_ref.definition.span,
                 form_path=("workflow-lisp", "defunion", type_ref.name),
+                type_env=type_env,
             )
         )
     flattened: list[tuple[str, tuple[str, ...]]] = []
@@ -516,6 +812,7 @@ def _flatten_boundary_leaf_paths(
                     field_type,
                     generated_name=next_generated_name,
                     field_path=next_field_path,
+                    type_env=type_env,
                 )
             )
             continue
@@ -528,17 +825,22 @@ def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, .
 
     current: Any = record_expr
     for field_name in field_path:
+        if isinstance(current, RecordExpr):
+            current = _record_field_value(current, field_name)
+            continue
+        if isinstance(current, UnionVariantExpr):
+            current = _union_variant_expr_value_at_path(current, (field_name,))
+            continue
         if not isinstance(current, RecordExpr):
             raise _value_compile_error(
                 code="workflow_return_not_exportable",
                 message=(
-                    f"record return field `{'__'.join(field_path)}` must lower from nested record expressions "
+                    f"record return field `{'__'.join(field_path)}` must lower from nested record or variant expressions "
                     "when the workflow return type contains nested records"
                 ),
                 span=record_expr.span,
                 form_path=record_expr.form_path,
             )
-        current = _record_field_value(current, field_name)
     return current
 
 
@@ -569,7 +871,7 @@ def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: 
             continue
         if len(field_path) == 1:
             return current_value
-        if isinstance(current_value, RecordExpr):
+        if isinstance(current_value, (RecordExpr, UnionVariantExpr)):
             return _record_expr_value_at_path(current_value, field_path[1:])
         raise _value_compile_error(
             code="workflow_return_not_exportable",
@@ -603,6 +905,81 @@ def _render_existing_output_ref(
     if value.startswith(("root.steps.", "self.steps.", "parent.steps.", "inputs.")):
         return value
     return None
+
+
+def lower_rich_structural_return(
+    expr: Any,
+    *,
+    type_ref: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    span,
+    form_path: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], _TerminalResult] | None:
+    """Lower a new-target record/union terminal through the shared pure owner."""
+
+    if (
+        not target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+        or not isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+    ):
+        return None
+    from . import core as lowering_core
+    from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, output_contracts_for_boundary_type
+
+    fields = tuple(
+        derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+            type_env=context.type_env,
+        )
+    )
+    direct_refs = lowering_core._inline_output_refs_for_expr(
+        expr,
+        type_ref=type_ref,
+        local_values=local_values,
+        context=context,
+    )
+    if direct_refs is not None and all(
+        isinstance(direct_refs.get(field.generated_name), str) for field in fields
+    ):
+        return [], _TerminalResult(
+            step_name=context.step_name_prefix,
+            step_id=context.normalize_generated_step_id(context.step_name_prefix),
+            output_refs=direct_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
+    if not is_pure_projection_expr(expr):
+        return None
+    step_name = f"{context.step_name_prefix}__terminal_projection"
+    step_id = context.normalize_generated_step_id(step_name)
+    lowered = lower_pure_projection_step(
+        expr,
+        result_type=type_ref,
+        context=context,
+        local_values=local_values,
+        step_name=step_name,
+        step_id=step_id,
+        stable_target="terminal_projection",
+        output_contracts=output_contracts_for_boundary_type(
+            type_ref,
+            generated_name="return",
+            span=span,
+            form_path=form_path,
+            type_env=context.type_env,
+        ),
+        output_fields=fields,
+    )
+    return [lowered.step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=lowered.output_refs,
+        output_kind="projection",
+        hidden_inputs={},
+    )
 
 
 def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:

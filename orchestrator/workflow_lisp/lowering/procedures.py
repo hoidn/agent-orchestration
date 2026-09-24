@@ -29,12 +29,14 @@ from ..expressions import (
 )
 from ..phase import eligible_private_context_source_param_names
 from ..procedure_refs import ResolvedProcRefValue
+from ..procedure_specialization import materialized_specialization_rows
 from ..procedures import (
     ProcedureLoweringMode,
     TypedProcedureDef,
     procedure_type_env_for,
 )
 from ..spans import SourceSpan
+from ..syntax import target_dsl_supports_provider_context_values
 from ..type_env import (
     FrontendTypeEnvironment,
     ProcRefTypeRef,
@@ -147,8 +149,25 @@ def _resolve_procedure_lowering(
     }
     for procedure in typed_procedures:
         requested = procedure.signature.requested_lowering_mode
-        boundary_valid = _procedure_private_boundary_valid(procedure)
-        compile_time_proc_ref_template = any(
+        boundary_valid = _procedure_private_boundary_valid(
+            procedure,
+            type_env=_procedure_type_env_for(
+                procedure,
+                procedure_type_envs=procedure_type_envs,
+                default=type_env,
+            ),
+        )
+        procedure_type_env = _procedure_type_env_for(
+            procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        )
+        compile_time_proc_ref_template = (
+            bool(procedure.signature.type_params)
+            and target_dsl_supports_provider_context_values(
+                procedure_type_env.target_dsl_version
+            )
+        ) or any(
             isinstance(type_ref, ProcRefTypeRef)
             for _, type_ref in procedure.signature.params
         )
@@ -473,68 +492,16 @@ def _schema1_iteration_private_override_applies(
         procedure_type_envs=context.procedure_type_envs,
         default=context.type_env,
     )
-    return _procedure_private_boundary_valid(procedure) and _procedure_private_body_valid(
+    return _procedure_private_boundary_valid(
+        procedure,
+        type_env=procedure_type_env,
+    ) and _procedure_private_body_valid(
         procedure,
         typed_procedures_by_name=context.typed_procedures,
         type_env=procedure_type_env,
         procedure_type_envs=context.procedure_type_envs,
         workflow_signatures_by_name=context.workflow_catalog.signatures_by_name,
     )
-
-
-def _materialized_specialization_rows(
-    procedure: TypedProcedureDef,
-    *,
-    workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef],
-    proc_ref_bindings: Mapping[str, ResolvedProcRefValue],
-    typed_procedures: Mapping[str, TypedProcedureDef],
-) -> tuple[TypedProcedureDef, ...]:
-    """Select exact compiler-owned rows without reconstructing their keys."""
-
-    existing = procedure.specialization
-    base_name = existing.base_name if existing is not None else procedure.signature.name
-    expected_workflow_bindings = {
-        **dict(getattr(existing, "workflow_ref_bindings", {})),
-        **dict(workflow_ref_bindings),
-    }
-    expected_proc_bindings = {
-        **dict(getattr(existing, "proc_ref_bindings", {})),
-        **dict(proc_ref_bindings),
-    }
-    expected_proc_identity = tuple(
-        sorted(
-            (param_name, resolved.call_target_name)
-            for param_name, resolved in expected_proc_bindings.items()
-        )
-    )
-
-    matches: list[TypedProcedureDef] = []
-    for candidate in typed_procedures.values():
-        specialization = candidate.specialization
-        if specialization is None or specialization.base_name != base_name:
-            continue
-        if workflow_ref_binding_identity(
-            specialization.workflow_ref_bindings
-        ) != workflow_ref_binding_identity(expected_workflow_bindings):
-            continue
-        candidate_proc_identity = tuple(
-            sorted(
-                (param_name, resolved.call_target_name)
-                for param_name, resolved in specialization.proc_ref_bindings.items()
-            )
-        )
-        if candidate_proc_identity != expected_proc_identity:
-            continue
-        if dict(specialization.type_bindings) != dict(
-            getattr(existing, "type_bindings", {})
-        ):
-            continue
-        if dict(specialization.value_bindings) != dict(
-            getattr(existing, "value_bindings", {})
-        ):
-            continue
-        matches.append(candidate)
-    return tuple(matches)
 
 
 def _lower_procedure_call(
@@ -572,6 +539,7 @@ def _lower_procedure_call(
     from .workflow_calls import (
         _carry_callee_private_exec_context_bindings,
         _carry_callee_runtime_context_inputs,
+        _lower_pure_call_binding_if_eligible,
         _managed_write_root_binding_step,
         _managed_write_root_requirements_for_callable,
         _render_callee_private_exec_context_call_bindings,
@@ -670,7 +638,7 @@ def _lower_procedure_call(
                 continue
         remaining_args.append(arg_expr)
     if workflow_ref_bindings or proc_ref_bindings:
-        materialized_rows = _materialized_specialization_rows(
+        materialized_rows = materialized_specialization_rows(
             procedure,
             workflow_ref_bindings=workflow_ref_bindings,
             proc_ref_bindings=proc_ref_bindings,
@@ -758,16 +726,40 @@ def _lower_procedure_call(
         step_name = f"{context.step_name_prefix}__call_{canonical_name}"
         step_id = _normalize_generated_step_id(step_name)
         with_bindings: dict[str, Any] = {}
+        projection_binding_steps: list[dict[str, Any]] = []
         for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
             if isinstance(param_type, RecordTypeRef):
-                with_bindings.update(
-                    _render_record_call_bindings(
-                        param_name,
-                        param_type,
-                        arg_expr,
-                        local_values=local_values,
+                try:
+                    with_bindings.update(
+                        _render_record_call_bindings(
+                            param_name,
+                            param_type,
+                            arg_expr,
+                            local_values=local_values,
+                        )
                     )
-                )
+                except LispFrontendCompileError as exc:
+                    lowered = _lower_pure_call_binding_if_eligible(
+                        exc,
+                        expr=arg_expr,
+                        binding_name=param_name,
+                        binding_type=param_type,
+                        call_step_name=step_name,
+                        context=context,
+                        local_values=local_values,
+                        allow_mapping=target_dsl_supports_provider_context_values(
+                            context.type_env.target_dsl_version
+                        ),
+                    )
+                    if lowered is None:
+                        raise
+                    projection_binding_steps.append(lowered.step)
+                    with_bindings.update(
+                        {
+                            output_name: {"ref": output_ref}
+                            for output_name, output_ref in lowered.output_refs.items()
+                        }
+                    )
             else:
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
         # The synthesized private workflow inherits the body's omitted-phase-ctx
@@ -827,7 +819,16 @@ def _lower_procedure_call(
         with_bindings.update(managed_bindings)
         _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
         return _runtime_erasure_checked(
-            [*binding_steps, {"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}],
+            [
+                *projection_binding_steps,
+                *binding_steps,
+                {
+                    "name": step_name,
+                    "id": step_id,
+                    "call": procedure.generated_workflow_name,
+                    "with": with_bindings,
+                },
+            ],
             _TerminalResult(
                 step_name=step_name,
                 step_id=step_id,
@@ -1044,22 +1045,36 @@ def _iter_nested_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str, Any
 
 
 def _rewrite_refs_in_sibling_scope(value: Any, sibling_names: tuple[str, ...]) -> Any:
+    from .values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
+        for step_name in sibling_names:
+            prefix = f"root.steps.{step_name}."
+            if ref.startswith(prefix):
+                return "self.steps." + ref.removeprefix("root.steps.")
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
     if isinstance(value, MaterializeViewBindingReference):
         return replace(
             value,
             ref=_rewrite_refs_in_sibling_scope(value.ref, sibling_names),
         )
     if isinstance(value, str):
-        for step_name in sibling_names:
-            prefix = f"root.steps.{step_name}."
-            if value.startswith(prefix):
-                return "self.steps." + value.removeprefix("root.steps.")
-        return value
+        return rewrite(value)
     if isinstance(value, list):
         return [_rewrite_refs_in_sibling_scope(item, sibling_names) for item in value]
     if isinstance(value, Mapping):
         rewritten: dict[Any, Any] = {}
         for key, item in value.items():
+            if key == "__typed_union_prompt_source__":
+                rewritten[key] = rewrite_typed_union_prompt_source_references(item, rewrite)
+                continue
             if key == "steps" and isinstance(item, list):
                 rewritten[key] = item
                 continue

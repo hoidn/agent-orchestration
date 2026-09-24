@@ -43,6 +43,550 @@ def _jsonl_event(**event: Any) -> bytes:
     )
 
 
+def test_codex_portable_context_decoder_retains_completed_commands_only() -> None:
+    module = _session_transport_module()
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.started",
+                item={"type": "command_execution", "id": "cmd-1", "command": "cat marker"},
+            ),
+            _jsonl_event(
+                type="item.updated",
+                item={"type": "command_execution", "id": "cmd-1", "aggregated_output": "partial"},
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={
+                    "type": "command_execution",
+                    "id": "cmd-1",
+                    "command": "cat marker",
+                    "aggregated_output": "marker-value",
+                    "exit_code": 0,
+                },
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "agent_message", "id": "msg-1", "text": "marker found"},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    context = module.decode_codex_portable_context_v1(
+        raw_stdout,
+        provider="codex",
+        attempt="run/step/1",
+        task="inspect marker",
+    )
+
+    assert context["events"][1] == {
+        "variant": "COMMAND",
+        "origin": {"variant": "CAPTURED", "provider": "codex", "attempt": "run/step/1"},
+        "call_sequence": 3,
+        "result_sequence": 5,
+        "item_id": "cmd-1",
+        "command": "cat marker",
+        "output": "marker-value",
+        "exit_code": 0,
+    }
+    assert context["events"][2]["text"] == "marker found"
+
+
+def test_codex_portable_context_decoder_retains_file_change_metadata_in_source_order() -> None:
+    module = _session_transport_module()
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.started",
+                item={
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [{"path": "src/a.py", "kind": "update"}],
+                },
+            ),
+            _jsonl_event(
+                type="item.updated",
+                item={
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [
+                        {"path": "src/a.py", "kind": "update"},
+                        {"path": "old.py", "kind": "delete"},
+                    ],
+                },
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "completed",
+                    "changes": [
+                        {"path": "src/a.py", "kind": "update"},
+                        {"path": "old.py", "kind": "delete"},
+                    ],
+                },
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={
+                    "type": "file_change",
+                    "id": "change-2",
+                    "status": "failed",
+                    "changes": [],
+                },
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    context = module.decode_codex_portable_context_v1(
+        raw_stdout,
+        provider="codex",
+        attempt="run/step/1",
+        task="inspect marker",
+    )
+
+    assert context["events"][1] == {
+        "variant": "FILE_CHANGE",
+        "origin": {"variant": "CAPTURED", "provider": "codex", "attempt": "run/step/1"},
+        "sequence": 5,
+        "item_id": "change-1",
+        "status": "completed",
+        "changes": [
+            {"path": "src/a.py", "kind": "update"},
+            {"path": "old.py", "kind": "delete"},
+        ],
+    }
+    assert context["events"][2] == {
+        "variant": "FILE_CHANGE",
+        "origin": {"variant": "CAPTURED", "provider": "codex", "attempt": "run/step/1"},
+        "sequence": 6,
+        "item_id": "change-2",
+        "status": "failed",
+        "changes": [],
+    }
+    assert context["coverage"][0]["retained_kinds"] == [
+        "TASK",
+        "ASSISTANT",
+        "COMMAND",
+        "FILE_CHANGE",
+    ]
+    assert context["coverage"][0]["conversions"] == [
+        "codex-file-change-metadata-only"
+    ]
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [
+            (
+                "item.updated",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [],
+                },
+            )
+        ],
+        [
+            (
+                "item.started",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [],
+                },
+            )
+        ],
+        [
+            (
+                "item.started",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "completed",
+                    "changes": [],
+                },
+            )
+        ],
+        [
+            (
+                "item.completed",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [],
+                },
+            )
+        ],
+        [
+            (
+                "item.completed",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "completed",
+                    "changes": [{"path": "src/a.py", "kind": "rename"}],
+                },
+            )
+        ],
+        [
+            ("item.completed", {"type": "reasoning", "id": "shared"}),
+            (
+                "item.completed",
+                {
+                    "type": "file_change",
+                    "id": "shared",
+                    "status": "completed",
+                    "changes": [],
+                },
+            ),
+        ],
+        [
+            (
+                "item.started",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "in_progress",
+                    "changes": [],
+                },
+            ),
+            (
+                "item.updated",
+                {
+                    "type": "agent_message",
+                    "id": "change-1",
+                },
+            ),
+        ],
+        [
+            (
+                "item.completed",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "completed",
+                    "changes": [],
+                },
+            ),
+            (
+                "item.completed",
+                {
+                    "type": "file_change",
+                    "id": "change-1",
+                    "status": "completed",
+                    "changes": [],
+                },
+            ),
+        ],
+    ],
+)
+def test_codex_portable_context_decoder_rejects_invalid_file_change_lifecycle(items) -> None:
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            *(_jsonl_event(type=event_type, item=item) for event_type, item in items),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    with pytest.raises(ValueError):
+        _session_transport_module().decode_codex_portable_context_v1(
+            raw_stdout,
+            provider="codex",
+            attempt="run/step/1",
+            task="inspect marker",
+        )
+
+
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_codex_portable_context_preserves_unicode_separators_in_text(separator: str) -> None:
+    text = f"before{separator}after"
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="unicode-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "agent_message", "id": "message", "text": text},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    ) + b"\n"
+
+    context = _session_transport_module().decode_codex_portable_context_v1(
+        raw_stdout, provider="codex", attempt="unicode", task=""
+    )
+
+    assert context["events"][1]["text"] == text
+    assert context["events"][1]["sequence"] == 3
+
+
+def test_codex_portable_context_decoder_rejects_unknown_items() -> None:
+    module = _session_transport_module()
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(type="item.completed", item={"type": "image", "id": "image-1"}),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="unsupported"):
+        module.decode_codex_portable_context_v1(
+            raw_stdout,
+            provider="codex",
+            attempt="run/step/1",
+            task="inspect marker",
+        )
+
+
+def test_codex_portable_context_decoder_rejects_unsettled_command() -> None:
+    module = _session_transport_module()
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.started",
+                item={"type": "command_execution", "id": "cmd-1", "command": "cat marker"},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    with pytest.raises(ValueError, match="incomplete"):
+        module.decode_codex_portable_context_v1(
+            raw_stdout,
+            provider="codex",
+            attempt="run/step/1",
+            task="inspect marker",
+        )
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [
+            ("item.started", {"type": "agent_message", "id": "message-1"}),
+            ("item.started", {"type": "agent_message", "id": "message-1"}),
+        ],
+        [
+            ("item.started", {"type": "agent_message", "id": "message-1"}),
+        ],
+        [
+            ("item.started", {"type": "agent_message", "id": "shared"}),
+            (
+                "item.started",
+                {"type": "command_execution", "id": "shared", "command": "pwd"},
+            ),
+        ],
+        [
+            (
+                "item.started",
+                {"type": "command_execution", "id": "command-1", "command": "pwd"},
+            ),
+            (
+                "item.completed",
+                {
+                    "type": "command_execution",
+                    "id": "command-1",
+                    "command": "whoami",
+                    "aggregated_output": "ollie",
+                    "exit_code": 0,
+                },
+            ),
+        ],
+        [
+            (
+                "item.started",
+                {"type": "command_execution", "id": "command-1", "command": "pwd"},
+            ),
+            (
+                "item.completed",
+                {
+                    "type": "command_execution",
+                    "id": "command-1",
+                    "command": "pwd",
+                    "aggregated_output": "/tmp",
+                    "exit_code": 0,
+                },
+            ),
+            (
+                "item.completed",
+                {
+                    "type": "command_execution",
+                    "id": "command-1",
+                    "command": "pwd",
+                    "aggregated_output": "/tmp",
+                    "exit_code": 0,
+                },
+            ),
+        ],
+        [("item.updated", {"type": "reasoning", "id": "reason-1"})],
+    ],
+)
+def test_codex_portable_context_decoder_rejects_invalid_item_lifecycles(items) -> None:
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            *(_jsonl_event(type=event_type, item=item) for event_type, item in items),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    with pytest.raises(ValueError):
+        _session_transport_module().decode_codex_portable_context_v1(
+            raw_stdout,
+            provider="codex",
+            attempt="run/step/1",
+            task="inspect marker",
+        )
+
+
+def test_codex_portable_context_decoder_allows_empty_task_and_preserves_text() -> None:
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "agent_message", "id": "message-1", "text": "\u03bb\nraw"},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    context = _session_transport_module().decode_codex_portable_context_v1(
+        raw_stdout,
+        provider="codex",
+        attempt="run/step/1",
+        task="",
+    )
+
+    assert context["events"][0]["text"] == ""
+    assert context["events"][1]["text"] == "\u03bb\nraw"
+
+
+def test_codex_portable_context_decoder_omits_completed_reasoning_without_start() -> None:
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "reasoning", "id": "reason-1", "text": "hidden"},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    context = _session_transport_module().decode_codex_portable_context_v1(
+        raw_stdout,
+        provider="codex",
+        attempt="run/step/1",
+        task="inspect marker",
+    )
+
+    assert context["events"] == [
+        {
+            "variant": "TASK",
+            "origin": {
+                "variant": "CAPTURED",
+                "provider": "codex",
+                "attempt": "run/step/1",
+            },
+            "sequence": 0,
+            "text": "inspect marker",
+        }
+    ]
+    assert context["coverage"][0]["omitted_kinds"] == ["REASONING"]
+
+
+def test_codex_portable_context_decoder_retains_interleaved_source_positions() -> None:
+    raw_stdout = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="thread-context"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.started",
+                item={"type": "command_execution", "id": "command-1", "command": "pwd"},
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "agent_message", "id": "message-1", "text": "working"},
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={
+                    "type": "command_execution",
+                    "id": "command-1",
+                    "command": "pwd",
+                    "aggregated_output": "/tmp",
+                    "exit_code": 0,
+                },
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+
+    events = _session_transport_module().decode_codex_portable_context_v1(
+        raw_stdout,
+        provider="codex",
+        attempt="run/step/1",
+        task="inspect marker",
+    )["events"]
+
+    assert events[1]["sequence"] == 4
+    assert events[2]["call_sequence"] == 3
+    assert events[2]["result_sequence"] == 5
+
+
+@pytest.mark.parametrize(
+    "raw_stdout",
+    [
+        b"\n".join(
+            (
+                _jsonl_event(type="turn.started"),
+                _jsonl_event(type="thread.started", thread_id="thread-context"),
+            )
+        ),
+        b"\n".join(
+            (
+                _jsonl_event(type="thread.started", thread_id="thread-context"),
+                _jsonl_event(type="turn.started"),
+                _jsonl_event(type="turn.completed"),
+                _jsonl_event(type="item.completed", item={"type": "agent_message", "id": "late", "text": "late"}),
+            )
+        ),
+    ],
+)
+def test_codex_portable_context_decoder_rejects_invalid_settlement_order(raw_stdout) -> None:
+    with pytest.raises(ValueError):
+        _session_transport_module().decode_codex_portable_context_v1(
+            raw_stdout,
+            provider="codex",
+            attempt="run/step/1",
+            task="inspect marker",
+        )
+
+
 def test_codex_jsonl_accumulator_handles_split_coalesced_chunks_and_one_eof_tail():
     accumulator = _new_accumulator()
     payload = b"\n".join(

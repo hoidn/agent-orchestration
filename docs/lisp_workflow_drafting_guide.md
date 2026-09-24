@@ -932,9 +932,12 @@ Current `defproc` syntax still requires `:effects`; ordinary authored
 procedures are checked for an exact inferred match, while current specialization
 exceptions mean an empty generic clause is not a universal purity promise.
 [Optional effect restrictions](design/workflow_lisp_effect_ledger_simplification.md)
-and [pure-call expression composition](design/workflow_lisp_pure_call_composition.md)
-are separate proposals, not copy-safe current features. Use `defun` or supported
-explicit `let*` binding for today's pure-helper placement needs.
+remain a proposal. At target 2.30,
+[pure-call expression composition](design/workflow_lisp_pure_call_composition.md)
+supports resolved inline effect-free helpers in expressions, preserving eager
+once-only arguments and lexical scope. Private, effectful or unrepresentable
+calls still require their existing supported placement. Older targets retain
+their existing `defun`/explicit `let*` behavior and limitations.
 
 ```lisp
 (defproc ensure-approved-plan
@@ -1147,14 +1150,20 @@ authored code never names `__result__`. A `Value` object, boolean, list, or
   ...)
 ```
 
-Supported scalar, record, relpath, target-2.19 exact `Value`, and recursively
-renderer-admitted `List[T]` values in `:inputs` are rendered at the provider
-prompt consumer seam without family-profile metadata. Scalars, records,
-`Value`, and admitted lists use the registered canonical-JSON default;
+Supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28 closed
+union, and recursively renderer-admitted `List[T]` values in `:inputs` are
+rendered at the provider prompt consumer seam without family-profile metadata.
+Scalars, records, unions, `Value`, and admitted lists use the canonical-JSON default;
 relpaths use the registered POSIX-path default. Selection follows static
 structural type/kind recursively rather than nominal type names:
 `List[ReviewReportPath]` is admitted, while `List[RunId]` is not. Typed state
 remains authority and the rendered bytes are ephemeral provider input.
+
+At target 2.28, pass a union result directly to the next call with
+`:inputs (decision)`, or fill a prompt's `:value Decision` slot. The provider
+receives canonical JSON containing the discriminant and only the active
+payload, including nested records and lists. No `match`-and-repackage step is
+needed. This does not grant source-level access to an unproven variant's fields.
 
 Use `:prompt-dependencies` additionally when the provider needs a relpath
 target's file contents. Rendering a relpath value supplies the path, not the
@@ -1192,6 +1201,88 @@ policy changes as ordinary source/program drift and uses the existing checksum,
 bound-input, checkpoint, and completed-boundary guards. Runtime plans, reports,
 dashboard/debug projections, `expanded.debug.yaml`, and source maps are
 inspection views, not call-policy or resume authority.
+
+### Portable Provider Context
+
+At target 2.31+, ordinary calls can return captured history as data. This body
+fragment assumes declared provider/prompt externs using the supported Codex
+adapter; `:returns` remains the model result type:
+
+```lisp
+(let* ((investigation
+         (provider-result providers.investigate
+           :prompt prompts.investigate :inputs ()
+           :capture-context :portable :returns String))
+       (followup
+         (provider-result providers.followup
+           :prompt prompts.followup :inputs ()
+           :context investigation.context
+           :capture-context :portable :returns String)))
+  followup)
+```
+
+The body returns `Contextual[String]`: `followup.result` is the answer and
+`followup.context` is the accumulated portable history. Omit capture on the
+second call to return only `String`. Pass the same seed to two calls for fresh
+independent continuations. Ordinary records/list operations can transform the
+materialized Context; preserve coverage and record authored changes/lineage.
+Imported helpers can take and return it without manual JSON or a session ID.
+
+This is quoted history, not native resume or workspace transfer. The initial
+Codex 0.155.1 codec retains exposed task/assistant text, command exchanges and
+file-change metadata; it does not capture patch contents or hidden reasoning.
+Other tool event kinds and unsupported adapters reject rather than disappear.
+The complete result/context pair must fit the ordinary 16 MiB/depth-64 limits.
+Prefer a small result or artifact handoff when it already supplies what the
+next call needs. See the [context contract](design/workflow_lisp_provider_context_values.md)
+for exact coverage, source-origin rules and remaining limits.
+
+### Durable Host Input
+
+At target 2.32, use `request-input` for one host-mediated `String` question.
+It returns the fixed closed `HumanReply` union, so match cancellation rather
+than treating an empty answer as cancellation. This complete minimal module is
+copy-safe:
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.32")
+  (defmodule host_question)
+  (export ask)
+
+  (defworkflow ask ((question String)) -> HumanReply
+    (request-input question)))
+```
+
+The operation is an inferred `host-input` effect. A `defproc` that contains it
+must declare `:effects ((host-input))`; callers normally handle the reply with
+`match`:
+
+```lisp
+(match (request-input question)
+  ((ANSWERED reply) reply.text)
+  ((CANCELLED cancelled) ""))
+```
+
+Running the workflow suspends its root after it has durably recorded one
+request. Inspect and settle that exact request with the thin clients, then use
+ordinary resume:
+
+```text
+orchestrator input get RUN_ID
+orchestrator input answer RUN_ID REQUEST_ID --text "approved"
+orchestrator resume RUN_ID
+```
+
+`input cancel RUN_ID REQUEST_ID` records `CANCELLED` instead. Answering,
+cancelling, and `input get` never execute or resume the workflow; empty answer
+text is valid. The same request accepts only an identical retry, while stale,
+conflicting, or overlapping requests reject. A pending resume remains
+suspended. An answered resume returns to the original checked call/loop visit,
+so do not attempt to change bound inputs, the question, or a provider session
+to continue the run. There is one outstanding request per root, no arbitrary
+continuation capture, and no native provider-session continuation.
 
 ### Explicit OMP Session Publication
 
@@ -2061,7 +2152,7 @@ Before adding a path field, decide who semantically owns that path:
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
 | Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
-| Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, target-2.19 exact `Value`, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
+| Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28 closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
 | Durable workflow state | backlog item state, drain state, recovery state | Use `Resource<TState>` and `Transition<TRequest, TResult>`, not arbitrary file writes. |
 
@@ -2352,15 +2443,16 @@ provider inputs named, typed, and separate from runtime bookkeeping:
   :returns ImplementationAttempt)
 ```
 
-For supported scalar, record, relpath, target-2.19 exact `Value`, and
-recursively renderer-admitted `List[T]` bindings, the runtime renders each
+For supported scalar, record, relpath, target-2.19 exact `Value`, target-2.28
+closed union, and recursively renderer-admitted `List[T]` bindings, the runtime renders each
 value at the provider prompt seam through the unique registered default.
 Missing, unknown, shape-incompatible, or ambiguous renderer selection fails
 before provider launch. The provider output still comes only from the
 declared structured result contract.
 
-Optional, map, union, and lists whose element type has no default renderer are
-not made generally visible by this tranche. Use a separately implemented
+Direct unions and eligible lists of unions require target 2.28. Optional, map,
+and lists whose element type has no default renderer are not generally visible
+through this route. Use a separately implemented
 checked route for those values. Explicit renderer override syntax and the
 remaining consumer-rendering ergonomics are future work. On an ordinary call,
 supported neighbors still use their implicit renderers, but the unsupported

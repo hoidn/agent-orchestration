@@ -74,7 +74,11 @@ from ..phase import (
     PhaseScope,
 )
 from ..prompts import PromptApplicationExpr, PromptOutputRole, PromptSlotKind
-from ..syntax import target_dsl_supports_prompt_attempt_identity
+from ..normalized_type_descriptor import compiler_normalized_type_descriptor
+from ..syntax import (
+    target_dsl_supports_prompt_attempt_identity,
+    target_dsl_supports_union_prompt_input,
+)
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourcePosition, SourceSpan
@@ -118,6 +122,7 @@ from .values import (
     _render_existing_output_ref,
     _resolve_inline_expr_value,
     _resolve_nested_local_value,
+    union_prompt_source_from_type,
     _union_variant_expr_value_at_path,
 )
 from .workflow_calls import (
@@ -1189,7 +1194,11 @@ def _implicit_typed_prompt_input_shape(
         return "path_value"
     if (
         type_ref is not None
-        and select_prompt_fragment_renderer(type_ref, kind="value")
+        and select_prompt_fragment_renderer(
+            type_ref,
+            kind="value",
+            target_dsl_version=getattr(context.type_env, "target_dsl_version", None),
+        )
         == "canonical-json"
     ):
         return "any_pure_value"
@@ -1254,7 +1263,23 @@ def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -
 
 def _type_ref_for_prompt_input(expr: Any, *, context: _LoweringContext) -> TypeRef | None:
     if isinstance(expr, NameExpr):
-        return context.local_type_bindings.get(expr.name)
+        type_ref = context.local_type_bindings.get(expr.name)
+        if type_ref is not None:
+            return type_ref
+        local_value = context.local_values.get(expr.name)
+        union_name = (
+            local_value.get("__lowering_returned_union_type")
+            if isinstance(local_value, Mapping)
+            else None
+        )
+        if isinstance(union_name, str):
+            return context.type_env.resolve_type(
+                union_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return None
     if isinstance(expr, PhaseTargetExpr) and context.phase_scope is not None:
         return context.phase_scope.scope.target_types.get(expr.target_name)
     if isinstance(expr, FieldAccessExpr):
@@ -1533,6 +1558,133 @@ def _typed_prompt_input_value_source_from_materialized_source(
     return dict(raw_source_node)
 
 
+def _typed_union_projection_source(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Carry flattened union leaves as one descriptor-directed value source."""
+
+    type_ref = _type_ref_for_prompt_input(expr, context=context)
+    if type_ref is None and isinstance(expr, NameExpr):
+        local_value = local_values.get(expr.name)
+        union_name = (
+            local_value.get("__lowering_returned_union_type")
+            if isinstance(local_value, Mapping)
+            else None
+        )
+        if isinstance(union_name, str):
+            type_ref = context.type_env.resolve_type(
+                union_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+    if (
+        not isinstance(type_ref, UnionTypeRef)
+        or not target_dsl_supports_union_prompt_input(
+            context.type_env.target_dsl_version
+        )
+    ):
+        return None
+    descriptor = compiler_normalized_type_descriptor(
+        type_ref,
+        type_env=context.type_env,
+    )
+    raw_value = _resolve_inline_expr_value(expr, local_values=local_values)
+    preserved_source = (
+        raw_value.get("__typed_union_prompt_source__")
+        if isinstance(raw_value, Mapping)
+        else None
+    )
+    if isinstance(preserved_source, Mapping):
+        return {
+            "kind": "typed_union_projection",
+            "descriptor": descriptor,
+            "source": dict(preserved_source),
+        }
+    if (
+        isinstance(expr, NameExpr)
+        and isinstance(raw_value, Mapping)
+        and raw_value.get("variant") == f"inputs.{expr.name}__variant"
+    ):
+        return {
+            "kind": "typed_union_projection",
+            "descriptor": descriptor,
+            "source": union_prompt_source_from_type(
+                type_ref,
+                generated_name=expr.name,
+            ),
+        }
+    if isinstance(raw_value, UnionVariantExpr):
+        raw_value = {
+            "variant": LiteralExpr(
+                value=raw_value.variant_name,
+                literal_kind="string",
+                span=raw_value.span,
+                form_path=raw_value.form_path,
+                expansion_stack=raw_value.expansion_stack,
+            ),
+            **dict(raw_value.fields),
+        }
+    if not isinstance(raw_value, Mapping):
+        return None
+
+    def source_node(value: Any) -> dict[str, Any]:
+        if isinstance(value, LiteralExpr):
+            return {"kind": "literal", "value": value.value}
+        if isinstance(value, str) and value.startswith(
+            ("inputs.", "root.steps.", "self.steps.", "parent.steps.")
+        ):
+            return {"kind": "reference", "reference": value}
+        return {"kind": "literal", "value": value}
+
+    def build_source(type_descriptor: Mapping[str, Any], value: Any) -> dict[str, Any]:
+        kind = type_descriptor["kind"]
+        if kind == "union" and isinstance(value, Mapping):
+            literal_tag = (
+                value["variant"].value
+                if isinstance(value.get("variant"), LiteralExpr)
+                and isinstance(value["variant"].value, str)
+                else None
+            )
+            variants: dict[str, Any] = {}
+            for variant in type_descriptor["variants"]:
+                if literal_tag is not None and variant["name"] != literal_tag:
+                    continue
+                variants[variant["name"]] = {
+                    field["name"]: build_source(
+                        field["type"], value[field["name"]]
+                    )
+                    for field in variant["fields"]
+                    if field["name"] in value
+                }
+            return {
+                "kind": "union",
+                "discriminant": source_node(value.get("variant")),
+                "variants": variants,
+            }
+        if kind in {"record", "variant_case"} and isinstance(value, Mapping):
+            return {
+                "kind": "record",
+                "fields": {
+                    field["name"]: build_source(
+                        field["type"], value[field["name"]]
+                    )
+                    for field in type_descriptor["fields"]
+                    if field["name"] in value
+                },
+            }
+        return source_node(value)
+
+    return {
+        "kind": "typed_union_projection",
+        "descriptor": descriptor,
+        "source": build_source(descriptor, raw_value),
+    }
+
+
 def _resolve_preserved_typed_prompt_input_binding(
     expr: Any,
     *,
@@ -1724,17 +1876,33 @@ def _build_typed_prompt_inputs_for_prompt_specs(
         supported_inputs = [
             (binding_name, input_expr)
             for binding_name, input_expr in flattened_inputs
-            if _supports_implicit_typed_prompt_input(
-                input_expr,
-                context=context,
+            if (
+                _supports_implicit_typed_prompt_input(
+                    input_expr,
+                    context=context,
+                )
+                or _typed_union_projection_source(
+                    input_expr,
+                    context=context,
+                    local_values=local_values,
+                )
+                is not None
             )
         ]
         unsupported_inputs = [
             (binding_name, input_expr)
             for binding_name, input_expr in flattened_inputs
-            if not _supports_implicit_typed_prompt_input(
-                input_expr,
-                context=context,
+            if not (
+                _supports_implicit_typed_prompt_input(
+                    input_expr,
+                    context=context,
+                )
+                or _typed_union_projection_source(
+                    input_expr,
+                    context=context,
+                    local_values=local_values,
+                )
+                is not None
             )
         ]
         if unsupported_inputs and fallback_on_unsupported:
@@ -1760,7 +1928,15 @@ def _build_typed_prompt_inputs_for_prompt_specs(
         flattened_inputs = supported_inputs
 
     for injection_order, (binding_name, input_expr) in enumerate(flattened_inputs):
-        if isinstance(
+        union_projection = _typed_union_projection_source(
+            input_expr,
+            context=context,
+            local_values=local_values,
+        )
+        if union_projection is not None:
+            value_source = union_projection
+            extra_hidden_inputs = {}
+        elif isinstance(
             _type_ref_for_prompt_input(input_expr, context=context),
             RecordTypeRef,
         ):
@@ -1800,12 +1976,24 @@ def _build_typed_prompt_inputs_for_prompt_specs(
                 {
                     "schema_version": "workflow_lisp_typed_prompt_input.v1",
                     "binding_name": binding_name,
-                    "renderer": _typed_prompt_input_renderer(
-                        input_expr,
-                        context=context,
-                        row_metadata=row_metadata,
+                    "renderer": (
+                        {
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "accepted_shape": "any_pure_value",
+                        }
+                        if union_projection is not None
+                        else _typed_prompt_input_renderer(
+                            input_expr,
+                            context=context,
+                            row_metadata=row_metadata,
+                        )
                     ),
-                    "value_source": {"kind": "typed_binding_ref", "binding": value_source},
+                    "value_source": (
+                        value_source
+                        if union_projection is not None
+                        else {"kind": "typed_binding_ref", "binding": value_source}
+                    ),
                     "value_type_name": _value_type_name_for_prompt_input(
                         input_expr,
                         context=context,
@@ -1935,19 +2123,29 @@ def _build_compiler_prompt_fragment_contract(
     for declaration_index, (slot, fill) in enumerate(
         zip(application.prompt.slots, application.fills, strict=True)
     ):
-        raw_source, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+        union_projection = _typed_union_projection_source(
             fill.value_expr,
-            artifact_name=f"prompt_fragment__{fill.name}",
             context=context,
             local_values=local_values,
         )
+        raw_source: Mapping[str, Any] = {}
+        extra_hidden_inputs: dict[str, LoweringOrigin] = {}
+        if union_projection is None:
+            raw_source, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+                fill.value_expr,
+                artifact_name=f"prompt_fragment__{fill.name}",
+                context=context,
+                local_values=local_values,
+            )
         hidden_inputs.update(extra_hidden_inputs)
         for hidden_input_name in extra_hidden_inputs:
             context.internal_generated_input_reasons.setdefault(
                 hidden_input_name,
                 "prompt_fragment_transport",
             )
-        if isinstance(raw_source.get("input"), str):
+        if union_projection is not None:
+            binding: Any = union_projection
+        elif isinstance(raw_source.get("input"), str):
             binding: Any = {"ref": f"inputs.{raw_source['input']}"}
         elif isinstance(raw_source.get("ref"), str):
             binding = {"ref": str(raw_source["ref"])}
@@ -1994,10 +2192,11 @@ def _build_compiler_prompt_fragment_contract(
                 span=fill.span,
                 form_path=application.form_path,
             )
-        typed_value_source = {
-            "kind": "typed_binding_ref",
-            "binding": binding,
-        }
+        typed_value_source = (
+            binding
+            if union_projection is not None
+            else {"kind": "typed_binding_ref", "binding": binding}
+        )
         value_source = freeze_prompt_fragment_json(typed_value_source)
         rendered_slot = CompilerPromptFragmentRenderedSlot(
             name=fill.name,
@@ -2320,7 +2519,13 @@ def _flatten_phase_stdlib_prompt_inputs(
         and context is not None
         and isinstance(
             _type_ref_for_prompt_input(expr, context=context),
-            RecordTypeRef,
+            (RecordTypeRef, UnionTypeRef),
+        )
+        and (
+            not isinstance(_type_ref_for_prompt_input(expr, context=context), UnionTypeRef)
+            or target_dsl_supports_union_prompt_input(
+                context.type_env.target_dsl_version
+            )
         )
     ):
         return [(base_name, expr)]

@@ -84,6 +84,7 @@ class TypecheckContext:
     compiler_session: CompilerSession
     session_state: TypecheckSessionState
     session_artifact_allowed: bool = False
+    allow_provisional_procedure_calls: bool = False
 
 
 def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionState:

@@ -511,8 +511,8 @@
     and effect-free selection uses the existing pure-projection `kind: "if"`
     payload. State schema stays `2.1`. Targets through 2.25 remain
     byte-compatible in accepted source, compiler, IR, state, checkpoint,
-    runtime, and provider behavior. Target 2.27 adds only the explicit
-    fresh-session artifact contract below; higher targets remain unsupported.
+    runtime, and provider behavior. Subsequent target additions are specified
+    below.
   - Existing `match` source remains valid; no automatic rewrite or migration is
     required.
 - v2.27 additions (Workflow Lisp explicit fresh-session artifact)
@@ -525,8 +525,83 @@
     imported/called-workflow, branch/loop/trial, supervision, and peer-group
     uses fail at compile time. Omission is byte-compatible transient behavior.
   - No public Core/Semantic/Executable IR or state schema changes. State schema
-    remains `2.1`; targets through 2.26 keep their existing accepted source and
-    target 2.28 remains unsupported.
+    remains `2.1`; targets through 2.26 keep their existing accepted source.
+- v2.28 additions (Workflow Lisp whole-union prompt inputs)
+  - Ordinary typed provider inputs and prompt value fills admit closed unions
+    and already-transportable lists of those unions through canonical JSON.
+    No new authored syntax or manual match-and-repackage step is required.
+  - Compiler-owned `typed_union_projection` sources retain a normalized type
+    and explicit variant-shaped reference/literal sources. Consumer resolution
+    selects the discriminant before the active payload; whole values are atomic
+    data. Variant-specific same-named scalar/record fields remain distinct.
+  - Ordinary, fragment, and phased paths share source validation/resolution.
+    Missing active data and malformed tags fail before provider invocation;
+    inactive fields are not read. Existing output contracts and phase fallback
+    remain authoritative. Lower targets reject the new carrier and preserve
+    their prior source/lowering behavior.
+  - State schema remains `2.1`; there is no new workflow execution form or result
+    store.
+
+- v2.29 additions (Workflow Lisp rich loop values)
+  - Already-transportable record/union lists may be whole `loop/recur` state
+    or state-record fields. The actual target and defining type environment
+    govern admission and complete element descriptors throughout lowering.
+  - Exhaustion permits direct state roots/fields and recursive record/variant
+    packaging with renamed fields and scalar literals, using existing updated
+    `continue` result construction. Normal `done` keeps its own data even when
+    its variant matches the exhaustion variant. No new exhaustion evaluator,
+    top-level Optional/Map state, or workflow-input widening is introduced.
+  - Prior-target admission/mappings and state schema `2.1` remain unchanged.
+    Whole-root state snapshots retain the anonymous `""` projection, including
+    empty lists, across committed resume. Pure-only default resume without a
+    prior semantic boundary retains its existing refusal.
+  - The shared proof correction adds the closed `{ref, allowed}`
+    alternative to `requires_variant`, with exact scoped producer/discriminant
+    identity and finite activity-set proof. Ordinary guard execution, nested
+    execution and restore/replay use the same bound reference. No opcode, pure
+    expression schema or state schema changes; <=2.28 behavior stays unchanged.
+
+- v2.30 additions (Workflow Lisp resolved-inline pure-call composition)
+  - The development catalog admits resolved-inline pure-call normalization and
+    ordered schema-3 lexical bindings. Earlier targets preserve their existing
+    pipeline and payload behavior. No runtime procedure interpreter is added.
+  - Selected-hook context, strict effect/representation diagnostics, eager
+    once-only evaluation and public committed-boundary resume are covered by
+    Package C. Private/effectful/unrepresentable calls remain excluded. See the
+    composition implementation plan for reviewed evidence and baseline limits.
+  - State schema remains `2.1`.
+
+- v2.31 additions (portable ordinary provider context)
+  - Ordinary `provider-result` accepts typed `:context` input and opt-in
+    `:capture-context :portable`. Capture returns `Contextual[T]` with an
+    atomically published validated result/context pair. The model still writes
+    `T`; fresh quoted-history binding is not native session resume.
+  - The fixed inline Context schema and supported Codex exposed-event codec
+    are governed by `providers.md` and `io.md`. Other transports/event kinds
+    require explicit support; native/cross-provider continuation is not implied.
+  - Persisted executable graphs select closed v5 exactly for reachable context
+    configuration. Absent fields preserve older graph bytes. Run-state schema
+    remains `2.1`; there is no additional context store.
+
+- v2.32 additions (Workflow Lisp durable host input)
+  - `(request-input question)` accepts one exact `String` question and returns
+    the fixed builtin `HumanReply = ANSWERED(text String) | CANCELLED` union.
+    It infers the subject-free `host-input` effect and lowers to one closed
+    bundle-free `request_input` leaf with a literal or typed reference question.
+    No provider, command, prompt interpolation, or per-call output descriptor
+    is involved.
+  - A request suspends only the aggregate root and records one root-owned
+    `human_input` record. Existing nested call frames, loop cursors, visits,
+    result publication, and dataflow remain the authority for later resume.
+    The root accepts at most one pending or answered request. Exact answer or
+    cancellation submission is durable but never resumes execution; ordinary
+    `resume` validates the reached scope/node/visit and atomically consumes the
+    complete reply as the normal union result.
+  - The persisted executable graph selects closed v6 exactly for reachable
+    request-input nodes. Older graphs retain their version and bytes. State
+    schema remains `2.1`: `human_input` is an optional root field and is absent
+    from unaffected historical runs. Native continuation, a second request
+    store, and provider-session impersonation are not introduced.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
@@ -563,6 +638,11 @@
   - `v2.25`: Workflow Lisp bounded static trials over `run-ref`
   - `v2.26`: Workflow Lisp strict Boolean control flow
   - `v2.27`: explicit fresh provider-session artifact
+  - `v2.28`: whole-union typed provider inputs and prompt value fills
+  - `v2.29`: rich loop-state lists and state-derived exhaustion results
+  - `v2.30`: resolved inline pure-call composition and ordered lexical bindings
+  - `v2.31`: portable ordinary provider-context capture and fresh binding
+  - `v2.32`: durable host input, `HumanReply`, and checked resume
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -707,5 +787,10 @@ Planned acceptance:
 | 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, M2-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
 | 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form. |
 | 2.27 | Workflow Lisp explicit fresh-session artifact | Adds one optional entry-root/sequential-spine `provider-result :session-artifact <bare-symbol>` that synthesizes a scalar String artifact and reuses existing fresh `provider_session` publication. Omission stays transient; invalid placement, duplicates, collisions, unsupported templates, and targets below 2.27 reject. State schema remains `2.1`; no new public IR/runtime form. |
+| 2.28 | Workflow Lisp whole-union prompt inputs | Adds direct closed-union and eligible list-of-union inputs through the existing canonical renderer. Variant-shaped compiler sources resolve only active payloads; literal/ref data remain distinct. Existing output contracts, phase fallback, old targets, and state schema `2.1` are preserved. |
+| 2.29 | Workflow Lisp rich loop values and precise scoped union guards | Complete record/union list descriptors, state-derived exhaustion packaging and exact discriminant `{ref, allowed}` proof, with public committed-resume delivery. No new state store or schema; existing pure-only default-resume limits remain. |
+| 2.30 | Workflow Lisp pure-call expression composition | Resolved-inline normalization and schema-3 ordered lexical bindings, including selected hooks and committed-boundary resume. Private/effectful/unrepresentable calls remain excluded; old targets and state schema stay unchanged. |
+| 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
+| 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

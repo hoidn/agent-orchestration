@@ -248,6 +248,7 @@ def _typecheck_loop_state_seed(
                 code="loop_state_not_projectable",
                 span=field.span,
                 form_path=field.form_path,
+                type_env=context.type_env,
             )
         if not type_refs_compatible(resolved_type, typed_value.type_ref):
             raise_error(

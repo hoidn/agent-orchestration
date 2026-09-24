@@ -15,7 +15,9 @@ from .executable_ir import (
     ForEachNode,
     MaterializeArtifactsStepConfig,
     ProviderPeerGroupStepConfig,
+    ProviderStepConfig,
     ProviderSupervisionStepConfig,
+    RequestInputStepConfig,
     RepeatUntilFrameNode,
     RunRefStepConfig,
     TrialStepConfig,
@@ -76,6 +78,14 @@ class RuntimePlanNode:
         metadata={"json_omit_if_none": True},
     )
     provider_peer_group: RuntimeProviderPeerGroupPlan | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    provider_context: Mapping[str, Any] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    request_input: Mapping[str, Any] | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -470,6 +480,8 @@ def _runtime_plan_node(
         call_alias=call_alias,
         provider_supervision=_derive_provider_supervision_plan(node),
         provider_peer_group=_derive_provider_peer_group_plan(node),
+        provider_context=_derive_provider_context(node),
+        request_input=_derive_request_input(node),
         run_ref_config_digest=_derive_run_ref_config_digest(node),
         trial_config_digest=_derive_trial_config_digest(node),
         trial_result_contract_digest=_derive_trial_result_contract_digest(node),
@@ -506,6 +518,20 @@ def _derive_provider_peer_group_plan(
         atomic_workflow_result_commit=True,
         max_steers=config.max_steers,
     )
+
+
+def _derive_provider_context(node: ExecutableNode) -> Mapping[str, Any] | None:
+    config = node.execution_config
+    if not isinstance(config, ProviderStepConfig):
+        return None
+    return config.provider_context
+
+
+def _derive_request_input(node: ExecutableNode) -> Mapping[str, Any] | None:
+    config = node.execution_config
+    if not isinstance(config, RequestInputStepConfig):
+        return None
+    return config.request_input
 
 
 def _derive_run_ref_config_digest(node: ExecutableNode) -> str | None:

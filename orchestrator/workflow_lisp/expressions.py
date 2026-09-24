@@ -71,6 +71,8 @@ from .syntax import (
     target_dsl_supports_list_traversal,
     target_dsl_supports_prompt_calculus,
     target_dsl_supports_phased_contract_delivery,
+    target_dsl_supports_provider_context_values,
+    target_dsl_supports_human_input,
     target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_run_ref,
     target_dsl_supports_session_artifact,
@@ -716,6 +718,14 @@ class ProviderResultExpr:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    context_expr: "ExprNode | None" = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
+    capture_context: str | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,
@@ -790,6 +800,16 @@ class CommandResultExpr:
 
 
 CommandResultExpr.returns_type_name = property(lambda self: self.return_spec.type_name)
+
+
+@dataclass(frozen=True)
+class RequestInputExpr:
+    """One host-mediated String question with the fixed HumanReply result."""
+
+    question: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
 
 
 @dataclass(frozen=True)
@@ -1603,6 +1623,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "provider_result": _elaborate_provider_result,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
+        "request_input": _elaborate_request_input,
         "run_ref": _route_run_ref,
         "trial": _route_trial,
         "run_provider_phase": _elaborate_run_provider_phase,
@@ -5077,6 +5098,8 @@ def _elaborate_provider_result(
         ":materialization-attempts",
         ":session-artifact",
         ":prompt-dependencies",
+        ":context",
+        ":capture-context",
     }
     invalid_section = next((name for name in sections if name not in allowed_sections), None)
     if invalid_section is not None:
@@ -5095,6 +5118,36 @@ def _elaborate_provider_result(
     prompt_node = sections.get(":prompt")
     inputs_node = sections.get(":inputs")
     returns_node = sections.get(":returns")
+    context_node = sections.get(":context")
+    capture_context_node = sections.get(":capture-context")
+    if (
+        (context_node is not None or capture_context_node is not None)
+        and not target_dsl_supports_provider_context_values(
+            session_state.target_dsl_version or ""
+        )
+    ):
+        selected = context_node if context_node is not None else capture_context_node
+        _raise_error(
+            "provider context values require target DSL 2.31",
+            code="provider_context_target_dsl_unsupported",
+            span=selected.span,
+            form_path=form_path,
+            expansion_stack=selected.expansion_stack,
+        )
+    capture_context: str | None = None
+    if capture_context_node is not None:
+        if not (
+            isinstance(capture_context_node, SyntaxKeyword)
+            and capture_context_node.value == ":portable"
+        ):
+            _raise_error(
+                "`provider-result :capture-context` must be `:portable`",
+                code="provider_context_capture_invalid",
+                span=capture_context_node.span,
+                form_path=form_path,
+                expansion_stack=capture_context_node.expansion_stack,
+            )
+        capture_context = "portable"
     if prompt_node is None:
         _raise_error(
             "`provider-result` requires :prompt",
@@ -5275,6 +5328,14 @@ def _elaborate_provider_result(
             span=session_artifact_node.span,
             form_path=form_path,
             expansion_stack=session_artifact_node.expansion_stack,
+        )
+    if session_artifact_node is not None and capture_context_node is not None:
+        _raise_error(
+            "`:session-artifact` cannot pair with `:capture-context`",
+            code="provider_context_session_artifact_invalid",
+            span=capture_context_node.span,
+            form_path=form_path,
+            expansion_stack=capture_context_node.expansion_stack,
         )
     attempts_value: int | None = None
     if attempts_node is not None:
@@ -5557,6 +5618,18 @@ def _elaborate_provider_result(
             and prompt_application is None
             else None
         ),
+        context_expr=(
+            _elaborate(
+                context_node,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+                session_state=session_state,
+            )
+            if context_node is not None
+            else None
+        ),
+        capture_context=capture_context,
         return_spec=return_spec,
     )
 
@@ -5750,6 +5823,47 @@ def _elaborate_provider_bundle_path(
     return ProviderBundlePathExpr(
         source_expr=source_expr,
         target_type_name=target_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_request_input(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> RequestInputExpr:
+    """Elaborate the target-gated single-operand host input form."""
+
+    if not target_dsl_supports_human_input(session_state.target_dsl_version or ""):
+        _raise_error(
+            "`request-input` requires target DSL 2.32",
+            code="human_input_target_dsl_unsupported",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if len(datum.items) != 2:
+        _raise_error(
+            "`request-input` requires exactly one String question",
+            code="request_input_arity_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    question = _elaborate(
+        datum.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+    return RequestInputExpr(
+        question=question,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

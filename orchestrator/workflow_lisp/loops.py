@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
+from .syntax import target_dsl_supports_rich_loop_values
 from .type_env import (
     ListTypeRef,
     MapTypeRef,
@@ -64,6 +65,7 @@ class LoopValueProjection:
     type_ref: TypeRef
     flattened_fields: tuple[FlattenedContractField, ...]
     union_projection: UnionWorkflowBoundaryProjection | None = None
+    nested_union_activity: Mapping[str, Mapping[str, Any]] = ()
     placeholder_literals: Mapping[str, Any] = ()
     optional_relpath_fields: frozenset[str] = frozenset()
 
@@ -105,8 +107,11 @@ def ensure_loop_projectable_type(
     code: str,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> None:
     """Reject carried loop types that cannot lower across the loop-output surface."""
+
+    projection_type_env = _loop_projection_type_env(type_env)
 
     if isinstance(type_ref, WorkflowRefTypeRef):
         _raise_loop_error(
@@ -145,7 +150,7 @@ def ensure_loop_projectable_type(
     if isinstance(type_ref, ListTypeRef):
         from .contracts import is_transportable_result_type
 
-        if not is_transportable_result_type(type_ref):
+        if not is_transportable_result_type(type_ref, type_env=projection_type_env):
             _raise_loop_error(
                 code="list_collection_contract_unsupported",
                 message=(
@@ -162,6 +167,7 @@ def ensure_loop_projectable_type(
             prefix="probe",
             span=span,
             form_path=form_path,
+            type_env=projection_type_env,
         )
     except TypeError as exc:
         _raise_loop_error(
@@ -207,6 +213,18 @@ def _contains_type_param_ref(type_ref: TypeRef) -> bool:
     return False
 
 
+def _rich_loop_values_enabled(type_env: Any | None) -> bool:
+    return target_dsl_supports_rich_loop_values(
+        getattr(type_env, "target_dsl_version", "")
+    )
+
+
+def _loop_projection_type_env(type_env: Any | None) -> Any | None:
+    """Keep legacy loop projection independent of richer target type metadata."""
+
+    return type_env if _rich_loop_values_enabled(type_env) else None
+
+
 def project_loop_value(
     type_ref: TypeRef,
     *,
@@ -214,20 +232,37 @@ def project_loop_value(
     prefix: str,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> LoopValueProjection:
     """Project one carried loop value onto deterministic flattened names."""
 
+    projection_type_env = _loop_projection_type_env(type_env)
+
     from .contracts import (
         UnionWorkflowBoundaryProjection,
+        derive_union_workflow_output_metadata,
         derive_union_workflow_boundary_projection,
         derive_workflow_boundary_fields,
     )
 
+    nested_union_activity = (
+        derive_union_workflow_output_metadata(
+            type_ref,
+            span=span,
+            form_path=form_path,
+            type_env=projection_type_env,
+            generated_name=prefix,
+            source_path=(prefix,),
+        )
+        if _rich_loop_values_enabled(type_env)
+        else {}
+    )
     if isinstance(type_ref, UnionTypeRef):
         projection = derive_union_workflow_boundary_projection(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=projection_type_env,
         )
         renamed_fields = (
             _rename_flattened_field(projection.discriminant_field, prefix=prefix),
@@ -254,10 +289,12 @@ def project_loop_value(
             type_ref=type_ref,
             flattened_fields=tuple(renamed_fields),
             union_projection=renamed_union_projection,
+            nested_union_activity=nested_union_activity,
             placeholder_literals=_placeholder_literals(tuple(renamed_fields)),
             optional_relpath_fields=_optional_relpath_fields(
                 tuple(renamed_fields),
                 union_projection=renamed_union_projection,
+                nested_union_activity=nested_union_activity,
             ),
         )
 
@@ -267,6 +304,8 @@ def project_loop_value(
         source_path=(prefix,),
         span=span,
         form_path=form_path,
+        allow_transportable_value=_rich_loop_values_enabled(type_env),
+        type_env=projection_type_env,
     )
     return LoopValueProjection(
         kind=kind,
@@ -274,8 +313,13 @@ def project_loop_value(
         type_ref=type_ref,
         flattened_fields=fields,
         union_projection=None,
+        nested_union_activity=nested_union_activity,
         placeholder_literals=_placeholder_literals(fields),
-        optional_relpath_fields=frozenset(),
+        optional_relpath_fields=_optional_relpath_fields(
+            fields,
+            union_projection=None,
+            nested_union_activity=nested_union_activity,
+        ),
     )
 
 
@@ -286,6 +330,7 @@ def build_loop_lowering_plan(
     result_type_ref: TypeRef,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: Any | None = None,
 ) -> LoopLoweringPlan:
     """Return deterministic generated names and flattened projections for one loop."""
 
@@ -296,6 +341,7 @@ def build_loop_lowering_plan(
             prefix="state",
             span=span,
             form_path=form_path,
+            type_env=type_env,
         ),
         result_projection=project_loop_value(
             result_type_ref,
@@ -303,6 +349,7 @@ def build_loop_lowering_plan(
             prefix="result",
             span=span,
             form_path=form_path,
+            type_env=type_env,
         ),
         status_output_name=LOOP_STATUS_OUTPUT_NAME,
         seed_step_name=f"{step_name_prefix}__seed",
@@ -390,6 +437,10 @@ def _placeholder_literals(fields: tuple[FlattenedContractField, ...]) -> dict[st
             placeholders[field.generated_name] = f"{under}/loop-placeholder.txt"
         elif field_type == "list":
             placeholders[field.generated_name] = []
+        elif field_type == "map":
+            placeholders[field.generated_name] = {}
+        elif field_type == "optional":
+            placeholders[field.generated_name] = None
         else:
             placeholders[field.generated_name] = ""
     return placeholders
@@ -399,19 +450,24 @@ def _optional_relpath_fields(
     fields: tuple[FlattenedContractField, ...],
     *,
     union_projection: UnionWorkflowBoundaryProjection | None,
+    nested_union_activity: Mapping[str, Mapping[str, Any]],
 ) -> frozenset[str]:
-    if union_projection is None:
-        return frozenset()
-
-    variant_only_names = {
-        field.generated_name
-        for variant_fields in union_projection.variant_fields.values()
-        for field in variant_fields
-    }
+    root_variant_only_names = (
+        {
+            field.generated_name
+            for variant_fields in union_projection.variant_fields.values()
+            for field in variant_fields
+        }
+        if union_projection is not None
+        else set()
+    )
     return frozenset(
         field.generated_name
         for field in fields
-        if field.generated_name in variant_only_names
+        if (
+            field.generated_name in root_variant_only_names
+            or nested_union_activity.get(field.generated_name, {}).get("field_role") == "variant"
+        )
         and field.contract_definition.get("type") == "relpath"
     )
 def _raise_loop_error(

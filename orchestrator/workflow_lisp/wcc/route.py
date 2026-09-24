@@ -39,6 +39,7 @@ from ..expressions import (
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordExpr,
     RecordUpdateExpr,
     ResourceTransitionExpr,
@@ -947,6 +948,14 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        return
+    if isinstance(expr, RequestInputExpr):
+        _validate_wcc_m4_expr_supported(
+            expr.question,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
         return
     if isinstance(expr, RunRefExpr):
         for _, input_expr in expr.inputs:

@@ -22,6 +22,7 @@ from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
     evaluate_transition_resume,
     validate_resource_observation,
 )
+from orchestrator.workflow_lisp.syntax import target_dsl_supports_rich_loop_values
 
 
 RESTORE_PAYLOAD_SCHEMA_VERSION = "workflow_lisp_lexical_restore_payload.v1"
@@ -560,6 +561,11 @@ def capture_restore_payload(
                 for key, value in artifacts.items()
                 if isinstance(key, str) and key.startswith("state__")
             }
+            supports_root_state = getattr(
+                executor, "_workflow_version_at_least", lambda _minimum: False
+            )("2.29")
+            if supports_root_state and "state" in artifacts:
+                state_value[""] = artifacts["state"]
             loop_descriptor = _mapping(restore.get("loop_frame_descriptor"))
             loop_frame = {
                 "loop_id": loop_name,
@@ -903,6 +909,8 @@ def _resolve_authoritative_transition_resource(
 def _loop_frame_matches_repeat_until_progress(
     loop_frame: Mapping[str, Any],
     state: Mapping[str, Any],
+    *,
+    workflow_version: str | None = None,
 ) -> bool:
     loop_id = loop_frame.get("loop_id")
     iteration = loop_frame.get("iteration")
@@ -937,13 +945,23 @@ def _loop_frame_matches_repeat_until_progress(
     steps = _mapping(state.get("steps"))
     persisted_loop_step = _mapping(steps.get(loop_id))
     persisted_artifacts = _mapping(persisted_loop_step.get("artifacts"))
-    if persisted_artifacts:
+    if persisted_artifacts or target_dsl_supports_rich_loop_values(workflow_version):
         persisted_state = {
             key[len("state__"):]: value
             for key, value in persisted_artifacts.items()
             if isinstance(key, str) and key.startswith("state__")
         }
-        if persisted_state and persisted_state != loop_frame.get("state_value"):
+        state_value = loop_frame.get("state_value")
+        if target_dsl_supports_rich_loop_values(workflow_version):
+            has_root_artifact = "state" in persisted_artifacts
+            has_root_state = isinstance(state_value, Mapping) and "" in state_value
+            if has_root_artifact != has_root_state:
+                return False
+            if has_root_artifact:
+                persisted_state[""] = persisted_artifacts["state"]
+            if persisted_state != state_value:
+                return False
+        elif persisted_state and persisted_state != state_value:
             return False
     return True
 
@@ -1287,6 +1305,7 @@ def select_restore_candidate(
             "reuse_validated_run_ref_result",
             "reuse_validated_trial_result",
             "certified_resume_protocol_required",
+            "reuse_validated_human_reply",
         }:
             if not has_completed_effect_refs:
                 unsafe_pending_behavior = policy.get("unsafe_pending_behavior")
@@ -1858,7 +1877,16 @@ def select_restore_candidate(
                             diagnostics=(DIAGNOSTIC_CODES.proof_mismatch,),
                         )
                 loop_frame = _mapping(restore_payload_value.get("loop_frame"))
-                if loop_frame and not _loop_frame_matches_repeat_until_progress(loop_frame, state):
+                workflow_version = getattr(executable_workflow, "version", None)
+                if not isinstance(workflow_version, str):
+                    workflow_version = getattr(
+                        getattr(loaded_workflow, "surface", None), "version", None
+                    )
+                if loop_frame and not _loop_frame_matches_repeat_until_progress(
+                    loop_frame,
+                    state,
+                    workflow_version=workflow_version,
+                ):
                     return RestoreDecision(
                         kind=RESTORE_DECISION_INVALID,
                         checkpoint_id=point.checkpoint_id,

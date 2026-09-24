@@ -570,6 +570,68 @@ def test_validate_variant_output_bundle_rejects_forbidden_variant_fields_with_su
     ]
 
 
+@pytest.mark.parametrize(
+    ("document", "variants", "expected"),
+    (
+        (
+            {"variant": "RECORD", "value": {"value": 8}},
+            {
+                "SCALAR": {"fields": [{"name": "value", "json_pointer": "/value", "type": "integer"}]},
+                "RECORD": {
+                    "fields": [
+                        {
+                            "name": "value__value",
+                            "json_pointer": "/value/value",
+                            "type": "integer",
+                        }
+                    ]
+                },
+            },
+            {"variant": "RECORD", "value__value": 8},
+        ),
+        (
+            {"variant": "VALUE", "value": {"child": "data"}},
+            {
+                "VALUE": {"fields": [{"name": "value", "json_pointer": "/value", "type": "value"}]},
+                "NESTED": {
+                    "fields": [
+                        {
+                            "name": "child",
+                            "json_pointer": "/value/child",
+                            "type": "string",
+                        }
+                    ]
+                },
+            },
+            {"variant": "VALUE", "value": {"child": "data"}},
+        ),
+    ),
+)
+def test_validate_variant_output_bundle_allows_overlapping_inactive_union_pointers(
+    tmp_path: Path,
+    document: dict[str, object],
+    variants: dict[str, object],
+    expected: dict[str, object],
+) -> None:
+    bundle = tmp_path / "state" / "variant_bundle.json"
+    bundle.parent.mkdir(parents=True)
+    bundle.write_text(json.dumps(document), encoding="utf-8")
+
+    assert validate_variant_output_bundle(
+        {
+            "path": "state/variant_bundle.json",
+            "discriminant": {
+                "name": "variant",
+                "json_pointer": "/variant",
+                "type": "enum",
+                "allowed": list(variants),
+            },
+            "variants": variants,
+        },
+        workspace=tmp_path,
+    ) == expected
+
+
 def test_validate_variant_output_bundle_missing_shared_field_uses_selected_subject(tmp_path: Path):
     bundle_path = tmp_path / "state" / "variant_bundle.json"
     bundle_path.parent.mkdir(parents=True)
@@ -1187,6 +1249,36 @@ def _union_projected_output_bundle() -> dict[str, object]:
                 },
             },
         ],
+    }
+
+
+def test_validate_output_bundle_allows_overlapping_inactive_union_projection_pointers(
+    tmp_path: Path,
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {"variant": "UNKNOWN", "value": {"child": 8}}}),
+        encoding="utf-8",
+    )
+    bundle = _union_projected_output_bundle()
+    common = bundle["fields"][0]["projection"]
+    bundle["fields"].append(
+        {
+            "name": "choice__value__child",
+            "json_pointer": "/choice/value/child",
+            "type": "integer",
+            "projection": {
+                **common,
+                "field_role": "variant",
+                "active_variants": ["UNKNOWN"],
+            },
+        }
+    )
+
+    assert validate_output_bundle(bundle, workspace=tmp_path) == {
+        "choice__variant": "UNKNOWN",
+        "choice__value__child": 8,
     }
 
 

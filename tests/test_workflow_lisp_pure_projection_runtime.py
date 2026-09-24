@@ -591,7 +591,6 @@ def test_pure_projection_runtime_skips_inactive_union_variant_outputs(tmp_path: 
         "return__selected_item_selection_bundle": "state/selector_selected.json",
     }
 
-
 def test_provider_bundle_path_projection_exports_generated_bundle_path(tmp_path: Path) -> None:
     bundle = _compile_provider_bundle_path_projection_bundle(tmp_path)
     state_manager = StateManager(workspace=tmp_path, run_id="provider-bundle-path-runtime")

@@ -18,6 +18,7 @@ POLICY_KINDS = frozenset(
         "reuse_validated_run_ref_result",
         "reuse_validated_trial_result",
         "reuse_validated_workflow_call",
+        "reuse_validated_human_reply",
         "regenerate_deterministic_view",
         "preserve_durable_view",
         "transition_idempotent_audit_required",
@@ -41,6 +42,7 @@ _REQUIRED_EVIDENCE_KEYS = {
     "reuse_validated_run_ref_result": ("run_ref_result",),
     "reuse_validated_trial_result": ("trial_result",),
     "reuse_validated_workflow_call": ("workflow_call",),
+    "reuse_validated_human_reply": ("human_reply",),
     "regenerate_deterministic_view": ("materialized_view",),
     "preserve_durable_view": ("materialized_view",),
     "transition_idempotent_audit_required": ("transition",),
@@ -148,6 +150,11 @@ def validate_effect_resume_policy(
         raise ValueError(DIAGNOSTIC_CODES.pending_effect_unsafe)
     evidence_requirements = dict(_mapping(policy.get("evidence_requirements")))
     _validate_evidence_requirements(policy_kind=policy_kind, evidence_requirements=evidence_requirements)
+    if policy_kind == "reuse_validated_human_reply" and (
+        policy.get("effect_kind") != "request_input"
+        or policy.get("boundary_kind") != "request_input"
+    ):
+        raise ValueError(DIAGNOSTIC_CODES.boundary_mismatch)
     expected_digest = derive_effect_resume_policy_digest(policy)
     if policy.get("policy_digest") != expected_digest:
         raise ValueError(DIAGNOSTIC_CODES.digest_mismatch)
@@ -196,10 +203,17 @@ def _validate_evidence_requirements(
     evidence_requirements: Mapping[str, Any],
 ) -> None:
     required_keys = _REQUIRED_EVIDENCE_KEYS[policy_kind]
-    if policy_kind == "reuse_validated_trial_result" and set(
+    if policy_kind in {
+        "reuse_validated_trial_result",
+        "reuse_validated_human_reply",
+    } and set(
         evidence_requirements
-    ) != {"trial_result"}:
-        raise ValueError(DIAGNOSTIC_CODES.trial_result_invalid)
+    ) != set(required_keys):
+        raise ValueError(
+            DIAGNOSTIC_CODES.trial_result_invalid
+            if policy_kind == "reuse_validated_trial_result"
+            else DIAGNOSTIC_CODES.evidence_invalid
+        )
     for key in required_keys:
         requirement = _mapping(evidence_requirements.get(key))
         if not requirement:
@@ -239,6 +253,13 @@ def _validate_requirement_shape(*, key: str, requirement: Mapping[str, Any]) -> 
                 r"sha256:[0-9a-f]{64}", value
             ) is None:
                 raise ValueError(DIAGNOSTIC_CODES.trial_result_invalid)
+        return
+    if key == "human_reply":
+        if set(requirement) != {"result_contract_digest"}:
+            raise ValueError(DIAGNOSTIC_CODES.evidence_invalid)
+        value = requirement.get("result_contract_digest")
+        if not isinstance(value, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+            raise ValueError(DIAGNOSTIC_CODES.evidence_invalid)
         return
     if key == "materialized_view":
         _non_empty_string(requirement.get("renderer_id"), DIAGNOSTIC_CODES.materialized_view_mismatch)

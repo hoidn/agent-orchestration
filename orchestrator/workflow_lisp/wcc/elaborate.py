@@ -39,6 +39,7 @@ from ..expressions import (
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordUpdateExpr,
     RecordExpr,
     ResourceTransitionExpr,
@@ -86,7 +87,11 @@ from ..normalized_type_descriptor import compiler_normalized_type_descriptor
 from ..run_ref_result_contract import derive_run_ref_result_contract
 from ..trial_result_contract import derive_trial_result_contract
 from ..syntax import (
+    HUMAN_REPLY_TYPE_NAME,
+    HelperExpansionFrame,
+    ProcedureExpansionFrame,
     target_dsl_supports_nested_structural_transport,
+    target_dsl_supports_pure_call_composition,
     target_dsl_supports_strict_boolean_control_flow,
 )
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
@@ -1679,6 +1684,7 @@ def _elaborate_expr_to_body(
         (
             ProviderResultExpr,
             CommandResultExpr,
+            RequestInputExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -1772,6 +1778,31 @@ def _elaborate_let_star(
         procedure_return_types=procedure_return_types,
     )
 
+    def expansion_owned_binding_source(binding_expr):
+        """Keep compiler call ancestry on its ordered lexical bindings.
+
+        The normalizer owns a generated ``LetStarExpr`` while each actual and
+        formal child retains its authored span.  WCC must retain both facts so
+        lowering can materialize an eager initializer before a later effect
+        without conflating separate call sites.
+        """
+
+        if not target_dsl_supports_pure_call_composition(
+            getattr(type_env, "target_dsl_version", "") or ""
+        ):
+            return binding_expr, False
+        ordered_frames: list[object] = []
+        for frame in (*expr.expansion_stack, *binding_expr.expansion_stack):
+            if frame not in ordered_frames:
+                ordered_frames.append(frame)
+        expansion_owned = any(
+            isinstance(frame, (HelperExpansionFrame, ProcedureExpansionFrame))
+            for frame in ordered_frames
+        )
+        if not expansion_owned:
+            return binding_expr, False
+        return replace(binding_expr, expansion_stack=tuple(ordered_frames)), True
+
     def build(
         index: int,
         local_env: Mapping[str, TypeRef],
@@ -1793,6 +1824,7 @@ def _elaborate_let_star(
             )
 
         binding_name, binding_expr = expr.bindings[index]
+        binding_expr, expansion_owned = expansion_owned_binding_source(binding_expr)
         binding_type = _infer_expr_type(
             binding_expr,
             type_env=type_env,
@@ -1923,6 +1955,7 @@ def _elaborate_let_star(
             (
                 ProviderResultExpr,
                 CommandResultExpr,
+                RequestInputExpr,
                 RunRefExpr,
                 TrialExpr,
                 RunProviderPhaseExpr,
@@ -2009,6 +2042,40 @@ def _elaborate_let_star(
                 scope=binding_scope,
                 effect_summary=effect_summary,
                 active_phase_scope=active_phase_scope,
+            )
+
+        if (
+            expansion_owned
+            and isinstance(binding_expr, LetStarExpr)
+            and is_pure_projection_expr(binding_expr)
+        ):
+            tail = build(
+                index + 1,
+                next_env,
+                local_scope.child_scope("body", authored_binding_name=binding_name),
+                runtime_tail_compile_time_bindings,
+            )
+            return WccLet(
+                metadata=local_scope.body_metadata(
+                    role=f"let:{binding_name}",
+                    type_ref=result_type,
+                    source_span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                    expansion_stack=binding_expr.expansion_stack,
+                ),
+                bound_name=binding_name,
+                bound_type_ref=binding_type,
+                bound_value=WccOpaqueFrontendValue(
+                    metadata=local_scope.value_metadata(
+                        role=f"opaque:expansion-let:{binding_name}",
+                        type_ref=binding_type,
+                        source_span=binding_expr.span,
+                        form_path=binding_expr.form_path,
+                        expansion_stack=binding_expr.expansion_stack,
+                    ),
+                    expr=binding_expr,
+                ),
+                body=tail,
             )
 
         binding_scope = local_scope.child_scope("binding", authored_binding_name=binding_name)
@@ -3119,6 +3186,7 @@ def _elaborate_match_to_body(
         (
             ProviderResultExpr,
             CommandResultExpr,
+            RequestInputExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -3864,8 +3932,41 @@ def _prebind_effect_argument_matches(
 ) -> tuple[object, tuple[tuple[str, TypeRef, object], ...]]:
     match_bindings: list[tuple[str, TypeRef, object]] = []
 
-    def replace_arg(arg_expr, *, role: str):
-        if not isinstance(arg_expr, (MatchExpr, LetStarExpr)):
+    def replace_arg(
+        arg_expr,
+        *,
+        role: str,
+        prebind_pure_projection: bool = False,
+        force_prebind: bool = False,
+    ):
+        if force_prebind and isinstance(
+            arg_expr,
+            (LiteralExpr, NameExpr, FieldAccessExpr),
+        ):
+            return arg_expr
+        materialize_flattened_record = (
+            prebind_pure_projection
+            and (
+                isinstance(arg_expr, NameExpr)
+                and isinstance(value_env.get(arg_expr.name), RecordTypeRef)
+                or isinstance(arg_expr, FieldAccessExpr)
+                and isinstance(
+                    _infer_expr_type(
+                        arg_expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    RecordTypeRef,
+                )
+            )
+        )
+        if not force_prebind and not isinstance(arg_expr, (MatchExpr, LetStarExpr)) and not (
+            prebind_pure_projection
+            and (materialize_flattened_record or not isinstance(arg_expr, (NameExpr, FieldAccessExpr)))
+            and is_pure_projection_expr(arg_expr)
+        ):
             return arg_expr
         binding_type = _infer_expr_type(
             arg_expr,
@@ -3905,6 +4006,15 @@ def _prebind_effect_argument_matches(
                     for index, input_expr in enumerate(expr.inputs)
                 ),
                 prompt_dependencies=prompt_dependencies,
+                context_expr=(
+                    replace_arg(
+                        expr.context_expr,
+                        role="provider-context",
+                        prebind_pure_projection=True,
+                    )
+                    if expr.context_expr is not None
+                    else None
+                ),
             ),
             tuple(match_bindings),
         )
@@ -3915,6 +4025,19 @@ def _prebind_effect_argument_matches(
                 argv=tuple(
                     replace_arg(arg_expr, role=f"command-arg:{index}")
                     for index, arg_expr in enumerate(expr.argv)
+                ),
+            ),
+            tuple(match_bindings),
+        )
+    if isinstance(expr, RequestInputExpr):
+        return (
+            replace(
+                expr,
+                question=replace_arg(
+                    expr.question,
+                    role="request-input:question",
+                    prebind_pure_projection=True,
+                    force_prebind=True,
                 ),
             ),
             tuple(match_bindings),
@@ -4581,6 +4704,24 @@ def _elaborate_effect_expr_to_binding_value(
             )
         if expr.session_artifact is not None:
             operation_payload["session_artifact"] = expr.session_artifact
+        if expr.context_expr is not None:
+            operation_payload["context_expr"] = _elaborate_atomic_value(
+                expr.context_expr,
+                scope=scope.child_scope(
+                    "provider-context",
+                    authored_binding_name="context",
+                ),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+        if expr.capture_context is not None:
+            operation_payload["capture_context"] = expr.capture_context
         if expr.prompt_dependencies is not None:
             dependency_rows: list[WccPromptDependencyRow] = []
             for role, operands in (
@@ -4649,6 +4790,35 @@ def _elaborate_effect_expr_to_binding_value(
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
             operation_payload=operation_payload,
+        )
+    if isinstance(expr, RequestInputExpr):
+        return WccPerform(
+            metadata=scope.value_metadata(
+                role="perform:request_input",
+                **metadata_kwargs,
+            ),
+            perform_kind="request_input",
+            target_name="request-input",
+            prompt_name=None,
+            positional_args=(
+                _elaborate_atomic_value(
+                    expr.question,
+                    scope=scope.child_scope(
+                        "request-input-question",
+                        authored_binding_name="question",
+                    ),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                ),
+            ),
+            keyword_args=(),
+            returns_type_name=HUMAN_REPLY_TYPE_NAME,
         )
     if isinstance(expr, CommandResultExpr):
         adapter_inputs = tuple(
@@ -5106,6 +5276,7 @@ def _elaborate_workflow_call_binding_value(
         (
             ProviderResultExpr,
             CommandResultExpr,
+            RequestInputExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -5564,10 +5735,41 @@ def _infer_expr_type(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    if isinstance(expr, ProviderResultExpr):
+        model_result_type = (
+            expr.prompt.prompt.return_type_ref
+            if isinstance(expr.prompt, PromptApplicationExpr)
+            else _resolve_wcc_type_name(
+                expr.returns_type_name,
+                type_env=type_env,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        )
+        if expr.capture_context is None:
+            return model_result_type
+        from ..context_types import contextual_type
+
+        return contextual_type(
+            model_result_type,
+            type_env.resolve_type(
+                "Context",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+        )
+    if isinstance(expr, RequestInputExpr):
+        return type_env.resolve_type(
+            HUMAN_REPLY_TYPE_NAME,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(
         expr,
         (
-            ProviderResultExpr,
             CommandResultExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,

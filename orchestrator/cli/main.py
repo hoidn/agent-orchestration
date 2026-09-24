@@ -541,6 +541,33 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override maximum tmux pane tail chars passed to live note provider'
     )
 
+    input_parser = subparsers.add_parser(
+        'input',
+        help='Query or settle a pending human-input request',
+    )
+    input_subparsers = input_parser.add_subparsers(
+        dest='input_command',
+        required=True,
+    )
+    input_get_parser = input_subparsers.add_parser(
+        'get', help='Read a request'
+    )
+    input_get_parser.add_argument('run_id', metavar='RUN_ID')
+    input_get_parser.add_argument('--state-dir', type=str)
+    input_answer_parser = input_subparsers.add_parser(
+        'answer', help='Answer a request'
+    )
+    input_answer_parser.add_argument('run_id', metavar='RUN_ID')
+    input_answer_parser.add_argument('request_id', metavar='REQUEST_ID')
+    input_answer_parser.add_argument('--text', required=True, type=str)
+    input_answer_parser.add_argument('--state-dir', type=str)
+    input_cancel_parser = input_subparsers.add_parser(
+        'cancel', help='Cancel a request'
+    )
+    input_cancel_parser.add_argument('run_id', metavar='RUN_ID')
+    input_cancel_parser.add_argument('request_id', metavar='REQUEST_ID')
+    input_cancel_parser.add_argument('--state-dir', type=str)
+
     report_parser = subparsers.add_parser('report', help='Render workflow run status')
     report_parser.add_argument(
         '--run-id',
@@ -707,6 +734,9 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'resume':
         from orchestrator.cli.commands import resume_workflow
         return resume_workflow(**vars(parsed_args))
+    elif parsed_args.command == 'input':
+        from orchestrator.cli.commands import human_input_command
+        return human_input_command(parsed_args)
     elif parsed_args.command == 'report':
         from orchestrator.cli.commands import report_workflow
         return report_workflow(

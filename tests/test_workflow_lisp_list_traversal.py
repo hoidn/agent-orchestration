@@ -930,7 +930,7 @@ def test_pure_runtime_accepts_existing_nodes_in_schema_2() -> None:
     assert pure_expr.evaluate_pure_expr(payload) == 1
 
 
-@pytest.mark.parametrize("schema_version", (0, 3, True, 2.0, "2"))
+@pytest.mark.parametrize("schema_version", (0, 4, True, 2.0, "2"))
 def test_unknown_or_non_integer_pure_schema_versions_fail_closed(
     schema_version: object,
 ) -> None:

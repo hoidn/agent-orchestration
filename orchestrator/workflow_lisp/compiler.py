@@ -90,6 +90,8 @@ from .functions import (
     build_function_catalog,
     elaborate_function_definitions,
     normalize_function_calls,
+    normalize_resolved_inline_procedure_calls,
+    retypecheck_resolved_function_definitions,
     typecheck_function_definitions,
     validate_function_cycles,
 )
@@ -154,6 +156,8 @@ from .syntax import (
     syntax_head_name,
     syntax_identifier,
     syntax_node_datum,
+    target_dsl_supports_provider_context_values,
+    target_dsl_supports_pure_call_composition,
 )
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
@@ -818,6 +822,7 @@ def compile_stage3_module(
                 state.typed_workflows,
                 lowering_route=normalized_lowering_route,
                 workflow_catalog=state.workflow_catalog,
+                type_env=state.type_env,
                 bridge_backing_input_names=frozenset(
                     resource.backing_path_input
                     for resource in (state.module.resources if state.module is not None else ())
@@ -948,6 +953,7 @@ def _collect_stage3_required_lint_diagnostics(
     *,
     lowering_route: LoweringRoute,
     workflow_catalog: WorkflowCatalog | None = None,
+    type_env: FrontendTypeEnvironment | None = None,
     bridge_backing_input_names: frozenset[str] = frozenset(),
 ) -> tuple[LispFrontendDiagnostic, ...]:
     diagnostics: list[LispFrontendDiagnostic] = []
@@ -974,6 +980,7 @@ def _collect_stage3_required_lint_diagnostics(
                     if workflow_catalog is not None
                     else False
                 ),
+                type_env=type_env,
             )
             classification = classify_phase_family_boundary(
                 workflow_name=signature.name,
@@ -1015,6 +1022,7 @@ def _collect_stage3_required_lint_diagnostics(
                 signature.return_type_ref,
                 span=signature.span,
                 form_path=signature.form_path,
+                type_env=type_env,
             )
             if projection.variant_fields and all(
                 not fields for fields in projection.variant_fields.values()
@@ -1787,6 +1795,7 @@ def _run_stage3_validation_pipeline(
             allow_transportable_input_boundaries=(
                 normalized_boundary_admission_profile
                 is WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
+                or target_dsl_supports_provider_context_values(module.target_dsl_version)
             ),
             family_profile_catalog=family_profile_catalog,
         )
@@ -1836,6 +1845,21 @@ def _run_stage3_validation_pipeline(
             typed_functions,
             function_catalog=function_catalog,
         )
+        typed_functions_by_name = {
+            function.definition.name: function
+            for function in typed_functions
+        }
+        function_body_normalizer = (
+            (
+                lambda body: normalize_function_calls(
+                    body,
+                    typed_functions_by_name=typed_functions_by_name,
+                    target_dsl_version=module.target_dsl_version,
+                )
+            )
+            if target_dsl_supports_pure_call_composition(module.target_dsl_version)
+            else None
+        )
         typed_procedures, typed_workflows, resolved_procedure_catalog = (
             _infer_stage3_effect_summaries(
                 procedure_defs,
@@ -1855,12 +1879,10 @@ def _run_stage3_validation_pipeline(
                 selected_entry_workflow_name=None,
                 compiler_session=compiler_session,
                 session_artifact_entry_workflow_allowed=True,
+                function_body_normalizer=function_body_normalizer,
+                allow_provisional_procedure_calls=function_body_normalizer is not None,
             )
         )
-        typed_functions_by_name = {
-            function.definition.name: function
-            for function in typed_functions
-        }
         typed_procedures = tuple(
             replace(
                 procedure,
@@ -1903,6 +1925,112 @@ def _run_stage3_validation_pipeline(
             ),
             workflow_path=path,
         )
+        resolved_procedures_by_name = {
+            procedure.definition.name: procedure
+            for procedure in resolved_state.typed_procedures
+        }
+        resolved_state = replace(
+            resolved_state,
+            typed_procedures=tuple(
+                replace(
+                    procedure,
+                    typed_body=normalize_resolved_inline_procedure_calls(
+                        procedure.typed_body,
+                        typed_procedures_by_name=resolved_procedures_by_name,
+                        target_dsl_version=module.target_dsl_version,
+                        owning_proc_ref_bindings=getattr(
+                            getattr(procedure, "specialization", None),
+                            "proc_ref_bindings",
+                            {},
+                        ),
+                        owning_workflow_ref_bindings=getattr(
+                            getattr(procedure, "specialization", None),
+                            "workflow_ref_bindings",
+                            {},
+                        ),
+                        procedure_catalog=resolved_state.procedure_catalog,
+                        workflow_catalog=workflow_catalog,
+                        typed_workflows_by_name={
+                            workflow.definition.name: workflow
+                            for workflow in resolved_state.typed_workflows
+                        },
+                    ),
+                )
+                for procedure in resolved_state.typed_procedures
+            ),
+            typed_workflows=tuple(
+                replace(
+                    workflow,
+                    typed_body=normalize_resolved_inline_procedure_calls(
+                        workflow.typed_body,
+                        typed_procedures_by_name=resolved_procedures_by_name,
+                        target_dsl_version=module.target_dsl_version,
+                        procedure_catalog=resolved_state.procedure_catalog,
+                        workflow_catalog=workflow_catalog,
+                        typed_workflows_by_name={
+                            workflow.definition.name: workflow
+                            for workflow in resolved_state.typed_workflows
+                        },
+                    ),
+                )
+                for workflow in resolved_state.typed_workflows
+            ),
+        )
+        if target_dsl_supports_pure_call_composition(module.target_dsl_version):
+            strict_procedures, strict_workflows, strict_procedure_catalog = (
+                _infer_stage3_effect_summaries(
+                    resolved_state.typed_procedures,
+                    module=module,
+                    workflow_defs=tuple(
+                        replace(
+                            workflow.definition,
+                            body=workflow.typed_body.expr,
+                        )
+                        for workflow in resolved_state.typed_workflows
+                    ),
+                    type_env=type_env,
+                    workflow_catalog=workflow_catalog,
+                    procedure_catalog=resolved_state.procedure_catalog,
+                    function_catalog=function_catalog,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    prompt_catalog=prompt_catalog,
+                    proc_ref_resolution_context=ProcRefResolutionContext(
+                        local_raw_names=frozenset(
+                            procedure.name for procedure in procedure_defs
+                        ),
+                    ),
+                    reusable_state_producer_context=reusable_state_producer_context,
+                    selected_entry_workflow_name=None,
+                    compiler_session=compiler_session,
+                    session_artifact_entry_workflow_allowed=True,
+                )
+            )
+            resolved_state = _resolve_stage3_procedure_lowering(
+                replace(
+                    resolved_state,
+                    procedure_catalog=strict_procedure_catalog,
+                    typed_procedures=strict_procedures,
+                    typed_workflows=strict_workflows,
+                ),
+                workflow_path=path,
+            )
+            typed_functions = retypecheck_resolved_function_definitions(
+                typed_functions,
+                type_env=type_env,
+                function_catalog=function_catalog,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=resolved_state.procedure_catalog,
+                typed_procedures_by_name={
+                    procedure.definition.name: procedure
+                    for procedure in resolved_state.typed_procedures
+                },
+                typed_workflows_by_name={
+                    workflow.definition.name: workflow
+                    for workflow in resolved_state.typed_workflows
+                },
+                compiler_session=compiler_session,
+            )
         _validate_family_profile_typed_prompt_input_rows(
             resolved_state.typed_workflows,
             typed_procedures=resolved_state.typed_procedures,
@@ -2554,6 +2682,9 @@ def _compile_stage3_graph(
             allow_transportable_input_boundaries=(
                 normalized_boundary_admission_profile
                 is WorkflowBoundaryAdmissionProfile.TRANSPORTABLE_CHILD
+                or target_dsl_supports_provider_context_values(
+                    definition_module.target_dsl_version
+                )
             ),
             family_profile_catalog=family_profile_catalog,
         )
@@ -2675,6 +2806,19 @@ def _compile_stage3_graph(
             **typed_functions_by_name,
             **{function.definition.name: function for function in typed_functions},
         }
+        function_body_normalizer = (
+            (
+                lambda body: normalize_function_calls(
+                    body,
+                    typed_functions_by_name=combined_typed_functions,
+                    target_dsl_version=definition_module.target_dsl_version,
+                )
+            )
+            if target_dsl_supports_pure_call_composition(
+                definition_module.target_dsl_version
+            )
+            else None
+        )
         typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
             procedure_defs,
             module=definition_module,
@@ -2706,6 +2850,8 @@ def _compile_stage3_graph(
             session_artifact_entry_workflow_allowed=(
                 module_name == graph.entry_module_name
             ),
+            function_body_normalizer=function_body_normalizer,
+            allow_provisional_procedure_calls=function_body_normalizer is not None,
         )
         typed_procedures = tuple(
             replace(
@@ -2764,6 +2910,141 @@ def _compile_stage3_graph(
             },
         )
         typed_procedures = resolved_state.typed_procedures
+        resolved_procedures_by_name = {
+            **typed_procedures_by_name,
+            **{
+                procedure.definition.name: procedure
+                for procedure in typed_procedures
+            },
+        }
+        typed_procedures = tuple(
+            replace(
+                procedure,
+                typed_body=normalize_resolved_inline_procedure_calls(
+                    procedure.typed_body,
+                    typed_procedures_by_name=resolved_procedures_by_name,
+                    target_dsl_version=definition_module.target_dsl_version,
+                    owning_proc_ref_bindings=getattr(
+                        getattr(procedure, "specialization", None),
+                        "proc_ref_bindings",
+                        {},
+                    ),
+                    owning_workflow_ref_bindings=getattr(
+                        getattr(procedure, "specialization", None),
+                        "workflow_ref_bindings",
+                        {},
+                    ),
+                    procedure_catalog=procedure_catalog,
+                    workflow_catalog=lowering_workflow_catalog,
+                    typed_workflows_by_name={
+                        **typed_workflows_by_name,
+                        **{
+                            workflow.definition.name: workflow
+                            for workflow in typed_workflows
+                        },
+                    },
+                ),
+            )
+            for procedure in typed_procedures
+        )
+        typed_workflows = tuple(
+            replace(
+                workflow,
+                typed_body=normalize_resolved_inline_procedure_calls(
+                    workflow.typed_body,
+                    typed_procedures_by_name=resolved_procedures_by_name,
+                    target_dsl_version=definition_module.target_dsl_version,
+                    procedure_catalog=procedure_catalog,
+                    workflow_catalog=lowering_workflow_catalog,
+                    typed_workflows_by_name={
+                        **typed_workflows_by_name,
+                        **{
+                            workflow.definition.name: workflow
+                            for workflow in typed_workflows
+                        },
+                    },
+                ),
+            )
+            for workflow in typed_workflows
+        )
+        if target_dsl_supports_pure_call_composition(
+            definition_module.target_dsl_version
+        ):
+            strict_procedures, strict_workflows, procedure_catalog = (
+                _infer_stage3_effect_summaries(
+                    typed_procedures,
+                    module=definition_module,
+                    workflow_defs=tuple(
+                        replace(workflow.definition, body=workflow.typed_body.expr)
+                        for workflow in typed_workflows
+                    ),
+                    type_env=type_env,
+                    workflow_catalog=workflow_catalog,
+                    procedure_catalog=procedure_catalog,
+                    function_catalog=function_catalog,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    procedure_effects_by_name=procedure_effects_by_name,
+                    workflow_effects_by_name=workflow_effects_by_name,
+                    function_name_resolver=local_function_resolver,
+                    procedure_name_resolver=local_procedure_resolver,
+                    workflow_name_resolver=local_workflow_resolver,
+                    prompt_catalog=prompt_catalog,
+                    visible_typed_procedures_by_name=typed_procedures_by_name,
+                    visible_procedure_type_envs_by_name=combined_procedure_type_envs,
+                    proc_ref_resolution_context=ProcRefResolutionContext(
+                        import_scope=import_scope,
+                        local_raw_names=frozenset(
+                            procedure.name for procedure in raw_procedure_defs
+                        ),
+                        visible_procedure_names_by_module=visible_procedure_names_by_module,
+                    ),
+                    reusable_state_producer_context=reusable_state_producer_context,
+                    selected_entry_workflow_name=(
+                        entry_workflow if module_name == graph.entry_module_name else None
+                    ),
+                    compiler_session=compiler_session,
+                    session_artifact_entry_workflow_allowed=(
+                        module_name == graph.entry_module_name
+                    ),
+                )
+            )
+            strict_state = _resolve_stage3_procedure_lowering(
+                ValidationPipelineState(
+                    module=definition_module,
+                    type_env=type_env,
+                    procedure_catalog=procedure_catalog,
+                    typed_procedures=strict_procedures,
+                    typed_workflows=strict_workflows,
+                ),
+                workflow_path=module_source.path,
+                procedure_type_envs=combined_procedure_type_envs,
+            )
+            typed_procedures = strict_state.typed_procedures
+            typed_workflows = strict_state.typed_workflows
+            procedure_catalog = strict_state.procedure_catalog
+            typed_functions = retypecheck_resolved_function_definitions(
+                typed_functions,
+                type_env=type_env,
+                function_catalog=function_catalog,
+                workflow_catalog=lowering_workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                typed_procedures_by_name={
+                    **typed_procedures_by_name,
+                    **{
+                        procedure.definition.name: procedure
+                        for procedure in typed_procedures
+                    },
+                },
+                typed_workflows_by_name={
+                    **typed_workflows_by_name,
+                    **{
+                        workflow.definition.name: workflow
+                        for workflow in typed_workflows
+                    },
+                },
+                compiler_session=compiler_session,
+            )
         resolved_combined_procedures = tuple(
             {
                 **typed_procedures_by_name,
@@ -2818,6 +3099,7 @@ def _compile_stage3_graph(
             typed_workflows,
             lowering_route=normalized_lowering_route,
             workflow_catalog=workflow_catalog,
+            type_env=type_env,
             bridge_backing_input_names=frozenset(
                 resource.backing_path_input
                 for resource in definition_module.resources
@@ -3033,18 +3315,23 @@ def _canonicalize_nested_imported_type_ref(
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
         return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
     if isinstance(type_ref, RecordTypeRef):
+        from .context_types import contextual_type, is_contextual_type
+
+        field_types = {
+            field_name: _canonicalize_nested_imported_type_ref(
+                field_type,
+                module_name=module_name,
+                exported_names=exported_names,
+            )
+            for field_name, field_type in type_ref.field_types.items()
+        }
+        if is_contextual_type(type_ref):
+            return contextual_type(field_types["result"], field_types["context"])
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
         return replace(
             type_ref,
             name=canonical_name,
-            field_types={
-                field_name: _canonicalize_nested_imported_type_ref(
-                    field_type,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                )
-                for field_name, field_type in type_ref.field_types.items()
-            },
+            field_types=field_types,
         )
     if isinstance(type_ref, UnionTypeRef):
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
@@ -4391,6 +4678,8 @@ def _typecheck_procedure_definitions(
     prompt_catalog: PromptCatalog | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    function_body_normalizer=None,
+    allow_provisional_procedure_calls: bool = False,
     compiler_session: CompilerSession | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .procedure_typecheck import typecheck_procedure_definitions
@@ -4413,6 +4702,8 @@ def _typecheck_procedure_definitions(
         prompt_catalog=prompt_catalog,
         proc_ref_resolution_context=proc_ref_resolution_context,
         procedure_type_envs=procedure_type_envs,
+        function_body_normalizer=function_body_normalizer,
+        allow_provisional_procedure_calls=allow_provisional_procedure_calls,
         compiler_session=compiler_session,
     )
 
@@ -4454,6 +4745,7 @@ def _discover_proc_ref_specializations(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
+    visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     return _discover_proc_ref_specializations_owner(
@@ -4461,6 +4753,7 @@ def _discover_proc_ref_specializations(
         typed_workflows=typed_workflows,
         procedure_catalog=procedure_catalog,
         type_env=type_env,
+        visible_typed_procedures_by_name=visible_typed_procedures_by_name,
         procedure_type_envs=procedure_type_envs,
     )
 
@@ -4508,6 +4801,8 @@ def _infer_stage3_effect_summaries(
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
+    function_body_normalizer=None,
+    allow_provisional_procedure_calls: bool = False,
     compiler_session: CompilerSession | None = None,
     session_artifact_entry_workflow_allowed: bool = False,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
@@ -4522,6 +4817,9 @@ def _infer_stage3_effect_summaries(
 
     typecheck_session = compiler_session.typecheck
     reset_generated_local_procedure_state(typecheck_session)
+    pending_parametric_from_functions = consume_parametric_specialization_requests(
+        typecheck_session
+    )
     reset_parametric_specialization_requests(typecheck_session)
     try:
         procedure_effects_by_name = dict(procedure_effects_by_name or {})
@@ -4529,7 +4827,12 @@ def _infer_stage3_effect_summaries(
         visible_typed_procedures_by_name = dict(visible_typed_procedures_by_name or {})
         procedure_type_envs_by_name = dict(visible_procedure_type_envs_by_name or {})
         procedure_targets: dict[str, ProcedureDef | TypedProcedureDef] = {
-            procedure_def.name: procedure_def for procedure_def in procedure_defs
+            (
+                procedure_def.definition.name
+                if isinstance(procedure_def, TypedProcedureDef)
+                else procedure_def.name
+            ): procedure_def
+            for procedure_def in procedure_defs
         }
         typed_procedures: tuple[TypedProcedureDef, ...] = ()
         typed_workflows: tuple[object, ...] = ()
@@ -4552,6 +4855,8 @@ def _infer_stage3_effect_summaries(
                 prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 procedure_type_envs=procedure_type_envs_by_name,
+                function_body_normalizer=function_body_normalizer,
+                allow_provisional_procedure_calls=allow_provisional_procedure_calls,
                 compiler_session=compiler_session,
             )
             generated_from_procedures = {
@@ -4564,9 +4869,11 @@ def _infer_stage3_effect_summaries(
                     procedure_type_envs=procedure_type_envs_by_name,
                     default=type_env,
                 )
-            pending_parametric_from_procedures = consume_parametric_specialization_requests(
-                typecheck_session
+            pending_parametric_from_procedures = (
+                *pending_parametric_from_functions,
+                *consume_parametric_specialization_requests(typecheck_session),
             )
+            pending_parametric_from_functions = ()
             if generated_from_procedures:
                 typed_procedures = typed_procedures + tuple(
                     procedure
@@ -4610,6 +4917,7 @@ def _infer_stage3_effect_summaries(
                 typed_workflows=(),
                 procedure_catalog=procedure_catalog,
                 type_env=type_env,
+                visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
             )
             added_specialization = False
@@ -4676,6 +4984,8 @@ def _infer_stage3_effect_summaries(
                 session_artifact_entry_workflow_allowed=(
                     session_artifact_entry_workflow_allowed
                 ),
+                function_body_normalizer=function_body_normalizer,
+                allow_provisional_procedure_calls=allow_provisional_procedure_calls,
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
@@ -4728,6 +5038,7 @@ def _infer_stage3_effect_summaries(
                 typed_workflows=typed_workflows,
                 procedure_catalog=procedure_catalog,
                 type_env=type_env,
+                visible_typed_procedures_by_name=visible_typed_procedures_by_name,
                 procedure_type_envs=procedure_type_envs_by_name,
             )
             added_specialization = False
@@ -4806,6 +5117,8 @@ def _infer_stage3_effect_summaries(
             session_artifact_entry_workflow_allowed=(
                 session_artifact_entry_workflow_allowed
             ),
+            function_body_normalizer=function_body_normalizer,
+            allow_provisional_procedure_calls=allow_provisional_procedure_calls,
         )
         generated_from_workflows = {
             procedure.definition.name: procedure

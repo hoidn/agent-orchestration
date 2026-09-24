@@ -23,6 +23,7 @@ from .executable_ir import (
     ForEachNode,
     NodeResultAddress,
     PureProjectionStepConfig,
+    RequestInputStepConfig,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
@@ -2630,19 +2631,59 @@ def _validate_result_member(
             "pure replay binding field is not a supported result address",
             context={"ref": ref, "field": field, "member": member},
         )
-    if _compiled_node_result_contract(
-        bundle,
-        NodeResultAddress(
-            node_id=node_id,
-            field=field,
-            member=member,
-        ),
-    ) is None:
+    address = NodeResultAddress(
+        node_id=node_id,
+        field=field,
+        member=member,
+    )
+    if (
+        _compiled_node_result_contract(bundle, address) is None
+        and not _variant_output_declares_result_member(bundle, address)
+    ):
         raise PureResultReplayIndexError(
             DEPENDENCY_INDEX_INVALID,
             "pure replay binding references an unknown result member",
             context={"ref": ref, "member": member},
         )
+
+
+def _variant_output_declares_result_member(
+    bundle: LoadedWorkflowBundle,
+    address: NodeResultAddress,
+) -> bool:
+    """Return whether a variant contract declares one artifact member."""
+
+    if address.field != "artifacts" or not isinstance(address.member, str):
+        return False
+    node = bundle.ir.nodes.get(address.node_id)
+    config = getattr(node, "execution_config", None)
+    context_config = getattr(config, "provider_context", None)
+    if isinstance(context_config, Mapping) and "capture" in context_config:
+        return False
+    common = getattr(config, "common", None)
+    variant_output = getattr(common, "variant_output", None)
+    if not isinstance(variant_output, Mapping):
+        return False
+
+    def declares(field: Any) -> bool:
+        return isinstance(field, Mapping) and field.get("name") == address.member
+
+    if declares(variant_output.get("discriminant")):
+        return True
+    shared_fields = variant_output.get("shared_fields")
+    if isinstance(shared_fields, (list, tuple)) and any(
+        declares(field) for field in shared_fields
+    ):
+        return True
+    variants = variant_output.get("variants")
+    if not isinstance(variants, Mapping):
+        return False
+    return any(
+        isinstance(variant, Mapping)
+        and isinstance(fields := variant.get("fields"), (list, tuple))
+        and any(declares(field) for field in fields)
+        for variant in variants.values()
+    )
 
 
 def _compiled_node_result_contract(
@@ -2654,6 +2695,17 @@ def _compiled_node_result_contract(
     if address.field != "artifacts" or not isinstance(address.member, str):
         return None
     node = bundle.ir.nodes.get(address.node_id)
+    config = getattr(node, "execution_config", None)
+    if isinstance(config, RequestInputStepConfig):
+        from .human_input import human_reply_artifact_contracts
+
+        return human_reply_artifact_contracts().get(address.member)
+    context_config = getattr(config, "provider_context", None)
+    if isinstance(context_config, Mapping) and "capture" in context_config:
+        from .provider_context import capture_artifact_contracts
+
+        contracts = capture_artifact_contracts(context_config)
+        return contracts.get(address.member)
     if isinstance(node, CallBoundaryNode):
         config = node.execution_config
         import_metadata = bundle.surface.imports.get(node.call_alias)
@@ -2794,6 +2846,16 @@ def _durable_node_result_value(
 
     contract = _compiled_node_result_contract(bundle, address)
     field_value = row.get(address.field)
+    node = bundle.ir.nodes.get(address.node_id)
+    if address.field == "artifacts" and isinstance(
+        getattr(node, "execution_config", None), RequestInputStepConfig,
+    ):
+        from .human_input import validate_human_reply
+
+        try:
+            field_value = validate_human_reply(field_value)
+        except (TypeError, ValueError):
+            return _DURABLE_VALUE_MISSING, contract
     if (
         contract is None
         or not isinstance(field_value, Mapping)

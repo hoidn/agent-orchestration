@@ -14,6 +14,7 @@ from orchestrator.contracts.prompt_contract import (
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow.prompt_fragment_contract import (
     CompilerPromptAttemptBindingPlan,
+    validate_typed_prompt_value_source,
 )
 from orchestrator.workflow.prompting import (
     PromptFragmentRenderResult,
@@ -40,6 +41,7 @@ def select_prompt_fragment_renderer(
     type_ref: object,
     *,
     kind: str,
+    target_dsl_version: str | None = None,
 ) -> str | None:
     """Select the closed Q1 fragment renderer without widening authored inputs."""
 
@@ -48,7 +50,9 @@ def select_prompt_fragment_renderer(
         PathTypeRef,
         PrimitiveTypeRef,
         RecordTypeRef,
+        UnionTypeRef,
     )
+    from .syntax import target_dsl_supports_union_prompt_input
 
     if kind == "path":
         return "posix-path-line" if isinstance(type_ref, PathTypeRef) else None
@@ -67,6 +71,8 @@ def select_prompt_fragment_renderer(
             } or bool(candidate.allowed_values)
         if isinstance(candidate, (PathTypeRef, RecordTypeRef)):
             return True
+        if isinstance(candidate, UnionTypeRef):
+            return target_dsl_supports_union_prompt_input(target_dsl_version)
         if isinstance(candidate, ListTypeRef):
             return canonical_json_admissible(candidate.item_type_ref)
         return False
@@ -130,7 +136,16 @@ def normalize_typed_prompt_input_entry(entry: Mapping[str, Any]) -> dict[str, An
     if not isinstance(injection_order, int) or injection_order < 0:
         raise ValueError("typed_prompt_input_schema_invalid: injection_order must be a non-negative integer")
     value_source = dict(cast_mapping(normalized["value_source"]))
-    binding_source = _normalize_typed_prompt_input_binding_source(value_source)
+    if value_source.get("kind") == "typed_union_projection":
+        try:
+            validate_typed_prompt_value_source(value_source)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"typed_prompt_input_schema_invalid: {exc}"
+            ) from exc
+        binding_source = value_source
+    else:
+        binding_source = _normalize_typed_prompt_input_binding_source(value_source)
     normalized["renderer"] = {
         "renderer_id": renderer_id,
         "renderer_version": renderer_version,

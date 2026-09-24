@@ -91,13 +91,22 @@ class WorkflowBoundaryValidationPolicy(str, Enum):
     DEDICATED_RUNTIME_PROOF = "dedicated_runtime_proof"
 
 
+@dataclass(frozen=True)
+class _LexicalScopeFrame:
+    """One defining structured-control scope retained for 2.29 lookup."""
+
+    artifacts: Dict[str, Any]
+    multi_visit: Set[str]
+    non_step_results: Set[str]
+
+
 DEFAULT_SUPPORTED_VERSIONS = frozenset(
     {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
         "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
         "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24", "2.25", "2.26",
-        "2.27",
+        "2.27", "2.28", "2.29", "2.30", "2.31", "2.32",
     }
 )
 DEFAULT_VERSION_ORDER = (
@@ -105,7 +114,7 @@ DEFAULT_VERSION_ORDER = (
     "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     "2.9", "2.10", "2.11", "2.12", "2.13", "2.14", "2.15", "2.16", "2.17",
     "2.18", "2.19", "2.20", "2.21", "2.22", "2.23", "2.24", "2.25", "2.26",
-    "2.27",
+    "2.27", "2.28", "2.29", "2.30", "2.31", "2.32",
 )
 DEFAULT_SUPPORTED_OUTPUT_TYPES = frozenset(
     {"enum", "integer", "float", "bool", "relpath", "string"}
@@ -216,6 +225,7 @@ class _WorkflowMappingValidator:
             else {}
         )
         self._current_workflow_path = Path(request.workflow_path)
+        self._workflow_version = request.authored_mapping.get("version")
         self._current_imports = dict(request.imported_bundles)
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = request.workflow_is_imported
@@ -259,9 +269,14 @@ class _WorkflowMappingValidator:
         self,
         workflow: Mapping[str, Any],
     ) -> None:
-        """Require exact compiler declarations for inert repeat-loop metadata."""
+        """Require exact compiler declarations for owned repeat loops and metadata."""
 
         actual: dict[str, dict[str, Any]] = {}
+        declared = self._compiler_owned_repeat_until_metadata
+        version = workflow.get("version")
+        supports_empty_ownership = (
+            isinstance(version, str) and self._version_at_least(version, "2.29")
+        )
         steps = workflow.get("steps")
         if isinstance(steps, list):
             for step in self._collect_all_steps(steps):
@@ -273,9 +288,10 @@ class _WorkflowMappingValidator:
                     for field_name in COMPILER_OWNED_REPEAT_UNTIL_METADATA_FIELDS
                     if field_name in repeat_until
                 }
-                if not metadata:
-                    continue
                 step_id = step.get("id")
+                owns_repeat = isinstance(step_id, str) and step_id in declared
+                if not metadata and not owns_repeat:
+                    continue
                 if not isinstance(step_id, str) or not step_id:
                     self._add_error(
                         "compiler-owned repeat_until metadata requires a non-empty explicit step id"
@@ -288,15 +304,18 @@ class _WorkflowMappingValidator:
                     continue
                 actual[step_id] = metadata
 
-        declared = self._compiler_owned_repeat_until_metadata
         if (actual or declared) and self._frontend_kind != "workflow_lisp":
             self._add_error(
                 "compiler-owned repeat_until metadata requires the Workflow Lisp frontend"
             )
 
         for step_id, metadata in actual.items():
-            diagnostic_code = metadata.get("exhaustion_diagnostic_code")
-            if not is_valid_exhaustion_diagnostic_code(diagnostic_code):
+            if (
+                "exhaustion_diagnostic_code" in metadata
+                and not is_valid_exhaustion_diagnostic_code(
+                    metadata["exhaustion_diagnostic_code"]
+                )
+            ):
                 self._add_error(
                     f"Step id '{step_id}': repeat_until.exhaustion_diagnostic_code "
                     "must be a lowercase ASCII diagnostic identifier of at most 128 characters"
@@ -320,6 +339,10 @@ class _WorkflowMappingValidator:
                 self._add_error(
                     f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has unknown fields: {fields}"
                 )
+            if not metadata and not supports_empty_ownership:
+                self._add_error(
+                    f"Step id '{step_id}': empty compiler-owned repeat_until ownership requires Workflow Lisp target 2.29"
+                )
             if dict(declaration) != metadata:
                 self._add_error(
                     f"Step id '{step_id}': compiler-owned repeat_until metadata declaration does not exactly match emitted metadata"
@@ -327,7 +350,7 @@ class _WorkflowMappingValidator:
 
         for step_id in set(declared) - set(actual):
             self._add_error(
-                f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has no emitted metadata"
+                f"Step id '{step_id}': compiler-owned repeat_until metadata declaration has no emitted repeat"
             )
 
     def _validate_compiler_owned_nested_if_steps(
@@ -1246,9 +1269,10 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]] = None,
         scope_non_step_results: Optional[Set[str]] = None,
         parent_non_step_results: Optional[Set[str]] = None,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
         top_level: bool = True,
         allow_nested_structured: bool = False,
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
     ):
         """Validate step definitions."""
         if not isinstance(steps, list):
@@ -1323,6 +1347,7 @@ class _WorkflowMappingValidator:
                     parent_multi_visit=parent_multi_visit,
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
+                    parent_scope_frames=parent_scope_frames,
                     top_level=top_level,
                     allow_nested=allow_nested_structured
                     or authored_id in self._compiler_owned_nested_if_step_ids
@@ -1344,6 +1369,7 @@ class _WorkflowMappingValidator:
                     parent_multi_visit=parent_multi_visit,
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
+                    parent_scope_frames=parent_scope_frames,
                     top_level=top_level,
                     allow_nested=allow_nested_structured
                     or name in self._dedicated_runtime_proof_nested_structured_step_names,
@@ -1352,6 +1378,17 @@ class _WorkflowMappingValidator:
                 continue
 
             if is_repeat_until_statement(step):
+                repeat_proof_context = dict(proof_context or {})
+                if self._version_at_least(version, "2.14"):
+                    repeat_proof_context = self._extend_variant_proof_context(
+                        step=step, step_name=name, version=version, root_catalog=root_catalog,
+                        scope_artifacts=scope_artifacts, scope_multi_visit=scope_multi_visit,
+                        parent_artifacts=parent_artifacts, parent_multi_visit=parent_multi_visit,
+                        scope_non_step_results=scope_non_step_results,
+                        parent_non_step_results=parent_non_step_results,
+                        parent_scope_frames=parent_scope_frames,
+                        proof_context=repeat_proof_context,
+                    )
                 self._validate_repeat_until_statement(
                     step=step,
                     step_name=name,
@@ -1364,9 +1401,10 @@ class _WorkflowMappingValidator:
                     parent_multi_visit=parent_multi_visit,
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
+                    parent_scope_frames=parent_scope_frames,
                     top_level=top_level,
                     allow_nested=False,
-                    proof_context=proof_context,
+                    proof_context=repeat_proof_context,
                 )
                 continue
 
@@ -1375,6 +1413,7 @@ class _WorkflowMappingValidator:
                 'provider',
                 'provider_supervision',
                 'adjudicated_provider',
+                'request_input',
                 'command',
                 'wait_for',
                 'assert',
@@ -1582,7 +1621,14 @@ class _WorkflowMappingValidator:
                 step_proof_context = self._extend_variant_proof_context(
                     step=step,
                     step_name=name,
+                    version=version,
                     root_catalog=root_catalog,
+                    scope_artifacts=scope_artifacts,
+                    scope_multi_visit=scope_multi_visit,
+                    parent_artifacts=parent_artifacts,
+                    parent_multi_visit=parent_multi_visit,
+                    scope_non_step_results=scope_non_step_results,
+                    parent_non_step_results=parent_non_step_results,
                     proof_context=step_proof_context,
                 )
                 if 'materialize_artifacts' in step:
@@ -1632,6 +1678,70 @@ class _WorkflowMappingValidator:
                         parent_non_step_results,
                         step_proof_context,
                     )
+
+            if 'provider_context' in step:
+                from orchestrator.providers.portable_context import PORTABLE_CONTEXT_V1_DESCRIPTOR
+                from .provider_context import (
+                    validate_capture_output_contract, validate_provider_context_config,
+                )
+                from .type_descriptor import transport_descriptor_for_schema
+
+                try:
+                    context_config = validate_provider_context_config(
+                        step['provider_context'],
+                        step_kind='provider' if 'provider' in step else 'other',
+                        target_dsl_version=version,
+                        provider_call_policy=step.get('provider_call_policy'),
+                    )
+                    if step.get('provider_session') is not None:
+                        raise ValueError('provider context requires a fresh call without provider_session')
+                    validate_capture_output_contract(
+                        context_config, step.get('output_bundle'), step.get('variant_output'),
+                    )
+                    if 'input' in context_config:
+                        contract = self._resolve_structured_ref_contract(
+                            context_config['input']['ref'], name, version,
+                            root_catalog, scope_artifacts, scope_multi_visit,
+                            parent_artifacts, parent_multi_visit,
+                            scope_non_step_results, parent_non_step_results,
+                            proof_context=step_proof_context,
+                            parent_scope_frames=parent_scope_frames,
+                        )
+                        if contract is None:
+                            raise ValueError('provider context input reference is unavailable')
+                        if transport_descriptor_for_schema(contract) != PORTABLE_CONTEXT_V1_DESCRIPTOR:
+                            raise ValueError('provider context input requires the complete Context schema')
+                except (TypeError, ValueError) as exc:
+                    self._add_error(f"Step '{name}': invalid provider context: {exc}")
+
+            if 'request_input' in step:
+                from .executable_ir import validate_request_input_config
+                from .type_descriptor import transport_descriptor_for_schema
+
+                try:
+                    if any(field in step for field in ('output_bundle', 'variant_output')):
+                        raise ValueError('request input has a fixed reply, not an output bundle')
+                    request_input = validate_request_input_config(
+                        step['request_input'], target_dsl_version=version,
+                    )
+                    question = request_input['question']
+                    if 'ref' in question:
+                        contract = self._resolve_structured_ref_contract(
+                            question['ref'], name, version,
+                            root_catalog, scope_artifacts, scope_multi_visit,
+                            parent_artifacts, parent_multi_visit,
+                            scope_non_step_results, parent_non_step_results,
+                            proof_context=step_proof_context,
+                            parent_scope_frames=parent_scope_frames,
+                        )
+                        if contract is None:
+                            raise ValueError('request input question reference is unavailable')
+                        if transport_descriptor_for_schema(contract) != {
+                            'kind': 'primitive', 'name': 'String',
+                        }:
+                            raise ValueError('request input question reference requires String')
+                except (TypeError, ValueError) as exc:
+                    self._add_error(f"Step '{name}': invalid request input: {exc}")
 
             declared_output_contracts = [
                 field_name
@@ -1926,7 +2036,7 @@ class _WorkflowMappingValidator:
         parent_scope_artifacts: Optional[Dict[str, Any]] = None,
         parent_scope_multi_visit: Optional[Set[str]] = None,
         parent_scope_non_step_results: Optional[Set[str]] = None,
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
     ):
         """Validate for_each loop configuration."""
         if not isinstance(for_each, dict):
@@ -1996,7 +2106,8 @@ class _WorkflowMappingValidator:
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
         allow_nested: bool = False,
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
     ) -> None:
         """Validate one top-level structured if/else statement."""
         if not top_level and not allow_nested:
@@ -2064,6 +2175,13 @@ class _WorkflowMappingValidator:
             else:
                 branch_tokens[token] = branch_name
 
+        enclosing_frames = self._lexical_parent_scope_frames(
+            version,
+            parent_artifacts,
+            parent_multi_visit,
+            parent_non_step_results,
+            parent_scope_frames,
+        )
         then_outputs = self._validate_if_branch(
             statement_name=step_name,
             branch_name='then',
@@ -2074,6 +2192,7 @@ class _WorkflowMappingValidator:
             parent_scope_artifacts=scope_artifacts,
             parent_scope_multi_visit=scope_multi_visit,
             parent_scope_non_step_results=scope_non_step_results,
+            parent_scope_frames=enclosing_frames,
             proof_context=proof_context,
         )
         else_outputs = self._validate_if_branch(
@@ -2086,6 +2205,7 @@ class _WorkflowMappingValidator:
             parent_scope_artifacts=scope_artifacts,
             parent_scope_multi_visit=scope_multi_visit,
             parent_scope_non_step_results=scope_non_step_results,
+            parent_scope_frames=enclosing_frames,
             proof_context=proof_context,
         )
 
@@ -2123,7 +2243,8 @@ class _WorkflowMappingValidator:
         parent_scope_artifacts: Dict[str, Any],
         parent_scope_multi_visit: Set[str],
         parent_scope_non_step_results: Set[str],
-        proof_context: Optional[Dict[str, str]] = None,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
+        proof_context: Optional[Dict[Any, Any]] = None,
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Validate one branch block of a structured if/else statement."""
         if branch is None:
@@ -2165,6 +2286,7 @@ class _WorkflowMappingValidator:
             parent_multi_visit=parent_scope_multi_visit,
             scope_non_step_results=branch_scope_non_step_results,
             parent_non_step_results=parent_scope_non_step_results,
+            parent_scope_frames=parent_scope_frames,
             top_level=False,
             proof_context=proof_context,
         )
@@ -2193,6 +2315,7 @@ class _WorkflowMappingValidator:
                 parent_scope_multi_visit,
                 branch_scope_non_step_results,
                 parent_scope_non_step_results,
+                parent_scope_frames=parent_scope_frames,
             )
             declared_type = spec.get('type')
             if ref_type == 'unknown' or not isinstance(declared_type, str):
@@ -2222,7 +2345,8 @@ class _WorkflowMappingValidator:
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
         allow_nested: bool = False,
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
     ) -> None:
         """Validate one top-level structured match statement."""
         if not top_level and not allow_nested:
@@ -2270,6 +2394,7 @@ class _WorkflowMappingValidator:
             parent_multi_visit,
             scope_non_step_results,
             parent_non_step_results,
+            parent_scope_frames=parent_scope_frames,
         )
         allowed_values = ref_contract.get('allowed') if isinstance(ref_contract, dict) else None
         if not isinstance(ref_contract, dict) or ref_contract.get('type') != 'enum' or not isinstance(allowed_values, list):
@@ -2300,6 +2425,13 @@ class _WorkflowMappingValidator:
                 ref_contract=ref_contract,
                 proof_context=proof_context,
             )
+            enclosing_frames = self._lexical_parent_scope_frames(
+                version,
+                parent_artifacts,
+                parent_multi_visit,
+                parent_non_step_results,
+                parent_scope_frames,
+            )
             outputs = self._validate_match_case(
                 statement_name=step_name,
                 case_name=case_name,
@@ -2310,6 +2442,7 @@ class _WorkflowMappingValidator:
                 parent_scope_artifacts=scope_artifacts,
                 parent_scope_multi_visit=scope_multi_visit,
                 parent_scope_non_step_results=scope_non_step_results,
+                parent_scope_frames=enclosing_frames,
                 proof_context=case_proof_context,
             )
             if outputs is not None:
@@ -2364,6 +2497,7 @@ class _WorkflowMappingValidator:
         parent_scope_artifacts: Dict[str, Any],
         parent_scope_multi_visit: Set[str],
         parent_scope_non_step_results: Set[str],
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
         proof_context: Optional[Dict[str, str]] = None,
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Validate one case block of a structured match statement."""
@@ -2406,6 +2540,7 @@ class _WorkflowMappingValidator:
             parent_multi_visit=parent_scope_multi_visit,
             scope_non_step_results=case_scope_non_step_results,
             parent_non_step_results=parent_scope_non_step_results,
+            parent_scope_frames=parent_scope_frames,
             top_level=False,
             proof_context=proof_context,
         )
@@ -2434,6 +2569,7 @@ class _WorkflowMappingValidator:
                 parent_scope_multi_visit,
                 case_scope_non_step_results,
                 parent_scope_non_step_results,
+                parent_scope_frames=parent_scope_frames,
             )
             declared_type = spec.get('type')
             if ref_type == 'unknown' or not isinstance(declared_type, str):
@@ -2464,6 +2600,7 @@ class _WorkflowMappingValidator:
         top_level: bool,
         allow_nested: bool = False,
         proof_context: Optional[Dict[str, str]] = None,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
     ) -> None:
         """Validate one top-level post-test repeat_until statement."""
         if not top_level and not allow_nested:
@@ -2533,6 +2670,9 @@ class _WorkflowMappingValidator:
         body_scope_artifacts = self._build_scope_artifact_catalog(body_steps, artifacts_registry)
         body_scope_multi_visit = self._build_root_ref_catalog(body_steps, artifacts_registry).get('multi_visit', set())
         body_scope_non_step_results = self._build_scope_non_step_result_targets(body_steps)
+        enclosing_frames = self._lexical_parent_scope_frames(
+            version, parent_artifacts, parent_multi_visit, parent_non_step_results, parent_scope_frames,
+        )
         self._validate_steps(
             body_steps,
             version,
@@ -2544,6 +2684,7 @@ class _WorkflowMappingValidator:
             parent_multi_visit=scope_multi_visit,
             scope_non_step_results=body_scope_non_step_results,
             parent_non_step_results=scope_non_step_results,
+            parent_scope_frames=enclosing_frames,
             top_level=False,
             allow_nested_structured=True,
             proof_context=proof_context,
@@ -2574,6 +2715,7 @@ class _WorkflowMappingValidator:
                 scope_multi_visit,
                 body_scope_non_step_results,
                 scope_non_step_results,
+                parent_scope_frames=enclosing_frames,
             )
             declared_type = spec.get('type')
             if ref_type != 'unknown' and isinstance(declared_type, str):
@@ -3321,6 +3463,22 @@ class _WorkflowMappingValidator:
         pair_present = identity_version is not None or binding_plan is not None
         fragment_present = fragment_contract is not None
         subject_refs = self._workflow_subject_refs("step_id", step_name)
+
+        projection_present = any(
+            isinstance(row, Mapping)
+            and isinstance(row.get("value_source"), Mapping)
+            and row["value_source"].get("kind") == "typed_union_projection"
+            for row in (step.get("typed_prompt_inputs") or ())
+        ) or any(
+            getattr(slot, "value_source", {}).get("kind") == "typed_union_projection"
+            for slot in getattr(fragment_contract, "rendered_slots", ())
+        )
+        if projection_present and not self._version_at_least(version, "2.28"):
+            self._add_error(
+                "typed_union_projection_target_dsl_unsupported: "
+                "typed union prompt sources require target DSL 2.28",
+                subject_refs=subject_refs,
+            )
 
         if not self._version_at_least(version, "2.22"):
             if pair_present:
@@ -4418,7 +4576,12 @@ class _WorkflowMappingValidator:
         allow_guidance_keys: bool = False,
         below_container: bool = False,
     ) -> None:
-        if not allow_guidance_keys and self._version_at_least(version, "2.15"):
+        recursive_bundle = kind_label == "output_bundle" and self._version_at_least(version, "2.31")
+        if recursive_bundle and not allow_guidance_keys:
+            self._validate_field_guidance(
+                spec, context=field_context, version=version, subject_refs=subject_refs,
+            )
+        elif not allow_guidance_keys and self._version_at_least(version, "2.15"):
             for key in ('description', 'format_hint', 'example', 'guidance_context', 'guidance_by_variant'):
                 if key in spec:
                     self._add_error(
@@ -4464,7 +4627,7 @@ class _WorkflowMappingValidator:
                     )
 
         if output_type in {'record', 'union'}:
-            if not below_container:
+            if not below_container and not (recursive_bundle and spec.get('json_pointer') == ''):
                 self._add_error(
                     (
                         f"{field_context} {kind_label} structural type must appear "
@@ -4601,12 +4764,86 @@ class _WorkflowMappingValidator:
         *,
         step: Dict[str, Any],
         step_name: str,
+        version: str,
         root_catalog: Dict[str, Any],
-        proof_context: Dict[str, str],
-    ) -> Dict[str, str]:
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
+        proof_context: Dict[Any, Any],
+    ) -> Dict[Any, Any]:
         """Merge step-local requires_variant proof into the inherited proof context."""
         requires_variant = step.get('requires_variant')
         if not isinstance(requires_variant, dict):
+            return proof_context
+
+        if self._version_at_least(version, "2.29") and set(requires_variant) == {'ref', 'allowed'}:
+            allowed = requires_variant.get('allowed')
+            if (
+                not isinstance(allowed, list)
+                or not allowed
+                or any(not isinstance(value, str) or not value for value in allowed)
+                or len(set(allowed)) != len(allowed)
+            ):
+                self._add_error(
+                    f"Step '{step_name}': requires_variant.allowed must be a non-empty list of distinct variants"
+                )
+                return proof_context
+            discriminant_spec = self._resolve_structured_ref_contract(
+                requires_variant.get('ref'),
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+                parent_scope_frames=parent_scope_frames,
+            )
+            if (
+                not isinstance(discriminant_spec, dict)
+                or discriminant_spec.get('variant_role') != 'discriminant'
+                or not isinstance(discriminant_spec.get('_variant_proof_identity'), tuple)
+            ):
+                self._add_error(
+                    f"Step '{step_name}': requires_variant.ref must reference a declared union discriminant"
+                )
+                return proof_context
+            declared = discriminant_spec.get('allowed')
+            if not isinstance(declared, list) or not set(allowed).issubset(declared):
+                self._add_error(
+                    f"Step '{step_name}': requires_variant.allowed contains undeclared variants"
+                )
+                return proof_context
+            identity = discriminant_spec['_variant_proof_identity']
+            merged = dict(proof_context)
+            existing = merged.get(identity)
+            requested = frozenset(allowed)
+            if isinstance(existing, frozenset):
+                requested = existing & requested
+                if not requested:
+                    self._add_error(
+                        f"Step '{step_name}': requires_variant contradicts active proof for its declared discriminant"
+                    )
+                    return merged
+            merged[identity] = requested
+            return merged
+
+        if self._version_at_least(version, "2.29") and {'ref', 'allowed'} & set(requires_variant):
+            self._add_error(
+                f"Step '{step_name}': requires_variant must declare exactly ref and allowed"
+            )
+            return proof_context
+
+        if self._version_at_least(version, "2.29") and set(requires_variant) != {'step', 'value'}:
+            self._add_error(
+                f"Step '{step_name}': requires_variant must declare exactly step and value or ref and allowed"
+            )
             return proof_context
 
         producer_step = requires_variant.get('step')
@@ -4616,6 +4853,18 @@ class _WorkflowMappingValidator:
             return proof_context
 
         discriminant_spec = self._variant_discriminant_spec_for_step(root_catalog, producer_step)
+        if self._version_at_least(version, "2.29"):
+            root_artifacts = root_catalog.get('artifacts', {})
+            producer_artifacts = root_artifacts.get(producer_step) if isinstance(root_artifacts, dict) else None
+            discriminants = [
+                spec for spec in producer_artifacts.values()
+                if isinstance(spec, dict) and spec.get('variant_role') == 'discriminant'
+            ] if isinstance(producer_artifacts, dict) else []
+            if len(discriminants) != 1:
+                self._add_error(
+                    f"Step '{step_name}': legacy requires_variant.step '{producer_step}' is ambiguous; use ref and allowed"
+                )
+                return proof_context
         if not isinstance(discriminant_spec, dict):
             self._add_error(
                 f"Step '{step_name}': requires_variant.step '{producer_step}' does not reference a variant-producing step"
@@ -4630,13 +4879,27 @@ class _WorkflowMappingValidator:
             return proof_context
 
         merged = dict(proof_context)
-        existing_variant = merged.get(producer_step)
-        if existing_variant is not None and existing_variant != required_variant:
+        discriminant_name = discriminant_spec.get('discriminant_output')
+        proof_key: Any = producer_step
+        required_proof: Any = required_variant
+        if self._version_at_least(version, "2.29") and isinstance(discriminant_name, str):
+            root_artifacts = root_catalog.get('artifacts', {})
+            proof_key = (id(root_artifacts), producer_step, discriminant_name)
+            required_proof = frozenset((required_variant,))
+        existing_variant = merged.get(proof_key)
+        if isinstance(existing_variant, frozenset) and isinstance(required_proof, frozenset):
+            required_proof = existing_variant & required_proof
+            if not required_proof:
+                self._add_error(
+                    f"Step '{step_name}': requires_variant for step '{producer_step}' contradicts active proof '{existing_variant}'"
+                )
+                return merged
+        elif existing_variant is not None and existing_variant != required_proof:
             self._add_error(
                 f"Step '{step_name}': requires_variant for step '{producer_step}' contradicts active proof '{existing_variant}'"
             )
             return merged
-        merged[producer_step] = required_variant
+        merged[proof_key] = required_proof
         return merged
 
     def _extend_match_case_variant_proof(
@@ -4645,8 +4908,8 @@ class _WorkflowMappingValidator:
         step_name: str,
         case_name: str,
         ref_contract: Optional[Dict[str, Any]],
-        proof_context: Optional[Dict[str, str]],
-    ) -> Dict[str, str]:
+        proof_context: Optional[Dict[Any, Any]],
+    ) -> Dict[Any, Any]:
         """Attach match-case proof when the selector is a variant discriminant."""
         merged = dict(proof_context or {})
         if not isinstance(ref_contract, dict):
@@ -4654,17 +4917,27 @@ class _WorkflowMappingValidator:
         if ref_contract.get('variant_role') != 'discriminant':
             return merged
 
+        identity = ref_contract.get('_variant_proof_identity')
         producer_step = ref_contract.get('variant_owner_step')
-        if not isinstance(producer_step, str) or not producer_step:
+        if not isinstance(identity, tuple) and (not isinstance(producer_step, str) or not producer_step):
             return merged
 
-        existing_variant = merged.get(producer_step)
-        if existing_variant is not None and existing_variant != case_name:
+        proof_key: Any = identity if isinstance(identity, tuple) else producer_step
+        possible_variants: Any = frozenset((case_name,)) if isinstance(identity, tuple) else case_name
+        existing_variant = merged.get(proof_key)
+        if isinstance(existing_variant, frozenset) and isinstance(possible_variants, frozenset):
+            possible_variants = existing_variant & possible_variants
+            if not possible_variants:
+                self._add_error(
+                    f"Step '{step_name}': match case '{case_name}' contradicts active proof '{existing_variant}' for step '{producer_step}'"
+                )
+                return merged
+        elif existing_variant is not None and existing_variant != possible_variants:
             self._add_error(
                 f"Step '{step_name}': match case '{case_name}' contradicts active proof '{existing_variant}' for step '{producer_step}'"
             )
             return merged
-        merged[producer_step] = case_name
+        merged[proof_key] = possible_variants
         return merged
 
     def _variant_discriminant_spec_for_step(
@@ -4694,7 +4967,7 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
-        proof_context: Dict[str, str],
+        proof_context: Dict[Any, Any],
     ) -> None:
         """Validate private v2.14 materialize_artifacts refs and pointers."""
         context = f"Step '{step_name}': materialize_artifacts"
@@ -4782,7 +5055,7 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
-        proof_context: Dict[str, str],
+        proof_context: Dict[Any, Any],
     ) -> None:
         """Validate private v2.14 pre_snapshot candidate refs."""
         context = f"Step '{step_name}': pre_snapshot"
@@ -4838,7 +5111,7 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
-        proof_context: Dict[str, str],
+        proof_context: Dict[Any, Any],
     ) -> None:
         """Validate private v2.14 select_variant_output snapshot evidence refs."""
         context = f"Step '{step_name}': select_variant_output"
@@ -5301,6 +5574,28 @@ class _WorkflowMappingValidator:
             return False
         return self.VERSION_ORDER.index(version) >= self.VERSION_ORDER.index(minimum)
 
+    def _lexical_parent_scope_frames(
+        self,
+        version: str,
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        parent_non_step_results: Optional[Set[str]],
+        inherited_frames: tuple[_LexicalScopeFrame, ...] = (),
+    ) -> tuple[_LexicalScopeFrame, ...]:
+        """Keep defining catalogs across compiler-owned nested control at 2.29."""
+        if not self._version_at_least(version, "2.29"):
+            return ()
+        if parent_artifacts is None:
+            return inherited_frames
+        return (
+            _LexicalScopeFrame(
+                artifacts=parent_artifacts,
+                multi_visit=parent_multi_visit or set(),
+                non_step_results=parent_non_step_results or set(),
+            ),
+            *inherited_frames,
+        )
+
     def _build_root_ref_catalog(
         self,
         steps: List[Any],
@@ -5363,6 +5658,33 @@ class _WorkflowMappingValidator:
                 continue
 
             outputs: Dict[str, Any] = {}
+            context_config = step.get('provider_context')
+            if isinstance(context_config, Mapping) and 'capture' in context_config:
+                from .provider_context import capture_artifact_contracts
+
+                try:
+                    captured = capture_artifact_contracts(context_config)
+                    outputs = {
+                        artifact: self._normalize_output_contract_artifact_spec(
+                            contract, persisted=True, owner_step_name=name,
+                        )
+                        for artifact, contract in captured.items()
+                    }
+                except (KeyError, TypeError, ValueError) as exc:
+                    self._add_error(f"Step '{name}': invalid provider context outputs: {exc}")
+                artifact_map[name] = outputs
+                continue
+            if 'request_input' in step:
+                from .human_input import human_reply_artifact_contracts
+
+                outputs = {
+                    artifact: self._normalize_output_contract_artifact_spec(
+                        contract, persisted=True, owner_step_name=name,
+                    )
+                    for artifact, contract in human_reply_artifact_contracts().items()
+                }
+                artifact_map[name] = outputs
+                continue
             if is_if_statement(step):
                 outputs = self._collect_if_statement_outputs(step)
                 artifact_map[name] = outputs
@@ -5432,9 +5754,36 @@ class _WorkflowMappingValidator:
                                 owner_step_name=name,
                             )
 
+            pure_projection = step.get('pure_projection')
+            if (
+                self._version_at_least(self._workflow_version, "2.29")
+                and isinstance(pure_projection, dict)
+            ):
+                output_contracts = pure_projection.get('output_contracts')
+                if isinstance(output_contracts, dict):
+                    for artifact_name, spec in output_contracts.items():
+                        if isinstance(artifact_name, str) and isinstance(spec, dict):
+                            outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                                spec,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                owner_step_name=name,
+                            )
+
             variant_output = step.get('variant_output')
             if isinstance(variant_output, dict):
                 discriminant = variant_output.get('discriminant')
+                discriminant_name = discriminant.get('name') if isinstance(discriminant, dict) else None
+                variants = variant_output.get('variants')
+                declared_variants = list(variants) if isinstance(variants, dict) else []
+                variant_metadata = (
+                    {
+                        'union_output_group': discriminant_name,
+                        'discriminant_output': discriminant_name,
+                        'active_variants': declared_variants,
+                    }
+                    if isinstance(discriminant_name, str) and declared_variants
+                    else {}
+                )
                 if isinstance(discriminant, dict):
                     artifact_name = discriminant.get('name')
                     if isinstance(artifact_name, str):
@@ -5445,6 +5794,7 @@ class _WorkflowMappingValidator:
                             ),
                             'variant_owner_step': name,
                             'variant_role': 'discriminant',
+                            **variant_metadata,
                         }
                 shared_fields = variant_output.get('shared_fields')
                 if isinstance(shared_fields, list):
@@ -5460,8 +5810,8 @@ class _WorkflowMappingValidator:
                                 ),
                                 'variant_owner_step': name,
                                 'variant_role': 'shared',
+                                **variant_metadata,
                             }
-                variants = variant_output.get('variants')
                 if isinstance(variants, dict):
                     for variant_name, variant_spec in variants.items():
                         if not isinstance(variant_spec, dict):
@@ -5474,7 +5824,7 @@ class _WorkflowMappingValidator:
                                 continue
                             artifact_name = spec.get('name')
                             if isinstance(artifact_name, str):
-                                outputs[artifact_name] = {
+                                field_output = {
                                     **self._normalize_output_contract_artifact_spec(
                                         spec,
                                         persisted=step.get('persist_artifacts_in_state', True) is not False,
@@ -5482,10 +5832,28 @@ class _WorkflowMappingValidator:
                                     'variant_owner_step': name,
                                     'variant_role': 'field',
                                     'variant_required': variant_name,
+                                    **{
+                                        **variant_metadata,
+                                        'active_variants': [variant_name],
+                                    },
                                 }
+                                existing = outputs.get(artifact_name)
+                                if isinstance(existing, dict) and existing.get('variant_role') == 'field':
+                                    field_output['active_variants'] = sorted(
+                                        set(existing.get('active_variants', ())) | {variant_name}
+                                    )
+                                outputs[artifact_name] = field_output
             select_variant_output = step.get('select_variant_output')
             if isinstance(select_variant_output, dict):
                 discriminant = select_variant_output.get('discriminant')
+                discriminant_name = discriminant.get('name') if isinstance(discriminant, dict) else None
+                variants = select_variant_output.get('variants')
+                declared_variants = list(variants) if isinstance(variants, dict) else []
+                variant_metadata = {
+                    'union_output_group': discriminant_name,
+                    'discriminant_output': discriminant_name,
+                    'active_variants': declared_variants,
+                } if isinstance(discriminant_name, str) and declared_variants else {}
                 if isinstance(discriminant, dict):
                     artifact_name = discriminant.get('name')
                     if isinstance(artifact_name, str):
@@ -5496,8 +5864,8 @@ class _WorkflowMappingValidator:
                             ),
                             'variant_owner_step': name,
                             'variant_role': 'discriminant',
+                            **variant_metadata,
                         }
-                variants = select_variant_output.get('variants')
                 if isinstance(variants, dict):
                     for variant_name, variant_spec in variants.items():
                         if not isinstance(variant_spec, dict):
@@ -5510,7 +5878,7 @@ class _WorkflowMappingValidator:
                                 continue
                             artifact_name = spec.get('name')
                             if isinstance(artifact_name, str):
-                                outputs[artifact_name] = {
+                                field_output = {
                                     **self._normalize_output_contract_artifact_spec(
                                         spec,
                                         persisted=step.get('persist_artifacts_in_state', True) is not False,
@@ -5518,7 +5886,14 @@ class _WorkflowMappingValidator:
                                     'variant_owner_step': name,
                                     'variant_role': 'field',
                                     'variant_required': variant_name,
+                                    **{**variant_metadata, 'active_variants': [variant_name]},
                                 }
+                                existing = outputs.get(artifact_name)
+                                if isinstance(existing, dict) and existing.get('variant_role') == 'field':
+                                    field_output['active_variants'] = sorted(
+                                        set(existing.get('active_variants', ())) | {variant_name}
+                                    )
+                                outputs[artifact_name] = field_output
 
             materialize_artifacts = step.get('materialize_artifacts')
             if isinstance(materialize_artifacts, dict):
@@ -5533,11 +5908,13 @@ class _WorkflowMappingValidator:
                             artifact_map=artifact_map,
                         )
                         if isinstance(artifact_name, str) and isinstance(contract, dict):
-                            outputs[artifact_name] = {
-                                'type': contract.get('type'),
-                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
-                                'allowed': deepcopy(contract.get('allowed')) if isinstance(contract.get('allowed'), list) else None,
-                            }
+                            outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                                contract,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                owner_step_name=(
+                                    name if self._version_at_least(self._workflow_version, "2.29") else None
+                                ),
+                            )
 
             materialize_view = step.get('materialize_view')
             if isinstance(materialize_view, dict):
@@ -5711,6 +6088,7 @@ class _WorkflowMappingValidator:
     ) -> Dict[str, Any]:
         """Project one output contract into structured-ref metadata."""
         normalized = {
+            **(deepcopy(spec) if self._version_at_least(self._workflow_version, "2.31") else {}),
             'type': spec.get('type'),
             'persisted': persisted,
             'allowed': deepcopy(spec.get('allowed')) if isinstance(spec.get('allowed'), list) else None,
@@ -5738,6 +6116,12 @@ class _WorkflowMappingValidator:
                     and isinstance(active_variants[0], str)
                 ):
                     normalized['variant_required'] = active_variants[0]
+            group = projection.get('union_output_group')
+            discriminant_output = projection.get('discriminant_output')
+            if isinstance(group, str) and isinstance(discriminant_output, str) and isinstance(active_variants, list):
+                normalized['union_output_group'] = group
+                normalized['discriminant_output'] = discriminant_output
+                normalized['active_variants'] = deepcopy(active_variants)
         return normalized
 
     def _build_scope_non_step_result_targets(self, steps: List[Any]) -> Set[str]:
@@ -6108,8 +6492,9 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
         allow_snapshot_ref: bool = False,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
     ) -> str:
         contract = self._resolve_structured_ref_contract(
             ref,
@@ -6124,6 +6509,7 @@ class _WorkflowMappingValidator:
             parent_non_step_results,
             proof_context=proof_context,
             allow_snapshot_ref=allow_snapshot_ref,
+            parent_scope_frames=parent_scope_frames,
         )
         if not isinstance(contract, dict):
             return 'unknown'
@@ -6141,8 +6527,9 @@ class _WorkflowMappingValidator:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
-        proof_context: Optional[Dict[str, str]] = None,
+        proof_context: Optional[Dict[Any, Any]] = None,
         allow_snapshot_ref: bool = False,
+        parent_scope_frames: tuple[_LexicalScopeFrame, ...] = (),
     ) -> Optional[Dict[str, Any]]:
         if not isinstance(ref, str) or not ref:
             self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
@@ -6164,6 +6551,7 @@ class _WorkflowMappingValidator:
                 )
                 return None
             return {
+                **(deepcopy(spec) if self._version_at_least(version, "2.31") else {}),
                 'type': spec.get('type', 'unknown'),
                 'allowed': deepcopy(spec.get('allowed')) if isinstance(spec.get('allowed'), list) else None,
             }
@@ -6178,6 +6566,14 @@ class _WorkflowMappingValidator:
 
         scope_name = ref.split('.', 1)[0]
         resolved_scope_name = scope_name
+        lexical_parent_frames = self._lexical_parent_scope_frames(
+            version,
+            parent_artifacts,
+            parent_multi_visit,
+            parent_non_step_results,
+            parent_scope_frames,
+        )
+        selected_parent_frame: Optional[_LexicalScopeFrame] = None
         if self._version_at_least(version, "2.0"):
             if scope_name == 'root':
                 if not ref.startswith('root.steps.'):
@@ -6193,10 +6589,20 @@ class _WorkflowMappingValidator:
                 if not ref.startswith('parent.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
                     return None
-                if parent_artifacts is None:
+                if (
+                    self._version_at_least(version, "2.29")
+                    and not lexical_parent_frames
+                ) or (
+                    not self._version_at_least(version, "2.29")
+                    and parent_artifacts is None
+                ):
                     self._add_error(f"Step '{step_name}': parent refs are unavailable in the root scope")
                     return None
-                artifacts_catalog = parent_artifacts
+                artifacts_catalog = (
+                    lexical_parent_frames[0].artifacts
+                    if self._version_at_least(version, "2.29")
+                    else parent_artifacts
+                )
             else:
                 self._add_error(
                     f"Step '{step_name}': structured refs must start with root.steps., self.steps., or parent.steps."
@@ -6214,16 +6620,31 @@ class _WorkflowMappingValidator:
                 return None
             artifacts_catalog = root_catalog.get('artifacts', {})
 
+        parse_targets = artifacts_catalog.keys()
+        if scope_name == 'parent' and self._version_at_least(version, "2.29"):
+            parse_targets = {
+                name
+                for frame in lexical_parent_frames
+                for name in frame.artifacts
+            }
         try:
-            parsed_ref = parse_structured_ref(ref, artifacts_catalog.keys())
+            parsed_ref = parse_structured_ref(ref, parse_targets)
         except ReferenceResolutionError:
             self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
             return None
 
         target_step = parsed_ref.step_name
+        if scope_name == 'parent' and self._version_at_least(version, "2.29"):
+            selected_parent_frame = next(
+                (frame for frame in lexical_parent_frames if target_step in frame.artifacts),
+                None,
+            )
+            if selected_parent_frame is not None:
+                artifacts_catalog = selected_parent_frame.artifacts
         if (
             scope_name == 'parent'
             and target_step not in artifacts_catalog
+            and not self._version_at_least(version, "2.29")
             and self._boundary_validation_policy is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
             and (step_name, ref) in self._dedicated_runtime_proof_parent_ref_allowances
         ):
@@ -6236,8 +6657,12 @@ class _WorkflowMappingValidator:
             multi_visit = root_catalog.get('multi_visit', set())
             non_step_results = root_catalog.get('non_step_results', set())
         elif resolved_scope_name == 'parent':
-            multi_visit = parent_multi_visit or set()
-            non_step_results = parent_non_step_results or set()
+            if selected_parent_frame is not None:
+                multi_visit = selected_parent_frame.multi_visit
+                non_step_results = selected_parent_frame.non_step_results
+            else:
+                multi_visit = parent_multi_visit or set()
+                non_step_results = parent_non_step_results or set()
         elif resolved_scope_name == 'all':
             multi_visit = (
                 root_catalog.get('multi_visit', set())
@@ -6295,21 +6720,75 @@ class _WorkflowMappingValidator:
                     f"Step '{step_name}': structured ref '{ref}' targets a non-persisted artifact"
                 )
                 return None
+            resolved_spec = dict(artifact_spec)
+            discriminant_output = artifact_spec.get('discriminant_output') if isinstance(artifact_spec, dict) else None
+            union_output_group = artifact_spec.get('union_output_group') if isinstance(artifact_spec, dict) else None
+            if (
+                self._version_at_least(version, "2.29")
+                and isinstance(discriminant_output, str)
+                and isinstance(union_output_group, str)
+            ):
+                if (
+                    artifact_spec.get('variant_role') == 'discriminant'
+                    and artifact_name != discriminant_output
+                ):
+                    self._add_error(
+                        f"Step '{step_name}': structured ref '{ref}' has inconsistent union discriminant metadata"
+                    )
+                    return None
+                declared_discriminant = artifacts.get(discriminant_output)
+                if not (
+                    isinstance(declared_discriminant, dict)
+                    and declared_discriminant.get('variant_role') == 'discriminant'
+                    and declared_discriminant.get('union_output_group') == union_output_group
+                    and declared_discriminant.get('discriminant_output') == discriminant_output
+                ):
+                    self._add_error(
+                        f"Step '{step_name}': structured ref '{ref}' has inconsistent union discriminant metadata"
+                    )
+                    return None
+                resolved_spec['_variant_proof_identity'] = (
+                    id(artifacts_catalog),
+                    target_step,
+                    discriminant_output,
+                )
             required_variant = artifact_spec.get('variant_required') if isinstance(artifact_spec, dict) else None
-            if isinstance(required_variant, str) and proof_context is not None:
-                variant_owner = artifact_spec.get('variant_owner_step', target_step)
-                proven_variant = proof_context.get(variant_owner)
-                if proven_variant != required_variant:
+            active_variants = artifact_spec.get('active_variants') if isinstance(artifact_spec, dict) else None
+            requires_variant_proof = isinstance(required_variant, str) or (
+                self._version_at_least(version, "2.29")
+                and artifact_spec.get('variant_role') == 'field'
+                and isinstance(active_variants, list)
+            )
+            if requires_variant_proof and proof_context is not None:
+                proof_identity = resolved_spec.get('_variant_proof_identity')
+                if isinstance(active_variants, list) and isinstance(proof_identity, tuple):
+                    proven_variants = proof_context.get(proof_identity)
+                    proof_satisfies_field = (
+                        isinstance(proven_variants, frozenset)
+                        and bool(proven_variants)
+                        and proven_variants.issubset(set(active_variants))
+                    )
+                else:
+                    variant_owner = artifact_spec.get('variant_owner_step', target_step)
+                    proven_variants = proof_context.get(variant_owner)
+                    proof_satisfies_field = proven_variants == required_variant
+                if not proof_satisfies_field:
+                    proven_variant = proven_variants
                     if proven_variant is None:
                         self._add_error(
                             f"Step '{step_name}': structured ref '{ref}' targets variant-specific artifact '{artifact_name}' without required author-time variant proof"
                         )
                     else:
+                        required_description = (
+                            repr(active_variants)
+                            if isinstance(active_variants, list) and isinstance(proof_identity, tuple)
+                            else repr(required_variant)
+                        )
                         self._add_error(
-                            f"Step '{step_name}': structured ref '{ref}' requires variant proof '{required_variant}' but active proof is '{proven_variant}'"
+                            f"Step '{step_name}': structured ref '{ref}' requires variant proof {required_description} but active proof is '{proven_variant}'"
                         )
                     return None
-            return artifact_spec
+            return resolved_spec
         if parsed_ref.field == 'snapshots':
             if not allow_snapshot_ref:
                 self._add_error(

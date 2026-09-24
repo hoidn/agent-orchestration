@@ -41,6 +41,7 @@ from ..expressions import (
     ProcedureCallExpr,
     PromptDependencySpec,
     ProviderResultExpr,
+    RequestInputExpr,
     FinalizeSelectedItemExpr,
     RecordUpdateExpr,
     RecordExpr,
@@ -57,7 +58,13 @@ from ..phase_family_boundary import (
 )
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from ..reader import SourceReadTrace, _read_source_file_views
-from ..syntax import target_dsl_supports_list_traversal
+from ..syntax import (
+    HelperExpansionFrame,
+    ProcedureExpansionFrame,
+    target_dsl_supports_list_traversal,
+    target_dsl_supports_pure_call_composition,
+    target_dsl_supports_rich_loop_values,
+)
 from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 from ..workflows import CommandBoundaryEnvironment, ExternEnvironment, TypedWorkflowDef, WorkflowCatalog, WorkflowDef, WorkflowSignature
@@ -68,6 +75,7 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.references import MaterializeViewBindingReference
 from orchestrator.workflow.view_renderer import VIEW_RENDERER_SCHEMA_VERSION, resolve_view_renderer
 from ..lowering import core as lowering_core
+from ..syntax import target_dsl_supports_union_prompt_input
 from ..entry_publication import EntryPublicationPolicyRow, resolve_publication_role_registry
 from ..lexical_checkpoint_restore import build_restore_metadata
 from ..lexical_checkpoint_effect_policies import build_effect_resume_policy
@@ -78,7 +86,10 @@ from ..lowering.context import (
     _context_with_local_type_binding,
     _copy_context_with_phase_scope,
 )
-from ..lowering.control_dispatch import _binding_local_value_from_terminal
+from ..lowering.control_dispatch import (
+    _binding_local_value_from_terminal,
+    _lower_pure_projection_binding_expr,
+)
 from ..lowering.origins import GeneratedSemanticEffectBinding, LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
 from ..lowering.generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
@@ -90,8 +101,8 @@ from ..lowering.pure_projection import (
     lower_pure_projection_step,
     try_evaluate_static_pure_expr,
 )
-from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values
-from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
+from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values, lower_rich_structural_return, union_output_refs_from_source
+from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation, _lower_request_input_operation
 from ..lowering.phase_flow import (
     _phase_stdlib_lower_produce_one_of_impl,
     _phase_stdlib_lower_resume_or_start_impl,
@@ -742,6 +753,7 @@ def _lower_one_wcc_workflow(
         )
     )
     scope_analysis = analyze_wcc_body(wcc_body)
+    continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
     local_values = _signature_local_values(typed_workflow)
     lexical_checkpoint_points: list[Mapping[str, object]] = []
     steps, terminal = _defunctionalize_body(
@@ -749,6 +761,7 @@ def _lower_one_wcc_workflow(
         context=context,
         local_values=local_values,
         scope_analysis=scope_analysis,
+        continuation_binding_demands=continuation_binding_demands,
         lexical_checkpoint_points=lexical_checkpoint_points,
     )
     steps, terminal = lowering_core._normalize_top_level_terminal(
@@ -987,6 +1000,9 @@ def _lower_one_wcc_workflow(
         for point in lexical_checkpoint_points
         if isinstance(point.get("step_id"), str) and point.get("step_id") in emitted_step_ids
     ]
+    compiler_owned_repeat_until_metadata = (
+        lowering_core._capture_compiler_owned_repeat_until_metadata(authored_mapping)
+    )
     return lowering_core.LoweredWorkflow(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
@@ -1015,14 +1031,13 @@ def _lower_one_wcc_workflow(
         generated_repeat_until_on_exhausted_refs=(
             lowering_core._capture_generated_repeat_until_on_exhausted_refs(authored_mapping)
         ),
-        compiler_owned_repeat_until_metadata=(
-            lowering_core._capture_compiler_owned_repeat_until_metadata(
-                authored_mapping
-            )
-        ),
+        compiler_owned_repeat_until_metadata=compiler_owned_repeat_until_metadata,
         compiler_owned_nested_if_step_ids=(
             lowering_core._capture_compiler_owned_nested_if_step_ids(
-                authored_mapping
+                authored_mapping,
+                compiler_owned_repeat_until_metadata=(
+                    compiler_owned_repeat_until_metadata
+                ),
             )
         ),
     )
@@ -1464,36 +1479,45 @@ def _collect_restore_match_descriptors(
             continue
         if isinstance(local_value, Mapping) and "__lowering_returned_union_type" in local_value:
             continue
-        value_document = _binding_restore_value_document(local_value)
-        if value_document is None:
-            continue
         source_step_name = _local_value_source_step_name(local_value)
-        binding_step_name = _binding_step_prefix(context, binding_name)
-        if (
-            isinstance(local_value, str)
-            and isinstance(source_step_name, str)
-            and _match_subject_from_step_name(source_step_name) is None
-            and source_step_name != binding_step_name
-        ):
-            continue
-        descriptor = {
-            "binding_name": binding_name,
-            "binding_kind": "pure_binding",
-            "type_ref": _type_ref_name(context.local_type_bindings.get(binding_name)),
-            "source_map_origin_key": f"{context.workflow_name}::binding::{binding_name}",
-            "value_document": value_document,
-        }
         source_step_id = None
         if isinstance(source_step_name, str) and source_step_name:
             source_step_id = lowering_core._normalize_generated_step_id(source_step_name)
-            descriptor["source_step_name"] = source_step_name
-            descriptor["source_step_id"] = source_step_id
-            descriptor["source_map_origin_key"] = _origin_key_for_step(
+        source_map_origin_key = (
+            _origin_key_for_step(
                 context=context,
                 step_name=source_step_name,
                 step_id=source_step_id,
             )
-        binding_descriptors.append(descriptor)
+            if isinstance(source_step_name, str) and source_step_name and source_step_id
+            else f"{context.workflow_name}::binding::{binding_name}"
+        )
+        if not (
+            isinstance(local_value, Mapping)
+            and "__typed_union_prompt_source__" in local_value
+        ):
+            value_document = _binding_restore_value_document(local_value)
+            if value_document is None:
+                continue
+            binding_step_name = _binding_step_prefix(context, binding_name)
+            if (
+                isinstance(local_value, str)
+                and isinstance(source_step_name, str)
+                and _match_subject_from_step_name(source_step_name) is None
+                and source_step_name != binding_step_name
+            ):
+                continue
+            descriptor = {
+                "binding_name": binding_name,
+                "binding_kind": "pure_binding",
+                "type_ref": _type_ref_name(context.local_type_bindings.get(binding_name)),
+                "source_map_origin_key": source_map_origin_key,
+                "value_document": value_document,
+            }
+            if source_step_id is not None:
+                descriptor["source_step_name"] = source_step_name
+                descriptor["source_step_id"] = source_step_id
+            binding_descriptors.append(descriptor)
 
         if not isinstance(source_step_name, str) or _match_subject_from_step_name(source_step_name) is None:
             continue
@@ -1512,7 +1536,7 @@ def _collect_restore_match_descriptors(
                 "proof_source": source_step_id,
                 "source_step_name": source_step_name,
                 "source_step_id": source_step_id,
-                "source_map_origin_key": descriptor["source_map_origin_key"],
+                "source_map_origin_key": source_map_origin_key,
             }
         )
         seen_proof_sources.add(source_step_id)
@@ -1565,6 +1589,11 @@ def _binding_restore_value_document(local_value: Any) -> Any | None:
     if isinstance(local_value, Mapping):
         document: dict[str, Any] = {}
         for key, value in local_value.items():
+            if key in {
+                "__lowering_returned_union_type",
+                "__typed_union_prompt_source__",
+            }:
+                continue
             nested = _binding_restore_value_document(value)
             if nested is None:
                 return None
@@ -1659,6 +1688,21 @@ def _build_effect_resume_policy_payload(
             step_id=step_id,
             source_map_origin_key=origin_key,
             evidence_requirements={},
+        )
+    if step_kind == "request_input":
+        from orchestrator.workflow.human_input import human_reply_result_contract_digest
+
+        return build_effect_resume_policy(
+            policy_kind="reuse_validated_human_reply",
+            effect_kind="request_input",
+            boundary_kind="request_input",
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "human_reply": {
+                    "result_contract_digest": human_reply_result_contract_digest(),
+                }
+            },
         )
     if step_kind == "provider":
         bundle_identity = dict(terminal.provider_bundle_identity or {})
@@ -2074,6 +2118,10 @@ def _defunctionalize_body(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    continuation_binding_demands: Mapping[
+        int,
+        tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ],
     lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
@@ -2082,6 +2130,11 @@ def _defunctionalize_body(
         updated_locals = dict(local_values)
         binding_steps: list[dict[str, Any]] = []
         binding_hidden_inputs: dict[str, Any] = {}
+        (
+            run_ref_input_names,
+            provider_context_names,
+            request_input_names,
+        ) = continuation_binding_demands[id(body.body)]
         if isinstance(body.bound_value, WccProviderPeerGroup):
             binding_context = _context_with_wcc_phase_scope(
                 context,
@@ -2117,6 +2170,7 @@ def _defunctionalize_body(
                 body.bound_value,
                 binding_type=binding_type,
                 binding_terminal=binding_terminal,
+                context=context,
             )
             if local_value is not None:
                 updated_locals[body.bound_name] = local_value
@@ -2155,6 +2209,7 @@ def _defunctionalize_body(
                 body.bound_value,
                 binding_type=binding_type,
                 binding_terminal=binding_terminal,
+                context=context,
             )
             if local_value is not None:
                 updated_locals[body.bound_name] = local_value
@@ -2200,6 +2255,7 @@ def _defunctionalize_body(
                 body.bound_value,
                 binding_type=binding_type,
                 binding_terminal=binding_terminal,
+                context=context,
             )
             if (
                 isinstance(body.bound_value, WccPerform)
@@ -2215,61 +2271,169 @@ def _defunctionalize_body(
                 updated_locals[body.bound_name] = local_value
         else:
             binding_expr = _frontend_expr_from_wcc_binding_value(body.bound_value)
-            resolved_binding = _resolve_wcc_inline_expr_value(
-                binding_expr,
-                local_values=updated_locals,
+            expansion_owned = (
+                target_dsl_supports_pure_call_composition(
+                    context.type_env.target_dsl_version
+                )
+                and any(
+                    isinstance(
+                        frame,
+                        (HelperExpansionFrame, ProcedureExpansionFrame),
+                    )
+                    for frame in binding_expr.expansion_stack
+                )
             )
-            if (
-                is_pure_projection_expr(binding_expr)
-                and _wcc_run_ref_input_references_name(
-                    body.body,
-                    body.bound_name,
+            if expansion_owned and is_pure_projection_expr(binding_expr):
+                # A direct ref is already the materialized actual result.  In
+                # particular, do not give every generated formal alias its own
+                # projection/bundle; mappings and deferred frontend nodes are
+                # deliberately not aliases because they do not prove evaluation.
+                existing_ref = (
+                    updated_locals.get(binding_expr.name)
+                    if isinstance(binding_expr, NameExpr)
+                    else None
                 )
-            ):
-                resolved_binding = binding_expr
-            if (
-                isinstance(binding_expr, IfExpr)
-                and resolved_binding is not None
-                and not isinstance(resolved_binding, (str, Mapping))
-                and is_pure_projection_expr(resolved_binding)
-            ):
-                binding_step_name = _binding_step_prefix(context, body.bound_name)
-                binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
-                lowered_projection = lower_pure_projection_step(
-                    resolved_binding,
-                    result_type=binding_type,
-                    context=context,
-                    local_values=updated_locals,
-                    step_name=binding_step_name,
-                    step_id=binding_step_id,
-                    stable_target="binding_projection",
-                )
-                binding_steps = [lowered_projection.step]
-                binding_terminal = _TerminalResult(
-                    step_name=binding_step_name,
-                    step_id=binding_step_id,
-                    output_refs=lowered_projection.output_refs,
-                    output_kind="projection",
-                    hidden_inputs={},
-                )
-                if lexical_checkpoint_points is not None:
-                    lexical_checkpoint_points.append(
-                        _pure_projection_checkpoint_point_payload(
-                            workflow_name=context.workflow_name,
-                            let_binding=body,
-                            terminal=binding_terminal,
+                if isinstance(existing_ref, str):
+                    updated_locals[body.bound_name] = existing_ref
+                else:
+                    binding_step_name = _expansion_binding_step_prefix(
+                        context,
+                        binding_name=body.bound_name,
+                        scope_id=body.metadata.scope_id,
+                    )
+                    binding_steps, binding_terminal = (
+                        _lower_pure_projection_binding_expr(
+                            binding_expr,
+                            source_expr=binding_expr,
+                            binding_name=body.bound_name,
+                            binding_type=binding_type,
                             context=context,
                             local_values=updated_locals,
+                            step_name_prefix=binding_step_name,
                         )
                     )
-                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
-                updated_locals[body.bound_name] = _binding_local_value_from_terminal(
-                    binding_expr,
-                    binding_type=binding_type,
-                    binding_terminal=binding_terminal,
-                )
+                    if lexical_checkpoint_points is not None:
+                        lexical_checkpoint_points.append(
+                            _pure_projection_checkpoint_point_payload(
+                                workflow_name=context.workflow_name,
+                                let_binding=body,
+                                terminal=binding_terminal,
+                                context=context,
+                                local_values=updated_locals,
+                            )
+                        )
+                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                    updated_locals[body.bound_name] = (
+                        _binding_local_value_from_terminal(
+                            binding_expr,
+                            binding_type=binding_type,
+                            binding_terminal=binding_terminal,
+                            context=context,
+                        )
+                    )
             else:
-                updated_locals[body.bound_name] = resolved_binding
+                resolved_binding = _resolve_wcc_inline_expr_value(
+                    binding_expr,
+                    local_values=updated_locals,
+                )
+                if (
+                    is_pure_projection_expr(binding_expr)
+                    and body.bound_name in run_ref_input_names
+                ):
+                    resolved_binding = binding_expr
+                if (
+                    is_pure_projection_expr(binding_expr)
+                    and body.bound_name in provider_context_names
+                    and (
+                        not isinstance(binding_expr, FieldAccessExpr)
+                        or isinstance(resolved_binding, Mapping)
+                    )
+                ):
+                    binding_step_name = _expansion_binding_step_prefix(
+                        context,
+                        binding_name=body.bound_name,
+                        scope_id=body.metadata.scope_id,
+                    )
+                    binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
+                        binding_expr,
+                        source_expr=binding_expr,
+                        binding_name=body.bound_name,
+                        binding_type=binding_type,
+                        context=context,
+                        local_values=updated_locals,
+                        step_name_prefix=binding_step_name,
+                        whole_value=True,
+                    )
+                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                    updated_locals[body.bound_name] = binding_terminal.output_refs["return"]
+                elif (
+                    is_pure_projection_expr(binding_expr)
+                    and body.bound_name in request_input_names
+                ):
+                    if isinstance(resolved_binding, (str, LiteralExpr)):
+                        updated_locals[body.bound_name] = resolved_binding
+                    else:
+                        binding_step_name = _binding_step_prefix(context, body.bound_name)
+                        binding_steps, binding_terminal = _lower_pure_projection_binding_expr(
+                            binding_expr,
+                            source_expr=binding_expr,
+                            binding_name=body.bound_name,
+                            binding_type=binding_type,
+                            context=context,
+                            local_values=updated_locals,
+                            step_name_prefix=binding_step_name,
+                        )
+                        binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                        updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                            binding_expr,
+                            binding_type=binding_type,
+                            binding_terminal=binding_terminal,
+                            context=context,
+                        )
+                elif (
+                    isinstance(binding_expr, IfExpr)
+                    and resolved_binding is not None
+                    and not isinstance(resolved_binding, (str, Mapping))
+                    and is_pure_projection_expr(resolved_binding)
+                ):
+                    binding_step_name = _binding_step_prefix(context, body.bound_name)
+                    binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
+                    lowered_projection = lower_pure_projection_step(
+                        resolved_binding,
+                        result_type=binding_type,
+                        context=context,
+                        local_values=updated_locals,
+                        step_name=binding_step_name,
+                        step_id=binding_step_id,
+                        stable_target="binding_projection",
+                    )
+                    binding_steps = [lowered_projection.step]
+                    binding_terminal = _TerminalResult(
+                        step_name=binding_step_name,
+                        step_id=binding_step_id,
+                        output_refs=lowered_projection.output_refs,
+                        output_kind="projection",
+                        hidden_inputs={},
+                    )
+                    if lexical_checkpoint_points is not None:
+                        lexical_checkpoint_points.append(
+                            _pure_projection_checkpoint_point_payload(
+                                workflow_name=context.workflow_name,
+                                let_binding=body,
+                                terminal=binding_terminal,
+                                context=context,
+                                local_values=updated_locals,
+                            )
+                        )
+                    binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                    updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                        binding_expr,
+                        binding_type=binding_type,
+                        binding_terminal=binding_terminal,
+                        context=context,
+                    )
+                else:
+                    updated_locals[body.bound_name] = resolved_binding
         nested_steps, nested_terminal = _defunctionalize_body(
             body.body,
             context=lowering_core._context_with_local_type_binding(
@@ -2279,6 +2443,7 @@ def _defunctionalize_body(
             ),
             local_values=updated_locals,
             scope_analysis=scope_analysis,
+            continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
@@ -2293,6 +2458,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
@@ -2303,6 +2469,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
@@ -2321,6 +2488,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
@@ -2759,6 +2927,18 @@ def _binding_step_prefix(context: _LoweringContext, binding_name: str) -> str:
     return f"{context.step_name_prefix}__{binding_name}"
 
 
+def _expansion_binding_step_prefix(
+    context: _LoweringContext,
+    *,
+    binding_name: str,
+    scope_id: str,
+) -> str:
+    """Allocate one stable lexical projection name for an expanded binding."""
+
+    scope_digest = hashlib.sha256(scope_id.encode("utf-8")).hexdigest()[:10]
+    return f"{_binding_step_prefix(context, binding_name)}__scope_{scope_digest}"
+
+
 def _context_with_wcc_phase_scope(
     context: _LoweringContext,
     *,
@@ -3022,18 +3202,32 @@ def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str
 
 
 def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
-    if isinstance(value, str):
+    from ..lowering.values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
         for step_name in sibling_names:
             for scope_prefix in ("parent.steps.", "root.steps."):
                 prefix = f"{scope_prefix}{step_name}."
-                if value.startswith(prefix):
-                    return "self.steps." + value.removeprefix(scope_prefix)
-        return value
+                if ref.startswith(prefix):
+                    return "self.steps." + ref.removeprefix(scope_prefix)
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
+    if isinstance(value, str):
+        return rewrite(value)
     if isinstance(value, list):
         return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
     if isinstance(value, Mapping):
         rewritten: dict[Any, Any] = {}
         for key, item in value.items():
+            if key == "__typed_union_prompt_source__":
+                rewritten[key] = rewrite_typed_union_prompt_source_references(item, rewrite)
+                continue
             if key == "steps" and isinstance(item, list):
                 rewritten[key] = item
                 continue
@@ -3048,6 +3242,10 @@ def _defunctionalize_case(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    continuation_binding_demands: Mapping[
+        int,
+        tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ],
     lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
@@ -3134,6 +3332,7 @@ def _defunctionalize_case(
                 binding_type=arm_binding_type,
             ),
             scope_analysis=scope_analysis,
+            continuation_binding_demands=continuation_binding_demands,
             lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
@@ -3232,6 +3431,10 @@ def _defunctionalize_if(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    continuation_binding_demands: Mapping[
+        int,
+        tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ],
     lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
@@ -3331,6 +3534,7 @@ def _defunctionalize_if(
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=then_step_name),
         local_values=then_local_values,
         scope_analysis=scope_analysis,
+        continuation_binding_demands=continuation_binding_demands,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
@@ -3343,6 +3547,7 @@ def _defunctionalize_if(
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
         local_values=else_local_values,
         scope_analysis=scope_analysis,
+        continuation_binding_demands=continuation_binding_demands,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
@@ -3455,10 +3660,21 @@ def _with_branch_local_refs(
 
 def _rewrite_branch_local_refs_in_value(value: Any, *, branch_step_prefix: str) -> Any:
     root_prefix = f"root.steps.{branch_step_prefix}"
+    from ..lowering.values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
+        if ref.startswith(root_prefix):
+            return "self.steps." + ref.removeprefix("root.steps.")
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
     if isinstance(value, str):
-        if value.startswith(root_prefix):
-            return "self.steps." + value.removeprefix("root.steps.")
-        return value
+        return rewrite(value)
     if isinstance(value, list):
         return [
             _rewrite_branch_local_refs_in_value(item, branch_step_prefix=branch_step_prefix)
@@ -3471,9 +3687,13 @@ def _rewrite_branch_local_refs_in_value(value: Any, *, branch_step_prefix: str) 
         )
     if isinstance(value, Mapping):
         return {
-            key: _rewrite_branch_local_refs_in_value(
-                item,
-                branch_step_prefix=branch_step_prefix,
+            key: (
+                rewrite_typed_union_prompt_source_references(item, rewrite)
+                if key == "__typed_union_prompt_source__"
+                else _rewrite_branch_local_refs_in_value(
+                    item,
+                    branch_step_prefix=branch_step_prefix,
+                )
             )
             for key, item in value.items()
         }
@@ -3499,6 +3719,10 @@ def _defunctionalize_join(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    continuation_binding_demands: Mapping[
+        int,
+        tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ],
     lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
@@ -3523,6 +3747,7 @@ def _defunctionalize_join(
         ),
         local_values=local_values,
         scope_analysis=scope_analysis,
+        continuation_binding_demands=continuation_binding_demands,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=_join_target_from_analysis(body.join_name, body.params, scope_analysis=scope_analysis),
     )
@@ -3536,6 +3761,7 @@ def _defunctionalize_join(
         ),
         binding_type=param.type_ref,
         binding_terminal=join_terminal,
+        context=context,
     )
     if joined_local_value is not None:
         joined_local_values[param.name] = joined_local_value
@@ -3548,6 +3774,7 @@ def _defunctionalize_join(
         ),
         local_values=joined_local_values,
         scope_analysis=scope_analysis,
+        continuation_binding_demands=continuation_binding_demands,
         lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
@@ -3662,6 +3889,16 @@ def _lower_wcc_terminal_export(
     form_path: tuple[str, ...],
     message: str,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    structural_terminal = lower_rich_structural_return(
+        expr,
+        type_ref=type_ref,
+        context=context,
+        local_values=local_values,
+        span=span,
+        form_path=form_path,
+    )
+    if structural_terminal is not None:
+        return structural_terminal
     union_terminal = _lower_resolved_union_variant_terminal(
         expr,
         type_ref=type_ref,
@@ -3705,6 +3942,20 @@ def _lower_wcc_terminal_export(
             step_name=terminal_step_name,
             step_id=terminal_step_id,
             stable_target="terminal_projection",
+            output_fields=(
+                tuple(
+                    lowering_core.derive_workflow_boundary_fields(
+                        type_ref,
+                        generated_name="return",
+                        source_path=("return",),
+                        span=span,
+                        form_path=form_path,
+                        type_env=context.type_env,
+                    )
+                )
+                if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
+                else None
+            ),
         )
         return [lowered_projection.step], _TerminalResult(
             step_name=terminal_step_name,
@@ -3754,6 +4005,7 @@ def _lower_static_terminal_projection(
         source_path=("return",),
         span=context.signature.span,
         form_path=context.signature.form_path,
+        type_env=context.type_env,
     ):
         leaf = _static_terminal_leaf(static_value, field_path=field.source_path[1:])
         if not _is_static_terminal_literal(leaf):
@@ -3893,6 +4145,26 @@ def _wcc_terminal_output_refs_for_expr(
     if output_refs is not None:
         return output_refs
     resolved_expr = _resolve_inline_expr_value(expr, local_values=local_values)
+    if (
+        isinstance(type_ref, UnionTypeRef)
+        and target_dsl_supports_union_prompt_input(context.type_env.target_dsl_version)
+        and isinstance(resolved_expr, Mapping)
+    ):
+        source = resolved_expr.get("__typed_union_prompt_source__")
+        if isinstance(source, Mapping):
+            preserved_refs = union_output_refs_from_source(type_ref, source)
+            expected_output_names = _expected_terminal_output_names(
+                type_ref,
+                context=context,
+            )
+            if (
+                preserved_refs is not None
+                and all(name in preserved_refs for name in expected_output_names)
+            ):
+                return {
+                    output_name: preserved_refs[output_name]
+                    for output_name in expected_output_names
+                }
     projected_refs = _wcc_projected_output_refs_for_resolved_value(
         resolved_expr,
         type_ref=type_ref,
@@ -3937,6 +4209,7 @@ def _expected_terminal_output_names(
                 source_path=("return",),
                 span=context.signature.span,
                 form_path=context.signature.form_path,
+                type_env=context.type_env,
             )
         )
     return ("return",)
@@ -3960,6 +4233,7 @@ def _wcc_projected_output_refs_for_resolved_value(
         source_path=("return",),
         span=context.signature.span,
         form_path=context.signature.form_path,
+        type_env=context.type_env,
     ):
         field_path = field.source_path[1:]
         leaf: Any = resolved_value
@@ -4863,6 +5137,16 @@ def _lower_provider_peer_group_member(
             prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
                 payload.get("prompt_dependencies")
             ),
+            context_expr=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["context_expr"],
+                    provider_env,
+                )
+                if payload.get("context_expr") is not None
+                else None
+            ),
+            capture_context=payload.get("capture_context"),
+            returns_type_name=perform.returns_type_name,
         ),
         result_type=perform.metadata.type_ref,
         context=member_context,
@@ -5137,6 +5421,16 @@ def _lower_provider_supervision_member(
             prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
                 payload.get("prompt_dependencies")
             ),
+            context_expr=(
+                _frontend_expr_from_wcc_value_with_env(
+                    payload["context_expr"],
+                    provider_env,
+                )
+                if payload.get("context_expr") is not None
+                else None
+            ),
+            capture_context=payload.get("capture_context"),
+            returns_type_name=perform.returns_type_name,
         ),
         result_type=perform.metadata.type_ref,
         context=member_context,
@@ -5929,6 +6223,21 @@ def _lower_effectful_binding(
                 context=context,
                 local_values=local_values,
             )
+        if value.perform_kind == "request_input":
+            if len(value.positional_args) != 1 or value.keyword_args:
+                raise TypeError("request-input WCC payload must contain one question")
+            return _lower_request_input_operation(
+                question_expr=_frontend_expr_from_wcc_value_with_env(
+                    value.positional_args[0],
+                    local_values,
+                ),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+                result_type=binding_type,
+                context=context,
+                local_values=local_values,
+            )
         if value.perform_kind == "provider_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
             return _lower_provider_result_operation(
@@ -5975,6 +6284,13 @@ def _lower_effectful_binding(
                     prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
                         operation_payload.get("prompt_dependencies")
                     ),
+                    context_expr=(
+                        _frontend_expr_from_wcc_value(operation_payload["context_expr"])
+                        if operation_payload.get("context_expr") is not None
+                        else None
+                    ),
+                    capture_context=operation_payload.get("capture_context"),
+                    returns_type_name=value.returns_type_name,
                     prompt_application=_prompt_application_from_wcc_payload(
                         operation_payload,
                     ),
@@ -6209,6 +6525,9 @@ def _lower_wcc_effect_expr(
                     if isinstance(expr.prompt, PromptApplicationExpr)
                     else None
                 ),
+                context_expr=expr.context_expr,
+                capture_context=expr.capture_context,
+                returns_type_name=expr.returns_type_name,
             ),
             result_type=typed_expr.type_ref,
             context=context,
@@ -6378,6 +6697,7 @@ def _lower_wcc_procedure_call(
         context=child_context,
         local_values=child_locals,
         scope_analysis=analyze_wcc_body(wcc_body),
+        continuation_binding_demands=_wcc_continuation_binding_demands(wcc_body),
         lexical_checkpoint_points=lexical_checkpoint_points,
     )
     if isinstance(binding_type, UnionTypeRef) and "return__variant" not in terminal.output_refs and terminal.step_name:
@@ -6487,33 +6807,128 @@ def _wcc_tree_references_name(value: object, name: str) -> bool:
     return False
 
 
-def _wcc_run_ref_input_references_name(value: object, name: str) -> bool:
-    """Return whether a later run-ref input consumes one ANF binding."""
+def _wcc_continuation_binding_demands(
+    root: WccBody,
+) -> dict[int, tuple[frozenset[str], frozenset[str], frozenset[str]]]:
+    """Collect the operation operands demanded by every immutable WCC body.
 
-    if isinstance(value, WccPerform):
-        return value.perform_kind == "run_ref" and any(
-            _wcc_tree_references_name(input_value, name)
-            for _, input_value in value.keyword_args
-        )
-    if isinstance(value, Mapping):
-        return any(
-            _wcc_run_ref_input_references_name(item, name)
-            for item in value.values()
-        )
-    if isinstance(value, (tuple, list)):
-        return any(
-            _wcc_run_ref_input_references_name(item, name)
-            for item in value
-        )
-    if is_dataclass(value):
-        return any(
-            _wcc_run_ref_input_references_name(
-                getattr(value, field_info.name),
-                name,
+    ANF lowering consults the demand set for a ``WccLet`` continuation only.
+    Keeping the lookup local to this one lowering call avoids repeatedly
+    walking the same nested continuation for every earlier binding.
+    """
+
+    empty = (frozenset(), frozenset(), frozenset())
+    by_body_id: dict[
+        int,
+        tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ] = {}
+
+    def merge(
+        *demands: tuple[frozenset[str], frozenset[str], frozenset[str]],
+    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+        if not demands:
+            return empty
+        merged = demands[0]
+        for incoming in demands[1:]:
+            fields = tuple(
+                existing
+                if incoming_field.issubset(existing)
+                else incoming_field
+                if existing.issubset(incoming_field)
+                else existing | incoming_field
+                for existing, incoming_field in zip(merged, incoming, strict=True)
             )
-            for field_info in fields(value)
-        )
-    return False
+            if all(field is existing for field, existing in zip(fields, merged, strict=True)):
+                continue
+            if all(field is incoming_field for field, incoming_field in zip(fields, incoming, strict=True)):
+                merged = incoming
+                continue
+            merged = fields  # type: ignore[assignment]
+        return merged
+
+    def referenced_names(value: object) -> frozenset[str]:
+        if isinstance(value, WccNameAtom):
+            return frozenset((value.name,))
+        if isinstance(value, Mapping):
+            return frozenset().union(
+                *(referenced_names(item) for item in value.values())
+            )
+        if isinstance(value, (tuple, list)):
+            return frozenset().union(*(referenced_names(item) for item in value))
+        if is_dataclass(value):
+            return frozenset().union(
+                *(referenced_names(getattr(value, field_info.name)) for field_info in fields(value))
+            )
+        return frozenset()
+
+    def value_demand(
+        value: object,
+    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+        if isinstance(value, WccPerform):
+            if value.perform_kind == "run_ref":
+                return (referenced_names(value.keyword_args), frozenset(), frozenset())
+            if value.perform_kind == "provider_result":
+                payload = value.operation_payload
+                context_expr = (
+                    payload.get("context_expr") if isinstance(payload, Mapping) else None
+                )
+                return (frozenset(), referenced_names(context_expr), frozenset())
+            if value.perform_kind == "request_input":
+                return (frozenset(), frozenset(), referenced_names(value.positional_args))
+            return empty
+        if isinstance(value, (WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccHalt, WccJump, WccLoopContinue, WccLoopDone)):
+            return body_demand(value)
+        if isinstance(value, Mapping):
+            return merge(*(value_demand(item) for item in value.values()))
+        if isinstance(value, (tuple, list)):
+            return merge(*(value_demand(item) for item in value))
+        if is_dataclass(value):
+            return merge(
+                *(value_demand(getattr(value, field_info.name)) for field_info in fields(value))
+            )
+        return empty
+
+    def body_demand(
+        body: WccBody,
+    ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+        existing = by_body_id.get(id(body))
+        if existing is not None:
+            return existing
+        if isinstance(body, WccLet):
+            demand = merge(value_demand(body.bound_value), body_demand(body.body))
+        elif isinstance(body, WccCase):
+            demand = merge(
+                value_demand(body.subject),
+                *(body_demand(arm.body) for arm in body.arms),
+            )
+        elif isinstance(body, WccIf):
+            demand = merge(
+                value_demand(body.condition),
+                body_demand(body.then_body),
+                body_demand(body.else_body),
+            )
+        elif isinstance(body, WccJoin):
+            demand = merge(body_demand(body.body), body_demand(body.continuation))
+        elif isinstance(body, WccRecJoin):
+            demand = merge(
+                value_demand(body.budget),
+                value_demand(body.initial_state),
+                body_demand(body.body),
+                value_demand(body.exhaustion),
+            )
+        elif isinstance(body, WccLoopContinue):
+            demand = value_demand(body.state_args)
+        elif isinstance(body, WccLoopDone):
+            demand = merge(value_demand(body.result), value_demand(body.state))
+        elif isinstance(body, WccJump):
+            demand = value_demand(body.args)
+        else:
+            demand = value_demand(body.result)
+        by_body_id[id(body)] = demand
+        return demand
+
+    body_demand(root)
+    return by_body_id
 
 
 def _wcc_workflow_call_exclusively_consumes_binding(
@@ -6931,6 +7346,15 @@ def _frontend_expr_from_wcc_loop_binding_value(
     env: Mapping[str, object] | None = None,
 ):
     if isinstance(value, WccPerform):
+        if value.perform_kind == "request_input":
+            if len(value.positional_args) != 1 or value.keyword_args:
+                raise TypeError("request-input WCC payload must contain one question")
+            return RequestInputExpr(
+                question=_frontend_expr_from_wcc_value(value.positional_args[0]),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
         if value.perform_kind == "provider_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
             prompt_application = _prompt_application_from_wcc_payload(
@@ -6990,6 +7414,12 @@ def _frontend_expr_from_wcc_loop_binding_value(
                 prompt_dependencies=_prompt_dependency_spec_from_wcc_payload(
                     operation_payload.get("prompt_dependencies")
                 ),
+                context_expr=(
+                    _frontend_expr_from_wcc_value(operation_payload["context_expr"])
+                    if operation_payload.get("context_expr") is not None
+                    else None
+                ),
+                capture_context=operation_payload.get("capture_context"),
             )
         if value.perform_kind == "command_result":
             operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}

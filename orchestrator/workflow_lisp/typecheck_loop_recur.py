@@ -73,6 +73,7 @@ def typecheck_loop_recur_expr(
         code="loop_recur_state_type_invalid",
         span=expr.initial_state_expr.span,
         form_path=expr.initial_state_expr.form_path,
+        type_env=type_env,
     )
     session_state.loop_context.append(
         LoopTypecheckContext(state_type_ref=typed_state.type_ref)
@@ -110,6 +111,7 @@ def typecheck_loop_recur_expr(
         code="loop_recur_result_type_invalid",
         span=expr.body_expr.span,
         form_path=expr.body_expr.form_path,
+        type_env=type_env,
     )
     exhaustion_summaries: list[EffectSummary] = []
     typed_exhausted_expr = None

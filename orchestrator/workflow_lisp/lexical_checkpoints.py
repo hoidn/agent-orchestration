@@ -540,6 +540,75 @@ def _step_state_for_runtime_step(executor: Any, runtime_step: Any) -> Mapping[st
     return matches[0]
 
 
+def _exact_human_reply_step_state(
+    *,
+    loaded_workflow: Any | None,
+    state: Mapping[str, Any],
+    expected_point: Mapping[str, Any],
+    record: Mapping[str, Any],
+    runtime_step: Any,
+) -> Mapping[str, Any]:
+    """Return one completed reply row by its projection-owned identity only."""
+
+    projection = getattr(loaded_workflow, "projection", None)
+    if projection is None:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    frame_identity = _mapping(record.get("frame_identity"))
+    observed_runtime_step_id = frame_identity.get("runtime_step_id")
+    if observed_runtime_step_id is None:
+        expected_runtime_step_id = runtime_step.step_id
+        presentation_key = runtime_step.name
+    elif isinstance(observed_runtime_step_id, str) and observed_runtime_step_id:
+        expected_runtime_step_id = observed_runtime_step_id
+        presentation_key = None
+    else:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    try:
+        resolution = projection.resolve_resume_step_id(
+            projection.enumerate_resume_slots(state),
+            expected_runtime_step_id,
+            presentation_key=presentation_key,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    slot = resolution.slot
+    if (
+        resolution.exact_identity_candidate_count != 1
+        or resolution.candidate_count != 1
+        or slot is None
+    ):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if slot.node_id != expected_point.get("node_id"):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if observed_runtime_step_id is not None:
+        iteration = frame_identity.get("loop_iteration")
+        if (
+            isinstance(iteration, bool)
+            or not isinstance(iteration, int)
+            or slot.iteration_index != iteration
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    step_state = _mapping(_mapping(state.get("steps")).get(slot.presentation_key))
+    if (
+        step_state.get("status") != "completed"
+        or step_state.get("step_id") != expected_runtime_step_id
+    ):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    visit_count = frame_identity.get("visit_count")
+    result_visit_count = step_state.get("visit_count")
+    if (
+        isinstance(visit_count, bool)
+        or not isinstance(visit_count, int)
+        or visit_count <= 0
+        or isinstance(result_visit_count, bool)
+        or not isinstance(result_visit_count, int)
+        or result_visit_count <= 0
+        or result_visit_count != visit_count
+    ):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return step_state
+
+
 def _workflow_call_debug_payload(
     executor: Any,
     *,
@@ -699,6 +768,51 @@ def _policy_ref_invalid_diagnostic(expected_point: Mapping[str, Any]) -> str:
     if effect_kind == "trial":
         return EFFECT_POLICY_DIAGNOSTIC_CODES.trial_result_invalid
     return DIAGNOSTIC_CODES.completed_effect_invalid
+
+
+_HUMAN_REPLY_COMPLETED_EFFECT_REF_KEYS = frozenset(
+    {
+        "effect_ref_schema_version",
+        "effect_kind",
+        "step_id",
+        "status",
+        "source_map_origin_key",
+        "evidence_kind",
+        "result_contract_digest",
+        "artifact_digest",
+    }
+)
+
+
+def _human_reply_completed_effect_ref(
+    *,
+    point: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Seal only the already-committed complete HumanReply artifacts."""
+
+    from orchestrator.workflow.human_input import (
+        human_reply_result_contract_digest,
+        validate_human_reply,
+    )
+
+    requirements = _mapping(point_policy.get("evidence_requirements"))
+    human_reply = _mapping(requirements.get("human_reply"))
+    expected_contract_digest = human_reply_result_contract_digest()
+    if human_reply.get("result_contract_digest") != expected_contract_digest:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    artifacts = _mapping(step_state.get("artifacts"))
+    try:
+        validate_human_reply(artifacts)
+    except ValueError as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    return {
+        **_completed_effect_ref_base(point, effect_kind="request_input"),
+        "evidence_kind": "human_reply",
+        "result_contract_digest": expected_contract_digest,
+        "artifact_digest": _sha256_json(artifacts),
+    }
 
 
 def _materialized_view_durability_mode(point_policy: Mapping[str, Any]) -> str:
@@ -1297,6 +1411,10 @@ def collect_completed_effect_refs(
         return []
     if effect_kind == "pure_projection":
         return []
+    # Request-input reuse has no output bundle to re-derive.  Its only
+    # collection authority is the row committed by the consuming finalizer.
+    if effect_kind == "request_input" and committed_step_state is None:
+        return []
     runtime_step = _runtime_step_for_point(executor, point)
     step_state = (
         _mapping(committed_step_state)
@@ -1366,6 +1484,14 @@ def collect_completed_effect_refs(
                 point=point,
                 runtime_step=runtime_step,
                 step_state=step_state,
+            )
+        ]
+    if effect_kind == "request_input":
+        return [
+            _human_reply_completed_effect_ref(
+                point=point,
+                step_state=step_state,
+                point_policy=point_policy,
             )
         ]
     return []
@@ -1573,6 +1699,26 @@ def _validate_completed_effect_refs(
     if ref.get("source_map_origin_key") != expected_point.get("origin_key"):
         raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
 
+    if effect_kind == "request_input":
+        if set(ref) != _HUMAN_REPLY_COMPLETED_EFFECT_REF_KEYS:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("evidence_kind") != "human_reply":
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        from orchestrator.workflow.human_input import human_reply_result_contract_digest
+
+        requirement = _mapping(
+            _mapping(point_policy.get("evidence_requirements")).get("human_reply")
+        )
+        expected_contract_digest = human_reply_result_contract_digest()
+        if (
+            requirement.get("result_contract_digest") != expected_contract_digest
+            or ref.get("result_contract_digest") != expected_contract_digest
+            or not isinstance(ref.get("artifact_digest"), str)
+            or not ref["artifact_digest"]
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
+
     if effect_kind in {"command", "provider"}:
         for key in ("bundle_path", "bundle_path_ref", "contract_digest", "payload_digest", "artifact_digest"):
             value = ref.get(key)
@@ -1660,6 +1806,31 @@ def validate_completed_effect_refs_against_authoritative_state(
         step_id=str(expected_point.get("step_id") or ""),
         target_dsl_version=getattr(executable_workflow, "version", None),
     )
+    if effect_kind == "request_input":
+        from orchestrator.workflow.human_input import (
+            human_reply_result_contract_digest,
+            validate_human_reply,
+        )
+
+        step_state = _exact_human_reply_step_state(
+            loaded_workflow=loaded_workflow,
+            state=state,
+            expected_point=expected_point,
+            record=record,
+            runtime_step=runtime_step,
+        )
+        artifacts = _mapping(step_state.get("artifacts"))
+        try:
+            validate_human_reply(artifacts)
+        except ValueError as exc:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+        expected_contract_digest = human_reply_result_contract_digest()
+        if (
+            ref.get("result_contract_digest") != expected_contract_digest
+            or ref.get("artifact_digest") != _sha256_json(artifacts)
+        ):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
     qualified_checkpoints = tuple(
         checkpoint
         for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())

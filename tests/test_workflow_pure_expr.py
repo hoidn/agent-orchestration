@@ -257,3 +257,303 @@ def test_evaluate_kind_if_untaken_branch_is_not_evaluated() -> None:
     # evaluating it would raise pure_expr_binding_missing. Selection must
     # return the `then` value without touching the untaken branch.
     assert pure_expr.evaluate_pure_expr(payload) == "selected"
+
+
+INT_TYPE = {"kind": "primitive", "name": "Int"}
+STRING_TYPE = {"kind": "primitive", "name": "String"}
+PATH_TYPE = {
+    "kind": "path",
+    "name": "WorkspacePath",
+    "under": "workspace",
+    "must_exist_target": False,
+}
+
+
+def _literal(value: object, descriptor: dict[str, object]) -> dict[str, object]:
+    return {"kind": "literal", "type": descriptor, "value": value}
+
+
+def _fallible_path_value() -> dict[str, object]:
+    return {
+        "kind": "path_join_under",
+        "path_type": PATH_TYPE,
+        "child": _literal("../escape", STRING_TYPE),
+    }
+
+
+def _schema_3_payload(expr: dict[str, object], result_type: dict[str, object]) -> dict[str, object]:
+    return {
+        "pure_expr_schema_version": 3,
+        "result_type": result_type,
+        "bindings": {"x": {"type": INT_TYPE}},
+        "expr": expr,
+    }
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_let_is_rejected_by_schema_versions_before_three(schema_version: int) -> None:
+    pure_expr = _module()
+    payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {
+                    "name": "captured",
+                    "type": INT_TYPE,
+                    "value": _literal(1, INT_TYPE),
+                }
+            ],
+            "body": {"kind": "binding", "name": "captured"},
+        },
+        INT_TYPE,
+    )
+    payload["pure_expr_schema_version"] = schema_version
+
+    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
+        pure_expr.evaluate_pure_expr(payload)
+
+    assert excinfo.value.code == "pure_expr_schema_mismatch"
+
+
+def test_schema_three_let_evaluates_ordered_hygienic_bindings_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pure_expr = _module()
+    first_argument = {
+        "kind": "op",
+        "operator": "+",
+        "args": [
+            {"kind": "binding", "name": "x"},
+            _literal(1, INT_TYPE),
+        ],
+    }
+    second_argument = {"kind": "binding", "name": "x"}
+    payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {"name": "__arg0", "type": INT_TYPE, "value": first_argument},
+                {
+                    "name": "__arg1",
+                    "type": INT_TYPE,
+                    "value": second_argument,
+                },
+                {
+                    "name": "formal_x",
+                    "type": INT_TYPE,
+                    "value": {"kind": "binding", "name": "__arg0"},
+                },
+                {
+                    "name": "formal_y",
+                    "type": INT_TYPE,
+                    "value": {"kind": "binding", "name": "__arg1"},
+                },
+            ],
+            "body": {
+                "kind": "op",
+                "operator": "+",
+                "args": [
+                    {"kind": "binding", "name": "formal_y"},
+                    {"kind": "binding", "name": "formal_y"},
+                ],
+            },
+        },
+        INT_TYPE,
+    )
+    original = pure_expr._evaluate_expr
+    evaluated_arguments: list[object] = []
+
+    def tracked_evaluate(node: object, **kwargs: object) -> object:
+        if node is first_argument or node is second_argument:
+            evaluated_arguments.append(node)
+        return original(node, **kwargs)
+
+    monkeypatch.setattr(pure_expr, "_evaluate_expr", tracked_evaluate)
+
+    assert pure_expr.evaluate_pure_expr(payload, resolved_bindings={"x": 9}) == 18
+    assert evaluated_arguments == [first_argument, second_argument]
+
+
+def test_schema_three_let_eagerly_evaluates_unused_fallible_binding() -> None:
+    pure_expr = _module()
+    payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {
+                    "name": "unused",
+                    "type": PATH_TYPE,
+                    "value": _fallible_path_value(),
+                }
+            ],
+            "body": _literal(1, INT_TYPE),
+        },
+        INT_TYPE,
+    )
+
+    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
+        pure_expr.evaluate_pure_expr(payload)
+
+    assert excinfo.value.code == "path_join_under_escape"
+
+
+def test_schema_three_let_in_untaken_if_branch_is_not_evaluated() -> None:
+    pure_expr = _module()
+    payload = _schema_3_payload(
+        {
+            "kind": "if",
+            "condition": _literal(True, {"kind": "primitive", "name": "Bool"}),
+            "then": _literal(1, INT_TYPE),
+            "else": {
+                "kind": "let",
+                "bindings": [
+                    {
+                        "name": "unused",
+                        "type": PATH_TYPE,
+                        "value": _fallible_path_value(),
+                    }
+                ],
+                "body": _literal(2, INT_TYPE),
+            },
+        },
+        INT_TYPE,
+    )
+
+    assert pure_expr.evaluate_pure_expr(payload) == 1
+
+
+def test_schema_three_let_in_empty_list_map_body_is_not_evaluated() -> None:
+    pure_expr = _module()
+    payload = _schema_3_payload(
+        {
+            "kind": "list_map",
+            "source": {"kind": "list", "element_type": INT_TYPE, "items": []},
+            "binder": {"name": "item", "type": INT_TYPE},
+            "result_element_type": INT_TYPE,
+            "body": {
+                "kind": "let",
+                "bindings": [
+                    {
+                        "name": "unused",
+                        "type": PATH_TYPE,
+                        "value": _fallible_path_value(),
+                    }
+                ],
+                "body": _literal(1, INT_TYPE),
+            },
+        },
+        {"kind": "list", "item": INT_TYPE},
+    )
+
+    assert pure_expr.evaluate_pure_expr(payload) == []
+
+
+def test_schema_three_let_rejects_binding_type_mismatch() -> None:
+    pure_expr = _module()
+    payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {
+                    "name": "wrong",
+                    "type": STRING_TYPE,
+                    "value": _literal(1, INT_TYPE),
+                }
+            ],
+            "body": _literal(1, INT_TYPE),
+        },
+        INT_TYPE,
+    )
+
+    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
+        pure_expr.evaluate_pure_expr(payload)
+
+    assert excinfo.value.code == "pure_expr_operand_type_mismatch"
+
+
+def test_schema_three_let_shadows_outer_bindings_but_rejects_duplicate_locals() -> None:
+    pure_expr = _module()
+    shadowing_payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {
+                    "name": "x",
+                    "type": INT_TYPE,
+                    "value": {
+                        "kind": "op",
+                        "operator": "+",
+                        "args": [
+                            {"kind": "binding", "name": "x"},
+                            _literal(1, INT_TYPE),
+                        ],
+                    },
+                }
+            ],
+            "body": {"kind": "binding", "name": "x"},
+        },
+        INT_TYPE,
+    )
+
+    assert pure_expr.evaluate_pure_expr(shadowing_payload, resolved_bindings={"x": 9}) == 10
+
+    duplicate_payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {"name": "local", "type": INT_TYPE, "value": _literal(1, INT_TYPE)},
+                {"name": "local", "type": INT_TYPE, "value": _literal(2, INT_TYPE)},
+            ],
+            "body": {"kind": "binding", "name": "local"},
+        },
+        INT_TYPE,
+    )
+
+    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
+        pure_expr.evaluate_pure_expr(duplicate_payload)
+
+    assert excinfo.value.code == "pure_expr_payload_invalid"
+
+
+def test_schema_three_nested_let_does_not_leak_into_its_parent_scope() -> None:
+    pure_expr = _module()
+    record_type = {
+        "kind": "record",
+        "name": "ScopedValues",
+        "fields": [
+            {"name": "inner", "type": INT_TYPE},
+            {"name": "outer", "type": INT_TYPE},
+        ],
+    }
+    payload = _schema_3_payload(
+        {
+            "kind": "let",
+            "bindings": [
+                {"name": "local", "type": INT_TYPE, "value": _literal(9, INT_TYPE)}
+            ],
+            "body": {
+                "kind": "record",
+                "type": record_type,
+                "fields": [
+                    {
+                        "name": "inner",
+                        "value": {
+                            "kind": "let",
+                            "bindings": [
+                                {
+                                    "name": "local",
+                                    "type": INT_TYPE,
+                                    "value": _literal(2, INT_TYPE),
+                                }
+                            ],
+                            "body": {"kind": "binding", "name": "local"},
+                        },
+                    },
+                    {"name": "outer", "value": {"kind": "binding", "name": "local"}},
+                ],
+            },
+        },
+        record_type,
+    )
+
+    assert pure_expr.evaluate_pure_expr(payload) == {"inner": 2, "outer": 9}

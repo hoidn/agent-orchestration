@@ -19,12 +19,14 @@ from ..expressions import (
     LiteralExpr,
     PromptDependencySpec,
     ProviderResultExpr,
+    RequestInputExpr,
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..prompts import PromptApplicationExpr
 from ..result_guidance import ResultGuidance
 from ..reader import _read_source_file_views
 from ..type_env import TypeRef
+from ..syntax import target_dsl_supports_provider_context_values
 from ..workflows import PromptExtern, ProviderExtern
 from .context import _compile_error, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
@@ -60,6 +62,56 @@ _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES = (
 )
 
 
+def _lower_request_input_operation(
+    *,
+    question_expr: Any,
+    span: Any,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+    result_type: TypeRef,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], Any]:
+    """Emit the fixed bundle-free host-input leaf from one literal or ref."""
+
+    question_value = _resolve_inline_expr_value(
+        question_expr,
+        local_values=local_values,
+    )
+    if isinstance(question_value, LiteralExpr) and isinstance(question_value.value, str):
+        question = {"literal": question_value.value}
+    elif isinstance(question_value, str):
+        question = {"ref": question_value}
+    else:
+        raise _compile_error(
+            code="request_input_question_not_lowerable",
+            message="`request-input` question must lower to one String literal or reference",
+            span=span,
+            form_path=form_path,
+        )
+    step_name = f"{context.step_name_prefix}__request_input"
+    step_id = context.normalize_generated_step_id(step_name)
+    source = RequestInputExpr(
+        question=question_expr,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+    _record_step_origin(
+        context,
+        step_name=step_name,
+        step_id=step_id,
+        source=source,
+    )
+    return [{"name": step_name, "id": step_id, "request_input": {"question": question}}], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_record_output_refs(step_name, result_type),
+        output_kind="step",
+        hidden_inputs={},
+    )
+
+
 @dataclass(frozen=True)
 class LowerableCommandResult:
     """Owner-level command-result payload shared by frontend and WCC lowering."""
@@ -93,6 +145,67 @@ class LowerableProviderResult:
     session_artifact: "SessionArtifactSpec | None" = None
     prompt_dependencies: PromptDependencySpec | None = None
     prompt_application: PromptApplicationExpr | None = None
+    context_expr: Any | None = None
+    capture_context: str | None = None
+    returns_type_name: str | None = None
+
+
+def _lower_provider_context_config(
+    provider_result: LowerableProviderResult,
+    *,
+    result_type: TypeRef,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Lower the optional ordinary-provider context map without a new carrier."""
+
+    if provider_result.context_expr is None and provider_result.capture_context is None:
+        return None
+    from ..normalized_type_descriptor import compiler_normalized_type_descriptor
+
+    provider_context: dict[str, Any] = {}
+    if provider_result.context_expr is not None:
+        context_ref = _resolve_inline_expr_value(
+            provider_result.context_expr,
+            local_values=local_values,
+        )
+        if not isinstance(context_ref, str):
+            raise _compile_error(
+                code="provider_context_input_not_lowerable",
+                message="provider-result :context must lower to an existing value reference",
+                span=provider_result.context_expr.span,
+                form_path=provider_result.context_expr.form_path,
+            )
+        provider_context["input"] = {
+            "ref": context_ref
+        }
+    if provider_result.capture_context is not None:
+        model_result_type = result_type.field_types["result"]
+        provider_context["capture"] = provider_result.capture_context
+        provider_context["result_descriptor"] = compiler_normalized_type_descriptor(
+            model_result_type,
+            type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
+        )
+    return provider_context
+
+
+def _provider_context_capture_output_refs(
+    provider_step_name: str,
+    result_type: TypeRef,
+    *,
+    capture_context: bool,
+) -> dict[str, str] | None:
+    """Return the two whole runtime artifacts for a captured Contextual value."""
+
+    from ..context_types import is_contextual_type
+
+    if not capture_context or not is_contextual_type(result_type):
+        return None
+    return {
+        "return__result": f"root.steps.{provider_step_name}.artifacts.result",
+        "return__context": f"root.steps.{provider_step_name}.artifacts.context",
+    }
 
 
 def _lower_command_result(
@@ -317,6 +430,9 @@ def _lower_provider_result(
                 if isinstance(expr.prompt, PromptApplicationExpr)
                 else None
             ),
+            context_expr=expr.context_expr,
+            capture_context=expr.capture_context,
+            returns_type_name=expr.returns_type_name,
         ),
         result_type=result_type,
         context=context,
@@ -354,13 +470,24 @@ def _lower_provider_result_operation(
             span=provider_result.span,
             form_path=provider_result.form_path,
         )
+    model_result_type = (
+        result_type.field_types["result"]
+        if provider_result.capture_context is not None
+        else result_type
+    )
     bundle_contract = derive_prompt_guided_structured_result_contract(
-        result_type,
+        model_result_type,
         workflow_name=context.workflow_name,
         step_id=provider_step_name,
         span=provider_result.span,
         form_path=provider_result.form_path,
         guidance=provider_result.guidance,
+        whole_value=(
+            provider_result.capture_context == "portable"
+            and target_dsl_supports_provider_context_values(
+                context.type_env.target_dsl_version
+            )
+        ),
         type_env=context.type_env,
     )
     _register_generated_contract_field_bindings(context, bundle_contract.field_origins)
@@ -397,6 +524,14 @@ def _lower_provider_result_operation(
         )
     if provider_call_policy:
         provider_step["provider_call_policy"] = provider_call_policy
+    provider_context = _lower_provider_context_config(
+        provider_result,
+        result_type=result_type,
+        context=context,
+        local_values=local_values,
+    )
+    if provider_context is not None:
+        provider_step["provider_context"] = provider_context
     if provider_result.timeout_sec is not None:
         timeout_value = _resolve_inline_expr_value(
             provider_result.timeout_sec,
@@ -603,7 +738,14 @@ def _lower_provider_result_operation(
     return generated_steps, _TerminalResult(
         step_name=provider_step_name,
         step_id=provider_step_id,
-        output_refs=_record_output_refs(provider_step_name, result_type),
+        output_refs=(
+            _provider_context_capture_output_refs(
+                provider_step_name,
+                result_type,
+                capture_context=provider_result.capture_context == "portable",
+            )
+            or _record_output_refs(provider_step_name, result_type)
+        ),
         output_kind="step",
         hidden_inputs=hidden_inputs,
         provider_bundle_identity={

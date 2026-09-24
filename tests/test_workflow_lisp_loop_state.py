@@ -55,13 +55,18 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
-def _build_type_env(tmp_path: Path, extra_lines: list[str] | None = None) -> FrontendTypeEnvironment:
+def _build_type_env(
+    tmp_path: Path,
+    extra_lines: list[str] | None = None,
+    *,
+    target_dsl_version: str = "2.14",
+) -> FrontendTypeEnvironment:
     path = _write_module(
         tmp_path / "loop_state_types.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            f'  (:target-dsl "{target_dsl_version}")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -392,6 +397,48 @@ def test_typecheck_loop_state_accepts_projectable_list_field(tmp_path: Path) -> 
     history_type = typed.type_ref.field_types["history"]
     assert isinstance(history_type, ListTypeRef)
     assert history_type.item_type_ref.name == "String"
+
+
+def test_typecheck_loop_state_rich_list_preserves_record_and_union_descriptors(
+    tmp_path: Path,
+) -> None:
+    """Target-2.29 preserves rich list descriptors in loop-state."""
+
+    type_env = _build_type_env(
+        tmp_path,
+        extra_lines=[
+            "  (defrecord Task",
+            "    (task_id String))",
+            "  (defunion TaskOutcome",
+            "    (PENDING (task Task))",
+            "    (BLOCKED (reason String)))",
+        ],
+        target_dsl_version="2.29",
+    )
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(loop-state (tasks List[Task] tasks) (outcomes List[TaskOutcome] outcomes))"
+        ),
+        bound_names=frozenset({"tasks", "outcomes"}),
+    )
+
+    typed = typecheck_expression(
+        expr,
+        type_env=type_env,
+        value_env={
+            "tasks": type_env.resolve_type("List[Task]", span=expr.span, form_path=expr.form_path),
+            "outcomes": type_env.resolve_type(
+                "List[TaskOutcome]", span=expr.span, form_path=expr.form_path
+            ),
+        },
+    )
+
+    tasks_type = typed.type_ref.field_types["tasks"]
+    outcomes_type = typed.type_ref.field_types["outcomes"]
+    assert isinstance(tasks_type, ListTypeRef)
+    assert tasks_type.item_type_ref.name == "Task"
+    assert isinstance(outcomes_type, ListTypeRef)
+    assert outcomes_type.item_type_ref.name == "TaskOutcome"
 
 
 def test_lowering_loop_state_seed_can_feed_loop_recur_state(tmp_path: Path) -> None:

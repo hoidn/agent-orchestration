@@ -17,6 +17,8 @@ from orchestrator.workflow.pure_expr import (
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
 from ..contracts import (
+    FlattenedContractField,
+    derive_union_workflow_output_metadata,
     derive_union_workflow_boundary_projection,
     derive_workflow_boundary_fields,
     root_workflow_boundary_field,
@@ -60,6 +62,10 @@ from ..type_env import (
     TypeRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+)
+from ..syntax import (
+    target_dsl_supports_pure_call_composition,
+    target_dsl_supports_rich_loop_values,
 )
 from .context import _LoweringContext
 from .generated_paths import allocate_generated_result_bundle
@@ -242,6 +248,7 @@ def lower_pure_projection_step(
     source_expr: Any | None = None,
     stable_target: str = "pure_projection",
     output_contracts: Mapping[str, Mapping[str, Any]] | None = None,
+    output_fields: tuple[FlattenedContractField, ...] | None = None,
 ) -> LoweredPureProjection:
     """Lower one pure expression into a generated runtime-visible projection step."""
 
@@ -261,6 +268,36 @@ def lower_pure_projection_step(
             form_path=expr.form_path,
         )
     )
+    source_path_aware = target_dsl_supports_rich_loop_values(
+        context.type_env.target_dsl_version
+    )
+    if output_fields is None:
+        output_fields = _output_fields_for_contracts(
+            result_type,
+            output_contracts=lowered_output_contracts,
+            context=context,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if source_path_aware:
+        union_metadata = _union_output_metadata_by_name(
+            result_type,
+            output_fields=output_fields,
+            context=context,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        lowered_output_contracts = {
+            name: {
+                **dict(contract),
+                **(
+                    {"projection": union_metadata[name]}
+                    if name in union_metadata
+                    else {}
+                ),
+            }
+            for name, contract in lowered_output_contracts.items()
+        }
     bundle_allocation = allocate_generated_result_bundle(
         context=context,
         source_expr=source_expr or expr,
@@ -289,7 +326,10 @@ def lower_pure_projection_step(
         "id": step_id,
         "output_bundle": {
             "path": bundle_allocation.concrete_path_template,
-            "fields": _output_bundle_fields(lowered_output_contracts),
+            "fields": _output_bundle_fields(
+                lowered_output_contracts,
+                output_fields=output_fields if source_path_aware else (),
+            ),
         },
         "pure_projection": {
             "payload": payload,
@@ -386,6 +426,8 @@ def _required_pure_expr_schema_version(
     *,
     payload_expr: Mapping[str, Any] | None = None,
 ) -> int:
+    if payload_expr is not None and _payload_requires_schema_3(payload_expr):
+        return 3
     if payload_expr is not None and _payload_requires_schema_2(payload_expr):
         return 2
     for node in walk_expr(expr):
@@ -418,6 +460,16 @@ def _payload_requires_schema_2(node: Any) -> bool:
         return any(_payload_requires_schema_2(value) for value in node.values())
     if isinstance(node, (list, tuple)):
         return any(_payload_requires_schema_2(value) for value in node)
+    return False
+
+
+def _payload_requires_schema_3(node: Any) -> bool:
+    if isinstance(node, Mapping):
+        if node.get("kind") == "let":
+            return True
+        return any(_payload_requires_schema_3(value) for value in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_payload_requires_schema_3(value) for value in node)
     return False
 
 
@@ -478,6 +530,49 @@ def _payload_expr(
     binding_refs: dict[str, Any],
 ) -> tuple[dict[str, Any], TypeRef]:
     if isinstance(expr, LetStarExpr):
+        if target_dsl_supports_pure_call_composition(
+            getattr(context.type_env, "target_dsl_version", "") or ""
+        ):
+            child_bindings = dict(lexical_bindings)
+            child_types = dict(lexical_types)
+            payload_bindings: list[dict[str, Any]] = []
+            for binding_name, binding_expr in expr.bindings:
+                value_node, binding_type = _payload_expr(
+                    binding_expr,
+                    context=context,
+                    local_values=local_values,
+                    lexical_bindings=child_bindings,
+                    lexical_types=child_types,
+                    bindings=bindings,
+                    binding_refs=binding_refs,
+                )
+                payload_bindings.append(
+                    {
+                        "name": binding_name,
+                        "type": _type_descriptor(
+                            binding_type,
+                            type_env=context.type_env,
+                            source_read_trace=context.source_read_trace,
+                        ),
+                        "value": value_node,
+                    }
+                )
+                child_bindings[binding_name] = _LEXICAL_LOCAL_BINDING
+                child_types[binding_name] = binding_type
+            body_node, body_type = _payload_expr(
+                expr.body,
+                context=context,
+                local_values=local_values,
+                lexical_bindings=child_bindings,
+                lexical_types=child_types,
+                bindings=bindings,
+                binding_refs=binding_refs,
+            )
+            return {
+                "kind": "let",
+                "bindings": payload_bindings,
+                "body": body_node,
+            }, body_type
         child_bindings = dict(lexical_bindings)
         child_types = dict(lexical_types)
         for binding_name, binding_expr in expr.bindings:
@@ -511,6 +606,25 @@ def _payload_expr(
                 binding_refs=binding_refs,
             )
         local_binding = local_values.get(expr.name)
+        type_ref = lexical_types.get(expr.name) or context.local_type_bindings.get(expr.name)
+        if type_ref is None:
+            raise KeyError(f"missing local type binding for `{expr.name}`")
+        if (
+            target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+            and isinstance(local_binding, Mapping)
+            and isinstance(type_ref, RecordTypeRef)
+            and _is_complete_record_local_value(local_binding, type_ref)
+        ):
+            return _payload_record_local_value(
+                local_binding,
+                type_ref=type_ref,
+                context=context,
+                local_values=local_values,
+                lexical_bindings=lexical_bindings,
+                lexical_types=lexical_types,
+                bindings=bindings,
+                binding_refs=binding_refs,
+            )
         if (
             isinstance(
                 local_binding,
@@ -542,9 +656,6 @@ def _payload_expr(
                 bindings=bindings,
                 binding_refs=binding_refs,
             )
-        type_ref = lexical_types.get(expr.name) or context.local_type_bindings.get(expr.name)
-        if type_ref is None:
-            raise KeyError(f"missing local type binding for `{expr.name}`")
         bindings.setdefault(
             expr.name,
             {
@@ -909,6 +1020,123 @@ def _payload_expr(
     raise TypeError(f"unsupported pure projection expression: {type(expr).__name__}")
 
 
+def _payload_record_local_value(
+    value: Mapping[str, Any],
+    *,
+    type_ref: RecordTypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    lexical_bindings: Mapping[str, Any],
+    lexical_types: Mapping[str, TypeRef],
+    bindings: dict[str, dict[str, Any]],
+    binding_refs: dict[str, Any],
+) -> tuple[dict[str, Any], TypeRef]:
+    """Turn a WCC-resolved record mapping into one typed lexical payload."""
+
+    fields: list[dict[str, Any]] = []
+    for field in type_ref.definition.fields:
+        if field.name not in value:
+            raise TypeError(
+                f"deferred record local is missing field `{field.name}` for `{type_ref.name}`"
+            )
+        field_value = value[field.name]
+        field_type = _field_type(
+            type_ref,
+            field.name,
+            type_env=context.type_env,
+        )
+        value_node, _ = _payload_resolved_local_value(
+            field_value,
+            type_ref=field_type,
+            context=context,
+            local_values=local_values,
+            lexical_bindings=lexical_bindings,
+            lexical_types=lexical_types,
+            bindings=bindings,
+            binding_refs=binding_refs,
+        )
+        fields.append({"name": field.name, "value": value_node})
+    return {
+        "kind": "record",
+        "type": _type_descriptor(
+            type_ref,
+            type_env=context.type_env,
+            source_read_trace=context.source_read_trace,
+        ),
+        "fields": fields,
+    }, type_ref
+
+
+def _is_complete_record_local_value(
+    value: Mapping[str, Any],
+    type_ref: RecordTypeRef,
+) -> bool:
+    """Distinguish an authored record mapping from an existing ref wrapper."""
+
+    return all(field.name in value for field in type_ref.definition.fields)
+
+
+def _payload_resolved_local_value(
+    value: Any,
+    *,
+    type_ref: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    lexical_bindings: Mapping[str, Any],
+    lexical_types: Mapping[str, TypeRef],
+    bindings: dict[str, dict[str, Any]],
+    binding_refs: dict[str, Any],
+) -> tuple[dict[str, Any], TypeRef]:
+    """Lower one resolved WCC local while retaining its declared field type."""
+
+    if isinstance(value, Mapping) and isinstance(type_ref, RecordTypeRef):
+        return _payload_record_local_value(
+            value,
+            type_ref=type_ref,
+            context=context,
+            local_values=local_values,
+            lexical_bindings=lexical_bindings,
+            lexical_types=lexical_types,
+            bindings=bindings,
+            binding_refs=binding_refs,
+        )
+    if isinstance(value, str):
+        bindings.setdefault(
+            value,
+            {
+                "type": _type_descriptor(
+                    type_ref,
+                    type_env=context.type_env,
+                    source_read_trace=context.source_read_trace,
+                )
+            },
+        )
+        binding_refs.setdefault(
+            value,
+            {"ref": value},
+        )
+        return {"kind": "binding", "name": value}, type_ref
+    if isinstance(value, (bool, int, float)) or value is None:
+        return {
+            "kind": "literal",
+            "type": _type_descriptor(
+                type_ref,
+                type_env=context.type_env,
+                source_read_trace=context.source_read_trace,
+            ),
+            "value": value,
+        }, type_ref
+    return _payload_expr(
+        value,
+        context=context,
+        local_values=local_values,
+        lexical_bindings=lexical_bindings,
+        lexical_types=lexical_types,
+        bindings=bindings,
+        binding_refs=binding_refs,
+    )
+
+
 def _binding_ref_value(name: str, *, local_values: Mapping[str, Any]) -> Any:
     if name not in local_values:
         raise KeyError(f"missing local value for `{name}`")
@@ -929,7 +1157,12 @@ def _runtime_binding_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         result: dict[str, Any] = {}
         for key, item in value.items():
-            if isinstance(key, str) and key.startswith("__"):
+            if key in {
+                "__lowering_returned_union_type",
+                "__typed_union_prompt_source__",
+                "__provider_bundle_path_ref__",
+                "__provider_bundle_projection__",
+            }:
                 continue
             result[str(key)] = _runtime_binding_value(item)
         return result
@@ -1200,7 +1433,15 @@ def output_contracts_for_boundary_type(
     }
 
 
-def _output_bundle_fields(output_contracts: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _output_bundle_fields(
+    output_contracts: Mapping[str, Mapping[str, Any]],
+    *,
+    output_fields: tuple[FlattenedContractField, ...] = (),
+) -> list[dict[str, Any]]:
+    source_paths = {
+        field.generated_name: field.source_path
+        for field in output_fields
+    }
     fields: list[dict[str, Any]] = []
     for output_name, contract in output_contracts.items():
         if not isinstance(output_name, str) or not output_name:
@@ -1209,7 +1450,10 @@ def _output_bundle_fields(output_contracts: Mapping[str, Mapping[str, Any]]) -> 
             continue
         field = {
             "name": output_name,
-            "json_pointer": _output_json_pointer(output_name),
+            "json_pointer": _output_json_pointer(
+                output_name,
+                source_path=source_paths.get(output_name),
+            ),
             **dict(contract),
         }
         fields.append(field)
@@ -1275,17 +1519,92 @@ def _structured_output_contracts(
     return contracts
 
 
-def _output_json_pointer(output_name: str) -> str:
+def _output_json_pointer(
+    output_name: str,
+    *,
+    source_path: tuple[str, ...] | None,
+) -> str:
     if output_name == "__result__":
         return ""
-    if output_name == "return":
+    if source_path is None or not source_path:
+        # Keep all closed targets on their historical generated-name mapping.
+        if output_name == "return":
+            return "/result"
+        if output_name == "return__variant":
+            return "/result/variant"
+        suffix = output_name.removeprefix("return__")
+        if not suffix or suffix == output_name:
+            return "/result"
+        return "/result/" + suffix.replace("__", "/")
+    relative_path = source_path[1:]
+    if not relative_path:
         return "/result"
-    if output_name == "return__variant":
-        return "/result/variant"
-    suffix = output_name.removeprefix("return__")
-    if not suffix or suffix == output_name:
-        return "/result"
-    return "/result/" + suffix.replace("__", "/")
+    return "/result/" + "/".join(
+        segment.replace("~", "~0").replace("/", "~1")
+        for segment in relative_path
+    )
+
+
+def _output_fields_for_contracts(
+    result_type: TypeRef,
+    *,
+    output_contracts: Mapping[str, Mapping[str, Any]],
+    context: _LoweringContext,
+    span,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    """Recover source paths for legacy callers that supplied only contracts."""
+
+    if set(output_contracts) == {"__result__"}:
+        return (
+            FlattenedContractField(
+                generated_name="__result__",
+                source_path=("return",),
+                contract_definition=output_contracts["__result__"],
+            ),
+        )
+    # New source-path-aware callers must provide their flattened fields.  The
+    # default projection shape is the only safe local derivation: its root is
+    # always named ``return``.  Other supplied contracts may use arbitrary
+    # names (for example loop ``state``/``result``), which cannot be recovered
+    # from a generated name without recreating the convention this seam removes.
+    fields = derive_workflow_boundary_fields(
+        result_type,
+        generated_name="return",
+        source_path=("return",),
+        span=span,
+        form_path=form_path,
+        type_env=context.type_env,
+    )
+    return tuple(field for field in fields if field.generated_name in output_contracts)
+
+
+def _union_output_metadata_by_name(
+    result_type: TypeRef,
+    *,
+    output_fields: tuple[FlattenedContractField, ...],
+    context: _LoweringContext,
+    span,
+    form_path: tuple[str, ...],
+) -> Mapping[str, Mapping[str, Any]]:
+    metadata: dict[str, Mapping[str, Any]] = {}
+    for prefix in {field.source_path[:1] for field in output_fields if field.source_path}:
+        generated_name = prefix[0]
+        metadata.update(
+            derive_union_workflow_output_metadata(
+                result_type,
+                generated_name=generated_name,
+                source_path=prefix,
+                span=span,
+                form_path=form_path,
+                type_env=context.type_env,
+            )
+        )
+    return {
+        field.generated_name: metadata[field.generated_name]
+        for field in output_fields
+        if field.generated_name in metadata
+    }
 
 
 def _contains_runtime_ref(value: Any) -> bool:
@@ -1316,4 +1635,3 @@ def _raise_pure_expr_error(
             ),
         )
     )
-

@@ -534,6 +534,17 @@ Implemented contract:
   one-to-one before provider preparation; and
 - typed state and the provider output contract remain semantic authority.
 
+The target-2.28 union extension is specified by
+[incremental value composition](workflow_lisp_value_and_continuation_composition.md#flattened-boundary-carriage).
+Its compiler-owned `typed_union_projection` source preserves the normalized
+descriptor and explicit variant-shaped source tree at flattened boundaries.
+Consumer resolution selects the discriminant before active payload references;
+whole referenced values and literal payloads are data, never recursively
+interpreted as reference instructions. This extends the existing injection seam,
+not artifact-group reads, producer bundle authority, or a new result store.
+Implementation and public run/resume evidence are tracked in the linked plan;
+the target contract alone is not a shipped-capability claim.
+
 ### C2: Observability-derived human summaries
 
 Let reporting and dashboard surfaces render typed terminal values and transition

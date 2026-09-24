@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .contracts import derive_workflow_boundary_fields
+from .contracts import derive_workflow_boundary_fields, is_transportable_result_type
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
 from .expression_traversal import iter_child_exprs
@@ -27,6 +27,7 @@ from .expressions import (
     ProcedureCallExpr,
     ProduceOneOfExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
@@ -48,6 +49,7 @@ from .procedures import (
     procedure_type_env_for,
 )
 from .result_guidance import validate_result_guidance_example
+from .syntax import target_dsl_supports_provider_context_values
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -59,6 +61,7 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
     WorkflowRefTypeRef,
+    ensure_no_type_params,
     render_type_ref,
     substitute_type_params,
 )
@@ -106,10 +109,83 @@ def procedure_catalog_with_specializations(
     )
 
 
-def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
+def materialized_specialization_rows(
+    procedure: TypedProcedureDef,
+    *,
+    workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef],
+    proc_ref_bindings: Mapping[str, ResolvedProcRefValue],
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> tuple[TypedProcedureDef, ...]:
+    """Select exact compiler-owned rows without reconstructing their keys."""
+
+    existing = procedure.specialization
+    base_name = existing.base_name if existing is not None else procedure.signature.name
+    expected_workflow_bindings = {
+        **dict(getattr(existing, "workflow_ref_bindings", {})),
+        **dict(workflow_ref_bindings),
+    }
+    expected_proc_bindings = {
+        **dict(getattr(existing, "proc_ref_bindings", {})),
+        **dict(proc_ref_bindings),
+    }
+    expected_proc_identity = tuple(
+        sorted(
+            (param_name, resolved.call_target_name)
+            for param_name, resolved in expected_proc_bindings.items()
+        )
+    )
+    matches: list[TypedProcedureDef] = []
+    for candidate in typed_procedures.values():
+        specialization = candidate.specialization
+        if specialization is None or specialization.base_name != base_name:
+            continue
+        if workflow_ref_binding_identity(
+            specialization.workflow_ref_bindings
+        ) != workflow_ref_binding_identity(expected_workflow_bindings):
+            continue
+        candidate_proc_identity = tuple(
+            sorted(
+                (param_name, resolved.call_target_name)
+                for param_name, resolved in specialization.proc_ref_bindings.items()
+            )
+        )
+        if candidate_proc_identity != expected_proc_identity:
+            continue
+        if dict(specialization.type_bindings) != dict(
+            getattr(existing, "type_bindings", {})
+        ):
+            continue
+        if dict(specialization.value_bindings) != dict(
+            getattr(existing, "value_bindings", {})
+        ):
+            continue
+        matches.append(candidate)
+    return tuple(matches)
+
+
+def _procedure_private_boundary_valid(
+    procedure: TypedProcedureDef,
+    *,
+    type_env: FrontendTypeEnvironment,
+) -> bool:
     """Return whether a procedure signature can become a private workflow."""
 
     try:
+        if target_dsl_supports_provider_context_values(type_env.target_dsl_version):
+            for _, type_ref in (*procedure.signature.params, ("return", procedure.signature.return_type_ref)):
+                ensure_no_type_params(
+                    type_ref,
+                    span=procedure.definition.span,
+                    form_path=procedure.definition.form_path,
+                    expansion_stack=procedure.definition.expansion_stack,
+                )
+            return is_transportable_result_type(
+                procedure.signature.return_type_ref,
+                type_env=type_env,
+            ) and all(
+                is_transportable_result_type(type_ref, type_env=type_env)
+                for _, type_ref in procedure.signature.params
+            )
         if not isinstance(procedure.signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
             return False
         if not analyze_workflow_boundary_type(
@@ -126,7 +202,7 @@ def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
             ).lowerable
             for param_name, type_ref in procedure.signature.params
         )
-    except TypeError:
+    except (LispFrontendCompileError, TypeError):
         return False
 
 
@@ -234,6 +310,21 @@ def _private_workflow_result_type_for_expr(
             MaterializeViewExpr,
         ),
     ):
+        if isinstance(expr, ProviderResultExpr) and expr.capture_context is not None:
+            from .context_types import contextual_type
+
+            return contextual_type(
+                type_env.resolve_type(
+                    expr.returns_type_name,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
+                type_env.resolve_type(
+                    "Context",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
+            )
         return type_env.resolve_type(
             expr.returns_type_name,
             span=expr.span,
@@ -481,6 +572,7 @@ def _private_workflow_binding_local_value(
             CallExpr,
             CommandResultExpr,
             ProviderResultExpr,
+            RequestInputExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -506,7 +598,10 @@ def _private_workflow_local_value_for_type(
 ) -> Any | None:
     """Build the local-value projection a structured step would expose."""
 
-    from .lowering.values import _build_output_step_local_value
+    from .lowering.values import (
+        _build_output_step_local_value,
+        union_prompt_source_from_output_refs,
+    )
 
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         output_refs = {
@@ -519,7 +614,15 @@ def _private_workflow_local_value_for_type(
                 form_path=form_path,
             )
         }
-        return _build_output_step_local_value(output_refs)
+        local_value = _build_output_step_local_value(output_refs)
+        if isinstance(type_ref, UnionTypeRef):
+            source = union_prompt_source_from_output_refs(
+                type_ref,
+                output_refs=output_refs,
+            )
+            if source is not None:
+                local_value["__typed_union_prompt_source__"] = source
+        return local_value
     if isinstance(type_ref, (PathTypeRef, PrimitiveTypeRef)):
         return f"root.steps.{step_name}.artifacts.return"
     return None
@@ -552,6 +655,7 @@ def _private_workflow_body_exports_step_backed_outputs(
         (
             CommandResultExpr,
             ProviderResultExpr,
+            RequestInputExpr,
             CallExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
@@ -1020,7 +1124,14 @@ def specialize_typed_procedure(
     mode = ProcedureLoweringMode.INLINE
     generated_name = None
     if not defer_lowering_resolution:
-        boundary_valid = _procedure_private_boundary_valid(specialized)
+        boundary_valid = _procedure_private_boundary_valid(
+            specialized,
+            type_env=procedure_type_env_for(
+                specialized,
+                procedure_type_envs=procedure_type_envs,
+                default=type_env,
+            ),
+        )
         body_valid = _procedure_private_body_valid(
             specialized,
             typed_procedures_by_name=request.typed_procedures_by_name,
@@ -1116,12 +1227,16 @@ def discover_proc_ref_specializations(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
+    visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .expressions import LetStarExpr, ProcedureCallExpr
 
     discovered: dict[str, TypedProcedureDef] = {}
-    typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
+    typed_procedures_by_name = {
+        **dict(visible_typed_procedures_by_name or {}),
+        **{procedure.definition.name: procedure for procedure in typed_procedures},
+    }
 
     def record_specialization(
         specialized: TypedProcedureDef | None,

@@ -24,10 +24,32 @@ and
 [Workflow Lisp Provider Peer Messaging](workflow_lisp_provider_peer_messaging.md).
 
 Proposed, not current: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
-owns optional identity-aware effect restrictions and their migration;
-[pure-call composition](workflow_lisp_pure_call_composition.md) owns expression
-admission and normalization for effect-free procedures. These targets do not
-change this baseline's current syntax, placement, lowering, or identity rules.
+owns optional identity-aware effect restrictions and their migration. Current
+target-2.30 resolved-inline [pure-call composition](workflow_lisp_pure_call_composition.md)
+is summarized in §8.6 below; it does not change authored effect declarations.
+
+Target 2.31 supports the portable ordinary-call slice of
+[provider context values](workflow_lisp_provider_context_values.md):
+`provider-result :context <Context expression>` starts a fresh call with quoted
+history; `:capture-context :portable` returns `Contextual[T]` while `:returns T`
+continues to describe only the model's result. `Context` and `Contextual[T]`
+are ordinary closed structural values, not handles or a second memory service.
+Supported private/generic, collection, loop and pure-transformation positions
+use the existing value pipeline. Ambiguous flattened private field paths still
+reject. Capture is opt-in and limited to the reviewed Codex exposed-event codec;
+native and cross-provider continuation are not admitted. Normative transport
+and atomic publication contracts are in [Providers](../../specs/providers.md)
+and [Step IO](../../specs/io.md).
+
+Target 2.32 adds one host-mediated expression,
+`(request-input question)`. Its question is exact `String`; its fixed ordinary
+result is `HumanReply = ANSWERED(text String) | CANCELLED`; and it infers the
+subject-free `host-input` effect. It lowers to the existing validated pipeline
+as one `request_input` leaf, not a provider/command call or a general
+continuation primitive. The root durably suspends for one request; answer or
+cancel only settles the request, and ordinary resume validates and consumes the
+same scoped leaf result. The normative durable-state and CLI contracts are in
+[State](../../specs/state.md) and [CLI](../../specs/cli.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -1205,6 +1227,25 @@ Pure functions may not:
 
 A `defun` either evaluates at compile time or lowers to pure expression IR.
 
+At target 2.30+, calls to resolved inline effect-free helpers can compose in
+ordinary pure expressions, including aggregates, supported map bodies and other
+functions. The compiler normalizes the selected implementation using its defining
+module and settled generic/hook specialization; a call edge alone is not an
+effect. Actual arguments retain caller scope, source order and eager exactly-once
+evaluation through hygienic lexical bindings. Bindings inside short-circuit
+operands remain inside those operands. Final strict checking also covers
+uncalled functions and generic bases.
+
+The shared pure-expression schema 3 represents ordered lexical `let` bindings;
+there is no runtime procedure interpreter. Call/definition/specialization
+provenance and deterministic compilation are retained. Effectful calls, private
+execution frames, unresolved runtime-selected callables, and bodies outside the
+supported pure-expression representation are not admitted by this rule. Existing
+effect declarations remain unchanged. Targets below 2.30 retain their previous
+pipeline and schema-1/2 behavior, including characterized placement limitations.
+The [companion decision](workflow_lisp_pure_call_composition.md) details phase
+ordering, representation and compatibility boundaries.
+
 ### 8.7 `defmacro`
 
 Defines compile-time AST transformation.
@@ -1629,6 +1670,22 @@ Lowering:
 This maps directly to the v2.14 rule that variant-only references require proof
 via `match` or explicit `requires_variant`.
 
+The target-2.29 composition implementation extends this shared proof contract
+to an exact scoped discriminant: `{ref, allowed}` guards carry finite declared
+variant membership. Proof keys distinguish lexical producer identity and its
+declared discriminant, so two unions from one producer (or same-named producers
+in different scopes) cannot grant one another field access. Activity sets are
+preserved through contract normalization; reads require a nonempty possible set
+contained in the field's activity set. Match refines its exact selector. Runtime
+checks use the same bound scoped address, including current iterations and
+restore/replay. Legacy guards and <=2.28 bytes remain unchanged; at the new
+target a legacy guard must identify one unambiguous root discriminant.
+This contract is implemented, with public committed-boundary resume evidence;
+pure-only default resume without a preceding semantic boundary remains outside
+its scope. Follow
+[Increment 2](workflow_lisp_value_and_continuation_composition.md#increment-2-carry-rich-values-through-a-complete-loop)
+for ownership, compatibility and acceptance obligations.
+
 ```mermaid
 flowchart TD
     UnionValue["implementation: ImplementationResult"] --> Match["match implementation"]
@@ -1733,6 +1790,16 @@ collection-valued loop state: top-level `Optional[T]` and `Map[K,V]` remain
 outside the target-2.18 loop-state tranche, and unsupported list element shapes
 fail before lowering.
 
+At target 2.29+, already-transportable record/union elements are admitted in
+root lists and lists within state records, using the defining type environment
+and complete element descriptors. Initial state, `continue`, `done`, explicit
+exhaustion and committed resume preserve the whole values. Exhaustion can use
+the current state root/fields and recursively package records/variants with
+renamed fields and scalar literals; normal `done` preserves its actual payload,
+even when it chooses the exhaustion variant. This adds neither an exhaustion
+evaluator nor top-level Optional/Map state. Default resume of a pure-only loop
+without a prior semantic boundary retains its existing refusal.
+
 `loop/recur` may declare authored loop state and an explicit exhaustion
 projection. The first-tranche exhaustion surface lowers scalar loop-frame
 markers to `repeat_until.on_exhausted.outputs` and then constructs the final
@@ -1755,7 +1822,8 @@ Required behavior:
   post-loop workflow code;
 - body failures, loop-output resolution failures, and predicate failures remain
   ordinary failures, not exhaustion results;
-- direct non-scalar `on_exhausted` overrides are rejected;
+- direct non-scalar `on_exhausted` overrides are rejected below target 2.29;
+  at 2.29+, the state-derived structured projection described above is admitted;
 - imported generic `.orc` bodies may carry specialized loop-frame fields through
   ordinary `loop/recur :state` only after specialization has erased type
   parameters from the runtime-visible state contract; and
@@ -2333,11 +2401,18 @@ as runtime effects. Timeout accepts only a positive exact-`Int` literal.
 Diagnostics for type errors precede the inline-subset diagnostic.
 
 `:inputs` participates in typed dataflow on every supported route. Automatic
-typed-value rendering into the provider prompt is narrower: it is implemented
-only for checked rows selected by the workflow family-profile typed-prompt-input
-lane. An unselected `:inputs` expression therefore must not be treated as proof
-that the provider sees that value. This limitation does not affect file-backed
-prompt dependencies or the structured provider-output contract.
+typed-value rendering into the provider prompt follows the existing implicit
+renderer selection: supported scalars, records, relpaths, target-2.19 exact
+`Value`, and recursively admitted lists do not need family-profile metadata.
+Target 2.28 additionally admits closed unions and eligible lists of unions.
+Flattened union boundaries retain branch-specific references; the shared
+consumer resolver selects the discriminant before resolving only the active
+payload, validates the reconstructed value, and uses canonical JSON. Ordinary
+`:inputs` and prompt value fills share that route; path slots are unchanged.
+Other shapes still require a separately implemented checked route. Phase
+lowerings retain their atomic whole-input fallback or fail before launch when
+no fallback exists. This does not change file-backed prompt dependencies, the
+provider-output contract, or branch-proof rules for source field access.
 
 Example:
 
@@ -5698,6 +5773,34 @@ their ordinary path and Q3 v1/v2 evidence; target-2.17 peer behavior is
 unchanged. The migrated `review-design-docs` consumer and its real-provider
 invalid-then-valid run prove one-client correction without pane-text
 authority, cancellation, or a provider-session resume command.
+
+## 105.10 Implemented Durable Host Input
+
+Target 2.32 reserves `(request-input question)`, one exact-`String` operand,
+and the closed builtin `HumanReply` union. The operation has one inferred
+`host-input` effect; procedures declaring effects write `:effects
+((host-input))`. A question may be literal, a typed reference, or a supported
+computed expression whose ordinary prefixes have completed before the atomic
+request leaf. The compiled leaf carries exactly one `request_input.question`
+literal/ref source, while the fixed result contract supplies only `ANSWERED`
+with `text: String` or `CANCELLED`. It has no provider options, prompt
+interpolation, output bundle, per-call descriptor, or second result carrier.
+
+At dispatch, the runtime creates at most one root-owned request, preserves the
+reached call/loop cursor and visit, and marks only the aggregate root
+`suspended`. Child frames remain ordinary incomplete frames. The host records
+an exact answer or cancellation through the single durable API; that operation
+does not execute the workflow. An unanswered resume stays suspended. An
+answered resume checks the original scope, runtime node, visit, loop placement,
+and complete reply before atomically publishing the ordinary result/dataflow
+and marking the request consumed. Existing completed-effect replay may reuse
+only the exact validated `HumanReply` boundary.
+
+This is deliberately one durable host interaction, not native provider-session
+resume, arbitrary continuation serialization, a second request store, or a
+polling/event framework. Source targets through 2.31 reject the form. The
+closed graph carries reachable request-input nodes in v6; unaffected graphs and
+state retain their earlier version and bytes.
 
 ## Part XIX. Resolved Design Decisions
 

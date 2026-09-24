@@ -997,7 +997,7 @@ def test_shared_validation_returns_structured_errors(tmp_path: Path) -> None:
     assert "Unsupported version '9.9'" in result.errors[0].message
 
 
-def test_shared_validation_target_dsl_supports_2_27_as_latest_closed_version() -> None:
+def test_shared_validation_target_dsl_has_the_current_closed_catalog() -> None:
     validation = _validation_module()
 
     assert "2.20" in validation.DEFAULT_SUPPORTED_VERSIONS
@@ -1008,12 +1008,18 @@ def test_shared_validation_target_dsl_supports_2_27_as_latest_closed_version() -
     assert "2.25" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.26" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.27" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.28" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.29" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.30" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.31" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.32" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "99.0" not in validation.DEFAULT_SUPPORTED_VERSIONS
     assert validation.DEFAULT_VERSION_ORDER[-5:] == (
-        "2.23",
-        "2.24",
-        "2.25",
-        "2.26",
-        "2.27",
+        "2.28",
+        "2.29",
+        "2.30",
+        "2.31",
+        "2.32",
     )
 
 
@@ -1029,6 +1035,13 @@ def test_shared_validation_supported_version_catalog_admits_2_27() -> None:
 
     assert "2.27" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.27" in validation.DEFAULT_VERSION_ORDER
+
+
+def test_shared_validation_supported_version_catalog_admits_2_28() -> None:
+    validation = _validation_module()
+
+    assert "2.28" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.28" in validation.DEFAULT_VERSION_ORDER
 
 
 def test_shared_validation_returns_bundle_construction_errors(

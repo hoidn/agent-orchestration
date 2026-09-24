@@ -13,7 +13,7 @@ the planned syntax-neutral workflow representation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
@@ -70,6 +70,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_supports_rich_loop_values,
     target_dsl_supports_trial,
 )
 from .type_env import (
@@ -538,6 +539,8 @@ def analyze_workflow_boundary_type(
     *,
     source_path: tuple[str, ...] = (),
     allow_union: bool = False,
+    allow_nested_unions: bool = False,
+    inside_collection: bool = False,
     allow_top_level_workflow_ref: bool = False,
 ) -> WorkflowBoundaryAnalysis:
     """Return whether one workflow-boundary type can lower to shared contracts."""
@@ -592,6 +595,8 @@ def analyze_workflow_boundary_type(
                 param_type_ref,
                 source_path=source_path + (f"param_{index}",),
                 allow_union=False,
+                allow_nested_unions=False,
+                inside_collection=False,
                 allow_top_level_workflow_ref=False,
             )
             if analysis.contains_collection:
@@ -612,6 +617,8 @@ def analyze_workflow_boundary_type(
             type_ref.return_type_ref,
             source_path=source_path + ("return",),
             allow_union=True,
+            allow_nested_unions=False,
+            inside_collection=False,
             allow_top_level_workflow_ref=False,
         )
         if return_analysis.contains_collection:
@@ -665,7 +672,9 @@ def analyze_workflow_boundary_type(
         analysis = analyze_workflow_boundary_type(
             type_ref.item_type_ref,
             source_path=source_path + ("item",),
-            allow_union=False,
+            allow_union=allow_nested_unions,
+            allow_nested_unions=allow_nested_unions,
+            inside_collection=True,
             allow_top_level_workflow_ref=False,
         )
         if not analysis.lowerable:
@@ -683,7 +692,9 @@ def analyze_workflow_boundary_type(
         analysis = analyze_workflow_boundary_type(
             type_ref.item_type_ref,
             source_path=source_path + ("item",),
-            allow_union=False,
+            allow_union=allow_nested_unions,
+            allow_nested_unions=allow_nested_unions,
+            inside_collection=True,
             allow_top_level_workflow_ref=False,
         )
         if not analysis.lowerable:
@@ -702,6 +713,8 @@ def analyze_workflow_boundary_type(
             type_ref.key_type_ref,
             source_path=source_path + ("key",),
             allow_union=False,
+            allow_nested_unions=False,
+            inside_collection=False,
             allow_top_level_workflow_ref=False,
         )
         if not key_analysis.lowerable:
@@ -709,7 +722,9 @@ def analyze_workflow_boundary_type(
         value_analysis = analyze_workflow_boundary_type(
             type_ref.value_type_ref,
             source_path=source_path + ("value",),
-            allow_union=False,
+            allow_union=allow_nested_unions,
+            allow_nested_unions=allow_nested_unions,
+            inside_collection=True,
             allow_top_level_workflow_ref=False,
         )
         if not value_analysis.lowerable:
@@ -732,6 +747,8 @@ def analyze_workflow_boundary_type(
                 field_type,
                 source_path=source_path + (field.name,),
                 allow_union=allow_union,
+                allow_nested_unions=allow_nested_unions,
+                inside_collection=inside_collection,
                 allow_top_level_workflow_ref=False,
             )
             if not analysis.lowerable or analysis.contains_collection:
@@ -753,7 +770,9 @@ def analyze_workflow_boundary_type(
                     analysis = analyze_workflow_boundary_type(
                         field_type,
                         source_path=source_path + (variant.name, field.name),
-                        allow_union=False,
+                        allow_union=allow_nested_unions and inside_collection,
+                        allow_nested_unions=allow_nested_unions,
+                        inside_collection=inside_collection,
                         allow_top_level_workflow_ref=False,
                     )
                     if not analysis.lowerable or analysis.contains_collection:
@@ -888,6 +907,10 @@ def build_workflow_catalog(
                 return_type_ref,
                 source_path=("return",),
                 allow_union=True,
+                allow_nested_unions=(
+                    allow_collection_return_boundaries
+                    and target_dsl_supports_rich_loop_values(module.target_dsl_version)
+                ),
             )
             return_diagnostic = _boundary_diagnostic(
                 workflow_name=workflow_def.name,
@@ -2062,10 +2085,20 @@ def _match_boundary_type_from_contracts(
             candidate,
             source_path=(generated_name,),
             allow_union=allow_union,
+            allow_nested_unions=(
+                generated_name == "return"
+                and target_dsl_supports_rich_loop_values(type_env.target_dsl_version)
+            ),
         )
         if not analysis.lowerable:
             continue
-        if _flattened_boundary_contracts(candidate, generated_name=generated_name, span=span, form_path=form_path) == normalized_contracts:
+        if _flattened_boundary_contracts(
+            candidate,
+            generated_name=generated_name,
+            span=span,
+            form_path=form_path,
+            type_env=type_env,
+        ) == normalized_contracts:
             if any(type_refs_compatible(existing, candidate) for existing in candidates):
                 continue
             candidates.append(candidate)
@@ -2104,6 +2137,7 @@ def _flattened_boundary_contracts(
     generated_name: str,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_env: FrontendTypeEnvironment | None = None,
 ) -> Mapping[str, Mapping[str, object]]:
     """Flatten a frontend boundary type into shared workflow contract fields."""
 
@@ -2118,6 +2152,7 @@ def _flattened_boundary_contracts(
         source_path=(generated_name,),
         span=span,
         form_path=form_path,
+        type_env=type_env,
     )
     if generated_name == "return" and isinstance(type_ref, UnionTypeRef):
         fields = _relax_variant_only_relpath_outputs(
@@ -2125,6 +2160,7 @@ def _flattened_boundary_contracts(
             fields,
             span=span,
             form_path=form_path,
+            type_env=type_env,
         )
 
     return {
@@ -2532,6 +2568,8 @@ def typecheck_workflow_definitions(
     selected_entry_workflow_name: str | None = None,
     compiler_session: CompilerSession | None = None,
     session_artifact_entry_workflow_allowed: bool = False,
+    function_body_normalizer: Callable[[object], object] | None = None,
+    allow_provisional_procedure_calls: bool = False,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -2626,6 +2664,8 @@ def typecheck_workflow_definitions(
             )
         else:
             body_expr = workflow_def.body
+        if function_body_normalizer is not None:
+            body_expr = function_body_normalizer(body_expr)
         elaborated_bodies[workflow_def.name] = body_expr
         hidden_context_requirements, hidden_context_ambiguities = (
             derive_promoted_entry_hidden_context_metadata(signature, body_expr)
@@ -2710,6 +2750,7 @@ def typecheck_workflow_definitions(
                 session_artifact_allowed=(
                     workflow_def.name in session_artifact_workflow_names
                 ),
+                allow_provisional_procedure_calls=allow_provisional_procedure_calls,
             )
         finally:
             clear_active_reusable_state_producer_context(compiler_session.typecheck)

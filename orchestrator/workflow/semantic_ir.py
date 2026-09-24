@@ -28,6 +28,7 @@ from .executable_ir import (
     ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
+    RequestInputStepConfig,
     RunRefStepConfig,
     TrialStepConfig,
     provider_peer_group_config_to_runtime_dict,
@@ -207,6 +208,10 @@ class SemanticPromptSurface:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    provider_context: Mapping[str, Any] | None = field(
+        default=None,
+        metadata={"json_omit_if_none": True},
+    )
     input_file: Any = None
     asset_file: Any = None
     prompt_consumes: tuple[Any, ...] = ()
@@ -330,6 +335,7 @@ def derive_workflow_semantic_ir(
     imports: Mapping[str, Any],
     provenance: WorkflowProvenance,
     source_map_payload: Mapping[str, object] | None = None,
+    runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
 ) -> SemanticWorkflowIR:
     workflow_name = (
         core_workflow_ast.workflow_name
@@ -478,6 +484,7 @@ def derive_workflow_semantic_ir(
                     )
                     else None
                 ),
+                provider_context=step.provider_context,
                 input_file=step.input_file,
                 asset_file=step.asset_file,
                 prompt_consumes=step.prompt_consumes or (),
@@ -952,6 +959,7 @@ def derive_workflow_semantic_ir(
         runtime_plan=runtime_plan,
         surface=surface,
         imports=imports,
+        runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
     )
     return semantic_ir
 
@@ -964,6 +972,7 @@ def validate_workflow_semantic_ir(
     runtime_plan: WorkflowRuntimePlan,
     surface: SurfaceWorkflow | None = None,
     imports: Mapping[str, Any] | None = None,
+    runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
 ) -> None:
     workflow_name = ir.name or ""
     workflow = semantic_ir.workflows.get(workflow_name)
@@ -997,6 +1006,114 @@ def validate_workflow_semantic_ir(
                 f"semantic_ir_invalid: missing call-edge catalog entry `{edge_id}`",
                 workflow_name=workflow_name,
             )
+    surface_steps = () if surface is None else _iter_surface_steps(surface)
+    context_present = any(
+        step.provider_context is not None for step in surface_steps
+    ) or any(
+        prompt.provider_context is not None
+        for prompt in semantic_ir.prompt_surfaces.values()
+    ) or any(
+        isinstance(getattr(node, "execution_config", None), ProviderStepConfig)
+        and node.execution_config.provider_context is not None
+        for node in ir.nodes.values()
+    )
+    expected_context_ir = None
+    if context_present:
+        if surface is None:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: provider context requires Surface authority",
+                workflow_name=workflow_name,
+            )
+        from .lowering import _lower_surface_workflow_impl
+
+        expected_context_ir, _ = _lower_surface_workflow_impl(
+            surface,
+            runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
+        )
+    request_input_present = any(
+        step.kind is SurfaceStepKind.REQUEST_INPUT for step in surface_steps
+    ) or any(
+        isinstance(getattr(node, "execution_config", None), RequestInputStepConfig)
+        for node in ir.nodes.values()
+    )
+    expected_request_input_ir = None
+    if request_input_present:
+        if surface is None:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: request input requires Surface authority",
+                workflow_name=workflow_name,
+            )
+        from .lowering import _lower_surface_workflow_impl
+
+        expected_request_input_ir, _ = _lower_surface_workflow_impl(
+            surface,
+            runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
+        )
+    if expected_request_input_ir is not None:
+        statement_by_node_id = {
+            node_id: statement
+            for statement in workflow.statements.values()
+            for node_id in statement.executable_node_ids
+        }
+        for node in ir.nodes.values():
+            if not isinstance(
+                getattr(node, "execution_config", None), RequestInputStepConfig
+            ):
+                continue
+            statement = statement_by_node_id.get(node.node_id)
+            if (
+                statement is None
+                or statement.step_kind != SurfaceStepKind.REQUEST_INPUT.value
+            ):
+                _raise_semantic_ir_invalid(
+                    "semantic_ir_invalid: request input source/executable mismatch",
+                    workflow_name=workflow_name,
+                )
+        for statement in workflow.statements.values():
+            if statement.step_kind != SurfaceStepKind.REQUEST_INPUT.value:
+                continue
+            source_step = next(
+                (
+                    step for step in surface_steps
+                    if statement.step_id in _step_id_aliases(step.step_id)
+                ),
+                None,
+            )
+            actual_config = next(
+                (
+                    ir.nodes[node_id].execution_config
+                    for node_id in statement.executable_node_ids
+                    if node_id in ir.nodes
+                    and isinstance(
+                        ir.nodes[node_id].execution_config, RequestInputStepConfig
+                    )
+                ),
+                None,
+            )
+            expected_config = next(
+                (
+                    expected_request_input_ir.nodes[node_id].execution_config
+                    for node_id in statement.executable_node_ids
+                    if node_id in expected_request_input_ir.nodes
+                    and isinstance(
+                        expected_request_input_ir.nodes[node_id].execution_config,
+                        RequestInputStepConfig,
+                    )
+                ),
+                None,
+            )
+            if (
+                source_step is None
+                or source_step.kind is not SurfaceStepKind.REQUEST_INPUT
+                or actual_config is None
+                or expected_config is None
+                or actual_config.request_input != expected_config.request_input
+            ):
+                _raise_semantic_ir_invalid(
+                    "semantic_ir_invalid: request input source/executable mismatch",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
     for prompt_surface_id in workflow.prompt_surface_ids:
         if prompt_surface_id not in semantic_ir.prompt_surfaces:
             _raise_semantic_ir_invalid(
@@ -1018,6 +1135,29 @@ def validate_workflow_semantic_ir(
             ),
             None,
         )
+        if expected_context_ir is not None:
+            source_step = next(
+                (step for step in surface_steps
+                 if statement is not None
+                 and statement.step_id in _step_id_aliases(step.step_id)),
+                None,
+            )
+            expected_config = next(
+                (expected_context_ir.nodes[node_id].execution_config
+                 for node_id in (() if statement is None else statement.executable_node_ids)
+                 if node_id in expected_context_ir.nodes
+                 and isinstance(expected_context_ir.nodes[node_id].execution_config, ProviderStepConfig)),
+                None,
+            )
+            if (
+                source_step is None or expected_config is None or provider_config is None
+                or prompt_surface.provider_context != source_step.provider_context
+                or provider_config.provider_context != expected_config.provider_context
+            ):
+                _raise_semantic_ir_invalid(
+                    "semantic_ir_invalid: provider context source/executable mismatch",
+                    workflow_name=workflow_name,
+                )
         try:
             validate_compiler_prompt_fragment_pair(
                 prompt_surface.compiler_prompt_fragment_contract,

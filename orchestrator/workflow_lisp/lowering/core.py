@@ -236,6 +236,7 @@ from .values import (
     _flatten_boundary_leaf_paths,
     _flatten_return_output_names,
     _inline_expr_field_value,
+    iter_parent_ref_strings,
     _lower_record_expr,
     _lower_union_variant_expr,
     _phase_target_inline_ref,
@@ -487,42 +488,37 @@ def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str
 
 
 def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
-    if isinstance(value, str):
+    from .values import (
+        rewrite_typed_union_projection_references,
+        rewrite_typed_union_prompt_source_references,
+    )
+
+    def rewrite(ref: str) -> str:
         for step_name in sibling_names:
             prefix = f"parent.steps.{step_name}."
-            if value.startswith(prefix):
-                return "self.steps." + value.removeprefix("parent.steps.")
-        return value
+            if ref.startswith(prefix):
+                return "self.steps." + ref.removeprefix("parent.steps.")
+        return ref
+
+    protected = rewrite_typed_union_projection_references(value, rewrite)
+    if protected is not None:
+        return protected
+    if isinstance(value, str):
+        return rewrite(value)
     if isinstance(value, list):
         return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
     if isinstance(value, Mapping):
         rewritten: dict[Any, Any] = {}
         for key, item in value.items():
+            if key == "__typed_union_prompt_source__":
+                rewritten[key] = rewrite_typed_union_prompt_source_references(item, rewrite)
+                continue
             if key == "steps" and isinstance(item, list):
                 rewritten[key] = item
                 continue
             rewritten[key] = _rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names)
         return rewritten
     return value
-
-
-def _iter_parent_ref_strings(payload: object) -> Sequence[str]:
-    refs: list[str] = []
-
-    def visit(value: object) -> None:
-        if isinstance(value, Mapping):
-            ref = value.get("ref")
-            if isinstance(ref, str) and ref.startswith("parent.steps."):
-                refs.append(ref)
-            for nested in value.values():
-                visit(nested)
-            return
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            for nested in value:
-                visit(nested)
-
-    visit(payload)
-    return tuple(refs)
 
 
 def _scan_parent_ref_allowances(
@@ -534,7 +530,7 @@ def _scan_parent_ref_allowances(
     shared_validation_allowances: set[tuple[str, str]],
     executable_allowances: set[tuple[str, str]],
 ) -> None:
-    for ref in _iter_parent_ref_strings(payload):
+    for ref in iter_parent_ref_strings(payload):
         try:
             parsed = parse_structured_ref(ref, all_step_names)
         except Exception:
@@ -1235,6 +1231,7 @@ def _lower_one_workflow(
         step_origins=context.step_spans,
         is_generated_private_workflow=is_generated_private_workflow,
     )
+    compiler_owned_repeat_until_metadata = _capture_compiler_owned_repeat_until_metadata(authored_mapping)
 
     return LoweredWorkflow(
         typed_workflow=typed_workflow,
@@ -1357,13 +1354,10 @@ def _lower_one_workflow(
         generated_repeat_until_on_exhausted_refs=_capture_generated_repeat_until_on_exhausted_refs(
             authored_mapping
         ),
-        compiler_owned_repeat_until_metadata=(
-            _capture_compiler_owned_repeat_until_metadata(authored_mapping)
-        ),
-        compiler_owned_nested_if_step_ids=(
-            _capture_compiler_owned_nested_if_step_ids(
-                authored_mapping
-            )
+        compiler_owned_repeat_until_metadata=compiler_owned_repeat_until_metadata,
+        compiler_owned_nested_if_step_ids=_capture_compiler_owned_nested_if_step_ids(
+            authored_mapping,
+            compiler_owned_repeat_until_metadata=compiler_owned_repeat_until_metadata,
         ),
     )
 
@@ -1647,6 +1641,7 @@ def _output_contracts_for_type(
             type_ref,
             span=span,
             form_path=form_path,
+            type_env=context.type_env,
         )
         variant_names = tuple(projection.variant_fields)
         shared_names = {field.generated_name for field in projection.shared_fields}
@@ -1661,6 +1656,7 @@ def _output_contracts_for_type(
             source_path=("return",),
             span=span,
             form_path=form_path,
+            type_env=context.type_env,
         ):
             definition = dict(field.contract_definition)
             metadata: dict[str, Any] = {
@@ -1689,6 +1685,7 @@ def _output_contracts_for_type(
             source_path=("return",),
             span=span,
             form_path=form_path,
+            type_env=context.type_env,
         )
         return {
             field.generated_name: dict(field.contract_definition)

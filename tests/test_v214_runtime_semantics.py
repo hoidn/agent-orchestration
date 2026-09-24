@@ -9,8 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from orchestrator.exceptions import WorkflowValidationError
 from tests.workflow_fixture_loader import WorkflowLoader
 from orchestrator.state import StateManager
+from orchestrator.workflow.executable_ir import NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
 
 
@@ -1669,6 +1671,238 @@ def test_requires_variant_blocks_execution_when_selected_variant_does_not_match(
     assert guarded["error"]["context"]["required_variant"] == "COMPLETED"
     assert guarded["error"]["context"]["selected_variant"] == "BLOCKED"
     assert not (tmp_path / "state" / "should_not_exist.txt").exists()
+
+
+def test_scoped_requires_variant_guard_uses_declared_discriminant_at_229(
+    tmp_path: Path,
+) -> None:
+    """The 2.29 guard reads its declared discriminant, not a producer-name alias."""
+    workflow = {
+        "version": "2.29",
+        "name": "scoped-requires-variant-guard",
+        "steps": [
+            {
+                "name": "EmitVariantBundle",
+                "id": "emit_variant_bundle",
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import json\n"
+                        "from pathlib import Path\n"
+                        "Path('state').mkdir(parents=True, exist_ok=True)\n"
+                        "Path('state/variant_bundle.json').write_text(json.dumps({"
+                        "'implementation_state': 'BLOCKED'"
+                        "}) + '\\n', encoding='utf-8')\n"
+                    ),
+                ],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {"fields": []},
+                        "BLOCKED": {"fields": []},
+                    },
+                },
+            },
+            {
+                "name": "UseCompletedArtifact",
+                "id": "use_completed_artifact",
+                "requires_variant": {
+                    "ref": "root.steps.EmitVariantBundle.artifacts.implementation_state",
+                    "allowed": ["COMPLETED"],
+                },
+                "command": [
+                    "python",
+                    "-c",
+                    "from pathlib import Path; Path('state/should_not_exist.txt').write_text('executed')",
+                ],
+            },
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow)
+    guard = executor.executable_ir.nodes["root.use_completed_artifact"].execution_config.common.requires_variant
+    assert isinstance(guard["ref"], NodeResultAddress)
+    state = executor.execute(on_error="continue")
+
+    guarded = state["steps"]["UseCompletedArtifact"]
+    assert guarded["status"] == "failed"
+    assert guarded["error"]["type"] == "variant_unavailable"
+    assert guarded["error"]["context"]["allowed"] == ["COMPLETED"]
+    assert guarded["error"]["context"]["selected_variant"] == "BLOCKED"
+    assert not (tmp_path / "state" / "should_not_exist.txt").exists()
+
+
+def test_scoped_requires_variant_guard_proves_its_declared_variant_field_at_229(
+    tmp_path: Path,
+) -> None:
+    """The guard proof is keyed by its discriminant instead of the step name."""
+    workflow = {
+        "version": "2.29",
+        "name": "scoped-requires-variant-proof",
+        "steps": [
+            {
+                "name": "EmitVariantBundle",
+                "id": "emit_variant_bundle",
+                "command": ["echo", "ok"],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report",
+                                    "json_pointer": "/execution_report",
+                                    "type": "string",
+                                }
+                            ]
+                        },
+                        "BLOCKED": {"fields": []},
+                    },
+                },
+            },
+            {
+                "name": "UseCompletedArtifact",
+                "id": "use_completed_artifact",
+                "requires_variant": {
+                    "ref": "root.steps.EmitVariantBundle.artifacts.implementation_state",
+                    "allowed": ["COMPLETED"],
+                },
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "execution_report_copy",
+                            "source": {
+                                "ref": "root.steps.EmitVariantBundle.artifacts.execution_report",
+                            },
+                            "contract": {"type": "string"},
+                        }
+                    ]
+                },
+            },
+        ],
+    }
+
+    _load_executor(tmp_path, workflow)
+
+
+def test_scoped_requires_variant_guard_rejects_another_variant_field_at_229(
+    tmp_path: Path,
+) -> None:
+    """A scoped proof cannot authorize a field outside its allowed set."""
+    workflow = {
+        "version": "2.29",
+        "name": "scoped-requires-variant-wrong-proof",
+        "steps": [
+            {
+                "name": "EmitVariantBundle",
+                "id": "emit_variant_bundle",
+                "command": ["echo", "ok"],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report",
+                                    "json_pointer": "/execution_report",
+                                    "type": "string",
+                                }
+                            ]
+                        },
+                        "BLOCKED": {"fields": []},
+                    },
+                },
+            },
+            {
+                "name": "UseCompletedArtifact",
+                "id": "use_completed_artifact",
+                "requires_variant": {
+                    "ref": "root.steps.EmitVariantBundle.artifacts.implementation_state",
+                    "allowed": ["BLOCKED"],
+                },
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "execution_report_copy",
+                            "source": {
+                                "ref": "root.steps.EmitVariantBundle.artifacts.execution_report",
+                            },
+                            "contract": {"type": "string"},
+                        }
+                    ]
+                },
+            },
+        ],
+    }
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        _load_executor(tmp_path, workflow)
+
+    assert "execution_report" in str(exc_info.value)
+    assert "BLOCKED" in str(exc_info.value)
+
+
+def test_scoped_requires_variant_guard_rejects_unrelated_enum_at_229(
+    tmp_path: Path,
+) -> None:
+    """An enum output is not a substitute for a declared union discriminant."""
+    workflow = {
+        "version": "2.29",
+        "name": "scoped-requires-variant-enum",
+        "steps": [
+            {
+                "name": "EmitEnum",
+                "id": "emit_enum",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/enum.json",
+                    "fields": [
+                        {
+                            "name": "status",
+                            "json_pointer": "/status",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "UseEnum",
+                "id": "use_enum",
+                "requires_variant": {
+                    "ref": "root.steps.EmitEnum.artifacts.status",
+                    "allowed": ["COMPLETED"],
+                },
+                "command": ["echo", "nope"],
+            },
+        ],
+    }
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        _load_executor(tmp_path, workflow)
+
+    assert "declared union discriminant" in str(exc_info.value)
+
+
 
 
 def test_adjudicated_provider_keeps_variant_output_contract_for_prompt_injection(

@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .diagnostics import LispFrontendCompileError
-from .effects import EMPTY_EFFECT_SUMMARY, effect_summary_contains_runs_ref
+from .effects import (
+    EMPTY_EFFECT_SUMMARY,
+    effect_summary_contains_runs_ref,
+    effect_summary_is_procedure_edge_only,
+)
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -32,6 +36,7 @@ from .expressions import (
     PureOpExpr,
 )
 from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeRef
+from .syntax import target_dsl_supports_pure_call_composition
 from .typecheck_context import (
     TypecheckContext,
     TypedExpr,
@@ -52,6 +57,16 @@ def _is_transportable_result_type(
     from .contracts import is_transportable_result_type
 
     return is_transportable_result_type(type_ref, type_env=type_env)
+
+
+def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext) -> bool:
+    return summary == EMPTY_EFFECT_SUMMARY or (
+        context.allow_provisional_procedure_calls
+        and target_dsl_supports_pure_call_composition(
+            context.type_env.target_dsl_version
+        )
+        and effect_summary_is_procedure_edge_only(summary)
+    )
 
 
 def typecheck_structural_value_expr(
@@ -155,7 +170,9 @@ def typecheck_structural_value_expr(
                 )
             typed_items = tuple(item.expr for item in typed_item_values)
             if any(
-                item.effect_summary != EMPTY_EFFECT_SUMMARY
+                not _is_pure_or_provisional_procedure_call(
+                    item.effect_summary, context=context
+                )
                 for item in typed_item_values
             ):
                 raise_error(
@@ -195,7 +212,9 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        if typed_source.effect_summary != EMPTY_EFFECT_SUMMARY:
+        if not _is_pure_or_provisional_procedure_call(
+            typed_source.effect_summary, context=context
+        ):
             raise_error(
                 "`list/map` source must be pure",
                 code="list_map_body_effect_forbidden",
@@ -222,7 +241,9 @@ def typecheck_structural_value_expr(
             expr.binder_name: typed_source.type_ref.item_type_ref,
         }
         typed_body = recurse(expr.body_expr, value_env=body_env)
-        if typed_body.effect_summary != EMPTY_EFFECT_SUMMARY:
+        if not _is_pure_or_provisional_procedure_call(
+            typed_body.effect_summary, context=context
+        ):
             raise_error(
                 "`list/map` body must be pure",
                 code="list_map_body_effect_forbidden",

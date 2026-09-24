@@ -58,9 +58,11 @@ _RUN_REF_CONFLICTING_STEP_KEYS = frozenset(
         "then",
         "else",
         "adjudicated_provider",
+        "request_input",
         "provider",
         "provider_params",
         "provider_call_policy",
+        "provider_context",
         "managed_jobs",
         "input_file",
         "asset_file",
@@ -365,9 +367,13 @@ def _elaborate_step(
         parent_step_names=parent_step_names,
     )
     kind = _surface_step_kind(step, allow_generated_step_kinds=allow_generated_step_kinds)
+    if "provider_context" in step and kind is not SurfaceStepKind.PROVIDER:
+        raise ValueError("provider_context requires an ordinary provider step")
+    if "provider_context" in step and not isinstance(step["provider_context"], Mapping):
+        raise ValueError("provider_context must be a mapping")
     call_bindings = {}
     references = []
-    common = _parse_surface_common_config(step)
+    common = _parse_surface_common_config(step, catalog)
 
     when_predicate = _parse_predicate(step.get("when"), catalog)
     assert_predicate = _parse_predicate(step.get("assert"), catalog)
@@ -522,6 +528,11 @@ def _elaborate_step(
             if kind is SurfaceStepKind.PROVIDER and "provider_call_policy" in step
             else None
         ),
+        provider_context=(
+            freeze_mapping(step["provider_context"])
+            if kind is SurfaceStepKind.PROVIDER and "provider_context" in step
+            else None
+        ),
         managed_jobs=(
             _parse_surface_managed_jobs_config(step.get("managed_jobs"))
             if kind is SurfaceStepKind.PROVIDER
@@ -530,6 +541,11 @@ def _elaborate_step(
         adjudicated_provider=(
             freeze_mapping(step.get("adjudicated_provider"))
             if kind is SurfaceStepKind.ADJUDICATED_PROVIDER
+            else freeze_mapping(None)
+        ),
+        request_input=(
+            freeze_mapping(step.get("request_input"))
+            if kind is SurfaceStepKind.REQUEST_INPUT
             else freeze_mapping(None)
         ),
         input_file=(
@@ -788,7 +804,20 @@ def _parse_predicate(node: Any, catalog: SurfaceRefScopeCatalog) -> Any:
     return parse_typed_predicate(dict(node), catalog)
 
 
-def _parse_surface_common_config(step: Mapping[str, Any]) -> SurfaceStepCommonConfig:
+def _parse_surface_common_config(
+    step: Mapping[str, Any],
+    catalog: SurfaceRefScopeCatalog,
+) -> SurfaceStepCommonConfig:
+    requires_variant = step.get("requires_variant")
+    if (
+        isinstance(requires_variant, Mapping)
+        and set(requires_variant) == {"ref", "allowed"}
+        and isinstance(requires_variant.get("ref"), str)
+    ):
+        requires_variant = {
+            "ref": parse_surface_ref(requires_variant["ref"], catalog),
+            "allowed": requires_variant.get("allowed"),
+        }
     return SurfaceStepCommonConfig(
         on=_parse_surface_on_config(step.get("on")),
         consumes=_frozen_sequence(step.get("consumes")),
@@ -798,7 +827,7 @@ def _parse_surface_common_config(step: Mapping[str, Any]) -> SurfaceStepCommonCo
         output_bundle=freeze_value(step["output_bundle"]) if "output_bundle" in step else None,
         variant_output=freeze_value(step["variant_output"]) if "variant_output" in step else None,
         pre_snapshot=freeze_value(step["pre_snapshot"]) if "pre_snapshot" in step else None,
-        requires_variant=freeze_value(step["requires_variant"]) if "requires_variant" in step else None,
+        requires_variant=freeze_value(requires_variant) if requires_variant is not None else None,
         persist_artifacts_in_state=(
             step.get("persist_artifacts_in_state")
             if isinstance(step.get("persist_artifacts_in_state"), bool)
@@ -1033,6 +1062,8 @@ def _surface_step_kind(
         return SurfaceStepKind.CALL
     if "adjudicated_provider" in step:
         return SurfaceStepKind.ADJUDICATED_PROVIDER
+    if "request_input" in step:
+        return SurfaceStepKind.REQUEST_INPUT
     if "provider" in step:
         return SurfaceStepKind.PROVIDER
     if "provider_supervision" in step:

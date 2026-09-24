@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .diagnostics import build_authored_phased_delivery_diagnostic
+from .expression_traversal import walk_expr
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
+    HostInputEffect,
     LivePeerMessagingEffect,
     LiveSupervisionEffect,
     UsesCommandEffect,
@@ -26,15 +28,18 @@ from .expressions import (
     NameExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
 )
 from .syntax import (
+    HUMAN_REPLY_TYPE_NAME,
     MAX_STATIC_LIVE_PROVIDER_PEERS,
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     target_dsl_supports_provider_peer_messaging,
     target_dsl_supports_provider_supervision,
     target_dsl_supports_phased_contract_delivery,
+    target_dsl_supports_provider_context_values,
 )
 from .phase import is_implementation_attempt_result_type
 from .prompts import (
@@ -68,6 +73,39 @@ def typecheck_expected_extern_operand(
     return recurse(expr)
 
 
+def typecheck_request_input_expr(
+    expr: RequestInputExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    """Type one host question and retain any prefix effects before it."""
+
+    typed_question = recurse(expr.question)
+    if typed_question.type_ref != PrimitiveTypeRef(name="String"):
+        raise_error(
+            "`request-input` question must have type `String`",
+            code="request_input_question_type_invalid",
+            span=expr.question.span,
+            form_path=expr.question.form_path,
+            expansion_stack=expr.question.expansion_stack,
+        )
+    return typed_factory(
+        expr=replace(expr, question=typed_question.expr),
+        type_ref=context.type_env.resolve_type(
+            HUMAN_REPLY_TYPE_NAME,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        effect=merge_effect_summaries(
+            typed_question.effect_summary,
+            effect_summary_from_direct(direct_effects=(HostInputEffect(),)),
+        ),
+    )
+
+
 def _extern_operand_name(expr: ExprNode) -> str | None:
     if isinstance(expr, (NameExpr, EnumMemberExpr)):
         return expr.name
@@ -78,6 +116,31 @@ def _literal_string(expr: ExprNode) -> str | None:
     if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
         return expr.value
     return None
+
+
+def _reject_provider_context_capture_in_group(
+    typed_members,
+    *,
+    group_label: str,
+) -> None:
+    for typed_member in typed_members.values():
+        captured = next(
+            (
+                node
+                for node in walk_expr(typed_member.expr)
+                if isinstance(node, ProviderResultExpr)
+                and node.capture_context is not None
+            ),
+            None,
+        )
+        if captured is not None:
+            raise_error(
+                f"`:capture-context` is not permitted in {group_label}",
+                code="provider_context_peer_group_invalid",
+                span=captured.span,
+                form_path=captured.form_path,
+                expansion_stack=captured.expansion_stack,
+            )
 
 
 def typecheck_with_live_providers_expr(
@@ -106,6 +169,10 @@ def typecheck_with_live_providers_expr(
         binding.name: recurse(binding.value_expr)
         for binding in expr.bindings
     }
+    _reject_provider_context_capture_in_group(
+        typed_members,
+        group_label="`with-live-providers`",
+    )
     typed_supervisor = typed_members[supervisor_binding.name]
     typed_worker = typed_members[worker_binding.name]
     for typed_member in typed_members.values():
@@ -239,6 +306,10 @@ def typecheck_with_live_provider_peers_expr(
         binding.name: recurse(binding.value_expr)
         for binding in bindings
     }
+    _reject_provider_context_capture_in_group(
+        typed_members,
+        group_label="`with-live-provider-peers`",
+    )
     for typed_member in typed_members.values():
         if effect_summary_contains_runs_ref(typed_member.effect_summary):
             raise_run_ref_placement_invalid(
@@ -627,6 +698,36 @@ def typecheck_provider_result_expr(
             form_path=expr.session_artifact.form_path,
             expansion_stack=expr.session_artifact.expansion_stack,
         )
+    if (
+        (expr.context_expr is not None or expr.capture_context is not None)
+        and not target_dsl_supports_provider_context_values(
+            context.type_env.target_dsl_version
+        )
+    ):
+        selected = expr.context_expr or expr
+        raise_error(
+            "provider context values require target DSL 2.31",
+            code="provider_context_target_dsl_unsupported",
+            span=selected.span,
+            form_path=selected.form_path,
+            expansion_stack=selected.expansion_stack,
+        )
+    if expr.capture_context not in {None, "portable"}:
+        raise_error(
+            "`provider-result :capture-context` must be `:portable`",
+            code="provider_context_capture_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if expr.capture_context is not None and expr.session_artifact is not None:
+        raise_error(
+            "`:session-artifact` cannot pair with `:capture-context`",
+            code="provider_context_session_artifact_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     return_type = (
         expr.prompt.prompt.return_type_ref
         if isinstance(expr.prompt, PromptApplicationExpr)
@@ -766,6 +867,14 @@ def typecheck_provider_result_expr(
                 primary_owner="fragment_contract",
                 primary_span=expr.prompt.span,
             ),
+        )
+    if phased and expr.capture_context is not None:
+        raise_error(
+            "`:capture-context` cannot pair with phased delivery",
+            code="provider_context_phased_delivery_invalid",
+            span=expr.delivery.span,
+            form_path=expr.delivery.form_path,
+            expansion_stack=expr.delivery.expansion_stack,
         )
     if (
         phased
@@ -1008,6 +1117,35 @@ def typecheck_provider_result_expr(
                     expansion_stack=dependency_expr.expansion_stack,
                 )
             prompt_dependency_summaries.append(typed_dependency.effect_summary)
+    context_summary = EMPTY_EFFECT_SUMMARY
+    context_type = None
+    if expr.context_expr is not None:
+        typed_context = recurse(expr.context_expr)
+        from .context_types import is_fixed_context_type
+
+        if not is_fixed_context_type(typed_context.type_ref):
+            raise_error(
+                "`provider-result :context` must have type `Context`",
+                code="provider_context_input_type_invalid",
+                span=expr.context_expr.span,
+                form_path=expr.context_expr.form_path,
+                expansion_stack=expr.context_expr.expansion_stack,
+            )
+        context_type = typed_context.type_ref
+        context_summary = typed_context.effect_summary
+    if expr.capture_context is not None and context_type is None:
+        context_type = context.type_env.resolve_type(
+            "Context",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    expression_result_type = return_type
+    if expr.capture_context is not None:
+        from .context_types import contextual_type
+
+        expression_result_type = contextual_type(return_type, context_type)
+
     input_summaries = []
     for input_expr in expr.inputs:
         typed_input = recurse(input_expr)
@@ -1022,12 +1160,13 @@ def typecheck_provider_result_expr(
             if typed_prompt_application is not None
             else expr
         ),
-        type_ref=return_type,
+        type_ref=expression_result_type,
         effect=merge_effect_summaries(
             typed_provider.effect_summary,
             typed_prompt.effect_summary,
             *policy_summaries,
             *prompt_dependency_summaries,
+            context_summary,
             *input_summaries,
             provider_summary,
         ),

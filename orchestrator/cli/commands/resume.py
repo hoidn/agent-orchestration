@@ -603,9 +603,15 @@ def _resume_workflow_with_writer_lock_held(
         state = state_manager.state
         assert state is not None
         try:
+            launch_metadata = read_process_metadata(state_manager.run_root)
             write_process_metadata(
                 state_manager.run_root,
                 executor_session_id=session_id,
+                argv=(
+                    launch_metadata.argv
+                    if launch_metadata is not None and launch_metadata.argv
+                    else None
+                ),
             )
         except OSError as exc:
             logger.debug("Failed to write monitor process metadata: %s", exc)

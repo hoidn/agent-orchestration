@@ -490,7 +490,13 @@ def _resolve_union_output_projection_activity(
                 or active_variant in projection["active_variants"]
             )
             activity[name] = is_active
-            if is_active:
+        active_pointers = [
+            specs_by_name[name].get("json_pointer")
+            for name in members
+            if activity[name] and isinstance(specs_by_name[name].get("json_pointer"), str)
+        ]
+        for name in members:
+            if activity[name]:
                 continue
             pointer = specs_by_name[name].get("json_pointer")
             if not isinstance(pointer, str) or (
@@ -498,7 +504,10 @@ def _resolve_union_output_projection_activity(
             ):
                 continue
             present, _ = _resolve_json_pointer(document, pointer)
-            if present:
+            if present and not any(
+                _json_pointers_overlap(pointer, active_pointer)
+                for active_pointer in active_pointers
+            ):
                 violations.append(
                     ContractViolation(
                         type="inactive_union_output_present",
@@ -936,6 +945,11 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             continue
         artifacts[field_name] = parsed_value
 
+    active_pointers = [
+        spec["json_pointer"]
+        for spec in [*shared_fields, *selected_fields]
+        if isinstance(spec, dict) and isinstance(spec.get("json_pointer"), str)
+    ]
     for variant_name, variant_spec in variants.items():
         if variant_name == parsed_discriminant or not isinstance(variant_spec, dict):
             continue
@@ -950,7 +964,10 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             if not isinstance(json_pointer, str) or not isinstance(field_name, str):
                 continue
             found, _raw_value = _resolve_json_pointer(document, json_pointer)
-            if found:
+            if found and not any(
+                _json_pointers_overlap(json_pointer, active_pointer)
+                for active_pointer in active_pointers
+            ):
                 violations.append(
                     ContractViolation(
                         type="variant_forbidden_field_present",
@@ -1410,6 +1427,18 @@ def _reject_nonstandard_json_constant(constant: str) -> None:
 
 def _is_optional_spec(spec: Dict[str, Any]) -> bool:
     return spec.get("type") == "optional"
+
+
+def _json_pointers_overlap(left: str, right: str) -> bool:
+    """Whether two RFC 6901 pointers address overlapping JSON subtrees."""
+
+    return (
+        left == right
+        or left == ""
+        or right == ""
+        or left.startswith(right + "/")
+        or right.startswith(left + "/")
+    )
 
 
 def _resolve_json_pointer(document: Any, pointer: str) -> tuple[bool, Any]:

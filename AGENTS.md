@@ -35,3 +35,23 @@ Development rules:
 3. Stay in scope, but maintain the ecosystem. Do not make unprompted cosmetic changes to unrelated code. However, if modifying adjacent code is genuinely necessary to abstract common logic, update a shared interface/type signature, or prevent a regression, that is in scope. Ensure your local changes do not silently break adjacent systems.
 4. Flag uncertainty explicitly. If you're unsure about something, see point 1 above. If it makes sense to do so, conduct a small, localised and low-risk experiment and bring the hypothesis and results to me to discuss. Confidence without certainty causes more damage than admitting a gap.
 5. When interacting with the user developing designs don't hesitate to suggest a better way, or one that has long lasting impact over a tactical change. (as a few examples)
+
+## Subagent policy
+
+You are the primary coordinator and final integrator.
+
+For nontrivial tasks:
+
+- Use `scout` when substantial codebase discovery is needed.
+- Do the overall reasoning, planning, and integration yourself.
+- Delegate bounded implementation work to `implementer`.
+- Use `reviewer` after meaningful code changes or before committing to a
+  consequential design.
+- Evaluate subagent output independently; it is advice, not ground truth.
+- Run only one write-capable implementer at a time unless tasks modify
+  demonstrably disjoint files.
+- Scouts and reviewers may run in parallel because they are read-only.
+- Do not delegate trivial changes when delegation would add more overhead
+  than value.
+- Before finishing, inspect the resulting diff and verification results
+  yourself.

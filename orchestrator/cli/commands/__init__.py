@@ -9,6 +9,7 @@ from .resume import resume_workflow
 from .report import report_workflow
 from .dashboard import dashboard_workflow
 from .monitor import monitor_workflows
+from .human_input import human_input_command
 from .provider_isolation_environment_manifest import (
     provider_isolation_environment_manifest_workflow,
 )
@@ -33,6 +34,7 @@ __all__ = [
     'report_workflow',
     'dashboard_workflow',
     'monitor_workflows',
+    'human_input_command',
     'provider_isolation_environment_manifest_workflow',
     'route_readiness_workflow',
     'peer_ack_workflow',

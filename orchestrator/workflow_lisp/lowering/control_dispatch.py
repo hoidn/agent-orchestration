@@ -7,6 +7,7 @@ from typing import Any
 
 from ..compiler_session import LoweringSessionState
 from ..conditionals import classify_condition_expr, render_condition_predicate
+from ..contracts import derive_workflow_boundary_fields
 from ..expressions import (
     BindProcExpr,
     CallExpr,
@@ -28,6 +29,7 @@ from ..expressions import (
     ProduceOneOfExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RequestInputExpr,
     RecordExpr,
     RecordUpdateExpr,
     ResourceTransitionExpr,
@@ -37,6 +39,13 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..procedure_refs import ResolvedProcRefValue
+from ..syntax import (
+    ProcedureExpansionFrame,
+    target_dsl_supports_pure_call_composition,
+    target_dsl_supports_rich_loop_values,
+    target_dsl_supports_union_prompt_input,
+)
+from ..expression_traversal import walk_expr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from .context import (
@@ -47,7 +56,11 @@ from .context import (
     _NormalizedBindingResult,
     _TerminalResult,
 )
-from .effects import _lower_command_result, _lower_provider_result
+from .effects import (
+    _lower_command_result,
+    _lower_provider_result,
+    _lower_request_input_operation,
+)
 from .origins import LoweringOrigin, _record_step_origin
 from .phase_flow import _lower_produce_one_of, _lower_resume_or_start, _lower_run_provider_phase
 from .phase_resource import _lower_finalize_selected_item as _phase_resource_lower_finalize_selected_item
@@ -66,8 +79,10 @@ from .values import (
     _build_output_step_local_value,
     _lower_record_expr,
     _lower_union_variant_expr,
+    lower_rich_structural_return,
     _resolve_inline_expr_value,
     attach_provider_bundle_identity,
+    union_prompt_source_from_output_refs,
 )
 
 
@@ -166,6 +181,16 @@ def _control_lower_expression_impl(
             context=context,
             local_values=local_values,
         )
+    if isinstance(expr, RequestInputExpr):
+        return _lower_request_input_operation(
+            question_expr=expr.question,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            result_type=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+        )
     if isinstance(expr, RunProviderPhaseExpr):
         return _lower_run_provider_phase(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProduceOneOfExpr):
@@ -187,6 +212,17 @@ def _control_lower_expression_impl(
         from .procedures import _lower_procedure_call_expr
 
         return _lower_procedure_call_expr(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, (RecordExpr, UnionVariantExpr)):
+        structural_terminal = lower_rich_structural_return(
+            expr,
+            type_ref=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+            span=typed_expr.span,
+            form_path=typed_expr.form_path,
+        )
+        if structural_terminal is not None:
+            return structural_terminal
     if isinstance(expr, UnionVariantExpr):
         return _lower_union_variant_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
@@ -203,6 +239,28 @@ def _control_lower_expression_impl(
             step_name_prefix=context.step_name_prefix,
         )
     if isinstance(expr, LetStarExpr):
+        if (
+            target_dsl_supports_pure_call_composition(
+                context.type_env.target_dsl_version
+            )
+            and _is_compiler_owned_procedure_let(expr)
+            and is_pure_projection_expr(expr)
+        ):
+            lowered = lower_pure_projection_step(
+                expr,
+                result_type=typed_expr.type_ref,
+                context=context,
+                local_values=local_values,
+                step_name=context.step_name_prefix,
+                step_id=context.normalize_generated_step_id(context.step_name_prefix),
+            )
+            return [lowered.step], _TerminalResult(
+                step_name=context.step_name_prefix,
+                step_id=context.normalize_generated_step_id(context.step_name_prefix),
+                output_refs=lowered.output_refs,
+                output_kind="projection",
+                hidden_inputs={},
+            )
         return _lower_let_star(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, IfExpr):
         return _lower_if_expr(typed_expr, context=context, local_values=local_values)
@@ -213,6 +271,16 @@ def _control_lower_expression_impl(
         message=f"workflow `{context.workflow_name}` cannot lower expression `{type(expr).__name__}` in Stage 3",
         span=typed_expr.span,
         form_path=typed_expr.form_path,
+    )
+
+
+def _is_compiler_owned_procedure_let(expr: LetStarExpr) -> bool:
+    """Limit schema-3 preservation to procedure-expansion bindings."""
+
+    return any(
+        isinstance(frame, ProcedureExpansionFrame)
+        for node in walk_expr(expr)
+        for frame in node.expansion_stack
     )
 
 
@@ -364,6 +432,7 @@ def _normalize_let_binding(
         binding_expr,
         binding_type=binding_type,
         binding_terminal=binding_terminal,
+        context=context,
     )
     if binding_terminal is not None and context.composition_scope_kind == "match_case":
         local_value = _match_case_scope_value(local_value)
@@ -462,7 +531,35 @@ def _lower_pure_projection_binding_expr(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     step_name_prefix: str,
+    whole_value: bool = False,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    whole_output_contracts = None
+    if whole_value:
+        from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
+
+        from ..normalized_type_descriptor import compiler_normalized_type_descriptor
+
+        whole_output_contracts = {
+            "__result__": transport_schema_for_descriptor(
+                compiler_normalized_type_descriptor(
+                    binding_type,
+                    type_env=context.type_env,
+                ),
+                allow_nested_structures=True,
+            )
+        }
+    boundary_fields = (
+        derive_workflow_boundary_fields(
+            binding_type,
+            generated_name=binding_name,
+            source_path=(binding_name,),
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+            type_env=context.type_env,
+        )
+        if isinstance(binding_type, (RecordTypeRef, UnionTypeRef))
+        else ()
+    )
     lowered = lower_pure_projection_step(
         expr,
         result_type=binding_type,
@@ -473,6 +570,9 @@ def _lower_pure_projection_binding_expr(
         source_expr=source_expr,
         stable_target="binding_projection",
         output_contracts=(
+            whole_output_contracts
+            if whole_output_contracts is not None
+            else
             output_contracts_for_boundary_type(
                 binding_type,
                 generated_name=binding_name,
@@ -483,11 +583,32 @@ def _lower_pure_projection_binding_expr(
             if isinstance(binding_type, (RecordTypeRef, UnionTypeRef))
             else None
         ),
+        output_fields=(
+            ()
+            if whole_value
+            else
+            boundary_fields
+            if isinstance(binding_type, (RecordTypeRef, UnionTypeRef))
+            and target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version)
+            else None
+        ),
     )
+    output_refs = lowered.output_refs
+    if (
+        not whole_value
+        and boundary_fields
+        and target_dsl_supports_pure_call_composition(context.type_env.target_dsl_version)
+    ):
+        output_refs = {
+            f"return__{'__'.join(field.source_path[1:])}": lowered.output_refs[
+                field.generated_name
+            ]
+            for field in boundary_fields
+        }
     return [lowered.step], _TerminalResult(
         step_name=step_name_prefix,
         step_id=context.normalize_generated_step_id(step_name_prefix),
-        output_refs=lowered.output_refs,
+        output_refs=output_refs,
         output_kind="projection",
         hidden_inputs={},
         returned_union_type_name=(
@@ -503,15 +624,33 @@ def _binding_local_value_from_terminal(
     *,
     binding_type: TypeRef,
     binding_terminal: _TerminalResult,
+    context: _LoweringContext,
 ) -> Any | None:
     if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
-        local_value = _build_output_step_local_value(binding_terminal.output_refs)
+        preserve_structural_paths = target_dsl_supports_rich_loop_values(
+            context.type_env.target_dsl_version
+        )
+        local_value = _build_output_step_local_value(
+            binding_terminal.output_refs,
+            type_ref=binding_type if preserve_structural_paths else None,
+            type_env=context.type_env if preserve_structural_paths else None,
+        )
         if (
             isinstance(binding_type, UnionTypeRef)
             and binding_terminal.returned_union_type_name is not None
             and binding_terminal.returned_union_variant_name is None
         ):
             local_value["__lowering_returned_union_type"] = binding_terminal.returned_union_type_name
+        if (
+            isinstance(binding_type, UnionTypeRef)
+            and target_dsl_supports_union_prompt_input(context.type_env.target_dsl_version)
+        ):
+            source = union_prompt_source_from_output_refs(
+                binding_type,
+                output_refs=binding_terminal.output_refs,
+            )
+            if source is not None:
+                local_value["__typed_union_prompt_source__"] = source
         # schema1_compatibility: legacy provider-result bindings carry provider bundle identity.
         if isinstance(expr, ProviderResultExpr) and binding_terminal.provider_bundle_identity is not None:
             return attach_provider_bundle_identity(

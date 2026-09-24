@@ -712,15 +712,18 @@ def run_workflow(
                 retry_delay_ms=args.retry_delay
             )
 
+            run_completed = False
             if isinstance(result, dict):
-                run_succeeded = result.get("status") == "completed"
+                run_completed = result.get("status") == "completed"
+                run_succeeded = run_completed or result.get("status") == "suspended"
             else:
-                run_succeeded = bool(result)
+                run_completed = bool(result)
+                run_succeeded = run_completed
             session_status = "completed" if run_succeeded else "failed"
 
             # Archive processed directory on successful completion only; an
             # archive failure marks the session failed, never stale completed.
-            if run_succeeded and archive_dest:
+            if run_completed and archive_dest:
                 try:
                     archive_processed_directory(processed_dir, archive_dest)
                 except Exception:

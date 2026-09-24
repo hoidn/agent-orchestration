@@ -55,6 +55,15 @@ queue changes only how the invocation transport executes.
 
 ## Context And Authority
 
+The [portable context slice](workflow_lisp_provider_context_values.md#reviewed-portable-ordinary-call-slice)
+is separate: it captures exposed history into an immutable value and binds that
+value to a fresh ordinary call. This queue proposal resumes one private mutable
+session across turns and publishes one final result. It neither implements
+first-class context nor becomes a prerequisite for portable capture. Share the
+existing provider/session codec owner where applicable; do not introduce a
+second conversation transport or imply that a session ID is a snapshot. Context
+capture on a future queue needs its own settled-history/publication decision.
+
 Verified implementation behavior this design builds on (2026-07-10 checkout):
 
 - **Session transport exists and is fail-closed.** Provider templates may
