@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
@@ -873,6 +873,18 @@ def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: 
             return current_value
         if isinstance(current_value, (RecordExpr, UnionVariantExpr)):
             return _record_expr_value_at_path(current_value, field_path[1:])
+        if isinstance(current_value, NameExpr):
+            # A nested record populated from a bound value: read the leaf
+            # through the same field access an author would write.
+            return FieldAccessExpr(
+                base=current_value,
+                fields=field_path[1:],
+                span=current_value.span,
+                form_path=current_value.form_path,
+                expansion_stack=current_value.expansion_stack,
+            )
+        if isinstance(current_value, FieldAccessExpr):
+            return replace(current_value, fields=current_value.fields + field_path[1:])
         raise _value_compile_error(
             code="workflow_return_not_exportable",
             message=(

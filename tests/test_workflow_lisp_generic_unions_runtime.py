@@ -188,3 +188,23 @@ def test_imported_generic_result_is_matched_and_returned_from_a_caller_loop(
     result = _compile(tmp_path, probes={"probe_check": probe})
 
     assert _run(result, "grt/entry::run", tmp_path) == expected
+
+
+def test_variant_payload_record_is_populated_from_a_bound_name(tmp_path: Path) -> None:
+    """Addendum D (F1): `:value ok.value` lowers without rebuilding the record."""
+
+    probe = _write_probe(tmp_path, "probe_check", OUTCOME_PROBE)
+    entry = LOOP_ENTRY.replace("PROBE_CHECK", probe.as_posix()).replace(":max limit", ":max 2")
+    entry = entry.replace("((limit Int))", "()").replace(
+        "((OK ok) (done outcome))",
+        "((OK ok) (done (variant Outcome[Candidate String] OK :value ok.value)))",
+    )
+    _write_sources(tmp_path, {"grt/lib.orc": OUTCOME_LIB, "grt/entry.orc": entry})
+
+    result = _compile(tmp_path, probes={"probe_check": probe})
+
+    assert _run(result, "grt/entry::run", tmp_path) == {
+        "return__variant": "OK",
+        "return__value__title": "revise-seed",
+        "return__value__score": 1,
+    }
