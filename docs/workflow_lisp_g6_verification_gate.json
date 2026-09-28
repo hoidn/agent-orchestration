@@ -62,6 +62,11 @@
       "module": "std/drain",
       "status": "landed",
       "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms"
+    },
+    {
+      "module": "std/improve",
+      "status": "landed",
+      "owner": "cf1b-composition-first"
     }
   ],
   "later_tranche_suites": []
