@@ -451,8 +451,11 @@ PC-1 cannot be launched by its coordinator without separate selection/funding.
 **Status:** CF-1a selected by the owner on 2026-09-28 as a bounded task;
 CF-1b slated as an owner-requested package ahead of R1b, conditional on CF-1a;
 CF-1c absorbs the pending qualitative utility evaluation of the 2.28–2.32
-composition increments; CF-1d and generic records remain unselected. No
-language target is reserved and nothing is implemented. The section heading
+composition increments; CF-1d and generic records remain unselected. On
+2026-09-28 the owner accepted the type-system delta as governing for CF-1b and
+assigned target 2.33 to generic unions and `std/improve` together; the
+[CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md) owns
+the tasks. Nothing is implemented. The section heading
 keeps its original anchor. The proposal's repository observations were verified
 at `31580550`; its interface, generic-union delta, and loop pseudocode are
 schematic. It supersedes, as inputs only, the three September 2026 composition
@@ -505,8 +508,9 @@ investigation:
    `tests/test_workflow_lisp_generic_state_exhaustion.py` flips to a pass. Run
    `std/phase::review-revise-loop-proc` with `max_iterations` ≥ 2 to establish
    whether its exhaustion evidence carries the same off-by-one;
-3. CF-1b as an owner-requested package with a reviewed plan under `docs/plans/`,
-   in the same manner as Packages C and D of the composition plan;
+3. CF-1b as an owner-requested package under the
+   [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md), in
+   the same manner as Packages C and D of the composition plan;
 4. CF-1c as the utility evaluation for both CF-1b and the 2.28–2.32 increments;
 5. R1b afterwards, on the corrected interface.
 

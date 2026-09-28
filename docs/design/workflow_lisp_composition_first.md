@@ -4,15 +4,15 @@
 - **Kind:** language and standard-library architecture decision
 - **Owner:** Workflow Lisp frontend (parametric type system) and standard library
 - **Created:** 2026-09-28
-- **Implementation target:** unassigned; the parametric type system owner
-  selects the generic-union target boundary
+- **Implementation target:** 2.33 for generic unions and `std/improve`
+  together, assigned by the owner on 2026-09-28; not implemented
 - **Roadmap:** [CF-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected)
   owns selection, ordering, entry conditions, and consequences. Effect
   contracts remain owned by
   [EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected).
-- **Type-system delta:** [proposed first-order generic unions](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
-  in the parametric type-system design, which owns application, argument
-  binding, constructor identity, and diagnostics.
+- **Type-system delta:** [first-order generic unions](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
+  in the parametric type-system design, accepted as governing for CF-1b; it
+  owns application, argument binding, constructor identity, and diagnostics.
 - **Evidence record:** the [design review](../reports/2026-09-28-workflow-lisp-composition-first-review.md)
   and the [exhaustion projection check](../reports/2026-09-28-cf1a-exhaustion-projection-check.md).
 - **Notation:** signatures below are schematic. They use the `:forall`,

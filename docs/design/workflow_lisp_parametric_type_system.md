@@ -319,12 +319,14 @@ not survive as Python-side validation for any migrated form.
 
 ### Proposed CF-1 First-Order Generic Unions
 
-This is the type-system delta proposed for
-[Composition-First Procedures](workflow_lisp_composition_first.md); the
+This is the type-system delta for
+[Composition-First Procedures](workflow_lisp_composition_first.md). The owner
+accepted it as the governing contract for CF-1b on 2026-09-28, with target
+**2.33** shared with the `std/improve` library module; the
 [CF-1 roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
-owns its schedule and status. It does not change current normative or runtime
-syntax. The domain meaning and result variants remain owned by the composition
-design.
+owns its schedule and status. It is not implemented, and it does not change the
+syntax admitted at targets up to 2.32. The domain meaning and result variants
+remain owned by the composition design.
 
 ```lisp
 (defunion Outcome :forall (T E)
