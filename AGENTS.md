@@ -35,6 +35,7 @@ Development rules:
 3. Stay in scope, but maintain the ecosystem. Do not make unprompted cosmetic changes to unrelated code. However, if modifying adjacent code is genuinely necessary to abstract common logic, update a shared interface/type signature, or prevent a regression, that is in scope. Ensure your local changes do not silently break adjacent systems.
 4. Flag uncertainty explicitly. If you're unsure about something, see point 1 above. If it makes sense to do so, conduct a small, localised and low-risk experiment and bring the hypothesis and results to me to discuss. Confidence without certainty causes more damage than admitting a gap.
 5. When interacting with the user developing designs don't hesitate to suggest a better way, or one that has long lasting impact over a tactical change. (as a few examples)
+6. Respond to the user in spanish unless they request otherwise
 
 ## Subagent policy
 
