@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from reprlib import recursive_repr
 from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
@@ -1666,6 +1666,9 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
                 for variant_name, field_types in type_ref.variant_field_types.items()
             },
         )
+    if isinstance(type_ref, DiscriminantTypeRef) and type_ref.applied_union is not None:
+        applied_union = substitute_type_params(type_ref.applied_union, bindings)
+        return replace(type_ref, union_name=applied_union.name, applied_union=applied_union)
     return type_ref
 
 
@@ -1715,6 +1718,8 @@ def _first_type_param_ref(type_ref: TypeRef) -> TypeParamRef | None:
             if unresolved is not None:
                 return unresolved
         return None
+    if isinstance(type_ref, DiscriminantTypeRef) and type_ref.applied_union is not None:
+        return _first_type_param_ref(type_ref.applied_union)
     if isinstance(type_ref, UnionTypeRef):
         # Applied-union arguments count even when phantom (absent from payloads).
         for field_type in (

@@ -432,3 +432,35 @@ def test_unsupported_instantiated_payload_is_reported_at_the_use(tmp_path: Path)
     assert diagnostic.code == "collection_element_type_unsupported"
     assert (Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == ("entry.orc", 13)
     assert any(f"{tmp_path / 'grt' / 'lib.orc'}:6:" in note for note in diagnostic.notes)
+
+
+def test_discriminant_of_an_open_application_is_not_monomorphic(tmp_path: Path) -> None:
+    """Addendum F: `.variant` of `Improvement[S F B]` keeps and substitutes its arguments."""
+
+    from orchestrator.workflow_lisp.type_env import (
+        DiscriminantTypeRef,
+        PrimitiveTypeRef,
+        ensure_no_type_params,
+        substitute_type_params,
+    )
+
+    result = _compile_improve(tmp_path, seed="seed", limit=1)
+    generic = next(
+        procedure
+        for procedure in result.compiled_results_by_name["grt/lib"].typed_procedures
+        if procedure.definition.name.endswith("improve") and procedure.specialization is None
+    )
+    open_union = generic.signature.return_type_ref
+    discriminant = DiscriminantTypeRef(
+        union_name=open_union.name,
+        variant_names=tuple(open_union.variant_field_types),
+        applied_union=open_union,
+    )
+    string = PrimitiveTypeRef(name="String")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        ensure_no_type_params(discriminant, span=generic.definition.span, form_path=())
+    assert excinfo.value.diagnostics[0].code == "type_param_unresolved"
+    concrete = substitute_type_params(discriminant, {"S": string, "F": string, "B": string})
+    ensure_no_type_params(concrete, span=generic.definition.span, form_path=())
+    assert concrete.applied_union.type_args == (string, string, string)
