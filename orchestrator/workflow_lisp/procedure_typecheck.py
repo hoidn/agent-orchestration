@@ -766,6 +766,13 @@ def _typecheck_parametric_procedure_call(
         span=expr.span,
         form_path=expr.form_path,
     )
+    from .generic_unions import reject_untransportable_applied_unions
+
+    for concrete_type in (
+        concrete_return_type,
+        *(substitute_type_params(param_type, type_bindings) for _, param_type in signature.params),
+    ):
+        reject_untransportable_applied_unions(concrete_type, span=expr.span, form_path=expr.form_path)
 
     remaining_params: list[tuple[str, TypeRef]] = []
     remaining_args: list[object] = []

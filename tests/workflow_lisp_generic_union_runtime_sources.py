@@ -274,3 +274,33 @@ TWO_INSTANCES_ENTRY = HEADER + """  (defmodule grt/entry)
         :first (match a ((APPROVED x) x.value.title) ((BLOCKED y) y.reason.why) ((EXHAUSTED z) "exhausted"))
         :second (match b ((APPROVED x) x.value.title) ((BLOCKED y) y.reason.why) ((EXHAUSTED z) "exhausted"))))))
 """
+
+
+MAKE_LIB = HEADER + """  (defmodule grt/lib)
+  (export Outcome make)
+  (defunion Outcome :forall (T E)
+    (OK (value T))
+    (ERROR (error E)))
+  (defproc make
+    :forall (S)
+    ((x S))
+    -> Outcome[S String]
+    :effects ()
+    :lowering inline
+    (variant Outcome[S String] OK :value x)))
+"""
+
+PROC_REF_PAYLOAD_ENTRY = HEADER + """  (defmodule grt/entry)
+  (import grt/lib :only (Outcome make))
+  (export run)
+  (defrecord Out (n Int))
+  (defproc inc ((n Int)) -> Out :effects () (record Out :n n))
+  (defproc use-it
+    ((n Int))
+    -> Out
+    :effects ()
+    (let* ((o (make (proc-ref inc))))
+      (record Out :n n)))
+  (defworkflow run () -> Out
+    (use-it 1)))
+"""

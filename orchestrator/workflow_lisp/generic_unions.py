@@ -160,6 +160,34 @@ def resolve_generic_union_application(
     return applied
 
 
+def reject_untransportable_applied_unions(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+) -> None:
+    """Re-check payloads of applied unions after specialization substitution.
+
+    A call site may bind a type parameter to a type that no union payload can
+    carry (`Outcome[S E]` with `S` bound to a `ProcRef`). Report it at the call,
+    noting the generic declaration. `ProcRef`/`WorkflowRef` signatures are not
+    payloads and are not entered.
+    """
+
+    if isinstance(type_ref, UnionTypeRef) and type_ref.type_args:
+        reject_untransportable_union_payloads(
+            type_ref,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            notes=_declared_at(type_ref.definition),
+        )
+    for item in (getattr(type_ref, "item_type_ref", None), getattr(type_ref, "value_type_ref", None)):
+        if item is not None:
+            reject_untransportable_applied_unions(item, span=span, form_path=form_path, expansion_stack=expansion_stack)
+
+
 def instantiate_generic_union(
     template: UnionTypeRef,
     type_args: tuple[TypeRef, ...],

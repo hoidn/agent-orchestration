@@ -35,6 +35,8 @@ from tests.workflow_lisp_generic_union_runtime_sources import (
     ADAPTER_REVIEW,
     CLASSIFY_LIB,
     TWO_INSTANCES_ENTRY,
+    MAKE_LIB,
+    PROC_REF_PAYLOAD_ENTRY,
 )
 
 
@@ -399,3 +401,17 @@ def test_two_instantiations_get_distinct_concrete_descriptors(tmp_path: Path) ->
     ]
     assert all(len(variants) == 1 for variants in shapes.values())
     assert _run(result, "grt/entry::run", tmp_path) == {"return__first": "revised-a", "return__second": "refused-blocked"}
+
+
+def test_procref_bound_into_an_applied_payload_is_rejected_at_the_call(tmp_path: Path) -> None:
+    """Addendum B: the substituted `Outcome[ProcRef[...] String]` is rejected at the caller."""
+
+    _write_sources(tmp_path, {"grt/lib.orc": MAKE_LIB, "grt/entry.orc": PROC_REF_PAYLOAD_ENTRY})
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "proc_ref_runtime_transport_forbidden"
+    assert (Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == ("entry.orc", 13)
+    assert any(f"{tmp_path / 'grt' / 'lib.orc'}:6:" in note for note in diagnostic.notes)
