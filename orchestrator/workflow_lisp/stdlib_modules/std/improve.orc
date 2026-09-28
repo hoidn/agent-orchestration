@@ -4,8 +4,9 @@
   (defmodule std/improve)
   (export Decision Improvement improve)
   ; Contract: docs/design/workflow_lisp_composition_first.md sections 3 and 4.
-  ; `revise` is bound with `let*` before `loop-state :like`; an inline
-  ; effectful call there is not yet accepted by the frontend.
+  ; Both hook results are bound with `let*` before use, because the frontend
+  ; does not yet lower an effectful hook call written directly as a `match`
+  ; scrutinee or a `loop-state :like` field (WCC elaboration and pure projection).
   (defunion Decision :forall (F B)
     (APPROVE (evidence F))
     (REVISE (feedback F))
@@ -29,11 +30,12 @@
       :state (loop-state (current S initial))
       :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
       (fn (state)
-        (match (review state.current inputs)
-          ((APPROVE a)
-           (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
-          ((BLOCKED b)
-           (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
-          ((REVISE r)
-           (let* ((next (revise state.current inputs r.feedback)))
-             (continue (loop-state :like state :current next)))))))))
+        (let* ((decision (review state.current inputs)))
+          (match decision
+            ((APPROVE a)
+             (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
+            ((BLOCKED b)
+             (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
+            ((REVISE r)
+             (let* ((next (revise state.current inputs r.feedback)))
+               (continue (loop-state :like state :current next))))))))))

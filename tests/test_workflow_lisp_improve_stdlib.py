@@ -44,6 +44,7 @@ from tests.workflow_lisp_improve_stdlib_sources import (
     entry_source,
     inline_entry_source,
     provider_revise_entry_source,
+    wrapped_review_sources,
 )
 
 
@@ -149,6 +150,20 @@ def test_revise_failure_in_the_final_permitted_iteration_is_a_runtime_failure_no
         {},
         {"probe_revise": "command_failed"},
         (["fail tidy", "fail+r tidy"], ["fail tidy fb0", "fail+r tidy fb1"]),
+    )
+
+
+def test_review_hook_wrapping_an_imported_procedure_runs_to_exhaustion(tmp_path: Path) -> None:
+    probes = _write_project(tmp_path, seed="draft", limit=2)
+    entry = tmp_path / "grt" / "entry.orc"
+    _write_sources(tmp_path, wrapped_review_sources(entry.read_text(encoding="utf-8"), probes))
+
+    state = _execute(tmp_path, probes)
+
+    assert (state["status"], dict(state["workflow_outputs"]), tuple(map(len, _hook_calls(probes)))) == (
+        "completed",
+        {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r", "return__value__score": 2},
+        (2, 2),
     )
 
 

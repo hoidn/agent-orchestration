@@ -106,6 +106,41 @@ PROVIDER_REVISE = """  (defproc revise-candidate
 """
 
 
+# The domain records and the command-backed review, moved into their own module as `assess`.
+ASSESS_LIB = (
+    ENTRY[: ENTRY.index("  (defmodule grt/entry)")]
+    + "  (defmodule grt/assess)\n"
+    + "  (import std/improve :only (Decision))\n"
+    + "  (export Candidate Brief Feedback Blocker assess)\n"
+    + ENTRY[ENTRY.index("  (defrecord Candidate") : ENTRY.index("  (defproc revise-candidate")]
+    .replace("(defproc review-candidate", "(defproc assess")
+    .rstrip()
+    + ")\n"
+)
+
+WRAPPED_REVIEW = """  (defproc review-candidate
+    ((candidate Candidate) (brief Brief))
+    -> Decision[Feedback Blocker]
+    :effects ()
+    :lowering inline
+    (assess candidate brief))
+"""
+
+
+def wrapped_review_sources(imported: str, probes: dict[str, Path]) -> dict[str, str]:
+    """The caller's review hook becomes a thin local wrapper around the imported `assess`."""
+
+    start = imported.index("  (defrecord Candidate")
+    end = imported.index("  (defproc revise-candidate")
+    entry = (imported[:start] + WRAPPED_REVIEW + imported[end:]).replace(
+        IMPORT_LINE, IMPORT_LINE + "  (import grt/assess :only (Candidate Brief Feedback Blocker assess))\n"
+    )
+    return {
+        "grt/assess.orc": ASSESS_LIB.replace("PROBE_REVIEW", probes["probe_review"].as_posix()),
+        "grt/entry.orc": entry,
+    }
+
+
 def entry_source(*, seed: str, limit: int, probes: dict[str, Path], target: str = "2.33") -> str:
     return (
         ENTRY.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
