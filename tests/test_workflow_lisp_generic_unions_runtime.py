@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
@@ -352,3 +352,56 @@ def test_generic_loop_returns_variants_carrying_its_record_state(
     result = _compile_improve(tmp_path, seed=seed, limit=3)
 
     assert _run(result, "grt/entry::run", tmp_path) == expected
+
+
+def test_generic_loop_exhaustion_returns_its_latest_record_state(tmp_path: Path) -> None:
+    result = _compile_improve(tmp_path, seed="seed", limit=1)
+
+    assert _run(result, "grt/entry::run", tmp_path) == {
+        "return__variant": "EXHAUSTED",
+        "return__value__title": "revised-seed",
+        "return__value__score": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("seed", "limit", "expected"),
+    [
+        ("seed", 3, ("revised-seed", "approved", "ok-revised-seed")),
+        ("blocked", 3, ("blocked", "blocked", "refused-blocked")),
+        ("seed", 1, ("revised-seed", "exhausted", "")),
+    ],
+    ids=["approved", "blocked", "exhausted"],
+)
+def test_downstream_consumer_matches_the_instantiated_result(
+    tmp_path: Path, seed: str, limit: int, expected: tuple[str, str, str]
+) -> None:
+    result = _compile_improve(tmp_path, seed=seed, limit=limit)
+
+    outputs = _run(result, "grt/entry::summarize", tmp_path)
+
+    assert (outputs["return__title"], outputs["return__status"], outputs["return__note"]) == expected
+
+
+def test_done_payload_of_the_exhausted_variant_is_not_replaced_by_state(tmp_path: Path) -> None:
+    """Same-variant `done` keeps the loop result as the source (target 2.29 rule)."""
+
+    source = tmp_path / "same_variant.orc"
+    source.write_text(
+        HEADER
+        + """  (defrecord LoopState (message String))
+  (defunion Outcome (COMPLETE (message String)))
+  (defworkflow preserve-done ((finish Bool)) -> Outcome
+    (loop/recur :max 1
+      :state (record LoopState :message "state")
+      :on-exhausted (variant Outcome COMPLETE :message state.message)
+      (fn (state)
+        (if finish (done (variant Outcome COMPLETE :message "done")) (continue state))))))
+""",
+        encoding="utf-8",
+    )
+    lowered = compile_stage3_module(source, validate_shared=True, workspace_root=tmp_path).lowered_workflows[0]
+    result_step = next(step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__result"))
+
+    ref = result_step["match"]["cases"]["COMPLETE"]["outputs"]["return__message"]["from"]["ref"]
+    assert ref.endswith(".artifacts.result__message")

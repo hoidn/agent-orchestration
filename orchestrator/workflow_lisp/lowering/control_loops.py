@@ -62,6 +62,7 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
+from .loop_exhaustion_routing import exhaustion_state_ref_allowed
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
 from .values import (
@@ -652,10 +653,10 @@ def _emit_repeat_until_from_emitter_input(
                             plan=plan,
                             variant_name=variant.name,
                             field_path=field.source_path[1:],
-                            allow_exhaustion_state_ref=(
-                                not target_dsl_supports_rich_loop_values(
-                                    context.type_env.target_dsl_version
-                                )
+                            allow_exhaustion_state_ref=exhaustion_state_ref_allowed(
+                                expr,
+                                variant_name=variant.name,
+                                target_dsl_version=context.type_env.target_dsl_version,
                             ),
                         )
                         or f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
