@@ -455,7 +455,9 @@ composition increments; CF-1d and generic records remain unselected. On
 2026-09-28 the owner accepted the type-system delta as governing for CF-1b and
 assigned target 2.33 to generic unions and `std/improve` together; the
 [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md) owns
-the tasks. Nothing is implemented. The section heading
+its tasks, and the
+[master plan](2026-09-28-composition-first-master-plan.md) covers the whole
+design, including consumer migration and retirement. Nothing is implemented. The section heading
 keeps its original anchor. The proposal's repository observations were verified
 at `31580550`; its interface, generic-union delta, and loop pseudocode are
 schematic. It supersedes, as inputs only, the three September 2026 composition
@@ -500,14 +502,17 @@ investigation:
    selector drops the final `continue` for `:max` ≥ 2; see the
    [check report](../reports/2026-09-28-cf1a-exhaustion-projection-check.md). The correction is bounded and at
    its owner, so the stop rule is not triggered;
-2. the runtime exhaustion-selector correction in
-   `orchestrator/workflow/loops.py`, as an owner-level substrate fix before
-   CF-1b: recognize the executed arm state update of the final iteration
-   regardless of the `__continue` spelling, keep the ambiguity fail-fast, and
-   accept when the strict `xfail` in
-   `tests/test_workflow_lisp_generic_state_exhaustion.py` flips to a pass. Run
-   `std/phase::review-revise-loop-proc` with `max_iterations` ≥ 2 to establish
-   whether its exhaustion evidence carries the same off-by-one;
+2. the owner-level substrate correction under the
+   [runtime prerequisite plan](2026-09-28-cf1-runtime-prerequisites.md), before
+   CF-1b's helper/runtime evidence. Use the already-resolved declared terminal
+   outputs and remove the redundant snapshot-name selector; do not grow its
+   recognized spellings or introduce first/longest-name preferences. Accept
+   when the generic final-`continue` regression passes without `xfail`, ordinary
+   `std/phase::review-revise-loop-proc` carries the final review evidence after
+   multiple revisions, and public fresh/resumed results agree without replay.
+   The owner's subsequent cleanup request also covers ambiguous output/failure
+   handling and name-derived restoration in these affected paths, using existing
+   compiled descriptors rather than new schemas or guessing fallbacks;
 3. CF-1b as an owner-requested package under the
    [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md), in
    the same manner as Packages C and D of the composition plan;
