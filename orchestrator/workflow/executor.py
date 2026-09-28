@@ -1573,12 +1573,7 @@ class WorkflowExecutor:
             for proof in proofs
             if isinstance(proof, Mapping)
             and proof.get("proof_kind") == "match_branch"
-            and isinstance(proof.get("proof_source"), str)
-            and (
-                proof.get("proof_source") == node.step_id
-                or node.step_id.endswith(f".{proof.get('proof_source')}")
-                or node.step_id.endswith(proof.get("proof_source"))
-            )
+            and proof.get("source_node_id") == node_id
             and isinstance(proof.get("variant") or proof.get("variant_name"), str)
             and (proof.get("variant") or proof.get("variant_name")) in node.case_outputs
         }
@@ -1609,40 +1604,16 @@ class WorkflowExecutor:
             explicit_result = step_results.get(node_id) or step_results.get(presentation_key)
             if isinstance(explicit_result, dict):
                 return explicit_result
-
-        loop_artifacts: Dict[str, Any] = {}
-        for member in ("return__count", "return__label"):
-            value = self._restore_overlay_loop_value(presentation_key, member)
-            if value is not _RESTORE_REF_MISSING:
-                loop_artifacts[member] = value
-
-        binding_value = self._restore_overlay_binding_value(
-            presentation_key,
-            "return",
-            state=state,
-        )
-        if binding_value is not _RESTORE_REF_MISSING:
+        node = self.executable_ir.nodes.get(node_id) if self.executable_ir is not None else None
+        if isinstance(node, MatchJoinNode):
+            source_artifacts = self._lexical_restore_overlay.get("source_artifacts_by_node_id")
+            artifacts = source_artifacts.get(node_id) if isinstance(source_artifacts, Mapping) else None
             selected_case = self._restore_overlay_match_case_for_node_id(node_id, state)
-            node = self.executable_ir.nodes.get(node_id) if self.executable_ir is not None else None
-            if selected_case is None and isinstance(node, MatchJoinNode):
-                return None
-            artifacts = dict(loop_artifacts)
-            # Publish under both terminal member names so record (`return`)
-            # and root (`__result__`) consumers resolve the restored value.
-            artifacts["return"] = binding_value
-            artifacts["__result__"] = binding_value
             if selected_case is None:
-                return {
-                    "status": "completed",
-                    "artifacts": artifacts,
-                }
-            # Mirror the real match join's variant artifacts so a downstream
-            # `requires_variant` guard can resolve the restored case.
-            artifacts["variant"] = selected_case
-            artifacts["return__variant"] = selected_case
+                return None
             return {
                 "status": "completed",
-                "artifacts": artifacts,
+                "artifacts": dict(artifacts) if isinstance(artifacts, Mapping) else {},
                 "debug": {
                     "structured_match": {
                         "selected_case": selected_case,
@@ -1651,11 +1622,10 @@ class WorkflowExecutor:
                 },
             }
 
-        if loop_artifacts:
-            return {
-                "status": "completed",
-                "artifacts": loop_artifacts,
-            }
+        source_artifacts = self._lexical_restore_overlay.get("source_artifacts_by_node_id")
+        artifacts = source_artifacts.get(node_id) if isinstance(source_artifacts, Mapping) else None
+        if isinstance(artifacts, Mapping) and artifacts:
+            return {"status": "completed", "artifacts": dict(artifacts)}
         return None
 
     def _resolve_bound_address(
@@ -2533,7 +2503,10 @@ class WorkflowExecutor:
         return payload
 
     def _activate_resume_restore_overlay(self, decision: Any) -> None:
-        from orchestrator.workflow_lisp.lexical_checkpoint_restore import resolve_binding_restore_value
+        from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+            resolve_binding_restore_value,
+            resolve_restore_source_node,
+        )
 
         if isinstance(decision, Mapping):
             payload = decision.get("restore_payload")
@@ -2543,20 +2516,111 @@ class WorkflowExecutor:
             self._lexical_restore_overlay = None
             return
 
-        bindings: Dict[str, Any] = {}
+        checkpoint_id = (
+            decision.get("checkpoint_id")
+            if isinstance(decision, Mapping)
+            else getattr(decision, "checkpoint_id", None)
+        )
+        checkpoint_points = getattr(self.runtime_plan, "lexical_checkpoint_points", ())
+        restore_metadata = next(
+            (
+                details.get("restore")
+                for point in checkpoint_points
+                if getattr(point, "checkpoint_id", None) == checkpoint_id
+                for details in (getattr(point, "details", None),)
+                if isinstance(details, Mapping)
+                and isinstance(details.get("restore"), Mapping)
+            ),
+            {},
+        )
+        binding_descriptors = {
+            descriptor.get("binding_name"): descriptor
+            for descriptor in restore_metadata.get("binding_descriptors", ())
+            if isinstance(descriptor, Mapping)
+            and isinstance(descriptor.get("binding_name"), str)
+        }
+        proof_descriptors = {
+            descriptor.get("proof_id"): descriptor
+            for descriptor in restore_metadata.get("proof_descriptors", ())
+            if isinstance(descriptor, Mapping)
+            and isinstance(descriptor.get("proof_id"), str)
+        }
+
+        source_artifacts_by_node_id: Dict[str, Dict[str, Any]] = {}
+        conflicted_source_artifacts: set[tuple[str, str]] = set()
+        step_names = tuple(
+            self.projection.presentation_key_by_node_id.values()
+            if self.projection is not None
+            else ()
+        )
         for binding in payload.get("bindings", ()):
             if not isinstance(binding, Mapping):
                 continue
             name = binding.get("binding_name")
             if not isinstance(name, str) or not name:
                 continue
+            descriptor = binding_descriptors.get(name)
+            if not isinstance(descriptor, Mapping):
+                continue
             try:
-                bindings[name] = resolve_binding_restore_value(
+                restored_value = resolve_binding_restore_value(
                     binding,
                     state_manager=self.state_manager,
                 )
             except ValueError:
                 continue
+            source_node = resolve_restore_source_node(
+                executable_workflow=self.executable_ir,
+                descriptor=descriptor,
+            )
+            if source_node is None:
+                continue
+            value_document = descriptor.get("value_document")
+            if value_document is None:
+                continue
+            # Invert declared ref leaves, preserving ordinary record fields.
+            pending = [(value_document, restored_value)]
+            while pending:
+                document, restored_artifact_value = pending.pop()
+                if isinstance(document, (list, tuple)):
+                    if isinstance(restored_artifact_value, (list, tuple)):
+                        pending.extend(zip(document, restored_artifact_value))
+                    continue
+                if not isinstance(document, Mapping):
+                    continue
+                if set(document) != {"ref"}:
+                    if isinstance(restored_artifact_value, Mapping):
+                        pending.extend(
+                            (item, restored_artifact_value[key])
+                            for key, item in document.items()
+                            if key in restored_artifact_value
+                        )
+                    continue
+                try:
+                    target = parse_structured_ref(document["ref"], step_names)
+                except ReferenceResolutionError:
+                    continue
+                if (
+                    target.field != "artifacts"
+                    or not isinstance(target.member, str)
+                    or target.step_name != descriptor.get("source_step_name")
+                ):
+                    continue
+                artifact_key = (source_node.node_id, target.member)
+                if artifact_key in conflicted_source_artifacts:
+                    continue
+                source_artifacts = source_artifacts_by_node_id.setdefault(
+                    source_node.node_id,
+                    {},
+                )
+                if (
+                    target.member in source_artifacts
+                    and source_artifacts[target.member] != restored_artifact_value
+                ):
+                    source_artifacts.pop(target.member, None)
+                    conflicted_source_artifacts.add(artifact_key)
+                    continue
+                source_artifacts[target.member] = restored_artifact_value
 
         loop_frames: Dict[str, Dict[str, Any]] = {}
         loop_frame = payload.get("loop_frame")
@@ -2565,11 +2629,31 @@ class WorkflowExecutor:
             if isinstance(loop_id, str) and loop_id:
                 loop_frames[loop_id] = dict(loop_frame)
 
-        proofs = tuple(
-            proof
-            for proof in payload.get("active_variant_proofs", ())
-            if isinstance(proof, Mapping)
-        )
+        proofs = []
+        for proof in payload.get("active_variant_proofs", ()):
+            if not isinstance(proof, Mapping):
+                continue
+            proof_id = proof.get("proof_id")
+            descriptor = proof_descriptors.get(proof_id)
+            if not isinstance(descriptor, Mapping):
+                continue
+            source_node = resolve_restore_source_node(
+                executable_workflow=self.executable_ir,
+                descriptor=descriptor,
+            )
+            if source_node is None:
+                continue
+            variant = proof.get("variant") or proof.get("variant_name")
+            if not isinstance(variant, str) or not variant:
+                continue
+            proofs.append(
+                {
+                    "proof_id": proof_id,
+                    "proof_kind": descriptor.get("proof_kind", "match_branch"),
+                    "variant": variant,
+                    "source_node_id": source_node.node_id,
+                }
+            )
         step_results: Dict[str, Dict[str, Any]] = {}
         transition_resume = payload.get("transition_resume")
         if isinstance(transition_resume, Mapping):
@@ -2603,59 +2687,11 @@ class WorkflowExecutor:
                 if isinstance(presentation_key, str) and presentation_key:
                     step_results[presentation_key] = synthetic_result
         self._lexical_restore_overlay = {
-            "bindings": bindings,
+            "source_artifacts_by_node_id": source_artifacts_by_node_id,
             "loop_frames": loop_frames,
-            "proofs": proofs,
+            "proofs": tuple(proofs),
             "step_results": step_results,
         }
-
-    def _restore_overlay_match_case_for_presentation(
-        self,
-        step_name: str,
-        state: Dict[str, Any],
-    ) -> Optional[str]:
-        if self.projection is None:
-            return None
-        node_id = None
-        index = self._projection_index_by_presentation_name.get(step_name)
-        if isinstance(index, int) and 0 <= index < len(self._step_node_ids):
-            node_id = self._step_node_ids[index]
-        if not isinstance(node_id, str):
-            for candidate_node_id, presentation_key in self.projection.presentation_key_by_node_id.items():
-                if presentation_key == step_name:
-                    node_id = candidate_node_id
-                    break
-        if not isinstance(node_id, str):
-            return None
-        return self._restore_overlay_match_case_for_node_id(node_id, state)
-
-    def _restore_overlay_binding_value(
-        self,
-        step_name: str,
-        member: str,
-        *,
-        state: Optional[Dict[str, Any]] = None,
-    ) -> Any:
-        # Restored bindings answer the record terminal member (`return`) and
-        # the root-result member (`__result__`) interchangeably.
-        if member not in ("return", "__result__") or not isinstance(self._lexical_restore_overlay, dict):
-            return _RESTORE_REF_MISSING
-        bindings = self._lexical_restore_overlay.get("bindings")
-        if not isinstance(bindings, Mapping):
-            return _RESTORE_REF_MISSING
-        for binding_name, value in bindings.items():
-            if isinstance(binding_name, str) and (
-                f"__{binding_name}__" in step_name
-                or step_name.endswith(f"__{binding_name}")
-            ):
-                if "__match_decision" in step_name:
-                    if not isinstance(state, dict):
-                        return _RESTORE_REF_MISSING
-                    selected_case = self._restore_overlay_match_case_for_presentation(step_name, state)
-                    if selected_case is None:
-                        return _RESTORE_REF_MISSING
-                return value
-        return _RESTORE_REF_MISSING
 
     def _restore_overlay_loop_value(self, step_name: str, member: str) -> Any:
         if not isinstance(self._lexical_restore_overlay, dict):
@@ -2680,15 +2716,6 @@ class WorkflowExecutor:
                 field_name = member[len("state__"):]
                 if field_name in state_value:
                     return state_value[field_name]
-            result_step = (
-                f"{loop_name[:-len('__loop')]}__result"
-                if loop_name.endswith("__loop")
-                else None
-            )
-            if result_step == step_name and member.startswith("return__"):
-                field_name = member[len("return__"):]
-                if field_name in state_value:
-                    return state_value[field_name]
         return _RESTORE_REF_MISSING
 
     def _restore_overlay_loop_frame(self, loop_name: str) -> Optional[Dict[str, Any]]:
@@ -2709,55 +2736,52 @@ class WorkflowExecutor:
     ) -> Any:
         if not isinstance(self._lexical_restore_overlay, dict):
             return _RESTORE_REF_MISSING
-        loop_result_step_names = {
-            candidate
-            for loop_name in (
-                self._lexical_restore_overlay.get("loop_frames", {}).keys()
-                if isinstance(self._lexical_restore_overlay.get("loop_frames"), Mapping)
-                else ()
-            )
-            if isinstance(loop_name, str) and loop_name.endswith("__loop")
-            for candidate in (loop_name, f"{loop_name[:-len('__loop')]}__result")
-        }
         step_names = tuple(
             name
             for name in {
-                *self._projection_index_by_presentation_name.keys(),
+                *(
+                    self.projection.presentation_key_by_node_id.values()
+                    if self.projection is not None
+                    else ()
+                ),
                 *(
                     state.get("steps", {}).keys()
                     if isinstance(state.get("steps"), dict)
                     else ()
                 ),
-                *loop_result_step_names,
             }
             if isinstance(name, str)
         )
         try:
             target = parse_structured_ref(ref, step_names)
         except ReferenceResolutionError:
-            match = re.match(r"^(?:root|self|parent)\.steps\.(?P<step_name>.+?)\.artifacts\.(?P<member>.+)$", ref)
-            if match is None:
-                return _RESTORE_REF_MISSING
-            step_name = match.group("step_name")
-            member = match.group("member")
-        else:
-            if target.field != "artifacts" or not isinstance(target.member, str):
-                return _RESTORE_REF_MISSING
-            step_name = target.step_name
-            member = target.member
+            return _RESTORE_REF_MISSING
+        if target.field != "artifacts" or not isinstance(target.member, str):
+            return _RESTORE_REF_MISSING
+        step_name = target.step_name
+        member = target.member
         step_results = self._lexical_restore_overlay.get("step_results")
         if isinstance(step_results, Mapping):
             explicit_result = step_results.get(step_name)
             artifacts = explicit_result.get("artifacts") if isinstance(explicit_result, Mapping) else None
             if isinstance(artifacts, Mapping) and member in artifacts:
                 return artifacts[member]
-        value = self._restore_overlay_binding_value(
-            step_name,
-            member,
-            state=state,
-        )
-        if value is not _RESTORE_REF_MISSING:
-            return value
+        if self.projection is not None:
+            matching_node_ids = [
+                node_id
+                for node_id, presentation_key in self.projection.presentation_key_by_node_id.items()
+                if presentation_key == step_name
+            ]
+            if len(matching_node_ids) == 1:
+                node_id = matching_node_ids[0]
+                overlay_result = self._restore_overlay_result_for_node_id(node_id, state)
+                artifacts = (
+                    overlay_result.get("artifacts")
+                    if isinstance(overlay_result, Mapping)
+                    else None
+                )
+                if isinstance(artifacts, Mapping) and member in artifacts:
+                    return artifacts[member]
         return self._restore_overlay_loop_value(step_name, member)
 
     def _fail_resume_state_integrity(
@@ -14859,8 +14883,8 @@ class WorkflowExecutor:
         selection_key: str,
         selection_value: str,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
-    ) -> Dict[str, Any] | None:
-        """Resolve one structured statement's declared outputs into validated artifacts."""
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """Return validated artifacts and a separate failure, never error-shaped data."""
         artifacts: Dict[str, Any] = {}
         active_union_variants = self._resolve_structured_output_discriminants(
             outputs,
@@ -14886,7 +14910,7 @@ class WorkflowExecutor:
                 continue
 
             if source is None:
-                return self._contract_violation_result(
+                return {}, self._contract_violation_result(
                     failure_message,
                     {
                         "reason": "missing_output_ref",
@@ -14897,7 +14921,7 @@ class WorkflowExecutor:
             try:
                 raw_value = self._resolve_runtime_value(source, state, scope=scope)
             except (PredicateEvaluationError, ReferenceResolutionError) as exc:
-                return self._contract_violation_result(
+                return {}, self._contract_violation_result(
                     failure_message,
                     {
                         "reason": "unresolved_output_ref",
@@ -14914,7 +14938,7 @@ class WorkflowExecutor:
                     workspace=self.workspace,
                 )
             except OutputContractError as exc:
-                return self._contract_violation_result(
+                return {}, self._contract_violation_result(
                     failure_message,
                     {
                         "reason": "invalid_output_value",
@@ -14924,7 +14948,7 @@ class WorkflowExecutor:
                         "violations": exc.violations,
                     },
                 )
-        return artifacts
+        return artifacts, None
 
     def _resolve_structured_output_discriminants(
         self,
@@ -15086,7 +15110,7 @@ class WorkflowExecutor:
 
         outputs = self._structured_output_contracts(step, selected_branch)
 
-        artifacts = self._resolve_structured_output_artifacts(
+        artifacts, failure = self._resolve_structured_output_artifacts(
             outputs,
             state,
             failure_message="Structured if/else join failed",
@@ -15094,8 +15118,8 @@ class WorkflowExecutor:
             selection_value=selected_branch,
             scope=scope,
         )
-        if not isinstance(artifacts, dict):
-            return artifacts
+        if failure is not None:
+            return failure
 
         return {
             'status': 'completed',
@@ -15187,7 +15211,7 @@ class WorkflowExecutor:
 
         outputs = self._structured_output_contracts(step, selected_case)
 
-        artifacts = self._resolve_structured_output_artifacts(
+        artifacts, failure = self._resolve_structured_output_artifacts(
             outputs,
             state,
             failure_message="Structured match join failed",
@@ -15195,8 +15219,8 @@ class WorkflowExecutor:
             selection_value=selected_case,
             scope=scope,
         )
-        if not isinstance(artifacts, dict):
-            return artifacts
+        if failure is not None:
+            return failure
 
         return {
             'status': 'completed',

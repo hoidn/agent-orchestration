@@ -3541,6 +3541,7 @@ def _run_ref_lowering_context(type_env, *, lowering_session=None):
         step_name_prefix="parent__candidate",
         lowering_schema_version=2,
         type_env=type_env,
+        output_target_dsl_version=type_env.target_dsl_version,
         lowering_session=lowering_session or LoweringSessionState(),
         generated_path_allocations=[],
         generated_path_spans={},

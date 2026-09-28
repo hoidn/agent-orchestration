@@ -220,7 +220,13 @@ loop tests as the transport pattern.
    `REVISE` decisions at `limit 3` return `EXHAUSTED` with the third revision
    (depends on the runtime prerequisite); a hook result failing its declared
    type is a contract failure with no `Decision` reaching the helper; inline
-   and imported forms agree on outcome and ordered hook operations.
+   and imported forms agree on outcome and ordered hook operations. From the
+   [master plan's](2026-09-28-composition-first-master-plan.md#review-focus)
+   Review Focus: `limit 0` yields the existing zero-limit runtime outcome with
+   no hook invoked and no fabricated review; a `revise` hook that fails in the
+   final permitted iteration is a runtime failure, not `EXHAUSTED`; a
+   target-2.32 module importing `std/improve` is rejected with the
+   required-target diagnostic.
 2. Author `std/improve` exactly as the design's §3 interface and §4 loop:
    `Decision :forall (F B)`, `Improvement :forall (S F B)`, `improve` with
    `:where ((S is-record))`, state `{current}`, `inputs` as a lexical binding,
@@ -252,7 +258,9 @@ and the public run/resume tests in
    work; exhaustion after the final `continue` projects the generic record on
    a fresh run and after committed-boundary resume; substituting the reviewer
    with a sequential two-review-plus-adjudication procedure changes only the
-   selected hook.
+   selected hook; and, from the master plan's Review Focus, when an inner
+   review of that substituted procedure is blocked the result is `BLOCKED`
+   with the domain blocker, never a downgraded `REVISE` or `APPROVE`.
 2. Author the example: `propose` (deterministic), `review` and `revise` hooks
    over an `ExperimentProposal` record, `improve`, then `execute` consuming
    the returned value. Provider bindings stay external configuration.

@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.executor import _RESTORE_REF_MISSING, WorkflowExecutor
 from orchestrator.workflow.pure_result_replay import (
     DERIVED_PURE_REPLAY_PROFILE,
 )
@@ -620,11 +620,24 @@ def _resource_observation(*, checkpoint_id: str, program_point_id: str, origin_k
     )
 
 
-def _prepare_failed_run(tmp_path: Path, *, run_id: str):
-    bundle = _compile_fixture(tmp_path)
+def _prepare_failed_run(
+    tmp_path: Path,
+    *,
+    run_id: str,
+    source: str | None = None,
+):
+    if source is None:
+        workflow_path = tmp_path / FIXTURE.name
+        bundle = _compile_fixture(tmp_path)
+    else:
+        workflow_path, bundle = _compile_source_fixture(
+            tmp_path,
+            filename=FIXTURE.name,
+            source=source,
+        )
     state_manager = StateManager(workspace=tmp_path, run_id=run_id)
     state_manager.initialize(
-        str(tmp_path / FIXTURE.name),
+        str(workflow_path),
         context=bundle_context_dict(bundle),
         bound_inputs=_execution_inputs(tmp_path),
     )
@@ -852,6 +865,177 @@ def test_loop_restore_overlay_reads_root_state_only_at_new_target(
         assert restored == [{"task_id": "one"}]
     else:
         assert restored != [{"task_id": "one"}]
+
+
+@pytest.mark.parametrize("reverse_bindings", (False, True))
+def test_restore_overlay_binding_value_uses_exact_compiled_source_node(
+    tmp_path: Path,
+    reverse_bindings: bool,
+) -> None:
+    source = FIXTURE.read_text(encoding="utf-8").replace(
+        "selected_label", "alpha__beta"
+    ).replace("selected_report", "alpha")
+    bundle, state_manager, first_run = _prepare_failed_run(
+        tmp_path,
+        run_id=f"restore-binding-identity-{reverse_bindings}",
+        source=source,
+    )
+    assert first_run["status"] == "failed"
+    restart_point = _checkpoint_point_by_node_id(
+        bundle,
+        "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary",
+    )
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=restart_point,
+        mutate=lambda record: record["restore_payload"]["bindings"].reverse()
+        if reverse_bindings
+        else None,
+    )
+    decision = _restore_module().select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=restart_point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+    assert decision.kind == "RESTORED"
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._activate_resume_restore_overlay(decision)
+    alpha_beta_descriptor = next(
+        descriptor
+        for descriptor in restart_point.details["restore"]["binding_descriptors"]
+        if descriptor["binding_name"] == "alpha__beta"
+    )
+    target_node_id = next(
+        node_id
+        for node_id, presentation_key in bundle.projection.presentation_key_by_node_id.items()
+        if presentation_key == alpha_beta_descriptor["source_step_name"]
+    )
+    restored_result = executor._restore_overlay_result_for_node_id(
+        target_node_id,
+        state_manager.load().to_dict(),
+    )
+
+    assert restored_result is not None
+    assert restored_result["artifacts"]["__result__"] == "ready"
+    source_ref = (
+        f"root.steps.{alpha_beta_descriptor['source_step_name']}"
+        ".artifacts.__result__"
+    )
+    run_state = state_manager.load().to_dict()
+    assert executor._resolve_restore_overlay_ref(source_ref, run_state) == "ready"
+    with patch.object(executor, "_resolve_bound_address", return_value="RETRY"):
+        assert (
+            executor._resolve_restore_overlay_ref(source_ref, run_state)
+            is _RESTORE_REF_MISSING
+        )
+
+
+def test_restore_overlay_match_proof_uses_exact_compiled_source_node(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_fixture(tmp_path)
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.executable_ir = bundle.ir
+    executor.projection = bundle.projection
+    selected_label_node_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if getattr(node, "statement_name", None)
+        == "lexical_checkpoint_restore_regions::orchestrate__selected_label__match_decision"
+        and hasattr(node, "case_outputs")
+    )
+    selected_report_node_id = next(
+        node_id
+        for node_id, node in bundle.ir.nodes.items()
+        if getattr(node, "statement_name", None)
+        == "lexical_checkpoint_restore_regions::orchestrate__selected_report__match_decision"
+        and hasattr(node, "case_outputs")
+    )
+    executor._lexical_restore_overlay = {
+        "proofs": (
+            {
+                "proof_kind": "match_branch",
+                "proof_source": "match_decision",
+                "source_node_id": selected_report_node_id,
+                "variant": "READY",
+            },
+        ),
+    }
+
+    with patch.object(executor, "_resolve_bound_address", return_value="READY"):
+        assert executor._restore_overlay_match_case_for_node_id(
+            selected_label_node_id,
+            {},
+        ) is None
+
+
+@pytest.mark.parametrize("reverse_bindings", (False, True))
+def test_runtime_resume_restores_colliding_binding_names_by_exact_source(
+    tmp_path: Path,
+    reverse_bindings: bool,
+) -> None:
+    source = FIXTURE.read_text(encoding="utf-8").replace(
+        "selected_label", "alpha__beta"
+    ).replace("selected_report", "alpha")
+    bundle, state_manager, first_run = _prepare_failed_run(
+        tmp_path,
+        run_id=f"restore-binding-collision-{reverse_bindings}",
+        source=source,
+    )
+    assert first_run["status"] == "failed"
+    restart_point = _checkpoint_point_by_node_id(
+        bundle,
+        "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary",
+    )
+    checkpoint_record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=restart_point,
+    )
+    binding_names = {
+        binding["binding_name"]
+        for binding in checkpoint_record["restore_payload"]["bindings"]
+    }
+    assert {"alpha", "alpha__beta"} <= binding_names
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=restart_point,
+        mutate=lambda record: record["restore_payload"]["bindings"].reverse()
+        if reverse_bindings
+        else None,
+    )
+
+    state = state_manager.load()
+    execution_index = bundle.projection.execution_index_for_step_id(
+        restart_point.step_id
+    )
+    state.current_step = {
+        "name": restart_point.presentation_key,
+        "index": execution_index,
+        "step_id": restart_point.step_id,
+        "status": "running",
+    }
+    for descriptor in restart_point.details["restore"]["binding_descriptors"]:
+        source_step_name = descriptor.get("source_step_name")
+        if isinstance(source_step_name, str):
+            state.steps.pop(source_step_name, None)
+    state.steps.pop(restart_point.presentation_key, None)
+    state_manager.state = state
+    state_manager._write_state()
+    _assert_projection_valid_resume_state(state_manager, bundle)
+
+    resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"]["return__alpha__beta"] == "ready"
+    summary = json.loads((tmp_path / "artifacts/work/summary.json").read_text())
+    assert summary["status"] == "ready-summary"
 
 
 @pytest.mark.parametrize("target_dsl,expected", [("2.28", True), ("2.29", False)])
@@ -1432,6 +1616,7 @@ def test_predicate_proof_revalidates_producer_discriminant_artifact() -> None:
     assert (
         restore._proof_matches_current_selector_variant(
             proof=proof,
+            descriptor=proof,
             executable_workflow=None,
             state=state,
         )
@@ -1449,6 +1634,7 @@ def test_predicate_proof_revalidates_producer_discriminant_artifact() -> None:
     assert (
         restore._proof_matches_current_selector_variant(
             proof=proof,
+            descriptor=proof,
             executable_workflow=None,
             state=drifted,
         )
@@ -2605,6 +2791,7 @@ def test_runtime_resume_restores_private_bindings_and_loop_frame_from_checkpoint
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
     assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"]["return__loop_count"] == 1
     restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
     payload = json.loads(restore_report.read_text(encoding="utf-8"))
     assert payload["decision_kind"] == "RESTORED"
@@ -2629,12 +2816,61 @@ def test_runtime_resume_restores_repeat_until_restart_from_checkpoint_sidecars(t
     resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
 
     assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"]["return__loop_count"] == 1
     restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
     payload = json.loads(restore_report.read_text(encoding="utf-8"))
     assert payload["decision_kind"] == "RESTORED"
     assert payload["restored_loop_frames"] >= 1
     loaded_state = state_manager.load()
     assert loaded_state.steps[loop_name]["status"] == "completed"
+
+
+def test_runtime_resume_restores_renamed_loop_result_fields_and_done_payload(
+    tmp_path: Path,
+) -> None:
+    source = FIXTURE.read_text(encoding="utf-8")
+    source = source.replace("(count Int", "(score Int")
+    source = source.replace(":count", ":score").replace(".count", ".score")
+    source = source.replace("(label String", "(title String")
+    source = source.replace(":label", ":title").replace(".label", ".title")
+    exhausted_branch = """(if false
+                    (done
+                      (record LoopResult
+                        :score state.score
+                        :title state.title))"""
+    assert exhausted_branch in source
+    source = source.replace(
+        exhausted_branch,
+        """(if true
+                    (done
+                      (record LoopResult
+                        :score (+ state.score 9)
+                        :title "done"))""",
+    )
+    source = source.replace(
+        "(defrecord SummaryValue\n    (status String)\n    (score Int)",
+        "(defrecord SummaryValue\n    (status String)\n    (score Int)\n    (title String)",
+    )
+    source = source.replace(
+        ":score loop_result.score\n               :report selected_report",
+        ":score loop_result.score\n               :title loop_result.title\n               :report selected_report",
+    )
+
+    bundle, state_manager, first_run = _prepare_failed_run(
+        tmp_path,
+        run_id="restore-renamed-done-payload",
+        source=source,
+    )
+    assert first_run["status"] == "failed"
+    _force_materialize_view_resume_state(state_manager, bundle)
+
+    resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert resumed["workflow_outputs"]["return__loop_count"] == 9
+    summary = json.loads((tmp_path / "artifacts/work/summary.json").read_text())
+    assert summary["score"] == 9
+    assert summary["title"] == "done"
 
 
 def test_runtime_resume_fails_closed_when_restart_restore_candidate_is_invalid(tmp_path: Path) -> None:

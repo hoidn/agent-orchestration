@@ -233,7 +233,7 @@ class LoopRuntime(Protocol):
         selection_key: str,
         selection_value: str,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
-    ) -> Optional[Dict[str, Any]]: ...
+    ) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]: ...
 
     def _restore_overlay_loop_frame(
         self,

@@ -269,7 +269,7 @@ def lower_pure_projection_step(
         )
     )
     source_path_aware = target_dsl_supports_rich_loop_values(
-        context.type_env.target_dsl_version
+        context.output_target_dsl_version
     )
     if output_fields is None:
         output_fields = _output_fields_for_contracts(

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from orchestrator._common.canonical import sha256_json as _sha256_json
+from orchestrator.workflow.executable_ir import MatchJoinNode
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
     AUDIT_STALE,
@@ -966,23 +967,26 @@ def _loop_frame_matches_repeat_until_progress(
     return True
 
 
-def _match_join_node_by_binding_name(
+def resolve_restore_source_node(
+    *,
     executable_workflow: Any,
-    binding_name: str,
+    descriptor: Mapping[str, Any],
 ) -> Any | None:
-    suffix = f"__{binding_name}__match_decision"
+    """Resolve a compiled descriptor's exact source, never a payload's name hint."""
+    name = descriptor.get("source_step_name")
+    step_id = descriptor.get("source_step_id")
+    if not isinstance(name, str) or not name or not isinstance(step_id, str) or not step_id:
+        return None
     nodes = getattr(executable_workflow, "nodes", {})
-    for node in nodes.values() if isinstance(nodes, Mapping) else ():
-        statement_name = getattr(node, "statement_name", None)
-        case_outputs = getattr(node, "case_outputs", None)
-        if (
-            isinstance(statement_name, str)
-            and statement_name.endswith(suffix)
-            and isinstance(case_outputs, Mapping)
-            and case_outputs
-        ):
-            return node
-    return None
+    matches = [node for node in nodes.values() if node.presentation_name == name]
+    if len(matches) != 1:
+        return None
+    node = matches[0]
+    # The descriptor stores the local ID; the IR owns its qualified scope.
+    scope = node.lexical_scope
+    if not scope or scope[-1] != step_id or node.step_id != ".".join(scope):
+        return None
+    return node
 
 
 def _node_result_artifact(
@@ -1070,25 +1074,22 @@ def _type_ref_for_contract(contract: Any, fallback: Any) -> str:
     return type(fallback).__name__
 
 
-def _case_return_contract(case_output: Mapping[str, Any]) -> Any | None:
-    """Resolve the case's terminal contract for record (`return`) and root (`__result__`) outputs."""
-    contract = case_output.get("return")
-    if contract is not None:
-        return contract
-    return case_output.get("__result__")
-
-
 def _binding_matches_current_contract(
     *,
     binding: Mapping[str, Any],
+    descriptor: Mapping[str, Any],
     executable_workflow: Any,
     state: Mapping[str, Any],
 ) -> bool:
     binding_name = binding.get("binding_name")
     if not isinstance(binding_name, str) or not binding_name:
         return False
-    node = _match_join_node_by_binding_name(executable_workflow, binding_name)
+    if descriptor.get("source_step_name") is None and descriptor.get("source_step_id") is None:
+        return True
+    node = resolve_restore_source_node(executable_workflow=executable_workflow, descriptor=descriptor)
     if node is None:
+        return False
+    if not isinstance(node, MatchJoinNode):
         return True
     selected_variant = _selector_variant_for_match_join(
         executable_workflow=executable_workflow,
@@ -1098,7 +1099,20 @@ def _binding_matches_current_contract(
     case_outputs = getattr(node, "case_outputs", {})
     if not isinstance(selected_variant, str) or selected_variant not in case_outputs:
         return False
-    contract = _case_return_contract(_mapping(case_outputs[selected_variant]))
+    document = descriptor.get("value_document")
+    # Composite values use the compiled binding descriptor's type contract;
+    # no single flattened producer member describes the whole binding.
+    if not isinstance(document, Mapping) or set(document) != {"ref"}:
+        return True
+    from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
+
+    try:
+        target = parse_structured_ref(document["ref"], (descriptor["source_step_name"],))
+    except ReferenceResolutionError:
+        return False
+    if target.step_name != descriptor["source_step_name"] or target.field != "artifacts":
+        return False
+    contract = _mapping(case_outputs[selected_variant]).get(target.member)
     if contract is None or not _binding_contract_matches_type_ref(contract, binding.get("type_ref")):
         return False
     source_address = getattr(contract, "source_address", None)
@@ -1115,26 +1129,6 @@ def _binding_matches_current_contract(
     if binding.get("transport") == "inline_json":
         return current_value is not None and binding.get("value_digest") == _sha256_json(current_value)
     return True
-
-
-def _binding_contract_for_name(
-    *,
-    executable_workflow: Any,
-    state: Mapping[str, Any],
-    binding_name: str,
-) -> Any | None:
-    node = _match_join_node_by_binding_name(executable_workflow, binding_name)
-    if node is None:
-        return None
-    selected_variant = _selector_variant_for_match_join(
-        executable_workflow=executable_workflow,
-        state=state,
-        node=node,
-    )
-    case_outputs = getattr(node, "case_outputs", {})
-    if not isinstance(selected_variant, str) or selected_variant not in case_outputs:
-        return None
-    return _mapping(case_outputs[selected_variant]).get("return")
 
 
 def _binding_descriptor_diagnostic(
@@ -1195,30 +1189,6 @@ def _proof_descriptor_diagnostic(
     return None
 
 
-def _match_join_node_for_proof_source(
-    *,
-    executable_workflow: Any,
-    proof: Mapping[str, Any],
-) -> Any | None:
-    proof_source = proof.get("proof_source")
-    if not isinstance(proof_source, str) or not proof_source:
-        return None
-    nodes = getattr(executable_workflow, "nodes", {})
-    for node in nodes.values() if isinstance(nodes, Mapping) else ():
-        node_step_id = getattr(node, "step_id", None)
-        if (
-            getattr(node, "case_outputs", None)
-            and isinstance(node_step_id, str)
-            and (
-                node_step_id == proof_source
-                or node_step_id.endswith(f".{proof_source}")
-                or node_step_id.endswith(proof_source)
-            )
-        ):
-            return node
-    return None
-
-
 def _selected_variant_from_step_artifacts(state: Mapping[str, Any], step_name: str) -> str | None:
     """Re-read a producer's persisted discriminant artifact from state."""
 
@@ -1234,20 +1204,21 @@ def _selected_variant_from_step_artifacts(state: Mapping[str, Any], step_name: s
 def _proof_matches_current_selector_variant(
     *,
     proof: Mapping[str, Any],
+    descriptor: Mapping[str, Any],
     executable_workflow: Any,
     state: Mapping[str, Any],
 ) -> bool:
     expected_variant = _proof_variant_name(proof)
     if not isinstance(expected_variant, str) or not expected_variant:
         return False
-    if proof.get("proof_kind") == "predicate":
-        producer_step_name = proof.get("producer_step_name") or proof.get("source_step_name")
+    if descriptor.get("proof_kind") == "predicate":
+        producer_step_name = descriptor.get("producer_step_name") or descriptor.get("source_step_name")
         if not isinstance(producer_step_name, str) or not producer_step_name:
             return False
         current_variant = _selected_variant_from_step_artifacts(state, producer_step_name)
         return current_variant == expected_variant
-    node = _match_join_node_for_proof_source(executable_workflow=executable_workflow, proof=proof)
-    if node is None:
+    node = resolve_restore_source_node(executable_workflow=executable_workflow, descriptor=descriptor)
+    if not isinstance(node, MatchJoinNode):
         return False
     current_variant = _selector_variant_for_match_join(
         executable_workflow=executable_workflow,
@@ -1844,9 +1815,18 @@ def select_restore_candidate(
                         diagnostics=(proof_diagnostic,),
                     )
                 if executable_workflow is not None:
+                    binding_descriptors = {
+                        descriptor["binding_name"]: descriptor
+                        for descriptor in restore_metadata["binding_descriptors"]
+                    }
+                    proof_descriptors = {
+                        descriptor["proof_id"]: descriptor
+                        for descriptor in restore_metadata["proof_descriptors"]
+                    }
                     if any(
                         not _binding_matches_current_contract(
                             binding=_mapping(binding),
+                            descriptor=binding_descriptors[binding["binding_name"]],
                             executable_workflow=executable_workflow,
                             state=state,
                         )
@@ -1863,6 +1843,7 @@ def select_restore_candidate(
                     if any(
                         not _proof_matches_current_selector_variant(
                             proof=_mapping(proof),
+                            descriptor=proof_descriptors[proof["proof_id"]],
                             executable_workflow=executable_workflow,
                             state=state,
                         )

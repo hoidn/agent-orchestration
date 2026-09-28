@@ -929,6 +929,87 @@ def _run_workflow(tmp_path: Path, workflow: dict) -> dict:
     return WorkflowExecutor(loaded, tmp_path, state_manager).execute(on_error="continue")
 
 
+@pytest.mark.parametrize("kind", ["if", "match", "repeat_until"])
+def test_structured_missing_output_is_failure_not_artifact_data(tmp_path: Path, kind: str):
+    never = {"compare": {"left": 0, "op": "eq", "right": 1}}
+    if kind == "if":
+        workflow = _structured_if_else_workflow()
+        workflow["steps"] = workflow["steps"][:2]
+        owner = workflow["steps"][1]
+        owner["then"]["steps"][0]["when"] = never
+    elif kind == "match":
+        workflow = _structured_match_workflow()
+        workflow["steps"] = workflow["steps"][:2]
+        owner = workflow["steps"][1]
+        owner["match"]["cases"]["REVISE"]["steps"][0]["when"] = never
+    else:
+        contract = {"kind": "scalar", "type": "string"}
+        owner = {"name": "Loop", "id": "loop", "repeat_until": {
+            "id": "body", "max_iterations": 2, "condition": never,
+            "outputs": {"decision": {
+                **contract, "from": {"ref": "self.steps.Route.artifacts.decision"},
+            }},
+            "on_exhausted": {"outputs": {"decision": "ESCALATE"}},
+            "steps": [{"name": "Route", "id": "route", "when": never,
+                       "set_scalar": {"artifact": "decision", "value": "REVISE"}}],
+        }}
+        workflow = {"version": "2.12", "name": "missing-output",
+                    "artifacts": {"decision": contract}, "steps": [owner]}
+
+    result = _run_workflow(tmp_path, workflow)["steps"][owner["name"]]
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "contract_violation"
+    assert result["error"]["context"]["reason"] == "unresolved_output_ref"
+    assert not result.get("artifacts")
+
+
+def test_structured_outputs_may_have_failure_envelope_field_names(tmp_path: Path):
+    values = {"status": "failed", "error": "ordinary data", "exit_code": 2}
+    contracts = {
+        key: {"kind": "scalar", "type": "integer" if isinstance(value, int) else "string"}
+        for key, value in values.items()
+    }
+    workflow = {"version": "2.12", "name": "envelope-like-data", "artifacts": contracts,
+                "steps": [{"name": "Loop", "id": "loop", "repeat_until": {
+                    "id": "body", "max_iterations": 1,
+                    "condition": {"compare": {"left": 1, "op": "eq", "right": 1}},
+                    "outputs": {key: {**contracts[key], "from": {
+                        "ref": f"self.steps.Set_{key}.artifacts.{key}",
+                    }} for key in values},
+                    "steps": [{"name": f"Set_{key}", "id": f"set_{key}",
+                               "set_scalar": {"artifact": key, "value": value}}
+                              for key, value in values.items()],
+                }}]}
+
+    result = _run_workflow(tmp_path, workflow)["steps"]["Loop"]
+
+    assert result["status"] == "completed"
+    assert result["artifacts"] == values
+
+
+def test_structured_invalid_output_value_preserves_contract_failure(tmp_path: Path):
+    workflow = _structured_if_else_workflow()
+    state = _run_workflow(tmp_path, workflow)
+    # A persisted producer can be corrupt even when its declaration was valid.
+    producer = state["steps"]["RouteReview.then.WriteApproved"]
+    producer["artifacts"]["review_decision"] = "NOT_A_REVIEW_DECISION"
+    executor = WorkflowExecutor(
+        _load_workflow(tmp_path, workflow), tmp_path,
+        StateManager(workspace=tmp_path, run_id="test-run"),
+    )
+    join = executor._runtime_step_for_node_id("root.route_review")
+    artifacts, failure = executor._resolve_structured_output_artifacts(
+        executor._structured_output_contracts(join, "then"), state,
+        failure_message="Invalid persisted output", selection_key="branch",
+        selection_value="then", scope={"self_steps": {"WriteApproved": producer}},
+    )
+
+    assert artifacts == {}
+    assert failure["error"]["type"] == "contract_violation"
+    assert failure["error"]["context"]["reason"] == "invalid_output_value"
+
+
 def test_if_else_lowered_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
     workflow_a = _structured_if_else_workflow()
     workflow_b = _structured_if_else_workflow(include_inserted_sibling=True)

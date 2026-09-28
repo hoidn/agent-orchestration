@@ -1057,6 +1057,7 @@ def _lower_one_workflow(
         ensure_workflow_lowered=ensure_workflow_lowered,
         specialize_workflow=specialize_workflow,
         type_env=type_env,
+        output_target_dsl_version=target_dsl_version,
         lowering_session=lowering_session,
         step_spans={},
         generated_input_spans=origin_inputs,
