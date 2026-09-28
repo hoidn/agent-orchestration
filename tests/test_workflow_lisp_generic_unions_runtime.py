@@ -208,3 +208,147 @@ def test_variant_payload_record_is_populated_from_a_bound_name(tmp_path: Path) -
         "return__value__title": "revise-seed",
         "return__value__score": 1,
     }
+
+
+REVIEW_PROBE = """import json, os, sys
+from pathlib import Path
+title = sys.argv[1]
+with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
+    log.write(title + "\\n")
+if title == "blocked":
+    payload = {"variant": "BLOCKED", "reason": {"why": "refused-" + title}}
+elif title.startswith("revised"):
+    payload = {"variant": "APPROVE", "evidence": {"note": "ok-" + title}}
+else:
+    payload = {"variant": "REVISE", "feedback": {"note": "revised-" + title}}
+bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+if bundle:
+    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
+    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
+print(json.dumps(payload))
+"""
+
+REVISE_PROBE = OUTCOME_PROBE.split("if title.startswith")[0] + """payload = {"title": title, "score": title.count("revised")}
+bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+if bundle:
+    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
+    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
+print(json.dumps(payload))
+"""
+
+IMPROVE_LIB = HEADER + """  (defmodule grt/lib)
+  (export Decision Improvement improve)
+  (defunion Decision :forall (F B)
+    (APPROVE (evidence F))
+    (REVISE (feedback F))
+    (BLOCKED (reason B)))
+  (defunion Improvement :forall (S F B)
+    (APPROVED (value S) (evidence F))
+    (BLOCKED (value S) (reason B))
+    (EXHAUSTED (value S)))
+  (defproc improve
+    :forall (S F B)
+    ((initial S)
+     (review ProcRef[(S) -> Decision[F B]])
+     (revise ProcRef[(S F) -> S])
+     (limit Int))
+    :where ((S is-record))
+    -> Improvement[S F B]
+    :effects ()
+    :lowering inline
+    (loop/recur :max limit
+      :state (loop-state (current S initial))
+      :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
+      (fn (state)
+        (let* ((decision (review state.current)))
+          (match decision
+            ((APPROVE a)
+             (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
+            ((BLOCKED b)
+             (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
+            ((REVISE r)
+             (let* ((next (revise state.current r.feedback)))
+               (continue (loop-state :like state :current next))))))))))
+"""
+
+IMPROVE_ENTRY = HEADER + """  (defmodule grt/entry)
+  (import grt/lib :only (Decision Improvement improve))
+  (export run summarize)
+  (defrecord Candidate (title String) (score Int))
+  (defrecord Feedback (note String))
+  (defrecord Blocker (why String))
+  (defrecord Summary (title String) (status String) (note String))
+  (defproc review-candidate
+    ((candidate Candidate))
+    -> Decision[Feedback Blocker]
+    :effects ((uses-command probe_review))
+    :lowering inline
+    (command-result probe_review
+      :argv ("python" "PROBE_REVIEW" candidate.title)
+      :returns Decision[Feedback Blocker]))
+  (defproc revise-candidate
+    ((candidate Candidate) (feedback Feedback))
+    -> Candidate
+    :effects ((uses-command probe_revise))
+    :lowering inline
+    (command-result probe_revise
+      :argv ("python" "PROBE_REVISE" feedback.note)
+      :returns Candidate))
+  (defworkflow run () -> Improvement[Candidate Feedback Blocker]
+    (improve (record Candidate :title "SEED" :score 0)
+             (proc-ref review-candidate) (proc-ref revise-candidate) LIMIT))
+  (defworkflow summarize () -> Summary
+    (let* ((result (improve (record Candidate :title "SEED" :score 0)
+                            (proc-ref review-candidate) (proc-ref revise-candidate) LIMIT)))
+      (match result
+        ((APPROVED a) (record Summary :title a.value.title :status "approved" :note a.evidence.note))
+        ((BLOCKED b) (record Summary :title b.value.title :status "blocked" :note b.reason.why))
+        ((EXHAUSTED e) (record Summary :title e.value.title :status "exhausted" :note ""))))))
+"""
+
+
+def _compile_improve(root: Path, *, seed: str, limit: int):
+    probes = {
+        "probe_review": _write_probe(root, "probe_review", REVIEW_PROBE),
+        "probe_revise": _write_probe(root, "probe_revise", REVISE_PROBE),
+    }
+    entry = (
+        IMPROVE_ENTRY.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
+        .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
+        .replace('"SEED"', f'"{seed}"')
+        .replace("LIMIT", str(limit))
+    )
+    _write_sources(root, {"grt/lib.orc": IMPROVE_LIB, "grt/entry.orc": entry})
+    return _compile(root, probes=probes)
+
+
+@pytest.mark.parametrize(
+    ("seed", "expected"),
+    [
+        (
+            "seed",
+            {
+                "return__variant": "APPROVED",
+                "return__value__title": "revised-seed",
+                "return__value__score": 1,
+                "return__evidence__note": "ok-revised-seed",
+            },
+        ),
+        (
+            "blocked",
+            {
+                "return__variant": "BLOCKED",
+                "return__value__title": "blocked",
+                "return__value__score": 0,
+                "return__reason__why": "refused-blocked",
+            },
+        ),
+    ],
+    ids=["approved-after-revision", "blocked"],
+)
+def test_generic_loop_returns_variants_carrying_its_record_state(
+    tmp_path: Path, seed: str, expected: dict[str, object]
+) -> None:
+    result = _compile_improve(tmp_path, seed=seed, limit=3)
+
+    assert _run(result, "grt/entry::run", tmp_path) == expected

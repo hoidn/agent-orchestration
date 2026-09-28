@@ -225,7 +225,33 @@ def procedure_type_env_for(
     default: FrontendTypeEnvironment,
     session_state=None,
 ) -> FrontendTypeEnvironment:
-    """Resolve the owner type environment for one typed procedure body."""
+    """Resolve the type environment for one typed procedure body.
+
+    A specialization's body resolves its type parameter names to the concrete
+    bindings (`generic_unions.type_env_with_type_params`).
+    """
+
+    from .generic_unions import type_env_with_type_params
+
+    return type_env_with_type_params(
+        _procedure_owner_type_env(
+            procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=default,
+            session_state=session_state,
+        ),
+        getattr(getattr(procedure, "specialization", None), "type_bindings", None) or {},
+    )
+
+
+def _procedure_owner_type_env(
+    procedure: TypedProcedureDef,
+    *,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None,
+    default: FrontendTypeEnvironment,
+    session_state=None,
+) -> FrontendTypeEnvironment:
+    """Resolve the owner (defining module) type environment for one procedure."""
 
     if procedure_type_envs is None:
         return default

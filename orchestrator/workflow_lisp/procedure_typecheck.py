@@ -206,6 +206,13 @@ def typecheck_procedure_definitions(
                 for type_param in signature.type_params
             }
         )
+        if specialization is None and signature.type_params:
+            from .generic_unions import type_env_with_type_params
+
+            current_type_env = type_env_with_type_params(
+                current_type_env,
+                {type_param.name: value_env[type_param.name] for type_param in signature.type_params},
+            )
         if specialization is not None:
             value_env.update(dict(getattr(specialization, "type_bindings", {})))
             value_env.update(dict(getattr(specialization, "bound_param_types", {})))

@@ -24,7 +24,9 @@ compile-time only until specialization substitutes them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import copy
+from collections import ChainMap
+from collections.abc import Callable, Iterable, Mapping
 
 from .definitions import DefinitionNode, UnionDef
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -214,6 +216,32 @@ def bind_applied_union_arguments(
         )
     for expected_arg, actual_arg in zip(expected.type_args, actual.type_args, strict=True):
         bind(expected_arg, actual_arg)
+
+
+def type_env_with_type_params(type_env, bindings: Mapping[str, TypeRef]):
+    """Return a view of `type_env` where procedure type parameter names resolve to `bindings`.
+
+    Generic bodies name their type parameters in type positions, such as
+    `(variant Outcome[S E] ...)`. While the generic is checked the names bind to
+    their placeholders; once specialized, to the concrete arguments, so every
+    later resolution of the same type text (typecheck, WCC elaboration,
+    lowering) sees the monomorphic type. Bindings shadow module types of the
+    same name, as type parameters do in signatures. Targets below 2.33 keep
+    their existing resolution. Views are cached on the base environment, and
+    types registered through a view stay in that view.
+    """
+
+    if not bindings or not target_dsl_supports_generic_unions(type_env.target_dsl_version or ""):
+        return type_env
+    views = type_env.__dict__.setdefault("_type_param_views", {})
+    key = tuple(sorted((name, repr(type_ref)) for name, type_ref in bindings.items()))
+    view = views.get(key)
+    if view is None:
+        view = copy.copy(type_env)
+        view._type_refs = ChainMap(dict(bindings), type_env._type_refs)
+        view._type_param_views = {}
+        views[key] = view
+    return view
 
 
 def generic_union_fill_order(
