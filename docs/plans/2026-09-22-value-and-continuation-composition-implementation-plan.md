@@ -33,7 +33,8 @@ imported conversational loops, answer/cancel recovery and the atomic-consumption
 interruption boundary. Normal target-2.32 admission passes all four public CLI
 scenarios without test overrides. Implementation verification is complete;
 real-caller adoption and qualitative utility evaluation remain follow-on work
-as distinguished below.
+as distinguished below; on 2026-09-28 that evaluation was folded into
+[CF-1c](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected).
 This development work does not launch or fund the separate research study.
 
 Execution location: `.worktrees/value-continuation-composition`, based on

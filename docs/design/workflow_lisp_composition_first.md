@@ -7,12 +7,16 @@
 - **Implementation target:** unassigned; the parametric type system owner selects
   the generic-union target boundary
 - **Roadmap:** [CF-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected),
-  pending and unselected; it owns ordering, entry conditions, and consequences.
+  which owns selection, ordering, entry conditions, and consequences.
   EL-1 stays independently owned by
   [its own section](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected).
-- **Inspected baseline:** `31580550` (main, 2026-09-28). Every file cited below
-  is unchanged since `2574fa2`. The README compile command was run at this
-  baseline and exits 0.
+- **Evidence:** original repository inspection at `31580550`; the
+  [design review](../reports/2026-09-28-workflow-lisp-composition-first-review.md)
+  records baseline checks, corrections and their limits. The
+  [exhaustion projection check](../reports/2026-09-28-cf1a-exhaustion-projection-check.md)
+  separates generic record expressibility from runtime state-selection correctness.
+  This proposal does not treat existing-example compilation as proof of the new
+  generic-union surface.
 - **Supersedes as inputs:** the 2026-09-24 value-oriented procedures draft, the
   2026-09-24 procedure composition and authoring simplification draft, the
   2026-09-28 composition-first draft, and the value-preserving review protocol
@@ -30,13 +34,16 @@ takes meaningful inputs and compile-time procedure references, and returns the
 value it computed together with the domain outcome the caller branches on.
 Review/revise is the first worked example, not the organizing abstraction.
 
-Three deliverables, in dependency order:
+The language/library contract has two parts:
 
 1. First-order generic unions: compile-time only, instantiated to ordinary
    concrete descriptors before typecheck and lowering.
 2. A value-returning `improve` helper in a new library module whose result is
    the flat generic union `Improvement[S F B]`.
-3. Inference-default effects through the existing EL-1 design, independently.
+
+Inference-default effects remain independently owned by EL-1, not a third
+prerequisite. The initial provider route uses concrete prompt result types and
+domain adapters; direct generic `defprompt` results are a separate extension.
 
 Selected over the alternatives: a flat union rather than a record wrapper around
 the legacy concrete result; the existing bounded-loop semantics rather than a
@@ -48,9 +55,10 @@ explanation surfaces, or executor extraction in the first release.
 | Observation | Locator | Consequence |
 | --- | --- | --- |
 | `review-revise-loop-proc` takes an unused `ctx`, seeded `initial_review_report` and `initial_findings`, fixes inside the `REVISE` branch before `continue`, and its `:on-exhausted` projection returns the previous iteration's review beside the already-fixed candidate. The result carries no candidate. | `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc` | This is the defect. It is a value-return and evidence-pairing problem, not a budget problem. |
-| Two example callers restate the three-variant result union and re-wrap every arm; a third matches and re-wraps two arms. | `workflows/examples/review_revise_design_docs.orc`, `review_revise_parametric_design_docs.orc`, `kiss_backlog_item.orc` | The type-system owner's recorded revisit trigger for generic type definitions is "a second migration-destined form whose callers must each restate a stdlib-shaped union of three or more variants." Drain callers were the first; review callers are arguably the second, at HEAD, before any new feature. |
-| Genericity is `defproc`-only. `ProcRef` signatures are "the primary binding source for type parameters that do not appear in first-order parameter positions"; matching is invariant; specialization identity already includes concrete type argument identities. | `docs/design/workflow_lisp_parametric_type_system.md`, Core Model, Deferred Extensions, Specialization Pipeline, Interaction With Macros and ProcRef | Binding `F` and `B` through hook return positions needs no new inference rule, only type application in type positions. |
-| At target 2.29+, initial state, `continue`, `done`, explicit exhaustion, and committed resume preserve whole record/union values; `:on-exhausted` projects state roots and fields with no exhaustion-time evaluator. Without `:on-exhausted`, exhaustion is a failed loop. Top-level `Optional` loop state is not admitted. | `docs/design/workflow_lisp_frontend_specification.md` §13.1; `specs/dsl.md` loop/recur and `repeat_until.on_exhausted` | `EXHAUSTED (value state.current)` is inside the supported projection. A seedless "last feedback" field would need `Optional` loop state, which is not available; that is why exhaustion carries no feedback. |
+| The maintained document-review caller restates the three-variant result and re-wraps each arm; `kiss_backlog_item` also projects review outcomes. The parametric-document example retains an older provider/prompt macro interface, with a source-shape test rather than compile evidence. | `workflows/examples/review_revise_design_docs.orc`, `kiss_backlog_item.orc`, `review_revise_parametric_design_docs.orc`; `tests/test_workflow_lisp_examples.py` | The maintained callers motivate the generic-union extension. The historical parametric example is not a hook-preserving migration demonstration; converting it would be separate work. |
+| Genericity is `defproc`-only. `ProcRef` signatures bind type parameters, with invariant matching. Existing inference does not decompose arbitrary nominal type applications; union compatibility can compare short names and shapes. | `docs/design/workflow_lisp_parametric_type_system.md`; `procedure_typecheck.py::_infer_parametric_type_bindings`; `type_env.py::type_refs_compatible` | Generic unions require constructor-aware recursive argument binding and identity preservation, not just parser syntax. The type-system owner defines that extension. |
+| At target 2.29+, the contract covers transportable structured values through initial state, `continue`, `done`, exhaustion, and committed resume. Exhaustion projects state roots/fields without an evaluator. Top-level `Optional` state is not admitted. | `docs/design/workflow_lisp_frontend_specification.md` §13.1; `specs/dsl.md` loop/recur and `repeat_until.on_exhausted` | Projection expressibility does not prove selection of the final committed state; §9 requires both. Omitting feedback from exhaustion is a domain-neutral contract choice, not proof that typed absence/history is impossible. |
+| An imported generic loop uses `(selector ctx)` with `ctx` outside its loop state. | `tests/fixtures/workflow_lisp/modules/valid/generic_loop_union_cross_module/generic_loop_union_cross_module/helper.orc`; `test_cross_module_generic_loop_projects_caller_union_fields` | Fixed inputs can remain lexical bindings. Verify their preservation through the helper's own specialization and resume path rather than declaring capture unavailable. |
 | The findings validator checks the schema string, a safe relative path, and the presence of an `items` key. | `orchestrator/workflow_lisp/adapters/validate_review_findings_v1.py` | The legacy carrier is intentionally minimal. It is preserved, not tightened. |
 | The README compile command succeeds and the example is already exercised by `tests/test_workflow_lisp_examples.py` and nine other modules. | `README.md` First Compile Check | No new CI gate is needed. The `(call build-review-runtime-owned)` shape is the runtime-bootstrapped `RunCtx` contract, not a defect. |
 | EL-1 distinguishes omitted from explicit-empty clauses; the audit shows specialized forwarding helpers acquire effects under empty clauses. | `docs/design/workflow_lisp_effect_ledger_simplification.md`; `docs/reports/2026-09-08-workflow-lisp-effect-tracking-audit.md` | Adopt EL-1 as written. Migration must be definition-origin aware. |
@@ -75,36 +83,45 @@ explanation surfaces, or executor extraction in the first release.
    (review ProcRef[(S I) -> Decision[F B]])
    (revise ProcRef[(S I F) -> S])
    (limit Int))
-  :where ((S is-record) (I is-record))
+  :where ((S is-record))
   -> Improvement[S F B])
 ```
 
 `S` is the subject, `I` the fixed inputs, `F` the domain's assessment or
 feedback type, `B` the domain's blocker type. `S` and `I` bind from the
 first-order parameters; `F` and `B` bind from the hook signatures.
+The first delivery keeps `S is-record` as an explicit scope limit: `S` is
+carried through loop state and projected by `:on-exhausted`, whose generic-record
+path requires its own proof. This is not a claim that non-record subjects are
+conceptually invalid or that the underlying loop cannot project them. Widening
+`S` requires a named use and boundary evidence. `I` has no record constraint:
+it is a fixed lexical input, not loop state. Each specialization must satisfy
+the existing transport, projection and result contracts where used; no new
+constraint vocabulary is introduced.
 
 What each variant promises:
 
 - **APPROVED.** The selected `review` procedure approved `value` under the
   domain's policy, and `evidence` is the assessment that approved it. Ordinary
-  local dataflow establishes that pairing for an immutable record. Approval is
+  local dataflow establishes that pairing for an immutable value. Approval is
   not proof of substantive correctness.
 - **BLOCKED.** `value` is the candidate the reviewer refused to assess further.
   It is available for intervention. It is not approved.
 - **EXHAUSTED.** `value` is the latest valid candidate the loop produced. It may
-  be an unreviewed final revision. The variant carries nothing that could be
-  mistaken for an assessment of it.
+  be an unreviewed final revision. There is no generic assessment field. Any
+  domain history inside `value` must distinguish previous-review feedback from
+  assessment of the returned candidate, as in §8.
 
 Why a flat union rather than `{candidate, outcome}`: no cross-field status
 relationship, no seed state, no `Optional` loop state, no candidate/evidence
-mismatch on exhaustion, and no generic records. It also matches the shape the
-type-system owner's trigger describes.
+mismatch on exhaustion, and no generic records.
 
-**Accepted tradeoff.** Both document examples today consume
-`last_review_report` and `findings` in their `EXHAUSTED` arm. Under this
-contract a domain that needs the feedback that produced the final revision
-folds it into `S` in its `revise` hook, for example a `last_review_report`
-field on the document subject record. The loop does not change for it.
+**Accepted tradeoff.** The maintained callers consume previous-review metadata
+on exhaustion. A caller that retains this public result must carry that metadata
+explicitly in its domain subject, with typed absence before the first revision;
+§8 specifies the adapter contract. It is feedback used to produce a revision,
+not an assessment of that revised value. The generic helper owns no history and
+does not fabricate a report to satisfy a legacy return type.
 
 **Fixer-side blockage** is an extension point. A sibling helper whose `revise`
 returns a value-carrying union can be added when a maintained caller needs it.
@@ -114,17 +131,17 @@ never a partially modified one carrying the old assessment.
 ## 4. Loop and termination
 
 ```text
-state = {current: initial, inputs: inputs}
+state = {current: initial}
 
 (loop/recur :max limit
   :state state
-  :on-exhausted (variant Improvement EXHAUSTED :value state.current)
+  :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
   (fn (state)
-    (match (review state.current state.inputs)
-      ((APPROVE a) (done (variant Improvement APPROVED :value state.current :evidence a.evidence)))
-      ((BLOCKED b) (done (variant Improvement BLOCKED  :value state.current :reason b.reason)))
+    (match (review state.current inputs)
+      ((APPROVE a) (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
+      ((BLOCKED b) (done (variant Improvement[S F B] BLOCKED  :value state.current :reason b.reason)))
       ((REVISE r)  (continue (loop-state :like state
-                               :current (revise state.current state.inputs r.feedback)))))))
+                               :current (revise state.current inputs r.feedback)))))))
 ```
 
 - One iteration reviews the current candidate and, when asked, revises it. The
@@ -133,8 +150,10 @@ state = {current: initial, inputs: inputs}
 - `limit` keeps the existing `:max` semantics, including zero handling. No
   positive-limit precondition is added: the frontend has no such contract and
   this change does not justify one.
-- `inputs` stays in loop state because loop bodies do not close over outer
-  bindings. That is carriage, not policy state.
+- `inputs` remains a fixed lexical binding. The compiler owns any internal
+  capture needed by lowering/resume; it is not authored mutable policy state.
+  A limitation in the specialized capture path belongs to that compiler owner,
+  not to a new helper-specific state protocol.
 - Cancellation, malformed hook output, timeouts, and provider failures remain
   runtime outcomes under the existing recovery contract. None becomes a
   fabricated `EXHAUSTED`.
@@ -143,15 +162,22 @@ state = {current: initial, inputs: inputs}
 
 ## 5. Boundaries
 
-**Typed feedback.** `F` is domain-owned. Validate provider output at the
-provider result boundary, once, and forward the typed value. A caller whose
-review hook is a `defprompt` declares its result as the instantiated
-`Decision[MyFeedback MyBlocker]` once instantiation precedes prompt-contract
-generation. Until the prompt-contract owner admits that, a caller-side pure
-adapter converts a concrete decision type into the instantiated union. The
-legacy `ReviewFindings.v1` carrier and validator stay as they are.
+**Typed feedback.** `F` is domain-owned. The selected hook is a `defproc`, not
+a `defprompt` reference. In the initial contract its provider call retains an
+existing concrete result declaration; an ordinary procedure converts that
+result into `Decision[MyFeedback MyBlocker]`. The value conversion can be pure,
+but the enclosing adapter is effectful when it calls a provider or validates
+external artifacts. Direct instantiated-union declarations on `defprompt` are
+outside this slice, not an alternative mandatory completion gate.
 
-**Documents.** `is-record` cannot express immutability, so a path-bearing `S`
+Provider result validation does not establish arbitrary properties of referenced
+files. Legacy `ReviewFindings.v1` adapters retain the existing validator's exact
+schema-string and JSON-envelope checks before publishing findings and before
+the fixer consumes them after resume. The schema is neither tightened nor
+silently weakened. `improve` knows nothing about that file format; adapter
+effects remain visible in its specialized transitive summary.
+
+**Documents.** A value's record shape does not express immutability. A path-bearing `S`
 is admitted with exactly the semantics the examples have today: approval refers
 to the reviewed read of that path. Snapshot or version references are adapter
 work owned by a named caller and the artifact allocator, not by the loop, and
@@ -164,26 +190,26 @@ identity or resume checks only through it.
 
 ## 6. Language delta: generic unions
 
-- `defunion` accepts `:forall`. Type application is admitted in type positions,
-  including `ProcRef` parameter and return positions and `defprompt` results.
-- Instantiate through the existing pipeline: resolve call-site types, check
-  constraints, instantiate, typecheck, lower. Constructor identity is the
-  defining module and declaration plus canonical concrete argument identities.
-  Imported aliases do not create new constructors; equal short names in
-  different modules stay distinct.
-- Reject wrong arity, unresolved parameters, unsupported payload shapes at the
-  boundaries where they are used, and instantiation cycles. Argument matching
-  is invariant, consistent with `ProcRef` matching.
+The [parametric type-system design](workflow_lisp_parametric_type_system.md)
+owns generic-union application, recursive argument binding, constructor
+identity, diagnostics, and the existing specialization pipeline. This document
+consumes that proposed extension; it does not define a second type system.
+
+- `defunion` accepts `:forall`, with applications in ordinary value/procedure
+  type positions, constructors and `ProcRef` signatures. The initial prompt
+  route remains the concrete-result adapter described in §5.
+- Concrete descriptors must reach ordinary typechecking/lowering without
+  unresolved parameters or runtime type values. Binding `F` and `B` inside a
+  hook's `Decision[F B]` requires the constructor-aware rule in the type owner.
 - Demonstrate an unrelated `Outcome[T E]` union so the mechanism is not keyed
   to review names. No `Decision`, `Improvement`, or `Outcome` name exists in
   the stdlib or `workflows/` today. Do not reuse `Selection`; `std/drain`
   owns that vocabulary.
 - Generic records are not required by this design. Add them only for a named
   caller, through the same owner.
-- Owner action: amend the Deferred Extensions entry. The recorded trigger is
-  arguably met by the review callers listed in §2; the owner decides. No
-  return-only inference, explicit type application at call sites, generic
-  workflows, or trait aliases are requested.
+- No return-only inference, explicit type application at procedure call sites,
+  generic workflows, or trait aliases are requested. The roadmap owns adoption
+  and target selection; describing the extension does not enable its syntax.
 
 ## 7. Effects
 
@@ -192,42 +218,75 @@ effects after hook resolution; explicit nonempty requires a subset with
 provider and command identities preserved. Migrate forwarding helpers to
 omission on the new regime, definition-origin aware.
 
-Before EL-1 lands, `improve` declares no command effect, because it runs no
-validator command, and relies on the current regime's forwarding through
-specialized hooks. Record that summary in its specialization evidence; EL-1
-later replaces it with omission. Neither change waits for the other.
+Before EL-1 lands, `improve` has no direct validator command and uses the current
+generic-hook forwarding regime. Its inferred transitive summary must nevertheless
+include all provider/command effects of the selected domain adapters, including
+findings validation. Preserve definition-origin rules when EL-1 later migrates
+forwarding declarations to omission. Neither change waits for the other.
 
 ## 8. Migration
 
 - New module, provisionally `std/improve`, exporting `Decision`, `Improvement`,
-  and `improve`. `std/phase` is retained unchanged; its semantics, including
-  the terminal-evidence mismatch, are documented as legacy.
+  and `improve`. `std/phase` remains available; its review/revise helper's
+  terminal-evidence mismatch is legacy behavior, not a designation of every
+  export in that module.
 - New declarations change bundled-module digests and require a target bump.
   No checkpoint compatibility is claimed between the two APIs.
-- The two document examples migrate with a concrete adapter procedure per
-  caller that converts their existing `ReviewDecision` into
-  `Decision[ReviewEvidence BlockerClass]`, hooks untouched. That is also the
-  first substitution demonstration.
-- Delete `std/phase` and its macro only after the eight repository callers
-  are migrated. That deletion is a later decision, not part of this design.
+- The maintained migration consumers are `review_revise_design_docs.orc` and
+  `kiss_backlog_item.orc`. Their existing provider procedures can stay intact,
+  but both review and revision require caller-owned adapters. The historical
+  `review_revise_parametric_design_docs.orc` is not counted as an unchanged-hook
+  consumer; conversion of its old macro interface is separate work.
+- Domain `ReviewEvidence` contains the existing review report and findings.
+  Domain `ReviewBlocker` contains the report, findings and `BlockerClass`;
+  `BlockerClass` alone cannot preserve the existing blocked result.
+- The review adapter calls the existing reviewer on the underlying subject,
+  validates findings under §5, and converts to
+  `Decision[ReviewEvidence ReviewBlocker]`. The revision adapter accepts
+  `ReviewEvidence`, validates findings at the required consumption boundary,
+  and calls the existing fixer with `.findings`, not the entire evidence record.
+- To retain exhaustion metadata, the caller's subject pairs its original value
+  with a concrete domain union: `UNREVIEWED` initially, or
+  `REVISED_FROM(evidence ReviewEvidence)` after a successful fix. No fake path,
+  initial report or generic-library seed is introduced. The adapter stores the
+  evidence used by that fix, explicitly not a review of its returned value.
+  Initial/revised wrapping and unwrapping belong to the caller adapters.
+- The selected callers have positive fixed limits. Their approved/blocked and
+  exhausted result projections preserve the existing public fields using actual
+  evidence. Preserve the existing zero-limit runtime outcome when checking the
+  general helper; never manufacture a report-bearing legacy result from
+  `UNREVIEWED`. Any caller that exposes an absence case must represent it in its
+  declared result, or explicitly change its caller contract before migration.
+- Retirement is per declaration: remove `review-revise-loop` and
+  `review-revise-loop-proc` only after their maintained consumers migrate.
+  Inventory supporting review types separately. Keep `with-phase`,
+  `phase-scope`, path types and other independently used exports. An importer
+  count is not evidence that the entire `std/phase` module can be deleted.
 
-## 9. Feasibility prerequisites
+## 9. Feasibility and integration evidence
 
-The design depends on four capabilities that no current specification or
-fixture demonstrates. Each needs a minimal executable proof, or a recorded
-design gap, before an implementation plan is accepted. None is settled by this
-document.
+Distinguish evidence about the existing substrate from acceptance of newly
+implemented capabilities. A plan must resolve material contract/ownership
+choices and explicitly include any necessary substrate correction; it need not
+implement generic unions before it is allowed to plan them. An unproven claim
+is recorded as a gap, not silently treated as working or made into an informal
+pre-plan implementation obligation. The roadmap owns investigation order.
 
-| Prerequisite | Why it is unproven | Proof required |
+| Capability | Design boundary | Required evidence |
 | --- | --- | --- |
-| Generic unions (`defunion :forall`, type application in type positions) | The parametric type system defers generic type definitions; only `defproc` genericity exists. | The type-system owner amends the Deferred Extensions entry, then a fixture instantiates a union through an imported generic procedure, a `ProcRef` return position, loop state, a terminal result, and downstream consumption. |
-| `:on-exhausted` projecting a type-parameter-typed record state field | The 2.29+ rules admit record fields of transportable state, but every in-repo generic loop fixture (`generic_loop_union_*`, `std/phase`, `std/drain`) projects only scalar or concrete fields. | A generic `defproc` with `:where ((S is-record))` whose `:on-exhausted` returns `state.current` of type `S`, exercised through instantiation, run, and committed-boundary resume. If unsupported, correct the loop/exhaustion owner; do not reintroduce seeds or counters. |
-| `defprompt` results as instantiated generic unions | Prompt contracts are generated from concrete descriptors; ordering against instantiation is unspecified. | Either a provider hook declares `Decision[MyFeedback MyBlocker]` and its contract validates, or the caller-side pure adapter route is recorded as the supported path for the first slice. |
-| No compiler branch keyed to review names | A negative architecture claim. | An unrelated `Outcome[T E]` union passes the same boundaries with no consumer-specific code. |
+| Generic unions | New type-system capability, not a prerequisite implementation. | Implementation acceptance must cover imported generic procedures, argument binding through `ProcRef`, alias/homonym identity, loop state, terminal results and downstream consumption, plus the type owner's diagnostics and unused-argument identity cases. |
+| Generic exhaustion and lexical inputs | Projection expressibility and selection of the final committed state are separate obligations; neither alone proves the combined specialized/resume path. `S is-record` bounds the first delivery, not the proof. | Probe available substrate without requiring generic-union syntax. Record owner-level gaps in the plan; the final helper must project the latest `state.current` of specialized record type `S`, including after the final `continue` with two or more iterations, and preserve fixed `inputs` on run/resume. Include a supported non-record `I`, with unsupported shapes rejected at their actual boundary. Exercise the generic exhaustion path after committed-boundary resume as well as on a fresh run. |
+| Concrete prompt results and domain adapters | The initial provider route uses existing result declarations; generic prompt-result declarations are outside scope. | Show value conversion plus required artifact validation, compatible hooks, preserved public report fields and consumption-time validation after resume. Direct generic prompt results require separate extension evidence, not closure of this slice. |
+| No compiler branch keyed to review names | A mechanism-level requirement, verified on the implementation. | An unrelated `Outcome[T E]` union passes the same boundaries with no consumer-specific code. |
 
 Removing `ctx` from the helper is not a capability question but still needs a
 check: confirm that no resource dependency reaches identity or resume
 validation only through that parameter.
+
+Deterministic hooks must exercise a supported executable route. The roadmap
+and linked exhaustion check record frontend limitations and the corresponding
+command/provider-backed test route; a test-helper limitation does not itself
+become a new prerequisite for the library abstraction.
 
 ## 10. Evidence requirements
 
@@ -241,9 +300,11 @@ exercised.
   returned value. Exhaustion after a changed final candidate carries that
   candidate and nothing that could be read as its assessment. Reviewer
   blockage returns the candidate that was refused.
-- **Malformed feedback.** A hook result that fails its declared type is a
-  contract failure at the provider or adapter boundary; no result variant is
-  published.
+- **Malformed feedback.** A hook result that fails its declared type, or legacy
+  findings that fail the required schema/envelope checks, is a contract failure
+  at the provider or domain-adapter boundary. No `Decision` reaches the helper
+  from that invalid result. Restored file-backed findings meet the same
+  consumption rules.
 - **Inline and imported agreement.** The same hooks and supplied operation
   results produce the same semantic outcome and ordered logical hook
   operations whether the helper is inline or imported, on fresh runs.
@@ -254,9 +315,11 @@ exercised.
 - **Substitution.** Replacing the selected review procedure with a sequential
   two-review-plus-adjudication procedure changes only the selected hook and
   its implementation.
-- **Migration.** The two document examples migrate through caller-side
-  adapter procedures with their hooks unchanged, and the README compile
-  command keeps passing through the existing example test.
+- **Migration.** The two maintained consumers named in §8 use explicit review
+  and revision adapters, preserve required public metadata and domain validation,
+  and distinguish revision feedback from approval evidence. Their provider
+  procedure bodies need not change. The README compile command keeps passing;
+  the historical parametric source-shape test is not migration evidence.
 - **Realistic change.** Adding a typed proposal field consumed downstream is
   recorded as the edited files and any leaked execution plumbing. This is a
   qualitative record, not a productivity score, and needs no new harness.

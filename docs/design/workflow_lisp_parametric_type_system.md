@@ -126,8 +126,8 @@ Semantic contract:
 - type parameters are compile-time-only names, resolved before executable IR;
 - each concrete instantiation is monomorphic;
 - type parameters may appear in parameter types, return types, `ProcRef`
-  signatures, record/union constructors, local annotations, and constraint
-  field types;
+  signatures, record/union value constructors, local annotations, and
+  constraint field types;
 - unresolved type parameters are illegal in Core AST, Semantic IR, Executable
   IR, runtime state, artifact contracts, output bundles, and provider/command
   payloads.
@@ -135,10 +135,13 @@ Semantic contract:
 Type-argument binding rules:
 
 - **Binding sources.** Type arguments are inferred from concrete call-site
-  parameter types, including the signatures of `ProcRef` arguments.
+  parameter types, including both parameter and result positions in the full
+  signatures of `ProcRef` arguments.
   Constraints do not drive inference; they are checked after all type
-  parameters are bound (see Constraint Vocabulary, rule 3). There is no
-  explicit type-application syntax (see Deferred Extensions).
+  parameters are bound (see Constraint Vocabulary, rule 3). Generic `defproc`
+  calls have no explicit procedure type-argument syntax (see Deferred
+  Extensions); this does not rule on type applications for the proposed generic
+  union declarations below.
 - **Exact agreement.** When a type parameter binds from more than one
   position, every occurrence must resolve to the same semantic type
   (refinements included); a conflict is a compile-time error
@@ -151,14 +154,16 @@ Type-argument binding rules:
   is compiled — not an inference failure surfaced at some caller's first
   use. (Implemented as `procedure_type_param_unbindable` during definition
   typechecking.) A consequence: return-only type parameters are inexpressible
-  by construction; see Deferred
-  Extensions (explicit type application).
+  by construction; see Deferred Extensions (explicit type application at
+  generic `defproc` call sites).
 
 ## Caller Surface
 
-Callers never write type arguments: inference binds every parameter from the
-concrete types of ordinary arguments and hook signatures, so the call site
-stays keyword-labeled and self-describing. This document is the primary
+Callers to generic `defproc`s never write procedure type arguments: inference
+binds every parameter from the concrete types of ordinary arguments and hook
+signatures, so the call site stays keyword-labeled and self-describing. This
+does not restrict generic-union applications in type positions or constructors
+as proposed below. This document is the primary
 interface for autonomous caller-authors, who work by imitating worked
 examples; the canonical minimal consumer is
 `tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc` (98
@@ -278,23 +283,23 @@ not survive as Python-side validation for any migrated form.
 
 - **Generic type definitions** (parameterized records/unions, e.g. a
   stdlib-owned `Selection[SelPayloadT GapPayloadT]` type constructor):
-  rejected for the current tranches. Genericity is `defproc`-only; no
-  type-constructor machinery exists (`type_env.py` scopes type parameters to
-  procedure signatures only). Rationale: structural constraints let
-  pre-existing caller-owned types satisfy a generic retroactively, while
-  type constructors would force callers onto stdlib-owned nominal types and
-  add real type-constructor machinery. Cost accepted knowingly: each drain
-  caller restates its selection union structurally, and variant names
-  (`EMPTY`/`SELECTED`/`GAP`/`BLOCKED`) are by-name stdlib contract
-  vocabulary with no renaming or mapping. Trigger for revisiting: a second
-  migration-destined form whose callers must each restate a stdlib-shaped
-  union of three or more variants.
-- **Explicit type application** (and return-type-driven inference): no
-  escape hatch exists for binding a type parameter that inference cannot
-  reach; return-only type parameters are inexpressible by construction
-  (Core Model, definition-site coverage). Trigger: the first generic
-  definition whose natural signature carries a type parameter appearing
-  only in return position.
+  The accepted tranche remains generic `defproc :forall`; generic record
+  definitions remain deferred. A first-order generic-union extension is
+  proposed for CF-1 and specified below; it is not part of the current
+  normative syntax. Structural constraints still let existing caller-owned
+  records and unions satisfy generic procedures without adopting library-owned
+  nominal types. CF-1 addresses repeated result-union declarations without
+  adding generic records or a general type-constructor surface. Revisit generic
+  records when a maintained caller requires them; the roadmap owns CF-1
+  selection and schedule.
+- **Explicit type application at generic `defproc` call sites** (and
+  return-type-driven inference): no escape hatch exists for binding a procedure
+  type parameter that inference cannot reach; return-only type parameters are
+  inexpressible by construction (Core Model, definition-site coverage). This
+  remains distinct from the proposed application of a generic union in a type
+  position or constructor expression below. Revisit explicit procedure type
+  arguments when a maintained generic procedure needs a type parameter that
+  cannot be bound from its value and `ProcRef` arguments.
 - **Trait aliases** (`deftrait` bundling constraint sets): deferred until at
   least three generic definitions share a substantially identical constraint
   block. Trait aliases must expand to the owned forms above, not introduce a
@@ -311,6 +316,71 @@ not survive as Python-side validation for any migrated form.
 - **`has-shared-union-field` against `:forall`-typed fields**: the
   multi-variant shared-field resolution path is untested against
   type-parameter-named field types.
+
+### Proposed CF-1 First-Order Generic Unions
+
+This is the type-system delta proposed for
+[Composition-First Procedures](workflow_lisp_composition_first.md); the
+[CF-1 roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
+owns its schedule and status. It does not change current normative or runtime
+syntax. The domain meaning and result variants remain owned by the composition
+design.
+
+```lisp
+(defunion Outcome :forall (T E)
+  (OK (value T))
+  (ERROR (error E)))
+```
+
+- **First-order surface.** `defunion :forall` declares compile-time type
+  parameters, which may occur in variant field types. Applied generic unions
+  may appear in ordinary procedure parameter/return signatures, value type
+  positions, constructor expressions, and nested `ProcRef` signatures. Type
+  parameters range over types; higher-kinded parameters and generic records are
+  outside this proposal.
+- **Constructor identity.** An applied union is identified by its defining
+  module and declaration plus the ordered canonical identities of its concrete
+  arguments. An imported alias resolves to that same declaration identity; two
+  declarations with the same short name in different modules are distinct.
+  Do not implement this by globally tightening legacy type equality. Carry the
+  applied-type representation into existing compatibility checks.
+- **Invariant binding.** When matching an open application such as
+  `Outcome[T E]` against a concrete type in either a `ProcRef` parameter or
+  result signature, first require the same resolved constructor identity and
+  arity, then recursively bind each argument position (`T` to the first
+  argument, `E` to the second). Repeated occurrences of a parameter must
+  resolve to the same semantic type; reject constructor mismatch, conflicting
+  bindings, and any parameter still unresolved after argument-signature
+  matching. A containing generic `defproc`'s expected/return type and
+  constraints do not infer bindings, and generic `defproc` call sites gain no
+  explicit type application.
+- **Phantom parameters.** A union parameter need not occur in a variant payload.
+  Its explicitly supplied type argument remains part of constructor identity,
+  even when payload shapes are identical; payload shape cannot infer it.
+- **Constructors and compilation.** A constructor expression names an applied
+  concrete or specialization-resolvable union type. Do not infer its union type
+  bidirectionally from the surrounding expression. Applications remain
+  compiler-only until every argument is resolved; instantiate concrete
+  descriptors through the existing specialization pipeline, with no runtime
+  type/procedure references or parallel specialization mechanism. Generic
+  declaration and type-use checks retain unresolved parameters as placeholders
+  until specialization, then validate the concrete monomorphic body and
+  descriptors before lowering.
+- **Boundaries and diagnostics.** Initially, `defprompt` result declarations
+  remain restricted to currently supported concrete declarations; an ordinary
+  adapter converts the provider result to an instantiated generic union. Direct
+  generic `defprompt` results require a separately selected extension through
+  this same type-system owner. Reject wrong arity, recursive instantiation
+  cycles, and actual payload shapes unsupported at existing transport or
+  descriptor boundaries. Diagnostics identify both the caller use and generic
+  declaration, retaining their source-map locations.
+- **Minimum acceptance cases.** An unrelated `Outcome[T E]` union uses the same
+  compiler path; an imported alias matches its origin while a same-short-name
+  declaration from another module does not; nested applications in `ProcRef`
+  parameter and result signatures bind arguments and reject conflicting repeat
+  bindings; phantom arguments preserve distinct applied identities; arity,
+  cycle, mismatch, unresolved-argument, and boundary errors point to the caller
+  and definition.
 
 ## Specialization Pipeline
 
