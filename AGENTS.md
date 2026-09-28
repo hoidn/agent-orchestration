@@ -38,18 +38,14 @@ Development rules:
 
 ## Subagent policy
 
-You are the primary coordinator and final integrator.
+You are the primary coordinator and final integrator. Use subagent driven development when appropriate. If you are codex, use the following models for the respective subagent roles:
+- Implementation: luna 6 xhigh
+- Review: Sol 6 high
+- Design: Astra 6 xhigh
+- planning: Astra 6 high
 
 For nontrivial tasks:
 
-- Use `scout` when substantial codebase discovery is needed.
-- Do the overall reasoning, planning, and integration yourself.
-- Delegate bounded implementation work to `implementer`.
-- Use `reviewer` after meaningful code changes or before committing to a
-  consequential design.
-- Evaluate subagent output independently; it is advice, not ground truth.
-- Run only one write-capable implementer at a time unless tasks modify
-  demonstrably disjoint files.
 - Scouts and reviewers may run in parallel because they are read-only.
 - Do not delegate trivial changes when delegation would add more overhead
   than value.
