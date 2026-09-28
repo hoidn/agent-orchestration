@@ -19,30 +19,23 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compi
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
-
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
-
-DECISION_LIB = HEADER + """  (defmodule grt/lib)
-  (export Decision Box keep-first)
-  (defunion Decision :forall (F B)
-    (APPROVE (evidence F))
-    (BLOCKED (reason B)))
-  (defrecord Box (n Int))
-  (defproc keep-first
-    :forall (F B)
-    ((decision Decision[F B]) (fallback F))
-    -> Box
-    :effects ()
-    (record Box :n 1)))
-"""
-
-TRIVIAL_ENTRY = HEADER + """  (defmodule grt/entry)
-  (import grt/lib :only (Decision))
-  (export run)
-  (defrecord Out (n Int))
-  (defworkflow run () -> Out
-    (record Out :n 1)))
-"""
+from tests.workflow_lisp_generic_union_runtime_sources import (
+    HEADER,
+    DECISION_LIB,
+    TRIVIAL_ENTRY,
+    CALLING_ENTRY,
+    OUTCOME_PROBE,
+    OUTCOME_LIB,
+    LOOP_ENTRY,
+    REVIEW_PROBE,
+    REVISE_PROBE,
+    IMPROVE_LIB,
+    IMPROVE_ENTRY,
+    RAW_REVIEW_PROBE,
+    ADAPTER_REVIEW,
+    CLASSIFY_LIB,
+    TWO_INSTANCES_ENTRY,
+)
 
 
 def _write_sources(root: Path, sources: dict[str, str]) -> Path:
@@ -79,82 +72,12 @@ def test_uncalled_generic_with_applied_union_parameter_compiles(tmp_path: Path) 
     assert "grt/entry::run" in result.validated_bundles_by_name
 
 
-CALLING_ENTRY = HEADER + """  (defmodule grt/entry)
-  (import grt/lib :only (Decision Box keep-first))
-  (export run)
-  (defrecord Note (text String))
-  (defworkflow run () -> Box
-    (keep-first (variant Decision[Note Note] APPROVE :evidence (record Note :text "a"))
-                (record Note :text "b"))))
-"""
-
-
 def test_generic_with_applied_union_parameter_lowers_after_specialization(tmp_path: Path) -> None:
     _write_sources(tmp_path, {"grt/lib.orc": DECISION_LIB, "grt/entry.orc": CALLING_ENTRY})
 
     result = _compile(tmp_path)
 
     assert "grt/entry::run" in result.validated_bundles_by_name
-
-
-OUTCOME_PROBE = """import json, os, sys
-from pathlib import Path
-title = sys.argv[1]
-with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
-    log.write(title + "\\n")
-if title.startswith("revise"):
-    payload = {"variant": "OK", "value": {"title": title, "score": title.count("revise")}}
-else:
-    payload = {"variant": "ERROR", "error": "revise-" + title}
-bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
-if bundle:
-    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
-    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
-print(json.dumps(payload))
-"""
-
-OUTCOME_LIB = HEADER + """  (defmodule grt/lib)
-  (export Outcome attempt)
-  (defunion Outcome :forall (T E)
-    (OK (value T))
-    (ERROR (error E)))
-  (defproc attempt
-    :forall (S)
-    ((subject S)
-     (check ProcRef[(S) -> Outcome[S String]]))
-    :where ((S is-record))
-    -> Outcome[S String]
-    :effects ()
-    :lowering inline
-    (check subject)))
-"""
-
-CANDIDATE_CHECK = """  (defrecord Candidate (title String) (score Int))
-  (defproc check-candidate
-    ((candidate Candidate))
-    -> Outcome[Candidate String]
-    :effects ((uses-command probe_check))
-    :lowering inline
-    (command-result probe_check
-      :argv ("python" "PROBE_CHECK" candidate.title)
-      :returns Outcome[Candidate String]))
-"""
-
-LOOP_ENTRY = HEADER + """  (defmodule grt/entry)
-  (import grt/lib :only (Outcome attempt))
-  (export run)
-""" + CANDIDATE_CHECK + """  (defworkflow run ((limit Int)) -> Outcome[Candidate String]
-    (loop/recur :max limit
-      :state (loop-state (current Candidate (record Candidate :title "seed" :score 0)))
-      :on-exhausted (variant Outcome[Candidate String] ERROR :error "exhausted")
-      (fn (state)
-        (let* ((outcome (attempt state.current (proc-ref check-candidate))))
-          (match outcome
-            ((OK ok) (done outcome))
-            ((ERROR err)
-             (continue (loop-state :like state
-                         :current (record Candidate :title err.error :score (+ state.current.score 1)))))))))))
-"""
 
 
 def _write_probe(root: Path, name: str, text: str) -> Path:
@@ -210,104 +133,7 @@ def test_variant_payload_record_is_populated_from_a_bound_name(tmp_path: Path) -
     }
 
 
-REVIEW_PROBE = """import json, os, sys
-from pathlib import Path
-title = sys.argv[1]
-with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
-    log.write(title + "\\n")
-if title == "blocked":
-    payload = {"variant": "BLOCKED", "reason": {"why": "refused-" + title}}
-elif title.startswith("revised"):
-    payload = {"variant": "APPROVE", "evidence": {"note": "ok-" + title}}
-else:
-    payload = {"variant": "REVISE", "feedback": {"note": "revised-" + title}}
-bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
-if bundle:
-    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
-    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
-print(json.dumps(payload))
-"""
-
-REVISE_PROBE = OUTCOME_PROBE.split("if title.startswith")[0] + """payload = {"title": title, "score": title.count("revised")}
-bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
-if bundle:
-    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
-    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
-print(json.dumps(payload))
-"""
-
-IMPROVE_LIB = HEADER + """  (defmodule grt/lib)
-  (export Decision Improvement improve)
-  (defunion Decision :forall (F B)
-    (APPROVE (evidence F))
-    (REVISE (feedback F))
-    (BLOCKED (reason B)))
-  (defunion Improvement :forall (S F B)
-    (APPROVED (value S) (evidence F))
-    (BLOCKED (value S) (reason B))
-    (EXHAUSTED (value S)))
-  (defproc improve
-    :forall (S F B)
-    ((initial S)
-     (review ProcRef[(S) -> Decision[F B]])
-     (revise ProcRef[(S F) -> S])
-     (limit Int))
-    :where ((S is-record))
-    -> Improvement[S F B]
-    :effects ()
-    :lowering inline
-    (loop/recur :max limit
-      :state (loop-state (current S initial))
-      :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
-      (fn (state)
-        (let* ((decision (review state.current)))
-          (match decision
-            ((APPROVE a)
-             (done (variant Improvement[S F B] APPROVED :value state.current :evidence a.evidence)))
-            ((BLOCKED b)
-             (done (variant Improvement[S F B] BLOCKED :value state.current :reason b.reason)))
-            ((REVISE r)
-             (let* ((next (revise state.current r.feedback)))
-               (continue (loop-state :like state :current next))))))))))
-"""
-
-IMPROVE_ENTRY = HEADER + """  (defmodule grt/entry)
-  (import grt/lib :only (Decision Improvement improve))
-  (export run summarize)
-  (defrecord Candidate (title String) (score Int))
-  (defrecord Feedback (note String))
-  (defrecord Blocker (why String))
-  (defrecord Summary (title String) (status String) (note String))
-  (defproc review-candidate
-    ((candidate Candidate))
-    -> Decision[Feedback Blocker]
-    :effects ((uses-command probe_review))
-    :lowering inline
-    (command-result probe_review
-      :argv ("python" "PROBE_REVIEW" candidate.title)
-      :returns Decision[Feedback Blocker]))
-  (defproc revise-candidate
-    ((candidate Candidate) (feedback Feedback))
-    -> Candidate
-    :effects ((uses-command probe_revise))
-    :lowering inline
-    (command-result probe_revise
-      :argv ("python" "PROBE_REVISE" feedback.note)
-      :returns Candidate))
-  (defworkflow run () -> Improvement[Candidate Feedback Blocker]
-    (improve (record Candidate :title "SEED" :score 0)
-             (proc-ref review-candidate) (proc-ref revise-candidate) LIMIT))
-  (defworkflow summarize () -> Summary
-    (let* ((result (improve (record Candidate :title "SEED" :score 0)
-                            (proc-ref review-candidate) (proc-ref revise-candidate) LIMIT)))
-      (match result
-        ((APPROVED a) (record Summary :title a.value.title :status "approved" :note a.evidence.note))
-        ((BLOCKED b) (record Summary :title b.value.title :status "blocked" :note b.reason.why))
-        ((EXHAUSTED e) (record Summary :title e.value.title :status "exhausted" :note ""))))))
-"""
-
-
-def _compile_improve(root: Path, *, seed: str, limit: int):
+def _write_improve_project(root: Path, *, seed: str, limit: int) -> dict[str, Path]:
     probes = {
         "probe_review": _write_probe(root, "probe_review", REVIEW_PROBE),
         "probe_revise": _write_probe(root, "probe_revise", REVISE_PROBE),
@@ -319,7 +145,11 @@ def _compile_improve(root: Path, *, seed: str, limit: int):
         .replace("LIMIT", str(limit))
     )
     _write_sources(root, {"grt/lib.orc": IMPROVE_LIB, "grt/entry.orc": entry})
-    return _compile(root, probes=probes)
+    return probes
+
+
+def _compile_improve(root: Path, *, seed: str, limit: int):
+    return _compile(root, probes=_write_improve_project(root, seed=seed, limit=limit))
 
 
 @pytest.mark.parametrize(
@@ -407,31 +237,6 @@ def test_done_payload_of_the_exhausted_variant_is_not_replaced_by_state(tmp_path
     assert ref.endswith(".artifacts.result__message")
 
 
-RAW_REVIEW_PROBE = REVIEW_PROBE.replace(
-    '{"variant": "BLOCKED", "reason": {"why": "refused-" + title}}', '{"variant": "BLOCKED", "note": "refused-" + title}'
-).replace('{"variant": "APPROVE", "evidence": {"note": "ok-" + title}}', '{"variant": "APPROVE", "note": "ok-" + title}').replace(
-    '{"variant": "REVISE", "feedback": {"note": "revised-" + title}}', '{"variant": "REVISE", "note": "revised-" + title}'
-)
-
-ADAPTER_REVIEW = """  (defunion RawVerdict
-    (APPROVE (note String))
-    (REVISE (note String))
-    (BLOCKED (note String)))
-  (defproc review-candidate
-    ((candidate Candidate))
-    -> Decision[Feedback Blocker]
-    :effects ((uses-command probe_review))
-    :lowering inline
-    (let* ((raw (command-result probe_review
-                  :argv ("python" "PROBE_REVIEW" candidate.title)
-                  :returns RawVerdict)))
-      (match raw
-        ((APPROVE a) (variant Decision[Feedback Blocker] APPROVE :evidence (record Feedback :note a.note)))
-        ((REVISE r) (variant Decision[Feedback Blocker] REVISE :feedback (record Feedback :note r.note)))
-        ((BLOCKED b) (variant Decision[Feedback Blocker] BLOCKED :reason (record Blocker :why b.note))))))
-"""
-
-
 @pytest.mark.parametrize(
     ("seed", "expected"),
     [("seed", ("revised-seed", "approved", "ok-revised-seed")), ("blocked", ("blocked", "blocked", "refused-blocked"))],
@@ -460,3 +265,137 @@ def test_caller_adapter_converts_a_concrete_result_into_the_applied_union(
     outputs = _run(_compile(tmp_path, probes=probes), "grt/entry::summarize", tmp_path)
 
     assert (outputs["return__title"], outputs["return__status"], outputs["return__note"]) == expected
+
+
+class _PostCommitInterruption(BaseException):
+    pass
+
+
+def _public_run_files(root: Path, probes: dict[str, Path]) -> dict[str, Path]:
+    files = {
+        "source": root / "grt" / "entry.orc",
+        "source_root": root,
+        "providers": root / "providers.json",
+        "prompts": root / "prompts.json",
+        "commands": root / "commands.json",
+    }
+    files["providers"].write_text("{}", encoding="utf-8")
+    files["prompts"].write_text("{}", encoding="utf-8")
+    files["commands"].write_text(
+        json.dumps(
+            {
+                name: {"kind": "external_tool", "stable_command": ["python", path.as_posix()]}
+                for name, path in probes.items()
+            }
+        ),
+        encoding="utf-8",
+    )
+    return files
+
+
+def _public_run(files: dict[str, Path]):
+    from unittest.mock import patch
+    import sys
+
+    from orchestrator.cli.commands.run import run_workflow
+    from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+
+    args = _run_args(files)
+    args.command_boundaries_file = str(files["commands"])
+    argv = [*_run_argv(files), "--command-boundaries-file", str(files["commands"])]
+    with patch.object(sys, "argv", argv):
+        return run_workflow(args)
+
+
+def _log(probe: Path) -> list[str]:
+    log = probe.with_suffix(".log")
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+APPROVED_OUTPUTS = {
+    "return__variant": "APPROVED",
+    "return__value__title": "revised-seed",
+    "return__value__score": 1,
+    "return__evidence__note": "ok-revised-seed",
+}
+
+
+def test_public_run_returns_the_instantiated_union(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    probes = _write_improve_project(tmp_path, seed="seed", limit=3)
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(_public_run_files(tmp_path, probes))
+
+    assert result.exit_code == 0
+    assert dict(result.workflow_outputs) == APPROVED_OUTPUTS
+    assert (_log(probes["probe_review"]), _log(probes["probe_revise"])) == (["seed", "revised-seed"], ["revised-seed"])
+
+
+def test_resume_after_a_committed_iteration_keeps_state_without_replaying_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from orchestrator.cli.commands.resume import resume_workflow
+    from orchestrator.workflow.executor import WorkflowExecutor
+
+    probes = _write_improve_project(tmp_path, seed="seed", limit=3)
+    files = _public_run_files(tmp_path, probes)
+    original_hook = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_repeat_until_commit
+
+    def interrupt_after_first_commit(self, step, progress):
+        original_hook(self, step, progress)
+        if progress.get("last_condition_result") is False:
+            raise _PostCommitInterruption
+
+    monkeypatch.chdir(tmp_path)
+    with patch.object(
+        WorkflowExecutor, "_emit_lexical_checkpoint_shadow_after_repeat_until_commit", interrupt_after_first_commit
+    ):
+        with pytest.raises(_PostCommitInterruption):
+            _public_run(files)
+    assert (_log(probes["probe_review"]), _log(probes["probe_revise"])) == (["seed"], ["revised-seed"])
+
+    run_id = next((tmp_path / ".orchestrate" / "runs").iterdir()).name
+    assert resume_workflow(run_id=run_id, retry_delay_ms=0) == 0
+
+    state = json.loads((tmp_path / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
+    assert (state["status"], state["workflow_outputs"]) == ("completed", APPROVED_OUTPUTS)
+    assert (_log(probes["probe_review"]), _log(probes["probe_revise"])) == (["seed", "revised-seed"], ["revised-seed"])
+
+
+def _union_descriptors(bundle) -> dict[str, set[str]]:
+    from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+
+    shapes: dict[str, set[str]] = {}
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("kind") == "union" and "variants" in node:
+                shapes.setdefault(node["name"], set()).add(json.dumps(node, sort_keys=True))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(workflow_executable_ir_to_json(bundle.ir))
+    return shapes
+
+
+def test_two_instantiations_get_distinct_concrete_descriptors(tmp_path: Path) -> None:
+    """Addendum G: one IR carries each instantiation under its own concrete name."""
+
+    probe = _write_probe(tmp_path, "probe_review", REVIEW_PROBE)
+    entry = TWO_INSTANCES_ENTRY.replace("PROBE_REVIEW", probe.as_posix())
+    _write_sources(tmp_path, {"grt/lib.orc": CLASSIFY_LIB, "grt/entry.orc": entry})
+    result = _compile(tmp_path, probes={"probe_review": probe})
+
+    shapes = _union_descriptors(result.validated_bundles_by_name["grt/entry::run"])
+
+    assert sorted(shapes) == [
+        "grt/lib::Improvement[Candidate Feedback Blocker]",
+        "grt/lib::Improvement[Draft Feedback Blocker]",
+    ]
+    assert all(len(variants) == 1 for variants in shapes.values())
+    assert _run(result, "grt/entry::run", tmp_path) == {"return__first": "revised-a", "return__second": "refused-blocked"}

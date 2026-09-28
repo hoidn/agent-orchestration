@@ -115,6 +115,9 @@ def _nominal_descriptor_name(
         is not None
     ):
         return "workflow_lisp/private::loop-state-carrier"
+    type_args = getattr(type_ref, "type_args", ())
+    if type_args:
+        return _applied_descriptor_name(type_ref, type_args, type_env=type_env, source_read_trace=source_read_trace)
     if "::" in type_ref.name:
         return type_ref.name
     if "/" in type_ref.name:
@@ -140,6 +143,35 @@ def _nominal_descriptor_name(
             if getattr(definition, "name", None) in exported_names:
                 return f"{module_name}::{definition.name}"
     return type_ref.name
+
+
+def _applied_descriptor_name(
+    type_ref: TypeRef,
+    type_args: tuple[TypeRef, ...],
+    *,
+    type_env: FrontendTypeEnvironment | None,
+    source_read_trace: SourceReadTrace | None,
+) -> str:
+    """Name an applied generic union by its template and argument identities.
+
+    The rendered `name` of an application depends on the module that resolved
+    it, and the template's nominal name alone would merge instantiations.
+    """
+
+    from dataclasses import replace
+
+    from .generic_unions import applied_union_name
+
+    def nominal(ref: TypeRef) -> TypeRef:
+        if getattr(ref, "definition", None) is None:
+            return ref
+        return replace(
+            ref,
+            name=_nominal_descriptor_name(ref, type_env=type_env, source_read_trace=source_read_trace),
+        )
+
+    template = replace(type_ref, name=type_ref.name.partition("[")[0], type_args=())
+    return applied_union_name(nominal(template).name, tuple(nominal(arg) for arg in type_args))
 
 
 def compiler_normalized_type_descriptor(
