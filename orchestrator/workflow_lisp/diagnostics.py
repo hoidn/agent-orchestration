@@ -192,6 +192,11 @@ _TYPE_CODES = frozenset(
         "materialize_view_target_contract_invalid",
         "value_type_requires_dsl_2_19",
         "value_guidance_example_unsupported",
+        "generic_union_requires_dsl_2_33",
+        "generic_union_arity_mismatch",
+        "generic_union_unresolved_argument",
+        "generic_union_instantiation_cycle",
+        "generic_union_not_generic",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(

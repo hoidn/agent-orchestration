@@ -46,6 +46,18 @@ class ContextualTypeExpr:
     item_type: "ParsedTypeExpr"
 
 
+@dataclass(frozen=True)
+class AppliedTypeExpr:
+    """One application of a declared generic type, e.g. `Outcome[Int String]`.
+
+    Arguments are whitespace-separated. The parser does not know which heads
+    are generic; type resolution decides (target 2.33 generic unions).
+    """
+
+    head: str
+    args: tuple["ParsedTypeExpr", ...]
+
+
 ParsedTypeExpr = (
     NamedTypeExpr
     | WorkflowRefTypeExpr
@@ -54,6 +66,7 @@ ParsedTypeExpr = (
     | ListTypeExpr
     | MapTypeExpr
     | ContextualTypeExpr
+    | AppliedTypeExpr
 )
 
 
@@ -213,12 +226,41 @@ def parse_type_expression(
             )
         )
 
-    _raise_type_expression_error(
-        f"unknown generic type constructor `{head}` in `{authored}`",
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
+    return AppliedTypeExpr(
+        head=head,
+        args=tuple(
+            parse_type_expression(
+                arg_text,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+            for arg_text in _split_top_level(args_text, delimiter=None)
+        ),
     )
+
+
+def type_expression_application_heads(parsed: ParsedTypeExpr) -> tuple[str, ...]:
+    """Return the heads of every generic application inside a parsed type."""
+
+    if isinstance(parsed, AppliedTypeExpr):
+        return (
+            parsed.head,
+            *(head for arg in parsed.args for head in type_expression_application_heads(arg)),
+        )
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
+        return type_expression_application_heads(parsed.item_type)
+    if isinstance(parsed, MapTypeExpr):
+        return (
+            *type_expression_application_heads(parsed.key_type),
+            *type_expression_application_heads(parsed.value_type),
+        )
+    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
+        return (
+            *(head for param in parsed.param_types for head in type_expression_application_heads(param)),
+            *type_expression_application_heads(parsed.return_type),
+        )
+    return ()
 
 
 def split_top_level_args(text: str) -> tuple[str, ...]:

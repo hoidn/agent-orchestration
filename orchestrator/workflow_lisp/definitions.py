@@ -12,6 +12,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .result_guidance import ResultGuidance, parse_result_guidance
 from .spans import SourceSpan
 from .syntax import (
+    GENERIC_UNION_MIN_TARGET_DSL_VERSION,
     ImportDirective,
     SyntaxBool,
     SyntaxIdentifier,
@@ -23,6 +24,7 @@ from .syntax import (
     syntax_head,
     syntax_identifier,
     syntax_node_datum,
+    target_dsl_supports_generic_unions,
 )
 
 if TYPE_CHECKING:
@@ -109,11 +111,17 @@ class RecordDef:
 
 @dataclass(frozen=True)
 class UnionDef:
-    """One tagged-union type definition."""
+    """One tagged-union type definition.
+
+    `type_params` is non-empty for a target-2.33 generic union
+    (`defunion Name :forall (T ...)`); its variant field types may name those
+    parameters, which are scoped to this declaration.
+    """
 
     name: str
     variants: tuple[UnionVariant, ...]
     span: SourceSpan
+    type_params: tuple[str, ...] = ()
 
 
 DefinitionNode = EnumDef | PathDef | RecordDef | UnionDef
@@ -181,6 +189,7 @@ class _AuthoredUnionDef:
     name: str
     variants: tuple[_AuthoredUnionVariant, ...]
     span: SourceSpan
+    type_params: tuple[str, ...] = ()
 
 
 _TopLevelForm = (
@@ -228,6 +237,7 @@ def elaborate_definition_module(
         elaborated = _elaborate_top_level_form(
             form,
             compiler_session=compiler_session,
+            target_dsl_version=module.target_dsl_version,
         )
         elaborated_forms.append(elaborated)
         if isinstance(elaborated, SchemaDef):
@@ -328,6 +338,7 @@ def _expand_concrete_definitions(
                     for variant in form.variants
                 ),
                 span=form.span,
+                type_params=form.type_params,
             )
         )
     return tuple(definitions)
@@ -521,6 +532,7 @@ def _elaborate_top_level_form(
     form: SyntaxNode,
     *,
     compiler_session: CompilerSession,
+    target_dsl_version: str,
 ) -> _TopLevelForm:
     datum = syntax_node_datum(form)
     if not isinstance(datum, SyntaxList) or not datum.items:
@@ -537,7 +549,7 @@ def _elaborate_top_level_form(
     if head.resolved_name == "defrecord":
         return _elaborate_defrecord(form, datum)
     if head.resolved_name == "defunion":
-        return _elaborate_defunion(form, datum)
+        return _elaborate_defunion(form, datum, target_dsl_version=target_dsl_version)
     if head.resolved_name == "defresource":
         return _elaborate_defresource(form, datum)
     if head.resolved_name == "deftransition":
@@ -667,9 +679,23 @@ def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> _AuthoredRecord
     )
 
 
-def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> _AuthoredUnionDef:
+def _elaborate_defunion(
+    form: SyntaxNode,
+    datum: SyntaxList,
+    *,
+    target_dsl_version: str,
+) -> _AuthoredUnionDef:
     name = _expect_symbol(datum, 1, "union name", form_path=form.form_path)
     raw_variants = datum.items[2:]
+    type_params: tuple[str, ...] = ()
+    if raw_variants and isinstance(raw_variants[0], SyntaxKeyword) and raw_variants[0].value == ":forall":
+        type_params = _elaborate_union_type_params(
+            raw_variants[0],
+            raw_variants[1] if len(raw_variants) > 1 else None,
+            target_dsl_version=target_dsl_version,
+            form_path=form.form_path,
+        )
+        raw_variants = raw_variants[2:]
     if not raw_variants:
         _raise_error("`defunion` requires at least one variant", span=datum.span, form_path=form.form_path)
     variants: list[_AuthoredUnionVariant] = []
@@ -694,7 +720,48 @@ def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> _AuthoredUnionDe
                 span=raw_variant.span,
             )
         )
-    return _AuthoredUnionDef(name=name.resolved_name, variants=tuple(variants), span=datum.span)
+    return _AuthoredUnionDef(
+        name=name.resolved_name,
+        variants=tuple(variants),
+        span=datum.span,
+        type_params=type_params,
+    )
+
+
+def _elaborate_union_type_params(
+    keyword: SyntaxKeyword,
+    raw_params: object | None,
+    *,
+    target_dsl_version: str,
+    form_path: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not target_dsl_supports_generic_unions(target_dsl_version):
+        _raise_error(
+            (
+                f"`defunion :forall` requires target DSL {GENERIC_UNION_MIN_TARGET_DSL_VERSION} "
+                f"or newer; module targets {target_dsl_version}"
+            ),
+            code="generic_union_requires_dsl_2_33",
+            span=keyword.span,
+            form_path=form_path,
+        )
+    if not isinstance(raw_params, SyntaxList) or not raw_params.items:
+        _raise_error(
+            "`defunion :forall` must be followed by a non-empty list of type-parameter names",
+            span=keyword.span,
+            form_path=form_path,
+        )
+    names: list[str] = []
+    for item in raw_params.items:
+        identifier = syntax_identifier(item)
+        if identifier is None or identifier.resolved_name in names:
+            _raise_error(
+                "`defunion :forall` entries must be distinct symbols",
+                span=item.span,
+                form_path=form_path,
+            )
+        names.append(identifier.resolved_name)
+    return tuple(names)
 
 
 def _elaborate_defresource(form: SyntaxNode, datum: SyntaxList) -> ResourceDef:

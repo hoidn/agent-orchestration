@@ -148,6 +148,19 @@ def target_dsl_supports_human_input(target_dsl_version: str) -> bool:
     return target >= minimum
 
 
+def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
+    """Return whether a target admits `defunion :forall` and type applications."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part) for part in GENERIC_UNION_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
 def target_dsl_supports_provider_peer_messaging(
     target_dsl_version: str,
 ) -> bool:

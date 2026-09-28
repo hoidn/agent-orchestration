@@ -180,6 +180,7 @@ from .type_env import (
     prelude_type_names_for_target,
 )
 from .type_expressions import (
+    AppliedTypeExpr,
     ListTypeExpr,
     MapTypeExpr,
     NamedTypeExpr,
@@ -3509,7 +3510,7 @@ def _exported_type_refs(
 
     exported: dict[str, TypeRef] = {}
     for binding in export_surface.types_by_name.values():
-        exported[binding.member_name] = type_env.resolve_type(
+        exported[binding.member_name] = type_env.resolve_declared_type(
             binding.member_name,
             span=module.span,
             form_path=("workflow-lisp", binding.member_name),
@@ -4324,6 +4325,7 @@ def _validate_definition_module(
                     available_type_names,
                     visible_schema_names=visible_schema_names,
                     import_scope=import_scope,
+                    target_dsl_version=module.target_dsl_version,
                 )
             )
         elif isinstance(definition, UnionDef):
@@ -4333,6 +4335,7 @@ def _validate_definition_module(
                     available_type_names,
                     visible_schema_names=visible_schema_names,
                     import_scope=import_scope,
+                    target_dsl_version=module.target_dsl_version,
                 )
             )
 
@@ -4346,6 +4349,7 @@ def _validate_union_definition(
     *,
     visible_schema_names: frozenset[str],
     import_scope: ModuleImportScope | None,
+    target_dsl_version: str,
 ) -> list[LispFrontendDiagnostic]:
     """Validate one union's variant names and variant field types."""
 
@@ -4375,9 +4379,10 @@ def _validate_union_definition(
             _validate_field_types(
                 variant.fields,
                 form_path,
-                available_type_names,
+                available_type_names | frozenset(definition.type_params),
                 visible_schema_names=visible_schema_names,
                 import_scope=import_scope,
+                target_dsl_version=target_dsl_version,
             )
         )
     return diagnostics
@@ -4415,8 +4420,11 @@ def _validate_field_types(
     *,
     visible_schema_names: frozenset[str],
     import_scope: ModuleImportScope | None,
+    target_dsl_version: str,
 ) -> list[LispFrontendDiagnostic]:
     """Validate that each field references a known type name."""
+
+    from .generic_unions import application_target_diagnostic
 
     diagnostics: list[LispFrontendDiagnostic] = []
     for field in fields:
@@ -4426,6 +4434,16 @@ def _validate_field_types(
                 span=field.span,
                 form_path=form_path,
             )
+            target_diagnostic = application_target_diagnostic(
+                parsed,
+                authored_name=field.type_name,
+                target_dsl_version=target_dsl_version,
+                span=field.span,
+                form_path=form_path,
+            )
+            if target_diagnostic is not None:
+                diagnostics.append(target_diagnostic)
+                continue
             diagnostics.extend(
                 _validate_parsed_field_type(
                     parsed,
@@ -4443,7 +4461,7 @@ def _validate_field_types(
 
 
 def _validate_parsed_field_type(
-    parsed: NamedTypeExpr | WorkflowRefTypeExpr | ProcRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr,
+    parsed: NamedTypeExpr | WorkflowRefTypeExpr | ProcRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr | AppliedTypeExpr,
     *,
     authored_name: str,
     span: SourceSpan,
@@ -4536,6 +4554,18 @@ def _validate_parsed_field_type(
             )
         )
         return diagnostics
+    if isinstance(parsed, AppliedTypeExpr):
+        # Head name only: the head kind, arity, and arguments are checked at
+        # type resolution, which reports them against the generic declaration.
+        return _validate_parsed_field_type(
+            NamedTypeExpr(name=parsed.head),
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            available_type_names=available_type_names,
+            visible_schema_names=visible_schema_names,
+            import_scope=import_scope,
+        )
     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
         return _validate_parsed_field_type(
             parsed.item_type,

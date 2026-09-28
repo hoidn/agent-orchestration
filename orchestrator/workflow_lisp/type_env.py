@@ -31,6 +31,7 @@ from .syntax import (
     target_dsl_supports_value,
 )
 from .type_expressions import (
+    AppliedTypeExpr,
     ContextualTypeExpr,
     ListTypeExpr,
     MapTypeExpr,
@@ -200,11 +201,16 @@ class RecordTypeRef:
 
 @dataclass(frozen=True)
 class UnionTypeRef:
-    """One resolved union type reference."""
+    """One resolved union type reference.
+
+    `type_args` is non-empty only for an applied generic union such as
+    `Outcome[Int String]`; see `generic_unions.py` for the representation.
+    """
 
     name: str
     definition: UnionDef
     variant_field_types: dict[str, dict[str, "TypeRef"]]
+    type_args: tuple["TypeRef", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -225,6 +231,10 @@ class VariantCaseTypeRef:
     # one); `record_field` falls back to the name-based union re-lookup in
     # that case.
     field_types: dict[str, "TypeRef"] | None = None
+    # The owning union's `type_args` when it is an applied generic union, so
+    # compatibility can check constructor and argument identity by value
+    # rather than by the rendered `union_name`.
+    union_type_args: tuple["TypeRef", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -464,7 +474,20 @@ class FrontendTypeEnvironment:
                     *import_scope.unqualified_schema_bindings.values(),
                 )
             )
-        for definition in module.definitions:
+        from .generic_unions import generic_union_fill_order
+
+        generic_unions = generic_union_fill_order(
+            module.definitions,
+            lookup=lambda name: _lookup_type_ref(type_refs, name, import_scope=import_scope),
+        )
+        for definition in (
+            *generic_unions,
+            *(
+                definition
+                for definition in module.definitions
+                if not (isinstance(definition, UnionDef) and definition.type_params)
+            ),
+        ):
             if isinstance(definition, RecordDef):
                 record_ref = type_refs.get(definition.name)
                 if isinstance(record_ref, RecordTypeRef):
@@ -502,6 +525,7 @@ class FrontendTypeEnvironment:
                                     target_dsl_version=module.target_dsl_version,
                                     span=field.span,
                                     form_path=("workflow-lisp", definition.name, variant.name, field.name),
+                                    local_type_params=frozenset(definition.type_params),
                                 )
                                 for field in variant.fields
                             }
@@ -580,6 +604,31 @@ class FrontendTypeEnvironment:
             session_state=session_state,
         )
 
+    def resolve_declared_type(
+        self,
+        name: str,
+        *,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+    ) -> TypeRef:
+        """Resolve one declared type name for an export surface.
+
+        Unlike `resolve_type`, this admits an unapplied generic union: exporting
+        a declaration is not a use of it as a type.
+        """
+
+        return _resolve_named_type(
+            name,
+            type_refs=self._type_refs,
+            import_scope=self._import_scope,
+            canonical_name_overrides=self._canonical_name_overrides,
+            schema_names=self._schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=(),
+            local_type_params=frozenset(),
+        )
+
     def record_field(
         self,
         record_type: RecordTypeRef | VariantCaseTypeRef,
@@ -649,6 +698,7 @@ class FrontendTypeEnvironment:
                     variant_name=variant_name,
                     definition=variant,
                     field_types=union_type.variant_field_types.get(variant_name),
+                    union_type_args=union_type.type_args,
                 )
         _raise_error(
             f"unknown union variant `{variant_name}` for `{union_type.name}`",
@@ -806,6 +856,19 @@ class FrontendTypeEnvironment:
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
+        if target_dsl_version is not None:
+            from .generic_unions import application_target_diagnostic
+
+            target_diagnostic = application_target_diagnostic(
+                parsed,
+                authored_name=name,
+                target_dsl_version=target_dsl_version,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+            if target_diagnostic is not None:
+                raise LispFrontendCompileError((target_diagnostic,))
         return _resolve_parsed_type_expr(
             parsed,
             authored_name=name,
@@ -825,6 +888,8 @@ def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
 
     if isinstance(parsed, NamedTypeExpr):
         return parsed.name == "Value"
+    if isinstance(parsed, AppliedTypeExpr):
+        return any(_parsed_type_expr_contains_value(arg) for arg in parsed.args)
     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
         return _parsed_type_expr_contains_value(parsed.item_type)
     if isinstance(parsed, MapTypeExpr):
@@ -850,6 +915,8 @@ def _parsed_type_expr_contains_contextual(parsed: ParsedTypeExpr) -> bool:
         return False
     if isinstance(parsed, ContextualTypeExpr):
         return True
+    if isinstance(parsed, AppliedTypeExpr):
+        return any(_parsed_type_expr_contains_contextual(arg) for arg in parsed.args)
     if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
         return _parsed_type_expr_contains_contextual(parsed.item_type)
     if isinstance(parsed, MapTypeExpr):
@@ -882,8 +949,30 @@ def _resolve_parsed_type_expr(
     local_type_params: frozenset[str],
 ) -> TypeRef:
     if isinstance(parsed, NamedTypeExpr):
-        return _resolve_named_type(
+        from .generic_unions import is_generic_union_template, reject_unapplied_generic_union
+
+        named_ref = _resolve_named_type(
             parsed.name,
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
+        )
+        if is_generic_union_template(named_ref):
+            reject_unapplied_generic_union(
+                named_ref,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return named_ref
+    if isinstance(parsed, AppliedTypeExpr):
+        return _resolve_applied_type_expr(
+            parsed,
             type_refs=type_refs,
             import_scope=import_scope,
             canonical_name_overrides=canonical_name_overrides,
@@ -1116,6 +1205,42 @@ def _resolve_parsed_type_expr(
     raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
+def _resolve_applied_type_expr(
+    parsed: AppliedTypeExpr,
+    *,
+    type_refs: dict[str, TypeRef],
+    import_scope: "ModuleImportScope | None",
+    canonical_name_overrides: dict[str, str],
+    schema_names: frozenset[str],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+    local_type_params: frozenset[str],
+) -> TypeRef:
+    """Resolve `Head[Arg ...]` against a generic union declaration."""
+
+    from .generic_unions import resolve_generic_union_application
+
+    scope = {
+        "type_refs": type_refs,
+        "import_scope": import_scope,
+        "canonical_name_overrides": canonical_name_overrides,
+        "schema_names": schema_names,
+        "span": span,
+        "form_path": form_path,
+        "expansion_stack": expansion_stack,
+        "local_type_params": local_type_params,
+    }
+    return resolve_generic_union_application(
+        parsed,
+        head_ref=_resolve_named_type(parsed.head, **scope),
+        resolve_arg=lambda arg: _resolve_parsed_type_expr(arg, authored_name=_render_type_expr(arg), **scope),
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+
+
 def _resolve_named_type(
     name: str,
     *,
@@ -1216,6 +1341,8 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
         return f"Map[{_render_type_expr(parsed.key_type)}, {_render_type_expr(parsed.value_type)}]"
     if isinstance(parsed, ContextualTypeExpr):
         return f"Contextual[{_render_type_expr(parsed.item_type)}]"
+    if isinstance(parsed, AppliedTypeExpr):
+        return f"{parsed.head}[{' '.join(_render_type_expr(arg) for arg in parsed.args)}]"
     if isinstance(parsed, WorkflowRefTypeExpr):
         params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
         return f"WorkflowRef[({params}) -> {_render_type_expr(parsed.return_type)}]"
@@ -1282,8 +1409,12 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
     if expected == actual:
         return True
     if isinstance(expected, UnionTypeRef) and isinstance(actual, VariantCaseTypeRef):
+        if expected.type_args or actual.union_type_args:
+            return _applied_variant_of(actual, expected)
         return _named_type_basename(expected.name) == _named_type_basename(actual.union_name)
     if isinstance(expected, VariantCaseTypeRef) and isinstance(actual, UnionTypeRef):
+        if expected.union_type_args or actual.type_args:
+            return _applied_variant_of(expected, actual)
         return _named_type_basename(expected.union_name) == _named_type_basename(actual.name)
     if type(expected) is not type(actual):
         return False
@@ -1315,6 +1446,13 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
             )
         return expected.definition == actual.definition
     if isinstance(expected, UnionTypeRef):
+        if expected.type_args or actual.type_args:
+            # Applied generic unions: same declaration (defining module
+            # included, via its span) and pairwise-compatible arguments.
+            return expected.definition == actual.definition and _type_args_compatible(
+                expected.type_args,
+                actual.type_args,
+            )
         if (
             _named_type_basename(expected.name) == _named_type_basename(actual.name)
             and expected.variant_field_types.keys() == actual.variant_field_types.keys()
@@ -1333,6 +1471,11 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
             )
         return expected.definition == actual.definition
     if isinstance(expected, VariantCaseTypeRef):
+        if expected.union_type_args or actual.union_type_args:
+            return expected.definition == actual.definition and _type_args_compatible(
+                expected.union_type_args,
+                actual.union_type_args,
+            )
         if (
             _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
             and expected.variant_name == actual.variant_name
@@ -1385,6 +1528,21 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
             actual.value_type_ref,
         )
     raise TypeError(f"unsupported type ref: {type(expected)!r}")
+
+
+def _type_args_compatible(expected: tuple[TypeRef, ...], actual: tuple[TypeRef, ...]) -> bool:
+    return len(expected) == len(actual) and all(
+        type_refs_compatible(expected_arg, actual_arg)
+        for expected_arg, actual_arg in zip(expected, actual)
+    )
+
+
+def _applied_variant_of(variant: VariantCaseTypeRef, union: UnionTypeRef) -> bool:
+    """Return whether a narrowed variant belongs to the same applied union."""
+
+    return any(candidate == variant.definition for candidate in union.definition.variants) and (
+        _type_args_compatible(union.type_args, variant.union_type_args)
+    )
 
 
 def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: RecordTypeRef) -> bool:
@@ -1468,6 +1626,10 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
             field_types=field_types,
         )
     if isinstance(type_ref, UnionTypeRef):
+        if type_ref.type_args:
+            from .generic_unions import substitute_applied_union
+
+            return substitute_applied_union(type_ref, bindings)
         return UnionTypeRef(
             name=type_ref.name,
             definition=type_ref.definition,
@@ -1529,11 +1691,14 @@ def _first_type_param_ref(type_ref: TypeRef) -> TypeParamRef | None:
                 return unresolved
         return None
     if isinstance(type_ref, UnionTypeRef):
-        for field_types in type_ref.variant_field_types.values():
-            for field_type in field_types.values():
-                unresolved = _first_type_param_ref(field_type)
-                if unresolved is not None:
-                    return unresolved
+        # Applied-union arguments count even when phantom (absent from payloads).
+        for field_type in (
+            *type_ref.type_args,
+            *(field_type for field_types in type_ref.variant_field_types.values() for field_type in field_types.values()),
+        ):
+            unresolved = _first_type_param_ref(field_type)
+            if unresolved is not None:
+                return unresolved
         return None
     return None
 
