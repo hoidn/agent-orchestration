@@ -47,7 +47,7 @@ identifiers, explanation surfaces, or executor extraction.
 | Observation | Locator | Consequence |
 | --- | --- | --- |
 | `review-revise-loop-proc` takes an unused `ctx`, seeds `initial_review_report` and `initial_findings`, revises inside the `REVISE` branch before `continue`, and its `:on-exhausted` projection returns the previous iteration's review beside the already-revised candidate. The result carries no candidate. | `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc` | The defect is at the return boundary: value return and evidence pairing. |
-| The maintained document-review caller restates the three-variant result and re-wraps each arm; `kiss_backlog_item` projects review outcomes. The parametric-document example uses the older provider/prompt macro interface and has a source-shape test rather than compile evidence. | `workflows/examples/review_revise_design_docs.orc`, `kiss_backlog_item.orc`, `review_revise_parametric_design_docs.orc`; `tests/test_workflow_lisp_examples.py` | The maintained callers motivate the generic-union extension. The parametric example is separate conversion work, not a hook-preserving migration. |
+| The maintained document-review caller restates the three-variant result and re-wraps each arm; `kiss_backlog_item` projects review outcomes; the design-delta library's plan and implementation phases use the same loop and publish the last review in a materialized progress report. The parametric-document example uses the older provider/prompt macro interface and has a source-shape test rather than compile evidence. | `workflows/examples/review_revise_design_docs.orc`, `kiss_backlog_item.orc`, `review_revise_parametric_design_docs.orc`; `workflows/library/lisp_frontend_design_delta/plan_phase.orc`, `implementation_phase.orc`; `tests/test_workflow_lisp_examples.py` | These consumers motivate the generic-union extension. The parametric example needs conversion of its macro form, not a hook-preserving migration. |
 | Genericity is `defproc`-only. `ProcRef` signatures bind type parameters with invariant matching. Inference does not decompose nominal type applications; union compatibility can compare short names and shapes. | `docs/design/workflow_lisp_parametric_type_system.md`; `procedure_typecheck.py::_infer_parametric_type_bindings`; `type_env.py::type_refs_compatible` | Generic unions need constructor-aware recursive argument binding and identity preservation, owned by the type system. |
 | At target 2.29+, transportable structured values flow through initial state, `continue`, `done`, exhaustion, and committed resume. Exhaustion projects state roots and fields without an evaluator. Top-level `Optional` loop state is not admitted. | `docs/design/workflow_lisp_frontend_specification.md` §13.1; `specs/dsl.md` loop/recur and `repeat_until.on_exhausted` | Projection expressibility and selection of the final committed state are separate obligations (§9). Omitting feedback from exhaustion is a contract choice, not a limitation. |
 | An imported generic loop body uses `(selector ctx)` with `ctx` outside its loop state. | `tests/fixtures/workflow_lisp/modules/valid/generic_loop_union_cross_module/generic_loop_union_cross_module/helper.orc` | Fixed inputs are lexical bindings, not loop state. |
@@ -106,10 +106,12 @@ A flat union rather than `{candidate, outcome}` because it has no cross-field
 status relationship, no seed state, no `Optional` loop state, no
 candidate/evidence mismatch on exhaustion, and no need for generic records.
 
-**Exhaustion metadata.** A caller whose public result carries previous-review
-metadata on exhaustion holds that metadata in its domain subject, with typed
-absence before the first revision (§8). The generic helper owns no history and
-fabricates no report to satisfy a legacy return type.
+**Exhaustion metadata.** Publishing previous-review metadata on exhaustion is
+the consumer's choice. A consumer that publishes it holds it in its domain
+subject, with typed absence before the first revision (§8). A consumer that
+does not keeps its original subject and publishes only its own exhaustion
+outcome. The generic helper owns no history and fabricates no report to
+satisfy a legacy return type.
 
 **Fixer-side blockage** is an extension point. A sibling helper whose `revise`
 returns a value-carrying union may be added when a maintained caller needs it.
@@ -210,10 +212,15 @@ findings validation. Neither change waits for the other.
   export in the module.
 - New declarations change bundled-module digests and require a target bump.
   No checkpoint compatibility is claimed between the two APIs.
-- The maintained migration consumers are `review_revise_design_docs.orc` and
-  `kiss_backlog_item.orc`. Their provider procedures stay intact; both review
-  and revision go through caller-owned adapters. The parametric-document
-  example's macro interface is separate conversion work.
+- The consumers are the three examples (`review_revise_design_docs.orc`,
+  `kiss_backlog_item.orc`, `review_revise_parametric_design_docs.orc`) and the
+  design-delta library's plan and implementation phases. Their provider
+  procedures stay intact; both review and revision go through caller-owned
+  adapters. The parametric example first converts its macro provider form to
+  hook procedures.
+- The shared review domain lives in one module, provisionally `std/review`:
+  `ReviewEvidence`, `ReviewBlocker`, and the findings validation procedure.
+  Adapters stay with each consumer.
 - Domain `ReviewEvidence` holds the existing review report and findings.
   Domain `ReviewBlocker` holds the report, findings, and `BlockerClass`;
   `BlockerClass` alone cannot preserve the existing blocked result.
@@ -222,16 +229,19 @@ findings validation. Neither change waits for the other.
   `Decision[ReviewEvidence ReviewBlocker]`. The revision adapter accepts
   `ReviewEvidence`, validates findings at the consumption boundary, and calls
   the existing fixer with `.findings`.
-- To keep exhaustion metadata, the caller's subject pairs its value with a
+- The examples publish no previous-review metadata on exhaustion. Their
+  subject stays the original record and their exhausted result carries the
+  reason alone; the review reports remain at the paths the caller supplied.
+- The design-delta phases keep exhaustion metadata, because their materialized
+  progress report links the last review. Their subject pairs its value with a
   concrete domain union: `UNREVIEWED` initially, `REVISED_FROM(evidence
   ReviewEvidence)` after a successful revision. That evidence is what the
   revision responded to, not a review of the returned value. Wrapping and
-  unwrapping belong to the caller's adapters; no fake path, initial report, or
-  library seed exists.
-- The maintained callers have positive fixed limits. Their approved, blocked,
-  and exhausted projections preserve the existing public fields from actual
-  evidence. A caller that exposes an absence case represents it in its declared
-  result or changes its contract explicitly before migration.
+  unwrapping belong to the consumer's adapters; no fake path, initial report,
+  or library seed exists. Exhaustion before any review is a distinct variant
+  of the consumer's public result.
+- Approved and blocked projections preserve the existing public fields from
+  actual evidence.
 - Retirement is per declaration: remove `review-revise-loop` and
   `review-revise-loop-proc` only after their maintained consumers migrate, and
   inventory supporting review types separately. `with-phase`, `phase-scope`,
@@ -279,10 +289,11 @@ constrains test shape, not the library contract.
 - **Substitution.** Replacing the selected review procedure with a sequential
   two-review-plus-adjudication procedure changes only the selected hook and
   its implementation.
-- **Migration.** The two maintained consumers in §8 use explicit review and
-  revision adapters, preserve required public metadata and domain validation,
-  and distinguish revision feedback from approval evidence. Their provider
-  procedure bodies need not change. The README compile command keeps passing.
+- **Migration.** Each migrated consumer uses explicit review and revision
+  adapters, preserves domain validation and its approved and blocked public
+  fields, and either omits exhaustion metadata or types it as feedback
+  distinct from approval evidence. Provider procedure bodies need not change.
+  The README compile command keeps passing.
 - **Realistic change.** Adding a typed proposal field consumed downstream is
   recorded as the edited files and any leaked execution plumbing: a
   qualitative record, not a productivity score, with no new harness.
