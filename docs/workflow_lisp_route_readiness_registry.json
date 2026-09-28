@@ -418,6 +418,21 @@
       "surface_kind": "workflow_example"
     },
     {
+      "copy_safety": "preferred_current_guidance",
+      "evidence": [
+        "tests/test_workflow_lisp_improve_example_e2e.py::test_documented_command_dry_runs_the_example",
+        "tests/test_workflow_lisp_improve_example_e2e.py::test_executor_consumes_the_returned_proposal",
+        "tests/test_workflow_lisp_improve_example_e2e.py::test_resume_reaches_the_same_consumer_without_repeating_provider_work"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/examples/improve_experiment_proposal.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "workflows.examples.improve_experiment_proposal",
+      "surface_kind": "workflow_example"
+    },
+    {
       "copy_safety": "legacy_compatibility_only",
       "evidence": [
         "tests/test_workflow_lisp_examples.py::test_kiss_backlog_item_orc_compiles_to_typed_phase_stack"

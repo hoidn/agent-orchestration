@@ -1,0 +1,4 @@
+{
+  "prompts.proposal.review": "prompts/workflows/improve_experiment_proposal/review.md",
+  "prompts.proposal.revise": "prompts/workflows/improve_experiment_proposal/revise.md"
+}
