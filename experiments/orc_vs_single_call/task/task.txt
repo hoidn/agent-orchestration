@@ -1,0 +1,13 @@
+Bug: a Workflow Lisp program whose `loop/recur` result is a union with a path-typed field in a variant other than the exhausted one compiles and runs at `:target-dsl "2.28"` but is rejected at "2.29" and later. The report is in `bugs/loop_result_paths/README.md`.
+
+Fix the compiler or runtime under `orchestrator/` so that at targets 2.29 through 2.32 such programs compile and behave exactly as they do at 2.28.
+
+Requirements:
+- Do not weaken validation: what is rejected today for authored workflows must still be rejected, and malformed provider output must still fail the run.
+- Do not change the behaviour of programs at targets 2.28 and earlier.
+- The fix must be general, not specific to this program's names.
+- Do not edit anything under `bugs/`.
+- Add regression tests under `tests/`.
+- Run only targeted test modules, always with `-p no:cacheprovider --basetemp="$TMPDIR/pytest"`. Do not run the full test suite. Do not commit.
+
+Verify your work before you finish.

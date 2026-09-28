@@ -1,0 +1,2542 @@
+{
+ "rubric": "evaluation/rubric.md; four criteria rated 0-2 each, total out of 8",
+ "note": "Scores are comparable within a batch only; each batch had its own pair of judges.",
+ "selections": {
+  "best_of_four_first_run": {
+   "sonnet_selector": {
+    "1": "cand1",
+    "2": "cand3",
+    "3": "cand1",
+    "4": "cand4",
+    "5": "cand3",
+    "6": "cand1"
+   },
+   "gpt_6_sol_selector": {
+    "1": "cand1",
+    "2": "cand3",
+    "3": "cand4",
+    "4": "cand1",
+    "5": "cand3",
+    "6": "cand4"
+   }
+  },
+  "best_of_four_confirmation": {
+   "gpt_6_sol_selector": {
+    "7": "cand1",
+    "8": "cand1",
+    "9": "cand2",
+    "10": "cand1",
+    "11": "cand2",
+    "12": "cand4"
+   }
+  }
+ },
+ "review_loop_strong_reviewer_outcomes": {
+  "21": {
+   "variant": "READY",
+   "rounds": 1
+  },
+  "22": {
+   "variant": "READY",
+   "rounds": 2
+  },
+  "23": {
+   "variant": "UNRESOLVED",
+   "rounds": 3
+  },
+  "24": {
+   "variant": "READY",
+   "rounds": 1
+  },
+  "25": {
+   "variant": "UNRESOLVED",
+   "rounds": 3
+  },
+  "26": {
+   "variant": "READY",
+   "rounds": 1
+  }
+ },
+ "batches": [
+  {
+   "batch": "1: same-model review loop, one round",
+   "judges": [
+    "A",
+    "B"
+   ],
+   "criterion_agreement": "23/32",
+   "patches": [
+    {
+     "patch": "sonnet-review-loop-t1-after-1-round",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "sonnet-review-loop-t1-oneshot",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "sonnet-review-loop-t2-after-1-round",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "sonnet-review-loop-t2-oneshot",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "sonnet-review-loop-t3-after-1-round",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 0,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "sonnet-review-loop-t3-oneshot",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "sonnet-review-loop-t4-after-1-round",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 0,
+       "total": 6,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "sonnet-review-loop-t4-oneshot",
+     "ratings": {
+      "A": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "B": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    }
+   ]
+  },
+  {
+   "batch": "2: same-model review loop (clean runs), repeated fixes, gpt-6-luna single calls",
+   "judges": [
+    "C",
+    "D"
+   ],
+   "criterion_agreement": "68/72",
+   "patches": [
+    {
+     "patch": "anchor-P244-old-t3-call1",
+     "ratings": {
+      "C": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "anchor-P942-old-t2-call1",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 8.0
+    },
+    {
+     "patch": "clean-sonnet-t11-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "clean-sonnet-t11-round1",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "clean-sonnet-t12-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 8.0
+    },
+    {
+     "patch": "clean-sonnet-t12-round1",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 8.0
+    },
+    {
+     "patch": "clean-sonnet-t13-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 8.0
+    },
+    {
+     "patch": "clean-sonnet-t13-round1",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "clean-sonnet-t14-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.0
+    },
+    {
+     "patch": "clean-sonnet-t14-round1",
+     "ratings": {
+      "C": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.5
+    },
+    {
+     "patch": "luna-t5-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "luna-t6-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "luna-t7-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.0
+    },
+    {
+     "patch": "luna-t8-oneshot",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "old-sonnet-t1-after-repeated-fixes-call7",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "old-sonnet-t2-after-repeated-fixes-call5",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "old-sonnet-t3-after-repeated-fixes-call6",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 8.0
+    },
+    {
+     "patch": "old-sonnet-t4-after-repeated-fixes-call7",
+     "ratings": {
+      "C": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      },
+      "D": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    }
+   ]
+  },
+  {
+   "batch": "3: redesigned same-model review loop, multi-round finals",
+   "judges": [
+    "E",
+    "F"
+   ],
+   "criterion_agreement": "34/44",
+   "patches": [
+    {
+     "patch": "anchor-Q136-clean-sonnet-t12-oneshot",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "anchor-Q331-clean-sonnet-t14-oneshot",
+     "ratings": {
+      "E": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.0
+    },
+    {
+     "patch": "clean-sonnet-t11-final-after-3-rounds",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.5
+    },
+    {
+     "patch": "clean-sonnet-t12-final-after-3-rounds",
+     "ratings": {
+      "E": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 0,
+       "total": 4,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 0,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "clean-sonnet-t14-final-after-3-rounds",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "luna-t6-after-fix1",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "luna-t6-after-fix2",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "newflow-sonnet-a1-oneshot-approved",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "newflow-sonnet-a2-oneshot-approved",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "yes"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "newflow-sonnet-a3-oneshot-approved",
+     "ratings": {
+      "E": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "newflow-sonnet-a4-oneshot-approved",
+     "ratings": {
+      "E": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "F": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.5
+    }
+   ]
+  },
+  {
+   "batch": "4: best of four, first run",
+   "judges": [
+    "G",
+    "H"
+   ],
+   "criterion_agreement": "85/104",
+   "patches": [
+    {
+     "patch": "anchor-Q136-clean-sonnet-t12-oneshot",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "anchor-Q331-clean-sonnet-t14-oneshot",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "bestof-t1-cand1",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t1-cand2",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t1-cand3",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t1-cand4",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "bestof-t2-cand1",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t2-cand2",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t2-cand3",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t2-cand4",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "bestof-t3-cand1",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t3-cand2",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "bestof-t3-cand3",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "bestof-t3-cand4",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t4-cand1",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "bestof-t4-cand2",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t4-cand3",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t4-cand4",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t5-cand1",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.5
+    },
+    {
+     "patch": "bestof-t5-cand2",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t5-cand3",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t5-cand4",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t6-cand1",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 0,
+       "total": 3,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "bestof-t6-cand2",
+     "ratings": {
+      "G": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "bestof-t6-cand3",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "bestof-t6-cand4",
+     "ratings": {
+      "G": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "H": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    }
+   ]
+  },
+  {
+   "batch": "5: best of four, confirmation, and gpt-6-sol single calls",
+   "judges": [
+    "I",
+    "K"
+   ],
+   "criterion_agreement": "97/128",
+   "patches": [
+    {
+     "patch": "anchor-bestof-t5-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "anchor-bestof-t6-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "confirm-t10-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t10-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "confirm-t10-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "confirm-t10-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "confirm-t11-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "confirm-t11-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "confirm-t11-cand3",
+     "ratings": {
+      "I": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.5
+    },
+    {
+     "patch": "confirm-t11-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.0
+    },
+    {
+     "patch": "confirm-t12-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "confirm-t12-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "confirm-t12-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "confirm-t12-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t7-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t7-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "confirm-t7-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "confirm-t7-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.5
+    },
+    {
+     "patch": "confirm-t8-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t8-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t8-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "confirm-t8-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "confirm-t9-cand1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 2,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "confirm-t9-cand2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t9-cand3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "confirm-t9-cand4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "sol-oneshot-c1",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "sol-oneshot-c2",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "sol-oneshot-c3",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "sol-oneshot-c4",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "sol-oneshot-c5",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 7.5
+    },
+    {
+     "patch": "sol-oneshot-c6",
+     "ratings": {
+      "I": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "yes"
+      },
+      "K": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.5
+    }
+   ]
+  },
+  {
+   "batch": "6: review loop with gpt-6-sol reviewer",
+   "judges": [
+    "L",
+    "M"
+   ],
+   "criterion_agreement": "19/60",
+   "patches": [
+    {
+     "patch": "anchor-bestof-t2-cand1",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 0,
+       "total": 2,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "anchor-bestof-t4-cand3",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "anchor-bestof-t5-cand3",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "anchor-bestof-t6-cand1",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 0,
+       "total": 3,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "solreview-t21-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 2,
+       "total": 7,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 6.0
+    },
+    {
+     "patch": "solreview-t22-final-after-1-fix",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 6.5
+    },
+    {
+     "patch": "solreview-t22-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 2,
+       "total": 7,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.5
+    },
+    {
+     "patch": "solreview-t23-after-1-fix",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 0,
+       "total": 2,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.0
+    },
+    {
+     "patch": "solreview-t23-final-after-2-fixes",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 0,
+       "total": 3,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "solreview-t23-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 0,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 2,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 1,
+       "total": 3,
+       "merge": "no"
+      }
+     },
+     "mean_total": 2.5
+    },
+    {
+     "patch": "solreview-t24-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 4,
+       "merge": "no"
+      }
+     },
+     "mean_total": 5.0
+    },
+    {
+     "patch": "solreview-t25-after-1-fix",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 1,
+       "generality": 2,
+       "fit": 1,
+       "total": 6,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 0,
+       "total": 2,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.0
+    },
+    {
+     "patch": "solreview-t25-final-after-2-fixes",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 1,
+       "total": 7,
+       "merge": "yes"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 0,
+       "total": 2,
+       "merge": "no"
+      }
+     },
+     "mean_total": 4.5
+    },
+    {
+     "patch": "solreview-t25-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 2,
+       "contracts": 0,
+       "generality": 2,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 1,
+       "contracts": 0,
+       "generality": 1,
+       "fit": 0,
+       "total": 2,
+       "merge": "no"
+      }
+     },
+     "mean_total": 3.5
+    },
+    {
+     "patch": "solreview-t26-oneshot",
+     "ratings": {
+      "L": {
+       "cause": 1,
+       "contracts": 2,
+       "generality": 1,
+       "fit": 1,
+       "total": 5,
+       "merge": "no"
+      },
+      "M": {
+       "cause": 2,
+       "contracts": 2,
+       "generality": 2,
+       "fit": 2,
+       "total": 8,
+       "merge": "yes"
+      }
+     },
+     "mean_total": 6.5
+    }
+   ]
+  }
+ ]
+}
