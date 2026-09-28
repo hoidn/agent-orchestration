@@ -276,6 +276,19 @@ class DiscriminantTypeRef:
 
     union_name: str
     variant_names: tuple[str, ...]
+    # The owning applied generic union, so equality compares its declaration
+    # and arguments by value; `None` for every other union, and then kept out
+    # of `repr` and build JSON so existing identities are unchanged.
+    applied_union: UnionTypeRef | None = dataclass_field(
+        default=None, hash=False, metadata={"json_omit_if_none": True}
+    )
+
+    def __repr__(self) -> str:
+        applied = "" if self.applied_union is None else f", applied_union={self.applied_union!r}"
+        return (
+            f"{self.__class__.__qualname__}(union_name={self.union_name!r}, "
+            f"variant_names={self.variant_names!r}{applied})"
+        )
 
 
 @dataclass(frozen=True)
@@ -1485,6 +1498,12 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
     if isinstance(expected, DiscriminantTypeRef):
         if not isinstance(actual, DiscriminantTypeRef):
             return False
+        if expected.applied_union is not None or actual.applied_union is not None:
+            return (
+                expected.applied_union is not None
+                and actual.applied_union is not None
+                and type_refs_compatible(expected.applied_union, actual.applied_union)
+            )
         return _union_name_basename(expected.union_name) == _union_name_basename(actual.union_name)
     if isinstance(expected, WorkflowRefTypeRef):
         return (

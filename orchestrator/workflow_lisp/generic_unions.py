@@ -179,6 +179,37 @@ def substitute_applied_union(
     return _applied_union(applied, applied.name.partition("[")[0], type_args, bindings)
 
 
+def bind_applied_union_arguments(
+    expected: UnionTypeRef,
+    actual: UnionTypeRef,
+    *,
+    bind: Callable[[TypeRef, TypeRef], None],
+    raise_error: Callable[..., None],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    """Match an applied union from a generic signature against a concrete one.
+
+    Invariant binding: `actual` must apply the same declaration (defining
+    module included) with the same arity, and then `bind` matches each
+    argument position in order, phantom arguments included. `bind` is the
+    caller's recursive binder, so repeated parameters unify through it.
+    A constructor mismatch is a `type_mismatch` noting both declarations.
+    """
+
+    if expected.definition != actual.definition or len(expected.type_args) != len(actual.type_args):
+        raise_error(
+            f"procedure argument expected `{expected.name}` but got `{actual.name}`, "
+            "which does not apply the same generic union declaration",
+            code="type_mismatch",
+            span=span,
+            form_path=form_path,
+            notes=(*_declared_at(expected.definition), *_declared_at(actual.definition)),
+        )
+    for expected_arg, actual_arg in zip(expected.type_args, actual.type_args, strict=True):
+        bind(expected_arg, actual_arg)
+
+
 def generic_union_fill_order(
     definitions: Iterable[DefinitionNode],
     *,

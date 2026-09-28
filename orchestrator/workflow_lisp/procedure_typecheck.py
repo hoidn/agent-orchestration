@@ -16,6 +16,7 @@ from .effects import (
     merge_effect_summaries,
 )
 from .parametric_constraints import evaluate_parametric_constraints, provisional_shared_union_field_capabilities
+from .generic_unions import bind_applied_union_arguments
 from .expressions import (
     BindProcBinding,
     BindProcExpr,
@@ -370,6 +371,9 @@ def _type_param_names_in_type_ref(type_ref: TypeRef) -> frozenset[str]:
             names.update(_type_param_names_in_type_ref(param_type))
         names.update(_type_param_names_in_type_ref(type_ref.return_type_ref))
         return frozenset(names)
+    if isinstance(type_ref, UnionTypeRef):
+        # Applied generic union arguments bind, phantom ones included.
+        return frozenset(name for arg in type_ref.type_args for name in _type_param_names_in_type_ref(arg))
     if isinstance(type_ref, RecordTypeRef):
         from .context_types import is_contextual_type
 
@@ -890,6 +894,23 @@ def _infer_parametric_type_bindings(
             form_path=form_path,
         )
         return
+    if isinstance(expected_type, UnionTypeRef) and expected_type.type_args:
+        bind_applied_union_arguments(
+            expected_type,
+            actual_type,
+            bind=lambda expected_arg, actual_arg: _infer_parametric_type_bindings(
+                expected_arg,
+                actual_arg,
+                bindings=bindings,
+                raise_error=raise_error,
+                span=span,
+                form_path=form_path,
+            ),
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        return
     if hasattr(expected_type, "item_type_ref") and hasattr(actual_type, "item_type_ref"):
         _infer_parametric_type_bindings(
             expected_type.item_type_ref,
@@ -962,6 +983,8 @@ def _type_ref_contains_type_param(type_ref: TypeRef) -> bool:
         return any(_type_ref_contains_type_param(param) for param in type_ref.param_type_refs) or _type_ref_contains_type_param(
             type_ref.return_type_ref
         )
+    if isinstance(type_ref, UnionTypeRef):
+        return any(_type_ref_contains_type_param(arg) for arg in type_ref.type_args)
     return False
 
 

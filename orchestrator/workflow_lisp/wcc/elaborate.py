@@ -5465,6 +5465,7 @@ def _infer_expr_type(
                 current = DiscriminantTypeRef(
                     union_name=current.name,
                     variant_names=tuple(variant.name for variant in current.definition.variants),
+                    applied_union=current if current.type_args else None,
                 )
                 continue
             if not isinstance(current, (RecordTypeRef, VariantCaseTypeRef)):
