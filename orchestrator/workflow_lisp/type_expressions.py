@@ -226,6 +226,14 @@ def parse_type_expression(
             )
         )
 
+    if args_text.strip() and split_top_level_args(args_text) != (args_text.strip(),):
+        # A top-level comma: `Map[K, V]` style is only for the built-in heads.
+        _raise_type_expression_error(
+            f"type arguments of `{head}` are separated by whitespace, not commas, in `{authored}`",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
     return AppliedTypeExpr(
         head=head,
         args=tuple(

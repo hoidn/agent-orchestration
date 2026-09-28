@@ -35,6 +35,7 @@ from .type_env import (
     UnionTypeRef,
     _first_type_param_ref,
     _render_type_expr,
+    reject_untransportable_union_payloads,
     render_type_ref,
     substitute_type_params,
 )
@@ -146,7 +147,15 @@ def resolve_generic_union_application(
         )
         for arg in parsed.args
     )
-    return instantiate_generic_union(head_ref, type_args)
+    applied = instantiate_generic_union(head_ref, type_args)
+    reject_untransportable_union_payloads(
+        applied,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+        notes=_declared_at(definition),
+    )
+    return applied
 
 
 def instantiate_generic_union(

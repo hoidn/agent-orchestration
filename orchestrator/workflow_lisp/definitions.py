@@ -115,13 +115,19 @@ class UnionDef:
 
     `type_params` is non-empty for a target-2.33 generic union
     (`defunion Name :forall (T ...)`); its variant field types may name those
-    parameters, which are scoped to this declaration.
+    parameters, which are scoped to this declaration. It stays out of `repr`
+    (digested by specialization identities) and, when empty, out of build
+    JSON, so existing identities and build bytes are unchanged.
     """
 
     name: str
     variants: tuple[UnionVariant, ...]
     span: SourceSpan
-    type_params: tuple[str, ...] = ()
+    type_params: tuple[str, ...] = field(
+        default=(),
+        repr=False,
+        metadata={"json_omit_if_empty": True},
+    )
 
 
 DefinitionNode = EnumDef | PathDef | RecordDef | UnionDef

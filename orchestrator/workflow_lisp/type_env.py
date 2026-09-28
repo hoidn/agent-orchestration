@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
 
 from .definitions import (
@@ -205,12 +207,15 @@ class UnionTypeRef:
 
     `type_args` is non-empty only for an applied generic union such as
     `Outcome[Int String]`; see `generic_unions.py` for the representation.
+    It is kept out of `repr` (digested by `parametric_specialization_name`)
+    and, when empty, out of build JSON, so existing identities and build
+    bytes are unchanged; `name` already renders the args.
     """
 
     name: str
     definition: UnionDef
     variant_field_types: dict[str, dict[str, "TypeRef"]]
-    type_args: tuple["TypeRef", ...] = ()
+    type_args: tuple["TypeRef", ...] = dataclass_field(default=(), repr=False, metadata={"json_omit_if_empty": True})
 
 
 @dataclass(frozen=True)
@@ -234,7 +239,7 @@ class VariantCaseTypeRef:
     # The owning union's `type_args` when it is an applied generic union, so
     # compatibility can check constructor and argument identity by value
     # rather than by the rendered `union_name`.
-    union_type_args: tuple["TypeRef", ...] = ()
+    union_type_args: tuple["TypeRef", ...] = dataclass_field(default=(), repr=False, metadata={"json_omit_if_empty": True})
 
 
 @dataclass(frozen=True)
@@ -534,14 +539,12 @@ class FrontendTypeEnvironment:
                     )
                     for variant in definition.variants:
                         for field_name, field_type in union_ref.variant_field_types[variant.name].items():
-                            if _type_ref_contains_proc_ref(field_type):
-                                _raise_error(
-                                    "proc-ref types cannot be transported in union payloads "
-                                    f"`{definition.name}.{variant.name}.{field_name}`",
-                                    code="proc_ref_runtime_transport_forbidden",
-                                    span=next(field.span for field in variant.fields if field.name == field_name),
-                                    form_path=("workflow-lisp", definition.name, variant.name, field_name),
-                                )
+                            _reject_proc_ref_in_union_payload(
+                                field_type,
+                                location=f"{definition.name}.{variant.name}.{field_name}",
+                                span=next(field.span for field in variant.fields if field.name == field_name),
+                                form_path=("workflow-lisp", definition.name, variant.name, field_name),
+                            )
         return cls(
             type_refs,
             target_dsl_version=module.target_dsl_version,
@@ -995,22 +998,13 @@ def _resolve_parsed_type_expr(
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
         )
-        if _type_ref_contains_workflow_ref(item_type_ref):
-            _raise_error(
-                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
-                code="workflow_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        if _type_ref_contains_proc_ref(item_type_ref):
-            _raise_error(
-                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
-                code="proc_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
+        _reject_refs_in_collection_item(
+            item_type_ref,
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
         return OptionalTypeRef(name=authored_name, item_type_ref=item_type_ref)
     if isinstance(parsed, ListTypeExpr):
         item_type_ref = _resolve_parsed_type_expr(
@@ -1025,22 +1019,13 @@ def _resolve_parsed_type_expr(
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
         )
-        if _type_ref_contains_workflow_ref(item_type_ref):
-            _raise_error(
-                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
-                code="workflow_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        if _type_ref_contains_proc_ref(item_type_ref):
-            _raise_error(
-                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
-                code="proc_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
+        _reject_refs_in_collection_item(
+            item_type_ref,
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
         return ListTypeRef(name=authored_name, item_type_ref=item_type_ref)
     if isinstance(parsed, MapTypeExpr):
         key_type_ref = _resolve_parsed_type_expr(
@@ -1075,22 +1060,13 @@ def _resolve_parsed_type_expr(
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
         )
-        if _type_ref_contains_workflow_ref(value_type_ref):
-            _raise_error(
-                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
-                code="workflow_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        if _type_ref_contains_proc_ref(value_type_ref):
-            _raise_error(
-                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
-                code="proc_ref_runtime_transport_forbidden",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
+        _reject_refs_in_collection_item(
+            value_type_ref,
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
         return MapTypeRef(
             name=authored_name,
             key_type_ref=key_type_ref,
@@ -1489,7 +1465,7 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
     if isinstance(expected, DiscriminantTypeRef):
         if not isinstance(actual, DiscriminantTypeRef):
             return False
-        return _named_type_basename(expected.union_name) == _named_type_basename(actual.union_name)
+        return _union_name_basename(expected.union_name) == _union_name_basename(actual.union_name)
     if isinstance(expected, WorkflowRefTypeRef):
         return (
             len(expected.param_type_refs) == len(actual.param_type_refs)
@@ -1566,6 +1542,16 @@ def _record_type_basename(type_ref: RecordTypeRef) -> str:
 
 def _named_type_basename(name: str) -> str:
     return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+
+
+def _union_name_basename(name: str) -> str:
+    """`_named_type_basename` for every name token, so applied names keep their head.
+
+    `gu/lib::Alpha[gu/lib::Item]` becomes `Alpha[Item]`, not `Item]`; plain
+    union names get exactly `_named_type_basename`.
+    """
+
+    return re.sub(r"[^\s\[\]()]*(?:::|/)", "", name)
 
 
 def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> TypeRef:
@@ -1703,6 +1689,85 @@ def _first_type_param_ref(type_ref: TypeRef) -> TypeParamRef | None:
     return None
 
 
+def reject_untransportable_union_payloads(
+    union_ref: UnionTypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+    notes: tuple[str, ...] = (),
+) -> None:
+    """Apply the declared-union payload rules to an applied union's payload.
+
+    A declared union gets these checks while its field types are resolved
+    (collection items) and after (payload proc refs). An applied union's
+    substituted fields skipped both, so they are re-checked here at the use
+    site, recursing into nested applied unions whose payloads were
+    substituted along with it.
+    """
+
+    context = {"span": span, "form_path": form_path, "expansion_stack": expansion_stack, "notes": notes}
+    for variant_name, field_types in union_ref.variant_field_types.items():
+        for field_name, field_type in field_types.items():
+            location = f"{union_ref.name}.{variant_name}.{field_name}"
+            if isinstance(field_type, (OptionalTypeRef, ListTypeRef)):
+                _reject_refs_in_collection_item(field_type.item_type_ref, authored_name=location, **context)
+            elif isinstance(field_type, MapTypeRef):
+                _reject_refs_in_collection_item(field_type.value_type_ref, authored_name=location, **context)
+            elif isinstance(field_type, UnionTypeRef) and field_type.type_args:
+                reject_untransportable_union_payloads(field_type, **context)
+            _reject_proc_ref_in_union_payload(field_type, location=location, **context)
+
+
+def _reject_refs_in_collection_item(
+    item_type_ref: TypeRef,
+    *,
+    authored_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+    notes: tuple[str, ...] = (),
+) -> None:
+    if _type_ref_contains_workflow_ref(item_type_ref):
+        _raise_error(
+            f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
+            code="workflow_ref_runtime_transport_forbidden",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            notes=notes,
+        )
+    if _type_ref_contains_proc_ref(item_type_ref):
+        _raise_error(
+            f"proc-ref types cannot be nested inside collections in `{authored_name}`",
+            code="proc_ref_runtime_transport_forbidden",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            notes=notes,
+        )
+
+
+def _reject_proc_ref_in_union_payload(
+    field_type: TypeRef,
+    *,
+    location: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+    notes: tuple[str, ...] = (),
+) -> None:
+    if _type_ref_contains_proc_ref(field_type):
+        _raise_error(
+            f"proc-ref types cannot be transported in union payloads `{location}`",
+            code="proc_ref_runtime_transport_forbidden",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+            notes=notes,
+        )
+
+
 def _type_ref_contains_workflow_ref(type_ref: TypeRef) -> bool:
     if isinstance(type_ref, WorkflowRefTypeRef):
         return True
@@ -1750,6 +1815,7 @@ def _raise_error(
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...] = (),
+    notes: tuple[str, ...] = (),
 ) -> None:
     raise LispFrontendCompileError(
         (
@@ -1759,6 +1825,7 @@ def _raise_error(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+                notes=notes,
             ),
         )
     )

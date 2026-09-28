@@ -7,9 +7,12 @@ parameters through applied unions and specialization are later tasks.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+
+from orchestrator.workflow_lisp.build_manifest_io import _json_data
 
 from orchestrator.workflow_lisp.compiler import (
     compile_stage1_module,
@@ -286,71 +289,45 @@ def test_nested_application_rejects_inner_instantiation_mismatch(tmp_path: Path)
 # --- rejections ----------------------------------------------------------------
 
 
+BAG = "  (defunion Bag :forall (T)\n    (SOME (items List[T])))"
+PROC_REF = "ProcRef[(Int) -> Int]"
+WORKFLOW_REF = "WorkflowRef[(Int) -> Holder]"
+
+
+def _rejection(body: str, code: str, use_needle: str, declaration_needle: str, case_id: str):
+    return pytest.param(body, code, use_needle, declaration_needle, id=case_id)
+
+
 REJECTIONS = [
-    pytest.param(
-        f"{OUTCOME}\n{_param_probe('Outcome[Int]')}",
-        "generic_union_arity_mismatch",
-        "((value Outcome[Int]))",
-        "(defunion Outcome",
-        id="too-few-arguments",
-    ),
-    pytest.param(
-        f"{OUTCOME}\n{_param_probe('Outcome[Int String Bool]')}",
-        "generic_union_arity_mismatch",
-        "((value Outcome[Int String Bool]))",
-        "(defunion Outcome",
-        id="too-many-arguments",
-    ),
-    pytest.param(
-        f"{OUTCOME}\n{_param_probe('Outcome')}",
-        "generic_union_arity_mismatch",
-        "((value Outcome))",
-        "(defunion Outcome",
-        id="unapplied-generic-union",
-    ),
-    pytest.param(
-        f"{OUTCOME}\n{_param_probe('Outcome[T String]')}",
-        "generic_union_unresolved_argument",
-        "((value Outcome[T String]))",
-        "(defunion Outcome",
-        id="unresolved-parameter-in-concrete-position",
-    ),
-    pytest.param(
-        f"{OUTCOME}\n  (defrecord Holder\n    (outcome Outcome[T String]))",
-        "generic_union_unresolved_argument",
-        "(outcome Outcome[T String])",
-        "(defunion Outcome",
-        id="unresolved-parameter-in-record-field",
-    ),
-    pytest.param(
-        "  (defunion Plain\n    (ONLY (value Int)))\n" + _param_probe("Plain[Int]"),
-        "generic_union_not_generic",
-        "((value Plain[Int]))",
-        "(defunion Plain",
-        id="non-generic-union",
-    ),
-    pytest.param(
-        "  (defrecord Box\n    (value Int))\n" + _param_probe("Box[Int]"),
-        "generic_union_not_generic",
-        "((value Box[Int]))",
-        "(defrecord Box",
-        id="record",
-    ),
-    pytest.param(
-        "  (defunion Chain :forall (T)\n    (MORE (next Chain[T]))\n    (DONE (value T)))",
-        "generic_union_instantiation_cycle",
-        "(MORE (next Chain[T]))",
-        "(defunion Chain",
-        id="self-application",
-    ),
-    pytest.param(
-        "  (defunion Ping :forall (T)\n    (PING (pong Pong[T])))\n"
-        "  (defunion Pong :forall (T)\n    (PONG (ping Ping[T])))",
-        "generic_union_instantiation_cycle",
-        "(PONG (ping Ping[T]))",
-        "(defunion Ping",
-        id="mutual-application",
-    ),
+    _rejection(f"{OUTCOME}\n{_param_probe('Outcome[Int]')}", "generic_union_arity_mismatch",
+               "((value Outcome[Int]))", "(defunion Outcome", "too-few-arguments"),
+    _rejection(f"{OUTCOME}\n{_param_probe('Outcome[Int String Bool]')}", "generic_union_arity_mismatch",
+               "((value Outcome[Int String Bool]))", "(defunion Outcome", "too-many-arguments"),
+    _rejection(f"{OUTCOME}\n{_param_probe('Outcome')}", "generic_union_arity_mismatch",
+               "((value Outcome))", "(defunion Outcome", "unapplied-generic-union"),
+    _rejection(f"{OUTCOME}\n{_param_probe('Outcome[T String]')}", "generic_union_unresolved_argument",
+               "((value Outcome[T String]))", "(defunion Outcome", "unresolved-parameter-in-concrete-position"),
+    _rejection(f"{OUTCOME}\n  (defrecord Holder\n    (outcome Outcome[T String]))", "generic_union_unresolved_argument",
+               "(outcome Outcome[T String])", "(defunion Outcome", "unresolved-parameter-in-record-field"),
+    _rejection("  (defunion Plain\n    (ONLY (value Int)))\n" + _param_probe("Plain[Int]"), "generic_union_not_generic",
+               "((value Plain[Int]))", "(defunion Plain", "non-generic-union"),
+    _rejection("  (defrecord Box\n    (value Int))\n" + _param_probe("Box[Int]"), "generic_union_not_generic",
+               "((value Box[Int]))", "(defrecord Box", "record"),
+    _rejection("  (defunion Chain :forall (T)\n    (MORE (next Chain[T]))\n    (DONE (value T)))",
+               "generic_union_instantiation_cycle", "(MORE (next Chain[T]))", "(defunion Chain", "self-application"),
+    _rejection("  (defunion Ping :forall (T)\n    (PING (pong Pong[T])))\n"
+               "  (defunion Pong :forall (T)\n    (PONG (ping Ping[T])))",
+               "generic_union_instantiation_cycle", "(PONG (ping Ping[T]))", "(defunion Ping", "mutual-application"),
+    # Instantiated payloads obey the same transport rules as declared payloads.
+    _rejection(f"{OUTCOME}\n{_param_probe(f'Outcome[{PROC_REF} String]')}", "proc_ref_runtime_transport_forbidden",
+               f"((value Outcome[{PROC_REF} String]))", "(defunion Outcome", "proc-ref-payload"),
+    _rejection(f"{BAG}\n{_param_probe(f'Bag[{PROC_REF}]')}", "proc_ref_runtime_transport_forbidden",
+               f"((value Bag[{PROC_REF}]))", "(defunion Bag", "proc-ref-in-collection-payload"),
+    _rejection(f"  (defrecord Holder\n    (label String))\n{BAG}\n{_param_probe(f'Bag[{WORKFLOW_REF}]')}",
+               "workflow_ref_runtime_transport_forbidden",
+               f"((value Bag[{WORKFLOW_REF}]))", "(defunion Bag", "workflow-ref-in-collection-payload"),
+    _rejection(f"{NESTED}\n{_param_probe(f'Wrapped[{PROC_REF}]')}", "proc_ref_runtime_transport_forbidden",
+               f"((value Wrapped[{PROC_REF}]))", "(defunion Wrapped", "proc-ref-in-nested-application-payload"),
 ]
 
 
@@ -372,6 +349,48 @@ def test_rejections_locate_the_use_site_and_the_declaration(
     assert (diagnostic.span.start.line, any(declaration_location in note for note in diagnostic.notes)) == (
         _line_of(path, use_needle),
         True,
+    )
+
+
+def test_non_generic_union_identity_and_build_encoding_are_unchanged(tmp_path: Path) -> None:
+    """Specialization names digest `repr` and build artifacts serialize fields."""
+
+    result = _compile(_write(tmp_path, f"{PLAIN}\n{_param_probe('Plain')}"), tmp_path, frontend=True)
+    plain = result.procedure_catalog.signatures_by_name["probe"].params[0][1]
+    encoded = f"{plain!r} {json.dumps(_json_data(plain), default=str)}"
+
+    assert not any(key in encoded for key in ("type_params", "type_args"))
+
+
+def test_generic_union_application_inside_procref_signature_is_not_a_payload(tmp_path: Path) -> None:
+    path = _write(tmp_path, f"{OUTCOME}\n{_param_probe('ProcRef[(Int) -> Outcome[Int String]]')}")
+
+    result = _compile(path, tmp_path, frontend=True)
+
+    assert "probe" in result.procedure_catalog.signatures_by_name
+
+
+def test_comma_separated_type_arguments_are_rejected_as_invalid_syntax(tmp_path: Path) -> None:
+    diagnostic = _frontend_error(tmp_path, f"{OUTCOME}\n{_param_probe('Outcome[Int, String]')}")
+
+    assert diagnostic.code == "type_expression_invalid"
+
+
+@pytest.mark.parametrize(
+    ("body", "error_needle"),
+    [
+        pytest.param("  (defunion Missing\n    :forall)", ":forall)", id="missing"),
+        pytest.param("  (defunion Empty\n    :forall ()\n    (A (v Int)))", ":forall ()", id="empty"),
+        pytest.param("  (defunion Twice :forall (T\n    T)\n    (A (v T)))", "    T)", id="duplicate"),
+        pytest.param('  (defunion Text :forall (T\n    "E")\n    (A (v T)))', '"E")', id="non-symbol"),
+    ],
+)
+def test_malformed_forall_clause_is_rejected_at_the_clause(tmp_path: Path, body: str, error_needle: str) -> None:
+    diagnostic = _frontend_error(tmp_path, body)
+
+    assert (diagnostic.code, diagnostic.span.start.line) == (
+        "frontend_parse_error",
+        _line_of(tmp_path / "module.orc", error_needle),
     )
 
 
@@ -450,14 +469,31 @@ def test_narrowed_variant_is_compatible_with_its_applied_union(tmp_path: Path) -
     assert "gu/narrow::narrow" in result.entry_result.procedure_catalog.signatures_by_name
 
 
-def test_narrowed_variant_is_not_compatible_with_another_generic_union(tmp_path: Path) -> None:
+def _narrow_error(tmp_path: Path, authored: str, replacement: str) -> LispFrontendDiagnostic:
+    """Compile `gu/narrow` with one authored fragment replaced."""
+
     (tmp_path / "gu").mkdir()
     (tmp_path / "gu" / "lib.orc").write_text((MODULE_ROOT / "gu" / "lib.orc").read_text(encoding="utf-8"))
     path = tmp_path / "gu" / "narrow.orc"
-    narrow = (MODULE_ROOT / "gu" / "narrow.orc").read_text(encoding="utf-8")
-    path.write_text(narrow.replace("-> Alpha[Item]", "-> Beta[Item]"), encoding="utf-8")
-
+    path.write_text((MODULE_ROOT / "gu" / "narrow.orc").read_text(encoding="utf-8").replace(authored, replacement))
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_entrypoint(path, tmp_path, source_root=tmp_path, frontend=True)
+    return _first_diagnostic(excinfo)
 
-    assert _first_diagnostic(excinfo).code == "procedure_return_type_invalid"
+
+def test_narrowed_variant_is_not_compatible_with_another_generic_union(tmp_path: Path) -> None:
+    diagnostic = _narrow_error(tmp_path, "-> Alpha[Item]", "-> Beta[Item]")
+
+    assert diagnostic.code == "procedure_return_type_invalid"
+
+
+def test_discriminants_of_the_same_applied_union_are_comparable(tmp_path: Path) -> None:
+    result = _compile_entrypoint(MODULE_ROOT / "gu" / "narrow.orc", tmp_path, frontend=True)
+
+    assert "gu/narrow::same-tag" in result.entry_result.procedure_catalog.signatures_by_name
+
+
+def test_discriminants_of_different_generic_unions_are_not_comparable(tmp_path: Path) -> None:
+    diagnostic = _narrow_error(tmp_path, "(right Alpha[Item])", "(right Beta[Item])")
+
+    assert diagnostic.code == "variant_tag_union_mismatch"

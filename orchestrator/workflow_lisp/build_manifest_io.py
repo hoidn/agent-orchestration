@@ -914,6 +914,8 @@ def _json_data(value: Any) -> Any:
                 continue
             if field.metadata.get("json_omit_if_none") and item is None:
                 continue
+            if field.metadata.get("json_omit_if_empty") and not item:
+                continue
             value_attr = field.metadata.get("json_value_attr")
             if isinstance(value_attr, str):
                 item = getattr(item, value_attr)
