@@ -498,10 +498,11 @@ investigation:
    the type-system amendment is refused, or the exhaustion projection cannot
    be corrected at its owner, CF-1b is not started, the gap is recorded in the
    design, and CF-1 returns to pending. **Executed 2026-09-28:** the generic
-   exhaustion projection holds at compile and run, but the runtime exhaustion
-   selector drops the final `continue` for `:max` ≥ 2; see the
-   [check report](../reports/2026-09-28-cf1a-exhaustion-projection-check.md). The correction is bounded and at
-   its owner, so the stop rule is not triggered;
+   exhaustion projection holds at compile and run. The initial check found a
+   dropped final `continue` for `:max` ≥ 2; the owner-level repair now preserves
+   it, including public committed-boundary resume. See the
+   [check report](../reports/2026-09-28-cf1a-exhaustion-projection-check.md) and
+   step 2's verification record. The stop rule is not triggered;
 2. the owner-level substrate correction under the
    [runtime prerequisite plan](2026-09-28-cf1-runtime-prerequisites.md), before
    CF-1b's helper/runtime evidence. Use the already-resolved declared terminal
@@ -512,7 +513,13 @@ investigation:
    multiple revisions, and public fresh/resumed results agree without replay.
    The owner's subsequent cleanup request also covers ambiguous output/failure
    handling and name-derived restoration in these affected paths, using existing
-   compiled descriptors rather than new schemas or guessing fallbacks;
+   compiled descriptors rather than new schemas or guessing fallbacks.
+   **Integrated on `main`, 2026-09-28:** the selector is removed, ordinary
+   imported `std/phase` and fresh/resume checks pass, and 725 adjacent tests
+   pass after the restoration cleanup. The full-suite comparison is recorded
+   in the runtime plan; the master plan's no-new-failures gate remains open
+   because of one additional provider-cancellation failure in unchanged code,
+   despite its entire module passing isolated in both storage layouts;
 3. CF-1b as an owner-requested package under the
    [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md), in
    the same manner as Packages C and D of the composition plan;
@@ -543,12 +550,12 @@ concurrent EC-1 or PC-1 work before execution. No research allocation changes.
 **Amendment boundary:** the
 [review-amendment task](2026-09-28-composition-first-review-amendments.md) updates
 contracts and records the separately executed feasibility check. The
-generic-record `:on-exhausted` prerequisite **holds, blocked on a bounded runtime
-selector fix** (2026-09-28). `EXHAUSTED (value S)` cannot honor its contract
-until that correction (selection record, step 2); remove the regression's
-strict `xfail` marker when the correct final value passes. The amendment does
-not resolve the defect or close CF-1a; capture/resume and `ctx` dependency
-checks remain outstanding. The first-delivery `S is-record` limit is retained,
+generic-record `:on-exhausted` prerequisite **holds; its runtime defect is
+corrected on `main`** (2026-09-28; selection record, step 2). The final-value
+regression passes without `xfail`, including public committed-boundary resume;
+the runtime plan records broad verification separately. This does not close
+CF-1a: fixed-input capture across resume and `ctx` dependency checks remain
+outstanding. The first-delivery `S is-record` limit is retained,
 while `I` need not be a record or authored loop state.
 
 The same check found a WCC elaboration `TypeError` for a pure inline review
@@ -566,9 +573,12 @@ any displaced machinery to remove. This work neither gates an E/ES/P exit nor
 changes studies.
 
 **Routing:** no executable manifest/queue row is added. The five research
-units and their allocations stay unchanged. CF-1a is in progress; the
-exhaustion-selector correction and CF-1b follow it, and CF-1b precedes R1b.
-CF-1c and CF-1d still need their own selection and allocation.
+units and their allocations stay unchanged. CF-1a is in progress; its runtime
+correction is integrated, with verification tracked in step 2. CF-1b follows
+the remaining prerequisites and precedes R1b.
+CF-1c is selected through the utility evaluation (Tasks 8–12); its later
+library migration/retirement (Tasks 13–15) and CF-1d require separate owner
+decisions and any necessary allocation.
 
 ## Current ES Boundary
 

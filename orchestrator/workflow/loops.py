@@ -715,63 +715,6 @@ class LoopExecutor:
         artifacts.update(dict(overrides))
         return artifacts
 
-    def _exhaustion_frame_artifacts(
-        self,
-        *,
-        frame_artifacts: Mapping[str, Any],
-        iteration_state: Mapping[str, Any],
-        current_iteration: int,
-    ) -> Dict[str, Any]:
-        """Use loop/recur's current-state snapshot for authored exhaustion state reads.
-
-        The final iteration's loop-state UPDATE lives on an executed
-        `(continue (loop-state …))` step (`…__continue__state`, one per match
-        arm on branched bodies; skipped arms are ignored) and takes precedence
-        over the iteration-entry `…__body__state` binding, which carries the
-        state as of iteration START. Bodies without an arm update fall back to
-        the single `…__body__state` snapshot. More than one executed candidate
-        at the selected tier is a state-integrity error — fail fast instead of
-        silently reporting the iteration-entry state.
-        """
-
-        if current_iteration <= 0:
-            return dict(frame_artifacts)
-        state_keys = {
-            key
-            for key in frame_artifacts
-            if isinstance(key, str) and key.startswith("state__")
-        }
-        if not state_keys or "status" not in frame_artifacts:
-            return dict(frame_artifacts)
-        executed: dict[str, Mapping[str, Any]] = {}
-        for step_name, result in iteration_state.items():
-            if not isinstance(step_name, str) or not step_name.endswith("__state"):
-                continue
-            if not isinstance(result, Mapping) or result.get("skipped", False):
-                continue
-            artifacts = result.get("artifacts")
-            if isinstance(artifacts, Mapping) and state_keys <= set(artifacts):
-                executed[step_name] = artifacts
-        candidates = {
-            name: artifacts
-            for name, artifacts in executed.items()
-            if name.endswith("__continue__state")
-        } or {
-            name: artifacts
-            for name, artifacts in executed.items()
-            if name.endswith("__body__state")
-        }
-        if len(candidates) > 1:
-            raise LoopStateIntegrityError(
-                "repeat_until exhaustion state snapshot is ambiguous: iteration "
-                f"{current_iteration} carries {len(candidates)} executed loop-state "
-                f"updates ({sorted(candidates)})"
-            )
-        if not candidates:
-            return dict(frame_artifacts)
-        snapshot = next(iter(candidates.values()))
-        return {**dict(frame_artifacts), **{key: snapshot[key] for key in state_keys}}
-
     def execute_repeat_until(
         self,
         step: RuntimeStepInput,
@@ -1241,19 +1184,24 @@ class LoopExecutor:
                     )
                     return state
 
-            artifacts = self.executor._resolve_structured_output_artifacts(
-                outputs,
-                state,
-                failure_message="repeat_until output resolution failed",
-                selection_key="iteration",
-                selection_value=str(current_iteration),
-                scope={
-                    "self_steps": iteration_state,
-                    "parent_steps": parent_scope_steps,
-                    "root_steps": state.get("steps", {}),
-                },
-            )
-            if not isinstance(artifacts, dict):
+            if restored_iteration_complete:
+                # The validated checkpoint replaces the retired body results.
+                # Preserve legacy result aliases for their declared normalizer.
+                artifacts, output_failure = dict(frame_artifacts), None
+            else:
+                artifacts, output_failure = self.executor._resolve_structured_output_artifacts(
+                    outputs,
+                    state,
+                    failure_message="repeat_until output resolution failed",
+                    selection_key="iteration",
+                    selection_value=str(current_iteration),
+                    scope={
+                        "self_steps": iteration_state,
+                        "parent_steps": parent_scope_steps,
+                        "root_steps": state.get("steps", {}),
+                    },
+                )
+            if output_failure is not None:
                 failure_progress = {
                     "current_iteration": current_iteration,
                     "completed_iterations": completed_iterations,
@@ -1268,7 +1216,7 @@ class LoopExecutor:
                         exit_code=2,
                         artifacts=frame_artifacts,
                         progress=failure_progress,
-                        error=artifacts.get("error") if isinstance(artifacts, dict) else None,
+                        error=output_failure["error"],
                     ),
                     phase_hint="post_execution",
                     class_hint="contract_violation",
@@ -1406,18 +1354,13 @@ class LoopExecutor:
                 return state
 
             if current_iteration + 1 >= max_iterations:
-                exhaustion_frame_artifacts = self._exhaustion_frame_artifacts(
-                    frame_artifacts=frame_artifacts,
-                    iteration_state=iteration_state,
-                    current_iteration=current_iteration,
-                )
                 progress = {
                     "current_iteration": None,
                     "completed_iterations": completed_iterations,
                     "condition_evaluated_for_iteration": current_iteration,
                     "last_condition_result": False,
                 }
-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
+                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, frame_artifacts)
                 if exhausted_artifacts is not None:
                     progress["exhausted"] = True
                     completed = self.executor._attach_outcome(
@@ -1464,7 +1407,7 @@ class LoopExecutor:
                         step,
                         status="failed",
                         exit_code=3,
-                        artifacts=exhaustion_frame_artifacts,
+                        artifacts=frame_artifacts,
                         progress=progress,
                         error=exhaustion_error,
                     ),

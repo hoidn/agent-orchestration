@@ -79,6 +79,8 @@ class _LoweringContext:
     ensure_workflow_lowered: Any
     specialize_workflow: Any
     type_env: FrontendTypeEnvironment
+    # The enclosing executable target, independent of an inlined definition's target.
+    output_target_dsl_version: str
     lowering_session: LoweringSessionState
     step_spans: dict[str, LoweringOrigin]
     generated_input_spans: dict[str, LoweringOrigin]

@@ -492,10 +492,11 @@ def test_loop_recur_on_exhausted_scalar_frame_carriage_executes_through_shared_r
     assert loop_step["artifacts"]["result__reason"] == {
         "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__exhaustion_reason"
     }
+    # Exhaustion projects the state after the second committed continue.
     assert state["workflow_outputs"] == {
         "return__variant": "EXHAUSTED",
-        "return__attempt_count": 1,
-        "return__reason": "retrying",
+        "return__attempt_count": 2,
+        "return__reason": "max_iterations_reached",
     }
 
 
