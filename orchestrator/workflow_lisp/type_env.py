@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from reprlib import recursive_repr
 from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
 
@@ -207,15 +208,25 @@ class UnionTypeRef:
 
     `type_args` is non-empty only for an applied generic union such as
     `Outcome[Int String]`; see `generic_unions.py` for the representation.
-    It is kept out of `repr` (digested by `parametric_specialization_name`)
-    and, when empty, out of build JSON, so existing identities and build
-    bytes are unchanged; `name` already renders the args.
+    `repr` is digested into specialization and checkpoint identities, so it
+    shows `type_args` only when non-empty: applied unions keep their
+    (possibly phantom) arguments in identity, and every other union keeps
+    the dataclass-generated repr. Empty `type_args` also stay out of build
+    JSON, so existing identities and build bytes are unchanged.
     """
 
     name: str
     definition: UnionDef
     variant_field_types: dict[str, dict[str, "TypeRef"]]
-    type_args: tuple["TypeRef", ...] = dataclass_field(default=(), repr=False, metadata={"json_omit_if_empty": True})
+    type_args: tuple["TypeRef", ...] = dataclass_field(default=(), metadata={"json_omit_if_empty": True})
+
+    @recursive_repr()
+    def __repr__(self) -> str:
+        args = f", type_args={self.type_args!r}" if self.type_args else ""
+        return (
+            f"{self.__class__.__qualname__}(name={self.name!r}, definition={self.definition!r}, "
+            f"variant_field_types={self.variant_field_types!r}{args})"
+        )
 
 
 @dataclass(frozen=True)
@@ -238,8 +249,17 @@ class VariantCaseTypeRef:
     field_types: dict[str, "TypeRef"] | None = None
     # The owning union's `type_args` when it is an applied generic union, so
     # compatibility can check constructor and argument identity by value
-    # rather than by the rendered `union_name`.
-    union_type_args: tuple["TypeRef", ...] = dataclass_field(default=(), repr=False, metadata={"json_omit_if_empty": True})
+    # rather than by the rendered `union_name`. Shown in `repr` only when
+    # non-empty, like `UnionTypeRef.type_args`.
+    union_type_args: tuple["TypeRef", ...] = dataclass_field(default=(), metadata={"json_omit_if_empty": True})
+
+    @recursive_repr()
+    def __repr__(self) -> str:
+        args = f", union_type_args={self.union_type_args!r}" if self.union_type_args else ""
+        return (
+            f"{self.__class__.__qualname__}(union_name={self.union_name!r}, variant_name={self.variant_name!r}, "
+            f"definition={self.definition!r}, field_types={self.field_types!r}{args})"
+        )
 
 
 @dataclass(frozen=True)
