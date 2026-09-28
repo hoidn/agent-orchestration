@@ -312,7 +312,7 @@ def _lower_command_result_operation(
     return [step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs=_record_output_refs(step_name, result_type),
+        output_refs=_record_output_refs(step_name, result_type, use_site=command_result),
         output_kind="step",
         hidden_inputs={
             allocation.generated_input_name: _origin_from_context_source(context, command_result)
@@ -744,7 +744,7 @@ def _lower_provider_result_operation(
                 result_type,
                 capture_context=provider_result.capture_context == "portable",
             )
-            or _record_output_refs(provider_step_name, result_type)
+            or _record_output_refs(provider_step_name, result_type, use_site=provider_result)
         ),
         output_kind="step",
         hidden_inputs=hidden_inputs,

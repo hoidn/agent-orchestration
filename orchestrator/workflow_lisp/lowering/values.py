@@ -1023,7 +1023,7 @@ def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAc
     return f"root.steps.{provider_step_name}.artifacts.{'__'.join(field_access.fields)}"
 
 
-def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
+def _record_output_refs(step_name: str, type_ref: Any, *, use_site: Any | None = None) -> dict[str, str]:
     """Return flattened output refs for a record, union, or direct-root result type.
 
     Structural and type-driven, matching `GeneratedBundleContract.result_shape`
@@ -1035,9 +1035,13 @@ def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
     if isinstance(type_ref, RecordTypeRef):
         return _flatten_record_output_refs(step_name, type_ref)
     if isinstance(type_ref, UnionTypeRef):
+        from ..generic_unions import diagnostics_at_use_site
+
+        with diagnostics_at_use_site(type_ref, use_site):
+            leaf_paths = _flatten_boundary_leaf_paths(type_ref, generated_name="return")
         return {
             output_name: f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
-            for output_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
+            for output_name, field_path in leaf_paths
         }
     return {"return": f"root.steps.{step_name}.artifacts.__result__"}
 

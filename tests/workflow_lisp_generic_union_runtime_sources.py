@@ -304,3 +304,20 @@ PROC_REF_PAYLOAD_ENTRY = HEADER + """  (defmodule grt/entry)
   (defworkflow run () -> Out
     (use-it 1)))
 """
+
+
+LIST_PAYLOAD_ENTRY = HEADER + """  (defmodule grt/entry)
+  (import grt/lib :only (Outcome))
+  (export run)
+  (defrecord Item (label String))
+  (defproc fetch
+    ((title String))
+    -> Outcome[List[Item] String]
+    :effects ((uses-command probe_check))
+    :lowering inline
+    (command-result probe_check
+      :argv ("python" "PROBE_CHECK" title)
+      :returns Outcome[List[Item] String]))
+  (defworkflow run () -> Outcome[List[Item] String]
+    (fetch "x")))
+"""

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import copy
 from collections import ChainMap
+from contextlib import contextmanager
+from dataclasses import replace
 from collections.abc import Callable, Iterable, Mapping
 
 from .definitions import DefinitionNode, UnionDef
@@ -186,6 +188,37 @@ def reject_untransportable_applied_unions(
     for item in (getattr(type_ref, "item_type_ref", None), getattr(type_ref, "value_type_ref", None)):
         if item is not None:
             reject_untransportable_applied_unions(item, span=span, form_path=form_path, expansion_stack=expansion_stack)
+
+
+@contextmanager
+def diagnostics_at_use_site(type_ref: TypeRef, use_site: object | None):
+    """Re-anchor boundary diagnostics raised at an applied union's declaration.
+
+    Contract derivation reports payload problems at the union declaration. For
+    an application, the declaration is fine and the use chose the arguments, so
+    the diagnostic moves to the use site and keeps the declaration as a note.
+    """
+
+    applied = isinstance(type_ref, UnionTypeRef) and bool(type_ref.type_args) and use_site is not None
+    try:
+        yield
+    except LispFrontendCompileError as error:
+        if not applied:
+            raise
+        declaration_span = type_ref.definition.span
+        raise LispFrontendCompileError(
+            tuple(
+                replace(
+                    diagnostic,
+                    span=use_site.span,
+                    form_path=use_site.form_path,
+                    notes=(*diagnostic.notes, *_declared_at(type_ref.definition)),
+                )
+                if diagnostic.span == declaration_span
+                else diagnostic
+                for diagnostic in error.diagnostics
+            )
+        ) from error
 
 
 def instantiate_generic_union(

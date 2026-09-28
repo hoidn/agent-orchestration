@@ -37,6 +37,7 @@ from tests.workflow_lisp_generic_union_runtime_sources import (
     TWO_INSTANCES_ENTRY,
     MAKE_LIB,
     PROC_REF_PAYLOAD_ENTRY,
+    LIST_PAYLOAD_ENTRY,
 )
 
 
@@ -413,5 +414,21 @@ def test_procref_bound_into_an_applied_payload_is_rejected_at_the_call(tmp_path:
 
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "proc_ref_runtime_transport_forbidden"
+    assert (Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == ("entry.orc", 13)
+    assert any(f"{tmp_path / 'grt' / 'lib.orc'}:6:" in note for note in diagnostic.notes)
+
+
+def test_unsupported_instantiated_payload_is_reported_at_the_use(tmp_path: Path) -> None:
+    """Addendum C: the boundary error names the use site and the generic declaration."""
+
+    probe = _write_probe(tmp_path, "probe_check", OUTCOME_PROBE)
+    entry = LIST_PAYLOAD_ENTRY.replace("PROBE_CHECK", probe.as_posix())
+    _write_sources(tmp_path, {"grt/lib.orc": OUTCOME_LIB, "grt/entry.orc": entry})
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(tmp_path, probes={"probe_check": probe})
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "collection_element_type_unsupported"
     assert (Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == ("entry.orc", 13)
     assert any(f"{tmp_path / 'grt' / 'lib.orc'}:6:" in note for note in diagnostic.notes)
