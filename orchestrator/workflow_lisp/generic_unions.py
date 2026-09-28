@@ -179,6 +179,12 @@ def substitute_applied_union(
     return _applied_union(applied, applied.name.partition("[")[0], type_args, bindings)
 
 
+def applied_union_name(base_name: str, type_args: tuple[TypeRef, ...]) -> str:
+    """Render `Head[Arg ...]`; `base_name` is the template name as seen by the renderer."""
+
+    return f"{base_name}[{' '.join(render_type_ref(arg) for arg in type_args)}]"
+
+
 def bind_applied_union_arguments(
     expected: UnionTypeRef,
     actual: UnionTypeRef,
@@ -261,7 +267,7 @@ def _applied_union(
     # types may be records whose fields are still being resolved, and must
     # stay shared references rather than copies.
     return UnionTypeRef(
-        name=f"{base_name}[{' '.join(render_type_ref(arg) for arg in type_args)}]",
+        name=applied_union_name(base_name, type_args),
         definition=source.definition,
         variant_field_types={
             variant_name: {

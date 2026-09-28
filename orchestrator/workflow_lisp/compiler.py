@@ -3304,6 +3304,24 @@ def _canonical_export_type_name(module_name: str, type_name: str, exported_names
     return type_name
 
 
+def _canonical_applied_union_name(
+    applied_name: str,
+    type_args: tuple[TypeRef, ...],
+    module_name: str,
+    exported_names: frozenset[str],
+) -> str:
+    """Re-render an imported application from its canonical head and arguments.
+
+    The importer renders its own applications from the imported template's
+    canonical name, so an imported signature must use the same spelling.
+    """
+
+    from .generic_unions import applied_union_name
+
+    head = _canonical_export_type_name(module_name, applied_name.partition("[")[0], exported_names)
+    return applied_union_name(head, type_args)
+
+
 def _canonicalize_nested_imported_type_ref(
     type_ref: TypeRef,
     *,
@@ -3336,9 +3354,16 @@ def _canonicalize_nested_imported_type_ref(
         )
     if isinstance(type_ref, UnionTypeRef):
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
+        type_args = tuple(
+            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            for arg in type_ref.type_args
+        )
+        if type_args:
+            canonical_name = _canonical_applied_union_name(type_ref.name, type_args, module_name, exported_names)
         return replace(
             type_ref,
             name=canonical_name,
+            type_args=type_args,
             variant_field_types={
                 variant_name: {
                     field_name: _canonicalize_nested_imported_type_ref(
@@ -3353,9 +3378,18 @@ def _canonicalize_nested_imported_type_ref(
         )
     if isinstance(type_ref, VariantCaseTypeRef):
         canonical_union_name = _canonical_export_type_name(module_name, type_ref.union_name, exported_names)
+        union_type_args = tuple(
+            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            for arg in type_ref.union_type_args
+        )
+        if union_type_args:
+            canonical_union_name = _canonical_applied_union_name(
+                type_ref.union_name, union_type_args, module_name, exported_names
+            )
         return replace(
             type_ref,
             union_name=canonical_union_name,
+            union_type_args=union_type_args,
             field_types=(
                 {
                     field_name: _canonicalize_nested_imported_type_ref(

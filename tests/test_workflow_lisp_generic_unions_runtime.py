@@ -95,3 +95,96 @@ def test_generic_with_applied_union_parameter_lowers_after_specialization(tmp_pa
     result = _compile(tmp_path)
 
     assert "grt/entry::run" in result.validated_bundles_by_name
+
+
+OUTCOME_PROBE = """import json, os, sys
+from pathlib import Path
+title = sys.argv[1]
+with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
+    log.write(title + "\\n")
+if title.startswith("revise"):
+    payload = {"variant": "OK", "value": {"title": title, "score": title.count("revise")}}
+else:
+    payload = {"variant": "ERROR", "error": "revise-" + title}
+bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+if bundle:
+    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
+    Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
+print(json.dumps(payload))
+"""
+
+OUTCOME_LIB = HEADER + """  (defmodule grt/lib)
+  (export Outcome attempt)
+  (defunion Outcome :forall (T E)
+    (OK (value T))
+    (ERROR (error E)))
+  (defproc attempt
+    :forall (S)
+    ((subject S)
+     (check ProcRef[(S) -> Outcome[S String]]))
+    :where ((S is-record))
+    -> Outcome[S String]
+    :effects ()
+    :lowering inline
+    (check subject)))
+"""
+
+CANDIDATE_CHECK = """  (defrecord Candidate (title String) (score Int))
+  (defproc check-candidate
+    ((candidate Candidate))
+    -> Outcome[Candidate String]
+    :effects ((uses-command probe_check))
+    :lowering inline
+    (command-result probe_check
+      :argv ("python" "PROBE_CHECK" candidate.title)
+      :returns Outcome[Candidate String]))
+"""
+
+LOOP_ENTRY = HEADER + """  (defmodule grt/entry)
+  (import grt/lib :only (Outcome attempt))
+  (export run)
+""" + CANDIDATE_CHECK + """  (defworkflow run ((limit Int)) -> Outcome[Candidate String]
+    (loop/recur :max limit
+      :state (loop-state (current Candidate (record Candidate :title "seed" :score 0)))
+      :on-exhausted (variant Outcome[Candidate String] ERROR :error "exhausted")
+      (fn (state)
+        (let* ((outcome (attempt state.current (proc-ref check-candidate))))
+          (match outcome
+            ((OK ok) (done outcome))
+            ((ERROR err)
+             (continue (loop-state :like state
+                         :current (record Candidate :title err.error :score (+ state.current.score 1)))))))))))
+"""
+
+
+def _write_probe(root: Path, name: str, text: str) -> Path:
+    probe = root / f"{name}.py"
+    probe.write_text(text, encoding="utf-8")
+    return probe
+
+
+def _run(result, workflow: str, root: Path) -> dict[str, object]:
+    bundle = result.validated_bundles_by_name[workflow]
+    outcome = _execute_bundle(bundle, workflow_path=root / "grt" / "entry.orc", workspace=root, run_id="run")
+    assert outcome["status"] == "completed", outcome.get("error")
+    return dict(outcome["workflow_outputs"])
+
+
+@pytest.mark.parametrize(
+    ("limit", "expected"),
+    [
+        (2, {"return__variant": "OK", "return__value__title": "revise-seed", "return__value__score": 1}),
+        (1, {"return__variant": "ERROR", "return__error": "exhausted"}),
+    ],
+    ids=["matched-ok", "exhausted"],
+)
+def test_imported_generic_result_is_matched_and_returned_from_a_caller_loop(
+    tmp_path: Path, limit: int, expected: dict[str, object]
+) -> None:
+    probe = _write_probe(tmp_path, "probe_check", OUTCOME_PROBE)
+    entry = LOOP_ENTRY.replace("PROBE_CHECK", probe.as_posix()).replace(":max limit", f":max {limit}")
+    _write_sources(tmp_path, {"grt/lib.orc": OUTCOME_LIB, "grt/entry.orc": entry.replace("((limit Int))", "()")})
+
+    result = _compile(tmp_path, probes={"probe_check": probe})
+
+    assert _run(result, "grt/entry::run", tmp_path) == expected
