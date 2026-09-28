@@ -64,8 +64,9 @@ requires explicit selection and its own bounded allocation.
 
 Language/foundation improvements are tracked independently:
 [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected),
-[EC-1](#ec-1--pure-call-expression-composition-pending-unselected), and
-[PC-1](#pc-1--first-class-provider-context-pending-unselected).
+[EC-1](#ec-1--pure-call-expression-composition-pending-unselected),
+[PC-1](#pc-1--first-class-provider-context-pending-unselected), and
+[CF-1](#cf-1--composition-first-procedures-pending-unselected).
 Each has its own feasibility and consequence gates. They are not extra research
 units, new R1a deliverables, or automatic prerequisites for the five-axis studies.
 
@@ -438,6 +439,56 @@ manifest/queue row. The five research units and their current allocations stay
 unchanged. The R1a recovery/continuation remains the next already-selected work;
 PC-1 cannot be launched by its coordinator without separate selection/funding.
 
+## CF-1 — Composition-First Procedures (Pending, Unselected)
+
+**Governing proposal:**
+[Composition-First Procedures](../design/workflow_lisp_composition_first.md).
+**Status:** pending, unselected; this incorporation assigns no language target,
+implementation plan, or allocation. The proposal's repository observations were
+verified at `31580550`; its interface, generic-union delta, and loop pseudocode
+are schematic, not implemented. It supersedes, as inputs only, the three
+September 2026 composition drafts that were never added to the repository.
+
+The intended capability is that a reusable procedure returns the value it
+computed together with the domain outcome the caller branches on, through
+first-order generic unions instantiated at compile time. The `std/phase`
+review loop is the worked example: it currently returns review metadata
+without the candidate, seeds initial evidence, and pairs the previous review
+with an already-revised candidate on exhaustion. A flat result union such as
+`Improvement[S F B]` fixes that at the return boundary without changing the
+bounded-loop policy. Budget conventions, review-specific state ledgers,
+snapshot/version identifiers, explanation surfaces, and executor extraction
+are outside this workstream.
+
+| Step | Bounded work and evidence | Consequence / next decision |
+| --- | --- | --- |
+| CF-1a — resolve feasibility and the type-owner amendment | Settle the four prerequisites in the design's feasibility section: the parametric type-system owner decides the Deferred Extensions amendment for generic unions, citing the review callers that already restate the three-variant result union; a minimal fixture proves a generic `defproc` can project a type-parameter-typed record state field in `:on-exhausted` (existing generic loop fixtures project scalars only); the prompt-contract owner decides whether a `defprompt` may declare an instantiated generic union result or the caller-side adapter route is required; confirm removing `ctx` drops no identity/resume dependency. Select the library module name and target boundary through the existing owner process. | Produce the smallest reviewed implementation plan only when those prerequisites are settled. If the exhaustion projection cannot carry the generic record, correct the loop/exhaustion owner rather than reintroducing seeds or counters. Classify remaining obstacles as type, lowering, prompt-contract, or runtime limitations separately. |
+| CF-1b — generic unions and the value-returning slice | Implement `defunion :forall`, type application in type positions including `ProcRef` and prompt results, instantiation before typecheck and descriptor generation, constructor identity through the existing specialization pipeline, and diagnostics for arity, unresolved parameters, unsupported payload shapes, and cycles. Ship the new helper module with `Decision[F B]`, `Improvement[S F B]`, and `improve`; one new structured-value caller whose revised candidate is consumed by a deterministic executor; an unrelated `Outcome[T E]` union; a public compile/run/resume path; interruption after a committed review and after a committed revision. | Record the supported contract and its limits. `std/phase` is retained unchanged and documented as legacy; no checkpoint compatibility is claimed between the two APIs. A passing slice establishes the mechanism, not utility. |
+| CF-1c — migrate and substitute on real callers | Migrate the two document examples through caller-side adapter procedures with hooks and approval semantics unchanged; substitute the reviewer with a sequential two-review-plus-adjudication procedure; make one realistic change (a typed proposal field consumed downstream) and record the edited files and any leaked execution plumbing. | Assess programmability, reuse, and diagnosis where actually exercised; no productivity score or new harness. Decide deletion of `std/phase` and its macro only after all eight repository callers migrate. Retain a useful subset or narrow the feature; a passing minimum is not the endpoint. |
+| CF-1d — optional extensions by named caller | Fixer-side blockage as a sibling helper, generic records, and document snapshot or version references, each only when a maintained caller needs it and through that responsibility's existing owner. | Cancel unbuilt extensions freely. None is a prerequisite for CF-1b or CF-1c, and none reopens the budget or ledger machinery this workstream excludes. |
+
+**Entry and dependencies:** explicit owner selection of a bounded step and a
+finite allocation; CF-1b needs CF-1a resolved, accepted governing/version
+contracts, and a reviewed plan; CF-1c needs a working slice. EL-1 is not a
+prerequisite: before EL-1 lands, `improve` declares no command effect and relies
+on the current regime's forwarding through specialized hooks, and EL-1 later
+migrates it to omission. EC-1 and PC-1 are unaffected. Compiler edits in the
+type-environment and specialization owners must be coordinated with any
+concurrent EC-1 or PC-1 work before execution. No research allocation changes.
+
+**Compatibility and closure:** new declarations change bundled-module digests
+and require a target bump with versioned acceptance/rejection tests and recorded
+definition-origin regimes. Old checkpoints are not reinterpreted and missing
+candidate values are not synthesized. Each completed step records supported
+behavior, utility limits, the next justified improvement or cancellation, and
+any displaced machinery to remove. This work neither gates an E/ES/P exit nor
+changes studies.
+
+**Routing:** this adds one pending, unselected workstream and no executable
+manifest/queue row. The five research units and their current allocations stay
+unchanged. The R1a recovery/continuation remains the next already-selected work;
+CF-1 cannot be launched by its coordinator without separate selection/funding.
+
 ## Current ES Boundary
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
@@ -510,6 +561,10 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - [PC-1](#pc-1--first-class-provider-context-pending-unselected) is pending and
   unselected under its own feasibility, design, plan, and allocation gates.
   Listing it neither reopens completed programs nor makes it an E/ES/P exit gate.
+- [CF-1](#cf-1--composition-first-procedures-pending-unselected) is pending and
+  unselected under its own feasibility, design, plan, and allocation gates. It
+  owns the value-returning review helper and generic-union delta; `std/phase`
+  remains the implemented surface until CF-1c decides otherwise.
 
 ## Routing And Historical Records
 
@@ -520,7 +575,10 @@ describe implemented execution capabilities, not research selection.
 This incorporation elaborates the existing EL-1 listing and promotes its
 previously unnumbered pure-call companion to EC-1; PC-1 is unchanged in scope.
 There are now three named pending language/foundation workstreams rather than
-two named entries plus a companion. The five research units, selected work,
+two named entries plus a companion. The 2026-09-28 incorporation adds
+[CF-1](#cf-1--composition-first-procedures-pending-unselected) as a fourth
+named pending workstream; the five research units, selected work, allocations,
+and completed records are again unchanged. The five research units, selected work,
 allocations, and completed records are unchanged. No executable manifest/queue
 row, ready-to-run implementation plan, or live workflow selection is added.
 
