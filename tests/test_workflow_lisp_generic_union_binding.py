@@ -81,15 +81,25 @@ def _error(compile_call) -> LispFrontendDiagnostic:
 # --- binding through ProcRef signatures -------------------------------------------
 
 
-def _run_review(decide_return: str) -> str:
+KEEP = """  (defproc keep
+    :forall (T)
+    ((value T))
+    -> T
+    :effects ()
+    :lowering inline
+    value)"""
+
+
+def _run_review(decide_return: str, body: str = "(review subject)") -> str:
     return f"""{DECISION}
+{KEEP}
   (defproc run-review
     :forall (S F B)
     ((subject S)
      (review ProcRef[(S) -> Decision[F B]]))
     -> Decision[F B]
     :effects ()
-    (review subject))
+    {body})
   (defproc decide
     ((subject Subject))
     -> {decide_return}
@@ -109,6 +119,16 @@ def test_procref_result_binds_arguments_by_position(tmp_path: Path) -> None:
     path = _write(tmp_path, _run_review("Decision[MyBlocker MyFeedback]"))
 
     assert _error(lambda: _compile(path, tmp_path)).code == "procedure_return_type_invalid"
+
+
+def test_generic_body_passes_an_open_application_to_another_generic(tmp_path: Path) -> None:
+    # Inside `run-review`, `keep` binds `T` to `Decision[F B]`, which is still
+    # open, so that call must not be specialized before `run-review` is.
+    path = _write(tmp_path, _run_review("Decision[MyFeedback MyBlocker]", body="(keep (review subject))"))
+
+    result = _compile(path, tmp_path)
+
+    assert "decide" in result.procedure_catalog.signatures_by_name
 
 
 def _route(summarize_param: str) -> str:
