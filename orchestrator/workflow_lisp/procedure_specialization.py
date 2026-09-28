@@ -49,7 +49,7 @@ from .procedures import (
     procedure_type_env_for,
 )
 from .result_guidance import validate_result_guidance_example
-from .syntax import target_dsl_supports_provider_context_values
+from .syntax import target_dsl_supports_generic_unions, target_dsl_supports_provider_context_values
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -234,6 +234,13 @@ def _procedure_private_body_valid(
         if procedure_type_envs is not None
         else type_env
     )
+    if procedure.signature.type_params and target_dsl_supports_generic_unions(
+        current_type_env.target_dsl_version or ""
+    ):
+        # An unspecialized generic is a template: only its monomorphic
+        # specializations lower, and its signature may still hold applied
+        # unions whose payloads are type parameters.
+        return False
 
     return _private_workflow_body_exports_step_backed_outputs(
         procedure.typed_body.expr,
