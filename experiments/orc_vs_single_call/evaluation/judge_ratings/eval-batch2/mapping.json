@@ -1,0 +1,92 @@
+{
+ "Q803": {
+  "label": "clean-sonnet-t11-oneshot",
+  "lines": 192,
+  "sha": "d745178a448a"
+ },
+ "Q608": {
+  "label": "clean-sonnet-t11-round1",
+  "lines": 260,
+  "sha": "d378386d0205"
+ },
+ "Q136": {
+  "label": "clean-sonnet-t12-oneshot",
+  "lines": 201,
+  "sha": "833d77072127"
+ },
+ "Q861": {
+  "label": "clean-sonnet-t12-round1",
+  "lines": 326,
+  "sha": "c60db827f956"
+ },
+ "Q251": {
+  "label": "clean-sonnet-t13-oneshot",
+  "lines": 203,
+  "sha": "33392dbba733"
+ },
+ "Q361": {
+  "label": "clean-sonnet-t13-round1",
+  "lines": 367,
+  "sha": "589cb3aa655b"
+ },
+ "Q331": {
+  "label": "clean-sonnet-t14-oneshot",
+  "lines": 136,
+  "sha": "bbaf9f329236"
+ },
+ "Q892": {
+  "label": "clean-sonnet-t14-round1",
+  "lines": 202,
+  "sha": "c97b876f7ee6"
+ },
+ "Q416": {
+  "label": "old-sonnet-t1-after-repeated-fixes-call7",
+  "lines": 369,
+  "sha": "974068fa7996"
+ },
+ "Q372": {
+  "label": "old-sonnet-t2-after-repeated-fixes-call5",
+  "lines": 276,
+  "sha": "1f730913bf8b"
+ },
+ "Q365": {
+  "label": "old-sonnet-t3-after-repeated-fixes-call6",
+  "lines": 454,
+  "sha": "5c07295a5399"
+ },
+ "Q782": {
+  "label": "old-sonnet-t4-after-repeated-fixes-call7",
+  "lines": 243,
+  "sha": "104ac65f740b"
+ },
+ "Q992": {
+  "label": "luna-t5-oneshot",
+  "lines": 327,
+  "sha": "a05a542337e4"
+ },
+ "Q350": {
+  "label": "luna-t6-oneshot",
+  "lines": 277,
+  "sha": "9c34a92afdc4"
+ },
+ "Q374": {
+  "label": "luna-t7-oneshot",
+  "lines": 312,
+  "sha": "2a0d94652435"
+ },
+ "Q835": {
+  "label": "luna-t8-oneshot",
+  "lines": 254,
+  "sha": "94167f231e28"
+ },
+ "Q946": {
+  "label": "anchor-P942-old-t2-call1",
+  "lines": 166,
+  "sha": "d9115129e3e9"
+ },
+ "Q356": {
+  "label": "anchor-P244-old-t3-call1",
+  "lines": 190,
+  "sha": "0d89f7650069"
+ }
+}

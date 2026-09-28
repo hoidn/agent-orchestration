@@ -12,6 +12,9 @@ This guide explains how to author deterministic workflows using the Workflow
 Lisp frontend. It is about authoring choices, not runtime implementation.
 Normative DSL and runtime contracts live under `specs/`.
 
+Before choosing a review, revise, or select pattern, read
+[Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
+
 Design references:
 
 - [Capability Status Matrix](capability_status_matrix.md)

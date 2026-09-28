@@ -1,0 +1,450 @@
+{
+ "T161": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values stops emitting the relpath placeholder override that the spec forbids, and executor._resolve_structured_output_artifacts follows the stored on_exhausted ref so the exhausted variant's state-projected scalar resolves at 2.29+.",
+   "contracts": "Validation is untouched, but the ref chase in executor._resolve_structured_output_artifacts is not version-gated, so every if/match join reading a ref-shaped loop output changes behaviour at all targets.",
+   "generality": "Any relpath field outside the exhausted variant is covered, and the chase goes through _resolve_ref_value, so nested and multi-hop refs resolve too.",
+   "fit": "The compile fix is at the lowering owner and the runtime fix reuses _resolve_ref_value, although turning the error dict back into an exception is clumsy."
+  },
+  "summary": "Drops relpath placeholders from exhaustion overrides in lowering and dereferences ref-shaped LoopOutputAddress values in structured join output resolution."
+ },
+ "T165": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values no longer emits relpath overrides, and executor._resolve_bound_address dereferences stored exhaustion refs so the join gets real values.",
+   "contracts": "The new dereference in executor._resolve_bound_address is ungated and applies to every bound read of a loop output (predicates, joins) at every target.",
+   "generality": "The hand-rolled _resolve_exhaustion_override_ref handles only one-hop root.steps.X.artifacts.Y refs present in state['steps']; in scoped or nested frames it falls back to the loop's own artifacts, which is wrong for other steps.",
+   "fit": "It adds a parallel mini-resolver next to the existing _resolve_ref_value/reference_resolver instead of reusing them."
+  },
+  "summary": "Drops relpath placeholders in lowering and adds a custom resolver for ref-shaped loop outputs in _resolve_bound_address."
+ },
+ "T169": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values stops emitting the forbidden relpath override, and loops.repeat_until_exhaustion_artifacts stores resolved values instead of raw refs, so the 2.29+ join reads real data.",
+   "contracts": "Validation is unchanged, and the runtime resolution is gated by _workflow_version_at_least('2.29') and limited to on_exhausted overrides, so frames at 2.28 and below are untouched.",
+   "generality": "Own-frame refs read the corrected exhaustion snapshot and any other ref goes through _resolve_ref_value, so all override shapes are covered.",
+   "fit": "The compile fix is in lowering at the placeholder source, and the runtime fix sits in the loop runtime that writes the frame and reuses the existing resolver and version helper."
+  },
+  "summary": "Excludes relpath placeholders from exhaustion overrides and resolves ref overrides at exhaustion time in the loop runtime for targets 2.29 and later."
+ },
+ "T220": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits the exact compiler-generated ref for relpath outputs, and loops.repeat_until_exhaustion_artifacts resolves ref overrides at 2.29+, so the program compiles and joins read values.",
+   "contracts": "This relaxes the spec'd 'on_exhausted may override scalar outputs only' rule for any compiler-emitted ref on a relpath output. The exemption is tautological because the captured set is every ref in the compiler output. The runtime part is properly gated.",
+   "generality": "Placeholder refs, own-frame state refs and other refs all resolve through the snapshot or _resolve_ref_value, and the change also admits relpath fields inside the exhausted variant.",
+   "fit": "It reuses the existing generated-ref exemption and _resolve_ref_value in the loop runtime. The own-frame lookup has no membership guard (possible KeyError)."
+  },
+  "summary": "Lets compiler-generated refs override relpath loop outputs in validation and resolves ref overrides at exhaustion time for 2.29 and later."
+ },
+ "T298": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted checks the generated-ref exemption before the relpath rule, and loops.repeat_until_exhaustion_artifacts resolves overrides at 2.29+ and re-validates each resolved value against the loop output contract.",
+   "contracts": "Reordering the relpath rule behind the tautological generated-ref exemption relaxes the spec'd scalar-only rule for compiler output. The runtime re-validation and version gate are good.",
+   "generality": "It resolves any ref through _resolve_ref_value over an overlay state that exposes the not-yet-persisted frame, and it also covers relpath fields inside the exhausted variant.",
+   "fit": "It reuses _resolve_ref_value and validate_contract_value in the loop runtime and extends the LoopRuntime protocol properly."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and resolves plus contract-validates ref overrides at exhaustion for 2.29 and later."
+ },
+ "T337": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated refs on relpath outputs, and loops.repeat_until_exhaustion_artifacts dereferences overrides at 2.29+, so compile and join both succeed.",
+   "contracts": "It relaxes the spec'd scalar-only on_exhausted rule for any compiler-emitted relpath ref. The runtime part is gated.",
+   "generality": "The manual lookup ignores scope and field and indexes state['steps'][...] and source[member] directly, so any mismatch crashes with a KeyError instead of a structured failure.",
+   "fit": "It parses with parse_structured_ref and then does its own lookup instead of reusing _resolve_ref_value."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and dereferences overrides at exhaustion by hand-parsing refs for 2.29 and later."
+ },
+ "T350": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T161: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and executor._resolve_structured_output_artifacts follows the stored exhaustion ref.",
+   "contracts": "Validation is untouched, but the join-side dereference in _resolve_structured_output_artifacts is ungated and applies at every target.",
+   "generality": "Covers any relpath field outside the exhausted variant and any ref chain via _resolve_ref_value.",
+   "fit": "Lowering owns the fix and the runtime reuses _resolve_ref_value, returning its failure result directly."
+  },
+  "summary": "Same design as T161: drops relpath placeholders in lowering and dereferences ref-shaped loop outputs in structured join resolution."
+ },
+ "T366": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated refs on relpath outputs, and loops.repeat_until_exhaustion_artifacts resolves overrides at 2.29+.",
+   "contracts": "Same validator relaxation as T220 and T298: compiler-emitted relpath overrides bypass the spec'd scalar-only rule. The runtime is gated.",
+   "generality": "Own-frame refs (with a membership check) read the snapshot, and the rest go through _resolve_ref_value.",
+   "fit": "It reuses the existing exemption, _resolve_ref_value and the version helper in the loop runtime."
+  },
+  "summary": "Same design as T220: validator admits generated relpath refs and the loop runtime resolves ref overrides at 2.29 and later."
+ },
+ "T367": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and loops.repeat_until_exhaustion_artifacts dereferences overrides at 2.29+.",
+   "contracts": "Validator relaxation of the spec'd scalar-only rule, as in T220. The runtime is gated.",
+   "generality": "The new _EXHAUSTION_REF_PATTERN only resolves root.steps.X.artifacts.Y against state['steps'] and silently stores any other ref shape raw.",
+   "fit": "It adds a regex ref parser and lookup in loops.py next to the existing reference resolver."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and resolves overrides at exhaustion with a new regex-based lookup."
+ },
+ "T454": {
+  "cause": 2,
+  "contracts": 0,
+  "generality": 2,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and executor._resolve_structured_output_artifacts dereferences LoopOutputAddress refs so the join sees values.",
+   "contracts": "It both relaxes the spec'd scalar-only rule in validation and adds an ungated join-side dereference that changes behaviour at every target.",
+   "generality": "Any root.steps ref chain is followed via _resolve_ref_value.",
+   "fit": "_resolve_exhaustion_ref_override swallows resolution errors and returns the raw ref, so the real cause is lost behind an invalid_output_value failure."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and follows loop-output refs in structured join resolution, swallowing resolution errors."
+ },
+ "T467": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and loops.repeat_until_exhaustion_artifacts resolves overrides at 2.29+.",
+   "contracts": "Same validator relaxation as T220 and T366. The runtime is gated.",
+   "generality": "Own-frame refs read the snapshot and all other refs go through _resolve_ref_value.",
+   "fit": "Reuses existing mechanisms in the loop runtime. The new parameters are optional with sentinel defaults, which is a little loose."
+  },
+  "summary": "Same design as T220 and T366: validator admits generated relpath refs and the loop runtime resolves ref overrides at 2.29 and later."
+ },
+ "T474": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 1,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._loop_on_exhausted_outputs skips the inactive relpath override, and loops.repeat_until_exhaustion_artifacts resolves overrides at 2.29+ over an overlay state, so compile and join both succeed.",
+   "contracts": "Validation is untouched. The runtime resolution is version-gated and a resolution failure becomes a structured contract_violation frame instead of a crash.",
+   "generality": "Every override resolves through _resolve_ref_value with the unpersisted frame made visible, covering own-frame and external refs.",
+   "fit": "_exhausted_inactive_placeholder_values still materializes the now-unused relpath placeholder step, leaving dead IR."
+  },
+  "summary": "Stops emitting inactive relpath overrides in lowering and resolves ref overrides at exhaustion with a structured failure path for 2.29 and later."
+ },
+ "T499": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and executor._resolve_bound_address follows ref-shaped loop outputs at 2.29+ so the join reads values.",
+   "contracts": "Relaxes the spec'd scalar-only on_exhausted rule for compiler output. The bound-address change is gated to 2.29+ but applies to every loop-output read, not just exhausted frames.",
+   "generality": "Follows arbitrary ref chains via _resolve_ref_value with the caller's scope.",
+   "fit": "Makes the bound-address path follow stored refs the way _resolve_ref_value already does, reusing that resolver."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and follows ref-shaped loop outputs in _resolve_bound_address for 2.29 and later."
+ },
+ "T501": {
+  "cause": 1,
+  "contracts": 0,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "Dropping relpath placeholders in control_loops._exhausted_inactive_placeholder_values fixes the compile error. The runtime part removes the 2.29 gate in _loop_result_case_output_ref, so the join bypasses the stored ref instead of resolving it.",
+   "contracts": "The gate was deliberate: the value-and-continuation design says the new target must drop the 'substitute state because the variant matches the exhaustion variant' shortcut. Removing it changes every 2.29+ union loop, so a normal `done` with the exhaustion variant returns state instead of its payload.",
+   "generality": "Only exhausted fields that are direct state.x accesses bypass the frame. Any other ref override stored in the frame stays unresolved at 2.29+.",
+   "fit": "It reverts a designed lowering behaviour instead of making the runtime resolve the refs the 2.29 lowering relies on."
+  },
+  "summary": "Drops relpath placeholders and re-enables the pre-2.29 exhaustion state-ref shortcut in union result normalization for all targets."
+ },
+ "T528": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and executor._resolve_bound_address follows the stored ref for exhausted loop frames at 2.29+.",
+   "contracts": "Relaxes the spec'd scalar-only on_exhausted rule for compiler output. The runtime chase is tightly scoped to exhausted frames at 2.29+.",
+   "generality": "Any ref chain resolves through _resolve_ref_value with the caller's scope.",
+   "fit": "Reuses _resolve_ref_value in the shared bound-address path, consistent with how ref-path consumers already follow chains."
+  },
+  "summary": "Like T499, but the bound-address ref chase applies only to exhausted loop frames at 2.29 and later; validator admits generated relpath refs."
+ },
+ "T590": {
+  "cause": 2,
+  "contracts": 0,
+  "generality": 2,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and executor._resolve_structured_output_artifacts dereferences ref-shaped values so the join sees real data.",
+   "contracts": "It relaxes the spec'd scalar-only rule and adds an ungated dereference of any ref-shaped value from any source kind in every if/match join at every target.",
+   "generality": "Any ref chain resolves via _resolve_ref_value.",
+   "fit": "The chase is not tied to loop outputs or exhaustion, so a loop-specific representation quirk leaks into generic join resolution."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and dereferences any ref-shaped join output value at every target."
+ },
+ "T666": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values stops emitting relpath overrides, and loops._dereference_exhaustion_refs replaces stored refs with values at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is gated. It dereferences every ref-shaped artifact in the exhausted frame, not only on_exhausted overrides, so a Value/json loop output shaped like {ref: ...} would be misread.",
+   "generality": "Own-frame refs read the snapshot and all others go through _resolve_ref_value.",
+   "fit": "Lowering fix at the placeholder source and runtime resolution in the loop executor, reusing existing helpers."
+  },
+  "summary": "Excludes relpath placeholders and dereferences ref-shaped values in the whole exhausted frame at 2.29 and later."
+ },
+ "T678": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T666: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops._resolve_exhaustion_refs dereferences stored refs at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is gated, but it dereferences all ref-shaped exhausted-frame artifacts, not only the overrides.",
+   "generality": "Own-frame snapshot plus _resolve_ref_value covers every override shape.",
+   "fit": "Right layers, reusing existing resolver and version helper."
+  },
+  "summary": "Same design as T666: excludes relpath placeholders and dereferences ref-shaped exhausted-frame artifacts at 2.29 and later."
+ },
+ "T712": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "control_loops._loop_on_exhausted_outputs skips the inactive relpath override at rich targets, and loops.repeat_until_exhaustion_artifacts substitutes own-frame state refs, which fixes the reported program.",
+   "contracts": "Validation is unchanged and the runtime is gated to 2.29+ on overrides only.",
+   "generality": "Only refs into the loop's own frame are resolved. Any other ref override is silently stored raw and the join still fails on it.",
+   "fit": "_exhausted_inactive_placeholder_values still materializes the unused relpath placeholder step (dead IR), and the runtime uses an ad hoc prefix check instead of the resolver."
+  },
+  "summary": "Skips inactive relpath overrides in _loop_on_exhausted_outputs and replaces only own-frame ref overrides with snapshot values at 2.29 and later."
+ },
+ "T753": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 1,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values stops emitting relpath overrides, and loops.repeat_until_exhaustion_artifacts substitutes own-frame state refs with snapshot values at 2.29+.",
+   "contracts": "Validation is unchanged, and the runtime change is gated and limited to on_exhausted overrides.",
+   "generality": "Only refs into the loop's own frame are resolved; other refs (external steps, collection placeholders) are left raw.",
+   "fit": "Both fixes sit in their owning layers, and the own-frame lookup is the natural source since the frame is not yet persisted."
+  },
+  "summary": "Excludes relpath placeholders and resolves only own-frame ref overrides from the exhaustion snapshot at 2.29 and later."
+ },
+ "T759": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T169: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops.repeat_until_exhaustion_artifacts resolves ref overrides at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is version-gated and override-scoped.",
+   "generality": "Own-frame refs read the snapshot and others go through _resolve_ref_value. An own-prefix ref missing from the frame would KeyError rather than fall back.",
+   "fit": "Right layers, reusing existing helpers."
+  },
+  "summary": "Same design as T169: excludes relpath placeholders and resolves ref overrides at exhaustion for 2.29 and later."
+ },
+ "T771": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 1,
+  "merge": "yes",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values skips relpath placeholders, and loops.repeat_until_exhaustion_artifacts resolves ref overrides at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is gated and override-scoped.",
+   "generality": "Own-frame refs (with a membership check) and external refs through _resolve_ref_value are both covered.",
+   "fit": "It re-implements the version comparison by parsing executable_ir.version instead of using executor._workflow_version_at_least, which also raises on non-numeric versions where the helper returns False."
+  },
+  "summary": "Excludes relpath placeholders and resolves ref overrides at exhaustion, gated by a hand-rolled version comparison."
+ },
+ "T831": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated refs on relpath outputs at 2.29+, and loops.repeat_until_exhaustion_artifacts resolves overrides over an overlay state at 2.29+.",
+   "contracts": "The validator relaxation is target-gated, which helps, but it still lets compiler-emitted refs override relpath outputs against the spec'd scalar-only rule.",
+   "generality": "Every override resolves through _resolve_ref_value with the unpersisted frame visible.",
+   "fit": "Reuses the exemption, the version helpers and _resolve_ref_value, and extends the LoopRuntime protocol."
+  },
+  "summary": "Admits generated relpath refs only at 2.29 and later in validation and resolves ref overrides at exhaustion through an overlay state."
+ },
+ "T857": {
+  "cause": 2,
+  "contracts": 0,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and executor._resolve_bound_address dereferences refs read from exhausted loop frames.",
+   "contracts": "It relaxes the spec'd scalar-only rule, and the bound-address change is not version-gated, so reads of exhausted frames change at 2.28 and earlier too.",
+   "generality": "_resolve_exhaustion_override_ref does a single-hop manual split and picks self_steps or root steps by heuristic, so nested scopes and chained refs are not handled.",
+   "fit": "It adds a parallel mini-resolver instead of reusing _resolve_ref_value."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and adds a custom resolver for refs read from exhausted loop frames."
+ },
+ "T860": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T169: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops.repeat_until_exhaustion_artifacts resolves ref overrides at 2.29+.",
+   "contracts": "Validation is unchanged, and the runtime keeps the pre-2.29 path verbatim through an early return.",
+   "generality": "Own-frame snapshot (with a membership check) plus _resolve_ref_value covers every override.",
+   "fit": "Right layers, reusing existing helpers."
+  },
+  "summary": "Same design as T169: excludes relpath placeholders and resolves ref overrides at exhaustion for 2.29 and later."
+ },
+ "T862": {
+  "cause": 2,
+  "contracts": 0,
+  "generality": 2,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "Essentially the same change as T590: validation admits generated relpath refs, and executor._resolve_structured_output_artifacts dereferences any ref-shaped join value.",
+   "contracts": "It relaxes the spec'd scalar-only rule and changes every if/match join at every target, for every source kind.",
+   "generality": "Any ref chain resolves through _resolve_ref_value.",
+   "fit": "The chase is not tied to loop outputs, and ref_error['error']['message'] assumes the failure dict shape."
+  },
+  "summary": "Same design as T590: reorders the relpath check and dereferences any ref-shaped value in structured join resolution."
+ },
+ "T881": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops.repeat_until_exhaustion_artifacts substitutes own-frame state refs at 2.29+, which fixes the reported program.",
+   "contracts": "Validation is unchanged and the runtime is gated and override-scoped.",
+   "generality": "Only own-frame refs are resolved; any other ref override stays raw in the frame.",
+   "fit": "It re-implements the version check by parsing executable_ir.version instead of using _workflow_version_at_least."
+  },
+  "summary": "Excludes relpath placeholders and resolves only own-frame ref overrides at exhaustion, with a hand-rolled version gate."
+ },
+ "T904": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and loops._resolve_exhaustion_override_refs resolves overrides at 2.29+.",
+   "contracts": "Same validator relaxation as T220. The runtime is gated.",
+   "generality": "Own-frame refs read the snapshot and others go through _resolve_ref_value.",
+   "fit": "Reuses existing mechanisms in the loop runtime, although it mutates the returned artifacts in a separate pass."
+  },
+  "summary": "Same design as T220: validator admits generated relpath refs and ref overrides are resolved at exhaustion for 2.29 and later."
+ },
+ "T926": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 2,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T169: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops.repeat_until_exhaustion_artifacts resolves ref overrides at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is version-gated and override-scoped.",
+   "generality": "Own-frame snapshot (with a membership check) plus _resolve_ref_value covers every override.",
+   "fit": "Right layers, reusing existing helpers."
+  },
+  "summary": "Same design as T169: excludes relpath placeholders and resolves ref overrides at exhaustion for 2.29 and later."
+ },
+ "T934": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 2,
+  "fit": 2,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and loops.repeat_until_exhaustion_artifacts resolves overrides at 2.29+.",
+   "contracts": "Same validator relaxation as T220. The runtime is gated.",
+   "generality": "Own-frame refs read the snapshot and others go through _resolve_ref_value.",
+   "fit": "Reuses existing mechanisms in the loop runtime."
+  },
+  "summary": "Same design as T220: validator admits generated relpath refs and ref overrides are resolved at exhaustion for 2.29 and later."
+ },
+ "T938": {
+  "cause": 2,
+  "contracts": 2,
+  "generality": 1,
+  "fit": 2,
+  "merge": "yes",
+  "why": {
+   "cause": "Essentially the same change as T753: control_loops._exhausted_inactive_placeholder_values drops relpath overrides, and loops.repeat_until_exhaustion_artifacts substitutes own-frame state refs at 2.29+.",
+   "contracts": "Validation is unchanged and the runtime is gated and override-scoped.",
+   "generality": "Only own-frame refs are resolved; other ref overrides stay raw.",
+   "fit": "Both fixes sit in their owning layers."
+  },
+  "summary": "Same design as T753: excludes relpath placeholders and resolves only own-frame ref overrides at exhaustion for 2.29 and later."
+ },
+ "T945": {
+  "cause": 2,
+  "contracts": 1,
+  "generality": 1,
+  "fit": 1,
+  "merge": "no",
+  "why": {
+   "cause": "validation._validate_repeat_until_on_exhausted admits generated relpath refs, and loops.repeat_until_exhaustion_artifacts dereferences overrides at 2.29+.",
+   "contracts": "Relaxes the spec'd scalar-only on_exhausted rule for compiler output. The runtime is gated.",
+   "generality": "_resolve_exhaustion_ref does a single-hop manual split against state['steps'] only and silently returns the raw ref when lookup fails.",
+   "fit": "It adds a parallel mini-resolver instead of using _resolve_ref_value."
+  },
+  "summary": "Reorders the relpath check after the generated-ref exemption and resolves overrides at exhaustion with a hand-written single-hop lookup."
+ }
+}

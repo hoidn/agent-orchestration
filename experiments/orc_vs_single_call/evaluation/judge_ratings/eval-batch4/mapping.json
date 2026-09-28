@@ -1,0 +1,132 @@
+{
+ "S321": {
+  "label": "bestof-t1-cand1",
+  "lines": 215,
+  "sha": "82a2af83c6f5"
+ },
+ "S929": {
+  "label": "bestof-t1-cand2",
+  "lines": 140,
+  "sha": "8a589743c40d"
+ },
+ "S797": {
+  "label": "bestof-t1-cand3",
+  "lines": 155,
+  "sha": "3bad4e088f9c"
+ },
+ "S435": {
+  "label": "bestof-t1-cand4",
+  "lines": 283,
+  "sha": "4cd9216f8452"
+ },
+ "S905": {
+  "label": "bestof-t2-cand1",
+  "lines": 160,
+  "sha": "1d78e7ac2451"
+ },
+ "S568": {
+  "label": "bestof-t2-cand2",
+  "lines": 243,
+  "sha": "a11b460d4b9d"
+ },
+ "S629": {
+  "label": "bestof-t2-cand3",
+  "lines": 224,
+  "sha": "99a859fb1c45"
+ },
+ "S173": {
+  "label": "bestof-t2-cand4",
+  "lines": 216,
+  "sha": "a7b1bd0a769e"
+ },
+ "S181": {
+  "label": "bestof-t3-cand1",
+  "lines": 259,
+  "sha": "3c5c5d9f1ec2"
+ },
+ "S798": {
+  "label": "bestof-t3-cand2",
+  "lines": 204,
+  "sha": "83c92750b7f5"
+ },
+ "S873": {
+  "label": "bestof-t3-cand3",
+  "lines": 145,
+  "sha": "e38cc780032c"
+ },
+ "S887": {
+  "label": "bestof-t3-cand4",
+  "lines": 207,
+  "sha": "19f479722f08"
+ },
+ "S540": {
+  "label": "bestof-t4-cand1",
+  "lines": 193,
+  "sha": "3a230ef1ba3a"
+ },
+ "S713": {
+  "label": "bestof-t4-cand2",
+  "lines": 167,
+  "sha": "fb7c6b2440bf"
+ },
+ "S254": {
+  "label": "bestof-t4-cand3",
+  "lines": 220,
+  "sha": "f64c109530af"
+ },
+ "S740": {
+  "label": "bestof-t4-cand4",
+  "lines": 228,
+  "sha": "78d7a5d22f61"
+ },
+ "S499": {
+  "label": "bestof-t5-cand1",
+  "lines": 227,
+  "sha": "96c6aaa16ff0"
+ },
+ "S859": {
+  "label": "bestof-t5-cand2",
+  "lines": 220,
+  "sha": "6b1566daac02"
+ },
+ "S486": {
+  "label": "bestof-t5-cand3",
+  "lines": 274,
+  "sha": "44709806e5ad"
+ },
+ "S311": {
+  "label": "bestof-t5-cand4",
+  "lines": 243,
+  "sha": "989f593b299b"
+ },
+ "S976": {
+  "label": "bestof-t6-cand1",
+  "lines": 185,
+  "sha": "2f6a4e9730f0"
+ },
+ "S852": {
+  "label": "bestof-t6-cand2",
+  "lines": 160,
+  "sha": "3e7c56a8dc83"
+ },
+ "S996": {
+  "label": "bestof-t6-cand3",
+  "lines": 198,
+  "sha": "9fdf8c867db7"
+ },
+ "S825": {
+  "label": "bestof-t6-cand4",
+  "lines": 181,
+  "sha": "a80bc4741c9d"
+ },
+ "S716": {
+  "label": "anchor-Q136-clean-sonnet-t12-oneshot",
+  "lines": 201,
+  "sha": "833d77072127"
+ },
+ "S650": {
+  "label": "anchor-Q331-clean-sonnet-t14-oneshot",
+  "lines": 136,
+  "sha": "bbaf9f329236"
+ }
+}

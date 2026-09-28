@@ -1,0 +1,112 @@
+{
+  "R256": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 2, "merge": "yes",
+    "why": {
+      "cause": "validation.py _validate_repeat_until_on_exhausted now checks the exact compiler-ref allowance before the relpath rejection, which fixes the compile error where it arises. loops.py repeat_until_exhaustion_artifacts resolves the stored {ref} overrides, so the union match no longer reads raw ref payloads through LoopOutputAddress.",
+      "contracts": "Hand-authored and non-exact relpath overrides are still rejected. The runtime change is gated on _workflow_version_at_least('2.29'), so 2.28 frames are unchanged, and own-frame refs read the exhaustion snapshot, which gives the same values 2.28 reports.",
+      "generality": "Every kind of compiler-emitted override is handled with 2.28's snapshot semantics: inactive path placeholders (nested or several), path fields inside the exhausted variant taken from state, and scalar or collection refs.",
+      "fit": "The fix is in the loop executor that applies on_exhausted, reuses _resolve_ref_value, and leaves typed consumers seeing concrete values. Two nits: the own-frame prefix redirect is hand-rolled, and it calls executor methods that are not declared on the LoopRuntime protocol."
+    },
+    "summary": "Moves the relpath rejection after the exact generated-ref allowance and, from 2.29 on, resolves compiler-emitted on_exhausted refs to concrete values when the loop exhausts."
+  },
+  "R287": {
+    "cause": 1, "contracts": 0, "generality": 1, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "control_loops.py _exhausted_inactive_placeholder_values stops emitting relpath placeholder refs, which fixes only that one emission path. The raw-ref failure in the union match is avoided by forcing allow_exhaustion_state_ref=True rather than by resolving the stored refs.",
+      "contracts": "Forcing allow_exhaustion_state_ref=True in _emit_repeat_until_from_emitter_input brings back at 2.29+ a shortcut the design deliberately removed: any match case whose variant equals the exhaustion variant reads loop state, so a done with that variant but different data returns state instead of its payload. This changes the lowering of every union loop result at 2.29+, not only results with path fields.",
+      "generality": "Nested and multiple inactive path fields work. A path field inside the exhausted variant taken from state still emits a relpath ref in _loop_on_exhausted_outputs and is still rejected at 2.29+, although 2.28 compiles it.",
+      "fit": "Fixing this in the compiler and falling back to the frame's continue projection, as 2.28 does, is reasonable. However, the patch undoes a deliberate target gate instead of fixing reference resolution."
+    },
+    "summary": "Drops relpath fields from the exhaustion placeholders and makes union case outputs read loop state directly at every target, as 2.28 does."
+  },
+  "R302": {
+    "cause": 2, "contracts": 1, "generality": 2, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "The validator ordering in _validate_repeat_until_on_exhausted is fixed. executor.py _resolve_structured_output_artifacts now resolves the stored {ref} values that the union match reads through LoopOutputAddress.",
+      "contracts": "The new dereference in _resolve_structured_output_artifacts runs at every target and on every loop-output value shaped like {ref: str}, not only on exhaustion overrides. A legitimate map or json value of that shape is therefore now treated as a reference.",
+      "generality": "All override ref kinds (placeholders, state refs, path fields inside the exhausted variant) are followed at the only place generated code consumes loop outputs, and they give 2.28's snapshot values.",
+      "fit": "Ref chasing is added to one consumer instead of at the exhaustion producer or the shared bound-address resolver. It also brings legacy {ref} payload handling into the typed runtime path, which _resolve_runtime_value explicitly refuses."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance and makes structured-output resolution follow {ref} values read from loop outputs."
+  },
+  "R406": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 1, "merge": "yes",
+    "why": {
+      "cause": "The patch fixes the validator ordering and makes executor.py _resolve_bound_address follow stored {ref} values for LoopOutputAddress. That function is the single choke point all bound consumers share.",
+      "contracts": "Dereferencing only happens for loop frames marked exhausted, and hand-authored relpath overrides are still rejected. At 2.28 behaviour changes only where a raw ref would previously have failed contract validation.",
+      "generality": "It covers every bound consumer (match joins, discriminants, predicates, call inputs) and every generated ref kind, and resolves each ref with the caller's scope.",
+      "fit": "For a lazy design the choke point is the right place. But the patch adds legacy ref-payload chasing to the typed resolver, leaves raw refs in persisted frames, and gates the behaviour on diagnostic data (debug.structured_repeat_until.exhausted, read by _loop_result_is_exhausted)."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance and makes bound loop-output reads of exhausted frames follow stored {ref} overrides."
+  },
+  "R429": {
+    "cause": 2, "contracts": 2, "generality": 1, "fit": 2, "merge": "no",
+    "why": {
+      "cause": "control_loops.py stops emitting any relpath override (through the placeholder filter and emit_ref_override in _loop_on_exhausted_outputs), which respects the validator's scalar-only rule the way 2.28 does. loops.py repeat_until_exhaustion_artifacts then resolves the remaining refs from 2.29 on.",
+      "contracts": "Validation is untouched and the runtime change is gated at 2.29. Relpath fields fall back to the frame values that 2.28 already uses.",
+      "generality": "For a path field inside the exhausted variant taken from state, the value now comes from the frame's continue projection (the updated state), while sibling scalars and 2.28 read the exhaustion snapshot, which is the iteration-entry state when the continue sits in a match arm. The result can differ from 2.28 and is inconsistent within one variant; the patch's test hides this by using the same path in every iteration.",
+      "fit": "The compiler is brought in line with the validator's contract, and resolution happens where on_exhausted is applied, reusing _resolve_ref_value. It has the same LoopRuntime protocol nit as R256."
+    },
+    "summary": "Stops the compiler from emitting relpath on_exhausted overrides at 2.29+ and resolves the remaining override refs when the loop exhausts."
+  },
+  "R568": {
+    "cause": 1, "contracts": 2, "generality": 1, "fit": 0, "merge": "no",
+    "why": {
+      "cause": "The validator reorder fixes the compile error, but the runtime only handles two compiler naming shapes. <loop>__exhausted_placeholders refs are resolved eagerly (_is_generated_exhaustion_ref in loops.py) and ...artifacts.state__* refs lazily (_follow_loop_state_ref in executor.py), which targets the refs that were observed rather than the missing resolution step.",
+      "contracts": "The eager path is gated at 2.29 and the lazy follow only matches the state__ pattern on loop-output reads, so other targets and value shapes are practically unaffected.",
+      "generality": "Any other generated ref shape, or any consumer other than _resolve_structured_output_artifacts, still receives raw refs. The 5-part split parsing also depends on step names containing no dots.",
+      "fit": "It adds two parallel mechanisms, eager in loops.py and lazy in executor.py, and both parse frontend naming conventions inside the runtime. The persisted frame ends up mixing concrete placeholders with raw state refs."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance, eagerly resolves only __exhausted_placeholders refs, and lazily follows state__ refs in structured-output resolution."
+  },
+  "R581": {
+    "cause": 2, "contracts": 0, "generality": 2, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "The patch fixes the validator ordering and resolves every override ref in loops.py repeat_until_exhaustion_artifacts. It uses the loop's scope and an effective state whose frame is the exhaustion snapshot.",
+      "contracts": "It also rewrites loops.py _exhaustion_frame_artifacts at every target to treat any non-__body__state step as the final update, which changes exhausted state values such as rounds at 2.28 and may raise new ambiguity errors. It adds union projection metadata to all union case outputs at 2.29+, and a resolution error returns None, which silently becomes a generic iterations-exhausted failure.",
+      "generality": "Resolution is scoped and covers every generated ref kind, path fields in any variant, and nested fields.",
+      "fit": "Resolving at the producer with build_loop_scope, and declaring _resolve_ref_value on LoopRuntime, fits well. But reusing None (which means 'no policy') to report a resolution failure muddles the function's contract, and unrelated lowering and snapshot changes are bundled in."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance and resolves all exhaustion override refs with the loop scope, but also changes exhaustion snapshot selection at all targets and adds activity metadata to union case outputs."
+  },
+  "R638": {
+    "cause": 1, "contracts": 1, "generality": 1, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "control_loops.py _exhausted_inactive_placeholder_values stops emitting relpath placeholders, which fixes only that one emission; the other relpath override branches in _loop_on_exhausted_outputs still produce refs the validator rejects. The runtime part (ref following in _resolve_structured_output_artifacts) does fix the stored-ref failure.",
+      "contracts": "As in R302, the dereference in executor.py _resolve_structured_output_artifacts runs at every target on any loop-output value shaped like {ref}, and this version does not even check that the ref is a string.",
+      "generality": "Nested and multiple inactive path fields work, but a path field inside the exhausted variant taken from state is still rejected at 2.29+, although 2.28 compiles it.",
+      "fit": "Bringing the compiler in line with the validator is sound, but ref chasing is again added to a single typed consumer rather than at the producer or the resolver."
+    },
+    "summary": "Drops relpath fields from the exhaustion placeholders and makes structured-output resolution follow {ref} values read from loop outputs."
+  },
+  "R821": {
+    "cause": 2, "contracts": 1, "generality": 2, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "The patch fixes the validator ordering and makes executor.py _resolve_bound_address follow stored {ref} values for every LoopOutputAddress read.",
+      "contracts": "The dereference in _resolve_bound_address is ungated. At every target, and in every frame whether exhausted or not, any loop-output value shaped like {ref: str} is treated as a reference on the typed path.",
+      "generality": "It covers every bound consumer and every generated ref kind (the patch also exercises called and branched loops). It drops the caller's scope when following the ref, which is harmless only because generated refs are currently root-level.",
+      "fit": "The layer concern is the same as R406: legacy ref-payload chasing is added to the typed bound resolver, and persisted frames keep raw refs."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance and makes every bound loop-output read follow stored {ref} values."
+  },
+  "R863": {
+    "cause": 2, "contracts": 0, "generality": 2, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "This is essentially the same design as R581: the validator ordering is fixed and repeat_until_exhaustion_artifacts resolves every override ref with the loop scope and an effective snapshot frame.",
+      "contracts": "Here the _exhaustion_frame_artifacts rewrite is gated to 2.29+. The reported program therefore returns a different rounds value at 2.29+ than at 2.28, which the patch's own test encodes, and that contradicts the parity the change requires. It also adds union projection metadata to case outputs at 2.29+ and silently returns None on resolution errors.",
+      "generality": "Resolution is scoped and covers every generated ref kind and path fields in any variant.",
+      "fit": "The producer-side placement and the LoopRuntime protocol additions fit well. As in R581, None is reused to signal failure and unrelated changes are bundled in."
+    },
+    "summary": "Same as R581, except the change to exhaustion snapshot selection only applies from 2.29, so 2.29+ and 2.28 now differ on the exhausted state."
+  },
+  "R965": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 2, "merge": "yes",
+    "why": {
+      "cause": "This is essentially the same change as R256. The relpath check in _validate_repeat_until_on_exhausted moves after the exact generated-ref allowance, and loops.py repeat_until_exhaustion_artifacts resolves the stored override refs from 2.29 on.",
+      "contracts": "It is gated at 2.29, so 2.28 is unchanged, and it still rejects hand-authored relpath overrides. Own-frame refs read the exhaustion snapshot, so values match 2.28.",
+      "generality": "It handles placeholders, state refs, and path fields in either variant with the same semantics as 2.28.",
+      "fit": "As in R256, the fix is at the on_exhausted producer and reuses _resolve_ref_value. Its ref detection is slightly looser (any mapping with a string ref, and a missing own-frame key silently keeps the raw ref), but validation already constrains the shape."
+    },
+    "summary": "Moves the relpath rejection after the generated-ref allowance and, from 2.29 on, resolves on_exhausted override refs to values when the loop exhausts (same design as R256)."
+  }
+}

@@ -1,0 +1,130 @@
+{
+ "T904": {
+  "label": "confirm-t7-cand1",
+  "lines": 207
+ },
+ "T350": {
+  "label": "confirm-t7-cand2",
+  "lines": 173
+ },
+ "T337": {
+  "label": "confirm-t7-cand3",
+  "lines": 190
+ },
+ "T454": {
+  "label": "confirm-t7-cand4",
+  "lines": 264
+ },
+ "T220": {
+  "label": "confirm-t8-cand1",
+  "lines": 226
+ },
+ "T860": {
+  "label": "confirm-t8-cand2",
+  "lines": 192
+ },
+ "T590": {
+  "label": "confirm-t8-cand3",
+  "lines": 214
+ },
+ "T857": {
+  "label": "confirm-t8-cand4",
+  "lines": 175
+ },
+ "T678": {
+  "label": "confirm-t9-cand1",
+  "lines": 195
+ },
+ "T926": {
+  "label": "confirm-t9-cand2",
+  "lines": 230
+ },
+ "T759": {
+  "label": "confirm-t9-cand3",
+  "lines": 205
+ },
+ "T467": {
+  "label": "confirm-t9-cand4",
+  "lines": 241
+ },
+ "T169": {
+  "label": "confirm-t10-cand1",
+  "lines": 186
+ },
+ "T862": {
+  "label": "confirm-t10-cand2",
+  "lines": 170
+ },
+ "T753": {
+  "label": "confirm-t10-cand3",
+  "lines": 194
+ },
+ "T367": {
+  "label": "confirm-t10-cand4",
+  "lines": 184
+ },
+ "T499": {
+  "label": "confirm-t11-cand1",
+  "lines": 126
+ },
+ "T945": {
+  "label": "confirm-t11-cand2",
+  "lines": 212
+ },
+ "T501": {
+  "label": "confirm-t11-cand3",
+  "lines": 156
+ },
+ "T938": {
+  "label": "confirm-t11-cand4",
+  "lines": 155
+ },
+ "T528": {
+  "label": "confirm-t12-cand1",
+  "lines": 177
+ },
+ "T666": {
+  "label": "confirm-t12-cand2",
+  "lines": 209
+ },
+ "T161": {
+  "label": "confirm-t12-cand3",
+  "lines": 154
+ },
+ "T934": {
+  "label": "confirm-t12-cand4",
+  "lines": 197
+ },
+ "T881": {
+  "label": "sol-oneshot-c1",
+  "lines": 139
+ },
+ "T712": {
+  "label": "sol-oneshot-c2",
+  "lines": 147
+ },
+ "T474": {
+  "label": "sol-oneshot-c3",
+  "lines": 274
+ },
+ "T298": {
+  "label": "sol-oneshot-c4",
+  "lines": 210
+ },
+ "T831": {
+  "label": "sol-oneshot-c5",
+  "lines": 294
+ },
+ "T771": {
+  "label": "sol-oneshot-c6",
+  "lines": 161
+ },
+ "T366": {
+  "label": "anchor-bestof-t5-cand3",
+  "lines": 274
+ },
+ "T165": {
+  "label": "anchor-bestof-t6-cand1",
+  "lines": 185
+ }
+}

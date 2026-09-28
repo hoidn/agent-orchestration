@@ -1,0 +1,57 @@
+{
+ "R256": {
+  "label": "newflow-sonnet-a1-oneshot-approved",
+  "lines": 228,
+  "sha": "90942b421915"
+ },
+ "R406": {
+  "label": "newflow-sonnet-a2-oneshot-approved",
+  "lines": 175,
+  "sha": "31a5077d38dd"
+ },
+ "R638": {
+  "label": "newflow-sonnet-a3-oneshot-approved",
+  "lines": 179,
+  "sha": "531522b2b16c"
+ },
+ "R302": {
+  "label": "newflow-sonnet-a4-oneshot-approved",
+  "lines": 171,
+  "sha": "61851ceb04cd"
+ },
+ "R821": {
+  "label": "clean-sonnet-t11-final-after-3-rounds",
+  "lines": 319,
+  "sha": "6ddc6b75f272"
+ },
+ "R568": {
+  "label": "clean-sonnet-t12-final-after-3-rounds",
+  "lines": 405,
+  "sha": "0eb35e74c3a4"
+ },
+ "R429": {
+  "label": "clean-sonnet-t14-final-after-3-rounds",
+  "lines": 326,
+  "sha": "5365f5e9ce37"
+ },
+ "R581": {
+  "label": "luna-t6-after-fix1",
+  "lines": 421,
+  "sha": "5a3d52efa685"
+ },
+ "R863": {
+  "label": "luna-t6-after-fix2",
+  "lines": 471,
+  "sha": "70846b833871"
+ },
+ "R965": {
+  "label": "anchor-Q136-clean-sonnet-t12-oneshot",
+  "lines": 201,
+  "sha": "833d77072127"
+ },
+ "R287": {
+  "label": "anchor-Q331-clean-sonnet-t14-oneshot",
+  "lines": 136,
+  "sha": "bbaf9f329236"
+ }
+}

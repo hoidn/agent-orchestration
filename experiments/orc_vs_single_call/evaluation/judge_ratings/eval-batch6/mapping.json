@@ -1,0 +1,62 @@
+{
+ "U786": {
+  "label": "solreview-t21-oneshot",
+  "lines": 150
+ },
+ "U855": {
+  "label": "solreview-t22-oneshot",
+  "lines": 212
+ },
+ "U712": {
+  "label": "solreview-t23-oneshot",
+  "lines": 178
+ },
+ "U897": {
+  "label": "solreview-t24-oneshot",
+  "lines": 165
+ },
+ "U811": {
+  "label": "solreview-t25-oneshot",
+  "lines": 148
+ },
+ "U251": {
+  "label": "solreview-t26-oneshot",
+  "lines": 227
+ },
+ "U934": {
+  "label": "solreview-t22-final-after-1-fix",
+  "lines": 228
+ },
+ "U428": {
+  "label": "solreview-t23-after-1-fix",
+  "lines": 214
+ },
+ "U987": {
+  "label": "solreview-t23-final-after-2-fixes",
+  "lines": 198
+ },
+ "U818": {
+  "label": "solreview-t25-after-1-fix",
+  "lines": 172
+ },
+ "U147": {
+  "label": "solreview-t25-final-after-2-fixes",
+  "lines": 176
+ },
+ "U375": {
+  "label": "anchor-bestof-t5-cand3",
+  "lines": 274
+ },
+ "U925": {
+  "label": "anchor-bestof-t6-cand1",
+  "lines": 185
+ },
+ "U814": {
+  "label": "anchor-bestof-t4-cand3",
+  "lines": 220
+ },
+ "U202": {
+  "label": "anchor-bestof-t2-cand1",
+  "lines": 160
+ }
+}

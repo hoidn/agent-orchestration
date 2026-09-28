@@ -1,0 +1,82 @@
+{
+  "P136": {
+    "cause": 2, "contracts": 1, "generality": 2, "fit": 2, "merge": "no",
+    "why": {
+      "cause": "validation.py `_validate_repeat_until_on_exhausted` now checks the existing compiler-ref allowlist before the relpath gate, so the compiler's own ref gets through. executor.py `_resolve_bound_address` now follows the `{ref}` overrides stored in the loop frame, which the union normalization match reads through LoopOutputAddress (this is also what makes `:rounds state.round` resolve at 2.29+).",
+      "contracts": "The follow-the-ref step in executor.py `_resolve_bound_address` runs for every Block/Loop/Call bound output, at every target, on any value shaped `{\"ref\": str}`. So ≤2.28 reads and other statement kinds change too, and a genuine rich value of that shape would be misread as a reference.",
+      "generality": "Because the fix is in the shared bound resolver, every bound consumer benefits. That covers placeholder paths, paths projected from state inside the exhausted variant, and scalar state refs.",
+      "fit": "It reuses `_resolve_ref_value`'s existing ref-chain semantics at the one choke point that all bound reads go through. The validation reorder reuses the existing generated-ref allowlist."
+    },
+    "summary": "Moves the compiler-ref allowlist check ahead of the relpath rejection, and makes `_resolve_bound_address` follow any `{ref}` value it finds in block, loop or call outputs."
+  },
+  "P173": {
+    "cause": 2, "contracts": 2, "generality": 1, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "validation.py now admits compiler refs on relpath outputs. loops.py `repeat_until_exhaustion_artifacts` resolves the ref overrides when the loop exhausts, so the frame holds real values that the match normalization can read.",
+      "contracts": "Validation is actually tighter: relpath outputs accept only refs to the placeholder step. Runtime resolution happens only at rich-loop-value targets, so ≤2.28 behaves as before.",
+      "generality": "The prefix gate in validation.py `_validate_repeat_until_on_exhausted` still rejects the compiler's relpath refs projected from loop state (for example an EXHAUSTED variant carrying `:report state.report` at 2.29+). So only the placeholder form of the bug is fixed.",
+      "fit": "Runtime resolution sits in the loop layer, where it belongs. But loops.py now imports a frontend predicate (`workflow_lisp.syntax`) at module level, and the validator adds a check based on the compiler's step naming convention alongside the existing exact-ref allowlist."
+    },
+    "summary": "Lets relpath outputs take only refs to the placeholder step (via a shared suffix constant), and resolves all ref overrides eagerly in the loop executor at rich-loop-value targets."
+  },
+  "P244": {
+    "cause": 2, "contracts": 1, "generality": 1, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "Same validation reorder as P136. executor.py `_resolve_structured_output_artifacts` follows `{ref}` values that come from LoopOutputAddress sources, which fixes the union normalization match.",
+      "contracts": "The follow-the-ref step in `_resolve_structured_output_artifacts` applies at every target to any loop output shaped `{\"ref\": str}`, not just on_exhausted overrides. A genuine rich value of that shape would be misread.",
+      "generality": "Only structured-output resolution follows refs. Every other bound consumer of loop outputs that goes through `_resolve_runtime_value` (predicates, asserts, other bindings) still gets raw ref dicts.",
+      "fit": "The dereference is a special case at one consumer site, keyed on the address type. It belongs in the shared resolver or in the loop executor that produces the refs."
+    },
+    "summary": "Moves the compiler-ref allowlist check ahead of the relpath rejection, and follows `{ref}` loop outputs only inside `_resolve_structured_output_artifacts`."
+  },
+  "P382": {
+    "cause": 2, "contracts": 1, "generality": 2, "fit": 1, "merge": "no",
+    "why": {
+      "cause": "validation.py admits compiler relpath refs from 2.29 on. executor.py `_resolve_bound_address` follows ref values for loop outputs that were written by on_exhausted.",
+      "contracts": "loops.py now persists a new `exhausted_overrides` key in progress and debug on every exhaustion at every target, including ≤2.28, so the state shape changes. Runtime behaviour then depends on that persisted debug data, which runs saved before the patch do not have.",
+      "generality": "Following refs only for recorded overrides covers placeholder paths, paths projected from state in the exhausted variant (tested), and scalar state refs, for every bound consumer.",
+      "fit": "It adds a parallel bookkeeping channel in debug metadata to identify overrides, when the executable IR already carries `on_exhausted_outputs` for that purpose."
+    },
+    "summary": "Admits compiler relpath refs from 2.29 on, records the overridden output names in the loop's debug and progress, and follows refs in `_resolve_bound_address` only for those names."
+  },
+  "P545": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 2, "merge": "yes",
+    "why": {
+      "cause": "validation.py reorders the checks so the compiler's own ref is accepted. loops.py `repeat_until_exhaustion_artifacts` resolves the compiler ref overrides when the loop exhausts: refs into the loop's own frame come from the exhaustion snapshot, other refs from run state.",
+      "contracts": "At ≤2.28 the compiler never emits relpath refs and authored YAML cannot use the allowlist, so the reorder changes nothing there. Runtime resolution is gated to 2.29 and later.",
+      "generality": "Every ref override (placeholder paths, state-projected paths, scalar and rich refs, including refs to other steps) becomes a plain value, so every consumer sees concrete data.",
+      "fit": "The loop executor that owns on_exhausted resolves the refs, using the existing `_resolve_ref_value` and `_workflow_version_at_least` helpers. Small nits: a literal \"2.29\" and speculative Optional parameters."
+    },
+    "summary": "Moves the compiler-ref allowlist check ahead of the relpath rejection, and resolves every on_exhausted ref override into a value in the loop executor at 2.29 and later. Essentially the same change as P942."
+  },
+  "P782": {
+    "cause": 2, "contracts": 2, "generality": 1, "fit": 2, "merge": "no",
+    "why": {
+      "cause": "validation.py admits compiler relpath refs from 2.29 on. loops.py `repeat_until_exhaustion_artifacts` resolves own-frame refs from the snapshot and relpath refs through the lexical scope when the loop exhausts.",
+      "contracts": "Both the validation relaxation and the runtime resolution are version-gated to 2.29, so ≤2.28 is unchanged. Authored relpath refs stay rejected.",
+      "generality": "In `repeat_until_exhaustion_artifacts`, refs that neither point into the loop's own frame nor sit on relpath outputs are kept as raw refs (for example a scalar projected from an outer step into the exhausted variant). The frame then mixes values and refs, and bound consumers still receive dicts for those.",
+      "fit": "Resolution sits in the loop layer, uses existing helpers, and passes proper self, parent and root scope. The \"2.29\" literal is repeated in validation and runtime."
+    },
+    "summary": "Admits compiler relpath refs from 2.29 on, and at exhaustion resolves own-frame refs and relpath placeholder refs (through the lexical scope) into values, leaving other refs as refs."
+  },
+  "P786": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 0, "merge": "no",
+    "why": {
+      "cause": "Same validation reorder as P136. Placeholder refs are resolved in loops.py, and `_resolve_bound_address` follows loop outputs whose value equals the IR's on_exhausted override exactly.",
+      "contracts": "The executor.py `_is_exhaustion_ref_override` identity check limits the follow-the-ref step to real on_exhausted overrides, so ordinary `{ref}`-shaped values are never reinterpreted. Placeholder refs exist only at 2.29 and later.",
+      "generality": "Following overrides in the shared bound resolver covers scalar state refs, state-projected paths and placeholders for every bound consumer.",
+      "fit": "There are two parallel mechanisms for one problem: eager resolution in loops.py keyed on the compiler's `__exhausted_placeholders` naming convention (which is hard-coded into the runtime), and lazy resolution in the executor. The lazy one alone would already cover placeholders."
+    },
+    "summary": "Moves the compiler-ref allowlist check ahead of the relpath rejection, resolves placeholder-step refs eagerly in the loop executor by string prefix, and also follows exact on_exhausted overrides in `_resolve_bound_address`."
+  },
+  "P942": {
+    "cause": 2, "contracts": 2, "generality": 2, "fit": 2, "merge": "yes",
+    "why": {
+      "cause": "validation.py reorders the checks so the compiler's own ref is accepted. loops.py `repeat_until_exhaustion_artifacts` resolves the compiler ref overrides when the loop exhausts: refs into the loop's own frame come from the snapshot, other refs from run state.",
+      "contracts": "At ≤2.28 the compiler never emits relpath refs and authored YAML cannot use the allowlist, so the reorder changes nothing there. Runtime resolution is gated to 2.29 and later.",
+      "generality": "Every ref override becomes a plain value before any consumer reads the frame. That covers placeholder paths, state-projected paths, and scalar and rich refs.",
+      "fit": "The loop executor that owns on_exhausted resolves the refs with existing helpers (`_resolve_ref_value`, `_workflow_version_at_least`), through required keyword-only parameters. The only nit is the literal \"2.29\"."
+    },
+    "summary": "Moves the compiler-ref allowlist check ahead of the relpath rejection, and resolves every on_exhausted ref override into a value in the loop executor at 2.29 and later. Essentially the same change as P545."
+  }
+}
