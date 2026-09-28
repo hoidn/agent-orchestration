@@ -405,3 +405,58 @@ def test_done_payload_of_the_exhausted_variant_is_not_replaced_by_state(tmp_path
 
     ref = result_step["match"]["cases"]["COMPLETE"]["outputs"]["return__message"]["from"]["ref"]
     assert ref.endswith(".artifacts.result__message")
+
+
+RAW_REVIEW_PROBE = REVIEW_PROBE.replace(
+    '{"variant": "BLOCKED", "reason": {"why": "refused-" + title}}', '{"variant": "BLOCKED", "note": "refused-" + title}'
+).replace('{"variant": "APPROVE", "evidence": {"note": "ok-" + title}}', '{"variant": "APPROVE", "note": "ok-" + title}').replace(
+    '{"variant": "REVISE", "feedback": {"note": "revised-" + title}}', '{"variant": "REVISE", "note": "revised-" + title}'
+)
+
+ADAPTER_REVIEW = """  (defunion RawVerdict
+    (APPROVE (note String))
+    (REVISE (note String))
+    (BLOCKED (note String)))
+  (defproc review-candidate
+    ((candidate Candidate))
+    -> Decision[Feedback Blocker]
+    :effects ((uses-command probe_review))
+    :lowering inline
+    (let* ((raw (command-result probe_review
+                  :argv ("python" "PROBE_REVIEW" candidate.title)
+                  :returns RawVerdict)))
+      (match raw
+        ((APPROVE a) (variant Decision[Feedback Blocker] APPROVE :evidence (record Feedback :note a.note)))
+        ((REVISE r) (variant Decision[Feedback Blocker] REVISE :feedback (record Feedback :note r.note)))
+        ((BLOCKED b) (variant Decision[Feedback Blocker] BLOCKED :reason (record Blocker :why b.note))))))
+"""
+
+
+@pytest.mark.parametrize(
+    ("seed", "expected"),
+    [("seed", ("revised-seed", "approved", "ok-revised-seed")), ("blocked", ("blocked", "blocked", "refused-blocked"))],
+    ids=["approved", "blocked"],
+)
+def test_caller_adapter_converts_a_concrete_result_into_the_applied_union(
+    tmp_path: Path, seed: str, expected: tuple[str, str, str]
+) -> None:
+    """Addendum E (F2): a match that builds a union with variant fields validates."""
+
+    probes = {
+        "probe_review": _write_probe(tmp_path, "probe_review", RAW_REVIEW_PROBE),
+        "probe_revise": _write_probe(tmp_path, "probe_revise", REVISE_PROBE),
+    }
+    hook_start = IMPROVE_ENTRY.index("  (defproc review-candidate")
+    hook_end = IMPROVE_ENTRY.index("  (defproc revise-candidate")
+    entry = IMPROVE_ENTRY[:hook_start] + ADAPTER_REVIEW + IMPROVE_ENTRY[hook_end:]
+    entry = (
+        entry.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
+        .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
+        .replace('"SEED"', f'"{seed}"')
+        .replace("LIMIT", "3")
+    )
+    _write_sources(tmp_path, {"grt/lib.orc": IMPROVE_LIB, "grt/entry.orc": entry})
+
+    outputs = _run(_compile(tmp_path, probes=probes), "grt/entry::summarize", tmp_path)
+
+    assert (outputs["return__title"], outputs["return__status"], outputs["return__note"]) == expected

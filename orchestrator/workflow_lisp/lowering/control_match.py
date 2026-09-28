@@ -27,6 +27,7 @@ from .context import (
     _TerminalResult,
 )
 from .generated_paths import allocate_generated_result_bundle
+from .union_case_terminal import publish_known_variant_terminal_plainly
 from .origins import (
     LoweringOrigin,
     _record_step_origin,
@@ -456,6 +457,12 @@ def _normalize_union_match_case_terminal(
         subject_union_type=subject_union_type,
         span=span,
         form_path=form_path,
+    )
+    publish_known_variant_terminal_plainly(
+        case_steps,
+        terminal_step_name=case_terminal.step_name,
+        variant_name=resolved_variant_name,
+        target_dsl_version=context.type_env.target_dsl_version,
     )
     step_name = f"{case_name}__result_bundle"
     step_id = context.normalize_generated_step_id(step_name)
