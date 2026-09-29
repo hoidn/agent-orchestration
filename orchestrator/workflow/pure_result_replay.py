@@ -27,7 +27,6 @@ from .executable_ir import (
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
-from .frontend_origins import CompiledFrontendIndex
 from .loaded_bundle import (
     LoadedWorkflowBundle,
     workflow_runtime_input_contracts,
@@ -1684,10 +1683,10 @@ def derive_pure_result_replay_index(
     """Derive replay dependencies without mutating or serializing the program.
 
     The bundle passed typecheck, so any rejection of its contents is a compiler
-    defect (core calculus §13.3). The raised error says so and, when it names a
-    node, carries that node's authored source origin under
-    ``context["source_origin"]``; reading that origin is the one file read here,
-    from the bundle's own compiled source trace, and only on rejection.
+    defect (core calculus §13.3). The raised error says so and names the
+    workflow (``context["workflow"]``, ``context["workflow_path"]``) beside the
+    rejected ``node_id``, so that a caller holding the build's source map can
+    place it. Nothing here reads a file.
     """
 
     if scope_kind not in {"root", "self"}:
@@ -1711,24 +1710,16 @@ def _compiler_defect(
     exc: PureResultReplayIndexError,
     bundle: LoadedWorkflowBundle,
 ) -> PureResultReplayIndexError:
-    """Restate one index rejection as a compiler defect at its node's authored form."""
+    """Restate one index rejection as a compiler defect of the workflow it names."""
 
-    context = dict(exc.context)
-    node_id = context.get("node_id")
-    node = bundle.ir.nodes.get(node_id) if isinstance(node_id, str) else None
-    if node is not None:
-        entry = bundle.projection.entries_by_node_id.get(node_id)
-        origin = CompiledFrontendIndex(bundle.provenance).origin_for_step(
-            entry.presentation_key if entry is not None else node_id,
-            node.step_id,
-            node_id=node_id,
-        )
-        if origin is not None:
-            context["source_origin"] = dict(origin)
     return PureResultReplayIndexError(
         exc.reason,
         f"{exc}; this is a compiler defect: the program passed typecheck",
-        context=context,
+        context={
+            "workflow": bundle.surface.name,
+            "workflow_path": bundle.provenance.workflow_path,
+            **exc.context,
+        },
     )
 
 
