@@ -12,6 +12,11 @@ Environment:
   WORKSPACE              repository root where orchestrator resume should run
   LOG                    watchdog log path (default: /tmp/workflow-usage-watchdog-$RUN_ID.log)
   POLL_SECONDS           monitor interval while workflow is active (default: 60)
+  RESUME_LOCK_WAIT_SECONDS
+                         bound on waiting for another active run in WORKSPACE to end (default: 3600).
+                         A resume or run refused with workspace_run_already_active is sent again every
+                         POLL_SECONDS; once this bound is reached the watchdog logs the refusal and
+                         exits 1, leaving the target stopped. Other failures are not retried.
   CONDA_SH               conda profile script (default: /home/ollie/miniconda3/etc/profile.d/conda.sh)
   CONDA_ENV              conda environment for workflow process (default: ptycho311)
   AGENT_ORCHESTRATION    path prepended to PYTHONPATH (default: /home/ollie/Documents/agent-orchestration)
@@ -116,6 +121,7 @@ require_env WORKSPACE
 
 LOG="${LOG:-/tmp/workflow-usage-watchdog-${RUN_ID}.log}"
 POLL_SECONDS="${POLL_SECONDS:-60}"
+RESUME_LOCK_WAIT_SECONDS="${RESUME_LOCK_WAIT_SECONDS:-3600}"
 CONDA_SH="${CONDA_SH:-/home/ollie/miniconda3/etc/profile.d/conda.sh}"
 CONDA_ENV="${CONDA_ENV:-ptycho311}"
 AGENT_ORCHESTRATION="${AGENT_ORCHESTRATION:-/home/ollie/Documents/agent-orchestration}"
@@ -239,6 +245,47 @@ sleep_with_target_checks() {
     remaining=$(( remaining - step ))
   done
   return 0
+}
+
+# Print the pane once the sent command has printed its exit marker. Fails when
+# the command is still running after POLL_SECONDS: it was admitted.
+wait_for_command_exit() {
+  local deadline=$(( SECONDS + POLL_SECONDS )) pane
+  while (( SECONDS < deadline )); do
+    pane="$(capture_target)"
+    if printf '%s\n' "$pane" | grep -Eq 'orchestrator-exit=[0-9]+'; then
+      printf '%s\n' "$pane"
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# Send an orchestrator run/resume command to the target pane. While the
+# workspace lock refuses it (another run is active in WORKSPACE), send it again
+# every POLL_SECONDS, for at most RESUME_LOCK_WAIT_SECONDS.
+send_orchestrator_command() {
+  local cmd="$1" waited=0 pane refusal
+  while true; do
+    clear_target_pane
+    log "relaunching workflow: $cmd"
+    tmux send-keys -t "$TARGET" -l "$cmd; echo \"orchestrator-exit=\$?\""
+    tmux send-keys -t "$TARGET" Enter
+    pane="$(wait_for_command_exit)" || return 0
+    refusal="$(printf '%s\n' "$pane" | grep -Eo 'workspace_run_already_active: run [^ ]+ is active' | tail -n 1)"
+    if [[ -z "$refusal" ]]; then
+      log "workflow command ended: $(printf '%s\n' "$pane" | grep -Eo 'orchestrator-exit=[0-9]+' | tail -n 1)"
+      return 0
+    fi
+    if (( waited >= RESUME_LOCK_WAIT_SECONDS )); then
+      log "still refused after ${waited}s (RESUME_LOCK_WAIT_SECONDS=$RESUME_LOCK_WAIT_SECONDS): $refusal; watchdog exiting"
+      exit 1
+    fi
+    log "refused: $refusal; retrying in ${POLL_SECONDS}s (waited ${waited}s of ${RESUME_LOCK_WAIT_SECONDS}s)"
+    sleep_with_target_checks "$POLL_SECONDS" || return 0
+    waited=$(( waited + POLL_SECONDS ))
+  done
 }
 
 resume_command() {
@@ -465,11 +512,8 @@ handle_completed_provider_limit_blocked_run() {
     log "failed to build fresh drain run command after provider-limit recovery"
     return 1
   fi
-  clear_target_pane
-  log "starting fresh drain after provider-limit recovery: $cmd"
-  tmux send-keys -t "$TARGET" -l "$cmd"
-  tmux send-keys -t "$TARGET" Enter
-  sleep 8
+  log "starting fresh drain after provider-limit recovery"
+  send_orchestrator_command "$cmd"
   refresh_run_id_from_latest_running
   return 0
 }
@@ -581,13 +625,7 @@ interrupt_wait_and_resume() {
     return 0
   fi
 
-  clear_target_pane
-  local cmd
-  cmd="$(resume_command)"
-  log "relaunching workflow: $cmd"
-  tmux send-keys -t "$TARGET" -l "$cmd"
-  tmux send-keys -t "$TARGET" Enter
-  sleep "$POLL_SECONDS"
+  send_orchestrator_command "$(resume_command)"
 }
 
 mkdir -p "$(dirname "$LOG")"
