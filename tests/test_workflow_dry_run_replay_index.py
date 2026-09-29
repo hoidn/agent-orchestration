@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -90,8 +91,35 @@ SCALAR_TAIL = """  (defworkflow run () -> String
         ((ERROR err) err.error)))))
 """
 
-UNKNOWN_MEMBER = "Validation error: pure replay binding references an unknown result member"
-CONTRACT_DISAGREES = "Validation error: pure replay source contract disagrees with its binding type"
+_DIAGNOSTIC_HEAD = re.compile(r"(?P<path>.+):(?P<line>\d+):(?P<column>\d+): \[(?P<code>[a-z0-9_]+)\] ")
+_REASON_NOTE = re.compile(r"^note: reason: (?P<reason>\S+)$", re.MULTILINE)
+
+
+def _rejection(caplog: pytest.LogCaptureFixture) -> dict[str, object]:
+    """Parse the one logged ERROR as a diagnostic: its code, reason and source location."""
+
+    [text] = _errors(caplog)
+    head = _DIAGNOSTIC_HEAD.match(text)
+    reason = _REASON_NOTE.search(text)
+    if head is None or reason is None:
+        return {"unparsed": text}
+    return {
+        "file": Path(head["path"]).name,
+        "line": int(head["line"]),
+        "column": int(head["column"]),
+        "code": head["code"],
+        "reason": reason["reason"],
+    }
+
+
+def _replay_rejection(file: str, line: int, column: int) -> dict[str, object]:
+    return {
+        "file": file,
+        "line": line,
+        "column": column,
+        "code": "pure_result_replay_unavailable",
+        "reason": "dependency_index_invalid",
+    }
 
 
 def _program(root: Path, *, subject: str, tail: str, target: str = "2.33") -> dict[str, Path]:
@@ -130,30 +158,50 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-# The known defect: `--dry-run` rejects it exactly as the run start does.
+# The known defect: `--dry-run` rejects it exactly as the run start does, at the
+# authored tail `match` (column 7; line 19, or 28 after the multi-line loop subject)
+# that generated the rejected binding.
 
 
 @pytest.mark.parametrize(
-    ("subject", "target", "diagnostic"),
-    [
-        (COMMAND_SUBJECT, "2.14", CONTRACT_DISAGREES),
-        (COMMAND_SUBJECT, "2.33", CONTRACT_DISAGREES),
-        (LOOP_SUBJECT, "2.32", UNKNOWN_MEMBER),
-        (LOOP_SUBJECT, "2.33", UNKNOWN_MEMBER),
-    ],
+    ("subject", "target", "line"),
+    [(COMMAND_SUBJECT, "2.14", 19), (COMMAND_SUBJECT, "2.33", 19), (LOOP_SUBJECT, "2.32", 28), (LOOP_SUBJECT, "2.33", 28)],
     ids=["command-union-2.14", "command-union-2.33", "loop-union-2.32", "loop-union-2.33"],
 )
 def test_dry_run_rejects_a_record_building_tail_match_as_the_run_start_does(
-    workspace: Path, caplog: pytest.LogCaptureFixture, subject: str, target: str, diagnostic: str
+    workspace: Path, caplog: pytest.LogCaptureFixture, subject: str, target: str, line: int
 ) -> None:
     files = _program(workspace, subject=subject, tail=RECORD_TAIL, target=target)
 
     dry = _dry_run(files)
-    dry_errors = _errors(caplog)
+    dry_rejection = _rejection(caplog)
     run = _public_run(files)
-    run_errors = _errors(caplog)
+    run_rejection = _rejection(caplog)
 
-    assert ((dry.exit_code, dry_errors), (run.exit_code, run_errors)) == ((2, [diagnostic]), (2, [diagnostic]))
+    expected = _replay_rejection("entry.orc", line, 7)
+    assert ((dry.exit_code, dry_rejection), (run.exit_code, run_rejection)) == ((2, expected), (2, expected))
+
+
+LIBRARY = REPO_ROOT / "workflows" / "library"
+WATCHDOG_EXTERNS = REPO_ROOT / "workflows" / "examples" / "inputs" / "workflow_lisp_migrations" / "generic_run_watchdog"
+
+
+def test_dry_run_names_the_rejected_form_inside_the_shipped_watchdog(
+    workspace: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The documented launch of `generic_run_watchdog/watchdog.orc` (workflows/README.md)."""
+
+    files = {
+        "source": LIBRARY / "generic_run_watchdog" / "watchdog.orc",
+        "source_root": LIBRARY,
+        **{name: Path(f"{WATCHDOG_EXTERNS}.{name}.json") for name in ("providers", "prompts", "commands")},
+    }
+    inputs = workspace / "inputs.json"
+    inputs.write_text(json.dumps({"target_run_id": "no-such-run"}), encoding="utf-8")
+
+    result = _dry_run(files, entry="generic_run_watchdog/watchdog::watchdog", input_file=inputs)
+
+    assert (result.exit_code, _rejection(caplog)) == (2, _replay_rejection("watchdog.orc", 102, 5))
 
 
 # No false rejection: programs that run today still pass `--dry-run`.

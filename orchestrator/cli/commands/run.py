@@ -34,6 +34,7 @@ from orchestrator.workflow.linting import lint_workflow
 from orchestrator.workflow.pure_result_replay import (
     DERIVED_PURE_REPLAY_PROFILE,
     PureReplayRuntime,
+    PureResultReplayIndexError,
 )
 from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
@@ -42,7 +43,12 @@ from orchestrator.runtime_observability import close_executor_session, open_exec
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.diagnostics import (
+    LispFrontendCompileError,
+    LispFrontendDiagnostic,
+    render_diagnostic,
+)
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
@@ -213,6 +219,35 @@ def _cli_exception_error(exc: BaseException) -> dict[str, object]:
             traceback.format_exception(type(exc), exc, exc.__traceback__)
         ),
     }
+
+
+def _replay_index_diagnostic(exc: PureResultReplayIndexError, workflow_path: Path) -> str:
+    """Render a replay-index rejection as a frontend diagnostic at its authored form.
+
+    The location is the rejected node's ``source_origin`` from the compiled
+    source trace; without one it is the workflow file itself (line 1, column 1).
+    """
+    context = dict(exc.context)
+    origin = context.pop("source_origin", None) or {}
+    position = SourcePosition(
+        path=str(origin.get("path", workflow_path)),
+        line=origin.get("line", 1),
+        column=origin.get("column", 1),
+        offset=0,
+    )
+    return render_diagnostic(
+        LispFrontendDiagnostic(
+            code=exc.code,
+            message=str(exc),
+            span=SourceSpan(start=position, end=position),
+            form_path=tuple(origin.get("form_path", ())),
+            notes=(
+                *origin.get("notes", ()),
+                f"reason: {exc.reason}",
+                *(f"{key}: {value}" for key, value in context.items()),
+            ),
+        )
+    )
 
 
 def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
@@ -783,6 +818,12 @@ def run_workflow(
         logger.error(f"File not found: {e}")
         return _run_result(
             1, state_manager=state_manager, session_id=session_id,
+            session_status="failed" if session_id is not None else None)
+    except PureResultReplayIndexError as e:
+        # Raised by the replay-index build in --dry-run and at run start alike.
+        logger.error(_replay_index_diagnostic(e, workflow_path))
+        return _run_result(
+            2, state_manager=state_manager, session_id=session_id,
             session_status="failed" if session_id is not None else None)
     except ValueError as e:
         logger.error(f"Validation error: {e}")

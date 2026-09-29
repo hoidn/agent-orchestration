@@ -27,6 +27,7 @@ from .executable_ir import (
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
+from .frontend_origins import CompiledFrontendIndex
 from .loaded_bundle import (
     LoadedWorkflowBundle,
     workflow_runtime_input_contracts,
@@ -1680,7 +1681,14 @@ def derive_pure_result_replay_index(
     *,
     scope_kind: str = "root",
 ) -> PureResultReplayIndex:
-    """Derive replay dependencies without mutating or serializing the program."""
+    """Derive replay dependencies without mutating or serializing the program.
+
+    The bundle passed typecheck, so any rejection of its contents is a compiler
+    defect (core calculus §13.3). The raised error says so and, when it names a
+    node, carries that node's authored source origin under
+    ``context["source_origin"]``; reading that origin is the one file read here,
+    from the bundle's own compiled source trace, and only on rejection.
+    """
 
     if scope_kind not in {"root", "self"}:
         raise PureResultReplayIndexError(
@@ -1693,7 +1701,42 @@ def derive_pure_result_replay_index(
             DEPENDENCY_INDEX_INVALID,
             "replay dependency derivation requires one loaded workflow bundle",
         )
+    try:
+        return _derive_pure_result_replay_index(bundle, scope_kind=scope_kind)
+    except PureResultReplayIndexError as exc:
+        raise _compiler_defect(exc, bundle) from exc
 
+
+def _compiler_defect(
+    exc: PureResultReplayIndexError,
+    bundle: LoadedWorkflowBundle,
+) -> PureResultReplayIndexError:
+    """Restate one index rejection as a compiler defect at its node's authored form."""
+
+    context = dict(exc.context)
+    node_id = context.get("node_id")
+    node = bundle.ir.nodes.get(node_id) if isinstance(node_id, str) else None
+    if node is not None:
+        entry = bundle.projection.entries_by_node_id.get(node_id)
+        origin = CompiledFrontendIndex(bundle.provenance).origin_for_step(
+            entry.presentation_key if entry is not None else node_id,
+            node.step_id,
+            node_id=node_id,
+        )
+        if origin is not None:
+            context["source_origin"] = dict(origin)
+    return PureResultReplayIndexError(
+        exc.reason,
+        f"{exc}; this is a compiler defect: the program passed typecheck",
+        context=context,
+    )
+
+
+def _derive_pure_result_replay_index(
+    bundle: LoadedWorkflowBundle,
+    *,
+    scope_kind: str,
+) -> PureResultReplayIndex:
     executable = bundle.ir
     runtime_plan = bundle.runtime_plan
     projection = bundle.projection
@@ -1788,40 +1831,49 @@ def derive_pure_result_replay_index(
 
         resolved: list[PureReplayBinding] = []
         node_dependencies: list[NodeResultAddress] = []
-        for (
-            path,
-            ref,
-            binding_descriptor,
-        ) in _walk_typed_binding_ref_documents_with_types(
-            binding_refs,
-            payload_bindings=payload_bindings,
-        ):
-            address = _resolve_replay_ref(
+        try:
+            for (
+                path,
                 ref,
-                bundle=bundle,
-                selector_to_node_id=selector_to_node_id,
-                catalog=catalog,
-                scope_kind=scope_kind,
-            )
-            if (
-                isinstance(address, NodeResultAddress)
-                and not _result_contract_matches_binding_descriptor(
-                    bundle,
-                    address=address,
-                    binding_descriptor=binding_descriptor,
-                )
+                binding_descriptor,
+            ) in _walk_typed_binding_ref_documents_with_types(
+                binding_refs,
+                payload_bindings=payload_bindings,
             ):
-                raise PureResultReplayIndexError(
-                    DEPENDENCY_INDEX_INVALID,
-                    "pure replay source contract disagrees with its binding type",
-                    context={
-                        "node_id": node_id,
-                        "binding_path": list(path),
-                    },
+                address = _resolve_replay_ref(
+                    ref,
+                    bundle=bundle,
+                    selector_to_node_id=selector_to_node_id,
+                    catalog=catalog,
+                    scope_kind=scope_kind,
                 )
-            resolved.append(PureReplayBinding(path=path, address=address))
-            if isinstance(address, NodeResultAddress):
-                node_dependencies.append(address)
+                if (
+                    isinstance(address, NodeResultAddress)
+                    and not _result_contract_matches_binding_descriptor(
+                        bundle,
+                        address=address,
+                        binding_descriptor=binding_descriptor,
+                    )
+                ):
+                    raise PureResultReplayIndexError(
+                        DEPENDENCY_INDEX_INVALID,
+                        "pure replay source contract disagrees with its binding type",
+                        context={
+                            "node_id": node_id,
+                            "binding_path": list(path),
+                            "ref": ref,
+                        },
+                    )
+                resolved.append(PureReplayBinding(path=path, address=address))
+                if isinstance(address, NodeResultAddress):
+                    node_dependencies.append(address)
+        except PureResultReplayIndexError as exc:
+            # A binding rejection names the pure node that holds the binding.
+            raise PureResultReplayIndexError(
+                exc.reason,
+                str(exc),
+                context={"node_id": node_id, **exc.context},
+            ) from exc
         raw_bindings[node_id] = tuple(resolved)
         dependency_addresses[node_id] = tuple(node_dependencies)
         normalized_output_contracts: dict[str, Mapping[str, Any]] = {}
