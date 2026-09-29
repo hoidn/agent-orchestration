@@ -98,5 +98,41 @@
   {
     "operator": "list/length",
     "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "/",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "int/div",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "int/mod",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "float/abs",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "float/sqrt",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "float/log",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "int/to-float",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "float/floor",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
+  },
+  {
+    "operator": "float/round",
+    "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
   }
 ]

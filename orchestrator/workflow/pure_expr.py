@@ -7,10 +7,12 @@ execution share one authoritative implementation.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from hashlib import sha256
 import json
+import math
+import operator as _operator
 from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any
@@ -69,32 +71,142 @@ _LIST_OPERATOR_NAMES = frozenset(
 
 
 @dataclass(frozen=True)
+class PureOperatorSignature:
+    """Every operand has primitive type `operand`; the result has primitive type `result`."""
+
+    operand: str
+    result: str
+    min_target_dsl_version: str | None = None
+
+
+@dataclass(frozen=True)
 class PureOperatorSpec:
-    """One supported pure operator."""
+    """One supported pure operator.
+
+    An operator with `signatures` is typed and evaluated here, once, for the
+    frontend check, the static typing of payloads and the evaluator (rule N8 of
+    docs/design/workflow_lisp_numeric_surface.md). Its `evaluate` maps the
+    operand values to the result; `evaluate_pure_operator` then refuses an Int
+    outside 64 bits and a Float that is not finite. A `min_target_dsl_version`
+    gates the operator, or one signature, in Workflow Lisp only: the runtime
+    evaluates every payload the compiler emits.
+    """
 
     name: str
     group: str
     min_arity: int
     max_arity: int | None = None
     min_schema_version: int = 1
+    min_target_dsl_version: str | None = None
+    signatures: tuple[PureOperatorSignature, ...] = ()
+    evaluate: Callable[[Sequence[Any]], Any] | None = field(default=None, compare=False, repr=False)
+
+
+def _fold(step: Callable[[Any, Any], Any]) -> Callable[[Sequence[Any]], Any]:
+    """Apply `step` from left to right, refusing each partial result like the last one."""
+
+    def evaluate(values: Sequence[Any]) -> Any:
+        total = values[0]
+        for value in values[1:]:
+            total = _checked_number(step(total, value))
+        return total
+
+    return evaluate
+
+
+def _nonzero_divisor(values: Sequence[Any]) -> Sequence[Any]:
+    if values[1] == 0:
+        _raise("pure_expr_division_by_zero", "the divisor is zero")
+    return values
+
+
+def _float_sqrt(values: Sequence[Any]) -> float:
+    if values[0] < 0:
+        _raise("pure_expr_float_domain", "the operand must be at least 0.0")
+    return math.sqrt(values[0])
+
+
+def _float_log(values: Sequence[Any]) -> float:
+    if values[0] <= 0:
+        _raise("pure_expr_float_domain", "the operand must be greater than 0.0")
+    return math.log(values[0])
+
+
+def _to_int(convert: Callable[[float], int]) -> Callable[[Sequence[Any]], int]:
+    def evaluate(values: Sequence[Any]) -> int:
+        if not math.isfinite(values[0]):
+            _raise("pure_expr_float_not_finite", "the operand is not a finite double")
+        return convert(values[0])
+
+    return evaluate
+
+
+_INT_TO_INT = PureOperatorSignature(operand="Int", result="Int")
+_FLOAT_TO_FLOAT = PureOperatorSignature(operand="Float", result="Float")
+_INT_OR_FLOAT_FROM_234 = (
+    _INT_TO_INT,
+    PureOperatorSignature(
+        operand="Float",
+        result="Float",
+        min_target_dsl_version=NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION,
+    ),
+)
+_ORDERING = (
+    PureOperatorSignature(operand="Int", result="Bool"),
+    PureOperatorSignature(operand="Float", result="Bool"),
+)
+
+
+def _ordering(name: str, compare: Callable[[Any, Any], bool]) -> PureOperatorSpec:
+    return PureOperatorSpec(
+        name=name,
+        group="ordering",
+        min_arity=2,
+        max_arity=2,
+        signatures=_ORDERING,
+        evaluate=lambda values: compare(values[0], values[1]),
+    )
+
+
+def _numeric(
+    name: str,
+    evaluate: Callable[[Sequence[Any]], Any],
+    signatures: tuple[PureOperatorSignature, ...],
+    *,
+    group: str = "arithmetic",
+    min_arity: int = 2,
+    max_arity: int | None = 2,
+    min_target_dsl_version: str | None = NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION,
+) -> PureOperatorSpec:
+    return PureOperatorSpec(
+        name=name,
+        group=group,
+        min_arity=min_arity,
+        max_arity=max_arity,
+        min_target_dsl_version=min_target_dsl_version,
+        signatures=signatures,
+        evaluate=evaluate,
+    )
 
 
 PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
     {
         "=": PureOperatorSpec(name="=", group="equality", min_arity=2, max_arity=2),
         "!=": PureOperatorSpec(name="!=", group="equality", min_arity=2, max_arity=2),
-        "<": PureOperatorSpec(name="<", group="ordering", min_arity=2, max_arity=2),
-        "<=": PureOperatorSpec(name="<=", group="ordering", min_arity=2, max_arity=2),
-        ">": PureOperatorSpec(name=">", group="ordering", min_arity=2, max_arity=2),
-        ">=": PureOperatorSpec(name=">=", group="ordering", min_arity=2, max_arity=2),
+        "<": _ordering("<", _operator.lt),
+        "<=": _ordering("<=", _operator.le),
+        ">": _ordering(">", _operator.gt),
+        ">=": _ordering(">=", _operator.ge),
         "and": PureOperatorSpec(name="and", group="boolean", min_arity=2),
         "or": PureOperatorSpec(name="or", group="boolean", min_arity=2),
         "not": PureOperatorSpec(name="not", group="boolean", min_arity=1, max_arity=1),
-        "+": PureOperatorSpec(name="+", group="arithmetic", min_arity=2),
-        "-": PureOperatorSpec(name="-", group="arithmetic", min_arity=2, max_arity=2),
-        "*": PureOperatorSpec(name="*", group="arithmetic", min_arity=2),
-        "min": PureOperatorSpec(name="min", group="arithmetic", min_arity=2),
-        "max": PureOperatorSpec(name="max", group="arithmetic", min_arity=2),
+        "+": _numeric("+", _fold(_operator.add), _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
+        "-": _numeric(
+            "-", lambda values: values[0] - values[1], _INT_OR_FLOAT_FROM_234, min_target_dsl_version=None
+        ),
+        "*": _numeric("*", _fold(_operator.mul), _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
+        "min": _numeric("min", min, _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
+        "max": _numeric("max", max, _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
         "string/concat": PureOperatorSpec(name="string/concat", group="string", min_arity=2),
         "string/empty?": PureOperatorSpec(name="string/empty?", group="string", min_arity=1, max_arity=1),
         "symbol/name": PureOperatorSpec(name="symbol/name", group="string", min_arity=1, max_arity=1),
@@ -135,6 +247,37 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
             min_arity=1,
             max_arity=1,
             min_schema_version=2,
+        ),
+        "/": _numeric("/", lambda values: _nonzero_divisor(values)[0] / values[1], (_FLOAT_TO_FLOAT,)),
+        "int/div": _numeric("int/div", lambda values: _nonzero_divisor(values)[0] // values[1], (_INT_TO_INT,)),
+        "int/mod": _numeric("int/mod", lambda values: _nonzero_divisor(values)[0] % values[1], (_INT_TO_INT,)),
+        "float/abs": _numeric("float/abs", lambda values: abs(values[0]), (_FLOAT_TO_FLOAT,), min_arity=1, max_arity=1),
+        "float/sqrt": _numeric("float/sqrt", _float_sqrt, (_FLOAT_TO_FLOAT,), min_arity=1, max_arity=1),
+        "float/log": _numeric("float/log", _float_log, (_FLOAT_TO_FLOAT,), min_arity=1, max_arity=1),
+        "int/to-float": _numeric(
+            "int/to-float",
+            lambda values: float(values[0]),
+            (PureOperatorSignature(operand="Int", result="Float"),),
+            group="conversion",
+            min_arity=1,
+            max_arity=1,
+        ),
+        "float/floor": _numeric(
+            "float/floor",
+            _to_int(math.floor),
+            (PureOperatorSignature(operand="Float", result="Int"),),
+            group="conversion",
+            min_arity=1,
+            max_arity=1,
+        ),
+        # Python's `round` of a float rounds halves to the even integer.
+        "float/round": _numeric(
+            "float/round",
+            _to_int(round),
+            (PureOperatorSignature(operand="Float", result="Int"),),
+            group="conversion",
+            min_arity=1,
+            max_arity=1,
         ),
     }
 )
@@ -1141,6 +1284,10 @@ def _derive_static_operator_type(
     operator: str,
     arg_types: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any]:
+    spec = PURE_EXPR_OPERATOR_CATALOG.get(operator)
+    if spec is not None and spec.signatures:
+        return _primitive_type(_require_signature(spec, arg_types).result)
+
     if operator in {"=", "!="}:
         left_type, right_type = arg_types
         if _is_float_type(left_type) or _is_float_type(right_type):
@@ -1582,7 +1729,7 @@ def _evaluate_expr(
             evaluate_child(arg)
             for arg in node["args"]
         ]
-        return _evaluate_operator(node["operator"], evaluated_args)
+        return evaluate_pure_operator(node["operator"], evaluated_args)
 
     _raise("pure_expr_payload_invalid", f"unsupported pure-expression node kind `{kind}`")
 
@@ -1640,12 +1787,23 @@ def _evaluate_record_fields(
     return result
 
 
-def _evaluate_operator(
+def evaluate_pure_operator(
     operator: str,
     evaluated_args: list[tuple[Mapping[str, Any], Any]],
 ) -> tuple[Mapping[str, Any], Any]:
+    """Type and evaluate one operator application over typed operand values.
+
+    The frontend calls it on literal operands, so that their refusal is a
+    compile error (rule N4 of docs/design/workflow_lisp_numeric_surface.md).
+    """
+
     arg_types = [arg_type for arg_type, _ in evaluated_args]
     arg_values = [arg_value for _, arg_value in evaluated_args]
+
+    spec = PURE_EXPR_OPERATOR_CATALOG.get(operator)
+    if spec is not None and spec.signatures:
+        signature = _require_signature(spec, arg_types)
+        return _primitive_type(signature.result), _apply_operator(spec, arg_values)
 
     if operator in {"=", "!="}:
         left_type, right_type = arg_types
@@ -2025,6 +2183,105 @@ def _checked_int(value: int) -> int:
             metadata={"min": INT64_MIN, "max": INT64_MAX, "value": value},
         )
     return value
+
+
+def _checked_float(value: float) -> float:
+    if not math.isfinite(value):
+        _raise(
+            "pure_expr_float_not_finite",
+            f"the result {value!r} is not a finite double",
+            metadata={"value": repr(value)},
+        )
+    return value
+
+
+def _checked_number(value: Any) -> Any:
+    if type(value) is float:
+        return _checked_float(value)
+    if type(value) is int:
+        return _checked_int(value)
+    return value
+
+
+def pure_operator_signature(
+    operator: str,
+    operand_types: Sequence[str | None],
+    *,
+    target_dsl_version: str | None = None,
+) -> PureOperatorSignature | None:
+    """Return the signature under which a catalog operator accepts these operand types.
+
+    `operand_types` holds primitive type names, None for any other type. With a
+    `target_dsl_version`, only the signatures that Workflow Lisp target admits
+    count; the runtime passes none and accepts every signature.
+    """
+
+    spec = PURE_EXPR_OPERATOR_CATALOG.get(operator)
+    for signature in spec.signatures if spec is not None else ():
+        if target_dsl_version is not None and not _target_admits(
+            target_dsl_version, signature.min_target_dsl_version
+        ):
+            continue
+        if all(name == signature.operand for name in operand_types):
+            return signature
+    return None
+
+
+def pure_operator_operands_text(operator: str, *, target_dsl_version: str | None = None) -> str:
+    """Name the operand types a catalog operator accepts, as its refusals print them."""
+
+    operands = [
+        signature.operand
+        for signature in PURE_EXPR_OPERATOR_CATALOG[operator].signatures
+        if target_dsl_version is None
+        or _target_admits(target_dsl_version, signature.min_target_dsl_version)
+    ]
+    return operands[0] if len(operands) == 1 else "matching " + " or ".join(operands)
+
+
+def _target_admits(target_dsl_version: str, minimum: str | None) -> bool:
+    if minimum is None:
+        return True
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+    except ValueError:
+        return False
+    return target >= tuple(int(part) for part in minimum.split("."))
+
+
+def _require_signature(
+    spec: PureOperatorSpec,
+    arg_types: Sequence[Mapping[str, Any]],
+) -> PureOperatorSignature:
+    names = [
+        descriptor.get("name") if _descriptor_kind(descriptor) == "primitive" else None
+        for descriptor in arg_types
+    ]
+    signature = pure_operator_signature(spec.name, names)
+    if signature is None:
+        _raise(
+            "pure_expr_operand_type_mismatch",
+            f"operator `{spec.name}` requires {pure_operator_operands_text(spec.name)} operands",
+            metadata={"operator": spec.name, "observed_types": list(arg_types)},
+        )
+    return signature
+
+
+def _apply_operator(spec: PureOperatorSpec, values: Sequence[Any]) -> Any:
+    """Evaluate a catalog operator; every refusal names it and prints its operands (rule N4)."""
+
+    try:
+        return _checked_number(spec.evaluate(values))
+    except PureExprEvaluationError as exc:
+        raise PureExprEvaluationError(
+            exc.code,
+            f"operator `{spec.name}` with operands {list(values)!r}: {exc}",
+            metadata={**exc.metadata, "operator": spec.name, "operands": list(values)},
+        ) from None
+
+
+def _primitive_type(name: str) -> Mapping[str, Any]:
+    return {"kind": "primitive", "name": name}
 
 
 def _bool_type() -> Mapping[str, Any]:

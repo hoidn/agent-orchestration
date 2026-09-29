@@ -150,6 +150,7 @@ from ..type_env import (
     WorkflowRefTypeRef,
 )
 from ..typecheck import TypedExpr
+from ..typecheck_pure_ops import catalog_operator_result_type
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import (
     ProcedureCallableSpecialization,
@@ -2276,6 +2277,9 @@ def _resolve_pure_op_type(expr: PureOpExpr, *, context: _LoweringContext) -> Typ
         return None
     resolved_arg_types = [arg_type for arg_type in arg_types if arg_type is not None]
     operator = expr.operator
+    catalog_type = catalog_operator_result_type(operator, resolved_arg_types)
+    if catalog_type is not None:
+        return catalog_type
     if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?", "string/empty?"}:
         return PrimitiveTypeRef(name="Bool")
     if operator in {"+", "-", "*", "min", "max"}:

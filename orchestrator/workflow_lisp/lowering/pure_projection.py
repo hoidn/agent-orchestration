@@ -67,6 +67,7 @@ from ..syntax import (
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_rich_loop_values,
 )
+from ..typecheck_pure_ops import catalog_operator_result_type
 from .context import _LoweringContext
 from .generated_paths import allocate_generated_result_bundle
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
@@ -1262,6 +1263,9 @@ def _infer_expr_type(
             for arg in expr.args
         )
         operator = expr.operator
+        catalog_type = catalog_operator_result_type(operator, arg_types)
+        if catalog_type is not None:
+            return catalog_type
         if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?"}:
             return PrimitiveTypeRef(name="Bool")
         if operator in {"+", "-", "*", "min", "max", "or-else"}:

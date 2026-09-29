@@ -289,8 +289,9 @@ _FORM_SPECS = (
             rationale=(
                 "Closed pure operator heads elaborate through the shared pure-expression route."
             ),
+            min_target_dsl_version=operator_spec.min_target_dsl_version,
         )
-        for operator_name in PURE_EXPR_OPERATOR_CATALOG
+        for operator_name, operator_spec in PURE_EXPR_OPERATOR_CATALOG.items()
     ),
     _spec(
         "list",
