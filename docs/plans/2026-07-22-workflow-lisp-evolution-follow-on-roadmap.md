@@ -461,9 +461,9 @@ assigned target 2.33 to generic unions and `std/improve` together; the
 its tasks, and the
 [master plan](2026-09-28-composition-first-master-plan.md) covers the whole
 design, including consumer migration and retirement. CF-1b is implemented at
-target 2.33 (2026-09-28); its plan records the implemented tasks, and its
-closeout items (the full-suite comparison, fresh public run evidence, and the
-merge to `main`) remain open. CF-1c consumer migration is on hold (selection
+target 2.33 (2026-09-28); its plan records the implemented tasks and the
+closeout: the full-suite comparison, fresh public run evidence, and the
+merge to `main`. CF-1c consumer migration is on hold (selection
 record, step 4). The section heading
 keeps its original anchor. The proposal's repository observations were verified
 at `31580550`; its interface, generic-union delta, and loop pseudocode are
@@ -692,6 +692,19 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
      `reasoning_effort` is ignored;
   2. parallel execution of `list/map-effect` bodies, which run in sequence;
   3. a comparison of workflows with a single call on a large task.
+- Follow-up work recorded on 2026-09-28 from the final review of CF-1b, each
+  unselected until planned:
+  1. a generic procedure with no effects cannot construct an applied union
+     over its own type parameters outside `loop/recur`; every call is rejected
+     with `generic_union_unresolved_argument`;
+  2. at targets below 2.33 a bracketed type that is not a generic union, such
+     as a misspelt `Lst[Int]`, reports `generic_union_requires_dsl_2_33`
+     where it reported `type_expression_invalid`; what those targets accept
+     is unchanged;
+  3. three tests in `tests/test_workflow_lisp_generic_unions_runtime.py` run
+     programs that the public run rejects at start, because their helper
+     skips that validation; they need a public-run form or a strict `xfail`
+     naming the pure-result replay limit.
 
 ## Routing And Historical Records
 

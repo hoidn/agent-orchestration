@@ -33,8 +33,8 @@ their evidence. The owner's decisions during execution are written into the
 documents that own them: target admission per defining module and the
 record-field relaxation at 2.33 (`specs/versioning.md`), applied-union
 `provider-result` returns (design §5), `limit` of at least 1 (design §4), and
-consumer migration on hold (roadmap CF-1, step 4). Task 7 promotes the
-documentation; the closeout items below remain open.
+consumer migration on hold (roadmap CF-1, step 4). Task 7 promoted the
+documentation, and the closeout below is recorded (2026-09-28).
 
 Read `docs/index.md` and `docs/capability_status_matrix.md` first. Authorities:
 
@@ -278,7 +278,7 @@ and the public run/resume tests in
 
 ### Task 7: Promote Documentation
 
-- [ ] Complete
+- [x] Complete
 
 **Update:** `specs/versioning.md` (already added in Task 1; confirm wording),
 `docs/design/workflow_lisp_frontend_specification.md` (generic-union
@@ -299,10 +299,16 @@ CF-1 status and CF-1b row closeout.
 
 ## Closeout And Consequent Actions
 
-- [ ] Full suite in tmux: `pytest -q -n 16 --dist=worksteal`, compared with
+- [x] Full suite in tmux: `pytest -q -n 16 --dist=worksteal`, compared with
   the recorded baseline failure set; no new failures.
-- [ ] Public compile/run/resume evidence for the example, with fresh output.
-- [ ] Merge to `main` by fast-forward from the worktree; commit by pathspec.
+  Recorded 2026-09-28: 16271 passed and 345 failed on the branch; 16106
+  passed and 347 failed on `main` at `e8caf07a`, run the same way. The two
+  failure sets differ by four tests that depend on machine load: one fails
+  only on the branch and passes when run alone, three fail only on `main`.
+- [x] Public compile/run/resume evidence for the example, with fresh output.
+  Recorded 2026-09-28: the `--dry-run` command in the drafting guide exits 0,
+  and `tests/test_workflow_lisp_improve_example_e2e.py` gives 11 passed.
+- [x] Merge to `main` by fast-forward from the worktree; commit by pathspec.
 - [x] Record in the roadmap CF-1 section: supported contract, limits, and the
   CF-1c selection decision (migration of the two maintained callers and the
   utility evaluation). No utility claim follows from a passing slice.
