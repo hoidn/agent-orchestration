@@ -1,18 +1,22 @@
 # Workflow Lisp Composition-First Procedures
 
-- **Status:** proposed; not an implemented authoring surface
+- **Status:** generic unions and `std/improve` (§§3–7) are implemented at
+  target 2.33; the reference module is
+  [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
+  and its limits are in §11. The §8 consumer migration is not implemented; the
+  roadmap owns its entry conditions.
 - **Kind:** language and standard-library architecture decision
 - **Owner:** Workflow Lisp frontend (parametric type system) and standard library
 - **Created:** 2026-09-28
 - **Implementation target:** 2.33 for generic unions and `std/improve`
-  together, assigned by the owner on 2026-09-28; not implemented
+  together; [versioning](../../specs/versioning.md) owns target admission
 - **Roadmap:** [CF-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected)
   owns selection, ordering, entry conditions, and consequences. Effect
   contracts remain owned by
   [EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected).
 - **Type-system delta:** [first-order generic unions](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
-  in the parametric type-system design, accepted as governing for CF-1b; it
-  owns application, argument binding, constructor identity, and diagnostics.
+  in the parametric type-system design; it owns application, argument
+  binding, constructor identity, and diagnostics.
 - **Evidence record:** the [design review](../reports/2026-09-28-workflow-lisp-composition-first-review.md)
   and the [exhaustion projection check](../reports/2026-09-28-cf1a-exhaustion-projection-check.md).
 - **Notation:** signatures below are schematic. They use the `:forall`,
@@ -34,8 +38,9 @@ The contract has two parts:
    the flat generic union `Improvement[S F B]`.
 
 Inference-default effects are EL-1's independent concern, not a prerequisite.
-The initial provider route uses concrete prompt result declarations converted
-by domain adapters; direct generic `defprompt` results are a separate
+A provider-backed hook may return an instantiated `Decision` directly from
+`provider-result :returns`, or convert an existing concrete result through a
+domain adapter (§5); direct generic `defprompt` results are a separate
 extension.
 
 Not in this design: a record wrapper around the legacy concrete result, a
@@ -84,8 +89,11 @@ first-order parameters; `F` and `B` bind from the hook signatures.
 
 `S is-record` is the first delivery's scope limit: `S` is carried through loop
 state and projected by `:on-exhausted`, and those boundaries are proven for
-records. Widening `S` requires a named use and boundary evidence. `I` has no
-record constraint: it is a fixed lexical input, not loop state. Each
+records, including records with `List[record]` fields. Widening `S` requires a
+named use and boundary evidence. `I` has no record constraint: it is a fixed
+lexical input, not loop state. The supported shapes are a record or a `String`
+workflow parameter; a `String` or `Int` literal passed as `inputs` is
+rejected. Each
 specialization must satisfy the existing transport, projection, and result
 contracts where used; no new constraint vocabulary is introduced.
 
@@ -134,11 +142,17 @@ state = {current: initial}
                                :current (revise state.current inputs r.feedback)))))))
 ```
 
+The listing is schematic. The shipped
+[`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
+is the reference; it binds both hook results with `let*` before use.
+
 - One iteration reviews the current candidate and, when asked, revises it. The
   final permitted iteration may end in an unreviewed revision; that is the
   existing bounded-loop policy and what `EXHAUSTED` means.
-- `limit` keeps the existing `:max` semantics, including zero handling. No
-  positive-limit precondition is added.
+- `limit` has the existing `:max` semantics: it is a compile-time integer
+  constant of at least 1, written as a literal, a `let*`-bound literal, or a
+  field of a literal record. A workflow parameter is rejected, and `0` is
+  rejected at compile time, as for `:max` on any loop.
 - `inputs` is a fixed lexical binding. Any capture the compiler needs for
   lowering or resume is the compiler's, not authored loop state.
 - Cancellation, malformed hook output, timeouts, and provider failures remain
@@ -149,12 +163,26 @@ state = {current: initial}
 
 ## 5. Boundaries
 
-**Typed feedback.** `F` is domain-owned. The selected hook is a `defproc`. In
-the initial contract its provider call keeps an existing concrete result
-declaration, and an ordinary procedure converts that result into
+**Typed feedback.** `F` is domain-owned. The selected hook is a `defproc`. A
+provider-backed review hook may declare
+`provider-result :returns Decision[MyFeedback MyBlocker]` and return the
+provider's result directly. Output that does not satisfy the instantiated
+contract is a contract violation at the provider boundary
+(`variant_discriminant_invalid`, `variant_required_field_missing`,
+`variant_forbidden_field_present`, `variant_field_type_invalid`) and never
+reaches the helper. A hook whose provider call keeps an existing concrete
+result declaration, such as a legacy `ReviewFindings.v1` review, uses an
+ordinary adapter procedure that converts that result into
 `Decision[MyFeedback MyBlocker]`. The conversion may be pure; the enclosing
 adapter is effectful when it calls a provider or validates external artifacts.
-Direct instantiated-union declarations on `defprompt` are a separate extension.
+Instantiated-union result declarations on `defprompt` are a separate extension.
+
+**Hooks.** `review` and `revise` are command- or provider-backed `defproc`s
+with `:lowering inline`, directly or through an adapter. A composite reviewer,
+such as two reviews plus an adjudication, is an ordinary `defproc` with the
+review hook's signature; converting adapters may be nested in it. Hooks may be
+declared in another module and passed with `proc-ref`; their effects are then
+missing from the caller's transitive summary (§7).
 
 Provider result validation establishes nothing about referenced files. Legacy
 `ReviewFindings.v1` adapters run the existing validator's schema-string and
@@ -202,12 +230,15 @@ omission on the new regime, definition-origin aware.
 Before EL-1 lands, `improve` has no direct command effect and uses the current
 generic-hook forwarding regime. Its inferred transitive summary includes all
 provider and command effects of the selected domain adapters, including
-findings validation. Neither change waits for the other.
+findings validation, when the hooks are declared in the caller's module. The
+effects of hooks declared in another module are missing from that summary;
+cross-module effect inference is owned by EL-1. Neither change waits for the
+other.
 
 ## 8. Migration
 
-- New module, provisionally `std/improve`, exporting `Decision`, `Improvement`,
-  and `improve`. `std/phase` remains available; its review/revise helper's
+- New module `std/improve`, exporting `Decision`, `Improvement`, and
+  `improve`. `std/phase` remains available; its review/revise helper's
   terminal-evidence mismatch is legacy behavior of that helper, not of every
   export in the module.
 - New declarations change bundled-module digests and require a target bump.
@@ -238,8 +269,9 @@ findings validation. Neither change waits for the other.
   ReviewEvidence)` after a successful revision. That evidence is what the
   revision responded to, not a review of the returned value. Wrapping and
   unwrapping belong to the consumer's adapters; no fake path, initial report,
-  or library seed exists. Exhaustion before any review is a distinct variant
-  of the consumer's public result.
+  or library seed exists. Because `limit` is at least 1 (§4), exhaustion
+  always follows a revision and returns `REVISED_FROM`; `UNREVIEWED` is used
+  only as the history value before the first revision.
 - Approved and blocked projections preserve the existing public fields from
   actual evidence.
 - Retirement is per declaration: remove `review-revise-loop` and
@@ -258,13 +290,11 @@ as a gap, and a gap in existing runtime behavior is corrected at its owner.
 | --- | --- | --- |
 | Generic unions | New type-system capability. | Acceptance covers imported generic procedures, argument binding through `ProcRef`, alias and homonym identity, loop state, terminal results, downstream consumption, and the type owner's diagnostics and phantom-argument identity cases. |
 | Generic exhaustion and lexical inputs | Projection expressibility and selection of the final committed state are separate obligations. | The helper projects the latest `state.current` of specialized record type `S`, including after the final `continue` with two or more iterations, on a fresh run and after committed-boundary resume, and preserves fixed `inputs` on both. A supported non-record `I` is included; unsupported shapes are rejected at their boundary. The exhaustion projection check records the final-state defect, its owner-level correction and acceptance tests; fixed-input capture is a separate obligation. |
-| Concrete prompt results and domain adapters | The initial provider route uses existing result declarations. | Value conversion plus required artifact validation, compatible hooks, preserved public report fields, and consumption-time validation after resume. Direct generic prompt results need separate evidence. |
+| Provider results and domain adapters | A provider-backed hook returns an instantiated `Decision` from `provider-result :returns`, or an adapter converts an existing concrete result declaration. | Direct returns: malformed output fails at the provider boundary with the four variant contract-violation codes (§5). Adapters: value conversion plus required artifact validation, compatible hooks, preserved public report fields, and consumption-time validation after resume. Direct generic `defprompt` results need separate evidence. |
 | No compiler branch keyed to review names | A mechanism-level requirement. | An unrelated `Outcome[T E]` union passes the same boundaries with no consumer-specific code. |
 
-Deterministic test hooks use a supported executable route. A pure inline hook
-as a loop-body `match` scrutinee is not currently supported by the frontend;
-tests use command-backed or provider-backed hooks until it is. That limitation
-constrains test shape, not the library contract.
+Deterministic test hooks use a supported executable route: command-backed or
+provider-backed hooks (§5). Pure hooks are not supported.
 
 ## 10. Evidence requirements
 
@@ -300,3 +330,21 @@ constrains test shape, not the library contract.
 
 Verification follows AGENTS.md: narrow selectors first, then the full suite,
 plus a public compile/run/resume path for the new caller.
+
+## 11. Limits at target 2.33
+
+Limits stated in their own sections: `S is-record` (§3), `limit` (§4), hooks
+and `defprompt` results (§5), generic records and procedure type arguments
+(§6), and the effects of imported hooks (§7). The caller shape, including
+binding the result before `match`, is in the
+[drafting guide](../lisp_workflow_drafting_guide.md#137-improve).
+
+- Resume restores committed boundaries inside `improve`. Resume after a
+  failure in a step downstream of `improve`'s result fails with
+  `pure_result_replay_unavailable`.
+- A `let*`-bound pure `match` over the result that builds a record containing
+  the nested subject passes `--dry-run` but is rejected when the run starts. A
+  tail `match` with pure arms works.
+
+Both limits belong to the
+[pure-result replay](workflow_lisp_pure_result_replay.md) owner.

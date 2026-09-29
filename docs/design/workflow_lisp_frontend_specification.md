@@ -51,6 +51,9 @@ cancel only settles the request, and ordinary resume validates and consumes the
 same scoped leaf result. The normative durable-state and CLI contracts are in
 [State](../../specs/state.md) and [CLI](../../specs/cli.md).
 
+Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`
+library module (§87.1).
+
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
 The compact operating rule is:
@@ -1196,6 +1199,26 @@ variant name, and keyword/value field pairs. The resulting expression has the
 declared union type. Constructing a union value does not create proof for
 variant-specific field access; later reads still require `match`,
 `requires_variant`, or another proof-bearing path.
+
+At target 2.33, `defunion :forall (T ...)` declares a first-order generic
+union whose type parameters may occur in variant field types:
+
+```lisp
+(defunion Outcome :forall (T E)
+  (OK (value T))
+  (ERROR (error E)))
+
+(variant Outcome[Int String] OK :value 1)
+```
+
+An application such as `Outcome[Int String]` is a type in parameter, return,
+record-field, `ProcRef`, and `provider-result :returns` positions, and names
+the union in a `variant` constructor. Applications are compile-time only: the
+existing specialization pipeline instantiates each one to an ordinary concrete
+union before typecheck and lowering. The
+[parametric type-system design](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
+owns application, argument binding, identity, and diagnostics;
+[versioning](../../specs/versioning.md) owns target admission.
 
 ### 8.6 `defun`
 
@@ -5018,6 +5041,18 @@ artifacts.
 - owns `backlog-drain` as ordinary imported `.orc` composition over typed
   selector results, loop state, workflow calls, transitions, projections, and
   materialized views
+
+## 87.1 `std/improve`
+
+- `Decision[F B]`
+- `Improvement[S F B]`
+- `improve`
+- target-2.33 imported stdlib module for a bounded review/revise loop that
+  returns the candidate together with its outcome
+- owns `improve` as ordinary `.orc` composition over generic unions, `ProcRef`
+  hooks, and loop state; its contract and limits are in
+  [Composition-First Procedures](workflow_lisp_composition_first.md)
+- `std/phase` `review-revise-loop` remains available
 
 ## Part XV. Example End-To-End Design
 

@@ -284,11 +284,10 @@ not survive as Python-side validation for any migrated form.
 - **Generic type definitions** (parameterized records/unions, e.g. a
   stdlib-owned `Selection[SelPayloadT GapPayloadT]` type constructor):
   The accepted tranche remains generic `defproc :forall`; generic record
-  definitions remain deferred. A first-order generic-union extension is
-  proposed for CF-1 and specified below; it is not part of the current
-  normative syntax. Structural constraints still let existing caller-owned
-  records and unions satisfy generic procedures without adopting library-owned
-  nominal types. CF-1 addresses repeated result-union declarations without
+  definitions remain deferred. First-order generic unions are specified below
+  and implemented at target 2.33. Structural constraints still let existing
+  caller-owned records and unions satisfy generic procedures without adopting
+  library-owned nominal types. CF-1 addresses repeated result-union declarations without
   adding generic records or a general type-constructor surface. Revisit generic
   records when a maintained caller requires them; the roadmap owns CF-1
   selection and schedule.
@@ -296,7 +295,7 @@ not survive as Python-side validation for any migrated form.
   return-type-driven inference): no escape hatch exists for binding a procedure
   type parameter that inference cannot reach; return-only type parameters are
   inexpressible by construction (Core Model, definition-site coverage). This
-  remains distinct from the proposed application of a generic union in a type
+  remains distinct from the application of a generic union in a type
   position or constructor expression below. Revisit explicit procedure type
   arguments when a maintained generic procedure needs a type parameter that
   cannot be bound from its value and `ProcRef` arguments.
@@ -320,13 +319,13 @@ not survive as Python-side validation for any migrated form.
 ### Proposed CF-1 First-Order Generic Unions
 
 This is the type-system delta for
-[Composition-First Procedures](workflow_lisp_composition_first.md). The owner
-accepted it as the governing contract for CF-1b on 2026-09-28, with target
-**2.33** shared with the `std/improve` library module; the
-[CF-1 roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md)
-owns its schedule and status. It is not implemented, and it does not change the
-syntax admitted at targets up to 2.32. The domain meaning and result variants
-remain owned by the composition design.
+[Composition-First Procedures](workflow_lisp_composition_first.md).
+Status: implemented at target **2.33**, shared with the `std/improve` library
+module; the heading keeps its original anchor. No target up to 2.32 changes
+what it accepts: those targets reject `defunion :forall` and type applications,
+and the variant-field relaxation under "Constructors and compilation" applies
+at 2.33 only. [Versioning](../../specs/versioning.md) owns target admission.
+The domain meaning and result variants remain owned by the composition design.
 
 ```lisp
 (defunion Outcome :forall (T E)
@@ -339,11 +338,15 @@ remain owned by the composition design.
   may appear in ordinary procedure parameter/return signatures, value type
   positions, constructor expressions, and nested `ProcRef` signatures. Type
   parameters range over types; higher-kinded parameters and generic records are
-  outside this proposal.
-- **Constructor identity.** An applied union is identified by its defining
-  module and declaration plus the ordered canonical identities of its concrete
-  arguments. An imported alias resolves to that same declaration identity; two
-  declarations with the same short name in different modules are distinct.
+  outside this extension.
+- **Constructor identity.** An applied union is identified by its constructor
+  plus the ordered canonical identities of its concrete arguments. Constructor
+  identity is nominal: the defining module and declaration. An imported alias
+  resolves to that same declaration identity; two declarations with the same
+  short name in different modules are distinct.
+  Argument identity follows the existing record rule: two records with the same
+  short name and the same fields, declared in different modules, are the same
+  semantic type.
   Do not implement this by globally tightening legacy type equality. Carry the
   applied-type representation into existing compatibility checks.
 - **Invariant binding.** When matching an open application such as
@@ -357,8 +360,9 @@ remain owned by the composition design.
   constraints do not infer bindings, and generic `defproc` call sites gain no
   explicit type application.
 - **Phantom parameters.** A union parameter need not occur in a variant payload.
-  Its explicitly supplied type argument remains part of constructor identity,
-  even when payload shapes are identical; payload shape cannot infer it.
+  Its explicitly supplied type argument remains part of the applied union's
+  identity, even when payload shapes are identical; payload shape cannot infer
+  it.
 - **Constructors and compilation.** A constructor expression names an applied
   concrete or specialization-resolvable union type. Do not infer its union type
   bidirectionally from the surrounding expression. Applications remain
@@ -367,14 +371,23 @@ remain owned by the composition design.
   type/procedure references or parallel specialization mechanism. Generic
   declaration and type-use checks retain unresolved parameters as placeholders
   until specialization, then validate the concrete monomorphic body and
-  descriptors before lowering.
-- **Boundaries and diagnostics.** Initially, `defprompt` result declarations
-  remain restricted to currently supported concrete declarations; an ordinary
-  adapter converts the provider result to an instantiated generic union. Direct
-  generic `defprompt` results require a separately selected extension through
-  this same type-system owner. Reject wrong arity, recursive instantiation
-  cycles, and actual payload shapes unsupported at existing transport or
-  descriptor boundaries. Diagnostics identify both the caller use and generic
+  descriptors before lowering. At target 2.33 a variant's record-typed field
+  may be filled from a bound name or field access, as in
+  `(variant Improvement[S F B] EXHAUSTED :value state.current)`; targets up to
+  2.32 keep rejecting that at compile time.
+- **Boundaries and diagnostics.** `provider-result :returns` may name an
+  applied union such as `Decision[ReviewNotes ReviewBlocker]`. Its
+  instantiated concrete descriptor is the provider's output contract; output
+  that does not satisfy it fails at the provider boundary with
+  `variant_discriminant_invalid`, `variant_required_field_missing`,
+  `variant_forbidden_field_present`, or `variant_field_type_invalid`, and no
+  value reaches the caller. An ordinary adapter procedure converts a provider
+  result with an existing concrete declaration into an instantiated union.
+  `defprompt` result declarations remain restricted to currently supported
+  concrete declarations; direct generic `defprompt` results require a
+  separately selected extension through this same type-system owner. Reject
+  wrong arity, recursive instantiation cycles, and actual payload shapes
+  unsupported at existing transport or descriptor boundaries. Diagnostics identify both the caller use and generic
   declaration, retaining their source-map locations.
 - **Minimum acceptance cases.** An unrelated `Outcome[T E]` union uses the same
   compiler path; an imported alias matches its origin while a same-short-name

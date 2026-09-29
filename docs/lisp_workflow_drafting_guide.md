@@ -2275,6 +2275,8 @@ or field-name variants.
 
 A review loop should return a typed result, such as `APPROVED`, `BLOCKED`, or
 `EXHAUSTED`. Do not parse markdown review prose to recover the decision.
+For a loop that returns the candidate its outcome is about, see
+[13.7 `improve`](#137-improve).
 
 ### 13.3 `resume-or-start`
 
@@ -2372,6 +2374,59 @@ Expected lowering:
 
 This is the high-level construct that should materially shrink top-level
 backlog-drain authoring.
+
+### 13.7 `improve`
+
+At target 2.33, `improve` from `std/improve` runs a bounded review/revise loop
+and returns `Improvement[S F B]`: `APPROVED` (`value`, `evidence`), `BLOCKED`
+(`value`, `reason`), or `EXHAUSTED` (`value`). Its contract is in
+[Composition-First Procedures](design/workflow_lisp_composition_first.md):
+§3 for `initial` and `inputs`, §4 for `limit`, §5 for the hooks, and §11 for
+limits. Whether a review loop is worth its calls is a separate question; see
+[Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
+
+Bind the result with `let*`, then `match` it. A call to `improve` written
+directly as the `match` scrutinee fails with `proc_ref_signature_invalid`.
+From the example below:
+
+```lisp
+(import std/improve :only (Decision improve))
+
+(defworkflow run-experiment ((question String)) -> ExperimentRun
+  (let* ((brief (record ExperimentBrief :question question))
+         (result (improve (propose brief) brief
+                          (proc-ref review-proposal)
+                          (proc-ref revise-proposal)
+                          3)))
+    (match result
+      ((APPROVED approved) (execute approved.value "approved" approved.evidence.notes))
+      ((BLOCKED blocked) (execute blocked.value "blocked" blocked.reason.issue))
+      ((EXHAUSTED exhausted) (execute exhausted.value "exhausted" "")))))
+```
+
+Its review hook returns `Decision[ReviewNotes ReviewBlocker]` straight from
+`provider-result :returns`; a hook over an existing concrete result converts it
+with an adapter instead.
+
+[`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
+is evidence for the target-2.33 surface (route-readiness
+`migration_evidence_only`), not a template. Dry-run it from the repository
+root:
+
+```bash
+python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
+  --entry-workflow improve_experiment_proposal::run-experiment \
+  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
+  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
+  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json \
+  --input-file workflows/examples/inputs/improve_experiment_proposal/inputs.json \
+  --dry-run
+```
+
+A real run also needs `scripts/launch_experiment.py` in the workspace. It
+receives `--outcome`, `--note`, `--hypothesis`, and `--parameters` (the
+parameter list as JSON) and writes `{"status": ...}` to the file named by
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. `note` is `""` on `EXHAUSTED`.
 
 ## 14. Provider Prompt Guidance
 
