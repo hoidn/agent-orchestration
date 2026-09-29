@@ -90,6 +90,7 @@ from ..syntax import (
     HUMAN_REPLY_TYPE_NAME,
     HelperExpansionFrame,
     ProcedureExpansionFrame,
+    target_dsl_is_2_33_or_newer,
     target_dsl_supports_nested_structural_transport,
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_strict_boolean_control_flow,
@@ -1596,6 +1597,21 @@ def _elaborate_expr_to_body(
             active_phase_scope=active_phase_scope,
         )
     if isinstance(expr, ContinueExpr):
+        fields_scope = scope.child_scope("loop-continue-fields")
+        bound_fields = _bind_effectful_loop_state_fields(expr, scope=fields_scope, type_env=type_env)
+        if bound_fields is not None:
+            return _elaborate_let_star(
+                bound_fields,
+                scope=fields_scope,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
         prefix, state_value = _elaborate_expr_to_value(
             expr.state_expr,
             scope=scope.child_scope("loop-continue", authored_binding_name="state"),
@@ -1755,6 +1771,53 @@ def _elaborate_expr_to_body(
         result=value,
     )
     return _wrap_prefix_lets(prefix, halt)
+
+
+def _bind_effectful_loop_state_fields(
+    expr: ContinueExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+) -> LetStarExpr | None:
+    """Bind each effectful `loop-state :like` field before `continue`, as `let*` would.
+
+    From target 2.33 this returns ``(let* ((g1 e1) ...) (continue (loop-state
+    :like base ... :f g1 ...)))`` with one generated binding per field that
+    contains an effect, in authored field order, so each effect runs once and
+    left to right. It returns None below 2.33 or when no field has an effect;
+    the state then stays an opaque value that the loop lowerer projects as pure.
+    """
+
+    state = expr.state_expr
+    if not (
+        isinstance(state, LoopStateUpdateExpr)
+        and target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or "")
+        and any(_contains_effect(field_expr) for _, field_expr in state.overrides)
+    ):
+        return None
+    bindings: list[tuple[str, object]] = []
+    overrides: list[tuple[str, object]] = []
+    for field_name, field_expr in state.overrides:
+        if _contains_effect(field_expr):
+            binding_name = _generated_effect_binding_name_from_scope(
+                scope.child_scope("field", authored_binding_name=field_name),
+                role=field_name,
+            )
+            bindings.append((binding_name, field_expr))
+            field_expr = NameExpr(
+                name=binding_name,
+                span=field_expr.span,
+                form_path=field_expr.form_path,
+                expansion_stack=field_expr.expansion_stack,
+            )
+        overrides.append((field_name, field_expr))
+    return LetStarExpr(
+        bindings=tuple(bindings),
+        body=replace(expr, state_expr=replace(state, overrides=tuple(overrides))),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
 
 
 def _elaborate_let_star(
@@ -3240,7 +3303,7 @@ def _elaborate_match_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    subject = _elaborate_atomic_value(
+    subject_prefix, subject = _elaborate_expr_to_value(
         expr.subject,
         scope=scope.child_scope("match-subject", authored_binding_name="subject"),
         type_env=type_env,
@@ -3252,7 +3315,10 @@ def _elaborate_match_to_body(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    return _elaborate_match_case_with_subject(
+    # From target 2.33 the subject's bindings run before the case, as `let*` would.
+    if subject_prefix and not target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or ""):
+        raise TypeError(f"unsupported nested WCC M2 prefix for `{type(expr.subject).__name__}`")
+    case_body = _elaborate_match_case_with_subject(
         expr,
         subject=subject,
         scope=scope,
@@ -3265,6 +3331,7 @@ def _elaborate_match_to_body(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
+    return _wrap_prefix_lets(subject_prefix, case_body)
 
 
 def _elaborate_match_case_with_subject(

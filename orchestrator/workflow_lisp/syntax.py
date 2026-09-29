@@ -161,6 +161,16 @@ def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
     return target >= minimum
 
 
+def target_dsl_is_2_33_or_newer(target_dsl_version: str) -> bool:
+    """Return whether a target is 2.33 or newer (the shared defect repairs gate)."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= (2, 33)
+
+
 def target_dsl_supports_provider_peer_messaging(
     target_dsl_version: str,
 ) -> bool:
