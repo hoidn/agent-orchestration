@@ -107,7 +107,8 @@ compiled, and its refusal is a compile error.
 ### N6. Boundaries
 
 A `Float` that enters a run is finite. The rule applies to workflow inputs,
-to fields of command and provider results, and to expected output files.
+to fields of command and provider results, to expected output files, and to
+the values that resume reads back from saved state.
 
 | Input | Result |
 | --- | --- |
@@ -119,12 +120,17 @@ The code is `float_not_finite`. The diagnostic names the field.
 
 ### N7. Identity And Serialization
 
-- A `Float` is written as the shortest decimal that reads back as the same
-  double. No file of a run contains the token `NaN`.
+- A `Float` that the orchestrator serialises is written as the shortest
+  decimal that reads back as the same double. No value that the orchestrator
+  commits is the token `NaN` or an infinity. A result file written by a
+  command or a provider is that program's file: it is validated, and when it
+  is refused it stays as evidence, as it was written.
+- A `Float` enters a digest in that same form. `-0.0` and `0.0` are distinct.
+  Nothing is rounded.
 - `+`, `-`, `*`, `/` and `float/sqrt` give the same double on every platform.
-  `float/log` may differ in the last unit between mathematical libraries.
-- For that reason a `Float` enters a digest rounded to 15 significant decimal
-  digits. The value an effect receives is not rounded.
+  `float/log` may differ in the last unit between mathematical libraries. A
+  digest that holds such a result then differs between those platforms. A run
+  resumed on the machine that started it is not affected.
 
 ### N8. One Implementation
 
@@ -183,5 +189,5 @@ waits for a fixture that needs it.
 | Claim | Fixture |
 | --- | --- |
 | One catalog can serve the four places that hold type rules today | The frontend check, the static typing of payloads and the evaluator give the same answer on a generated set of well-typed and ill-typed applications |
-| Rounding to 15 digits in digests does not make two different inputs equal in practice | The digests of the controller's inputs over a full search are pairwise distinct wherever the inputs differ |
+| A digest depends on a `Float` only through its double | Two adjacent doubles have two digests; one double computed two ways has one; `-0.0` and `0.0` have two |
 | Refusing non-finite values at boundaries breaks no maintained workflow | No workflow of the repetition census corpus receives such a value in its tests |
