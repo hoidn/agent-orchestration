@@ -33,10 +33,16 @@ from tests.experiments.test_evaluated_execution_spike import (
     fixture,
     install,
     records,
-    run_controller,
     run_root,
     spike,
     stand_in_provider,
+)
+from tests.experiments.test_evaluated_execution_spike_programs import (
+    REAL,
+    _spike_real,
+    launches,
+    run_controller,
+    scripted_providers,
 )
 from tests.workflow_lisp_totality_matrix_sources import PROBE
 
@@ -275,3 +281,22 @@ def test_the_compact_search_controller_resumed_after_each_effect_runs_no_committ
 
         assert (resumed.value, [r["identity"] for r in records(root)]) == (once.value, committed), f"effect {k}"
         assert set(launches.values()) == {1}, f"effect {k}"
+
+
+@pytest.mark.parametrize("name", list(REAL))
+def test_a_real_program_resumed_after_each_effect_calls_no_provider_or_command_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    scripted = scripted_providers(monkeypatch, name)
+    once = (_spike_real(tmp_path / "once", name, monkeypatch), scripted.calls, launches(tmp_path / "once"))
+    committed = [r["identity"] for r in records(tmp_path / "once")]
+
+    for k in range(1, len(committed) + 1):
+        root = tmp_path / f"stop-{k}"
+        scripted = scripted_providers(monkeypatch, name)
+        with pytest.raises(Interrupt):
+            _spike_real(root, name, monkeypatch, hook=stop_at("committed", k))
+        resumed = _spike_real(root, name, monkeypatch)
+
+        assert (resumed, scripted.calls, launches(root)) == once, f"effect {k}"
+        assert [r["identity"] for r in records(root)] == committed, f"effect {k}"

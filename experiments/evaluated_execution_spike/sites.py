@@ -1,4 +1,4 @@
-"""Effect sites (design section 6) and the checked form (P5) of the closed program.
+"""The closed program's form: effect sites (design section 6), checked form (P5), canonical JSON (P7).
 
 Node kinds of the closed program, all plain JSON:
 
@@ -22,10 +22,38 @@ with each `[*]` replaced by the iteration of that loop.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 SEPARATOR = " / "
+
+
+@dataclass(frozen=True)
+class ClosedProgram:
+    tree: dict[str, Any]
+    sites: tuple[str, ...]
+    digest: str
+
+    def artifact(self) -> str:
+        """The program as written to the run root: canonical JSON, provenance included."""
+
+        return json.dumps(self.tree, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def canonical_digest(value: Any) -> str:
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def strip_provenance(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {key: strip_provenance(value) for key, value in node.items() if key != "@"}
+    if isinstance(node, list):
+        return [strip_provenance(item) for item in node]
+    return node
 
 
 def _has_effect(node: Any, memo: dict[int, bool]) -> bool:
@@ -143,8 +171,9 @@ class _Validator:
             if site is None or site in self.seen:
                 raise CheckedFormError(f"effect without a unique site: {site}")
             self.seen.add(site)
+            fills = node["prompt"]["fills"] if isinstance(node.get("prompt"), dict) else []
             operands = [*node.get("argv", []), *node.get("inputs", []), *node.get("policy", {}).values(),
-                        *(value for _, value in node.get("document", []))]
+                        *(value for _, value in node.get("document", [])), *(value for *_, value in fills)]
             for item in operands + ([node["question"]] if "question" in node else []):
                 self.value(item, names)
         elif node["k"] == "call":

@@ -22,6 +22,7 @@ from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.providers.types import ProviderParams
+from orchestrator.workflow.view_renderer import render_view
 
 BUNDLE_ENV = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
 
@@ -57,6 +58,19 @@ def project(value: Any, desc: dict[str, Any]) -> Any:
     return value
 
 
+def assemble_prompt(workspace: Path, prompt: str | dict[str, Any], inputs: list[Any]) -> str:
+    """Not the flat route's assembly: an asset file and the inputs as JSON, or a template with its fills
+    rendered by the view renderers the runtime uses for prompt fragments."""
+
+    if isinstance(prompt, str):
+        return (workspace / prompt).read_text(encoding="utf-8") + "\n" + render_argument(inputs)
+    text = prompt["template"]
+    for name, renderer, value in prompt["fills"]:
+        rendered = value if renderer == "raw-utf8-string" else render_view(renderer, 1, value).decode("utf-8")
+        text = text.replace("{" + name + "}", rendered.removesuffix("\n"))
+    return text
+
+
 class Performers:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
@@ -76,9 +90,7 @@ class Performers:
         return None
 
     def provider(self, resolved: dict[str, Any], path: Path) -> dict | None:
-        # Prompt assembly is not the flat route's: the prompt file, then the inputs as JSON.
-        prompt_file = self.workspace / resolved["prompt"]
-        prompt = prompt_file.read_text(encoding="utf-8") + "\n" + render_argument(resolved["inputs"])
+        prompt = assemble_prompt(self.workspace, resolved["prompt"], resolved["inputs"])
         (path.parent / "prompt.txt").write_text(prompt, encoding="utf-8")
         executor = ProviderExecutor(self.workspace, ProviderRegistry())
         invocation, error = executor.prepare_invocation(

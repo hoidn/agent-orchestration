@@ -22,8 +22,6 @@ raises `ClosedProgramGap` naming it:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -33,6 +31,7 @@ from orchestrator.workflow.pure_expr import validate_pure_expr_payload
 from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
 from orchestrator.workflow_lisp.expressions import (
+    CompilerListNonemptyHeadExpr,
     IfExpr,
     LetStarExpr,
     ListExpr,
@@ -50,7 +49,7 @@ from orchestrator.workflow_lisp.wcc.elaborate import _elaborate_expr_to_body, el
 
 from .frontend import TypedProgram
 from .repairs import bind_done_values, elaboration_return_types
-from .sites import assign_sites, validate
+from .sites import ClosedProgram, assign_sites, canonical_digest, strip_provenance, validate
 
 SCHEMA = "evaluated-execution-spike/closed-program/1"
 ROUTE = w.WCC_M4_ROUTE_SCHEMA_VERSION
@@ -62,31 +61,6 @@ class ClosedProgramGap(Exception):
     def __init__(self, prop: str, message: str) -> None:
         super().__init__(f"[{prop}] {message}")
         self.prop = prop
-
-
-@dataclass(frozen=True)
-class ClosedProgram:
-    tree: dict[str, Any]
-    sites: tuple[str, ...]
-    digest: str
-
-    def artifact(self) -> str:
-        """The program as written to the run root: canonical JSON, provenance included."""
-
-        return json.dumps(self.tree, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def canonical_digest(value: Any) -> str:
-    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def strip_provenance(node: Any) -> Any:
-    if isinstance(node, dict):
-        return {key: strip_provenance(value) for key, value in node.items() if key != "@"}
-    if isinstance(node, list):
-        return [strip_provenance(item) for item in node]
-    return node
 
 
 def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = frozenset()) -> ClosedProgram:
@@ -362,18 +336,28 @@ class _Builder:
 
     def provider(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
         payload = perform.operation_payload
-        unsupported = sorted(set(payload) & {"prompt_application", "context_expr", "prompt_dependencies",
-                                             "session_artifact", "capture_context"})
+        unsupported = sorted(set(payload) & {"context_expr", "prompt_dependencies", "session_artifact", "capture_context"})
         if unsupported:
             raise ClosedProgramGap("P3", f"provider payload parts {unsupported} have no closed form in the spike")
         policy = {key: self.value(payload[key], d, env) for key in
                   ("model", "effort", "delivery", "materialization_attempts", "timeout_sec") if key in payload}
-        prompt = self.typed.externs[perform.prompt_name].path
         return {"class": "provider", "provider": self.typed.externs[perform.target_name].provider_id,
-                # An asset prompt is read relative to the entry module, as the flat route reads it.
-                "prompt": posixpath.normpath(posixpath.join(self.typed.entry_dir, prompt)),
+                "prompt": self.prompt(perform, d, env),
                 "inputs": [self.value(a, d, env) for a in perform.positional_args], "policy": policy,
                 "contract": self.contract(perform.metadata.type_ref, d, payload.get("return_spec")), "repeat": "rerun"}
+
+    def prompt(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> str | dict[str, Any]:
+        """An asset prompt: its path, relative to the entry module as the flat route reads it.
+        A `defprompt` application: its template and its fills, each with its renderer (P3)."""
+
+        application = perform.operation_payload.get("prompt_application")
+        if application is None:
+            path = self.typed.externs[perform.prompt_name].path
+            return posixpath.normpath(posixpath.join(self.typed.entry_dir, path))
+        if any(fill.renderer_id is None for fill in application.fills):
+            raise ClosedProgramGap("P3", "a document prompt slot has no closed form in the spike")
+        return {"template": application.prompt.declaration.template.text,
+                "fills": [[f.name, f.renderer_id, self.value(f.value_expr, d, env)] for f in application.fills]}
 
     def contract(self, result_type: Any, d: _Def, return_spec: Any) -> dict[str, Any]:
         """P3: the output contract of the result type, derived as lowering derives it, without its path."""
@@ -429,11 +413,14 @@ class _Builder:
         return {**self.payload(expr, op.metadata.type_ref, types, [self.value(a, d, env) for a in op.args], d),
                 **_provenance(op)}
 
-    def payload(self, expr, result_type, arg_types, args, d: _Def) -> dict[str, Any]:
+    def payload(self, expr, result, arg_types, args, d: _Def) -> dict[str, Any]:
+        """`result` and `arg_types` are type references, or descriptors already derived."""
+
+        desc = lambda t: t if isinstance(t, dict) else d.desc(t)  # noqa: E731
         payload = {
             "pure_expr_schema_version": 2,
-            "result_type": d.desc(result_type),
-            "bindings": {f"a{i}": {"type": d.desc(t)} for i, t in enumerate(arg_types)},
+            "result_type": desc(result),
+            "bindings": {f"a{i}": {"type": desc(t)} for i, t in enumerate(arg_types)},
             "expr": expr,
         }
         validate_pure_expr_payload(payload)  # P5: the catalog types every operator when the program is built
@@ -451,6 +438,12 @@ class _Builder:
             return {"k": "list", "items": [self.frontend(item, d, env) for item in expr.items]}
         if isinstance(expr, LoopStateUpdateExpr):
             return {**self.loop_state_update(expr, value.metadata.type_ref, d, env), **_provenance(value)}
+        if isinstance(expr, CompilerListNonemptyHeadExpr):  # the head of a list that `list/map-effect` knows nonempty
+            item = d.desc(expr.element_type_ref)
+            head = {"kind": "list_nonempty_head", "source": {"kind": "binding", "name": "a0"}, "element_type": item,
+                    "compiler_owned": True, "invariant_diagnostic": "list_nonempty_invariant_broken"}
+            source = [self.frontend(expr.source_expr, d, env)]
+            return {**self.payload(head, item, [{"kind": "list", "item": item}], source, d), **_provenance(value)}
         if isinstance(expr, (LetStarExpr, IfExpr)):  # an inlined pure call, or `if` below target 2.26
             return self.frontend(expr, d, env)
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")

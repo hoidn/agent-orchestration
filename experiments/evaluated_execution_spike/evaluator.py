@@ -22,7 +22,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import PureExprEvaluationError, evaluate_pure_expr
 
-from .closed import ClosedProgram, canonical_digest
+from .sites import ClosedProgram, canonical_digest
 from .memo import Memo
 from .performers import Performers, render_argument, result_path
 
@@ -248,9 +248,13 @@ class _Evaluator:
                 argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
             return {"class": kind, "command": [*node["command"], *argv], "contract": node["contract"]}
         if kind == "provider":
-            prompt = self.performers.workspace / node["prompt"]
-            return {"class": kind, "provider": node["provider"], "prompt": node["prompt"],
-                    "prompt_digest": canonical_digest(prompt.read_text(encoding="utf-8")),
+            prompt = node["prompt"]
+            if isinstance(prompt, dict):
+                prompt = {**prompt, "fills": [[name, renderer, self.value(v, env)] for name, renderer, v in prompt["fills"]]}
+                text = prompt
+            else:
+                text = (self.performers.workspace / prompt).read_text(encoding="utf-8")
+            return {"class": kind, "provider": node["provider"], "prompt": prompt, "prompt_digest": canonical_digest(text),
                     "inputs": [self.value(a, env) for a in node["inputs"]],
                     "policy": {k: self.value(v, env) for k, v in node["policy"].items()}, "contract": node["contract"]}
         return {"class": kind, "question": self.value(node["question"], env)}
