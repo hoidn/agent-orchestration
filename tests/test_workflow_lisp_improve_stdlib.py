@@ -41,9 +41,11 @@ from tests.workflow_lisp_improve_stdlib_sources import (
     REVIEW_PROBE,
     REVISE_PROBE,
     STD_IMPROVE_PATH,
+    SUMMARIZE_PROBE,
     entry_source,
     inline_entry_source,
     provider_revise_entry_source,
+    unnamed_union_caller_sources,
     wrapped_review_sources,
 )
 
@@ -193,7 +195,10 @@ def test_zero_limit_keeps_the_existing_zero_max_rejection_and_invokes_no_hook(tm
     )
 
 
-def test_target_232_caller_of_std_improve_is_rejected_with_the_required_target_diagnostic(tmp_path: Path) -> None:
+def test_target_232_caller_that_writes_an_applied_union_type_is_rejected(tmp_path: Path) -> None:
+    """The rejection is for writing `Decision[...]` and `Improvement[...]`, not for calling `improve`
+    (Ruling R8; the positive case is the next test). It names `run`, whose return type is applied."""
+
     probes = _write_project(tmp_path, seed="approve", limit=3, target="2.32")
     entry = tmp_path / "grt" / "entry.orc"
 
@@ -205,6 +210,34 @@ def test_target_232_caller_of_std_improve_is_rejected_with_the_required_target_d
         "generic_union_requires_dsl_2_33",
         entry,
         _line_of(entry.read_text(encoding="utf-8"), "(defworkflow run"),
+    )
+
+
+@pytest.mark.parametrize("target", ["2.28", "2.32"])
+def test_caller_below_233_that_writes_no_applied_union_runs_improve_to_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """Ruling R8: target admission is per defining module. The caller imports only `improve`, takes
+    its review hook from a 2.33 module, and binds and matches a result whose type it never names."""
+
+    probes = {
+        name: _write_probe(tmp_path, name, text)
+        for name, text in (
+            ("probe_review", REVIEW_PROBE),
+            ("probe_revise", REVISE_PROBE),
+            ("probe_summarize", SUMMARIZE_PROBE),
+        )
+    }
+    _write_sources(tmp_path, unnamed_union_caller_sources(seed="draft", limit=2, target=target, probes=probes))
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(_public_run_files(tmp_path, probes))
+
+    assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes), _log(probes["probe_summarize"])) == (
+        0,
+        {"return__outcome": "EXHAUSTED", "return__title": "draft+r+r", "return__score": 2},
+        (["draft tidy", "draft+r tidy"], ["draft tidy fb0", "draft+r tidy fb1"]),
+        ["EXHAUSTED draft+r+r 2"],
     )
 
 

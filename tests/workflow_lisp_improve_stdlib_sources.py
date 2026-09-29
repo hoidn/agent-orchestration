@@ -49,6 +49,9 @@ if title.startswith("fail") and "+r" in title:
 payload = {"title": title + "+r", "score": title.count("+r") + 1}
 """ + _PROBE_WRITE
 
+SUMMARIZE_PROBE = _PROBE_PRELUDE + """payload = {"outcome": sys.argv[1], "title": sys.argv[2], "score": int(sys.argv[3])}
+""" + _PROBE_WRITE
+
 
 IMPORT_LINE = "  (import std/improve :only (Decision Improvement improve))\n"
 
@@ -134,6 +137,49 @@ def wrapped_review_sources(imported: str, probes: dict[str, Path]) -> dict[str, 
     end = imported.index("  (defproc revise-candidate")
     entry = (imported[:start] + WRAPPED_REVIEW + imported[end:]).replace(
         IMPORT_LINE, IMPORT_LINE + "  (import grt/assess :only (Candidate Brief Feedback Blocker assess))\n"
+    )
+    return {
+        "grt/assess.orc": ASSESS_LIB.replace("PROBE_REVIEW", probes["probe_review"].as_posix()),
+        "grt/entry.orc": entry,
+    }
+
+
+# Ruling R8: a caller below 2.33 that never writes `Decision[...]` or `Improvement[...]`.
+# Its review hook is the 2.33 `grt/assess`; its match arms are effectful (see I1).
+UNNAMED_UNION_CALLER = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "TARGET")
+  (defmodule grt/entry)
+  (import std/improve :only (improve))
+  (import grt/assess :only (Candidate Brief Feedback assess))
+  (export run)
+  (defrecord Summary (outcome String) (title String) (score Int))
+""" + ENTRY[ENTRY.index("  (defproc revise-candidate") : ENTRY.index("  (defworkflow run")] + """  (defproc summarize ((outcome String) (candidate Candidate)) -> Summary
+    :effects ((uses-command probe_summarize))
+    :lowering inline
+    (command-result probe_summarize
+      :argv ("python" "PROBE_SUMMARIZE" outcome candidate.title candidate.score)
+      :returns Summary))
+  (defworkflow run () -> Summary
+    (let* ((result (improve (record Candidate :title "SEED" :score 0)
+                            (record Brief :goal "tidy")
+                            (proc-ref assess)
+                            (proc-ref revise-candidate)
+                            LIMIT)))
+      (match result
+        ((APPROVED approved) (summarize "APPROVED" approved.value))
+        ((BLOCKED blocked) (summarize "BLOCKED" blocked.value))
+        ((EXHAUSTED exhausted) (summarize "EXHAUSTED" exhausted.value))))))
+"""
+
+
+def unnamed_union_caller_sources(*, seed: str, limit: int, target: str, probes: dict[str, Path]) -> dict[str, str]:
+    entry = (
+        UNNAMED_UNION_CALLER.replace("TARGET", target)
+        .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
+        .replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+        .replace('"SEED"', f'"{seed}"')
+        .replace("LIMIT", str(limit))
     )
     return {
         "grt/assess.orc": ASSESS_LIB.replace("PROBE_REVIEW", probes["probe_review"].as_posix()),
