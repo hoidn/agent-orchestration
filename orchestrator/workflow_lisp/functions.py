@@ -8,7 +8,6 @@ from hashlib import sha1
 from typing import TYPE_CHECKING
 
 from .compiler_session import CompilerSession
-from .wcc.hygiene import fresh_name, reserved_identifiers
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expression_traversal import (
     _rebuild_with_replacements,
@@ -94,6 +93,7 @@ from .type_env import (
 )
 from .type_expressions import parse_type_expression, type_expression_names
 from .typecheck import TypedExpr, typecheck_expression
+from .wcc.hygiene import fresh_name, reserved_identifiers
 
 if TYPE_CHECKING:
     from .procedures import ProcedureCatalog
