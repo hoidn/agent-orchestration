@@ -144,6 +144,15 @@ def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
     return node.get("args", node.get("items", []))
 
 
+def _perform_operands(node: dict[str, Any]) -> list[dict[str, Any]]:
+    fills = node["prompt"]["fills"] if isinstance(node.get("prompt"), dict) else []
+    dependencies = node.get("dependencies") or {"required": [], "optional": []}
+    return [*node.get("argv", []), *node.get("policy", {}).values(), *dependencies["required"],
+            *dependencies["optional"], *(value for _, value in node.get("document", [])),
+            *(value for *_, value in [*fills, *node.get("inputs", [])]),
+            *([node["question"]] if "question" in node else [])]
+
+
 class _Validator:
     def __init__(self) -> None:
         self.seen: set[str] = set()
@@ -171,10 +180,7 @@ class _Validator:
             if site is None or site in self.seen:
                 raise CheckedFormError(f"effect without a unique site: {site}")
             self.seen.add(site)
-            fills = node["prompt"]["fills"] if isinstance(node.get("prompt"), dict) else []
-            operands = [*node.get("argv", []), *node.get("inputs", []), *node.get("policy", {}).values(),
-                        *(value for _, value in node.get("document", [])), *(value for *_, value in fills)]
-            for item in operands + ([node["question"]] if "question" in node else []):
+            for item in _perform_operands(node):
                 self.value(item, names)
         elif node["k"] == "call":
             for item in node["args"]:

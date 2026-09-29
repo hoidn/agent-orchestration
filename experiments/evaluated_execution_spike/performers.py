@@ -13,6 +13,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from orchestrator.contracts.prompt_contract import (
+    render_output_bundle_contract_block,
+    render_variant_output_contract_block,
+)
 from orchestrator.contracts.output_contract import (
     OutputContractError,
     validate_output_bundle,
@@ -58,26 +62,75 @@ def project(value: Any, desc: dict[str, Any]) -> Any:
     return value
 
 
-def assemble_prompt(workspace: Path, prompt: str | dict[str, Any], inputs: list[Any]) -> str:
-    """Not the flat route's assembly: an asset file and the inputs as JSON, or a template with its fills
-    rendered by the view renderers the runtime uses for prompt fragments."""
+def file_digest(path: Path) -> str | None:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
+
+def _join(text: str, block: str) -> str:
+    """The runtime's rule for appending a prompt block (`prompting.py`)."""
+
+    if not block:
+        return text
+    if not text:
+        return block
+    return text + ("\n" if text.endswith("\n") else "\n\n") + block
+
+
+def assemble_prompt(workspace: Path, resolved: dict[str, Any], contract: dict[str, Any], bundle: str) -> str:
+    """The prompt, in the order and with the renderers the flat route uses: the asset or the rendered
+    template, the typed prompt inputs, the prompt dependencies, the output contract."""
+
+    prompt = resolved["prompt"]
     if isinstance(prompt, str):
-        return (workspace / prompt).read_text(encoding="utf-8") + "\n" + render_argument(inputs)
-    text = prompt["template"]
-    for name, renderer, value in prompt["fills"]:
-        rendered = value if renderer == "raw-utf8-string" else render_view(renderer, 1, value).decode("utf-8")
-        text = text.replace("{" + name + "}", rendered.removesuffix("\n"))
-    return text
+        text = (workspace / prompt).read_text(encoding="utf-8")
+    else:
+        text = prompt["template"]
+        for name, renderer, value in prompt["fills"]:
+            rendered = value if renderer == "raw-utf8-string" else render_view(renderer, 1, value).decode("utf-8")
+            text = text.replace("{" + name + "}", rendered.removesuffix("\n"))
+    typed = [f"## Typed Prompt Input: {name}\n" + render_view(renderer, 1, value).decode("utf-8").rstrip("\n")
+             for name, renderer, value in resolved["inputs"]]
+    text = _join(text, "\n\n".join(typed))
+    dependencies = resolved.get("dependencies")
+    if dependencies:  # not the flat route's snapshot rendering
+        files = [p for p in dependencies["required"] + dependencies["optional"] if (workspace / p).is_file()]
+        block = "\n\n".join(f"## Prompt Dependency: {p}\n" + (workspace / p).read_text(encoding="utf-8") for p in files)
+        block = _join(dependencies.get("instruction") or "", block)
+        text = _join(block, text) if dependencies["position"] == "prepend" else _join(text, block)
+    payload = {**contract["payload"], "path": bundle}
+    render = render_output_bundle_contract_block if contract["kind"] == "output_bundle" else render_variant_output_contract_block
+    return _join(text, render(payload))
 
 
 class Performers:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
 
-    def perform(self, node: dict[str, Any], resolved: dict[str, Any], path: Path) -> tuple[Any, dict | None]:
+    def declared_files(self, tokens: list[str]) -> dict[str, str | None]:
+        """The files a command boundary names in its stable command, with their digests (None: missing).
+        A bare program name resolved on PATH (`python`) is not a declared file."""
+
+        files = {}
+        for token in tokens:
+            path = Path(token) if Path(token).is_absolute() else self.workspace / token
+            if "/" in token or path.is_file():
+                files[token] = file_digest(path)
+        return files
+
+    def provider_files(self, prompt: str | dict[str, Any], dependencies: dict[str, Any] | None) -> dict[str, str | None]:
+        """The prompt asset and the prompt dependencies of a provider effect, with their digests."""
+
+        paths = [prompt] if isinstance(prompt, str) else []
+        if dependencies:
+            paths += [*dependencies["required"], *dependencies["optional"]]
+        return {path: file_digest(self.workspace / path) for path in paths}
+
+    def perform(self, node: dict[str, Any], resolved: dict[str, Any], path: Path, identity: str) -> tuple[Any, dict | None]:
         path.parent.mkdir(parents=True)  # a new attempt directory: nothing of an earlier attempt is in it
-        failure = self.command(resolved, path) if node["class"] == "command" else self.provider(resolved, path)
+        if node["class"] == "command":
+            failure = self.command(resolved, path)
+        else:
+            failure = self.provider(node, resolved, path, identity)
         if failure is not None:
             return None, failure
         return self.validate(node, path)
@@ -89,16 +142,22 @@ class Performers:
             return {"code": "command_failed", "exit_code": result.exit_code, "error": result.error}
         return None
 
-    def provider(self, resolved: dict[str, Any], path: Path) -> dict | None:
-        prompt = assemble_prompt(self.workspace, resolved["prompt"], resolved["inputs"])
+    def provider(self, node: dict[str, Any], resolved: dict[str, Any], path: Path, identity: str) -> dict | None:
+        prompt = assemble_prompt(self.workspace, resolved, node["contract"], path.relative_to(self.workspace).as_posix())
         (path.parent / "prompt.txt").write_text(prompt, encoding="utf-8")
+        policy = resolved["policy"]
         executor = ProviderExecutor(self.workspace, ProviderRegistry())
         invocation, error = executor.prepare_invocation(
-            resolved["provider"], ProviderParams(params={}), {}, prompt_content=prompt, env={BUNDLE_ENV: str(path)}
+            provider_name=resolved["provider"], params=ProviderParams(params={}), context={}, prompt_content=prompt,
+            session_request=None, env={BUNDLE_ENV: str(path)}, secrets=None, timeout_sec=policy.get("timeout_sec"),
+            provider_call_policy={key: policy[key] for key in ("model", "effort") if key in policy},
+            provider_session_dir=None, provider_session_identity=None,
         )
         if error is not None:
             return {"code": "provider_invocation_invalid", "error": error}
-        result = executor.execute(invocation, cwd=self.workspace)
+        site_key = "sha256:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        result = executor.execute(invocation, cwd=self.workspace, stream_output=False,
+                                  execution_env_overlay={"ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY": site_key})
         if result.exit_code != 0:
             return {"code": "provider_failed", "exit_code": result.exit_code, "error": result.error}
         return None
