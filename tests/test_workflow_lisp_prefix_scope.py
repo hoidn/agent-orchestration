@@ -133,19 +133,31 @@ def _generated_names(root: Path) -> set[str]:
     return set(_GENERATED_CURRENT.findall(lowered.read_text(encoding="utf-8")))
 
 
-def _run_with_input(root: Path, monkeypatch: pytest.MonkeyPatch, form: str, name: str):
-    body = COLLISION_LOOP.replace("CONTINUE", COLLISION_CONTINUES[form]).replace("ALT", name)
-    probes = _write_program(root, body=body, returns="Candidate", seed="draft")
+def _run_with_inputs(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, body: str, returns: str, params: str, inputs: dict, decls: str = ""
+):
+    """Run the template program with workflow parameters `params`, the given inputs and extra declarations."""
+
+    probes = _write_program(root, body=body, returns=returns, seed="draft")
     source = root / "grt" / "entry.orc"
-    source.write_text(
-        source.read_text(encoding="utf-8").replace("(defworkflow run ()", f"(defworkflow run (({name} Candidate))"),
-        encoding="utf-8",
-    )
-    inputs = root / "inputs.json"
-    inputs.write_text(json.dumps({f"{name}__title": "author", f"{name}__score": 5}), encoding="utf-8")
+    text = source.read_text(encoding="utf-8").replace("(defworkflow run ()", f"{decls}(defworkflow run ({params})")
+    source.write_text(text, encoding="utf-8")
+    input_file = root / "inputs.json"
+    input_file.write_text(json.dumps(inputs), encoding="utf-8")
     monkeypatch.chdir(root)
-    result = _public_run(_public_run_files(root, probes), input_file=inputs)
+    result = _public_run(_public_run_files(root, probes), input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _logs(probes)
+
+
+def _run_with_input(root: Path, monkeypatch: pytest.MonkeyPatch, form: str, name: str):
+    return _run_with_inputs(
+        root,
+        monkeypatch,
+        body=COLLISION_LOOP.replace("CONTINUE", COLLISION_CONTINUES[form]).replace("ALT", name),
+        returns="Candidate",
+        params=f"({name} Candidate)",
+        inputs={f"{name}__title": "author", f"{name}__score": 5},
+    )
 
 
 def test_an_authored_identifier_spelled_like_a_generated_binding_is_not_captured(
@@ -161,6 +173,39 @@ def test_an_authored_identifier_spelled_like_a_generated_binding_is_not_captured
         expected,
         expected,
     ]
+
+
+VIEW = (
+    "(materialize-view note-view :value note :renderer canonical-json :renderer-version 1"
+    " :target target :returns ViewPath)"
+)
+VIEW_FORMS = {
+    "direct": f"(let* ((note {OUTER})) {_match_on(f'(let* ((note (revise SEED)) (p {VIEW}) (d (review note))) d)', 'note.title')})",
+    "let-bound": (
+        f"(let* ((note {OUTER}) (inner (revise SEED)) (p {VIEW.replace(':value note', ':value inner')}) (d (review inner)))"
+        f" {_match_on('d', 'note.title')})"
+    ),
+}
+
+
+@pytest.mark.parametrize("form", list(VIEW_FORMS))
+def test_a_renamed_binding_is_renamed_inside_an_effect_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
+) -> None:
+    """`materialize-view` keeps its arguments as a frontend expression inside the effect payload."""
+
+    outcome = _run_with_inputs(
+        tmp_path,
+        monkeypatch,
+        body=VIEW_FORMS[form],
+        returns="Summary",
+        params="(target ViewPath)",
+        inputs={"target": "artifacts/work/view.json"},
+        decls='(defpath ViewPath :kind relpath :under "artifacts/work" :must-exist false)\n  ',
+    )
+    view = json.loads((tmp_path / "artifacts" / "work" / "view.json").read_text(encoding="utf-8"))
+
+    assert (outcome, view) == (SCOPE_EXPECTED["match-subject-same-type"], {"score": 1, "title": "draft+r"})
 
 
 # Two arms of one `match` bind the same name and each `continue` with an effectful field.

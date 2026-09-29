@@ -25,7 +25,7 @@ from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expression_traversal import free_expr_names, walk_expr
 from ..expressions import CallExpr, NameExpr, ProcedureCallExpr
 from ..type_env import TypeRef
-from .model import WccIdentityFactory, WccLet, WccNameAtom, WccValue
+from .model import WccIdentityFactory, WccLet, WccNameAtom, WccPerform, WccValue
 
 
 def _gather(node: object, leaf: Callable[[object], set[str] | None]) -> set[str]:
@@ -180,9 +180,12 @@ def _rename(value: object, renamed: Mapping[str, WccValue], *, at: WccLet) -> ob
 
     if not renamed:
         return value
-    from .elaborate import _substitute_wcc_binding_value
+    from .elaborate import _substitute_wcc_binding_value, _substitute_wcc_opaque_expr
 
     result = _substitute_wcc_binding_value(value, renamed)
+    if isinstance(result, WccPerform) and result.operation_payload is not None:
+        # Payloads may hold frontend expressions (a prompt dependency, a view argument).
+        result = replace(result, operation_payload=_substitute_wcc_opaque_expr(result.operation_payload, renamed))
     missed = _mentioned_names(result) & renamed.keys()
     if missed:
         raise LispFrontendCompileError(
