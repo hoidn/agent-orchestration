@@ -645,13 +645,34 @@
     module targeting 2.33 that uses none of the new forms compiles as an
     ordinary module. State schema remains `2.1`.
 
-- v2.34 additions (registered; surface pending)
-  - Target 2.34 exists and accepts and lowers exactly what 2.33 accepts; only
-    the version recorded in each build artifact, and the digests and build
-    key computed over it, differ. Later tasks of the
+- v2.34 additions (in progress)
+  - Target 2.34 exists. Apart from the surface listed below, it accepts and
+    lowers exactly what 2.33 accepts; only the version recorded in each build
+    artifact, and the digests and build key computed over it, differ.
+  - Decimal literals and numeric operators (rules N1 to N5 and N8 of the
+    [numeric surface](../docs/design/workflow_lisp_numeric_surface.md)):
+    - A decimal literal is an expression wherever an expression is admitted.
+      In a module at 2.34, a token with an exponent (`2e-3`, `1.0E6`,
+      `-1.25e+2`) reads as a float; below 2.34 it still reads as a symbol. A
+      literal that does not fit a finite double is refused when the module is
+      read, with `float_literal_not_finite`.
+    - `+`, `*`, `-`, `min` and `max` accept all-`Float` operands as well as
+      all-`Int` ones. `/`, `float/abs`, `float/sqrt` and `float/log` take
+      `Float`. `int/div` rounds toward negative infinity and `int/mod` has the
+      sign of the divisor. `int/to-float`, `float/floor` and `float/round`
+      (halves to even) convert explicitly. Mixed operands are refused at
+      compile time; nothing converts silently. `=` and `!=` still refuse
+      `Float`.
+    - A refusal (`pure_expr_division_by_zero`, `pure_expr_float_domain`,
+      `pure_expr_float_not_finite`, `pure_expr_overflow`) names the operator
+      and prints the operands. An application whose operands are all literals
+      is evaluated at compile time, so its refusal is a compile error.
+    - The type rules and the evaluation of these operators live once, in the
+      pure-expression catalog. Below 2.34 none of this surface is admitted and
+      each refusal is the one of 2.33.
+  - Later tasks of the
     [evaluated execution plan](../docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
-    add decimal literals in expressions, numeric operators and finite values
-    at every boundary, and the
+    add finite values at every boundary, and the
     [repetition reduction plan](../docs/plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md)
     adds its rules at this target. State schema remains `2.1`.
 
@@ -696,7 +717,7 @@
   - `v2.31`: portable ordinary provider-context capture and fresh binding
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
-  - `v2.34`: registered; accepts what 2.33 accepts until later tasks add its surface
+  - `v2.34`: decimal literals in expressions and numeric operators; finite boundary values and the repetition reduction rules pending
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -847,6 +868,6 @@ Planned acceptance:
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments; an applied-union `defprompt` result compiles but is outside the contract. State schema remains 2.1. |
-| 2.34 | Workflow Lisp target registration | Accepts and lowers exactly what 2.33 does. Decimal literals in expressions, numeric operators and finite values at boundaries (evaluated execution plan) and the repetition reduction rules are added by later tasks. State schema remains 2.1. |
+| 2.34 | Workflow Lisp numeric surface (in progress) | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. Otherwise accepts and lowers exactly what 2.33 does. Finite values at boundaries (evaluated execution plan) and the repetition reduction rules are added by later tasks. State schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

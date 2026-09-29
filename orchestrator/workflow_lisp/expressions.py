@@ -69,6 +69,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     target_dsl_supports_list_traversal,
+    target_dsl_supports_numeric_surface,
     target_dsl_supports_prompt_calculus,
     target_dsl_supports_phased_contract_delivery,
     target_dsl_supports_provider_context_values,
@@ -1190,7 +1191,9 @@ def _elaborate(
             expansion_stack=datum.expansion_stack,
         )
     if isinstance(datum, SyntaxFloat):
-        if session_state.guidance_example:
+        if session_state.guidance_example or target_dsl_supports_numeric_surface(
+            session_state.target_dsl_version or ""
+        ):
             return LiteralExpr(
                 value=datum.value,
                 literal_kind="float",

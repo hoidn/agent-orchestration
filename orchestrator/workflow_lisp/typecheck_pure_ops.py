@@ -5,8 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
-from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
-from .expressions import NameExpr, PureOpExpr, RecordUpdateExpr, UnionVariantTagExpr
+from orchestrator.workflow.pure_expr import (
+    PURE_EXPR_OPERATOR_CATALOG,
+    PureExprEvaluationError,
+    evaluate_pure_operator,
+    pure_operator_operands_text,
+    pure_operator_signature,
+)
+from .expressions import LiteralExpr, NameExpr, PureOpExpr, RecordUpdateExpr, UnionVariantTagExpr
+from .syntax import target_dsl_supports_numeric_surface
 from .type_env import (
     DiscriminantTypeRef,
     ListTypeRef,
@@ -188,17 +195,10 @@ def typecheck_pure_expr(
         arg_types = [typed_arg.type_ref for typed_arg in typed_args]
         operator = expr.operator
 
-
-        if operator in {"<", "<=", ">", ">="}:
-            left, right = arg_types
-            if left != right or not (_is_primitive(left, "Int") or _is_primitive(left, "Float")):
-                _raise_operand_mismatch(
-                    expr=expr,
-                    message=f"operator `{operator}` requires matching Int or Float operands",
-                )
+        if spec.signatures:
             return typed_factory(
                 expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
+                type_ref=_typecheck_catalog_operator(rewritten, arg_types, context=context),
                 effect=merge_effect_summaries(*summaries),
             )
 
@@ -226,20 +226,6 @@ def typecheck_pure_expr(
             return typed_factory(
                 expr=rewritten,
                 type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator in {"+", "-", "*", "min", "max"}:
-            for arg_type in arg_types:
-                _require_primitive(
-                    expr=expr,
-                    type_ref=arg_type,
-                    name="Int",
-                    operator=operator,
-                )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Int"),
                 effect=merge_effect_summaries(*summaries),
             )
 
@@ -439,6 +425,81 @@ def typecheck_pure_expr(
         type_ref=typed_base.type_ref,
         effect=merge_effect_summaries(*summaries) if summaries else EMPTY_EFFECT_SUMMARY,
     )
+
+
+def _typecheck_catalog_operator(expr: PureOpExpr, arg_types: list[TypeRef], *, context) -> TypeRef:
+    """Type an operator whose signatures the catalog holds, at the module's target.
+
+    At a target with the numeric surface, an application whose operands are all
+    numeric literals is evaluated now, so its refusal is a compile error (rule N4).
+    """
+
+    target = context.type_env.target_dsl_version or ""
+    signature = pure_operator_signature(
+        expr.operator,
+        [_primitive_name(arg_type) for arg_type in arg_types],
+        target_dsl_version=target,
+    )
+    if signature is None:
+        _raise_operand_mismatch(
+            expr=expr,
+            message=(
+                f"operator `{expr.operator}` requires "
+                f"{pure_operator_operands_text(expr.operator, target_dsl_version=target)} operands"
+            ),
+        )
+    if target_dsl_supports_numeric_surface(target):
+        _literal_value(expr)
+    return PrimitiveTypeRef(name=signature.result)
+
+
+def _literal_value(expr) -> object | None:
+    """Return the value of a numeric literal, or of a catalog operator applied to such values.
+
+    Return None for any other expression. A refused application raises its
+    refusal as a diagnostic at the application.
+    """
+
+    if isinstance(expr, LiteralExpr):
+        return expr.value if expr.literal_kind in {"int", "float"} else None
+    if not isinstance(expr, PureOpExpr) or not PURE_EXPR_OPERATOR_CATALOG[expr.operator].signatures:
+        return None
+    values = [_literal_value(arg) for arg in expr.args]
+    if any(value is None for value in values):
+        return None
+    try:
+        _, value = evaluate_pure_operator(
+            expr.operator,
+            [({"kind": "primitive", "name": _LITERAL_TYPES[type(value)]}, value) for value in values],
+        )
+    except PureExprEvaluationError as exc:
+        raise_error(
+            str(exc),
+            code=exc.code,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    return value
+
+
+_LITERAL_TYPES = {bool: "Bool", int: "Int", float: "Float"}
+
+
+def catalog_operator_result_type(operator: str, arg_types) -> PrimitiveTypeRef | None:
+    """Return the result type the catalog gives an operator over typechecked operands.
+
+    Return None for an operator whose type rule the catalog does not hold.
+    """
+
+    signature = pure_operator_signature(operator, [_primitive_name(arg_type) for arg_type in arg_types])
+    return None if signature is None else PrimitiveTypeRef(name=signature.result)
+
+
+def _primitive_name(type_ref: TypeRef) -> str | None:
+    if isinstance(type_ref, PrimitiveTypeRef) and not type_ref.allowed_values:
+        return type_ref.name
+    return None
 
 
 def _supports_equality(type_ref: TypeRef) -> bool:
