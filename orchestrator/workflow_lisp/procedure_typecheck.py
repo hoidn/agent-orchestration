@@ -41,6 +41,7 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
+from .expression_traversal import walk_expr
 from .procedures import (
     GeneratedLocalProcedure,
     ProcedureCatalog,
@@ -999,6 +1000,31 @@ def _type_ref_contains_type_param(type_ref: TypeRef) -> bool:
         )
     if isinstance(type_ref, UnionTypeRef):
         return any(_type_ref_contains_type_param(arg) for arg in type_ref.type_args)
+    return False
+
+
+def calls_generic_procedure_through_type_dependent_hook(
+    expr: ExprNode,
+    *,
+    procedure_catalog: ProcedureCatalog,
+) -> bool:
+    """Return whether ``expr`` calls a generic procedure whose hook type uses a type parameter.
+
+    Proc-ref discovery checks the hook of such an authored call against the declared,
+    unspecialized hook type and rejects it with ``proc_ref_signature_invalid``; only the
+    specialized call that typechecking produces can be lowered.
+    """
+    for node in walk_expr(expr):
+        signature = (
+            procedure_catalog.signatures_by_name.get(node.callee_name)
+            if isinstance(node, ProcedureCallExpr)
+            else None
+        )
+        if signature is not None and signature.type_params and any(
+            isinstance(param_type, ProcRefTypeRef) and _type_ref_contains_type_param(param_type)
+            for _, param_type in signature.params
+        ):
+            return True
     return False
 
 
