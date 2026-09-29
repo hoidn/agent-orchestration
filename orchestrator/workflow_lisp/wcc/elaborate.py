@@ -98,6 +98,7 @@ from ..syntax import (
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
 from ..workflow_refs import ResolvedWorkflowRef
+from .hygiene import fresh_name, generated_name_scope, hoist_without_capture, reserved_identifiers
 from .model import (
     WccBindingValue,
     WccBody,
@@ -1598,7 +1599,13 @@ def _elaborate_expr_to_body(
         )
     if isinstance(expr, ContinueExpr):
         fields_scope = scope.child_scope("loop-continue-fields")
-        bound_fields = _bind_effectful_loop_state_fields(expr, scope=fields_scope, type_env=type_env)
+        bound_fields = _bind_effectful_loop_state_fields(
+            expr,
+            scope=fields_scope,
+            type_env=type_env,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
         if bound_fields is not None:
             return _elaborate_let_star(
                 bound_fields,
@@ -1778,30 +1785,40 @@ def _bind_effectful_loop_state_fields(
     *,
     scope: WccIdentityFactory,
     type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    compile_time_bindings: Mapping[str, object],
 ) -> LetStarExpr | None:
     """Bind each effectful `loop-state :like` field before `continue`, as `let*` would.
 
     From target 2.33 this returns ``(let* ((g1 e1) ...) (continue (loop-state
     :like base ... :f g1 ...)))`` with one generated binding per field that
     contains an effect, in authored field order, so each effect runs once and
-    left to right. It returns None below 2.33 or when no field has an effect;
-    the state then stays an opaque value that the loop lowerer projects as pure.
+    left to right. Each generated name is named by its field and the `case` arms
+    around it, and differs from every identifier in scope and inside `expr`, so
+    it captures no authored reference. It returns None below 2.33 or when no
+    field has an effect; the state then stays an opaque value that the loop
+    lowerer projects as pure.
     """
 
     state = expr.state_expr
     if not (
         isinstance(state, LoopStateUpdateExpr)
-        and target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or "")
+        and _at_2_33(type_env)
         and any(_contains_effect(field_expr) for _, field_expr in state.overrides)
     ):
         return None
+    reserved = reserved_identifiers(expr, value_env=value_env, compile_time_bindings=compile_time_bindings)
+    naming_scope = generated_name_scope(scope)
     bindings: list[tuple[str, object]] = []
     overrides: list[tuple[str, object]] = []
     for field_name, field_expr in state.overrides:
         if _contains_effect(field_expr):
-            binding_name = _generated_effect_binding_name_from_scope(
-                scope.child_scope("field", authored_binding_name=field_name),
-                role=field_name,
+            binding_name = fresh_name(
+                _generated_effect_binding_name_from_scope(
+                    naming_scope.child_scope("field", authored_binding_name=field_name),
+                    role=field_name,
+                ),
+                reserved,
             )
             bindings.append((binding_name, field_expr))
             field_expr = NameExpr(
@@ -2173,6 +2190,15 @@ def _elaborate_let_star(
             )
 
         prefix, value = _body_to_prefix_and_value(binding_body)
+        if _at_2_33(type_env):
+            prefix, value = hoist_without_capture(
+                prefix,
+                value,
+                over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
+                scope=binding_scope,
+                value_env=local_env,
+                compile_time_bindings=local_compile_time_bindings,
+            )
         let_node = WccLet(
             metadata=local_scope.body_metadata(
                 role=f"let:{binding_name}",
@@ -3303,9 +3329,10 @@ def _elaborate_match_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    subject_scope = scope.child_scope("match-subject", authored_binding_name="subject")
     subject_prefix, subject = _elaborate_expr_to_value(
         expr.subject,
-        scope=scope.child_scope("match-subject", authored_binding_name="subject"),
+        scope=subject_scope,
         type_env=type_env,
         value_env=value_env,
         workflow_return_types=workflow_return_types,
@@ -3315,9 +3342,18 @@ def _elaborate_match_to_body(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    # From target 2.33 the subject's bindings run before the case, as `let*` would.
-    if subject_prefix and not target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or ""):
+    # From target 2.33 the subject's bindings run before the case, as `let*` would,
+    # under names the arms cannot see.
+    if subject_prefix and not _at_2_33(type_env):
         raise TypeError(f"unsupported nested WCC M2 prefix for `{type(expr.subject).__name__}`")
+    subject_prefix, subject = hoist_without_capture(
+        subject_prefix,
+        subject,
+        over=tuple((arm.body, frozenset({arm.binding_name})) for arm in expr.arms),
+        scope=subject_scope,
+        value_env=value_env,
+        compile_time_bindings=compile_time_bindings,
+    )
     case_body = _elaborate_match_case_with_subject(
         expr,
         subject=subject,
@@ -3369,7 +3405,10 @@ def _elaborate_match_case_with_subject(
             _elaborate_case_arm(
                 expr,
                 arm,
-                scope=scope.child_scope("match-arm", authored_binding_name=arm.binding_name),
+                scope=replace(
+                    scope.child_scope("match-arm", authored_binding_name=arm.binding_name),
+                    enclosing_variants=(*scope.enclosing_variants, arm.variant_name),
+                ),
                 type_env=type_env,
                 value_env=value_env,
                 workflow_return_types=workflow_return_types,
@@ -5377,6 +5416,10 @@ def _elaborate_workflow_call_binding_value(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
+
+
+def _at_2_33(type_env: FrontendTypeEnvironment) -> bool:
+    return target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or "")
 
 
 def _generated_effect_binding_name_from_scope(scope: WccIdentityFactory, *, role: str) -> str:
