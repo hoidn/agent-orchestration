@@ -261,6 +261,22 @@ DEFECTS = {
     "`_validate_result_member`)",
 }
 
+# The diagnostic code each known defect fails with through the public run (exit 2).
+# An internal exception after typecheck is reported as `compiler_defect` (Task 13).
+DEFECT_CODES = {
+    "subject-producer": {"workflow_return_not_exportable", "wcc_lowering_route_unsupported"},
+    "loop-call-argument": {"workflow_signature_mismatch"},
+    "done-call": {"compiler_defect"},
+    "done-match": {"compiler_defect"},
+    "continue-typed-state": {"proc_ref_signature_invalid"},
+    "loop-state-union": {"compiler_defect"},
+    "loop-state-match": {"compiler_defect"},
+    "on-exhausted-match": {"workflow_return_not_exportable"},
+    "replay-union-argument": {"pure_result_replay_unavailable"},
+    "replay-frame-scope": {"pure_result_replay_unavailable"},
+    "d": {"pure_result_replay_unavailable"},
+}
+
 # The cell typechecks and then fails: (form, position) -> a key of DEFECTS, the first
 # defect the cell reaches. A comment names the defect found under it, where one was found
 # by running the `let*`-bound form of the cell. Deleting a line here declares the cell working.

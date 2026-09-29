@@ -8,9 +8,10 @@ Every generated cell has exactly one classification, kept in
 
 - rule: typecheck rejects it with a code from `RESTRICTION_CODES`;
 - working: it runs and returns its value with its ordered command log;
-- known defect: it typechecks and then fails. It is a strict xfail that names
-  its defect, so a repair that makes it work fails the run until its line is
-  deleted from `KNOWN_DEFECTS`.
+- known defect: it typechecks and then fails with exit 2 and a diagnostic code
+  of its defect (`DEFECT_CODES`); any other failure fails the test. It is a
+  strict xfail that names its defect, so a repair that makes it work fails the
+  run until its line is deleted from `KNOWN_DEFECTS`.
 
 Cells whose form's type cannot occupy the position are listed in `SKIPPED` and
 not generated. The counts print when the module runs without xdist.
@@ -34,6 +35,7 @@ from tests.test_workflow_lisp_generic_unions_runtime import (
 )
 from tests.workflow_lisp_totality_matrix_sources import (
     COMMANDS,
+    DEFECT_CODES,
     DEFECTS,
     KNOWN_DEFECTS,
     PROBE,
@@ -121,5 +123,9 @@ def test_cell_returns_its_value_with_its_ordered_command_log(
     restricted = [code for code in codes if code in RESTRICTION_CODES]
     if restricted:
         pytest.fail(f"typecheck rejects this cell with {restricted[0]}: classify it as a rule\n{listing}")
+    defect = KNOWN_DEFECTS.get((form, position))
+    failure = (result.exit_code, codes[:1])
+    if defect and result.exit_code != 0 and failure not in [(2, [code]) for code in DEFECT_CODES[defect]]:
+        pytest.fail(f"known defect {defect}: expected exit 2 with {sorted(DEFECT_CODES[defect])}, got {failure}\n{listing}")
 
     assert (result.exit_code, dict(result.workflow_outputs), calls) == (0, *expected(form, position)), listing
