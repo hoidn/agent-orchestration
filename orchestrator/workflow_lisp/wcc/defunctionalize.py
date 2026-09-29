@@ -7605,6 +7605,7 @@ def _frontend_expr_from_wcc_value(value: WccValue):
                     span=value.metadata.source_span,
                     form_path=value.metadata.form_path,
                     expansion_stack=value.metadata.expansion_stack,
+                    resolved_type=type_ref,
                 )
         if isinstance(value.expr, LoopStateUpdateExpr):
             return RecordUpdateExpr(

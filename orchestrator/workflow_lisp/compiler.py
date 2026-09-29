@@ -3512,7 +3512,10 @@ def _inlined_constructor_types(
             procedure_type_envs=procedure_type_envs,
             default=type_env,
         )
-        resolved = defining_type_env.resolve_constructor_type(expr)
+        # Resolve the text itself: this is where a copied constructor gets its type.
+        resolved = expr.resolved_type
+        if resolved is None:
+            resolved = defining_type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)
         defining_module = defining_type_env.module_name
         if exported_type_refs_by_module is None or defining_module in (None, type_env.module_name):
             return resolved

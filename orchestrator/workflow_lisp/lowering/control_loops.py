@@ -1006,6 +1006,7 @@ def _loop_seed_pure_projection_expr(
                     span=expr.span,
                     form_path=expr.form_path,
                     expansion_stack=getattr(expr, "expansion_stack", ()),
+                    resolved_type=state_type,
                 )
     projection_expr = expr
     if isinstance(expr, LoopStateSeedExpr) and isinstance(state_type, RecordTypeRef):
@@ -1022,6 +1023,7 @@ def _loop_seed_pure_projection_expr(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+            resolved_type=state_type,
         )
     if _is_loop_pure_projection_candidate(projection_expr):
         return projection_expr

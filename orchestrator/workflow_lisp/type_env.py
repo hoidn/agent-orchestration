@@ -28,6 +28,8 @@ from .spans import SourcePosition, SourceSpan
 from .syntax import (
     HUMAN_REPLY_TYPE_NAME,
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+    ProcedureExpansionFrame,
+    target_dsl_is_2_33_or_newer,
     target_dsl_supports_provider_supervision,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_human_input,
@@ -653,10 +655,39 @@ class FrontendTypeEnvironment:
         its defining module resolved (`resolved_type`, target 2.33); any other
         constructor resolves its `type_name` here, with `resolve_kwargs`
         passed to `resolve_type`.
+
+        From 2.33 a constructor copied out of an inlined body was given its
+        type when it was copied; the copy has the call's span, which is the
+        innermost procedure frame's `call_span` (an argument bound into the
+        body keeps its own, narrower span). Reaching the text for such a
+        constructor means a pass rebuilt it and dropped that type: that is
+        reported as a compiler defect, because the text may not resolve, or
+        may resolve to another type, in this module.
         """
 
         if expr.resolved_type is not None:
             return expr.resolved_type
+        frames = [frame for frame in expr.expansion_stack if isinstance(frame, ProcedureExpansionFrame)]
+        if (
+            frames
+            and frames[-1].call_span == expr.span
+            and target_dsl_is_2_33_or_newer(self.target_dsl_version or "")
+        ):
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="compiler_defect_constructor_type_dropped",
+                        message=(
+                            f"compiler defect: the constructor of `{expr.type_name}` was copied out of an "
+                            "inlined procedure body with its type, and a later pass rebuilt it without that "
+                            "type; the program typechecked, so this is a defect of the compiler, not of the program"
+                        ),
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                )
+            )
         return self.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path, **resolve_kwargs)
 
     def resolve_declared_type(
