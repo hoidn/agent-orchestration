@@ -107,8 +107,11 @@ def test_task5_legacy_defun_probes_are_diagnostic_not_semantic_controls(tmp_path
         inputs={"child": "../escape"},
     )
 
+    # `duplicated` was 18 before the capture repair of hoisted record-field bindings
+    # (a later field's `value` binding captured it), which applies at every target.
+    # `captured` is still the legacy `defun` expansion's own parameter capture.
     assert values["workflow_outputs"] == {
-        "return__duplicated": 18,
+        "return__duplicated": 20,
         "return__ignored": 9,
         "return__captured": 2,
     }

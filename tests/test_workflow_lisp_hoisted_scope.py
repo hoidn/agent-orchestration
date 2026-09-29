@@ -4,13 +4,14 @@ Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 5.
 Design: docs/design/workflow_lisp_core_calculus_middle_end.md section 9 (a
 reference is valid only where its definition dominates it).
 
-From target 2.33 the elaborator renames a binding it hoists out of a sub-expression
-when the code it is hoisted over refers to that name: the rest of a `let*`, the arms
-of a `match`, the other operands of a pure operator, record, record update or union
-constructor, the later arguments and the continuation of an effect call, and the body
-of a loop whose `:max` binds names. The renaming follows binding structure: a binder
-of the same spelling inside the renamed code starts a scope the renaming does not
-enter. Below 2.33 the captured value of the base commit is kept.
+At every target the elaborator renames a binding it hoists out of a sub-expression
+when the code it is hoisted over refers to that name: the rest of a `let*` (which
+includes an `if` or `cond` condition, bound whole by the strict boolean normalizer),
+the arms of a `match`, the other operands of a pure operator, record, record update or
+union constructor, the later arguments and the continuation of an effect call, and the
+body of a loop whose `:max` binds names. The renaming follows binding structure: a
+binder of the same spelling inside the renamed code starts a scope the renaming does
+not enter. It corrects values only: forms that older targets refuse stay refused.
 
 A `match` subject that applies a typed prompt keeps its typechecked form from 2.33,
 so the application reaches lowering with its compiled identity.
@@ -90,39 +91,49 @@ def _outcome(
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
-# The source value of each shape is the value lexical scope gives it; the base commit
-# gave the captured value, which target 2.32 keeps.
+# Each shape with the value lexical scope gives it and the oldest target that accepts
+# the shape. The base commit returned the captured value at every target (see the
+# task-5-fix2 report for both values).
 OPERAND_SHAPES = {
-    "let-binding-value": ("Int", "(let* ((b 1) (x (let* ((b (tick 10))) b))) b)", 1, 10),
-    "pure-operator-right": ("Int", "(let* ((b 1)) (+ (let* ((b 10)) b) b))", 11, 20),
-    "pure-operator-left": ("Int", "(let* ((b 1)) (+ b (let* ((b 10)) b)))", 11, 20),
-    "pure-operator-effect": ("Int", "(let* ((b 1)) (+ (let* ((b (tick 10))) b) b))", 11, 20),
-    "record-later-field": ("Pair", "(let* ((b 1)) (record Pair :left (let* ((b 10)) b) :right b))", (10, 1), (10, 10)),
-    "record-earlier-field": ("Pair", "(let* ((b 1)) (record Pair :left b :right (let* ((b 10)) b)))", (1, 10), (10, 10)),
-    "record-sibling-fields": ("Pair", "(record Pair :left (let* ((b 10)) b) :right (let* ((b 20)) b))", (10, 20), (20, 20)),
+    "let-binding-value": ("Int", "(let* ((b 1) (x (let* ((b (tick 10))) b))) b)", 1, "2.23"),
+    "if-condition": ("Int", "(let* ((b 1)) (if (let* ((b (tick 10))) (= b 10)) b 0))", 1, "2.26"),
+    "cond-condition": ("Int", "(let* ((b 1)) (cond ((let* ((b (tick 10))) (= b 10)) b) (else 0)))", 1, "2.26"),
+    "pure-operator-right": ("Int", "(let* ((b 1)) (+ (let* ((b 10)) b) b))", 11, "2.23"),
+    "pure-operator-left": ("Int", "(let* ((b 1)) (+ b (let* ((b 10)) b)))", 11, "2.23"),
+    "pure-operator-effect": ("Int", "(let* ((b 1)) (+ (let* ((b (tick 10))) b) b))", 11, "2.23"),
+    "record-later-field": ("Pair", "(let* ((b 1)) (record Pair :left (let* ((b 10)) b) :right b))", (10, 1), "2.23"),
+    "record-earlier-field": ("Pair", "(let* ((b 1)) (record Pair :left b :right (let* ((b 10)) b)))", (1, 10), "2.23"),
+    "record-sibling-fields": ("Pair", "(record Pair :left (let* ((b 10)) b) :right (let* ((b 20)) b))", (10, 20), "2.23"),
+    # Lowering reads `v`'s free `x` where `v` is used, after the later field's binding.
+    "record-field-rebinding-a-name-an-earlier-field-reads": (
+        "Pair",
+        "(let* ((x 9)) (record Pair :left (let* ((v (+ x 1))) (+ v v)) :right (let* ((x 2)) x)))",
+        (20, 2),
+        "2.23",
+    ),
     "record-update-field": (
         "Pair",
         "(let* ((b 1) (p (record Pair :left 0 :right 0))) (record-update p :left (let* ((b 10)) b) :right b))",
         (10, 1),
-        (10, 10),
+        "2.23",
     ),
     "record-update-base": (
         "Pair",
         "(let* ((b 1)) (record-update (let* ((b 10)) (record Pair :left b :right b)) :right b))",
         (10, 1),
-        (10, 10),
+        "2.23",
     ),
-    "union-field": ("Choice", "(let* ((b 1)) (variant Choice YES :v (+ (let* ((b 10)) b) b)))", 11, 20),
-    "effect-argument": ("Int", "(let* ((b 1) (r (tick (let* ((b 10)) b)))) b)", 1, 10),
+    "union-field": ("Choice", "(let* ((b 1)) (variant Choice YES :v (+ (let* ((b 10)) b) b)))", 11, "2.32"),
+    "effect-argument": ("Int", "(let* ((b 1) (r (tick (let* ((b 10)) b)))) b)", 1, "2.23"),
     "loop-budget": (
         "Int",
         "(let* ((b 1)) (loop/recur :max (let* ((b 2)) b) :state (loop-state (n Int 0)) :on-exhausted b"
         " (fn (state) (if (= state.n 5) (done state.n) (continue (loop-state :like state :n (+ state.n 1)))))))",
         1,
-        2,
+        "2.23",
     ),
 }
-_TICKS = {"let-binding-value": ["10"], "pure-operator-effect": ["10"], "effect-argument": ["10"]}
+_TICKS = {name: ["10"] for name in ("let-binding-value", "if-condition", "cond-condition", "pure-operator-effect", "effect-argument")}
 
 
 def _outputs(returns: str, value) -> dict:
@@ -133,22 +144,22 @@ def _outputs(returns: str, value) -> dict:
     return {"__result__": value}
 
 
-@pytest.mark.parametrize("shape", list(OPERAND_SHAPES))
-def test_a_hoisted_binding_keeps_its_source_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str) -> None:
+@pytest.mark.parametrize(
+    ("shape", "target"),
+    [
+        (shape, target)
+        for shape, (_, _, _, oldest) in OPERAND_SHAPES.items()
+        for target in dict.fromkeys((oldest, "2.32", "2.33"))
+    ],
+)
+def test_a_hoisted_binding_keeps_its_source_scope_at_every_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
+) -> None:
     returns, body, source_value, _ = OPERAND_SHAPES[shape]
 
-    assert _outcome(tmp_path, monkeypatch, body, returns=returns) == (0, _outputs(returns, source_value), _TICKS.get(shape, []), [])
-
-
-@pytest.mark.parametrize("shape", ["let-binding-value", "pure-operator-right"])
-def test_target_232_keeps_the_captured_value_of_the_base_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
-) -> None:
-    returns, body, _, base_value = OPERAND_SHAPES[shape]
-
-    assert _outcome(tmp_path, monkeypatch, body, returns=returns, target="2.32") == (
+    assert _outcome(tmp_path, monkeypatch, body, returns=returns, target=target) == (
         0,
-        _outputs(returns, base_value),
+        _outputs(returns, source_value),
         _TICKS.get(shape, []),
         [],
     )
@@ -266,7 +277,8 @@ def test_target_232_keeps_the_refusal_of_a_prompt_applied_in_a_match_subject(
 
 
 # A pure procedure that the resolved-inline normalizer copies into its caller is
-# elaborated under the caller's target, not under the target of its defining module.
+# elaborated under the caller's target. The renaming runs at every target, so the
+# copy gets the value lexical scope requires whichever target either module has.
 LIB = """(workflow-lisp
   (:language "0.1")
   (:target-dsl "LIB_TARGET")
@@ -285,20 +297,13 @@ ENTRY = """(workflow-lisp
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "known defect: a pure procedure copied by the resolved-inline normalizer is elaborated "
-        "under its caller's target, not its defining module's"
-    ),
-)
 @pytest.mark.parametrize(
-    ("entry_target", "lib_target", "value"),
-    [("2.32", "2.33", 11), ("2.33", "2.32", 20)],
-    ids=["2.32-caller-of-a-2.33-procedure", "2.33-caller-of-a-2.32-procedure"],
+    ("entry_target", "lib_target"),
+    [("2.32", "2.33"), ("2.33", "2.32"), ("2.23", "2.33")],
+    ids=["2.32-caller-of-a-2.33-procedure", "2.33-caller-of-a-2.32-procedure", "2.23-caller-of-a-2.33-procedure"],
 )
-def test_a_copied_pure_procedure_follows_the_target_of_its_defining_module(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_target: str, lib_target: str, value: int
+def test_a_copied_pure_procedure_gets_the_source_value_whatever_the_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_target: str, lib_target: str
 ) -> None:
     _write_sources(
         tmp_path,
@@ -310,4 +315,4 @@ def test_a_copied_pure_procedure_follows_the_target_of_its_defining_module(
     monkeypatch.chdir(tmp_path)
     result = _public_run(_public_run_files(tmp_path, {}))
 
-    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"__result__": value})
+    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"__result__": 11})

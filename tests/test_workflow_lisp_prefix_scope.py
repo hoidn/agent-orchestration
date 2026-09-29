@@ -5,10 +5,11 @@ Design: docs/design/workflow_lisp_core_calculus_middle_end.md section 9
 (environments are scoped; a reference is valid only where its definition
 dominates it) and section 13.3 (a failure after typecheck is a compiler defect).
 
-From target 2.33 the elaborator gives a binding that it hoists out of a `match`
-subject or out of a `let*` binding value a fresh name when the code it is hoisted
-over refers to that name, and it names the bindings it generates for effectful
-`loop-state` fields apart from every identifier in scope. Every direct form runs
+The elaborator gives a binding that it hoists out of a `match` subject or out of a
+`let*` binding value a fresh name when the code it is hoisted over refers to that
+name, at every target (a correction of values; the `match` subject forms are
+accepted from 2.33 only), and from 2.33 it names the bindings it generates for
+effectful `loop-state` fields apart from every identifier in scope. Every direct form runs
 as its hand-bound equivalent: same value, same ordered command log. The probes
 and the program template are those of tests/test_workflow_lisp_elaborated_prefixes.py.
 """
@@ -98,19 +99,16 @@ def test_a_hoisted_binding_does_not_capture_a_name_of_the_enclosing_scope(
     assert _run(tmp_path, monkeypatch, probes) == SCOPE_EXPECTED[shape]
 
 
-@pytest.mark.parametrize(
-    ("shape", "expected_title"),
-    [("if-condition", "draft+r"), ("let-binding-value", "draft+r")],
-)
-def test_target_232_keeps_the_scope_of_hoisted_bindings_it_has_at_the_base_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, expected_title: str
+@pytest.mark.parametrize("target", ["2.26", "2.32"])
+@pytest.mark.parametrize("shape", ["if-condition", "let-binding-value"])
+def test_older_targets_give_a_hoisted_binding_its_source_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
 ) -> None:
-    """Pins the base behaviour of older targets: there the hoisted `note` is the one the arm reads."""
+    """The base commit returned the hoisted `note` (`draft+r`) here; the correction applies at every target."""
 
-    probes = _write_program(tmp_path, body=SCOPE_FORMS[shape]["direct"], returns="Summary", seed="draft", target="2.32")
+    probes = _write_program(tmp_path, body=SCOPE_FORMS[shape]["direct"], returns="Summary", seed="draft", target=target)
 
-    exit_code, outputs, _ = _run(tmp_path, monkeypatch, probes)
-    assert (exit_code, outputs["return__title"]) == (0, expected_title)
+    assert _run(tmp_path, monkeypatch, probes) == SCOPE_EXPECTED[shape]
 
 
 # A loop whose state keeps a record the workflow receives as input `ALT`.
