@@ -35,6 +35,7 @@ class TypedProgram:
     command_boundaries: Mapping[str, Any]
     externs: Mapping[str, Any]
     target: str
+    entry_dir: str  # the entry module's directory, relative to the first source root
 
     def workflow_type_env(self, name: str) -> Any:
         return self.workflow_type_envs.get(name) or self.type_env
@@ -92,4 +93,5 @@ def typecheck_program(
         command_boundaries=dict(captured["command_boundary_environment"].bindings_by_name),
         externs=dict(captured["extern_environment"].bindings_by_name),
         target=str(captured["target_dsl_version"]),
+        entry_dir=entry_resolved.parent.relative_to(source_roots[0].resolve()).as_posix(),
     )

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,6 +33,8 @@ from orchestrator.workflow.pure_expr import validate_pure_expr_payload
 from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
 from orchestrator.workflow_lisp.expressions import (
+    IfExpr,
+    LetStarExpr,
     ListExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -43,13 +46,10 @@ from orchestrator.workflow_lisp.normalized_type_descriptor import _module_export
 from orchestrator.workflow_lisp.type_env import DiscriminantTypeRef
 from orchestrator.workflow_lisp.wcc import model as w
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
-from orchestrator.workflow_lisp.wcc.elaborate import (
-    _elaborate_expr_to_body,
-    elaborate_typed_workflow,
-    elaborate_typed_workflow_body,
-)
+from orchestrator.workflow_lisp.wcc.elaborate import _elaborate_expr_to_body, elaborate_typed_workflow_body
 
 from .frontend import TypedProgram
+from .repairs import bind_done_values, elaboration_return_types
 from .sites import assign_sites, validate
 
 SCHEMA = "evaluated-execution-spike/closed-program/1"
@@ -97,15 +97,7 @@ def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = fro
     name = entry.definition.name
     d = _Def(name, name, typed.workflow_type_env(name))
     params = [[d.bind(param), d.desc(type_ref)] for param, type_ref in entry.signature.params]
-    wcc = elaborate_typed_workflow(
-        entry,
-        type_env=d.type_env,
-        workflow_return_types=builder.workflow_returns,
-        procedure_return_types=builder.procedure_returns,
-        resolved_procedures_by_name=typed.procedures,
-        procedure_type_envs=typed.procedure_type_envs,
-        route_schema_version=ROUTE,
-    )
+    wcc = builder.elaborate_workflow(entry, d.type_env)
     body = builder.body(normalize_wcc_body_to_anf(wcc), d, dict(entry.signature.params))
     tree = {
         "schema": SCHEMA,
@@ -175,7 +167,7 @@ class _Builder:
         self.no_repeat = no_repeat
         self.active: tuple[str, ...] = ()
         self.opaque_count = 0
-        self.procedure_returns = {n: p.signature.return_type_ref for n, p in typed.procedures.items()}
+        self.procedure_returns = elaboration_return_types(typed.procedures)
         self.workflow_returns = {n: wf.signature.return_type_ref for n, wf in typed.workflows.items()}
 
     # Bodies ---------------------------------------------------------------
@@ -275,7 +267,7 @@ class _Builder:
         value_env = _procedure_signature_local_type_bindings(procedure)
         # P1: the flat route elaborates this body during lowering; here it is attached to the call.
         wcc = elaborate_typed_workflow_body(
-            procedure.typed_body,
+            bind_done_values(procedure.typed_body),
             owner_name=name,
             type_env=callee_def.type_env,
             value_env=value_env,
@@ -293,17 +285,22 @@ class _Builder:
         callee_def = _Def(name, name, self.typed.workflow_type_env(name))
         by_name = dict(perform.keyword_args)
         params = [p for p, _ in workflow.signature.params]
-        wcc = elaborate_typed_workflow(
-            workflow,
-            type_env=callee_def.type_env,
+        wcc = self.elaborate_workflow(workflow, callee_def.type_env)
+        args = [by_name[p] for p in params]
+        return self.attach(name, callee_def, params, args, wcc, dict(workflow.signature.params), d, env)
+
+    def elaborate_workflow(self, workflow: Any, type_env: Any) -> Any:
+        return elaborate_typed_workflow_body(
+            bind_done_values(workflow.typed_body),
+            owner_name=workflow.definition.name,
+            type_env=type_env,
+            value_env=dict(workflow.signature.params),
             workflow_return_types=self.workflow_returns,
             procedure_return_types=self.procedure_returns,
             resolved_procedures_by_name=self.typed.procedures,
             procedure_type_envs=self.typed.procedure_type_envs,
             route_schema_version=ROUTE,
         )
-        args = [by_name[p] for p in params]
-        return self.attach(name, callee_def, params, args, wcc, dict(workflow.signature.params), d, env)
 
     def attach(self, callee, callee_def, params, args, wcc, value_env, d, env) -> dict[str, Any]:
         if callee in self.active:
@@ -355,7 +352,8 @@ class _Builder:
             policy = {key: self.value(payload[key], d, env) for key in
                       ("model", "effort", "delivery", "materialization_attempts", "timeout_sec") if key in payload}
             return {**node, "class": "provider", "provider": self.typed.externs[perform.target_name].provider_id,
-                    "prompt": self.typed.externs[perform.prompt_name].path,
+                    # An asset prompt is read relative to the entry module, as the flat route reads it.
+                    "prompt": posixpath.normpath(posixpath.join(self.typed.entry_dir, self.typed.externs[perform.prompt_name].path)),
                     "inputs": [self.value(a, d, env) for a in perform.positional_args], "policy": policy,
                     "contract": self.contract(result_type, d, payload.get("return_spec")), "repeat": "rerun"}
         if kind == "request_input":
@@ -413,7 +411,8 @@ class _Builder:
                     "fields": [{"name": n, "value": r} for n, r in zip(op.field_names, refs[1:])]}
         else:
             expr = {"kind": "op", "operator": op.operator, "args": refs}
-        return self.payload(expr, op.metadata.type_ref, types, [self.value(a, d, env) for a in op.args], d)
+        return {**self.payload(expr, op.metadata.type_ref, types, [self.value(a, d, env) for a in op.args], d),
+                **_provenance(op)}
 
     def payload(self, expr, result_type, arg_types, args, d: _Def) -> dict[str, Any]:
         payload = {
@@ -443,7 +442,9 @@ class _Builder:
                       "fields": [{"name": n, "value": r} for n, r in zip(names, refs[1:])]}
             args = [self.frontend(expr.base_expr, d, env), *(self.frontend(e, d, env) for _, e in expr.overrides)]
             types = [carrier, *(carrier.field_types[n] for n in names)]
-            return self.payload(update, carrier, types, args, d)
+            return {**self.payload(update, carrier, types, args, d), **_provenance(value)}
+        if isinstance(expr, (LetStarExpr, IfExpr)):  # an inlined pure call, or `if` below target 2.26
+            return self.frontend(expr, d, env)
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")
 
     def frontend(self, expr: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
