@@ -124,6 +124,16 @@ USE_SITE_SHAPES = {
         [],
         "2.15",
     ),
+    # The base commit refused this form in lowering (`pure_expr_operand_type_mismatch`):
+    # `v` read the loop parameter `state`, a record.
+    "loop-parameter": (
+        "Int",
+        "(let* ((state 1) (v (+ state 1))) " + LOOP.replace("BODY", "(done v)") + ")",
+        2,
+        [],
+        [],
+        "2.15",
+    ),
     "loop-body-alias": (
         "Int",
         "(let* ((b 1)) " + LOOP.replace("BODY", "(let* ((v b)) (let* ((b 5)) (done v)))") + ")",
