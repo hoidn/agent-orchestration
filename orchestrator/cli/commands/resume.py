@@ -10,7 +10,10 @@ import sys
 from dataclasses import dataclass
 
 from orchestrator.state import StateManager
-from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
+from orchestrator.run_lock import (
+    RunAlreadyActiveError, WorkspaceAlreadyActiveError,
+    run_writer_lock, workspace_run_lock,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
@@ -273,6 +276,7 @@ def _resume_workflow_with_writer_lock_held(
     live_agent_note_max_tail_chars: Optional[int] = None,
     run_ref_root: Optional[str] = None,
     _writer_locks: ExitStack | None = None,
+    _restart_run_id: str | None = None,
     **kwargs
 ) -> int:
     """Resume an interrupted workflow run.
@@ -526,8 +530,8 @@ def _resume_workflow_with_writer_lock_held(
             return 2
 
         # AT-68: Start a NEW run with a NEW run_id (ignore existing state)
-        import uuid
-        new_run_id = uuid.uuid4().hex
+        assert _restart_run_id is not None
+        new_run_id = _restart_run_id
         print(f"Force restarting workflow with new run ID: {new_run_id}")
         print(f"(Ignoring existing state from run {run_id})")
 
@@ -725,6 +729,11 @@ def resume_workflow(
 
     try:
         with ExitStack() as writer_locks:
+            import uuid
+            restart_run_id = uuid.uuid4().hex if force_restart else None
+            writer_locks.enter_context(
+                workspace_run_lock(workspace_dir, restart_run_id or run_id)
+            )
             writer_locks.enter_context(run_writer_lock(run_root))
             return _resume_workflow_with_writer_lock_held(
                 run_id=run_id,
@@ -749,9 +758,10 @@ def resume_workflow(
                 live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
                 run_ref_root=run_ref_root,
                 _writer_locks=writer_locks,
+                _restart_run_id=restart_run_id,
                 **kwargs,
             )
-    except RunAlreadyActiveError as exc:
+    except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as exc:
         logger.error(str(exc))
         print(f"Error: {exc}", file=sys.stderr)
         return 1
