@@ -700,6 +700,7 @@ def test_watchdog_port_design_closes_both_typed_branches() -> None:
     inputs = _table_after_heading(text, "## Public Inputs")
     assert [(row["Name"], row["Type"], row["Default"]) for row in inputs] == [
         ("target_run_id", "String", "required"),
+        ("target_workspace", "String", "required"),
         ("state_root", "StateRoot", "state/GENERIC-RUN-WATCHDOG"),
         ("evidence_root", "ArtifactRoot", "artifacts/work/generic-run-watchdog"),
         (
@@ -772,9 +773,10 @@ def test_watchdog_port_design_closes_both_typed_branches() -> None:
     assert "recovery_action: ProviderRecoveryAction" in text
     assert "fix_complexity: ProviderFixComplexity" in text
     assert "RepairPublication" not in text
-    assert "exhaustively widens all three provider-only enums" in " ".join(
+    assert "the branch passes the provider's values to the publisher" in " ".join(
         text.split()
     )
+    assert "checks each one against the public enum" in " ".join(text.split())
     assert "the three provider-only enums" in " ".join(text.lower().split())
     assert "cannot return public `no_action`, `not_applicable`, or `none`" in text.lower()
     normalized_text = " ".join(text.split())
