@@ -64,9 +64,9 @@ def rename_capturing_binders(
     A binder (a `let`, frontend `let*` binding, `case` arm, join or loop
     parameter) that spells a name read by a pure binding in scope gets a fresh
     name, and the references in its scope follow it. `live` are the names that
-    values from outside `body` read (an inlined procedure's arguments);
-    `params` are bound around `body` (its parameters), and one in `live` is
-    renamed too. Fresh names avoid every identifier in `body`, `live`,
+    values from outside `body` read (an inlined procedure's arguments and
+    specialization values); `params` are bound around `body` (its parameters
+    and specialization bindings), and one in `live` is renamed too. Fresh names avoid every identifier in `body`, `live`,
     `params` and `reserved`. Returns the body, unchanged when no binder
     clashes, and the renamed parameters.
     """

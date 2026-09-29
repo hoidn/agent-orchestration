@@ -11,11 +11,19 @@ definition. Below target 2.30 a `defun` call binds its parameters in order; a
 parameter that a later argument reads is renamed, so every argument is evaluated in
 the caller's scope.
 
+An inlined procedure's specialization bindings (`bind-proc` values, `let-proc`
+captures, bound procedure references) are binders of its body too, and their values
+are pure values from the caller: a parameter, a specialization binding or a body
+binder that spells a name one of them reads is renamed.
+
 Effects are command probes (`tick`, `choose`) that append their argv to `<probe>.log`.
+Live providers are the stand-in runtime of the provider supervision end-to-end tests.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -28,6 +36,7 @@ from tests.test_workflow_lisp_generic_unions_runtime import (
     _write_sources,
 )
 from tests.test_workflow_lisp_hoisted_scope import PROBES, _outputs
+from tests.test_workflow_lisp_provider_supervision_e2e import _install_fake_provider_runtime
 
 
 MODULE = """(workflow-lisp
@@ -52,6 +61,16 @@ MODULE = """(workflow-lisp
   (defun select-second ((x Int) (y Int)) -> Int y)
   (defun last-two ((x Int) (y Int) (z Int)) -> Pair (record Pair :left y :right z))
   (defun crossed ((x Int) (y Int)) -> Pair (record Pair :left x :right y))
+  (defproc add-one ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defproc add-leading ((leading Int) (value Int)) -> Int :effects () :lowering inline (+ leading value))
+  (defproc rebind-leading ((leading Int) (value Int)) -> Int :effects () :lowering inline
+    (let* ((leading 100)) (+ leading value)))
+  (defproc add-leading-tick ((leading Int) (value Int)) -> Int
+    :effects ((uses-command tick))
+    :lowering inline
+    (let* ((b (tick 5))) (+ leading (+ value b))))
+  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int :effects () :lowering inline (hook value))
+  (defproc apply-int-to-b ((hook ProcRef[Int -> Int]) (b Int)) -> Int :effects () :lowering inline (hook b))
   (defworkflow run () -> RETURNS
     BODY))
 """
@@ -219,3 +238,158 @@ def test_a_defun_argument_is_evaluated_in_the_caller_scope(
     returns, body, value, _ = DEFUN_SHAPES[shape]
 
     assert _outcome(tmp_path, monkeypatch, body, returns=returns, target=target) == (0, _outputs(returns, value), [], [])
+
+
+BINDS_2 = "(bind-proc (proc-ref add-leading) :leading 2)"
+ALL = ("2.15", "2.29", "2.30", "2.33")
+BELOW_230 = ("2.15", "2.29")
+
+# Each shape: (body, lexical value, tick log, targets). The targets are the oldest
+# accepting target, 2.29, 2.30 and 2.33, less those that refuse the form. The previous
+# head of this task returned the captured value below 2.30 (see the task-15 report,
+# fix round 1); two forms failed there with a compiler defect.
+SPECIALIZATION_SHAPES = {
+    "bound-value-and-a-caller-name": (
+        f"(let* ((leading 9) (v (+ leading 1)) (hook {BINDS_2})) (hook v))",
+        12,
+        [],
+        ALL,
+    ),
+    # Below 2.30 this failed with a compiler defect (recursion).
+    "bound-value-that-reads-its-own-name": (
+        "(let* ((leading 9) (hook (bind-proc (proc-ref add-leading) :leading (+ leading 1)))) (hook 5))",
+        15,
+        [],
+        ALL,
+    ),
+    "bound-value-and-a-body-rebinding": (
+        "(let* ((leading 9) (v (+ leading 1)) (hook (bind-proc (proc-ref rebind-leading) :leading 2))) (hook v))",
+        110,
+        [],
+        ALL,
+    ),
+    "bound-value-and-an-effect-in-the-body": (
+        "(let* ((b 1) (v (+ b 1)) (hook (bind-proc (proc-ref add-leading-tick) :leading 2))) (hook v))",
+        9,
+        ["5"],
+        ALL,
+    ),
+    # Below 2.30 this failed with a compiler defect: the bound procedure reference
+    # `hook` replaced the caller's `hook`, which `v` reads.
+    "bound-procedure-reference-named-like-a-caller-name": (
+        "(let* ((hook 1) (v (+ hook 1)) (twice (bind-proc (proc-ref apply-int) :hook (proc-ref add-one)))) (twice v))",
+        3,
+        [],
+        ALL,
+    ),
+    "captured-value-and-a-parameter": (
+        "(let* ((b 1) (v (+ b 1))) (let-proc (f ((b Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))",
+        2,
+        [],
+        BELOW_230,
+    ),
+    "captured-value-and-an-applying-procedure-parameter": (
+        "(let* ((b 1) (v (+ b 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int-to-b (proc-ref f) 5)))",
+        2,
+        [],
+        ALL,
+    ),
+    "captured-value-and-a-body-rebinding": (
+        "(let* ((b 1) (v (+ b 1))) (let-proc (f ((x Int)) -> Int :captures (v) (let* ((b 7)) (+ v x))) (apply-int (proc-ref f) 5)))",
+        7,
+        [],
+        BELOW_230,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("shape", "target"),
+    [(shape, target) for shape, spec in SPECIALIZATION_SHAPES.items() for target in spec[-1]],
+)
+def test_a_specialization_value_reads_the_scope_of_the_caller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
+) -> None:
+    body, value, ticks, _ = SPECIALIZATION_SHAPES[shape]
+
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": value}, ticks, [])
+
+
+@pytest.mark.parametrize("target", ["2.30", "2.33"])
+def test_targets_from_230_keep_refusing_a_capture_named_like_a_parameter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: str
+) -> None:
+    body = SPECIALIZATION_SHAPES["captured-value-and-a-parameter"][0]
+
+    with caplog.at_level(logging.ERROR):
+        outcome = _outcome(tmp_path, monkeypatch, body, returns="Int", target=target)
+
+    assert (outcome, "[name_unknown]" in caplog.text) == ((2, {}, [], []), True)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "not repaired: a bind-proc bound value is a compile-time binding expanded where the "
+        "procedure is called, so a binder between the bind-proc and the call captures its "
+        "names (task-15 report, fix round 1)"
+    ),
+)
+@pytest.mark.parametrize("target", ALL)
+def test_a_bound_value_keeps_its_scope_across_a_later_binder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    body = "(let* ((b 1) (hook (bind-proc (proc-ref add-leading) :leading (+ b 1)))) (let* ((b 7)) (hook 5)))"
+
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": 7}, [], [])
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "not repaired: from 2.30 a let-proc capture of an effect result copies the effect "
+        "into the call, so the command runs again (task-15 report, fix round 1)"
+    ),
+)
+@pytest.mark.parametrize("target", ["2.30", "2.33"])
+def test_a_captured_effect_result_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str) -> None:
+    body = "(let* ((v (tick 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))"
+
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": 1}, ["1"], [])
+
+
+LIVE_PROVIDERS = """(let* ((worker 1) (v (+ worker 1)))
+      (with-live-providers
+        ((worker (provider-result providers.worker :prompt prompts.worker :inputs () :timeout-sec 30 :returns String))
+         (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs ()
+                       :timeout-sec 30 :returns ProviderSteeringDirective) :observes worker))
+        v))"""
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "not repaired: a provider supervision member binds its name in the settlement body over "
+        "a pure binding that reads the same name; refused in lowering with "
+        "pure_expr_operand_type_mismatch (task-15 review, finding 2)"
+    ),
+)
+@pytest.mark.parametrize("target", ["2.16", "2.33"])
+def test_a_live_provider_member_does_not_capture_a_pure_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    probes = {name: _write_probe(tmp_path, name, text) for name, text in PROBES.items()}
+    source = MODULE.replace("TARGET", target).replace("RETURNS", "Int").replace("BODY", LIVE_PROVIDERS)
+    for name, path in probes.items():
+        source = source.replace(name.upper(), path.as_posix())
+    _write_sources(tmp_path, {"grt/entry.orc": source})
+    (tmp_path / "grt" / "prompt.md").write_text("review\n", encoding="utf-8")
+    files = _public_run_files(tmp_path, probes)
+    providers = {"providers.worker": "codex", "providers.supervisor": "supervisor-provider"}
+    files["providers"].write_text(json.dumps(providers), encoding="utf-8")
+    files["prompts"].write_text(json.dumps({f"prompts.{name}": "prompt.md" for name in ("worker", "supervisor")}), encoding="utf-8")
+    _install_fake_provider_runtime(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    result = _public_run(files)
+
+    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"__result__": 2})

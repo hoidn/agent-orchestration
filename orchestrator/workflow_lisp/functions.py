@@ -1218,21 +1218,24 @@ def normalize_resolved_inline_procedure_calls(
                         {},
                     )
                 )
+                # Formals are renamed before nested calls expand: a nested
+                # call copies in the bound values of its callee's
+                # specialization, whose names belong to their definition.
                 expanded = LetStarExpr(
                     bindings=(
                         *static_call_bindings.bindings,
                         *call_bindings.bindings,
                     ),
-                    body=_rename_free_names(
-                        rewrite(
+                    body=rewrite(
+                        _rename_free_names(
                             cloned_body,
-                            proc_ref_bindings=body_proc_ref_bindings,
-                            workflow_ref_bindings=body_workflow_ref_bindings,
+                            {
+                                **static_call_bindings.formal_names,
+                                **call_bindings.formal_names,
+                            },
                         ),
-                        {
-                            **static_call_bindings.formal_names,
-                            **call_bindings.formal_names,
-                        },
+                        proc_ref_bindings=body_proc_ref_bindings,
+                        workflow_ref_bindings=body_workflow_ref_bindings,
                     ),
                     span=expr.span,
                     form_path=expr.form_path,
