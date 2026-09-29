@@ -2447,6 +2447,7 @@ points at.
 | the review hook is pure (it calls no command or provider) | `generic_union_unresolved_argument` | `std/improve.orc`, the `review` call; a note gives the call site |
 | the revise hook is pure | `type_unknown` | `std/improve.orc`, the `revise` call; a note gives the call site |
 | the call to `improve` is the `match` scrutinee | `proc_ref_signature_invalid` | the caller's first `proc-ref` argument |
+| `initial` is a record literal that contains a list of record literals | `type_unknown` | the caller, at the inner record's type name; build `initial` in a procedure of the calling module instead |
 
 ## 14. Provider Prompt Guidance
 

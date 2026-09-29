@@ -379,6 +379,11 @@ The domain meaning and result variants remain owned by the composition design.
   `(variant Improvement[S F B] EXHAUSTED :value state.current)`. Targets 2.29
   to 2.32 reject that at compile time only in a loop result, and accept it
   elsewhere. Targets below 2.29 reject it wherever the variant is built.
+  One form is not supported at 2.33: a generic procedure with no effects that
+  constructs an applied union over its own type parameters outside
+  `loop/recur`. Every call to it is rejected with
+  `generic_union_unresolved_argument`. Give the procedure a command or
+  provider step, or write the application with concrete arguments.
 - **Boundaries and diagnostics.** `provider-result :returns` may name an
   applied union such as `Decision[ReviewNotes ReviewBlocker]`. Its
   instantiated concrete descriptor is the provider's output contract; output
@@ -397,16 +402,16 @@ The domain meaning and result variants remain owned by the composition design.
     `defunion :forall` or a type application;
   - `generic_union_arity_mismatch`: an application has the wrong number of
     type arguments;
-  - `generic_union_not_generic`: type arguments are applied to a union that is
-    not generic;
+  - `generic_union_not_generic`: type arguments are applied to a type that is
+    not a generic union: a non-generic union, a record, or a built-in type;
   - `generic_union_unresolved_argument`: a type argument does not resolve to a
     type in scope;
   - `generic_union_instantiation_cycle`: a generic union is instantiated
     recursively.
 
-  Each diagnostic points at the use and keeps its source-map location. All
-  but `generic_union_requires_dsl_2_33` also give the generic declaration's
-  location in a note.
+  Each diagnostic points at the use and keeps its source-map location. Where
+  the named type has a declaration, all but `generic_union_requires_dsl_2_33`
+  also give that declaration's location in a note.
 - **Minimum acceptance cases.** An unrelated `Outcome[T E]` union uses the same
   compiler path; an imported alias matches its origin while a same-short-name
   declaration from another module does not; nested applications in `ProcRef`

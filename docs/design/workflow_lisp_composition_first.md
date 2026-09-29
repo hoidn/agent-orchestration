@@ -350,9 +350,20 @@ diagnostic code and where it points.
 - Resume restores committed boundaries inside `improve`. Resume after a
   failure in a step downstream of `improve`'s result fails with
   `pure_result_replay_unavailable`.
-- A `let*`-bound pure `match` over the result that builds a record containing
-  the nested subject passes `--dry-run` but is rejected when the run starts. A
-  tail `match` with pure arms works.
+- A pure `match` over the result whose arms return a scalar, such as
+  `a.value.title`, works. A pure `match` whose arms build a record from the
+  result passes `--dry-run` but is rejected when the run starts, whether the
+  `match` is the workflow's tail or bound by `let*`. Arms that call a command
+  or a provider run.
 
 Both limits belong to the
 [pure-result replay](workflow_lisp_pure_result_replay.md) owner.
+
+- A generic procedure with no effects cannot construct an applied union over
+  its own type parameters outside `loop/recur`. Every call to it is rejected
+  at compile time with `generic_union_unresolved_argument`, at the call. The
+  same procedure with a command or provider step works, and so does a
+  constructor inside `loop/recur`, which is the form `improve` uses. This
+  limit belongs to the
+  [generic-union](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
+  owner.
