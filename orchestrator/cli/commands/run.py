@@ -810,7 +810,10 @@ def run_workflow(
                     session_status = "failed"
                     raise
 
-    except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as e:
+    except WorkspaceAlreadyActiveError as e:
+        logger.error(str(e))
+        return _run_result(2, state_manager=state_manager)
+    except RunAlreadyActiveError as e:
         logger.error(str(e))
         return _run_result(
             1, state_manager=state_manager, session_id=session_id,

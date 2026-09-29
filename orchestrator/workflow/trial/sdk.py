@@ -472,7 +472,7 @@ def run_trial_entry(
         try:
             lock_stack.enter_context(workspace_run_lock(workspace_path, state_manager.run_id))
         except WorkspaceAlreadyActiveError as exc:
-            raise TrialEntryRequestError(exc.code, str(exc)) from exc
+            raise TrialEntryRequestError(exc.code, exc.detail) from exc
         built = _compile_trial_entry(
             workflow_file=workflow_path,
             entry_workflow=entry_workflow,
