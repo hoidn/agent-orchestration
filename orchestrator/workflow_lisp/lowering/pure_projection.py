@@ -1229,19 +1229,9 @@ def _infer_expr_type(
         for field_name in expr.fields:
             current = _field_type(current, field_name, type_env=context.type_env)
         return current
-    if isinstance(expr, RecordExpr):
-        return context.type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=getattr(expr, "expansion_stack", ()),
-        )
-    if isinstance(expr, UnionVariantExpr):
-        return context.type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=getattr(expr, "expansion_stack", ()),
+    if isinstance(expr, RecordExpr | UnionVariantExpr):
+        return context.type_env.resolve_constructor_type(
+            expr, expansion_stack=getattr(expr, "expansion_stack", ())
         )
     if isinstance(expr, RecordUpdateExpr):
         return _infer_expr_type(expr.base_expr, context=context, lexical_types=lexical_types)

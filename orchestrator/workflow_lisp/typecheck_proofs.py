@@ -344,6 +344,21 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     return expr.subject
 
 
+def _branch_types_differ(first: TypeRef, second: TypeRef) -> bool:
+    """Return whether two `if` or `cond` branch types are different types.
+
+    Two applied generic unions are one type when they apply the same
+    declaration to compatible arguments, whatever module spelling their names
+    carry (`p/lib::Result[Candidate String]` and `Result[Candidate String]`).
+    Applied unions exist only from target 2.33; every other type compares
+    exactly, as before.
+    """
+
+    if isinstance(first, UnionTypeRef) and isinstance(second, UnionTypeRef) and first.type_args and second.type_args:
+        return not type_refs_compatible(first, second)
+    return first != second
+
+
 def typecheck_match_expr(
     expr: MatchExpr,
     *,
@@ -564,7 +579,7 @@ def typecheck_if_expr(
                 span=expr.else_expr.span,
                 form_path=expr.else_expr.form_path,
             )
-        if typed_then.type_ref != typed_else.type_ref:
+        if _branch_types_differ(typed_then.type_ref, typed_else.type_ref):
             raise_error(
                 f"`if` branches must return the same type; got `{_type_label(typed_then.type_ref)}` and `{_type_label(typed_else.type_ref)}`",
                 code="type_mismatch",
@@ -675,7 +690,7 @@ def typecheck_cond_expr(
                 span=span,
                 form_path=form_path,
             )
-        if result_type != new_type:
+        if _branch_types_differ(result_type, new_type):
             raise_error(
                 f"`cond` clauses must return the same type; got `{_type_label(result_type)}` and `{_type_label(new_type)}`",
                 code="type_mismatch",

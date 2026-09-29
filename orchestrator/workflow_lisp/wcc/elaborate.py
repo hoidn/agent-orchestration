@@ -2798,6 +2798,7 @@ def _elaborate_expr_to_value(
                 ),
                 type_name=expr.type_name,
                 fields=tuple(fields),
+                resolved_type=expr.resolved_type,
             ),
         )
     if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
@@ -2949,6 +2950,7 @@ def _elaborate_expr_to_value(
                 union_name=expr.type_name,
                 variant_name=expr.variant_name,
                 fields=tuple(fields),
+                resolved_type=expr.resolved_type,
             ),
         )
     if isinstance(expr, LetStarExpr):
@@ -3176,6 +3178,7 @@ def _elaborate_constructor_field_matches_to_body(
             ),
             type_name=expr.type_name,
             fields=tuple(field_values),
+            resolved_type=expr.resolved_type,
         )
     else:
         result_value = WccInject(
@@ -3189,6 +3192,7 @@ def _elaborate_constructor_field_matches_to_body(
             union_name=expr.type_name,
             variant_name=expr.variant_name,
             fields=tuple(field_values),
+            resolved_type=expr.resolved_type,
         )
 
     current: WccBody = WccHalt(
@@ -5390,24 +5394,14 @@ def _generated_value_binding_name_from_scope(scope: WccIdentityFactory, *, role:
 
 
 def _require_record_type(expr: RecordExpr, *, type_env: FrontendTypeEnvironment) -> RecordTypeRef:
-    resolved = type_env.resolve_type(
-        expr.type_name,
-        span=expr.span,
-        form_path=expr.form_path,
-        expansion_stack=expr.expansion_stack,
-    )
+    resolved = type_env.resolve_constructor_type(expr, expansion_stack=expr.expansion_stack)
     if not isinstance(resolved, RecordTypeRef):
         raise TypeError(f"expected record type for `{expr.type_name}`")
     return resolved
 
 
 def _require_union_type(expr: UnionVariantExpr, *, type_env: FrontendTypeEnvironment) -> UnionTypeRef:
-    resolved = type_env.resolve_type(
-        expr.type_name,
-        span=expr.span,
-        form_path=expr.form_path,
-        expansion_stack=expr.expansion_stack,
-    )
+    resolved = type_env.resolve_constructor_type(expr, expansion_stack=expr.expansion_stack)
     if not isinstance(resolved, UnionTypeRef):
         raise TypeError(f"expected union type for `{expr.type_name}`")
     return resolved

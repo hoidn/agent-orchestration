@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -77,8 +77,10 @@ from .expressions import (
     ProcedureCallExpr,
     ProduceOneOfExpr,
     ProviderResultExpr,
+    RecordExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
+    UnionVariantExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
@@ -1940,6 +1942,7 @@ def _run_stage3_validation_pipeline(
                         procedure.typed_body,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
+                        inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
                         owning_proc_ref_bindings=getattr(
                             getattr(procedure, "specialization", None),
                             "proc_ref_bindings",
@@ -1967,6 +1970,7 @@ def _run_stage3_validation_pipeline(
                         workflow.typed_body,
                         typed_procedures_by_name=resolved_procedures_by_name,
                         target_dsl_version=module.target_dsl_version,
+                        inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
                         procedure_catalog=resolved_state.procedure_catalog,
                         workflow_catalog=workflow_catalog,
                         typed_workflows_by_name={
@@ -2032,6 +2036,7 @@ def _run_stage3_validation_pipeline(
                     for workflow in resolved_state.typed_workflows
                 },
                 compiler_session=compiler_session,
+                inlined_constructor_type=_inlined_constructor_types(type_env=type_env),
             )
         _validate_family_profile_typed_prompt_input_rows(
             resolved_state.typed_workflows,
@@ -2896,6 +2901,11 @@ def _compile_stage3_graph(
                 procedure_type_envs=combined_procedure_type_envs,
                 default=type_env,
             )
+        inlined_constructor_type = _inlined_constructor_types(
+            type_env=type_env,
+            procedure_type_envs=combined_procedure_type_envs,
+            exported_type_refs_by_module=exported_type_refs_by_module,
+        )
         resolved_state = _resolve_stage3_procedure_lowering(
             ValidationPipelineState(
                 module=definition_module,
@@ -2926,6 +2936,7 @@ def _compile_stage3_graph(
                     procedure.typed_body,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
+                    inlined_constructor_type=inlined_constructor_type,
                     owning_proc_ref_bindings=getattr(
                         getattr(procedure, "specialization", None),
                         "proc_ref_bindings",
@@ -2956,6 +2967,7 @@ def _compile_stage3_graph(
                     workflow.typed_body,
                     typed_procedures_by_name=resolved_procedures_by_name,
                     target_dsl_version=definition_module.target_dsl_version,
+                    inlined_constructor_type=inlined_constructor_type,
                     procedure_catalog=procedure_catalog,
                     workflow_catalog=lowering_workflow_catalog,
                     typed_workflows_by_name={
@@ -3046,6 +3058,7 @@ def _compile_stage3_graph(
                     },
                 },
                 compiler_session=compiler_session,
+                inlined_constructor_type=inlined_constructor_type,
             )
         resolved_combined_procedures = tuple(
             {
@@ -3471,6 +3484,41 @@ def _canonicalize_nested_imported_type_ref(
             ),
         )
     return type_ref
+
+
+def _inlined_constructor_types(
+    *,
+    type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]] | None = None,
+) -> Callable[[TypedProcedureDef, RecordExpr | UnionVariantExpr], TypeRef]:
+    """Return how the module of `type_env` types a constructor copied out of an inlined body.
+
+    The constructor resolves in the selected procedure's own environment: its
+    defining module, with a specialization's type parameters bound
+    (`procedure_type_env_for`). A type from another module is then shown as
+    the import boundary shows that module's types
+    (`_canonicalize_imported_type_ref`), so a type the caller also imports
+    has the caller's spelling and a type it cannot see keeps its own.
+    """
+
+    def constructor_type(procedure: TypedProcedureDef, expr: RecordExpr | UnionVariantExpr) -> TypeRef:
+        defining_type_env = procedure_type_env_for(
+            procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        )
+        resolved = defining_type_env.resolve_constructor_type(expr)
+        defining_module = defining_type_env.module_name
+        if exported_type_refs_by_module is None or defining_module in (None, type_env.module_name):
+            return resolved
+        return _canonicalize_imported_type_ref(
+            resolved,
+            module_name=defining_module,
+            exported_type_refs_by_module=exported_type_refs_by_module,
+        )
+
+    return constructor_type
 
 
 def _canonicalize_imported_type_ref(

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
@@ -286,30 +285,6 @@ def type_expression_names(parsed: ParsedTypeExpr) -> frozenset[str]:
     return frozenset().union(
         *(type_expression_names(param) for param in parsed.param_types),
         type_expression_names(parsed.return_type),
-    )
-
-
-def substitute_type_expression_names(
-    parsed: ParsedTypeExpr,
-    replacements: Mapping[str, ParsedTypeExpr],
-) -> ParsedTypeExpr:
-    """Replace every named type in `replacements` inside a parsed type."""
-
-    def substitute(item: ParsedTypeExpr) -> ParsedTypeExpr:
-        return substitute_type_expression_names(item, replacements)
-
-    if isinstance(parsed, NamedTypeExpr):
-        return replacements.get(parsed.name, parsed)
-    if isinstance(parsed, AppliedTypeExpr):
-        return replace(parsed, args=tuple(substitute(arg) for arg in parsed.args))
-    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
-        return replace(parsed, item_type=substitute(parsed.item_type))
-    if isinstance(parsed, MapTypeExpr):
-        return replace(parsed, key_type=substitute(parsed.key_type), value_type=substitute(parsed.value_type))
-    return replace(
-        parsed,
-        param_types=tuple(substitute(param) for param in parsed.param_types),
-        return_type=substitute(parsed.return_type),
     )
 
 

@@ -294,18 +294,8 @@ def _private_workflow_result_type_for_expr(
         if expr.literal_kind == "bool":
             return PrimitiveTypeRef(name="Bool")
         return None
-    if isinstance(expr, RecordExpr):
-        return type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, UnionVariantExpr):
-        return type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
+    if isinstance(expr, RecordExpr | UnionVariantExpr):
+        return type_env.resolve_constructor_type(expr)
     if isinstance(
         expr,
         (
