@@ -138,6 +138,7 @@ class Performers:
     def command(self, resolved: dict[str, Any], path: Path) -> dict | None:
         executor = StepExecutor(self.workspace, logs_dir=path.parent)
         result = executor.execute_command("command", resolved["command"], env={BUNDLE_ENV: str(path)})
+        (path.parent / "stdout.txt").write_text(result.capture_result.output or "", encoding="utf-8")  # evidence
         if result.exit_code != 0:
             return {"code": "command_failed", "exit_code": result.exit_code, "error": result.error}
         return None

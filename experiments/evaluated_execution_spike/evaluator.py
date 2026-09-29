@@ -46,6 +46,14 @@ class EffectSuspended(Exception):
         self.identity, self.request = identity, request
 
 
+class Pending(Exception):
+    """A view's evaluation reached an effect without a commit: the run stands there."""
+
+    def __init__(self, identity: str, entry: Any) -> None:
+        super().__init__(identity)
+        self.identity, self.entry = identity, entry
+
+
 @dataclass
 class RunResult:
     value: Any
@@ -60,13 +68,17 @@ def evaluate(
     workspace: Path,
     run_root: Path,
     hook: Hook | None = None,
+    coordinators: Mapping[str, Any] | None = None,
 ) -> RunResult:
-    """Run, or resume, the program in `run_root`."""
+    """Run, or resume, the program in `run_root`. `coordinators` maps an effect class to a coordinator
+    with its own ledger: `prepare` (its pending commit), `settle` (its final commit, after the memo's
+    `committed`) and `reconcile` (on resume, when the memo holds the commit)."""
 
     run_root.mkdir(parents=True, exist_ok=True)
     bound = bind_inputs(program, inputs)
     _check_run(run_root, program, bound)
     evaluator = _Evaluator(program, run_root, Performers(workspace), hook or (lambda _event, _identity: None))
+    evaluator.coordinators = dict(coordinators or {})
     with Memo(run_root) as memo:
         evaluator.memo = memo
         value = evaluator.run(bound)
@@ -104,7 +116,7 @@ def _check_run(run_root: Path, program: ClosedProgram, inputs: Mapping[str, Any]
     path = run_root / "run.json"
     if not path.exists():
         (run_root / "closed-program.json").write_text(program.artifact(), encoding="utf-8")
-        path.write_text(json.dumps(header, sort_keys=True), encoding="utf-8")
+        path.write_text(json.dumps({**header, "bound_inputs": dict(inputs)}, sort_keys=True), encoding="utf-8")
         return
     recorded = json.loads(path.read_text(encoding="utf-8"))
     for key, code in (("program", "resume_program_changed"), ("inputs", "resume_inputs_changed")):
@@ -125,6 +137,8 @@ class _Evaluator:
         self.memo: Memo | None = None
         self.loops: list[int] = []  # the iteration of each enclosing loop, outermost first
         self.frames: list[str] = []  # the call sites of the activation path, in the table form
+        self.coordinators: dict[str, Any] = {}
+        self.dry = False  # a view's evaluation: stop at the first effect without a commit
         self.trace: list[str] = []
         self.diagnostics: list[dict[str, Any]] = []
 
@@ -271,7 +285,9 @@ class _Evaluator:
             return self.resolve_command(node, env)
         if node["class"] == "provider":
             return self.resolve_provider(node, env)
-        return {"class": node["class"], "question": self.value(node["question"], env)}
+        if node["class"] == "request_input":
+            return {"class": node["class"], "question": self.value(node["question"], env)}
+        return {"class": node["class"], "inputs": [self.value(v, env) for v in node.get("inputs", [])]}
 
     def resolve_command(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
         argv = [render_argument(self.value(a, env)) for a in node["argv"]]
@@ -297,6 +313,8 @@ class _Evaluator:
         """The table of section 8: what the memo holds for the identity decides the action."""
 
         identity = self.identity(node["site"])
+        if self.dry:
+            return self.dry_perform(identity)
         resolved = self.resolve(node, env)
         digest = canonical_digest(resolved)
         parts = {key: canonical_digest(part) for key, part in resolved.items()}
@@ -304,6 +322,8 @@ class _Evaluator:
         entry = self.memo.entry(identity)
         if entry.committed is not None:
             if entry.committed["input_digest"] == digest:
+                if node["class"] in self.coordinators:
+                    self.coordinators[node["class"]].reconcile(node, identity, entry.committed.get("proof"))
                 return entry.committed["value"]
             recorded = entry.committed.get("input_parts", {})
             files = entry.committed.get("declared", {})
@@ -324,6 +344,13 @@ class _Evaluator:
             self.diagnostics.append({"code": "effect_rerun", "identity": identity, "after": list(entry.attempts)})
         return self.attempt(node, identity, max(entry.attempts, default=0) + 1, resolved, digest, parts)
 
+    def dry_perform(self, identity: str) -> Any:
+        entry = self.memo.entry(identity)
+        self.trace.append(identity)
+        if entry.committed is None:
+            raise Pending(identity, entry)
+        return entry.committed["value"]
+
     def attempt(self, node, identity, attempt, resolved, digest, parts) -> Any:
         path = result_path(self.run_root, identity, attempt)
         record = {"identity": identity, "attempt": attempt, "input_digest": digest}
@@ -334,7 +361,11 @@ class _Evaluator:
         if node["class"] == "request_input":
             self.memo.append({**record, "record": "suspended", "request": resolved["question"]})
             raise EffectSuspended(identity, resolved["question"])
-        value, failure = self.performers.perform(node, resolved, path, identity)
+        coordinator, proof = self.coordinators.get(node["class"]), None
+        if coordinator is not None:
+            value, failure, proof = coordinator.prepare(node, resolved, identity, attempt)
+        else:
+            value, failure = self.performers.perform(node, resolved, path, identity)
         self.hook("finished", identity)
         if failure is not None:
             self.memo.append({**record, "record": "failed", **failure})
@@ -343,6 +374,9 @@ class _Evaluator:
         self.memo.append({**record, "record": "committed", "input_parts": parts, "value": value,
                           "declared": resolved.get("declared", {}),
                           "result_path": path.relative_to(self.run_root).as_posix(),
-                          "result_digest": canonical_digest(value)})
+                          "result_digest": canonical_digest(value), **({"proof": proof} if proof is not None else {})})
         self.hook("committed", identity)
+        if coordinator is not None:
+            coordinator.settle(node, identity, proof)
+            self.hook("settled", identity)
         return value
