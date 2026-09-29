@@ -1,9 +1,16 @@
-"""A union variant's record field filled from a bound name is a target-2.33 relaxation.
+"""A union variant's record field filled from a bound name, by target.
 
 Owner decision D2 (Ruling 7 in the CF-1b ledger): targets up to 2.32 do not
-change what they accept. Before CF-1b such a field was rejected at compile time
-with `workflow_return_not_exportable` at the variant expression; from target
-2.33 it lowers and runs. Hooks are command-backed probes.
+change what they accept.
+
+- Below 2.29 the field is rejected everywhere, at compile time, with
+  `workflow_return_not_exportable` at the variant expression.
+- At 2.29 to 2.32 it is rejected only where the variant is a loop result
+  (`done` or `:on-exhausted`); elsewhere, for example a variant built from a
+  `let*`-bound name, it compiles and runs.
+- At 2.33 it is accepted as a loop result too.
+
+Hooks are command-backed probes.
 """
 
 from __future__ import annotations
@@ -48,6 +55,12 @@ SOURCE = """(workflow-lisp
             ((FAIL f)
              (continue (loop-state :like state
                          :current (record Candidate :title f.note :score (+ state.current.score 1)))))))))))
+"""
+
+# The same variant outside a loop, filled from a `let*`-bound name.
+NON_LOOP_SOURCE = SOURCE[: SOURCE.index("  (defworkflow run")] + """  (defworkflow run () -> Result
+    (let* ((current (record Candidate :title "seed" :score 0)))
+      (variant Result APPROVED :value current))))
 """
 
 REBUILT = "(record Candidate :title state.current.title :score state.current.score)"
@@ -134,4 +147,30 @@ def test_target_233_runs_a_record_field_filled_from_a_bound_name(
     assert (outcome["status"], dict(outcome["workflow_outputs"])) == (
         "completed",
         {"return__variant": expected_variant, "return__value__title": "seed+r", "return__value__score": 1},
+    )
+
+
+@pytest.mark.parametrize("target", ["2.29", "2.32"])
+def test_targets_229_to_232_run_a_variant_outside_a_loop_filled_from_a_bound_name(tmp_path: Path, target: str) -> None:
+    entry = tmp_path / "tgt" / "entry.orc"
+    entry.parent.mkdir(parents=True)
+    entry.write_text(NON_LOOP_SOURCE.replace("TARGET", target), encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        entry,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=None,
+    )
+
+    outcome = _execute_bundle(
+        result.validated_bundles_by_name["tgt/entry::run"], workflow_path=entry, workspace=tmp_path, run_id="run"
+    )
+
+    assert (outcome["status"], dict(outcome["workflow_outputs"])) == (
+        "completed",
+        {"return__variant": "APPROVED", "return__value__title": "seed", "return__value__score": 0},
     )
