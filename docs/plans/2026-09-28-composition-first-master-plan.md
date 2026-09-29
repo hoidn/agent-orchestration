@@ -31,9 +31,10 @@ its argument.
 ## Global Constraints
 
 - Target **2.33** admits `defunion :forall`, type applications, and
-  `std/improve`. Target admission is per defining module: a module at a
-  target up to 2.32 that uses them is rejected with a required-target
-  diagnostic; importing a 2.33 module alone is admitted.
+  `std/improve`. Target admission is per defining module: a module below
+  2.33 that writes a generic union declaration or type application in its
+  own source is rejected with `generic_union_requires_dsl_2_33`; importing a
+  2.33 module and calling `improve` do not trigger that rejection.
 - `improve` has exactly the design §3 interface: `:forall (S I F B)`,
   `:where ((S is-record))`, parameters `initial`, `inputs`, `review`,
   `revise`, `limit`, result `Improvement[S F B]`. No `ctx`, no seeds, no
@@ -45,7 +46,9 @@ its argument.
   `Decision[F B]` straight from `provider-result :returns`; malformed output
   is a contract violation at the provider boundary and never reaches the
   helper. Adapters remain the route for legacy `ReviewFindings.v1`
-  consumers. Instantiated-union `defprompt` results are out of scope.
+  consumers. A `defprompt` with an applied-union result compiles at 2.33, but
+  it is outside the supported contract and untested; this plan does not use
+  it.
 - Legacy `ReviewFindings.v1` validation runs before findings are published
   and before the fixer consumes them, including after resume. The schema is
   neither tightened nor weakened.
@@ -81,8 +84,11 @@ to hit. Each is pinned by a test in the task that owns the code.
 4. **A substituted reviewer's inner review is blocked.** Expected: the
    adjudicating procedure returns `BLOCKED` with the domain blocker, never a
    downgraded `REVISE` or `APPROVE`. Owner: CF-1b Task 6.
-5. **A target-2.32 module uses `improve`.** Expected: rejection with the
-   required-target diagnostic, not a late type error. Owner: CF-1b Task 5.
+5. **A module below target 2.33 writes a generic union declaration or type
+   application**, such as `Decision[F B]` in a hook signature. Expected:
+   rejection with `generic_union_requires_dsl_2_33`, not a late type error.
+   A module that only imports and calls `improve` is admitted. Owner: CF-1b
+   Task 5.
 
 ## Coverage Map
 
@@ -136,7 +142,7 @@ everything in Phases 2–3.
 ## Phase 1: Language And Library (CF-1b)
 
 Owned by the [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md),
-Tasks 1–7. Not duplicated here. Its SDD ledger is the progress authority.
+Tasks 1–7. Not duplicated here. Its task checkboxes record progress.
 
 | Task | Deliverable |
 | --- | --- |
@@ -174,8 +180,9 @@ at the paths the caller supplied. The design-delta library phases keep the
 metadata, because their materialized progress report links the last review;
 they hold it in a wrapped subject whose history is `UNREVIEWED` before the
 first revision, which is that variant's only use. Because `limit` is at least
-1, exhaustion always follows a revision and their public result gains no
-variant.
+1, exhaustion always follows a revision. Their public result gains no
+variant unless the owner re-admits one for the unreachable `UNREVIEWED` arm
+(Task 13, Step 3).
 
 ### Parallel Execution
 
@@ -683,7 +690,8 @@ program identity changes with its source.
   with providers `providers.plan.review` and `providers.plan.fix`.
 - Produces: `run-plan-phase` with unchanged inputs.
   `DesignDeltaPlanPhaseResult` keeps its `APPROVED`, `BLOCKED`, and
-  `EXHAUSTED` variants and fields, and gains none.
+  `EXHAUSTED` variants and fields, and gains none unless the owner chooses
+  the variant option for the unreachable `UNREVIEWED` arm (Step 3).
 
 - [ ] **Step 1: Write the failing tests.** With patched providers: approval;
   blockage with the materialized progress report; exhaustion at limit `12`
@@ -751,8 +759,11 @@ program identity changes with its source.
   `revised.evidence.review_report` and `revised.evidence.findings` with the
   literal reason `max_iterations_reached`, keeping the existing
   `materialize-view` calls. The `UNREVIEWED` arm that an exhaustive `match`
-  needs is unreachable; how it is written without a public variant is decided
-  when this task is selected. `completed.plan_path` becomes
+  needs is unreachable. It must not fabricate a review report, path or
+  findings. The owner chooses, when this task is selected, between two
+  options: fail the run from that arm through a command step, or re-admit a
+  distinct public variant for this task's and Task 14's consumers only. No
+  value is written for it now. `completed.plan_path` becomes
   `approved.value.subject.plan_path` and its `BLOCKED` and `EXHAUSTED`
   equivalents.
 - [ ] **Step 4: Run** the new module. Do not run or edit the shared
@@ -776,7 +787,8 @@ program identity changes with its source.
   `providers.implementation.fix`.
 - Produces: the implementation phase workflow with unchanged inputs. Its
   result union keeps its `APPROVED`, `BLOCKED`, and `EXHAUSTED` variants and
-  fields, and gains none.
+  fields, and gains none unless the owner chooses the variant option for the
+  unreachable `UNREVIEWED` arm (Task 13, Step 3).
 
 - [ ] **Step 1: Write the failing tests.** With patched providers: approval;
   blockage with the materialized progress report and the blocked-compat
@@ -916,7 +928,7 @@ gets its own plan through the owner named here.
 | --- | --- | --- |
 | Fixer-side blockage (sibling helper whose `revise` returns a value-carrying union) | A caller must report partial progress with a blocker | Standard library |
 | Generic records | A caller needs a reusable value-plus-metadata record that a union cannot express | Parametric type system |
-| Direct generic `defprompt` results | The adapter route is shown to cost more than instantiation-before-contract-generation | Prompt contracts and type system |
+| Support for direct generic `defprompt` results (the compiler already accepts an applied-union `defprompt` result, unsupported and untested) | The adapter route is shown to cost more than instantiation-before-contract-generation | Prompt contracts and type system |
 | Document snapshot or version references | A caller must publish approval of fixed contents | Artifact allocator and that caller's adapter |
 | Subjects that are not records | A named use and proof at the loop-state and exhaustion boundaries | Loop and type owners |
 | Pure inline hooks as loop-body `match` scrutinees | Deterministic pure hooks are needed in tests or callers | Frontend (WCC elaboration) |

@@ -28,8 +28,13 @@ pytest/pytest-xdist, command-backed deterministic hooks.
 Status: accepted for execution by the owner on 2026-09-28. The owner accepted
 the type-system delta as the governing contract and assigned target **2.33**
 to generic unions and `std/improve` together. Tasks 1–6 are implemented and
-reviewed (2026-09-28); the SDD ledger records each task's evidence. Task 7
-promotes the documentation; the closeout items below remain open.
+reviewed (2026-09-28); the capability matrix lists the test modules that are
+their evidence. The owner's decisions during execution are written into the
+documents that own them: target admission per defining module and the
+record-field relaxation at 2.33 (`specs/versioning.md`), applied-union
+`provider-result` returns (design §5), `limit` of at least 1 (design §4), and
+consumer migration on hold (roadmap CF-1, step 4). Task 7 promotes the
+documentation; the closeout items below remain open.
 
 Read `docs/index.md` and `docs/capability_status_matrix.md` first. Authorities:
 
@@ -146,10 +151,10 @@ and `*_MIN_TARGET_DSL_VERSION` constants), `orchestrator/workflow/validation.py`
    defining-module identity; an imported alias resolves to the same
    declaration.
 3. Diagnostics point at both the use site and the declaration with
-   source-map locations. Proposed codes (final names by the type owner):
+   source-map locations. Codes, as implemented and listed by the type owner:
    `generic_union_arity_mismatch`, `generic_union_unresolved_argument`,
    `generic_union_instantiation_cycle`, `generic_union_not_generic`,
-   `generic_union_requires_target`.
+   `generic_union_requires_dsl_2_33`.
 4. Run the new module plus `tests/test_workflow_lisp_modules.py` and
    `tests/test_workflow_lisp_expressions.py`.
 
@@ -226,9 +231,11 @@ loop tests as the transport pattern.
    [master plan's](2026-09-28-composition-first-master-plan.md#review-focus)
    Review Focus: `limit 0` is a compile-time rejection, the same as `:max 0`
    on a plain loop, and no hook runs; a `revise` hook that fails in the
-   final permitted iteration is a runtime failure, not `EXHAUSTED`; a
-   target-2.32 module that uses `improve` is rejected with the required-target
-   diagnostic.
+   final permitted iteration is a runtime failure, not `EXHAUSTED`; a module
+   below target 2.33 that writes a generic union declaration or type
+   application in its own source is rejected with
+   `generic_union_requires_dsl_2_33`, while one that only imports and calls
+   `improve` is admitted.
 2. Author `std/improve` exactly as the design's §3 interface and §4 loop:
    `Decision :forall (F B)`, `Improvement :forall (S F B)`, `improve` with
    `:where ((S is-record))`, state `{current}`, `inputs` as a lexical binding,
@@ -284,7 +291,8 @@ CF-1 status and CF-1b row closeout.
 
 1. Record supported behavior and limits: `S is-record` for the first
    delivery, applied-union `provider-result` returns, adapters for concrete
-   results, no generic records, no generic `defprompt` results, command- or
+   results, no generic records, an applied-union `defprompt` result that
+   compiles but is outside the contract and untested, command- or
    provider-backed hooks.
 2. Run `pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
    tests/test_monitor_docs.py` and the link check on edited files.
@@ -303,5 +311,6 @@ CF-1 status and CF-1b row closeout.
 
 Out of scope here: migrating `review_revise_design_docs.orc` and
 `kiss_backlog_item.orc` (CF-1c), fixer-side blockage, generic records,
-document snapshot references, direct generic `defprompt` results (CF-1d), and
-retiring any `std/phase` declaration.
+document snapshot references, support for applied-union `defprompt` results
+(CF-1d; the compiler already accepts the form, but it is unsupported and
+untested), and retiring any `std/phase` declaration.
