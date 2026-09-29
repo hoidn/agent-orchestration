@@ -62,6 +62,21 @@ Decisions added on 2026-09-29, after the reviews of Tasks 8 and 9:
 - a run that supervises another run lives in its own workspace, observes the
   other's workspace by path, and resumes it there (Task 14).
 
+Decisions added on 2026-09-29, after the third review round:
+
+- only Critical findings block the merge: a silent wrong value, a loss of
+  data, or an effect outside the workspace. A failing test is always
+  repaired. Important and Minor findings are recorded as known defects, each
+  with a test that pins it, and go to the follow-up list;
+- the two silent wrong values of Task 15 are corrected at every target;
+- Task 16 does not block the merge: it lands from its own branch after its
+  review. Task 8 merges as it is;
+- a workspace refusal exits 2 in `run`, `resume` and `trial`;
+- at 2.33 the `match` node keeps the authored subject outside the case of
+  Task 3, step 3; from 2.34 it carries the typed subject always;
+- whether a copy of a rejected attempt's result is kept is decided on the
+  cost report of Task 16.
+
 Out of scope:
 
 - the feasibility spike of the decision brief, section 10. It gets its own
@@ -229,7 +244,12 @@ near line 1237), `orchestrator/workflow_lisp/procedure_refs.py` (line 203).
    log as the form bound with `let*`, for APPROVED, BLOCKED and EXHAUSTED; the
    same for a second generic helper over an unrelated generic union.
 2. Write the 2.32 control for a non-generic helper with `proc-ref` hooks.
-3. Implement: the typed `match` node carries the typechecked subject.
+3. Implement: the typed `match` node carries the typechecked subject where
+   a generic signature declares a hook that depends on a type parameter. In
+   every other case target 2.33 keeps the authored subject, so that programs
+   that compiled at the base keep their step and checkpoint identities. The
+   typed subject is carried in every case from target 2.34 (owner's decision
+   of 2026-09-29, after the third review).
 4. Check whether other typecheck handlers discard the typechecked form of a
    child. Report each one found; repair it only if a test of this task needs
    it.
