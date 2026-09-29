@@ -310,3 +310,107 @@ def test_at_2_32_a_type_parameter_does_not_shadow_a_module_record_in_an_inlined_
     result = _public_run(files)
 
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"return__value__name": "module"})
+
+
+# `make` builds the hidden `Private` inside the visible `Outer`. As a `loop-state`
+# field's initial value, the seed is rebuilt as a record of the generated loop-state
+# type; the rebuilt record keeps its type (`resolved_type`) instead of resolving the
+# generated name again, and the field values keep theirs.
+SEED_LIB = """  (defmodule grt/lib)
+  (export Outer make)
+  (defrecord Private (word String))
+  (defrecord Outer (value Private) (tags List[String]))
+  (defproc make () -> Outer :effects () :lowering inline
+    (record Outer :value (record Private :word "x") :tags (list "x")))
+)
+"""
+
+SEED_ENTRY = """  (defmodule grt/entry)
+  (import grt/lib :only (Outer make))
+  (export run)
+  (defworkflow run () -> Outer
+    (loop/recur :max 3
+      :state (loop-state (current Outer (make)) (n Int 0))
+      :on-exhausted state.current
+      (fn (state) (if (= state.n 1) (done state.current) (continue (loop-state :like state :n (+ state.n 1)))))))
+)
+"""
+
+# The same seed rebuild inside an imported inlined body: its loop-state type is
+# generated from the library's procedure.
+LOOP_LIB = """  (defmodule grt/lib)
+  (export Outer make)
+  (defrecord Private (word String))
+  (defrecord Outer (value Private) (tags List[String]))
+  (defproc make () -> Outer :effects () :lowering inline
+    (loop/recur :max 3
+      :state (loop-state (tags List[String] (list "x")) (n Int 0))
+      :on-exhausted (record Outer :value (record Private :word "exhausted") :tags state.tags)
+      (fn (state)
+        (if (= state.n 1)
+          (done (record Outer :value (record Private :word "done") :tags state.tags))
+          (continue (loop-state :like state :n (+ state.n 1)))))))
+)
+"""
+
+LOOP_ENTRY = """  (defmodule grt/entry)
+  (import grt/lib :only (Outer make))
+  (export run)
+  (defworkflow run () -> Outer (make))
+)
+"""
+
+
+@pytest.mark.parametrize(
+    ("lib", "entry", "expected"),
+    [
+        (SEED_LIB, SEED_ENTRY, {"return__value__word": "x", "return__tags": ("x",)}),
+        (LOOP_LIB, LOOP_ENTRY, {"return__value__word": "done", "return__tags": ("x",)}),
+    ],
+    ids=["seed-from-imported-body", "loop-in-imported-body"],
+)
+def test_loop_state_seed_rebuilt_from_an_inlined_body_keeps_its_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lib: str, entry: str, expected: dict[str, object]
+) -> None:
+    _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER + entry})
+    files = _public_run_files(tmp_path, {})
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(files)
+
+    assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, expected)
+
+
+# `check` is inlined at two specializations; each copy of its body constructs the
+# same text with its own type, and each result is read through its own record type.
+TWO_SPECIALIZATIONS = """  (defmodule grt/entry)
+  (export run)
+  (defrecord Cand (title String))
+  (defrecord Other (name String))
+""" + GENERICS + """  (defworkflow make-a ((ok Bool)) -> Outcome[Cand String] (check (record Cand :title "a") ok))
+  (defworkflow make-b ((ok Bool)) -> Outcome[Other String] (check (record Other :name "b") ok))
+  (defrecord Seen (a String) (b String))
+  (defworkflow run ((ok Bool)) -> Seen
+    (let* ((a (call make-a :ok ok)) (b (call make-b :ok ok)))
+      (record Seen
+        :a (match a ((OK hit) hit.value.title) ((ERR miss) miss.error))
+        :b (match b ((OK hit) hit.value.name) ((ERR miss) miss.error)))))
+)
+"""
+
+
+@pytest.mark.parametrize(("ok", "expected"), [("true", ("a", "b")), ("false", ("rejected", "rejected"))])
+def test_two_specializations_of_one_body_keep_their_own_types(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: str, expected: tuple[str, str]
+) -> None:
+    _write_sources(tmp_path, {"grt/entry.orc": HEADER + TWO_SPECIALIZATIONS})
+    files = _public_run_files(tmp_path, {})
+    (tmp_path / "inputs.json").write_text(f'{{"ok": {ok}}}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(files, input_file=tmp_path / "inputs.json")
+
+    assert (result.exit_code, dict(result.workflow_outputs or {})) == (
+        0,
+        {"return__a": expected[0], "return__b": expected[1]},
+    )

@@ -154,11 +154,15 @@ class FieldAccessExpr:
 class RecordExpr:
     """One record-construction form.
 
-    `resolved_type` is set only on a constructor copied out of an inlined
-    procedure body (target 2.33): the type its defining module resolved
-    `type_name` to. Later stages use it instead of resolving the text in the
-    caller's module (`resolve_constructor_type`). It is kept out of `repr`,
-    equality and build JSON.
+    `resolved_type` is set on a constructor copied out of an inlined
+    procedure body (target 2.33), as the type its defining module resolved
+    `type_name` to, and on a record a pass rebuilds from a value whose type
+    it knows (a loop's seed). Later stages use it instead of resolving the
+    text in the caller's module (`resolve_constructor_type`). It is part of
+    equality, so two copies of one constructor with different types stay
+    distinct values; it is kept out of `repr` (which feeds identities and
+    digests), out of the hash (a `TypeRef` is not hashable; equal hashes are
+    allowed for unequal values), and out of build JSON when unset.
     """
 
     type_name: str
@@ -167,7 +171,7 @@ class RecordExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     resolved_type: "TypeRef | None" = field(
-        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+        default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
 
 
@@ -300,7 +304,7 @@ class UnionVariantExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     resolved_type: "TypeRef | None" = field(
-        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+        default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
 
 
