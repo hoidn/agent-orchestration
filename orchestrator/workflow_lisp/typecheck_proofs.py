@@ -326,16 +326,27 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
     The authored subject, so every program that compiled before lowers as it did.
-    From target 2.33, a subject that calls a generic procedure through a hook whose
-    type uses a type parameter carries its typechecked form instead: that call
-    lowers only as the specialized procedure, as the same call bound with `let*`
-    does, and the authored call is rejected with `proc_ref_signature_invalid`.
+    From target 2.33 two subjects carry their typechecked form instead, as the same
+    subject bound with `let*` does; neither lowers in its authored form:
+    - a call of a generic procedure through a hook whose type uses a type
+      parameter: it lowers only as the specialized procedure, and the authored
+      call is rejected with `proc_ref_signature_invalid`;
+    - a subject that applies a typed prompt: typecheck gives the application its
+      compiled identity, and the authored application, which has none, is
+      rejected with `compiled_prompt_fragment_identity_missing`.
     """
+    from .expression_traversal import walk_expr
+    from .expressions import ProviderResultExpr
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
+    from .prompts import PromptApplicationExpr
 
-    if (
-        target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or "")
-        and context.procedure_catalog is not None
+    if not target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
+        return expr.subject
+    if any(
+        isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr)
+        for node in walk_expr(expr.subject)
+    ) or (
+        context.procedure_catalog is not None
         and calls_generic_procedure_through_type_dependent_hook(
             expr.subject, procedure_catalog=context.procedure_catalog
         )
