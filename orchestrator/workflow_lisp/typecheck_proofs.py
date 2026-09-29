@@ -322,6 +322,18 @@ def _allocate_binding_identity(
     return BindingIdentity(path=form_path, kind=kind, name=name, ordinal=ordinal)
 
 
+def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
+    """Return the subject the typed `match` node carries.
+
+    From target 2.33 it is the typechecked subject, so a generic call reaches
+    specialization with its specialized callee. Earlier targets keep the
+    authored subject, so what they accept is unchanged.
+    """
+    if target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
+        return typed_subject_expr
+    return expr.subject
+
+
 def typecheck_match_expr(
     expr: MatchExpr,
     *,
@@ -440,15 +452,12 @@ def typecheck_match_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
-    # From 2.33 the typed node keeps the typechecked subject (a generic call carries
-    # its specialized callee); earlier targets keep the authored subject unchanged.
-    subject = (
-        typed_subject.expr
-        if target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or "")
-        else expr.subject
-    )
     return typed_factory(
-        expr=replace(expr, subject=subject, arms=tuple(rewritten_arms)),
+        expr=replace(
+            expr,
+            subject=_kept_match_subject(expr, typed_subject.expr, context=context),
+            arms=tuple(rewritten_arms),
+        ),
         type_ref=arm_result_type,
         effect=merge_effect_summaries(*arm_summaries),
     )
