@@ -119,48 +119,12 @@
                 "--output" "${inputs.state_root}/watchdog-result.json")
          :returns WatchdogOutput))
       ((REPAIR repair)
-       (let* ((provider-result repair.result)
-              (status-resumed
-                (= provider-result.repair_status
-                   ProviderRepairStatus.FIXED_AND_RESUMED))
-              (status-relaunched
-                (= provider-result.repair_status
-                   ProviderRepairStatus.FIXED_AND_RELAUNCHED))
-              (status-plan-written
-                (= provider-result.repair_status
-                   ProviderRepairStatus.PLAN_WRITTEN))
-              (complexity-trivial
-                (= provider-result.fix_complexity
-                   ProviderFixComplexity.TRIVIAL))
-              (action-resume
-                (= provider-result.recovery_action
-                   ProviderRecoveryAction.RESUME))
-              (action-relaunch
-                (= provider-result.recovery_action
-                   ProviderRecoveryAction.RELAUNCH))
-              (action-restart
-                (= provider-result.recovery_action
-                   ProviderRecoveryAction.RESTART))
-              (repair-status
-                (if status-resumed
-                  RepairStatus.FIXED_AND_RESUMED
-                  (if status-relaunched
-                    RepairStatus.FIXED_AND_RELAUNCHED
-                    (if status-plan-written
-                      RepairStatus.PLAN_WRITTEN
-                      RepairStatus.BLOCKED))))
-              (fix-complexity
-                (if complexity-trivial
-                  FixComplexity.TRIVIAL
-                  FixComplexity.NONTRIVIAL))
-              (recovery-action
-                (if action-resume
-                  RecoveryAction.RESUME
-                  (if action-relaunch
-                    RecoveryAction.RELAUNCH
-                    (if action-restart
-                      RecoveryAction.RESTART
-                      RecoveryAction.DECLINED)))))
+       ;; Each provider-only enum member has the same name as its public
+       ;; widening, and the publisher checks each value against the public
+       ;; enum, so the fields are passed by name. Pure bindings over
+       ;; `repair.result` are rejected by the pure-result replay index
+       ;; (decision brief 2026-09-29, section 2.1 case d).
+       (let* ((provider-result repair.result))
          (command-result publish_run_watchdog_result
            :argv ("python"
                   "workflows/library/scripts/publish_run_watchdog_result.py"
@@ -170,9 +134,9 @@
                   "--repair-required" repair_required
                   "--recommended-recovery" recommended_recovery
                   "--evidence-bundle-path" evidence_bundle_path
-                  "--repair-status" repair-status
-                  "--fix-complexity" fix-complexity
-                  "--recovery-action" recovery-action
+                  "--repair-status" provider-result.repair_status
+                  "--fix-complexity" provider-result.fix_complexity
+                  "--recovery-action" provider-result.recovery_action
                   "--repair-report-path" provider-result.repair_report_path
                   "--plan-path" provider-result.plan_path
                   "--new-run-id" provider-result.new_run_id
