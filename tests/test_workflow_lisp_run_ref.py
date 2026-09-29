@@ -3427,11 +3427,9 @@ def test_public_wcc_build_lowers_run_ref_through_shared_leaf(tmp_path: Path) -> 
         executable_workflow=result.validated_bundle.ir,
         loaded_workflow=result.validated_bundle,
     )
-    assert decision.kind == checkpoint_restore_module.RESTORE_DECISION_NOT_RESTORABLE
-    assert decision.policy_decision is None
-    assert decision.diagnostics == (
-        checkpoint_restore_module.DIAGNOSTIC_CODES.pending_effect_unsafe,
-    )
+    assert decision.kind == checkpoint_restore_module.RESTORE_DECISION_RESTORED
+    assert decision.policy_decision == "RERUN"
+    assert decision.diagnostics == ()
 
 
 @pytest.mark.parametrize(

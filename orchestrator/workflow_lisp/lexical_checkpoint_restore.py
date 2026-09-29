@@ -105,6 +105,82 @@ def _sequence(value: Any) -> Sequence[Any]:
     return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)) else ()
 
 
+def _provider_group_result_relation(
+    *,
+    state: Mapping[str, Any],
+    point_payload: Mapping[str, Any],
+    record: Mapping[str, Any],
+) -> str:
+    """Classify whether the checkpoint visit has an atomically committed group result.
+
+    A group with no visit counter in state has not started a visit, so its
+    result is pending. A malformed counter, name or record visit is invalid.
+    """
+
+    effect_kind = _mapping(point_payload.get("effect_boundary")).get("effect_kind")
+    if effect_kind not in {"provider_supervision", "provider_peer_group"}:
+        return "pending"
+    step_name = point_payload.get("presentation_key")
+    step_id = point_payload.get("step_id")
+    record_visit = _mapping(record.get("frame_identity")).get("visit_count")
+    if not isinstance(step_name, str) or not isinstance(step_id, str) or not _is_positive_int(record_visit):
+        return "invalid"
+    step_visit = _mapping(state.get("step_visits")).get(step_name)
+    if step_visit is None:
+        return "pending"
+    if not _is_positive_int(step_visit):
+        return "invalid"
+    if record_visit != step_visit:
+        return "pending"
+    return _provider_group_visit_relation(state=state, step_name=step_name, step_id=step_id, visit=step_visit)
+
+
+def _is_positive_int(value: Any) -> bool:
+    return type(value) is int and value > 0
+
+
+def _provider_group_visit_relation(
+    *,
+    state: Mapping[str, Any],
+    step_name: str,
+    step_id: str,
+    visit: int,
+) -> str:
+    """Relate the current group visit to its terminal result, as the resume planner reads it."""
+
+    from orchestrator.workflow.resume_planner import ResumePlanner
+
+    try:
+        result_relation = ResumePlanner()._interrupted_provider_result_relation(
+            dict(state),
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit,
+        )
+    except (TypeError, ValueError):
+        return "invalid"
+    if result_relation == "integrity_error":
+        return "invalid"
+    step_state = _mapping(_mapping(state.get("steps")).get(step_name))
+    if (
+        result_relation == "exact_terminal"
+        and step_state.get("status") == "completed"
+        and step_state.get("visit_count") == visit
+    ):
+        return "committed"
+    return "pending"
+
+
+def _provider_group_restore_is_empty(point_payload: Mapping[str, Any]) -> bool:
+    restore = _mapping(point_payload.get("restore"))
+    return (
+        restore.get("eligibility") == []
+        and restore.get("binding_descriptors") == []
+        and restore.get("proof_descriptors") == []
+        and restore.get("loop_frame_descriptor") is None
+    )
+
+
 def _non_empty_string(value: Any, diagnostic: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(diagnostic)
@@ -1228,26 +1304,6 @@ def _proof_matches_current_selector_variant(
     return current_variant == expected_variant
 
 
-def _last_attempt_failed(record: Mapping[str, Any], *, step_name: Any, state: Mapping[str, Any]) -> bool:
-    """Whether state records the record's visit as the step's last attempt, completed with a failure.
-
-    Such a boundary committed no result and its completion is known, so it is
-    not a pending effect: resume restores the environment the record captured
-    before the effect and runs the effect again. A later visit that started
-    without a recorded result (``step_visits`` ahead of the failed result) is
-    still a pending effect.
-    """
-
-    visit_count = _mapping(record.get("frame_identity")).get("visit_count")
-    step_state = _mapping(_mapping(state.get("steps")).get(step_name))
-    return (
-        isinstance(visit_count, int)
-        and step_state.get("status") == "failed"
-        and step_state.get("visit_count") == visit_count
-        and _mapping(state.get("step_visits")).get(step_name) == visit_count
-    )
-
-
 def select_restore_candidate(
     *,
     state_manager: Any,
@@ -1290,6 +1346,8 @@ def select_restore_candidate(
         completed_effect_refs = record.get("completed_effect_refs")
         has_completed_effect_refs = isinstance(completed_effect_refs, list) and bool(completed_effect_refs)
         policy_kind = policy.get("policy_kind")
+        if policy_kind == "fail_closed_non_idempotent" and has_completed_effect_refs:
+            return "INVALID", (DIAGNOSTIC_CODES.completed_effect_invalid,), None
         if policy_kind in {
             "reuse_validated_structured_output",
             "reuse_validated_workflow_call",
@@ -1299,17 +1357,17 @@ def select_restore_candidate(
             "reuse_validated_human_reply",
         }:
             if not has_completed_effect_refs:
-                # Only a single command or provider effect: a failed call, run-ref
-                # or trial may hold committed inner effects, and a certified
-                # adapter's completion is defined by its protocol.
-                if policy_kind == "reuse_validated_structured_output" and _last_attempt_failed(
-                    record, step_name=step_name, state=state
-                ):
-                    return "RERUN", (), None
+                if policy.get("must_not_repeat") is True:
+                    return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
+                # Human requests have an owner-managed pending/answered route
+                # before lexical checkpoint selection; do not create a second
+                # request by interpreting its missing result as a command rerun.
+                if policy_kind == "reuse_validated_human_reply":
+                    return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
                 unsafe_pending_behavior = policy.get("unsafe_pending_behavior")
                 if unsafe_pending_behavior == "audit_barrier":
                     return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
-                return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
+                return "RERUN", (), None
             return "REUSABLE", (), None
         if policy_kind == "preserve_durable_view":
             if has_completed_effect_refs:
@@ -1321,7 +1379,7 @@ def select_restore_candidate(
             return "REGENERATE", (), None
         if policy_kind == "transition_idempotent_audit_required":
             if not has_completed_effect_refs:
-                return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
+                return "RERUN", (), None
             effect_ref = _mapping(completed_effect_refs[0])
             authoritative_resource = _resolve_authoritative_transition_resource(
                 loaded_workflow=loaded_workflow,
@@ -1365,7 +1423,20 @@ def select_restore_candidate(
                 return "INVALID", evaluation.diagnostics, None
             return "INVALID", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
         if policy_kind == "fail_closed_non_idempotent":
-            return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
+            group_result = _provider_group_result_relation(
+                state=state,
+                point_payload=point_payload,
+                record=record,
+            )
+            if group_result == "invalid":
+                return (
+                    "INVALID",
+                    (DIAGNOSTIC_CODES.program_identity_mismatch,),
+                    None,
+                )
+            if group_result == "committed":
+                return "REUSABLE", (), None
+            return "RERUN", (), None
         return "INVALID", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
 
     def _select_for_points_unobserved(
@@ -1752,6 +1823,42 @@ def select_restore_candidate(
                     )
                 restore_payload = record.get("restore_payload")
                 if restore_payload is None:
+                    if (
+                        policy_decision == "REUSABLE"
+                        and _provider_group_result_relation(
+                            state=state,
+                            point_payload=point_payload,
+                            record=record,
+                        )
+                        == "committed"
+                        and _provider_group_restore_is_empty(point_payload)
+                    ):
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_RESTORED,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=record_id,
+                            source_map_origin_key=origin_key,
+                            policy_decision=policy_decision,
+                        )
+                    if (
+                        policy_decision == "REUSABLE"
+                        and _mapping(
+                            _mapping(point_payload.get("effect_boundary")).get(
+                                "policy"
+                            )
+                        ).get("policy_kind")
+                        == "fail_closed_non_idempotent"
+                    ):
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_INVALID,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=record_id,
+                            source_map_origin_key=origin_key,
+                            policy_decision="INVALID",
+                            diagnostics=(
+                                DIAGNOSTIC_CODES.payload_schema_invalid,
+                            ),
+                        )
                     if isinstance(transition_resume, Mapping):
                         return RestoreDecision(
                             kind=RESTORE_DECISION_RESTORED,

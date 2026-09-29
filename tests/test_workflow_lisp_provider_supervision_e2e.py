@@ -1014,6 +1014,15 @@ def test_public_resume_reruns_interrupted_supervision_visit_with_fresh_members(
 
     _run_root, resumed = _only_run(tmp_path)
     assert resumed["status"] == "completed"
+    assert resumed["resume_diagnostics"] == [
+        {
+            "diagnostic": "provider_attempt_interrupted_rerun",
+            "family": "supervision",
+            "step_id": current_step["step_id"],
+            "discarded_visit": current_step["visit_count"],
+            "next_visit": current_step["visit_count"] + 1,
+        }
+    ]
     assert resumed.get("current_step") is None
     [step] = resumed["steps"].values()
     assert step["status"] == "completed"
