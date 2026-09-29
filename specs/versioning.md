@@ -622,14 +622,28 @@
     [composition-first design](../docs/design/workflow_lisp_composition_first.md)
     owns its contract.
   - A union variant's record-typed field may be filled from a bound name or
-    field access, such as `state.current`. Targets up to 2.32 keep rejecting
-    that at compile time: no target up to 2.32 changes what it accepts.
-  - Target admission is per defining module. A module at an older target may
-    import a 2.33 module; it is rejected with `generic_union_requires_dsl_2_33`
-    when it uses a generic union or `improve`.
-  - It does not add generic records, explicit procedure type arguments, or
-    generic `defprompt` results. A module targeting 2.33 that uses none of the
-    new forms compiles as an ordinary module. State schema remains `2.1`.
+    field access, such as `state.current`. Older targets keep their behavior.
+    Below 2.29 such a field is rejected at compile time wherever the variant is
+    built. At 2.29 to 2.32 it is rejected, with
+    `workflow_return_not_exportable`, only where the variant is a `loop/recur`
+    result (`done` or `:on-exhausted`). At 2.33 it is accepted there too.
+  - Target admission is per defining module. A module below 2.33 is rejected
+    with `generic_union_requires_dsl_2_33` where its own source writes a
+    generic union declaration (`defunion :forall`) or a generic union type
+    application such as `Decision[F B]`. Importing a 2.33 module, calling a
+    procedure defined in one, and passing such a procedure with `proc-ref` do
+    not trigger this rejection at any target. Two consequences follow. The inlined body of a
+    2.33 procedure is lowered under 2.33, so a bundle built from an
+    older-target module carries 2.33 lowering for that procedure. An
+    older-target module can hold, `match` and pass on applied-union values
+    whose type it cannot name.
+  - A `defprompt` whose result is an applied generic union compiles at 2.33,
+    but it is outside the 2.33 contract and no test covers it.
+    `provider-result :returns` is the supported way to get an applied union
+    from a provider.
+  - It does not add generic records or explicit procedure type arguments. A
+    module targeting 2.33 that uses none of the new forms compiles as an
+    ordinary module. State schema remains `2.1`.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
@@ -821,6 +835,6 @@ Planned acceptance:
 | 2.30 | Workflow Lisp pure-call expression composition | Resolved-inline normalization and schema-3 ordered lexical bindings, including selected hooks and committed-boundary resume. Private/effectful/unrepresentable calls remain excluded; old targets and state schema stay unchanged. |
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
-| 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Targets up to 2.32 accept exactly what they accepted before; admission is per defining module. It adds no generic records, no explicit procedure type arguments, and no generic `defprompt` results; state schema remains 2.1. |
+| 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments; an applied-union `defprompt` result compiles but is outside the contract. State schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

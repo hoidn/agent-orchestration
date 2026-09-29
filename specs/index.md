@@ -25,9 +25,9 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - DSL v2.33 admits first-order generic unions (`defunion :forall` and type
     applications, instantiated at compile time, including applied-union
     `provider-result` returns) and the bundled `std/improve` review helper.
-    Target admission is per defining module. It adds no generic records,
-    explicit procedure type arguments, or generic `defprompt` results; see
-    `versioning.md`.
+    Target admission is per defining module. It adds no generic records or
+    explicit procedure type arguments; an applied-union `defprompt` result
+    compiles but is outside the contract. See `versioning.md`.
   - State schema: `schema_version: "2.1"`.
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
 
