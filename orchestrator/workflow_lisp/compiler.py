@@ -53,6 +53,7 @@ from .definitions import (
 from .diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
+    compiler_defect_boundary,
     diagnostic_effective_severity,
     with_diagnostic_metadata,
 )
@@ -1584,80 +1585,98 @@ def _lower_workflows_for_route(
     target_dsl_version: str = "2.14",
     source_read_trace: SourceReadTrace | None = None,
 ):
-    compiler_session = compiler_session or CompilerSession()
-    resolved_procedures_by_name = MappingProxyType(
-        {procedure.definition.name: procedure for procedure in typed_procedures}
-    )
-    if lowering_route is LoweringRoute.WCC_M1:
-        validate_wcc_m1_route_supported(typed_workflows)
-        return lower_wcc_m1_workflow_definitions(
+    """Elaborate and lower typechecked workflows; an internal exception is a compiler defect."""
+
+    with compiler_defect_boundary(workflow_path):
+        compiler_session = compiler_session or CompilerSession()
+        resolved_procedures_by_name = MappingProxyType(
+            {procedure.definition.name: procedure for procedure in typed_procedures}
+        )
+        if lowering_route is LoweringRoute.WCC_M1:
+            validate_wcc_m1_route_supported(typed_workflows)
+            return lower_wcc_m1_workflow_definitions(
+                typed_workflows,
+                typed_procedures=typed_procedures,
+                resolved_procedures_by_name=resolved_procedures_by_name,
+                available_workflows_by_name=available_workflows_by_name,
+                procedure_type_envs=procedure_type_envs,
+                workflow_type_envs=workflow_type_envs,
+                procedure_catalog=procedure_catalog,
+                workflow_path=workflow_path,
+                workflow_catalog=workflow_catalog,
+                imported_workflow_bundles=imported_workflow_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=target_dsl_version,
+                source_read_trace=source_read_trace,
+            )
+        if lowering_route is LoweringRoute.WCC_M2:
+            validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
+            return lower_wcc_m2_workflow_definitions(
+                typed_workflows,
+                typed_procedures=typed_procedures,
+                resolved_procedures_by_name=resolved_procedures_by_name,
+                available_workflows_by_name=available_workflows_by_name,
+                procedure_type_envs=procedure_type_envs,
+                workflow_type_envs=workflow_type_envs,
+                procedure_catalog=procedure_catalog,
+                workflow_path=workflow_path,
+                workflow_catalog=workflow_catalog,
+                imported_workflow_bundles=imported_workflow_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=target_dsl_version,
+                source_read_trace=source_read_trace,
+            )
+        if lowering_route is LoweringRoute.WCC_M3:
+            validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
+            return lower_wcc_m3_workflow_definitions(
+                typed_workflows,
+                typed_procedures=typed_procedures,
+                resolved_procedures_by_name=resolved_procedures_by_name,
+                available_workflows_by_name=available_workflows_by_name,
+                procedure_type_envs=procedure_type_envs,
+                workflow_type_envs=workflow_type_envs,
+                procedure_catalog=procedure_catalog,
+                workflow_path=workflow_path,
+                workflow_catalog=workflow_catalog,
+                imported_workflow_bundles=imported_workflow_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=target_dsl_version,
+                source_read_trace=source_read_trace,
+            )
+        if lowering_route is LoweringRoute.WCC_M4:
+            validate_wcc_m4_route_supported(
+                typed_workflows,
+                typed_procedures,
+                workflow_signatures=workflow_catalog.signatures_by_name,
+            )
+            return lower_wcc_m4_workflow_definitions(
+                typed_workflows,
+                typed_procedures=typed_procedures,
+                resolved_procedures_by_name=resolved_procedures_by_name,
+                available_workflows_by_name=available_workflows_by_name,
+                procedure_type_envs=procedure_type_envs,
+                workflow_type_envs=workflow_type_envs,
+                procedure_catalog=procedure_catalog,
+                workflow_path=workflow_path,
+                workflow_catalog=workflow_catalog,
+                imported_workflow_bundles=imported_workflow_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=target_dsl_version,
+                source_read_trace=source_read_trace,
+                lowering_session=compiler_session.lowering,
+            )
+        return lower_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
             resolved_procedures_by_name=resolved_procedures_by_name,
-            available_workflows_by_name=available_workflows_by_name,
-            procedure_type_envs=procedure_type_envs,
-            workflow_type_envs=workflow_type_envs,
-            procedure_catalog=procedure_catalog,
-            workflow_path=workflow_path,
-            workflow_catalog=workflow_catalog,
-            imported_workflow_bundles=imported_workflow_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=target_dsl_version,
-            source_read_trace=source_read_trace,
-        )
-    if lowering_route is LoweringRoute.WCC_M2:
-        validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
-        return lower_wcc_m2_workflow_definitions(
-            typed_workflows,
-            typed_procedures=typed_procedures,
-            resolved_procedures_by_name=resolved_procedures_by_name,
-            available_workflows_by_name=available_workflows_by_name,
-            procedure_type_envs=procedure_type_envs,
-            workflow_type_envs=workflow_type_envs,
-            procedure_catalog=procedure_catalog,
-            workflow_path=workflow_path,
-            workflow_catalog=workflow_catalog,
-            imported_workflow_bundles=imported_workflow_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=target_dsl_version,
-            source_read_trace=source_read_trace,
-        )
-    if lowering_route is LoweringRoute.WCC_M3:
-        validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
-        return lower_wcc_m3_workflow_definitions(
-            typed_workflows,
-            typed_procedures=typed_procedures,
-            resolved_procedures_by_name=resolved_procedures_by_name,
-            available_workflows_by_name=available_workflows_by_name,
-            procedure_type_envs=procedure_type_envs,
-            workflow_type_envs=workflow_type_envs,
-            procedure_catalog=procedure_catalog,
-            workflow_path=workflow_path,
-            workflow_catalog=workflow_catalog,
-            imported_workflow_bundles=imported_workflow_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=target_dsl_version,
-            source_read_trace=source_read_trace,
-        )
-    if lowering_route is LoweringRoute.WCC_M4:
-        validate_wcc_m4_route_supported(
-            typed_workflows,
-            typed_procedures,
-            workflow_signatures=workflow_catalog.signatures_by_name,
-        )
-        return lower_wcc_m4_workflow_definitions(
-            typed_workflows,
-            typed_procedures=typed_procedures,
-            resolved_procedures_by_name=resolved_procedures_by_name,
-            available_workflows_by_name=available_workflows_by_name,
-            procedure_type_envs=procedure_type_envs,
-            workflow_type_envs=workflow_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1669,21 +1688,6 @@ def _lower_workflows_for_route(
             source_read_trace=source_read_trace,
             lowering_session=compiler_session.lowering,
         )
-    return lower_workflow_definitions(
-        typed_workflows,
-        typed_procedures=typed_procedures,
-        resolved_procedures_by_name=resolved_procedures_by_name,
-        procedure_catalog=procedure_catalog,
-        workflow_path=workflow_path,
-        workflow_catalog=workflow_catalog,
-        imported_workflow_bundles=imported_workflow_bundles,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        type_env=type_env,
-        target_dsl_version=target_dsl_version,
-        source_read_trace=source_read_trace,
-        lowering_session=compiler_session.lowering,
-    )
 
 
 def _raise_wcc_module_graph_unsupported(path: Path, route: LoweringRoute) -> None:

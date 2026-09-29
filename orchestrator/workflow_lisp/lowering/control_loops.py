@@ -13,7 +13,7 @@ from orchestrator.workflow.statements import (
 
 from ..conditionals import PureExprCondition, classify_condition_expr, render_condition_predicate
 from ..contracts import derive_union_workflow_output_metadata, derive_workflow_boundary_fields
-from ..diagnostics import LispFrontendCompileError
+from ..diagnostics import LispFrontendCompileError, records_defect_provenance
 from ..expressions import (
     ContinueExpr,
     DoneExpr,
@@ -1227,6 +1227,7 @@ def _totalize_sparse_loop_pure_projection(
     return steps, current_refs
 
 
+@records_defect_provenance("lowering")
 def _lower_loop_body_expr(
     expr: Any,
     *,
@@ -1774,6 +1775,7 @@ def _lower_loop_body_expr(
     )
 
 
+@records_defect_provenance("lowering")
 def _lower_loop_terminal_expr(
     expr: Any,
     *,

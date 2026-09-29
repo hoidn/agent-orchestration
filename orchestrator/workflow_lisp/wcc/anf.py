@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 
+from ..diagnostics import records_defect_provenance
 from .model import (
     WccBody,
     WccCase,
@@ -126,6 +127,7 @@ def normalize_wcc_body_to_anf(body: WccBody) -> WccBody:
     return _normalize_body(body)
 
 
+@records_defect_provenance("normalization")
 def _normalize_body(body: WccBody) -> WccBody:
     if isinstance(body, WccLet):
         prefix, bound_value = _normalize_binding_value(body.bound_value)

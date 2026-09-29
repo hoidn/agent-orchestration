@@ -16,6 +16,7 @@ import orchestrator.workflow_lisp.lowering.control_match as legacy_control_match
 import orchestrator.workflow_lisp.lowering.effects as legacy_effects
 import orchestrator.workflow_lisp.wcc.defunctionalize as wcc_defunctionalize
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.route import (
     DEFAULT_LOWERING_SCHEMA,
@@ -409,7 +410,8 @@ def test_wcc_default_uses_wcc_defunctionalizer(
 
     monkeypatch.setattr(wcc_defunctionalize, "_lower_wcc_workflow_definitions", _raise_wcc_path)
 
-    with pytest.raises(RuntimeError, match="wcc defunctionalizer reached"):
+    # An exception raised after typecheck is reported as a `compiler_defect` diagnostic (Task 13).
+    with pytest.raises(LispFrontendCompileError, match=r"\[compiler_defect\].*RuntimeError: wcc defunctionalizer reached"):
         compile_stage3_module(
             FIXTURES / "characterization" / "sources" / "wcc_m4_implementation_phase_full_fixture.orc",
             provider_externs=_m5_provider_externs(),
