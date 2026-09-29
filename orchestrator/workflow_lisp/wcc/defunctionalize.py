@@ -144,6 +144,7 @@ from .elaborate import (
     elaborate_typed_workflow,
     elaborate_typed_workflow_body,
 )
+from .use_site_scope import names_read_where_used, rename_capturing_binders
 from .model import (
     WCC_M2_ROUTE_SCHEMA_VERSION,
     WCC_M3_ROUTE_SCHEMA_VERSION,
@@ -755,9 +756,10 @@ def _lower_one_wcc_workflow(
             route_schema_version=route_schema_version,
         )
     )
+    local_values = _signature_local_values(typed_workflow)
+    wcc_body, _ = rename_capturing_binders(wcc_body, reserved=local_values)
     scope_analysis = analyze_wcc_body(wcc_body)
     continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
-    local_values = _signature_local_values(typed_workflow)
     lexical_checkpoint_points: list[Mapping[str, object]] = []
     steps, terminal = _defunctionalize_body(
         wcc_body,
@@ -6686,8 +6688,9 @@ def _lower_wcc_procedure_call(
         child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
         child_locals.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
         child_locals.update(dict(getattr(procedure.specialization, "value_bindings", {})))
-    for arg_expr, (param_name, _) in zip(arg_exprs, procedure.signature.params, strict=True):
-        child_locals[param_name] = _resolve_wcc_inline_expr_value(arg_expr, local_values=local_values)
+    arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)
+    for arg_value, (param_name, _) in zip(arg_values, procedure.signature.params, strict=True):
+        child_locals[param_name] = arg_value
 
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal
@@ -6765,6 +6768,20 @@ def _lower_wcc_procedure_call(
             route_schema_version=route_schema_version,
         )
     )
+    wcc_body, renamed_params = rename_capturing_binders(
+        wcc_body,
+        live=names_read_where_used(arg_values, local_values),
+        params=tuple(param_name for param_name, _ in procedure.signature.params),
+        reserved=child_locals,
+    )
+    if renamed_params:
+        child_locals, child_context = _with_renamed_params(
+            renamed_params,
+            child_locals=child_locals,
+            child_context=child_context,
+            caller_locals=local_values,
+            caller_context=context,
+        )
     steps, terminal = _defunctionalize_body(
         wcc_body,
         context=child_context,
@@ -6783,6 +6800,27 @@ def _lower_wcc_procedure_call(
         )
     _rewrite_nested_sibling_step_refs(steps)
     return steps, terminal
+
+
+def _with_renamed_params(
+    renamed: Mapping[str, str],
+    *,
+    child_locals: Mapping[str, Any],
+    child_context: _LoweringContext,
+    caller_locals: Mapping[str, Any],
+    caller_context: _LoweringContext,
+) -> tuple[dict[str, Any], _LoweringContext]:
+    """Bind each renamed parameter under its new spelling; the old spelling keeps the caller's binding, which the arguments read."""
+
+    values = dict(child_locals)
+    types = dict(child_context.local_type_bindings)
+    for old, new in renamed.items():
+        values[new], types[new] = values.pop(old), types.pop(old)
+        if old in caller_locals:
+            values[old] = caller_locals[old]
+        if old in caller_context.local_type_bindings:
+            types[old] = caller_context.local_type_bindings[old]
+    return values, replace(child_context, local_type_bindings=types)
 
 
 def _residual_wcc_procedure_call_args(
