@@ -645,6 +645,16 @@
     module targeting 2.33 that uses none of the new forms compiles as an
     ordinary module. State schema remains `2.1`.
 
+- v2.34 additions (registered; surface pending)
+  - Target 2.34 exists and accepts and lowers exactly what 2.33 accepts; only
+    the version recorded in each build artifact, and the digests and build
+    key computed over it, differ. Later tasks of the
+    [evaluated execution plan](../docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
+    add decimal literals in expressions, numeric operators and finite values
+    at every boundary, and the
+    [repetition reduction plan](../docs/plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md)
+    adds its rules at this target. State schema remains `2.1`.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -686,6 +696,7 @@
   - `v2.31`: portable ordinary provider-context capture and fresh binding
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
+  - `v2.34`: registered; accepts what 2.33 accepts until later tasks add its surface
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -836,5 +847,6 @@ Planned acceptance:
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments; an applied-union `defprompt` result compiles but is outside the contract. State schema remains 2.1. |
+| 2.34 | Workflow Lisp target registration | Accepts and lowers exactly what 2.33 does. Decimal literals in expressions, numeric operators and finite values at boundaries (evaluated execution plan) and the repetition reduction rules are added by later tasks. State schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

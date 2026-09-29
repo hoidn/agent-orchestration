@@ -61,8 +61,9 @@ def test_target_233_is_registered(registry) -> None:
     assert "2.33" in registry
 
 
-def test_shared_validation_orders_233_last() -> None:
-    assert validation.DEFAULT_VERSION_ORDER[-1] == "2.33"
+def test_shared_validation_orders_233_after_232() -> None:
+    order = validation.DEFAULT_VERSION_ORDER
+    assert order.index("2.33") == order.index("2.32") + 1
 
 
 def test_module_targeting_233_compiles_with_no_new_forms(tmp_path: Path) -> None:
@@ -71,9 +72,9 @@ def test_module_targeting_233_compiles_with_no_new_forms(tmp_path: Path) -> None
     assert result.validated_bundles["tiny"].surface.version == "2.33"
 
 
-def test_module_targeting_234_is_rejected_as_unsupported(tmp_path: Path) -> None:
+def test_module_targeting_235_is_rejected_as_unsupported(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_minimal_module(tmp_path, "2.34")
+        _compile_minimal_module(tmp_path, "2.35")
 
     assert excinfo.value.diagnostics[0].code == "target_dsl_unsupported"
 
