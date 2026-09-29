@@ -17,6 +17,34 @@ from orchestrator.exceptions import ValidationSubjectRef, parse_validation_subje
 # Preserve the established observability logger while moving its implementation.
 logger = logging.getLogger("orchestrator.workflow.executor")
 _DEFAULT_PROVENANCE = object()
+_NODE_ORIGIN_SECTIONS = ("step_ids", "generated_inputs", "generated_outputs", "generated_paths", "generated_internal_inputs")
+
+
+def workflow_node_origin(source_trace_path: Path | None, workflow_name: str, node_id: str) -> Mapping[str, Any]:
+    """Return the authored origin of one executable node of one workflow.
+
+    One build's source trace covers every workflow of the build. Node ids are
+    local to a workflow's bundle, so the lookup is scoped to ``workflow_name``.
+    Unlike ``CompiledFrontendIndex``, which reads an unusable trace as empty,
+    this raises: ``LookupError`` saying what the trace lacks, or whatever
+    reading or decoding it raised.
+    """
+    if source_trace_path is None:
+        raise LookupError("the build recorded no source map")
+    workflow = json.loads(Path(source_trace_path).read_text(encoding="utf-8"))["workflows"].get(workflow_name)
+    if workflow is None:
+        raise LookupError(f"{source_trace_path} has no workflow {workflow_name}")
+    keys = [node["origin_key"] for node in workflow["executable_nodes"] if node["node_id"] == node_id]
+    if not keys:
+        raise LookupError(f"{source_trace_path} has no node {node_id} in workflow {workflow_name}")
+    sections = (workflow.get(section) or {} for section in _NODE_ORIGIN_SECTIONS)
+    origins = (workflow["workflow_origin"], *(origin for section in sections for origin in section.values()))
+    origin = next((item for item in origins if item["origin_key"] == keys[0]), None)
+    if origin is None:
+        raise LookupError(f"{source_trace_path} has no origin {keys[0]} for node {node_id}")
+    if not Path(origin["path"]).is_file():
+        raise LookupError(f"{source_trace_path} places node {node_id} in {origin['path']}, which does not exist")
+    return origin
 
 
 class CompiledFrontendIndex:

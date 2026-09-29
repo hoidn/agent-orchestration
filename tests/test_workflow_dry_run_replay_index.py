@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from tests.test_workflow_lisp_generic_unions_runtime import (
     _log,
@@ -204,6 +205,163 @@ def test_dry_run_names_the_rejected_form_inside_the_shipped_watchdog(
     assert (result.exit_code, _rejection(caplog)) == (2, _replay_rejection("watchdog.orc", 102, 5))
 
 
+# A called workflow runs in its own frame from its own bundle. `--dry-run` derives
+# the index of every bundle a run derives one for, once each, and names the call
+# sites that reach a rejected one.
+
+CHILD = """  (defworkflow child () -> Summary
+    (let* ((result (check "revise-a")))
+      (match result
+        ((OK ok) (record Summary :outcome "ok" :title ok.value.title))
+        ((ERROR err) (record Summary :outcome "error" :title err.error)))))
+"""
+CALLERS = {
+    "called": "  (defworkflow run () -> Summary\n    (call child)))\n",
+    "chain": "  (defworkflow mid () -> Summary\n    (call child))\n  (defworkflow run () -> Summary\n    (call mid)))\n",
+    "two-call-sites": """  (defworkflow run () -> Summary
+    (let* ((first (call child)) (second (call child)))
+      (record Summary :outcome first.outcome :title second.title))))
+""",
+    "in-loop": """  (defworkflow run () -> Summary
+    (loop/recur :max 2
+      :state (loop-state (n Int 0))
+      :on-exhausted (record Summary :outcome "exhausted" :title "none")
+      (fn (state)
+        (let* ((summary (call child)))
+          (done summary))))))
+""",
+}
+IMPORTING_ENTRY = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.33")
+  (defmodule grt/entry)
+  (import grt/lib :only (Summary child))
+  (export run)
+  (defworkflow run () -> Summary
+    (call child)))
+"""
+_CALL_SITE_NOTE = re.compile(r"^note: workflow call site at (?P<path>.+):(?P<line>\d+):(?P<column>\d+)$", re.MULTILINE)
+
+
+def _caller_program(root: Path, caller: str) -> dict[str, Path]:
+    """`grt/entry::run` reaching `child`, whose tail `match` (entry.orc:19:7) is rejected."""
+
+    probe = _write_probe(root, "probe_check", OUTCOME_PROBE)
+    if caller == "imported":
+        library = PROLOGUE.replace("(defmodule grt/entry)\n  (export run)", "(defmodule grt/lib)\n  (export Summary child)")
+        sources = {"grt/lib.orc": library + CHILD.rstrip() + ")\n", "grt/entry.orc": IMPORTING_ENTRY}
+    else:
+        sources = {"grt/entry.orc": PROLOGUE + CHILD + CALLERS[caller]}
+    _write_sources(
+        root, {path: text.replace("TARGET", "2.33").replace("PROBE_CHECK", probe.as_posix()) for path, text in sources.items()}
+    )
+    return {**_public_run_files(root, {"probe_check": probe}), "probe": probe}
+
+
+def _call_sites(caplog: pytest.LogCaptureFixture) -> list[tuple[str, int, int]]:
+    """The call-site notes of the one logged ERROR, innermost first; the ERROR stays for `_rejection`."""
+
+    [text] = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+    return [(Path(note["path"]).name, int(note["line"]), int(note["column"])) for note in _CALL_SITE_NOTE.finditer(text)]
+
+
+@pytest.mark.parametrize(
+    ("caller", "rejected_in", "call_sites"),
+    [
+        ("called", "entry.orc", [("entry.orc", 23, 5)]),
+        ("imported", "lib.orc", [("entry.orc", 8, 5)]),
+        ("chain", "entry.orc", [("entry.orc", 23, 5), ("entry.orc", 25, 5)]),
+        ("two-call-sites", "entry.orc", [("entry.orc", 23, 19)]),
+    ],
+)
+def test_dry_run_rejects_a_called_workflow_as_the_run_does(
+    workspace: Path, caplog: pytest.LogCaptureFixture, caller: str, rejected_in: str, call_sites: list
+) -> None:
+    files = _caller_program(workspace, caller)
+
+    dry = _dry_run(files)
+    dry_call_sites = _call_sites(caplog)
+    dry_rejection = _rejection(caplog)
+    run = _public_run(files)
+    run_rejection = _rejection(caplog)
+
+    expected = _replay_rejection(rejected_in, 19, 7)
+    assert ((dry.exit_code, dry_rejection, dry_call_sites), (run.exit_code, run_rejection)) == (
+        (2, expected, call_sites),
+        (2, expected),
+    )
+
+
+def test_a_rejected_workflow_called_only_inside_a_loop_passes_dry_run_as_it_runs(workspace: Path) -> None:
+    """A call frame inside a loop iteration runs without the replay profile, so the run derives no index for it."""
+
+    files = _caller_program(workspace, "in-loop")
+
+    dry = _dry_run(files)
+    run = _public_run(files)
+
+    assert (dry.exit_code, run.exit_code) == (0, 0)
+
+
+# The source location is an improvement on the rejection, never a replacement:
+# when the compiled source map cannot place the rejected node, the rejection is
+# printed at the workflow file, without a line, with a note that says why.
+
+_UNLOCATED_HEAD = re.compile(r"(?P<path>[^:\n]+): \[(?P<code>[a-z0-9_]+)\] ")
+_UNLOCATED_NOTE = re.compile(r"^note: source location could not be determined: (?P<why>.+)$", re.MULTILINE)
+
+
+def _stale_structure(source_map: Path) -> None:
+    payload = json.loads(source_map.read_text(encoding="utf-8"))
+    for workflow in payload["workflows"].values():
+        workflow["executable_nodes"] = None
+    source_map.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _moved_source(source_map: Path) -> None:
+    entry = source_map.parents[3] / "grt" / "entry.orc"
+    text = source_map.read_text(encoding="utf-8")
+    source_map.write_text(text.replace(entry.as_posix(), entry.with_name("moved.orc").as_posix()), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("damage", "why"),
+    [
+        (Path.unlink, "No such file or directory"),
+        (lambda path: path.write_text(path.read_text(encoding="utf-8")[:200], encoding="utf-8"), "JSONDecodeError"),
+        (_stale_structure, "TypeError"),
+        (_moved_source, "moved.orc, which does not exist"),
+    ],
+    ids=["removed", "truncated", "stale-structure", "points-at-a-missing-source-file"],
+)
+def test_a_rejection_whose_source_map_cannot_place_it_is_still_reported(
+    workspace: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, damage, why: str
+) -> None:
+    import orchestrator.cli.commands.run as run_module
+
+    build = run_module.build_frontend_bundle
+
+    def build_then_damage_the_source_map(request):
+        result = build(request)
+        damage(result.validated_bundle.provenance.frontend_source_trace_path)
+        return result
+
+    monkeypatch.setattr(run_module, "build_frontend_bundle", build_then_damage_the_source_map)
+    files = _program(workspace, subject=COMMAND_SUBJECT, tail=RECORD_TAIL)
+
+    result = _dry_run(files)
+
+    [text] = _errors(caplog)
+    head, reason, unlocated = _UNLOCATED_HEAD.match(text), _REASON_NOTE.search(text), _UNLOCATED_NOTE.search(text)
+    assert (result.exit_code, head and head.groupdict(), reason and reason["reason"], "\nnote: ref: root.steps." in text) == (
+        2,
+        {"path": (workspace / "grt" / "entry.orc").as_posix(), "code": "pure_result_replay_unavailable"},
+        "dependency_index_invalid",
+        True,
+    )
+    assert unlocated is not None and why in unlocated["why"], text
+
+
 # No false rejection: programs that run today still pass `--dry-run`.
 
 
@@ -300,3 +458,28 @@ def test_dry_run_runs_no_command_and_creates_no_run_directory(workspace: Path, s
     result = _dry_run(files)
 
     assert (result.exit_code, result.run_id, _log(files["probe"]), _tree(workspace)) == (exit_code, None, [], before)
+
+
+def test_dry_run_of_a_rejected_callee_runs_no_command_and_creates_no_run_directory(workspace: Path) -> None:
+    files = _caller_program(workspace, "called")
+    before = _tree(workspace)
+
+    result = _dry_run(files)
+
+    assert (result.exit_code, result.run_id, _log(files["probe"]), _tree(workspace)) == (2, None, [], before)
+
+
+# `resume` prints the rejection as `run` does, whether it resumes or restarts.
+
+
+@pytest.mark.parametrize("force_restart", [False, True], ids=["resume", "force-restart"])
+def test_resume_reports_the_rejection_as_run_does(
+    workspace: Path, caplog: pytest.LogCaptureFixture, force_restart: bool
+) -> None:
+    files = _program(workspace, subject=COMMAND_SUBJECT, tail=RECORD_TAIL)
+    run = _public_run(files)
+    run_rejection = _rejection(caplog)
+
+    exit_code = resume_workflow(run_id=run.run_id, force_restart=force_restart, retry_delay_ms=0)
+
+    assert (exit_code, _rejection(caplog)) == (1, run_rejection)

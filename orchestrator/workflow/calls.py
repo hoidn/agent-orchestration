@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections import deque
 from copy import deepcopy
 import hashlib
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
 from .executable_ir import (
@@ -17,6 +18,7 @@ from .executable_ir import (
 )
 from .executor_runtime import CallFrameStateManager, CallRuntime, RuntimeStepInput
 from .loaded_bundle import (
+    LoadedWorkflowBundle,
     workflow_boundary_projection,
     workflow_bundle,
     workflow_generated_path_allocations,
@@ -42,7 +44,7 @@ from .resume_projection_integrity import (
     next_unused_retry_frame_id,
     projection_integrity_failed_result,
 )
-from .state_projection import ResumeProjectionValidationError
+from .state_projection import CallBoundaryProjection, ResumeProjectionValidationError
 from . import step_results
 
 
@@ -1235,9 +1237,10 @@ class CallExecutor:
             result_persistence_profile=(
                 DERIVED_PURE_REPLAY_PROFILE
                 if (
-                    workflow_lisp_target
-                    and child_existing_frame is None
-                    and boundary.iteration_owner_node_id is None
+                    child_existing_frame is None
+                    and fresh_call_frame_uses_replay_profile(
+                        imported_target, boundary
+                    )
                 )
                 else None
             ),
@@ -1323,3 +1326,58 @@ class CallExecutor:
             "artifacts": workflow_outputs,
             "debug": {"call": debug_payload},
         }
+
+
+def fresh_call_frame_uses_replay_profile(
+    imported_workflow: Any,
+    boundary: CallBoundaryProjection,
+) -> bool:
+    """Whether a new frame for ``boundary`` runs under the pure-result replay profile.
+
+    Only a Workflow Lisp callee does, and only outside loop iterations. The
+    frame derives its callee's replay index when it starts.
+    """
+    return (
+        boundary.iteration_owner_node_id is None
+        and CallExecutor._is_workflow_lisp_target(imported_workflow)
+    )
+
+
+def replay_profile_bundles(
+    bundle: LoadedWorkflowBundle,
+) -> Iterator[
+    tuple[
+        LoadedWorkflowBundle,
+        tuple[tuple[LoadedWorkflowBundle, CallBoundaryProjection], ...],
+    ]
+]:
+    """Yield each bundle a fresh run of ``bundle`` derives a replay index for.
+
+    The root comes first, with an empty call path. Then, once each, every
+    callee a frame opens under the replay profile, with the first call path
+    (outermost call first) the breadth-first walk finds. Callees are resolved as
+    ``CallExecutor.execute_call`` resolves them, from the caller's imports by
+    the call boundary's alias. A callee reached only inside a loop iteration is
+    not yielded but is still walked, since its own calls may use the profile.
+    Nothing runs: no frame, run directory or state is created. Bundles are
+    shared across import paths, so each is walked once.
+    """
+    yield bundle, ()
+    yielded = {id(bundle)}
+    walked = {id(bundle)}
+    pending = deque([(bundle, ())])
+    while pending:
+        caller, path = pending.popleft()
+        for boundary in caller.projection.call_boundaries.values():
+            callee = workflow_import_bundle(caller, boundary.import_alias)
+            if callee is None:
+                continue
+            callee_path = (*path, (caller, boundary))
+            if id(callee) not in yielded and fresh_call_frame_uses_replay_profile(
+                callee, boundary
+            ):
+                yielded.add(id(callee))
+                yield callee, callee_path
+            if id(callee) not in walked:
+                walked.add(id(callee))
+                pending.append((callee, callee_path))

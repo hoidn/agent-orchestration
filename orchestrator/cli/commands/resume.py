@@ -29,6 +29,7 @@ from orchestrator.workflow.resume_projection_integrity import (
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow.pure_result_replay import (
     DERIVED_PURE_REPLAY_PROFILE,
+    PureResultReplayIndexError,
 )
 from orchestrator.monitor.process import (
     process_start_time_token,
@@ -45,6 +46,7 @@ from orchestrator.workflow_lisp.wcc.route import (
     workflow_lisp_context_with_lowering_schema,
 )
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
+from orchestrator.cli.commands.run import render_replay_index_rejection
 
 
 logger = logging.getLogger(__name__)
@@ -659,6 +661,10 @@ def _resume_workflow_with_writer_lock_held(
         session_status = "interrupted"
         state_manager.update_status('suspended')
         return 130  # Standard exit code for SIGINT
+    except PureResultReplayIndexError as e:
+        logger.error(render_replay_index_rejection(e, workflow_bundle))
+        state_manager.update_status('failed')
+        return 1
     except Exception as e:
         logger.error(f"Workflow execution failed: {e}", exc_info=True)
         print(f"Error during workflow execution: {e}", file=sys.stderr)
