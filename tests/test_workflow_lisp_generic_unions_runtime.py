@@ -296,14 +296,14 @@ def _public_run_files(root: Path, probes: dict[str, Path]) -> dict[str, Path]:
     return files
 
 
-def _public_run(files: dict[str, Path]):
+def _public_run(files: dict[str, Path], *, input_file: Path | None = None):
     from unittest.mock import patch
     import sys
 
     from orchestrator.cli.commands.run import run_workflow
     from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
 
-    args = _run_args(files)
+    args = _run_args(files, input_file=input_file)
     args.command_boundaries_file = str(files["commands"])
     argv = [*_run_argv(files), "--command-boundaries-file", str(files["commands"])]
     with patch.object(sys, "argv", argv):

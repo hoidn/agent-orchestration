@@ -45,6 +45,7 @@ from tests.workflow_lisp_improve_stdlib_sources import (
     entry_source,
     inline_entry_source,
     provider_revise_entry_source,
+    string_inputs_entry_source,
     unnamed_union_caller_sources,
     wrapped_review_sources,
 )
@@ -328,14 +329,13 @@ def test_public_run_returns_the_improvement_through_the_public_entry(
     )
 
 
-def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed_hooks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from orchestrator.cli.commands.resume import resume_workflow
+def _run_until_the_first_committed_iteration(
+    monkeypatch: pytest.MonkeyPatch, files: dict[str, Path], *, input_file: Path | None = None
+) -> str:
+    """Run through the public entry, stop right after the first committed iteration; return the run id."""
+
     from orchestrator.workflow.executor import WorkflowExecutor
 
-    probes = _write_project(tmp_path, seed="draft", limit=3)
-    files = _public_run_files(tmp_path, probes)
     original_hook = WorkflowExecutor._emit_lexical_checkpoint_shadow_after_repeat_until_commit
 
     def interrupt_after_first_commit(self, step, progress):
@@ -343,24 +343,63 @@ def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed
         if progress.get("last_condition_result") is False:
             raise _PostCommitInterruption
 
-    monkeypatch.chdir(tmp_path)
     with monkeypatch.context() as interrupted:
         interrupted.setattr(
             WorkflowExecutor, "_emit_lexical_checkpoint_shadow_after_repeat_until_commit", interrupt_after_first_commit
         )
         with pytest.raises(_PostCommitInterruption):
-            _public_run(files)
+            _public_run(files, input_file=input_file)
+    return next((Path.cwd() / ".orchestrate" / "runs").iterdir()).name
+
+
+def _resume(run_id: str) -> dict[str, object]:
+    from orchestrator.cli.commands.resume import resume_workflow
+
+    assert resume_workflow(run_id=run_id, retry_delay_ms=0) == 0
+    return json.loads((Path.cwd() / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
+
+
+def test_resume_after_a_committed_iteration_exhausts_without_replaying_committed_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probes = _write_project(tmp_path, seed="draft", limit=3)
+    monkeypatch.chdir(tmp_path)
+
+    run_id = _run_until_the_first_committed_iteration(monkeypatch, _public_run_files(tmp_path, probes))
     assert _hook_calls(probes) == (["draft tidy"], ["draft tidy fb0"])
 
-    run_id = next((tmp_path / ".orchestrate" / "runs").iterdir()).name
-    assert resume_workflow(run_id=run_id, retry_delay_ms=0) == 0
-
-    state = json.loads((tmp_path / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
+    state = _resume(run_id)
     assert (state["status"], state["workflow_outputs"], _hook_calls(probes)) == (
         "completed",
         {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r+r", "return__value__score": 3},
         (
             ["draft tidy", "draft+r tidy", "draft+r+r tidy"],
             ["draft tidy fb0", "draft+r tidy fb1", "draft+r+r tidy fb2"],
+        ),
+    )
+
+
+def test_resume_keeps_a_string_workflow_parameter_as_inputs_and_replays_no_committed_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ruling R10: `inputs` bound to a `String` workflow parameter reaches every hook call, fresh and resumed."""
+
+    probes = _write_project(tmp_path, seed="draft", limit=3)
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.write_text(string_inputs_entry_source(entry.read_text(encoding="utf-8")), encoding="utf-8")
+    inputs = tmp_path / "inputs.json"
+    inputs.write_text(json.dumps({"goal": "steady"}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    run_id = _run_until_the_first_committed_iteration(monkeypatch, _public_run_files(tmp_path, probes), input_file=inputs)
+    assert _hook_calls(probes) == (["draft steady"], ["draft steady fb0"])
+
+    state = _resume(run_id)
+    assert (state["status"], state["workflow_outputs"], _hook_calls(probes)) == (
+        "completed",
+        {"return__variant": "EXHAUSTED", "return__value__title": "draft+r+r+r", "return__value__score": 3},
+        (
+            ["draft steady", "draft+r steady", "draft+r+r steady"],
+            ["draft steady fb0", "draft+r steady fb1", "draft+r+r steady fb2"],
         ),
     )

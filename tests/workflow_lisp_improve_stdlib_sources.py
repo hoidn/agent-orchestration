@@ -187,6 +187,17 @@ def unnamed_union_caller_sources(*, seed: str, limit: int, target: str, probes: 
     }
 
 
+def string_inputs_entry_source(entry: str) -> str:
+    """The caller with a `String` workflow parameter `goal` as `improve`'s `inputs` (I = String)."""
+
+    return (
+        entry.replace("(brief Brief)", "(goal String)")
+        .replace("brief.goal", "goal")
+        .replace('(record Brief :goal "tidy")', "goal")
+        .replace("(defworkflow run ()", "(defworkflow run ((goal String))")
+    )
+
+
 def entry_source(*, seed: str, limit: int, probes: dict[str, Path], target: str = "2.33") -> str:
     return (
         ENTRY.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
