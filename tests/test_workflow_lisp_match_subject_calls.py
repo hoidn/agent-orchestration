@@ -2,11 +2,13 @@
 
 Contract: Task 3 of docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md;
 case c of docs/reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md,
-section 2.1. From target 2.33 the typed `match` carries its typechecked subject, so a
-generic helper called in subject position is specialized like the same call bound
-with `let*`. Targets up to 2.32 keep their earlier acceptance.
+section 2.1. From target 2.33, a subject that calls a generic helper through a hook
+whose type uses a type parameter is carried in its typechecked form, so the helper is
+specialized like the same call bound with `let*`. Every other subject stays authored,
+so a 2.33 program that compiled before keeps its step identities. Targets up to 2.32
+keep their earlier acceptance.
 
-Every program runs through the public run entry. Hooks are command-backed probes
+The behaviour tests run through the public run entry. Hooks are command-backed probes
 that append their argv to `<probe>.log`; the arms call the `probe_summarize`
 command, so each run's command log ends with the arm that was selected.
 """
