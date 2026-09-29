@@ -418,7 +418,7 @@
       "surface_kind": "workflow_example"
     },
     {
-      "copy_safety": "preferred_current_guidance",
+      "copy_safety": "migration_evidence_only",
       "evidence": [
         "tests/test_workflow_lisp_improve_example_e2e.py::test_documented_command_dry_runs_the_example",
         "tests/test_workflow_lisp_improve_example_e2e.py::test_executor_consumes_the_returned_proposal",
