@@ -44,6 +44,18 @@ decisions:
 - the Design Delta family is marked deprecated, apart from its reusable
   library procedures.
 
+Decisions added on 2026-09-29, after the reviews of Tasks 8 and 9:
+
+- resume follows one rule: an effect without a committed result runs again,
+  and a diagnostic records it; a command that must not be repeated declares
+  that, and resume stops at it (Task 11);
+- one run at a time in a workspace: a second run is refused at start; no
+  persisted path format changes (Task 12);
+- a result path may not pass through a symbolic link, inside the workspace or
+  outside it;
+- an internal exception raised after typecheck is reported, in one place, as
+  a compiler-defect diagnostic with a code and the authored form (Task 13).
+
 Out of scope:
 
 - the feasibility spike of the decision brief, section 10. It gets its own
@@ -370,6 +382,91 @@ unknown), `orchestrator/workflow/executor.py` (line 5102),
    is not a pending effect.
 4. If resume then stops at `pure_result_replay_unavailable`, report the
    program. Do not repair replay in this task.
+
+### Task 11: One Rule For Resume Of An Effect Without A Committed Result
+
+- [ ] Complete
+
+**Read/trace:** `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`,
+`orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py` (the
+prior-boundary fallback, lines 684 to 795),
+`orchestrator/workflow_lisp/lexical_checkpoint_effect_policies.py`, the
+command boundaries file format, `specs/state.md`, `specs/providers.md` (the
+rule for an interrupted provider visit), the review of Task 9.
+**Update:** those owners; the command boundary declaration; `specs/state.md`.
+**Create:** tests in `tests/test_workflow_resume_after_known_failure.py` and,
+if that module would pass 500 lines, a second module.
+
+The rule: on resume, an effect that has no committed result runs again. That
+covers a step whose last attempt failed and a step that was interrupted. The
+run state records a diagnostic for each such rerun, as it does for an
+interrupted provider visit. A command boundary may declare that the command
+must not be repeated; resume then stops at it with
+`lexical_restore_pending_effect_unsafe`, located at the step. An effect with
+a committed result never runs again.
+
+1. Write failing tests:
+   - an interrupted command that is not the first step, and one that is,
+     both run again on resume, each with one recorded diagnostic;
+   - a command declared not repeatable stops resume, whether it failed or was
+     interrupted, with the code and the step's source location;
+   - a failed workflow call resumes inside the callee: its committed inner
+     effects do not run again, its failed inner effect does;
+   - an interrupted provider visit behaves as `specs/providers.md` states
+     today.
+2. Count command invocations in every test. No committed effect runs twice.
+3. Implement. Remove the condition Task 9 added where the rule replaces it.
+4. State the rule in `specs/state.md`, and the declaration in the document
+   that owns command boundaries.
+
+### Task 12: One Run At A Time In A Workspace
+
+- [ ] Complete
+
+**Read/trace:** how a run directory is created and locked today
+(`orchestrator/state.py`, `tests/test_run_lock.py`), `specs/state.md`,
+`specs/cli.md`.
+**Update:** the run start and resume entry, `specs/cli.md`.
+**Create:** `tests/test_workspace_run_lock.py`.
+
+1. Write failing tests: while one run is active in a workspace, a second
+   `run` and a `resume` of another run are refused at start with a coded
+   diagnostic that names the active run; after the first run ends, by
+   completion, failure or kill, the workspace is free; `--dry-run` takes no
+   lock; a lock left by a process that no longer exists does not block.
+2. Implement with a lock the operating system releases when the process
+   dies.
+3. Turn the strict xfail of Task 8 for two concurrent runs into a test of
+   the refusal.
+4. State the rule in `specs/cli.md`.
+
+### Task 13: Internal Failures After Typecheck Are Compiler-Defect Diagnostics
+
+- [ ] Complete
+
+**Read/trace:** `orchestrator/workflow_lisp/compiler.py` (where typecheck
+ends and elaboration and lowering start), `orchestrator/workflow_lisp/wcc/`,
+`orchestrator/workflow_lisp/lowering/`,
+`orchestrator/workflow_lisp/diagnostics.py`,
+`docs/design/workflow_lisp_core_calculus_middle_end.md` §12,
+`orchestrator/cli/commands/run.py` (how a compile failure reaches the user).
+**Update:** the stage boundary in `compiler.py`; `diagnostics.py`.
+**Create:** `tests/test_workflow_lisp_compiler_defect_diagnostics.py`.
+
+1. Write failing tests with programs that end in a Python exception today:
+   the totality matrix cells whose failure is a `TypeError`, a `KeyError` or
+   a `ValueError`. Each must end with exit 2 and one diagnostic with the code
+   `compiler_defect`, the statement that the program passed typecheck, the
+   stage that failed, the internal message, and the source location of the
+   form that was being elaborated or lowered.
+2. Implement in one place: the boundary after typecheck converts an
+   exception that is not a diagnostic. The form comes from the node the stage
+   was handling; where a stage does not track it, from the enclosing
+   procedure or workflow.
+3. A diagnostic raised by a stage keeps its own code. The conversion never
+   hides one.
+4. Do not repair the defects. The totality matrix keeps each cell as a known
+   defect and asserts the new code.
 
 ## D. Documents
 
