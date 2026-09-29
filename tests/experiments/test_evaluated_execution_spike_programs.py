@@ -81,15 +81,16 @@ def test_the_compact_search_controller_makes_the_decisions_of_the_python_referen
 class ScriptedProviders:
     """Stand-in provider executor: each provider id answers its payloads in turn; a `report` field is written."""
 
-    def __init__(self, payloads: dict[str, list[dict]]) -> None:
+    def __init__(self, payloads: dict[str, list[dict]], respond=None) -> None:
         self.payloads = {name: list(queue) for name, queue in payloads.items()}
+        self.respond = respond  # or else an answer computed from the invocation
         self.calls: list[str] = []
 
     def prepare_invocation(self, provider_name, *args, **kwargs):
         return _Provider({}).prepare_invocation(provider_name, *args, **kwargs)
 
     def execute(self, invocation, **kwargs):
-        payload = self.payloads[invocation.provider_name].pop(0)
+        payload = self.respond(invocation) if self.respond else self.payloads[invocation.provider_name].pop(0)
         self.calls.append(invocation.provider_name)
         if "report" in payload:
             report = Path(kwargs.get("cwd") or Path.cwd()) / payload["report"]
@@ -202,7 +203,7 @@ def _observe(tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch) -> dict
 
 def _parsed(argv_lines: list[list[str]]) -> list[list[object]]:
     def parse(argument: str) -> object:
-        return json.loads(argument) if argument[:1] in "[{" else argument
+        return json.loads(argument) if argument[:1] in ("[", "{") else argument
 
     return [[parse(argument) for argument in argv] for argv in argv_lines]
 

@@ -42,6 +42,26 @@ class ClosedProgram:
 
         return json.dumps(self.tree, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
+    @classmethod
+    def from_artifact(cls, text: str) -> "ClosedProgram":
+        """The program read back from its artifact, as another process does to resume a run."""
+
+        tree = json.loads(text)
+        sites: list[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("k") == "perform":
+                    sites.append(node["site"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(tree)
+        return cls(tree=tree, sites=tuple(sorted(sites)), digest=canonical_digest(strip_provenance(tree)))
+
 
 def canonical_digest(value: Any) -> str:
     text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)

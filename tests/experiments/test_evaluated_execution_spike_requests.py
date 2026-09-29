@@ -70,8 +70,8 @@ def _record(kind: str, signature: inspect.Signature, args: tuple, kwargs: dict) 
 class Recorder(ScriptedProviders):
     """Scripted provider answers; every provider and command request recorded with all its arguments."""
 
-    def __init__(self, payloads: dict[str, list[dict]]) -> None:
-        super().__init__(payloads)
+    def __init__(self, payloads: dict[str, list[dict]], respond=None) -> None:
+        super().__init__(payloads, respond)
         self.requests: list[dict] = []
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> "Recorder":
@@ -134,13 +134,13 @@ def normalized(request: dict) -> dict:
 def _json_tidy(argument: str):
     """A JSON argument compared by its value: the routes separate JSON differently (first report, finding 3)."""
 
-    return json.loads(argument) if argument[:1] in "[{" else argument
+    return json.loads(argument) if argument[:1] in ("[", "{") else argument
 
 
-def requests_on_both_routes(tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch, answers=None) -> dict:
+def requests_on_both_routes(tmp_path: Path, name: str, monkeypatch: pytest.MonkeyPatch, respond=None) -> dict:
     observed = {}
     for route, run in (("flat", _flat_real), ("spike", _spike_real)):
-        recorder = Recorder(answers or REAL[name][4]).install(monkeypatch)
+        recorder = Recorder(REAL[name][4], respond).install(monkeypatch)
         value = json.loads(json.dumps(run(tmp_path / route, name, monkeypatch)))
         observed[route] = (value, [r for r in recorder.requests if not is_generated_helper(r)])
         observed[f"{route} helpers"] = len(recorder.requests) - len(observed[route][1])
