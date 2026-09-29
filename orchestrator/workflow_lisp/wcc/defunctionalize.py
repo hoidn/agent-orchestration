@@ -6683,11 +6683,10 @@ def _lower_wcc_procedure_call(
         span=value.metadata.source_span,
         form_path=value.metadata.form_path,
     )
-    child_locals = dict(local_values)
-    if procedure.specialization is not None:
-        child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "value_bindings", {})))
+    specialization_bindings: dict[str, Any] = {}
+    for kind in ("workflow_ref_bindings", "proc_ref_bindings", "value_bindings"):
+        specialization_bindings.update(dict(getattr(procedure.specialization, kind, {})))
+    child_locals = {**dict(local_values), **specialization_bindings}
     arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)
     for arg_value, (param_name, _) in zip(arg_values, procedure.signature.params, strict=True):
         child_locals[param_name] = arg_value
@@ -6768,10 +6767,13 @@ def _lower_wcc_procedure_call(
             route_schema_version=route_schema_version,
         )
     )
+    # The body's binders are its parameters, its specialization bindings and
+    # its own lets; the arguments and the specialization values are pure values
+    # from outside the body, whose names resolve in the caller's scope.
     wcc_body, renamed_params = rename_capturing_binders(
         wcc_body,
-        live=names_read_where_used(arg_values, local_values),
-        params=tuple(param_name for param_name, _ in procedure.signature.params),
+        live=names_read_where_used((*arg_values, *specialization_bindings.values()), local_values),
+        params=(*(param_name for param_name, _ in procedure.signature.params), *specialization_bindings),
         reserved=child_locals,
     )
     if renamed_params:
@@ -6810,12 +6812,17 @@ def _with_renamed_params(
     caller_locals: Mapping[str, Any],
     caller_context: _LoweringContext,
 ) -> tuple[dict[str, Any], _LoweringContext]:
-    """Bind each renamed parameter under its new spelling; the old spelling keeps the caller's binding, which the arguments read."""
+    """Bind each renamed parameter or specialization binding under its new spelling.
+
+    The old spelling keeps the caller's binding, which the arguments and the specialization values read.
+    """
 
     values = dict(child_locals)
     types = dict(child_context.local_type_bindings)
     for old, new in renamed.items():
-        values[new], types[new] = values.pop(old), types.pop(old)
+        values[new] = values.pop(old)
+        if old in types:
+            types[new] = types.pop(old)
         if old in caller_locals:
             values[old] = caller_locals[old]
         if old in caller_context.local_type_bindings:
