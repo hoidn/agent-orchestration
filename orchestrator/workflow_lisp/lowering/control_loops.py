@@ -2466,7 +2466,7 @@ def _loop_on_exhausted_outputs(
             result_field.source_path[1:],
         )
         if structured_ancestor_path is not None:
-            ancestor_expr = _loop_on_exhausted_expr_at_path(expr, structured_ancestor_path)
+            ancestor_expr = _loop_on_exhausted_expr_at_path(expr, structured_ancestor_path, bound_record_fields=False)
             assert ancestor_expr is not None
             if not _loop_on_exhausted_non_scalar_uses_loop_state(
                 expr,
@@ -2496,7 +2496,7 @@ def _loop_on_exhausted_outputs(
                     outputs[value["name"]] = source["literal"]
             continue
         if value.get("contract", {}).get("kind") != "scalar":
-            field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
+            field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:], bound_record_fields=False)
             if field_expr is None:
                 if allow_rich_loop_values and isinstance(expr, NameExpr) and expr.name == loop_binding_name:
                     source = value["source"]
@@ -2550,7 +2550,7 @@ def _loop_on_exhausted_structured_ancestor_path(
     field_path = _normalize_union_field_path(field_path)
     for length in range(1, len(field_path)):
         ancestor_path = field_path[:length]
-        ancestor_expr = _loop_on_exhausted_expr_at_path(expr, ancestor_path)
+        ancestor_expr = _loop_on_exhausted_expr_at_path(expr, ancestor_path, bound_record_fields=False)
         if isinstance(ancestor_expr, (RecordExpr, UnionVariantExpr, NameExpr, FieldAccessExpr)):
             return ancestor_path
     return None
@@ -2560,7 +2560,7 @@ def _loop_on_exhausted_expr_at_path(
     expr: Any,
     field_path: tuple[str, ...],
     *,
-    bound_record_fields: bool = False,
+    bound_record_fields: bool,
 ) -> Any | None:
     if isinstance(expr, RecordExpr):
         if not field_path:
@@ -2581,7 +2581,7 @@ def _loop_on_exhausted_non_scalar_uses_loop_state(
     require_exact_state_field_path: bool,
     allow_rich_loop_values: bool,
 ) -> bool:
-    field_expr = _loop_on_exhausted_expr_at_path(expr, field_path)
+    field_expr = _loop_on_exhausted_expr_at_path(expr, field_path, bound_record_fields=False)
     if allow_rich_loop_values:
         return field_expr is not None and _loop_on_exhausted_expr_uses_loop_state(
             field_expr,

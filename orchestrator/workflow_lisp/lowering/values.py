@@ -582,7 +582,7 @@ def _resolve_inline_field_value(
             current = _resolve_inline_expr_value(current, local_values=local_values)
             continue
         if isinstance(current, UnionVariantExpr):
-            current = _union_variant_expr_value_at_path(current, (field_name,))
+            current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
             current = _resolve_inline_expr_value(current, local_values=local_values)
             continue
         return None
@@ -830,7 +830,7 @@ def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, .
             current = _record_field_value(current, field_name)
             continue
         if isinstance(current, UnionVariantExpr):
-            current = _union_variant_expr_value_at_path(current, (field_name,))
+            current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
             continue
         if not isinstance(current, RecordExpr):
             raise _value_compile_error(
@@ -856,7 +856,7 @@ def _union_variant_expr_value_at_path(
     union_expr: UnionVariantExpr,
     field_path: tuple[str, ...],
     *,
-    bound_record_fields: bool = False,
+    bound_record_fields: bool,
 ) -> Any:
     """Read a field from one compiler-generated union variant literal.
 
@@ -1219,6 +1219,7 @@ def _lower_union_variant_expr(
     assert isinstance(typed_expr.type_ref, UnionTypeRef)
     step_name = context.step_name_prefix
     step_id = context.normalize_generated_step_id(step_name)
+    bound_record_fields = target_dsl_supports_generic_unions(context.type_env.target_dsl_version)
     if step_name != context.workflow_name:
         values: list[dict[str, Any]] = []
         placeholders = _boundary_placeholder_literals(
@@ -1243,7 +1244,7 @@ def _lower_union_variant_expr(
                 leaf_expr = _union_variant_expr_value_at_path(
                     union_expr,
                     field_path,
-                    bound_record_fields=target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
+                    bound_record_fields=bound_record_fields,
                 )
                 leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
                 if isinstance(leaf_value, LiteralExpr):
@@ -1308,7 +1309,6 @@ def _lower_union_variant_expr(
     )
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = allocation.concrete_path_template
-    bound_record_fields = target_dsl_supports_generic_unions(context.type_env.target_dsl_version)
     values: list[dict[str, Any]] = []
     values.append(
         {

@@ -934,7 +934,7 @@ def _resolve_inline_field_value(
             current = _resolve_inline_expr_value(current, local_values=local_values)
             continue
         if isinstance(current, UnionVariantExpr):
-            current = _union_variant_expr_value_at_path(current, (field_name,))
+            current = _union_variant_expr_value_at_path(current, (field_name,), bound_record_fields=False)
             current = _resolve_inline_expr_value(current, local_values=local_values)
             continue
         return None
