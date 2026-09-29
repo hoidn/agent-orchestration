@@ -79,6 +79,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_is_2_33_or_newer,
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_strict_boolean_control_flow,
 )
@@ -87,7 +88,14 @@ from .type_env import (
     ProcRefTypeRef,
     TypeRef,
     WorkflowRefTypeRef,
+    _render_type_expr,
+    render_type_ref,
     type_refs_compatible,
+)
+from .type_expressions import (
+    parse_type_expression,
+    substitute_type_expression_names,
+    type_expression_names,
 )
 from .typecheck import TypedExpr, typecheck_expression
 
@@ -1149,6 +1157,25 @@ def normalize_resolved_inline_procedure_calls(
                     if is_pure_function_expansion:
                         raise representation_unsupported() from None
                     return replace(expr, args=rewritten_args)
+                if target_dsl_is_2_33_or_newer(target_dsl_version or ""):
+                    # A generic template calling an unspecialized generic
+                    # procedure records no type arguments for the call, so
+                    # type text naming the callee's parameters cannot be
+                    # specialized. Keep the call; each specialization of the
+                    # template calls a specialization of the callee.
+                    if _type_text_names(cloned_body) & {
+                        type_param.name for type_param in signature.type_params
+                    }:
+                        if is_pure_function_expansion:
+                            raise representation_unsupported()
+                        return replace(expr, args=rewritten_args)
+                    type_bindings = getattr(
+                        getattr(procedure, "specialization", None), "type_bindings", None
+                    )
+                    if type_bindings:
+                        cloned_body = _substitute_type_param_text(
+                            cloned_body, type_bindings, source_expr=expr
+                        )
                 call_bindings = _ordered_call_bindings(
                     params=signature.params,
                     args=expansion_args,
@@ -1249,6 +1276,62 @@ def normalize_resolved_inline_procedure_calls(
         ),
         target_dsl_version=target_dsl_version,
     )
+
+
+def _type_text_names(expr: ExprNode) -> frozenset[str]:
+    """Return every type name written by the record and variant constructors in `expr`."""
+
+    return frozenset().union(
+        *(
+            type_expression_names(
+                parse_type_expression(node.type_name, span=node.span, form_path=node.form_path)
+            )
+            for node in walk_expr(expr)
+            if isinstance(node, RecordExpr | UnionVariantExpr)
+        )
+    )
+
+
+def _substitute_type_param_text(
+    expr: ExprNode,
+    type_bindings: Mapping[str, TypeRef],
+    *,
+    source_expr: ExprNode,
+) -> ExprNode:
+    """Write a specialization's type arguments into its cloned body's type text.
+
+    In place, a specialized body resolves `(variant Outcome[T String] ...)`
+    through `type_env_with_type_params`, which binds `T`. The transplanted copy
+    is retyped in the caller's environment, which does not bind `T`, so the
+    copy must name the specialized type itself.
+    """
+
+    where = {
+        "span": source_expr.span,
+        "form_path": source_expr.form_path,
+        "expansion_stack": source_expr.expansion_stack,
+    }
+    replacements = {
+        name: parse_type_expression(render_type_ref(type_ref), **where)
+        for name, type_ref in type_bindings.items()
+    }
+
+    def substitute(text: str) -> str:
+        parsed = parse_type_expression(text, **where)
+        substituted = substitute_type_expression_names(parsed, replacements)
+        return text if substituted == parsed else _render_type_expr(substituted)
+
+    def rewrite(node: ExprNode) -> ExprNode:
+        children = iter_child_exprs(node)
+        if children:
+            node = _rebuild_with_replacements(
+                node, {id(child): rewrite(child) for child in children}
+            )
+        if isinstance(node, RecordExpr | UnionVariantExpr):
+            return replace(node, type_name=substitute(node.type_name))
+        return node
+
+    return rewrite(expr)
 
 
 @dataclass

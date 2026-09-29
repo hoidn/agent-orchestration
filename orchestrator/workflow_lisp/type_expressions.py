@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
@@ -269,6 +270,47 @@ def type_expression_application_heads(parsed: ParsedTypeExpr) -> tuple[str, ...]
             *type_expression_application_heads(parsed.return_type),
         )
     return ()
+
+
+def type_expression_names(parsed: ParsedTypeExpr) -> frozenset[str]:
+    """Return every named type inside a parsed type, application heads excluded."""
+
+    if isinstance(parsed, NamedTypeExpr):
+        return frozenset({parsed.name})
+    if isinstance(parsed, AppliedTypeExpr):
+        return frozenset().union(*(type_expression_names(arg) for arg in parsed.args))
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
+        return type_expression_names(parsed.item_type)
+    if isinstance(parsed, MapTypeExpr):
+        return type_expression_names(parsed.key_type) | type_expression_names(parsed.value_type)
+    return frozenset().union(
+        *(type_expression_names(param) for param in parsed.param_types),
+        type_expression_names(parsed.return_type),
+    )
+
+
+def substitute_type_expression_names(
+    parsed: ParsedTypeExpr,
+    replacements: Mapping[str, ParsedTypeExpr],
+) -> ParsedTypeExpr:
+    """Replace every named type in `replacements` inside a parsed type."""
+
+    def substitute(item: ParsedTypeExpr) -> ParsedTypeExpr:
+        return substitute_type_expression_names(item, replacements)
+
+    if isinstance(parsed, NamedTypeExpr):
+        return replacements.get(parsed.name, parsed)
+    if isinstance(parsed, AppliedTypeExpr):
+        return replace(parsed, args=tuple(substitute(arg) for arg in parsed.args))
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
+        return replace(parsed, item_type=substitute(parsed.item_type))
+    if isinstance(parsed, MapTypeExpr):
+        return replace(parsed, key_type=substitute(parsed.key_type), value_type=substitute(parsed.value_type))
+    return replace(
+        parsed,
+        param_types=tuple(substitute(param) for param in parsed.param_types),
+        return_type=substitute(parsed.return_type),
+    )
 
 
 def split_top_level_args(text: str) -> tuple[str, ...]:
