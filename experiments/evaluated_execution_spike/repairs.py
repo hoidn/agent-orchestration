@@ -45,26 +45,24 @@ def bind_done_values(typed_body: Any) -> Any:
 
     counter = itertools.count(1)
 
+    def bind(node: DoneExpr) -> Any:
+        if not (isinstance(node.result_expr, MatchExpr) or _contains_effect(node.result_expr)):
+            return node
+        name = f"__spike_done_{next(counter)}"
+        where = {"span": node.span, "form_path": node.form_path, "expansion_stack": node.expansion_stack}
+        return LetStarExpr(
+            bindings=((name, node.result_expr),), body=replace(node, result_expr=NameExpr(name=name, **where)), **where
+        )
+
     def rewrite(node: Any) -> Any:
         if isinstance(node, tuple):
             items = tuple(rewrite(item) for item in node)
             return node if all(a is b for a, b in zip(items, node)) else items
         if not (is_dataclass(node) and type(node).__module__ in _EXPRESSION_MODULES):
             return node
-        changes = {}
-        for field in fields(node):
-            old = getattr(node, field.name)
-            new = rewrite(old)
-            if new is not old:
-                changes[field.name] = new
+        changes = {f.name: new for f in fields(node) if (new := rewrite(getattr(node, f.name))) is not getattr(node, f.name)}
         node = replace(node, **changes) if changes else node
-        if isinstance(node, DoneExpr) and (isinstance(node.result_expr, MatchExpr) or _contains_effect(node.result_expr)):
-            name = f"__spike_done_{next(counter)}"
-            where = {"span": node.span, "form_path": node.form_path, "expansion_stack": node.expansion_stack}
-            return LetStarExpr(
-                bindings=((name, node.result_expr),), body=replace(node, result_expr=NameExpr(name=name, **where)), **where
-            )
-        return node
+        return bind(node) if isinstance(node, DoneExpr) else node
 
     expr = rewrite(typed_body.expr)
     return typed_body if expr is typed_body.expr else replace(typed_body, expr=expr)

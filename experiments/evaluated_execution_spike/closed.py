@@ -185,37 +185,38 @@ class _Builder:
         return result
 
     def tail(self, node: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
-        kind = type(node)
-        if kind is w.WccHalt:
-            out = {"k": "halt", "value": self.value(node.result, d, env)}
-        elif kind is w.WccIf:
-            out = {
-                "k": "if",
-                "cond": self.value(node.condition, d, env),
-                "then": self.body(node.then_body, d, env),
-                "else": self.body(node.else_body, d, env),
-            }
-        elif kind is w.WccCase:
-            out = {"k": "case", "subject": self.value(node.subject, d, env), "arms": [
-                {"variant": arm.variant_name, "bind": d.bind(arm.binding_name),
-                 "body": self.body(arm.body, d, {**env, arm.binding_name: arm.binding_type_ref})}
-                for arm in node.arms
-            ]}
-        elif kind is w.WccJoin:
-            out = self.join(node, d, env)
-        elif kind is w.WccJump:
-            out = {"k": "jump", "join": d.ref(node.join_name), "args": [self.value(a, d, env) for a in node.args]}
-        elif kind is w.WccRecJoin:
-            out = self.loop(node, d, env)
-        elif kind is w.WccLoopContinue:
-            # The elaborator leaves `__wcc_current_loop__` on a `continue` under a join; the target
-            # is the innermost loop by construction, so the closed program names it.
-            out = {"k": "continue", "loop": d.loops[-1], "args": [self.value(a, d, env) for a in node.state_args]}
-        elif kind is w.WccLoopDone:
-            out = {"k": "done", "value": self.value(node.result, d, env)}
-        else:
-            raise ClosedProgramGap("P2", f"body node {kind.__name__} has no closed form")
-        return {**out, **_provenance(node)}
+        handler = {
+            w.WccHalt: self.halt, w.WccIf: self.branch, w.WccCase: self.case, w.WccJoin: self.join,
+            w.WccJump: self.jump, w.WccRecJoin: self.loop, w.WccLoopContinue: self.cont, w.WccLoopDone: self.done,
+        }.get(type(node))
+        if handler is None:
+            raise ClosedProgramGap("P2", f"body node {type(node).__name__} has no closed form")
+        return {**handler(node, d, env), **_provenance(node)}
+
+    def halt(self, node: w.WccHalt, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        return {"k": "halt", "value": self.value(node.result, d, env)}
+
+    def done(self, node: w.WccLoopDone, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        return {"k": "done", "value": self.value(node.result, d, env)}
+
+    def branch(self, node: w.WccIf, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        return {"k": "if", "cond": self.value(node.condition, d, env),
+                "then": self.body(node.then_body, d, env), "else": self.body(node.else_body, d, env)}
+
+    def case(self, node: w.WccCase, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        return {"k": "case", "subject": self.value(node.subject, d, env), "arms": [
+            {"variant": arm.variant_name, "bind": d.bind(arm.binding_name),
+             "body": self.body(arm.body, d, {**env, arm.binding_name: arm.binding_type_ref})}
+            for arm in node.arms
+        ]}
+
+    def jump(self, node: w.WccJump, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        return {"k": "jump", "join": d.ref(node.join_name), "args": [self.value(a, d, env) for a in node.args]}
+
+    def cont(self, node: w.WccLoopContinue, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        # The elaborator leaves `__wcc_current_loop__` on a `continue` under a join; the target
+        # is the innermost loop by construction, so the closed program names it.
+        return {"k": "continue", "loop": d.loops[-1], "args": [self.value(a, d, env) for a in node.state_args]}
 
     def join(self, node: w.WccJoin, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
         name = d.bind(node.join_name)
@@ -435,17 +436,20 @@ class _Builder:
         if isinstance(expr, ListExpr):
             return {"k": "list", "items": [self.frontend(item, d, env) for item in expr.items]}
         if isinstance(expr, LoopStateUpdateExpr):
-            carrier = value.metadata.type_ref
-            names = [name for name, _ in expr.overrides]
-            refs = [{"kind": "binding", "name": f"a{i}"} for i in range(len(names) + 1)]
-            update = {"kind": "record_update", "record_type": d.desc(carrier), "base": refs[0],
-                      "fields": [{"name": n, "value": r} for n, r in zip(names, refs[1:])]}
-            args = [self.frontend(expr.base_expr, d, env), *(self.frontend(e, d, env) for _, e in expr.overrides)]
-            types = [carrier, *(carrier.field_types[n] for n in names)]
-            return {**self.payload(update, carrier, types, args, d), **_provenance(value)}
+            return {**self.loop_state_update(expr, value.metadata.type_ref, d, env), **_provenance(value)}
         if isinstance(expr, (LetStarExpr, IfExpr)):  # an inlined pure call, or `if` below target 2.26
             return self.frontend(expr, d, env)
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")
+
+    def loop_state_update(self, expr: LoopStateUpdateExpr, carrier: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        """`(loop-state :like base :f v ...)` is `record-update` of the catalog on the carrier record."""
+
+        names = [name for name, _ in expr.overrides]
+        refs = [{"kind": "binding", "name": f"a{i}"} for i in range(len(names) + 1)]
+        update = {"kind": "record_update", "record_type": d.desc(carrier), "base": refs[0],
+                  "fields": [{"name": n, "value": r} for n, r in zip(names, refs[1:])]}
+        args = [self.frontend(expr.base_expr, d, env), *(self.frontend(e, d, env) for _, e in expr.overrides)]
+        return self.payload(update, carrier, [carrier, *(carrier.field_types[n] for n in names)], args, d)
 
     def frontend(self, expr: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
         if isinstance(expr, NameExpr):

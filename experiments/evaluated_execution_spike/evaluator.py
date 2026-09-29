@@ -111,38 +111,46 @@ class _Evaluator:
         return _expect_halt(self.body(tree["body"], env), "the workflow body")
 
     # Bodies: each returns ("halt", v), ("done", v), ("continue", [v]) or ("jump", join, [v]).
+    # `let`, `if`, `case` and `join` continue in the same body; a step returns the next node or an outcome.
 
     def body(self, node: dict[str, Any], env: dict[str, Any]) -> tuple:
         env = dict(env)
-        while True:
-            kind = node["k"]
-            if kind == "let":
-                env[node["name"]] = self.bound(node["value"], env)
-                node = node["body"]
-            elif kind == "if":
-                node = node["then"] if self.condition(node["cond"], env) else node["else"]
-            elif kind == "case":
-                subject = self.value(node["subject"], env)
-                arm = next(arm for arm in node["arms"] if arm["variant"] == subject["variant"])
+        while node["k"] in ("let", "if", "case", "join"):
+            node = getattr(self, "step_" + node["k"])(node, env)
+            if isinstance(node, tuple):
+                return node
+        kind = node["k"]
+        if kind == "loop":
+            return ("halt", self.loop(node, env))
+        if kind in ("halt", "done"):
+            return (kind, self.value(node["value"], env))
+        args = [self.value(a, env) for a in node["args"]]
+        return ("continue", args) if kind == "continue" else ("jump", node["join"], args)
+
+    def step_let(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        env[node["name"]] = self.bound(node["value"], env)
+        return node["body"]
+
+    def step_if(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        return node["then"] if self.condition(node["cond"], env) else node["else"]
+
+    def step_case(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        subject = self.value(node["subject"], env)
+        for arm in node["arms"]:
+            if arm["variant"] == subject["variant"]:
                 env[arm["bind"]] = subject
-                node = arm["body"]
-            elif kind == "join":
-                outcome = self.body(node["body"], env)
-                if outcome[0] == "jump" and outcome[1] == node["name"]:
-                    env.update(zip(node["params"], outcome[2]))
-                elif outcome[0] == "halt":  # a loop in tail position of the join body gives its value
-                    env[node["params"][0]] = outcome[1]
-                else:
-                    return outcome
-                node = node["cont"]
-            elif kind == "loop":
-                return ("halt", self.loop(node, env))
-            elif kind in ("halt", "done"):
-                return (kind, self.value(node["value"], env))
-            elif kind == "continue":
-                return ("continue", [self.value(a, env) for a in node["args"]])
-            else:
-                return ("jump", node["join"], [self.value(a, env) for a in node["args"]])
+                return arm["body"]
+        raise EvaluationFailed("compiler_defect", f"no arm for variant `{subject['variant']}`")
+
+    def step_join(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any] | tuple:
+        outcome = self.body(node["body"], env)
+        if outcome[0] == "jump" and outcome[1] == node["name"]:
+            env.update(zip(node["params"], outcome[2]))
+        elif outcome[0] == "halt":  # a loop in tail position of the join body gives its value
+            env[node["params"][0]] = outcome[1]
+        else:
+            return outcome
+        return node["cont"]
 
     def condition(self, node: dict[str, Any], env: dict[str, Any]) -> bool:
         value = self.value(node, env)
@@ -178,32 +186,40 @@ class _Evaluator:
     # Values
 
     def value(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
-        kind = node["k"]
-        if kind == "lit":
-            return node["v"]
-        if kind == "name":
-            return env[node["n"]]
-        if kind == "field":
-            value = self.value(node["base"], env)
-            for name in node["path"]:
-                value = value[name]
-            return value
-        if kind in ("record", "inject"):
-            fields = {name: self.value(item, env) for name, item in node["fields"]}
-            return fields if kind == "record" else {"variant": node["variant"], **fields}
-        if kind == "list":
-            return [self.value(item, env) for item in node["items"]]
-        if kind == "op":
-            return self.op(node, env)
-        if kind == "select":
-            arm = node["then"] if self.condition(node["cond"], env) else node["else"]
-            local = dict(env)
-            for let in arm["prefix"]:
-                local[let["name"]] = self.bound(let["value"], local)
-            return self.value(arm["value"], local)
+        return getattr(self, "value_" + node["k"])(node, env)
+
+    def value_lit(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        return node["v"]
+
+    def value_name(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        return env[node["n"]]
+
+    def value_field(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        value = self.value(node["base"], env)
+        for name in node["path"]:
+            value = value[name]
+        return value
+
+    def value_record(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        return {name: self.value(item, env) for name, item in node["fields"]}
+
+    def value_inject(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        return {"variant": node["variant"], **self.value_record(node, env)}
+
+    def value_list(self, node: dict[str, Any], env: dict[str, Any]) -> list[Any]:
+        return [self.value(item, env) for item in node["items"]]
+
+    def value_select(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        arm = node["then"] if self.condition(node["cond"], env) else node["else"]
+        local = dict(env)
+        for let in arm["prefix"]:
+            local[let["name"]] = self.bound(let["value"], local)
+        return self.value(arm["value"], local)
+
+    def value_block(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
         return _expect_halt(self.body(node["body"], env), "a value block")
 
-    def op(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+    def value_op(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
         """One operator of the catalog of `pure_expr.py`, applied to values."""
 
         operands = {f"a{i}": self.value(arg, env) for i, arg in enumerate(node["args"])}
