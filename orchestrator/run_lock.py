@@ -26,6 +26,49 @@ class RunAlreadyActiveError(RuntimeError):
         )
 
 
+class WorkspaceAlreadyActiveError(RuntimeError):
+    """Another run owns execution in this workspace."""
+
+    code = "workspace_run_already_active"
+
+    def __init__(self, workspace: Path, run_id: str):
+        self.run_id = run_id
+        super().__init__(f"{self.code}: run {run_id} is active in {workspace}")
+
+
+@contextmanager
+def workspace_run_lock(workspace: Path, run_id: str) -> Iterator[None]:
+    """Serialize execution; retained files carry metadata, never lock authority."""
+    root = Path(workspace) / ".orchestrate"
+    root.mkdir(exist_ok=True)
+    dir_fd = _open_root_no_follow(root)
+    try:
+        lock_fd = os.open("workspace.lock", _LOCK_OPEN_FLAGS, 0o600, dir_fd=dir_fd)
+        try:
+            guard_fd = os.open("workspace.guard", _LOCK_OPEN_FLAGS, 0o600, dir_fd=dir_fd)
+            try:
+                # Serialize acquisition and owner publication so a contender
+                # cannot report the previous owner in the short publication gap.
+                fcntl.flock(guard_fd, fcntl.LOCK_EX)
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                        raise
+                    owner = os.pread(lock_fd, 4096, 0).decode("utf-8").strip()
+                    raise WorkspaceAlreadyActiveError(workspace, owner) from exc
+                os.ftruncate(lock_fd, 0)
+                os.write(lock_fd, run_id.encode("utf-8"))
+            finally:
+                os.close(guard_fd)
+            yield
+        finally:
+            # Do not unlink: other processes may already have opened this inode.
+            os.close(lock_fd)
+    finally:
+        os.close(dir_fd)
+
+
 class ReservedRunRootError(RuntimeError):
     """Externally reserved run root is missing, a symlink, or no longer the
     reserved identity; the caller must fail before any write."""
@@ -160,7 +203,9 @@ def run_root_matches_fd(run_root: Path, dir_fd: int) -> bool:
 __all__ = [
     "ReservedRunRootError",
     "RunAlreadyActiveError",
+    "WorkspaceAlreadyActiveError",
     "reserved_run_writer_lock",
     "run_root_matches_fd",
     "run_writer_lock",
+    "workspace_run_lock",
 ]

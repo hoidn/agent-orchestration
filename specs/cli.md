@@ -1,5 +1,26 @@
 # CLI Contract (Normative)
 
+## Workspace execution ownership
+
+Only one run may execute in a workspace at a time. `run` and `resume`
+(including `--force-restart`) acquire a workspace lock before compilation or
+execution-state mutation. A competing invocation exits with
+`workspace_run_already_active`, naming the active run. Changing `--state-dir`
+does not bypass this rule. The trial SDK/CLI uses the same workspace lock;
+nested workflow calls belong to their root run and do not acquire it again.
+Run-ref children own their separate clone workspace. `prompt run` can prepare
+or reserve its scaffold before entering the ordinary `run` owner, but cannot
+execute a provider while another run owns the workspace. The lock is not a
+transaction over scaffold authoring or reservation.
+
+The operating system releases ownership when execution returns (including
+failure or suspension) or the process dies. Retained lock metadata is not
+authority: a dead process's lock file does not prevent a later run. Lock files
+are not removed on release. `--dry-run` neither acquires nor requires this
+lock. Existing per-run writer locks still coordinate mutation of a run;
+read-only reporting remains available. Concurrent execution requires separate
+workspaces. Result bundle paths and persisted result identities are unchanged.
+
 - Commands
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.

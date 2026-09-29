@@ -15,7 +15,9 @@ from orchestrator.monitor.process import (
     process_start_time_token,
     write_process_metadata,
 )
-from orchestrator.run_lock import run_writer_lock
+from orchestrator.run_lock import (
+    WorkspaceAlreadyActiveError, run_writer_lock, workspace_run_lock,
+)
 from orchestrator.runtime_observability import (
     close_executor_session,
     open_executor_session,
@@ -461,32 +463,36 @@ def run_trial_entry(
             "run_ref_root must be a canonical absolute path",
         )
 
-    built = _compile_trial_entry(
-        workflow_file=workflow_path,
-        entry_workflow=entry_workflow,
-        workspace=workspace_path,
-        options=options,
-    )
-    bound_inputs = bind_workflow_inputs(
-        {
-            name: dict(spec)
-            for name, spec in workflow_public_input_contracts(
-                built.validated_bundle
-            ).items()
-        },
-        dict(inputs),
-        workspace=workspace_path,
-    )
-    context = workflow_lisp_context_with_lowering_schema(
-        dict(workflow_context(built.validated_bundle)),
-        built.manifest.lowering_schema_version,
-    )
     state_manager = StateManager(
         workspace=workspace_path,
         state_dir=state_path,
     )
     lock_stack = ExitStack()
     try:
+        try:
+            lock_stack.enter_context(workspace_run_lock(workspace_path, state_manager.run_id))
+        except WorkspaceAlreadyActiveError as exc:
+            raise TrialEntryRequestError(exc.code, str(exc)) from exc
+        built = _compile_trial_entry(
+            workflow_file=workflow_path,
+            entry_workflow=entry_workflow,
+            workspace=workspace_path,
+            options=options,
+        )
+        bound_inputs = bind_workflow_inputs(
+            {
+                name: dict(spec)
+                for name, spec in workflow_public_input_contracts(
+                    built.validated_bundle
+                ).items()
+            },
+            dict(inputs),
+            workspace=workspace_path,
+        )
+        context = workflow_lisp_context_with_lowering_schema(
+            dict(workflow_context(built.validated_bundle)),
+            built.manifest.lowering_schema_version,
+        )
         state_manager.run_root.mkdir(parents=True, exist_ok=True)
         lock_stack.enter_context(run_writer_lock(state_manager.run_root))
         run_state = state_manager.initialize(

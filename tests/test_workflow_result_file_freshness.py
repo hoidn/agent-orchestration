@@ -411,36 +411,40 @@ else:
     Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"n": 1, "stop": True}), encoding="utf-8")
     (root / "written").write_text("written", encoding="utf-8")
     deadline = time.monotonic() + 120
-    while not (root / "second").exists() and time.monotonic() < deadline:
+    while not (root / "release").exists() and time.monotonic() < deadline:
         time.sleep(0.02)
 """
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Task 8 review finding 2: the result path of a loop body promoted to a call has no run id, so two runs in one "
-        "workspace share it and the second run's pre-launch removal deletes the first run's result before the first "
-        "run validates it. The repair changes a persisted path format and waits for the owner's decision."
-    ),
-)
 def test_two_concurrent_runs_do_not_share_the_result_file_of_a_promoted_call(tmp_path: Path) -> None:
-    """The first run's call writes its result and waits; the second run's call writes nothing."""
+    """A second run is refused before it can delete the active call's result."""
 
     effect = _install(tmp_path, _Commands, body="procedure")
     effect.probe.write_text(CONCURRENT_PROBE, encoding="utf-8")
     run_argv = [arg for arg in _run_argv(effect.files) if arg != "--emit-debug-yaml"]  # recorded argv only, not a CLI flag
     command = [sys.executable, "-m", *run_argv, "--command-boundaries-file", str(effect.files["commands"])]
     first = subprocess.Popen(command, cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    deadline = time.monotonic() + 120
-    while not (tmp_path / "written").exists() and first.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.02)
-    second = subprocess.Popen(command, cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for process in (first, second):
-        process.wait(timeout=240)
+    try:
+        deadline = time.monotonic() + 20
+        while not (tmp_path / "written").exists() and first.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert (tmp_path / "written").exists(), "first run never reached the held command"
+        (active_run,) = _runs(tmp_path)
+        second = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=20)
+        assert second.returncode == 1
+        assert "workspace_run_already_active" in second.stderr
+        assert active_run.name in second.stderr
+        assert not (tmp_path / "second").exists(), "second run dispatched a command"
+    finally:
+        (tmp_path / "release").touch()
+        try:
+            first.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            first.kill()
+            first.wait(timeout=5)
     states = [json.loads((run_dir / "state.json").read_text(encoding="utf-8")) for run_dir in _runs(tmp_path)]
 
+    assert first.returncode == 0
     assert sorted((state["status"], _violations(state)) for state in states) == [
         ("completed", []),
-        ("failed", ["missing_bundle_file"]),
     ]

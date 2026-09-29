@@ -14,7 +14,7 @@ import re
 import sys
 from typing import Any, Mapping, Sequence
 
-from orchestrator.run_lock import run_writer_lock
+from orchestrator.run_lock import run_writer_lock, workspace_run_lock
 from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.executor import WorkflowExecutor
@@ -1213,9 +1213,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             selection, request_path = _request_selection(arguments)
             if selection == "--request":
-                result = execute_request(load_request(request_path))
+                request = load_request(request_path)
+                execute = execute_request
             else:
-                result = execute_path_request(load_path_request(request_path))
+                request = load_path_request(request_path)
+                execute = execute_path_request
+            with workspace_run_lock(request.clone_root, request.child_run_id):
+                result = execute(request)
     except BundleCapsuleValidationError:
         error = _ChildCommandError(
             "run_ref_capsule_invalid",

@@ -20,9 +20,11 @@ from orchestrator.state import StateManager
 from orchestrator.run_lock import (
     ReservedRunRootError,
     RunAlreadyActiveError,
+    WorkspaceAlreadyActiveError,
     reserved_run_writer_lock,
     run_root_matches_fd,
     run_writer_lock,
+    workspace_run_lock,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
@@ -544,6 +546,18 @@ def run_workflow(
             logger.error(f"Workflow file not found: {workflow_path}")
             return _run_result(1)
 
+        if not args.dry_run:
+            state_manager = StateManager(
+                workspace=workspace,
+                backup_enabled=args.backup_state,
+                debug=getattr(args, "debug", False),
+                state_dir=state_dir_override,
+                run_id=run_id,
+            )
+            writer_lock_stack.enter_context(
+                workspace_run_lock(workspace, state_manager.run_id)
+            )
+
         frontend_build = None
         try:
             frontend_build = build_frontend_bundle(
@@ -651,15 +665,7 @@ def run_workflow(
 
         observability = build_observability_config(args)
 
-        # Initialize state manager
-        # AT-69: --debug implies backup_enabled
-        state_manager = StateManager(
-            workspace=workspace,
-            backup_enabled=args.backup_state,
-            debug=args.debug if hasattr(args, 'debug') else False,
-            state_dir=state_dir_override,
-            run_id=run_id,
-        )
+        assert state_manager is not None
         if run_id is not None and expected_run_identity is not None:
             # R7: prompt callers acquire this lock before their first write
             # and pass the retained authority through the whole lifecycle.
@@ -804,7 +810,7 @@ def run_workflow(
                     session_status = "failed"
                     raise
 
-    except RunAlreadyActiveError as e:
+    except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as e:
         logger.error(str(e))
         return _run_result(
             1, state_manager=state_manager, session_id=session_id,
