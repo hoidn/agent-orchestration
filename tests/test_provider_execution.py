@@ -364,11 +364,11 @@ class TestProviderRegistry:
         assert codex.name == "codex"
         assert codex.input_mode == InputMode.STDIN
         assert "${PROMPT}" not in " ".join(codex.command)
-        assert codex.defaults.get("model") == "gpt-5.4"
+        assert codex.defaults.get("model") == "gpt-5.5"
         assert codex.defaults.get("reasoning_effort") == "high"
         command_str = " ".join(codex.command)
         assert "--config" in command_str
-        assert "reasoning_effort=${reasoning_effort}" in command_str
+        assert "model_reasoning_effort=${reasoning_effort}" in command_str
         assert codex.session_support is not None
         assert codex.session_support.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
         assert "${SESSION_ID}" in " ".join(codex.session_support.resume_command or [])
@@ -382,7 +382,7 @@ class TestProviderRegistry:
 
         assert codex is not None
         assert codex_gpt55 is not None
-        assert codex.defaults.get("model") == "gpt-5.4"
+        assert codex.defaults.get("model") == "gpt-5.5"
         assert codex_gpt55.name == "codex_gpt55"
         assert codex_gpt55.input_mode == InputMode.STDIN
         assert codex_gpt55.defaults.get("model") == "gpt-5.5"
@@ -698,8 +698,8 @@ class TestProviderExecutor:
         assert default_codex is not None
         assert overridden_codex is not None
         assert claude is not None
-        assert "reasoning_effort=high" in default_codex.command
-        assert "reasoning_effort=medium" in overridden_codex.command
+        assert "model_reasoning_effort=high" in default_codex.command
+        assert "model_reasoning_effort=medium" in overridden_codex.command
         assert "--effort" not in claude.command
 
     def test_runtime_delivery_policy_never_enters_native_params_or_argv(self):
@@ -724,7 +724,7 @@ class TestProviderExecutor:
             "--model",
             "policy-model",
             "--config",
-            "reasoning_effort=medium",
+            "model_reasoning_effort=medium",
         ]
         assert invocation.prepared_provider_policy is not None
         assert invocation.prepared_provider_policy.model == "policy-model"
