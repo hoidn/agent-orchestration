@@ -22,9 +22,10 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     execution; thin answer/cancel clients only settle it, while ordinary resume
     validates and consumes the exact reply. It adds neither native continuation
     nor provider-session reuse.
-  - DSL v2.33 registers first-order generic unions (`defunion :forall`, type
-    applications) and the `std/improve` review helper; the surface is
-    implemented by the CF-1b plan's later tasks. It adds no generic records,
+  - DSL v2.33 admits first-order generic unions (`defunion :forall` and type
+    applications, instantiated at compile time, including applied-union
+    `provider-result` returns) and the bundled `std/improve` review helper.
+    Target admission is per defining module. It adds no generic records,
     explicit procedure type arguments, or generic `defprompt` results; see
     `versioning.md`.
   - State schema: `schema_version: "2.1"`.
