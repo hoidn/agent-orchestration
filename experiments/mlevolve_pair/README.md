@@ -39,6 +39,18 @@ From the repository root, reproduce the comparison and write its evidence with:
 python -m experiments.mlevolve_pair.compare --output experiments/mlevolve_pair/evidence.json
 ```
 
+The compact controller is in `search_compact.orc`. Its module path is
+`mlevolve_pair/search_compact`, so its certified adapter manifest is
+`commands_compact.json` (the `owner_module` metadata matches that module).
+Run it with the same public command, substituting that source and manifest:
+
+```bash
+python -m orchestrator run experiments/mlevolve_pair/search_compact.orc \
+  --entry-workflow run-search --source-root experiments \
+  --command-boundaries-file experiments/mlevolve_pair/commands_compact.json \
+  --dry-run
+```
+
 The broader findings are in the
 [comparison report](../../docs/reports/2026-09-29-mlevolve-orc-python-comparison.md).
 Python has no matching durable recovery implementation in this specimen, so
