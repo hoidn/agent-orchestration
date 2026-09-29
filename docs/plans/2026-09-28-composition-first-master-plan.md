@@ -31,16 +31,21 @@ its argument.
 ## Global Constraints
 
 - Target **2.33** admits `defunion :forall`, type applications, and
-  `std/improve`. Targets up to 2.32 reject them with a required-target
-  diagnostic.
+  `std/improve`. Target admission is per defining module: a module at a
+  target up to 2.32 that uses them is rejected with a required-target
+  diagnostic; importing a 2.33 module alone is admitted.
 - `improve` has exactly the design §3 interface: `:forall (S I F B)`,
   `:where ((S is-record))`, parameters `initial`, `inputs`, `review`,
   `revise`, `limit`, result `Improvement[S F B]`. No `ctx`, no seeds, no
-  counter, no positive-limit precondition.
+  counter. `limit` is a compile-time integer constant of at least 1; `limit 0`
+  is a compile-time rejection, the same as `:max 0` on a plain loop.
 - `EXHAUSTED` carries `value` only. The final permitted iteration may end in
   an unreviewed revision. Runtime failures never become `EXHAUSTED`.
-- The provider route is concrete `defprompt` results converted by domain
-  adapters. Direct generic `defprompt` results are out of scope.
+- A provider-backed hook may return an applied union such as
+  `Decision[F B]` straight from `provider-result :returns`; malformed output
+  is a contract violation at the provider boundary and never reaches the
+  helper. Adapters remain the route for legacy `ReviewFindings.v1`
+  consumers. Instantiated-union `defprompt` results are out of scope.
 - Legacy `ReviewFindings.v1` validation runs before findings are published
   and before the fixer consumes them, including after resume. The schema is
   neither tightened nor weakened.
@@ -65,8 +70,8 @@ its argument.
 Conditions the spec implies that a person using this software is most likely
 to hit. Each is pinned by a test in the task that owns the code.
 
-1. **`limit` is zero.** Expected: the existing zero-limit runtime outcome; no
-   fabricated review, no seed report. Owner: CF-1b Task 5.
+1. **`limit` is zero.** Expected: a compile-time rejection, the same as
+   `:max 0` on a plain loop; no hook runs. Owner: CF-1b Task 5.
 2. **The `revise` hook fails in the final permitted iteration.** Expected: a
    runtime failure under the existing recovery contract, not `EXHAUSTED`.
    Owner: CF-1b Task 5.
@@ -76,8 +81,8 @@ to hit. Each is pinned by a test in the task that owns the code.
 4. **A substituted reviewer's inner review is blocked.** Expected: the
    adjudicating procedure returns `BLOCKED` with the domain blocker, never a
    downgraded `REVISE` or `APPROVE`. Owner: CF-1b Task 6.
-5. **A target-2.32 module imports `std/improve`.** Expected: rejection with
-   the required-target diagnostic, not a late type error. Owner: CF-1b Task 5.
+5. **A target-2.32 module uses `improve`.** Expected: rejection with the
+   required-target diagnostic, not a late type error. Owner: CF-1b Task 5.
 
 ## Coverage Map
 
@@ -152,10 +157,14 @@ failures, and the branch is merged to `main`.
 
 ## Phase 2: Consumer Migration (CF-1c)
 
-Selected by the owner on 2026-09-28 through the utility evaluation: Tasks
-8–12. Tasks 13–15 need the Task 12 evidence and a separate owner decision.
-Phase 2 needs Phase 0 and Phase 1 on `main`. No consumer with a run in flight
-is migrated until that run finishes.
+**On hold (owner, 2026-09-28).** Phase 2 starts only when a generate-and-select
+helper exists and workflows that judge use a model other than the author's.
+The evidence is the
+[experiment report](../reports/2026-09-28-orc-versus-single-call.md). When
+Phase 2 starts, Tasks 8–12 run first, through the utility evaluation; Tasks
+13–15 need the Task 12 evidence and a separate owner decision. Phase 2 needs
+Phase 0 and Phase 1 on `main`. No consumer with a run in flight is migrated
+until that run finishes.
 
 **Exhaustion metadata is the consumer's choice.** The three examples stop
 publishing previous-review metadata on exhaustion: their subject stays the
@@ -163,11 +172,10 @@ original record, their adapters only convert and validate, and their
 exhausted result carries the reason alone. The review reports remain on disk
 at the paths the caller supplied. The design-delta library phases keep the
 metadata, because their materialized progress report links the last review;
-they hold it in a wrapped subject with typed absence and add one variant to
-their public result for exhaustion before any review, which is reachable only
-with a zero limit. `.orc` has no failure form and the type system cannot
-express "the limit is positive", so that variant cannot be avoided where
-metadata is kept.
+they hold it in a wrapped subject whose history is `UNREVIEWED` before the
+first revision, which is that variant's only use. Because `limit` is at least
+1, exhaustion always follows a revision and their public result gains no
+variant.
 
 ### Parallel Execution
 
@@ -675,7 +683,7 @@ program identity changes with its source.
   with providers `providers.plan.review` and `providers.plan.fix`.
 - Produces: `run-plan-phase` with unchanged inputs.
   `DesignDeltaPlanPhaseResult` keeps its `APPROVED`, `BLOCKED`, and
-  `EXHAUSTED` fields and gains `(EXHAUSTED_UNREVIEWED (reason String))`.
+  `EXHAUSTED` variants and fields, and gains none.
 
 - [ ] **Step 1: Write the failing tests.** With patched providers: approval;
   blockage with the materialized progress report; exhaustion at limit `12`
@@ -738,12 +746,13 @@ program identity changes with its source.
   `(record ReviewedPlan :subject completed :history (variant RevisionHistory UNREVIEWED))`. In the result projection read
   `approved.evidence.review_report`, `approved.evidence.findings`,
   `blocked.reason.review_report`, `blocked.reason.blocker_class`,
-  `blocked.reason.findings`. Under `EXHAUSTED` match
-  `exhausted.value.history`: `REVISED_FROM` publishes
+  `blocked.reason.findings`. Under `EXHAUSTED`, `exhausted.value.history` is
+  always `REVISED_FROM`, because `limit` is at least 1: publish
   `revised.evidence.review_report` and `revised.evidence.findings` with the
   literal reason `max_iterations_reached`, keeping the existing
-  `materialize-view` calls; `UNREVIEWED` publishes
-  `(variant DesignDeltaPlanPhaseResult EXHAUSTED_UNREVIEWED :reason "exhausted_before_first_review")`. `completed.plan_path` becomes
+  `materialize-view` calls. The `UNREVIEWED` arm that an exhaustive `match`
+  needs is unreachable; how it is written without a public variant is decided
+  when this task is selected. `completed.plan_path` becomes
   `approved.value.subject.plan_path` and its `BLOCKED` and `EXHAUSTED`
   equivalents.
 - [ ] **Step 4: Run** the new module. Do not run or edit the shared
@@ -766,8 +775,8 @@ program identity changes with its source.
   with providers `providers.implementation.review` and
   `providers.implementation.fix`.
 - Produces: the implementation phase workflow with unchanged inputs. Its
-  result union keeps its `APPROVED`, `BLOCKED`, and `EXHAUSTED` fields and
-  gains `(EXHAUSTED_UNREVIEWED (reason String))`.
+  result union keeps its `APPROVED`, `BLOCKED`, and `EXHAUSTED` variants and
+  fields, and gains none.
 
 - [ ] **Step 1: Write the failing tests.** With patched providers: approval;
   blockage with the materialized progress report and the blocked-compat
@@ -829,13 +838,12 @@ program identity changes with its source.
   Replace the macro call with `improve` at limit `40`, seeding
   `(record ReviewedImplementation :subject review-subject :history (variant RevisionHistory UNREVIEWED))`.
   In the result projection read `approved.evidence.*` and `blocked.reason.*`
-  for the fields that came from the legacy result. Under `EXHAUSTED` match
-  `exhausted.value.history`: `REVISED_FROM` publishes
+  for the fields that came from the legacy result. Under `EXHAUSTED`,
+  `exhausted.value.history` is always `REVISED_FROM`, as in Task 13: publish
   `revised.evidence.review_report` and `revised.evidence.findings` with the
   literal reason `max_iterations_reached`, keeping this file's existing
-  `materialize-view` calls; `UNREVIEWED` publishes this file's result union
-  variant `EXHAUSTED_UNREVIEWED` with reason
-  `"exhausted_before_first_review"`.
+  `materialize-view` calls. The unreachable `UNREVIEWED` arm is handled as in
+  Task 13.
 - [ ] **Step 4: Run** the new module. Do not run or edit the shared
   design-delta test modules; the controller runs them after the wave merges.
 - [ ] **Step 5: Commit** by pathspec.

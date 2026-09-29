@@ -27,7 +27,9 @@ pytest/pytest-xdist, command-backed deterministic hooks.
 
 Status: accepted for execution by the owner on 2026-09-28. The owner accepted
 the type-system delta as the governing contract and assigned target **2.33**
-to generic unions and `std/improve` together. Nothing is implemented.
+to generic unions and `std/improve` together. Tasks 1–6 are implemented and
+reviewed (2026-09-28); the SDD ledger records each task's evidence. Task 7
+promotes the documentation; the closeout items below remain open.
 
 Read `docs/index.md` and `docs/capability_status_matrix.md` first. Authorities:
 
@@ -97,7 +99,7 @@ Record the counts. The exhaustion test must pass without `xfail` before Task 5.
 
 ### Task 1: Register Target 2.33
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/syntax.py` (supported target list
 and `*_MIN_TARGET_DSL_VERSION` constants), `orchestrator/workflow/validation.py`
@@ -118,7 +120,7 @@ and `*_MIN_TARGET_DSL_VERSION` constants), `orchestrator/workflow/validation.py`
 
 ### Task 2: Declare Generic Unions And Apply Them In Type Positions
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/definitions.py` (`defunion`),
 `orchestrator/workflow_lisp/authored_symbols.py`,
@@ -153,7 +155,7 @@ and `*_MIN_TARGET_DSL_VERSION` constants), `orchestrator/workflow/validation.py`
 
 ### Task 3: Bind Arguments Through `ProcRef` Signatures And Preserve Identity
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/procedure_typecheck.py::_infer_parametric_type_bindings`,
 `orchestrator/workflow_lisp/type_env.py::type_refs_compatible` and
@@ -178,7 +180,7 @@ and `*_MIN_TARGET_DSL_VERSION` constants), `orchestrator/workflow/validation.py`
 
 ### Task 4: Instantiate Through Specialization And Prove Transport
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/procedure_specialization.py`,
 `orchestrator/workflow_lisp/contracts.py` (union descriptors),
@@ -205,7 +207,7 @@ loop tests as the transport pattern.
 
 ### Task 5: Ship `std/improve`
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`
 (the legacy loop, unchanged), `orchestrator/workflow_lisp/stdlib_modules/std/drain.orc`
@@ -222,11 +224,11 @@ loop tests as the transport pattern.
    type is a contract failure with no `Decision` reaching the helper; inline
    and imported forms agree on outcome and ordered hook operations. From the
    [master plan's](2026-09-28-composition-first-master-plan.md#review-focus)
-   Review Focus: `limit 0` yields the existing zero-limit runtime outcome with
-   no hook invoked and no fabricated review; a `revise` hook that fails in the
+   Review Focus: `limit 0` is a compile-time rejection, the same as `:max 0`
+   on a plain loop, and no hook runs; a `revise` hook that fails in the
    final permitted iteration is a runtime failure, not `EXHAUSTED`; a
-   target-2.32 module importing `std/improve` is rejected with the
-   required-target diagnostic.
+   target-2.32 module that uses `improve` is rejected with the required-target
+   diagnostic.
 2. Author `std/improve` exactly as the design's §3 interface and §4 loop:
    `Decision :forall (F B)`, `Improvement :forall (S F B)`, `improve` with
    `:where ((S is-record))`, state `{current}`, `inputs` as a lexical binding,
@@ -239,7 +241,7 @@ loop tests as the transport pattern.
 
 ### Task 6: Prove A Structured-Value Caller End To End
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `workflows/examples/review_revise_design_docs.orc` and its
 `inputs/` manifests (example conventions), `tests/test_workflow_lisp_examples.py`,
@@ -281,8 +283,9 @@ the design's status line, the type-system section's status, and the roadmap
 CF-1 status and CF-1b row closeout.
 
 1. Record supported behavior and limits: `S is-record` for the first
-   delivery, concrete `defprompt` results with adapters, no generic records,
-   no generic `defprompt` results, command-backed test hooks.
+   delivery, applied-union `provider-result` returns, adapters for concrete
+   results, no generic records, no generic `defprompt` results, command- or
+   provider-backed hooks.
 2. Run `pytest -q tests/test_workflow_lisp_drain_roadmap_routing.py
    tests/test_monitor_docs.py` and the link check on edited files.
 
@@ -292,9 +295,11 @@ CF-1 status and CF-1b row closeout.
   the recorded baseline failure set; no new failures.
 - [ ] Public compile/run/resume evidence for the example, with fresh output.
 - [ ] Merge to `main` by fast-forward from the worktree; commit by pathspec.
-- [ ] Record in the roadmap CF-1 section: supported contract, limits, and the
+- [x] Record in the roadmap CF-1 section: supported contract, limits, and the
   CF-1c selection decision (migration of the two maintained callers and the
   utility evaluation). No utility claim follows from a passing slice.
+  Recorded 2026-09-28: CF-1c consumer migration is on hold under the
+  roadmap's entry conditions.
 
 Out of scope here: migrating `review_revise_design_docs.orc` and
 `kiss_backlog_item.orc` (CF-1c), fixer-side blockage, generic records,

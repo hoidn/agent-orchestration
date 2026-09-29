@@ -11,6 +11,7 @@ has reported its partial results; the owner selected the C1 recovery below.
 On 2026-09-28 the owner selected CF-1a and slated CF-1b ahead of R1b's
 review/revision composition; see the
 [CF-1 selection record](#cf-1--composition-first-procedures-pending-unselected).
+CF-1b is implemented at target 2.33; CF-1c consumer migration is on hold.
 Publication alone does not select
 later studies, new language surfaces, or source promotion.
 
@@ -457,7 +458,9 @@ assigned target 2.33 to generic unions and `std/improve` together; the
 [CF-1b plan](2026-09-28-cf1b-composition-first-implementation-plan.md) owns
 its tasks, and the
 [master plan](2026-09-28-composition-first-master-plan.md) covers the whole
-design, including consumer migration and retirement. Nothing is implemented. The section heading
+design, including consumer migration and retirement. CF-1b is implemented at
+target 2.33 (2026-09-28); its plan records verification and closeout. CF-1c
+consumer migration is on hold (selection record, step 4). The section heading
 keeps its original anchor. The proposal's repository observations were verified
 at `31580550`; its interface, generic-union delta, and loop pseudocode are
 schematic. It supersedes, as inputs only, the three September 2026 composition
@@ -477,7 +480,7 @@ are outside this workstream.
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
 | CF-1a — investigate substrate and settle the bounded plan | Adopt the proposed generic-union contract through the parametric type owner, select the module name and target boundary, and probe existing generic exhaustion/lexical-input support without requiring the new generic-union syntax. Confirm removing `ctx` drops no identity/resume dependency. Inventory the maintained consumers' public results and validation obligations. The initial prompt route is concrete provider results plus domain adapters; direct generic `defprompt` results are deferred. | Accept a plan once material contract/ownership choices are resolved and discovered substrate gaps have explicit owner-level corrections and acceptance checks. Do not require implementing generic unions before planning them. If projection, capture or transport obstructs the use case, reconsider those foundations rather than add seeds/counters or abandon composition by default. |
-| CF-1b — generic unions and the value-returning slice | Implement the type owner's application, constructor-identity and recursive argument-binding contract through the existing specialization pipeline, with diagnostics and version boundaries. Ship `Decision[F B]`, `Improvement[S F B]`, and `improve`; a structured-value caller whose revised candidate reaches a deterministic consumer; an unrelated `Outcome[T E]`; supported non-record `I` coverage while retaining `S is-record` as the first-delivery loop/exhaustion limit; imported alias/homonym and unused-type-argument identity checks; public compile/run/resume with interruptions after committed review and revision. Use the concrete-prompt adapter route. | Record supported behavior and remaining limits. New-feature executable evidence is acceptance of this step, not a prerequisite implementation for CF-1a. Keep existing `std/phase` exports available and identify only review/revise's mismatch as legacy behavior. No cross-API checkpoint compatibility or utility advantage follows from a passing slice. |
+| CF-1b — generic unions and the value-returning slice | Implement the type owner's application, constructor-identity and recursive argument-binding contract through the existing specialization pipeline, with diagnostics and version boundaries. Ship `Decision[F B]`, `Improvement[S F B]`, and `improve`; a structured-value caller whose revised candidate reaches a deterministic consumer; an unrelated `Outcome[T E]`; supported non-record `I` coverage while retaining `S is-record` as the first-delivery loop/exhaustion limit; imported alias/homonym and unused-type-argument identity checks; public compile/run/resume with interruptions after committed review and revision. Use the concrete-prompt adapter route. | Record supported behavior and remaining limits. New-feature executable evidence is acceptance of this step, not a prerequisite implementation for CF-1a. Keep existing `std/phase` exports available and identify only review/revise's mismatch as legacy behavior. No cross-API checkpoint compatibility or utility advantage follows from a passing slice. **Implemented 2026-09-28 at target 2.33.** The supported contract is in the design (§§3–7), its limits in design §11, and the evidence in the [capability matrix](../capability_status_matrix.md). A hook may also return an applied union straight from `provider-result`; adapters remain the route for concrete results. |
 | CF-1c — migrate and substitute on real callers | Follow the [master plan](2026-09-28-composition-first-master-plan.md): a shared review-domain module, then the three examples migrated by parallel subagents through domain review/revision adapters, then the utility evaluation, and only after that evidence the two design-delta library phases and retirement. Preserve approved and blocked report/findings/blocker data and validation, including findings consumption after resume. The examples publish no previous-review metadata on exhaustion; the library phases keep it with typed initial absence. Existing provider procedure bodies need not change. Substitute the reviewer with sequential two-review-plus-adjudication, then add a typed proposal field consumed downstream and record actual editing/plumbing cost. The historical parametric-document example is not an unchanged-hook migration. This also serves the [composition plan's](2026-09-22-value-and-continuation-composition-implementation-plan.md) qualitative follow-on evaluation for the increments actually exercised; do not run a duplicate study or claim unexercised context/human-input benefits. | Assess programmability, reuse and diagnosis on actual usage, without a productivity score or new harness. Improve demonstrated recurring friction, reconsider an obstructive foundation, or retain a smaller useful subset. Inventory consumers per declaration; retire only displaced review/revise helpers/macros and unused supporting types, preserving independent `std/phase` exports. Remove adapters only when their domain obligations have another real owner. |
 | CF-1d — optional extensions by named caller | Direct instantiated generic `defprompt` results, fixer-side blockage, generic records, and document snapshot/version references, each only when a maintained caller needs it and through the existing owner. For direct generic prompt results, prove instantiation/contract-generation ordering and compare with the working adapter route. | Cancel unbuilt extensions freely; after adverse evidence, remove unnecessary built machinery while preserving independently useful behavior. None is required to close CF-1b or CF-1c, and none reopens the budget or ledger machinery excluded here. |
 
@@ -526,16 +529,20 @@ investigation:
 4. CF-1c through the utility evaluation, selected on 2026-09-28: master-plan
    Tasks 8–12, which also serve as the utility evaluation of the 2.28–2.32
    increments. The design-delta library migration and the retirement
-   (Tasks 13–15) depend on that evidence and a separate owner decision;
+   (Tasks 13–15) depend on that evidence and a separate owner decision.
+   **On hold (owner, 2026-09-28, after CF-1b):** consumer migration starts
+   only when a generate-and-select helper exists and workflows that judge use
+   a model other than the author's. The evidence is the
+   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md);
 5. R1b afterwards, on the corrected interface.
 
 The demonstration plan's proposed local repair is independent of this order:
 it is neither a prerequisite of CF-1 nor part of it.
 
-The [capability matrix](../capability_status_matrix.md) row stays `Designed`
-until CF-1b lands. Where the demonstration plan's handoff text says no library
-redesign is selected, it predates this selection; this section is the
-prospective-order authority.
+The [capability matrix](../capability_status_matrix.md) row records CF-1b as
+`Implemented` at target 2.33. Where the demonstration plan's handoff text says
+no library redesign is selected, it predates this selection; this section is
+the prospective-order authority.
 
 **Entry and dependencies:** CF-1a is selected; CF-1b needs CF-1a resolved,
 accepted governing/version contracts, and a reviewed plan; CF-1c needs a working
@@ -574,11 +581,12 @@ changes studies.
 
 **Routing:** no executable manifest/queue row is added. The five research
 units and their allocations stay unchanged. CF-1a is in progress; its runtime
-correction is integrated, with verification tracked in step 2. CF-1b follows
-the remaining prerequisites and precedes R1b.
-CF-1c is selected through the utility evaluation (Tasks 8–12); its later
-library migration/retirement (Tasks 13–15) and CF-1d require separate owner
-decisions and any necessary allocation.
+correction is integrated, with verification tracked in step 2. CF-1b is
+implemented at target 2.33 and precedes R1b.
+CF-1c is on hold under the entry conditions in step 4; when it starts, it runs
+through the utility evaluation (Tasks 8–12). Its later library
+migration/retirement (Tasks 13–15) and CF-1d require separate owner decisions
+and any necessary allocation.
 
 ## Current ES Boundary
 
@@ -653,10 +661,22 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   unselected under its own feasibility, design, plan, and allocation gates.
   Listing it neither reopens completed programs nor makes it an E/ES/P exit gate.
 - [CF-1](#cf-1--composition-first-procedures-pending-unselected) has CF-1a
-  selected and CF-1b slated ahead of R1b under its own feasibility, plan, and
-  allocation gates; the heading keeps its original anchor. It owns the
-  value-returning review helper and generic-union delta; `std/phase` remains
-  the implemented surface until CF-1c decides otherwise.
+  selected and CF-1b implemented at target 2.33, ahead of R1b; CF-1c is on
+  hold under its recorded entry conditions. The heading keeps its original
+  anchor. It owns the value-returning review helper and generic-union delta;
+  `std/phase` remains available beside `std/improve` until CF-1c decides
+  otherwise.
+- Candidate work recorded by the owner on 2026-09-28 from the
+  [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
+  in this order, each unselected until planned:
+  1. provider result delivery defects: a stale result file from a previous
+     loop iteration is accepted as new; the result path in
+     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is relative to the run workspace;
+     materialization of the result from the agent's final text does not
+     happen; provider `codex` defaults to a model the account rejects;
+     `reasoning_effort` is ignored;
+  2. parallel execution of `list/map-effect` bodies, which run in sequence;
+  3. a comparison of workflows with a single call on a large task.
 
 ## Routing And Historical Records
 
