@@ -118,6 +118,7 @@ class RunState:
     step_visits: Dict[str, int] = field(default_factory=dict)
     provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
     human_input: Optional[Dict[str, Any]] = None
+    resume_diagnostics: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.result_persistence_profile is None:
@@ -172,6 +173,8 @@ class RunState:
             result["current_step"] = self.current_step
         if self.provider_attempt_allocations:
             result["provider_attempt_allocations"] = self.provider_attempt_allocations
+        if self.resume_diagnostics:
+            result["resume_diagnostics"] = deepcopy(self.resume_diagnostics)
         if self.human_input is not None:
             from .workflow.human_input import validate_human_input_record
 
@@ -217,6 +220,17 @@ class RunState:
                 for_each[name] = ForEachState(**state_dict)
 
         provider_attempt_allocations = data.get("provider_attempt_allocations", {})
+        resume_diagnostics = data.get("resume_diagnostics", [])
+        if (
+            not isinstance(resume_diagnostics, list)
+            or any(
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("diagnostic"), str)
+                or not item.get("diagnostic")
+                for item in resume_diagnostics
+            )
+        ):
+            raise ValueError("resume diagnostic state is invalid")
         human_input = data.get("human_input")
         if human_input is not None:
             from .workflow.human_input import validate_human_input_record
@@ -269,6 +283,7 @@ class RunState:
             transition_count=data.get("transition_count", 0),
             step_visits=data.get("step_visits", {}),
             provider_attempt_allocations=provider_attempt_allocations,
+            resume_diagnostics=deepcopy(resume_diagnostics),
             human_input=deepcopy(human_input),
         )
 
@@ -1176,6 +1191,20 @@ class StateManager:
                 and self.state.current_step.get("name") == step_name
             ):
                 self.state.current_step = None
+            self._write_state()
+
+    def record_resume_diagnostic(self, diagnostic: Mapping[str, Any]) -> None:
+        """Append one diagnostic at the actual resumed-effect dispatch boundary."""
+        if (
+            not isinstance(diagnostic, Mapping)
+            or not isinstance(diagnostic.get("diagnostic"), str)
+            or not diagnostic.get("diagnostic")
+        ):
+            raise ValueError("resume diagnostic is invalid")
+        with self._state_mutation():
+            if self.state is None:
+                raise RuntimeError("State not initialized")
+            self.state.resume_diagnostics.append(deepcopy(dict(diagnostic)))
             self._write_state()
 
     def update_loop_step(self, loop_name: str, index: int, step_name: str, result: StepResult):

@@ -39,7 +39,6 @@ from .resume_projection_integrity import (
     audit_scope,
     classify_terminal_result,
     index_retry_lineage,
-    next_unused_retry_frame_id,
     projection_integrity_failed_result,
 )
 from .state_projection import ResumeProjectionValidationError
@@ -135,33 +134,6 @@ class CallExecutor:
             self._resume_scope_path(),
         )
         raise AssertionError("unreachable call-boundary resolution")
-
-    def _allocate_retry_frame_id(
-        self,
-        lineage: CallFrameRetryLineage,
-        provisional_frame_id: str,
-        *,
-        step_id: str,
-        call_frames: Mapping[str, Any],
-        imported_workflow: Any,
-    ) -> str:
-        """Rederive and authorize one fresh retry only after history validation."""
-        reindexed = self._retry_lineage_for_step(
-            step_id=step_id,
-            call_frames=call_frames,
-            imported_workflow=imported_workflow,
-        )
-        allocated_frame_id = next_unused_retry_frame_id(reindexed)
-        if (
-            reindexed != lineage
-            or allocated_frame_id != provisional_frame_id
-        ):
-            raise CallFrameRetryLineageError(
-                "ambiguous_resumable_call_frame",
-                frame_id=allocated_frame_id,
-                offending_value=allocated_frame_id,
-            )
-        return allocated_frame_id
 
     @staticmethod
     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
@@ -286,7 +258,7 @@ class CallExecutor:
                 if lineage.running_member is not None:
                     return lineage.running_member.frame_id
                 if lineage.failed_predecessors:
-                    return lineage.base_frame_id
+                    return lineage.failed_predecessors[-1].frame_id
 
         return fresh_frame_id
 
@@ -1040,29 +1012,17 @@ class CallExecutor:
             if retry_lineage is not None
             else None
         )
-        force_fresh_workflow_lisp_retry = (
-            retry_lineage is not None
-            and workflow_lisp_target
-            and running_member is None
-            and bool(retry_lineage.failed_predecessors)
-        )
-        provisional_retry_frame_id = (
-            next_unused_retry_frame_id(retry_lineage)
-            if force_fresh_workflow_lisp_retry
+        failed_resume_member = (
+            retry_lineage.failed_predecessors[-1]
+            if workflow_lisp_target
+            and retry_lineage is not None
+            and retry_lineage.failed_predecessors
             else None
         )
-        if isinstance(provisional_retry_frame_id, str):
-            frame_id = provisional_retry_frame_id
-        elif running_member is not None:
-            frame_id = running_member.frame_id
-        else:
-            frame_id = fresh_frame_id
+        resume_member = running_member or failed_resume_member
+        frame_id = resume_member.frame_id if resume_member is not None else fresh_frame_id
 
-        existing_frame = (
-            call_frames.get(frame_id)
-            if not force_fresh_workflow_lisp_retry
-            else None
-        )
+        existing_frame = call_frames.get(frame_id)
         child_existing_frame = (
             existing_frame
             if isinstance(existing_frame, dict)
@@ -1154,6 +1114,23 @@ class CallExecutor:
 
         if (
             self.executor.resume_mode
+            and workflow_lisp_target
+            and running_member is None
+            and failed_resume_member is not None
+        ):
+            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=failed_resume_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(failed_resume_member.frame),
+                expected_bound_inputs=bound_inputs,
+            )
+            if resume_bound_input_error is not None:
+                return resume_bound_input_error
+
+        if (
+            self.executor.resume_mode
             and not workflow_lisp_target
             and running_member is not None
         ):
@@ -1200,25 +1177,6 @@ class CallExecutor:
                         child_existing_frame
                     ),
                     self._resume_scope_path().child(frame_id),
-                )
-
-        if force_fresh_workflow_lisp_retry:
-            assert retry_lineage is not None
-            assert provisional_retry_frame_id is not None
-            try:
-                frame_id = self._allocate_retry_frame_id(
-                    retry_lineage,
-                    provisional_retry_frame_id,
-                    step_id=step_id,
-                    call_frames=call_frames,
-                    imported_workflow=imported_target,
-                )
-            except CallFrameRetryLineageError as exc:
-                return self.resume_state_invalid_result(
-                    step_name=step_name,
-                    call_alias=call_alias,
-                    frame_id=provisional_retry_frame_id,
-                    detail=exc.reason,
                 )
 
         child_state_manager = _CallFrameStateManager(

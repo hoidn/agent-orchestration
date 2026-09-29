@@ -321,6 +321,12 @@ def _parse_command_boundaries_manifest(
             bindings[name] = ExternalToolBinding(
                 name=name,
                 stable_command=stable_command,
+                must_not_repeat=_require_boolean_field(
+                    raw_entry.get("must_not_repeat", False),
+                    field_name="must_not_repeat",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
                 retirement_class=_require_optional_string_field(
                     raw_entry.get("retirement_class"),
                     field_name="retirement_class",
@@ -374,6 +380,12 @@ def _parse_command_boundaries_manifest(
             bindings[name] = CertifiedAdapterBinding(
                 name=name,
                 stable_command=stable_command,
+                must_not_repeat=_require_boolean_field(
+                    raw_entry.get("must_not_repeat", False),
+                    field_name="must_not_repeat",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
                 input_contract=_require_mapping_field(
                     raw_entry.get("input_contract", {}),
                     field_name="input_contract",
@@ -585,6 +597,26 @@ def _require_mapping_field(
             )
         )
     return dict(value)
+
+
+def _require_boolean_field(
+    value: object,
+    *,
+    field_name: str,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> bool:
+    if type(value) is not bool:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`{field_name}` for `{binding_name}` must be a boolean",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    return value
 
 
 def _require_string_field(
