@@ -762,7 +762,7 @@
       "copy_safety": "preferred_current_guidance",
       "entry_workflow": "generic_run_watchdog/watchdog::watchdog",
       "evidence": [
-        "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_compiles_with_exact_six_input_four_output_contract",
+        "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_compiles_with_exact_seven_input_four_output_contract",
         "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_both_branches_preserve_artifact_lineage",
         "tests/test_workflow_lisp_generic_run_watchdog.py::test_watchdog_orc_resume_reuses_provider_and_publishes_once"
       ],

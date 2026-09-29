@@ -198,7 +198,9 @@ def test_dry_run_accepts_the_shipped_watchdog(workspace: Path, caplog: pytest.Lo
         **{name: Path(f"{WATCHDOG_EXTERNS}.{name}.json") for name in ("providers", "prompts", "commands")},
     }
     inputs = workspace / "inputs.json"
-    inputs.write_text(json.dumps({"target_run_id": "no-such-run"}), encoding="utf-8")
+    inputs.write_text(
+        json.dumps({"target_run_id": "no-such-run", "target_workspace": "/no/such/workspace"}), encoding="utf-8"
+    )
 
     result = _dry_run(files, entry="generic_run_watchdog/watchdog::watchdog", input_file=inputs)
 

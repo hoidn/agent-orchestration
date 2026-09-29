@@ -148,7 +148,8 @@ def _prepare_watchdog_runtime_workspace(
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / relpath, destination)
 
-    target_state = workspace / ".orchestrate/runs/target-run/state.json"
+    target_workspace = workspace.with_name(f"{workspace.name}-target")
+    target_state = target_workspace / ".orchestrate/runs/target-run/state.json"
     target_state.parent.mkdir(parents=True, exist_ok=True)
     now = datetime.now(UTC).isoformat()
     target_state.write_text(
@@ -196,6 +197,7 @@ def _prepare_watchdog_runtime_workspace(
         contracts,
         {
             "target_run_id": "target-run",
+            "target_workspace": str(target_workspace),
             "state_root": "state/watchdog",
             "evidence_root": "artifacts/work/watchdog",
             "repair_result_target_path": "artifacts/work/watchdog/repair-result.json",
@@ -494,7 +496,7 @@ def _run_watchdog_retry_resume_scenario(workspace: Path) -> dict[str, object]:
     }
 
 
-def test_watchdog_orc_compiles_with_exact_six_input_four_output_contract() -> None:
+def test_watchdog_orc_compiles_with_exact_seven_input_four_output_contract() -> None:
     result = _compile_watchdog_orc()
     bundle = result.validated_bundles_by_name[ENTRY_WORKFLOW]
 
@@ -502,6 +504,7 @@ def test_watchdog_orc_compiles_with_exact_six_input_four_output_contract() -> No
     assert bundle.surface.name == ENTRY_WORKFLOW
     assert workflow_public_input_contracts(bundle) == {
         "target_run_id": {"kind": "scalar", "type": "string"},
+        "target_workspace": {"kind": "scalar", "type": "string"},
         "state_root": {
             "kind": "relpath",
             "type": "relpath",

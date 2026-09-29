@@ -145,6 +145,7 @@
 
   (defworkflow watchdog
     ((target_run_id String)
+     (target_workspace String)
      (state_root StateRoot :default "state/GENERIC-RUN-WATCHDOG")
      (evidence_root ArtifactRoot :default "artifacts/work/generic-run-watchdog")
      (repair_result_target_path ArtifactOutputPath
@@ -157,6 +158,7 @@
                :argv ("python"
                       "workflows/library/scripts/probe_orchestrator_run.py"
                       "--run-id" target_run_id
+                      "--target-workspace" target_workspace
                       "--output" "${inputs.state_root}/watch.json"
                       "--evidence-root" evidence_root
                       "--repair-result-target-path" repair_result_target_path
