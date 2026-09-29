@@ -752,7 +752,7 @@ filename or recency:
 
 | Example/fixture label | Meaning |
 | --- | --- |
-| `wcc_default` | Compiles and runs under the default WCC schema-2 route; copy-safe current guidance |
+| `wcc_default` | Compiles and runs under the default WCC schema-2 route. This is route evidence only; the registry row's `copy_safety` field says whether the example is copy-safe guidance |
 | `legacy_schema1_compat` | Exists to preserve or prove legacy schema-1 behavior; not current authoring guidance |
 | `historical_negative` | Kept as a negative or historical fixture; expected to fail or demonstrate retired behavior |
 | `migration_candidate` | Mid-migration; route and parity status tracked in migration records |

@@ -321,10 +321,12 @@ not survive as Python-side validation for any migrated form.
 This is the type-system delta for
 [Composition-First Procedures](workflow_lisp_composition_first.md).
 Status: implemented at target **2.33**, shared with the `std/improve` library
-module; the heading keeps its original anchor. No target up to 2.32 changes
-what it accepts: those targets reject `defunion :forall` and type applications,
-and the variant-field relaxation under "Constructors and compilation" applies
-at 2.33 only. [Versioning](../../specs/versioning.md) owns target admission.
+module; the heading keeps its original anchor. Admission is per defining
+module. A module below 2.33 that writes `defunion :forall` or a type
+application in its own source is rejected; it may still call a procedure
+defined in a 2.33 module. The variant-field relaxation under "Constructors
+and compilation" applies at 2.33 only.
+[Versioning](../../specs/versioning.md) owns target admission.
 The domain meaning and result variants remain owned by the composition design.
 
 ```lisp
@@ -372,9 +374,11 @@ The domain meaning and result variants remain owned by the composition design.
   declaration and type-use checks retain unresolved parameters as placeholders
   until specialization, then validate the concrete monomorphic body and
   descriptors before lowering. At target 2.33 a variant's record-typed field
-  may be filled from a bound name or field access, as in
-  `(variant Improvement[S F B] EXHAUSTED :value state.current)`; targets up to
-  2.32 keep rejecting that at compile time.
+  may be filled from a bound name or field access wherever the variant is
+  built, including a `loop/recur` result (`done` or `:on-exhausted`), as in
+  `(variant Improvement[S F B] EXHAUSTED :value state.current)`. Targets 2.29
+  to 2.32 reject that at compile time only in a loop result, and accept it
+  elsewhere. Targets below 2.29 reject it wherever the variant is built.
 - **Boundaries and diagnostics.** `provider-result :returns` may name an
   applied union such as `Decision[ReviewNotes ReviewBlocker]`. Its
   instantiated concrete descriptor is the provider's output contract; output
@@ -383,12 +387,26 @@ The domain meaning and result variants remain owned by the composition design.
   `variant_forbidden_field_present`, or `variant_field_type_invalid`, and no
   value reaches the caller. An ordinary adapter procedure converts a provider
   result with an existing concrete declaration into an instantiated union.
-  `defprompt` result declarations remain restricted to currently supported
-  concrete declarations; direct generic `defprompt` results require a
-  separately selected extension through this same type-system owner. Reject
-  wrong arity, recursive instantiation cycles, and actual payload shapes
-  unsupported at existing transport or descriptor boundaries. Diagnostics identify both the caller use and generic
-  declaration, retaining their source-map locations.
+  A `defprompt` whose result is an applied union compiles at 2.33, but it is
+  outside the supported contract and no test covers it; supporting it is a
+  separately selected extension through this same type-system owner.
+  Reject wrong arity, recursive instantiation cycles, and actual payload
+  shapes unsupported at existing transport or descriptor boundaries. The
+  generic-union diagnostic codes are:
+  - `generic_union_requires_dsl_2_33`: a module below 2.33 writes
+    `defunion :forall` or a type application;
+  - `generic_union_arity_mismatch`: an application has the wrong number of
+    type arguments;
+  - `generic_union_not_generic`: type arguments are applied to a union that is
+    not generic;
+  - `generic_union_unresolved_argument`: a type argument does not resolve to a
+    type in scope;
+  - `generic_union_instantiation_cycle`: a generic union is instantiated
+    recursively.
+
+  Each diagnostic points at the use and keeps its source-map location. All
+  but `generic_union_requires_dsl_2_33` also give the generic declaration's
+  location in a note.
 - **Minimum acceptance cases.** An unrelated `Outcome[T E]` union uses the same
   compiler path; an imported alias matches its origin while a same-short-name
   declaration from another module does not; nested applications in `ProcRef`

@@ -426,6 +426,7 @@
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
+      "notes": "Evidence for the target-2.33 generic-union and std/improve surface. wcc_default records its route only; it is not copy-safe authoring guidance.",
       "path": "workflows/examples/improve_experiment_proposal.orc",
       "readiness_label": "leaf_runtime_candidate",
       "route_label": "wcc_default",

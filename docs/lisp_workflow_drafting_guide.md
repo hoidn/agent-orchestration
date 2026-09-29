@@ -2378,16 +2378,18 @@ backlog-drain authoring.
 ### 13.7 `improve`
 
 At target 2.33, `improve` from `std/improve` runs a bounded review/revise loop
-and returns `Improvement[S F B]`: `APPROVED` (`value`, `evidence`), `BLOCKED`
-(`value`, `reason`), or `EXHAUSTED` (`value`). Its contract is in
+and returns `Improvement[S F B]`. `S` is the type of the candidate being
+revised, a record. `F` is the review's feedback type, and `B` is its blocker
+type. The result is `APPROVED` (`value`, `evidence`), `BLOCKED` (`value`,
+`reason`), or `EXHAUSTED` (`value`). Its contract is in
 [Composition-First Procedures](design/workflow_lisp_composition_first.md):
 §3 for `initial` and `inputs`, §4 for `limit`, §5 for the hooks, and §11 for
 limits. Whether a review loop is worth its calls is a separate question; see
 [Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
 
 Bind the result with `let*`, then `match` it. A call to `improve` written
-directly as the `match` scrutinee fails with `proc_ref_signature_invalid`.
-From the example below:
+directly as the `match` scrutinee is rejected (see
+[the rejection table](#improve-rejections)). From the example below:
 
 ```lisp
 (import std/improve :only (Decision improve))
@@ -2426,7 +2428,25 @@ python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
 A real run also needs `scripts/launch_experiment.py` in the workspace. It
 receives `--outcome`, `--note`, `--hypothesis`, and `--parameters` (the
 parameter list as JSON) and writes `{"status": ...}` to the file named by
-`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. `note` is `""` on `EXHAUSTED`.
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. `note` is `""` on `EXHAUSTED`. A real run
+calls providers inside a loop, so it is subject to the provider result
+delivery defects recorded as candidate work in the
+[roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#independent-work-and-successor).
+
+#### `improve` rejections
+
+Each case below fails at compile time. Most of these diagnostics point into
+`std/improve.orc`, not at the caller, so the table names the form each one
+points at.
+
+| Case | Code | Where it points |
+| --- | --- | --- |
+| `limit` is `0` or negative | `workflow_boundary_type_invalid` (`repeat_until.max_iterations must be > 0`) | `std/improve.orc`, the `:on-exhausted` line; a note gives the call site |
+| `limit` is a workflow parameter | `workflow_return_not_exportable` | `std/improve.orc`, the `loop/recur :max limit` line |
+| `inputs` is a `String` or `Int` literal | `workflow_signature_mismatch` | `std/improve.orc`, the `review` call |
+| the review hook is pure (it calls no command or provider) | `generic_union_unresolved_argument` | `std/improve.orc`, the `review` call; a note gives the call site |
+| the revise hook is pure | `type_unknown` | `std/improve.orc`, the `revise` call; a note gives the call site |
+| the call to `improve` is the `match` scrutinee | `proc_ref_signature_invalid` | the caller's first `proc-ref` argument |
 
 ## 14. Provider Prompt Guidance
 

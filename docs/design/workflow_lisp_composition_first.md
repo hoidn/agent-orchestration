@@ -1,10 +1,12 @@
 # Workflow Lisp Composition-First Procedures
 
-- **Status:** generic unions and `std/improve` (§§3–7) are implemented at
-  target 2.33; the reference module is
+- **Status:** generic unions and `std/improve` (§§3–6) are implemented at
+  target 2.33, with the effect behavior §7 describes for the period before
+  EL-1; the reference module is
   [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
-  and its limits are in §11. The §8 consumer migration is not implemented; the
-  roadmap owns its entry conditions.
+  and its limits are in §11. Not implemented: the EL-1 effect rules that §7
+  adopts, and the §8 consumer migration. The roadmap owns their entry
+  conditions.
 - **Kind:** language and standard-library architecture decision
 - **Owner:** Workflow Lisp frontend (parametric type system) and standard library
 - **Created:** 2026-09-28
@@ -40,8 +42,8 @@ The contract has two parts:
 Inference-default effects are EL-1's independent concern, not a prerequisite.
 A provider-backed hook may return an instantiated `Decision` directly from
 `provider-result :returns`, or convert an existing concrete result through a
-domain adapter (§5); direct generic `defprompt` results are a separate
-extension.
+domain adapter (§5). A `defprompt` whose result is an applied union compiles
+but is outside the supported contract (§5).
 
 Not in this design: a record wrapper around the legacy concrete result, a
 reserved final review, review counters, seeded evidence, snapshot or version
@@ -175,7 +177,10 @@ result declaration, such as a legacy `ReviewFindings.v1` review, uses an
 ordinary adapter procedure that converts that result into
 `Decision[MyFeedback MyBlocker]`. The conversion may be pure; the enclosing
 adapter is effectful when it calls a provider or validates external artifacts.
-Instantiated-union result declarations on `defprompt` are a separate extension.
+A `defprompt` whose result is an applied union, such as
+`-> Decision[MyFeedback MyBlocker]`, compiles at target 2.33. It is outside
+the supported contract, and no test covers it. `provider-result :returns` is
+the supported way to get an applied union from a provider.
 
 **Hooks.** `review` and `revise` are command- or provider-backed `defproc`s
 with `:lowering inline`, directly or through an adapter. A composite reviewer,
@@ -337,7 +342,10 @@ Limits stated in their own sections: `S is-record` (§3), `limit` (§4), hooks
 and `defprompt` results (§5), generic records and procedure type arguments
 (§6), and the effects of imported hooks (§7). The caller shape, including
 binding the result before `match`, is in the
-[drafting guide](../lisp_workflow_drafting_guide.md#137-improve).
+[drafting guide](../lisp_workflow_drafting_guide.md#137-improve). Its
+[rejection table](../lisp_workflow_drafting_guide.md#improve-rejections) lists
+the compile-time rejections a caller of `improve` may hit, with each
+diagnostic code and where it points.
 
 - Resume restores committed boundaries inside `improve`. Resume after a
   failure in a step downstream of `improve`'s result fails with
