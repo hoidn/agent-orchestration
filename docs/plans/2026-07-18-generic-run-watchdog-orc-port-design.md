@@ -34,6 +34,7 @@ The governing authorities are:
 | Name | Type | Default | Constraint |
 |---|---|---|---|
 | `target_run_id` | `String` | `required` | Passed unchanged to the probe; the adapter retains its existing run-id validation. |
+| `target_workspace` | `String` | `required` | Absolute path of the workspace where the target runs; it must hold `.orchestrate/runs/<target_run_id>` and must not be the watchdog's own workspace. The probe reads the target's state there, and the repair resumes the target there. |
 | `state_root` | `StateRoot` | `state/GENERIC-RUN-WATCHDOG` | Workspace relpath under `state`; generated watch and result targets stay beneath it. |
 | `evidence_root` | `ArtifactRoot` | `artifacts/work/generic-run-watchdog` | Workspace relpath under `artifacts/work`. |
 | `repair_result_target_path` | `ArtifactOutputPath` | `artifacts/work/generic-run-watchdog/repair-result.json` | Workspace relpath under `artifacts/work`; semantic compatibility target, not control authority. |
@@ -109,10 +110,14 @@ provider cannot return public `NO_ACTION`, `NOT_APPLICABLE`, or `NONE` because
 none of those values inhabits its declared result types. Publication
 exhaustively matches `RepairOutcome`. The `NO_ACTION` branch supplies
 deterministic `NO_ACTION`, `NOT_APPLICABLE`, `NONE`, and empty compatibility
-strings. The `REPAIR` branch exhaustively widens all three provider-only enums
-into their corresponding public `RepairStatus`, `FixComplexity`, and
-`RecoveryAction` members and passes the native typed artifact paths directly
-to the publisher without reopening `repair-result.json`.
+strings. The `REPAIR` branch widens all three provider-only enums into their
+corresponding public `RepairStatus`, `FixComplexity`, and `RecoveryAction`
+members by name: each provider-only member has the same name as its public
+counterpart, the branch passes the provider's values to the publisher, and the
+publisher checks each one against the public enum. Pure bindings that
+translate the values case by case are rejected by the pure-result replay
+index, a known defect. The branch passes the native typed artifact paths
+directly to the publisher without reopening `repair-result.json`.
 
 **Compiler-feasibility correction:** Workflow Lisp intentionally has no
 path-to-`String` coercion. A common normalized record could not represent both
@@ -141,7 +146,7 @@ provider reference and no family-specific compiler branch.
 | `probe` | Certified command boundary `probe_orchestrator_run` | `WatchProbe` | Read the target run store and clock, classify it, write operator evidence plus the `watch.json` compatibility mirror, and return the same validated control fields through the runtime-owned bundle. |
 | `no_action` | Pure Workflow Lisp branch | `RepairOutcome.NO_ACTION` | Selected only when `WatchProbe.repair_required == NO`; the provider is skipped and deterministic no-action values are constructed without reading a repair file. |
 | `repair` | Effectful closed provider branch | `RepairOutcome.REPAIR` | Selected only when `WatchProbe.repair_required == YES`; choose one compiler-known extern, return `ProviderRepairResult`, and wrap it without parsing provider prose or compatibility JSON. |
-| `publish` | Exhaustive `RepairOutcome` match plus certified command boundary `publish_run_watchdog_result` | `WatchdogOutput` | Invoke the same publisher in both branches: literals and empty strings for `NO_ACTION`, or widened enums plus native typed paths for `REPAIR`; validate fields, write the final compatibility result, and return the four typed fields through the runtime-owned bundle. |
+| `publish` | Exhaustive `RepairOutcome` match plus certified command boundary `publish_run_watchdog_result` | `WatchdogOutput` | Invoke the same publisher in both branches: literals and empty strings for `NO_ACTION`, or the provider's enum values, checked by the publisher, plus native typed paths for `REPAIR`; validate fields, write the final compatibility result, and return the four typed fields through the runtime-owned bundle. |
 
 The entry workflow therefore has this fixed sequence:
 
@@ -229,7 +234,7 @@ watchdog run, not mutation of an already committed probe boundary.
 | `provider_retry` | Repair-required probe followed by one retryable provider failure | `2 attempts in one branch` | First attempt publishes nothing; retry captures a fresh dependency snapshot and only the validated successful typed result reaches publication. |
 | `completed_resume` | Interrupt after committed repair provider result and before publication commit | `0 additional` | Resume reuses probe/provider checkpoints, performs one idempotent publication, and produces the same four outputs and semantic result. |
 
-Migration parity must additionally prove the exact six inputs/four outputs,
+Migration parity must additionally prove the exact seven inputs/four outputs,
 both provider profiles, probe and publication command boundaries, the prompt
 dependency metadata, required compile artifacts, and non-regression against
 the frozen YAML characterization. Compile or dry-run success alone is not a

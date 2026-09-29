@@ -4495,6 +4495,11 @@ not know.
 - `core_ast_invalid`
 - `semantic_ir_invalid`
 - `executable_ir_invalid`
+- `compiler_defect`: an internal exception raised after typecheck by
+  elaboration, normalization, defunctionalization or lowering, reported at the
+  authored form being handled; the internal checks
+  `compiler_defect_loop_control_value`, `compiler_defect_hoisted_binding_rename`
+  and `compiler_defect_constructor_type_dropped` have codes of their own
 
 ## 73. Existing v2.14 Errors Reused
 

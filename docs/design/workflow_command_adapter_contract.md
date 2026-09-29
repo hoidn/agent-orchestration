@@ -96,8 +96,10 @@ Resume runs a command again when no committed result is available, regardless
 of whether the prior visit failed or was interrupted. This at-least-once rule
 does not claim that a failed command left the external world unchanged. A
 boundary declared `must_not_repeat: true` instead stops resume at that command
-with `lexical_restore_pending_effect_unsafe` and its validated source location.
-A validated committed command result is reused and never dispatched again.
+with `lexical_restore_pending_effect_unsafe` and its validated source location;
+inside a called workflow the refusal has no location yet, a known defect
+recorded in `specs/state.md`. A validated committed command result is reused
+and never dispatched again.
 
 ## Certified Command Adapter
 
