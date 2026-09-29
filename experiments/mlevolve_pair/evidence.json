@@ -1,0 +1,908 @@
+{
+  "limits": {
+    "concurrency": "not measured; this comparison is sequential",
+    "history": "typed trial list is controller state; the proposal leaf receives its scalar length",
+    "provider_evidence": "scripted deterministic leaves only",
+    "python_recovery": "not implemented in this specimen"
+  },
+  "orc": {
+    "compile_ms": 2839.2083067446947,
+    "diagnostic": {
+      "diagnostics": [
+        {
+          "authority_layer": "frontend",
+          "code": "pure_expr_payload_too_large",
+          "column": 23,
+          "diagnostic_kind": "validation",
+          "expansion_stack": [],
+          "form_path": [
+            "workflow-lisp",
+            "defworkflow",
+            "run-search"
+          ],
+          "line": 118,
+          "message": "pure-expression payload exceeds the maximum node count",
+          "notes": [],
+          "path": "/tmp/mlevolve-orc-4g7pc31w/experiments/mlevolve_pair/search.orc",
+          "phase": "lowering",
+          "severity": "error",
+          "validation_pass": "lowering_surface"
+        }
+      ],
+      "schema_version": "workflow_lisp_compile_diagnostics.v1",
+      "status": "rejected"
+    },
+    "returncode": 2,
+    "run": {
+      "status": "not_run_compile_failed"
+    },
+    "status": "compile_failed"
+  },
+  "python_runs": [
+    {
+      "budget": 3,
+      "direct": {
+        "candidate": {
+          "a": 0,
+          "b": 1
+        },
+        "evaluation": {
+          "error": "",
+          "score": 176.0,
+          "valid": true
+        },
+        "evaluations": 3,
+        "status": "budget_exhausted",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          }
+        ]
+      },
+      "direct_ms": 0.04441104829311371,
+      "same": true,
+      "subprocess": {
+        "candidate": {
+          "a": 0,
+          "b": 1
+        },
+        "evaluation": {
+          "error": "",
+          "score": 176.0,
+          "valid": true
+        },
+        "evaluations": 3,
+        "status": "budget_exhausted",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          }
+        ]
+      },
+      "subprocess_ms": 141.95017702877522
+    },
+    {
+      "budget": 7,
+      "direct": {
+        "candidate": {
+          "a": 0,
+          "b": 3
+        },
+        "evaluation": {
+          "error": "",
+          "score": 40.0,
+          "valid": true
+        },
+        "evaluations": 7,
+        "status": "budget_exhausted",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "repair",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 99,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 1
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          }
+        ]
+      },
+      "direct_ms": 0.061030033975839615,
+      "same": true,
+      "subprocess": {
+        "candidate": {
+          "a": 0,
+          "b": 3
+        },
+        "evaluation": {
+          "error": "",
+          "score": 40.0,
+          "valid": true
+        },
+        "evaluations": 7,
+        "status": "budget_exhausted",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "repair",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 99,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 1
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          }
+        ]
+      },
+      "subprocess_ms": 383.7597877718508
+    },
+    {
+      "budget": 12,
+      "direct": {
+        "candidate": {
+          "a": 2,
+          "b": 3
+        },
+        "evaluation": {
+          "error": "",
+          "score": 0.0,
+          "valid": true
+        },
+        "evaluations": 10,
+        "status": "solved",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "repair",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 99,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 1
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "fuse",
+            "branch": "both",
+            "candidate": {
+              "a": 2,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 0.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              },
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          }
+        ]
+      },
+      "direct_ms": 0.07863109931349754,
+      "same": true,
+      "subprocess": {
+        "candidate": {
+          "a": 2,
+          "b": 3
+        },
+        "evaluation": {
+          "error": "",
+          "score": 0.0,
+          "valid": true
+        },
+        "evaluations": 10,
+        "status": "solved",
+        "trace": [
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "A",
+            "candidate": {
+              "a": 1,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 316.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": true,
+            "action": "seed",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 1
+            },
+            "evaluation": {
+              "error": "",
+              "score": 176.0,
+              "valid": true
+            },
+            "parents": []
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 99,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "coefficient_out_of_domain",
+              "score": 0.0,
+              "valid": false
+            },
+            "parents": [
+              {
+                "a": 1,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "repair",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 99,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 1
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "A",
+            "candidate": {
+              "a": 2,
+              "b": 0
+            },
+            "evaluation": {
+              "error": "",
+              "score": 306.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              }
+            ]
+          },
+          {
+            "accepted": false,
+            "action": "improve",
+            "branch": "B",
+            "candidate": {
+              "a": 0,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 40.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          },
+          {
+            "accepted": true,
+            "action": "fuse",
+            "branch": "both",
+            "candidate": {
+              "a": 2,
+              "b": 3
+            },
+            "evaluation": {
+              "error": "",
+              "score": 0.0,
+              "valid": true
+            },
+            "parents": [
+              {
+                "a": 2,
+                "b": 0
+              },
+              {
+                "a": 0,
+                "b": 3
+              }
+            ]
+          }
+        ]
+      },
+      "subprocess_ms": 567.9177879355848
+    }
+  ],
+  "schema_version": "mlevolve_pair_evidence.v1",
+  "source_lines": {
+    "command_config": 51,
+    "harness_and_tests": 277,
+    "orc_controller": 239,
+    "python_controller": 128,
+    "shared_leaves": 86
+  },
+  "working_directory": "/home/ollie/Documents/agent-orchestration/.worktrees/mlevolve-orc-python"
+}

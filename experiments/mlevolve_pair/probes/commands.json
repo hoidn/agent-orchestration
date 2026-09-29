@@ -1,0 +1,6 @@
+{
+  "emit": {
+    "kind": "external_tool",
+    "stable_command": ["python", "experiments/mlevolve_pair/probes/missing_bundle.py"]
+  }
+}

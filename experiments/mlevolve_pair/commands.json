@@ -1,0 +1,51 @@
+{
+  "propose_candidate": {
+    "kind": "certified_adapter",
+    "stable_command": ["python", "experiments/mlevolve_pair/leaves.py", "proposal"],
+    "input_contract": {"type": "object"},
+    "output_type_name": "Candidate",
+    "effects": ["structured_result"],
+    "path_safety": {"kind": "workspace_relpath"},
+    "source_map_behavior": "step",
+    "fixture_ids": ["mlevolve_pair_proposal"],
+    "negative_fixture_ids": ["mlevolve_pair_proposal_invalid"],
+    "behavior_class": "structured_result",
+    "input_signature": [
+      {"name": "operation", "type_name": "String", "required": true, "transport_key": "operation"},
+      {"name": "branch", "type_name": "String", "required": true, "transport_key": "branch"},
+      {"name": "candidate_a", "type_name": "Int", "required": true, "transport_key": "candidate_a"},
+      {"name": "candidate_b", "type_name": "Int", "required": true, "transport_key": "candidate_b"},
+      {"name": "other_a", "type_name": "Int", "required": true, "transport_key": "other_a"},
+      {"name": "other_b", "type_name": "Int", "required": true, "transport_key": "other_b"},
+      {"name": "history_size", "type_name": "Int", "required": true, "transport_key": "history_size"}
+    ],
+    "artifact_contracts": ["mlevolve_candidate_bundle"],
+    "state_writes": [],
+    "error_codes": ["mlevolve_proposal_invalid"],
+    "owner_module": "mlevolve_pair/search",
+    "replacement_path": null,
+    "invocation_protocol": "json_object_positional_arg"
+  },
+  "evaluate_candidate": {
+    "kind": "certified_adapter",
+    "stable_command": ["python", "experiments/mlevolve_pair/leaves.py", "evaluate"],
+    "input_contract": {"type": "object"},
+    "output_type_name": "Evaluation",
+    "effects": ["structured_result"],
+    "path_safety": {"kind": "workspace_relpath"},
+    "source_map_behavior": "step",
+    "fixture_ids": ["mlevolve_pair_score"],
+    "negative_fixture_ids": ["mlevolve_pair_score_invalid"],
+    "behavior_class": "structured_result",
+    "input_signature": [
+      {"name": "a", "type_name": "Int", "required": true, "transport_key": "a"},
+      {"name": "b", "type_name": "Int", "required": true, "transport_key": "b"}
+    ],
+    "artifact_contracts": ["mlevolve_evaluation_bundle"],
+    "state_writes": [],
+    "error_codes": ["mlevolve_candidate_invalid"],
+    "owner_module": "mlevolve_pair/search",
+    "replacement_path": null,
+    "invocation_protocol": "json_object_positional_arg"
+  }
+}
