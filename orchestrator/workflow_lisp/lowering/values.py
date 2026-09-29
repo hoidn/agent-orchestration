@@ -29,7 +29,7 @@ from ..expressions import (
     WorkflowRefLiteralExpr,
 )
 from ..procedures import TypedProcedureDef
-from ..syntax import target_dsl_supports_rich_loop_values
+from ..syntax import target_dsl_supports_generic_unions, target_dsl_supports_rich_loop_values
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from .context import _compile_error, _LoweringContext, _TerminalResult
@@ -127,8 +127,9 @@ def _union_variant_materialize_source(
     *,
     field_path: tuple[str, ...],
     local_values: Mapping[str, Any],
+    bound_record_fields: bool,
 ) -> dict[str, Any]:
-    leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+    leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path, bound_record_fields=bound_record_fields)
     leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
     if isinstance(leaf_value, LiteralExpr):
         return {"literal": leaf_value.value}
@@ -851,8 +852,17 @@ def _normalize_union_field_path(field_path: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: tuple[str, ...]) -> Any:
-    """Read a field from one compiler-generated union variant literal."""
+def _union_variant_expr_value_at_path(
+    union_expr: UnionVariantExpr,
+    field_path: tuple[str, ...],
+    *,
+    bound_record_fields: bool = False,
+) -> Any:
+    """Read a field from one compiler-generated union variant literal.
+
+    `bound_record_fields` (target 2.33+) lets a nested record field populated
+    from a bound name lower as a field access; older targets reject it.
+    """
 
     field_path = _normalize_union_field_path(field_path)
     if not field_path:
@@ -873,7 +883,7 @@ def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: 
             return current_value
         if isinstance(current_value, (RecordExpr, UnionVariantExpr)):
             return _record_expr_value_at_path(current_value, field_path[1:])
-        if isinstance(current_value, NameExpr):
+        if bound_record_fields and isinstance(current_value, NameExpr):
             # A nested record populated from a bound value: read the leaf
             # through the same field access an author would write.
             return FieldAccessExpr(
@@ -883,7 +893,7 @@ def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: 
                 form_path=current_value.form_path,
                 expansion_stack=current_value.expansion_stack,
             )
-        if isinstance(current_value, FieldAccessExpr):
+        if bound_record_fields and isinstance(current_value, FieldAccessExpr):
             return replace(current_value, fields=current_value.fields + field_path[1:])
         raise _value_compile_error(
             code="workflow_return_not_exportable",
@@ -1072,7 +1082,12 @@ def _inline_expr_field_value(
             return _phase_target_inline_ref(value, context=context)
         return _resolve_inline_expr_value(value, local_values=local_values)
     if isinstance(expr, UnionVariantExpr):
-        value = _union_variant_expr_value_at_path(expr, field_path)
+        value = _union_variant_expr_value_at_path(
+            expr,
+            field_path,
+            bound_record_fields=context is not None
+            and target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
+        )
         if isinstance(value, PhaseTargetExpr) and context is not None:
             return _phase_target_inline_ref(value, context=context)
         return _resolve_inline_expr_value(value, local_values=local_values)
@@ -1225,7 +1240,11 @@ def _lower_union_variant_expr(
             if field_name == "variant":
                 source = {"literal": union_expr.variant_name}
             elif field_name in active_field_names:
-                leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+                leaf_expr = _union_variant_expr_value_at_path(
+                    union_expr,
+                    field_path,
+                    bound_record_fields=target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
+                )
                 leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
                 if isinstance(leaf_value, LiteralExpr):
                     source = {"literal": leaf_value.value}
@@ -1289,6 +1308,7 @@ def _lower_union_variant_expr(
     )
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = allocation.concrete_path_template
+    bound_record_fields = target_dsl_supports_generic_unions(context.type_env.target_dsl_version)
     values: list[dict[str, Any]] = []
     values.append(
         {
@@ -1305,6 +1325,7 @@ def _lower_union_variant_expr(
                     union_expr,
                     field_path=(field["name"],),
                     local_values=local_values,
+                    bound_record_fields=bound_record_fields,
                 ),
                 "contract": _surface_contract_from_structured_field(field),
             }
@@ -1317,6 +1338,7 @@ def _lower_union_variant_expr(
                     union_expr,
                     field_path=(field["name"],),
                     local_values=local_values,
+                    bound_record_fields=bound_record_fields,
                 ),
                 "contract": _surface_contract_from_structured_field(field),
             }

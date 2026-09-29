@@ -803,6 +803,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             expr,
             return_type_ref=return_type_ref,
             local_values=local_values,
+            target_dsl_version=type_env.target_dsl_version,
         )
     return False
 
@@ -906,6 +907,7 @@ def _union_variant_outputs_are_step_backed(
     *,
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
+    target_dsl_version: str | None,
 ) -> bool:
     """Return whether one union variant can lower through a private workflow seam."""
 
@@ -925,7 +927,11 @@ def _union_variant_outputs_are_step_backed(
         field_name = field_path[0] if field_path else ""
         if field_name != "variant" and field_name not in active_field_names:
             continue
-        value = _union_variant_expr_value_at_path(union_expr, field_path)
+        value = _union_variant_expr_value_at_path(
+            union_expr,
+            field_path,
+            bound_record_fields=target_dsl_supports_generic_unions(target_dsl_version),
+        )
         source_ref = _render_existing_output_ref(value, local_values=local_values)
         if source_ref is not None and source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
             continue

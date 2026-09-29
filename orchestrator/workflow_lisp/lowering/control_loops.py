@@ -41,6 +41,7 @@ from ..loops import (
     projection_relpath_fields,
 )
 from ..syntax import (
+    target_dsl_supports_generic_unions,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_rich_loop_values,
 )
@@ -657,6 +658,9 @@ def _emit_repeat_until_from_emitter_input(
                                 expr,
                                 variant_name=variant.name,
                                 target_dsl_version=context.type_env.target_dsl_version,
+                            ),
+                            bound_record_fields=target_dsl_supports_generic_unions(
+                                context.type_env.target_dsl_version
                             ),
                         )
                         or f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
@@ -2239,7 +2243,11 @@ def _loop_projection_materialize_values(
                 if field.contract_definition.get("type") in {"path", "relpath"} and isinstance(
                     expr, UnionVariantExpr
                 ):
-                    field_expr = _union_variant_expr_value_at_path(expr, relative_path)
+                    field_expr = _union_variant_expr_value_at_path(
+                        expr,
+                        relative_path,
+                        bound_record_fields=target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
+                    )
                     context.generated_path_spans.setdefault(
                         f"{context.step_name_prefix}.{field.generated_name}",
                         _origin_from_context_source(context, field_expr),
@@ -2548,13 +2556,18 @@ def _loop_on_exhausted_structured_ancestor_path(
     return None
 
 
-def _loop_on_exhausted_expr_at_path(expr: Any, field_path: tuple[str, ...]) -> Any | None:
+def _loop_on_exhausted_expr_at_path(
+    expr: Any,
+    field_path: tuple[str, ...],
+    *,
+    bound_record_fields: bool = False,
+) -> Any | None:
     if isinstance(expr, RecordExpr):
         if not field_path:
             return expr
         return _record_expr_value_at_path(expr, field_path)
     if isinstance(expr, UnionVariantExpr):
-        return _union_variant_expr_value_at_path(expr, field_path)
+        return _union_variant_expr_value_at_path(expr, field_path, bound_record_fields=bound_record_fields)
     if not field_path:
         return expr
     return None
@@ -2654,6 +2667,7 @@ def _record_loop_on_exhausted_origins(
             field_expr = _loop_on_exhausted_expr_at_path(
                 on_exhausted,
                 field.source_path[1:],
+                bound_record_fields=target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
             )
         except LispFrontendCompileError:
             if not target_dsl_supports_rich_loop_values(context.type_env.target_dsl_version):
@@ -2714,13 +2728,18 @@ def _loop_result_case_output_ref(
     variant_name: str,
     field_path: tuple[str, ...],
     allow_exhaustion_state_ref: bool,
+    bound_record_fields: bool,
 ) -> str | None:
     if not allow_exhaustion_state_ref:
         return None
     on_exhausted = loop_expr.on_exhausted_result_expr
     if not isinstance(on_exhausted, UnionVariantExpr) or on_exhausted.variant_name != variant_name:
         return None
-    field_value = _union_variant_expr_value_at_path(on_exhausted, field_path)
+    field_value = _union_variant_expr_value_at_path(
+        on_exhausted,
+        field_path,
+        bound_record_fields=bound_record_fields,
+    )
     if not isinstance(field_value, FieldAccessExpr):
         return None
     if not isinstance(field_value.base, NameExpr) or field_value.base.name != loop_expr.binding_name:
