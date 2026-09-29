@@ -14,7 +14,7 @@ from typing import Any, cast
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
 from ..compiler_session import LoweringSessionState
 from ..conditionals import PureExprCondition, render_condition_predicate
-from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..expression_traversal import free_expr_names, iter_child_exprs, map_expr
 from ..expressions import (
     CallExpr,
@@ -628,6 +628,7 @@ def _lower_wcc_workflow_definitions(
     return tuple(ordered)
 
 
+@records_defect_provenance("lowering")
 def _lower_one_wcc_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
@@ -2114,6 +2115,7 @@ def _loop_back_edge_checkpoint_point_payload(
     return MappingProxyType(payload)
 
 
+@records_defect_provenance("defunctionalization")
 def _defunctionalize_body(
     body: WccBody,
     *,

@@ -323,11 +323,11 @@ def test_an_effectful_control_value_bound_in_a_loop_body_is_a_located_compiler_d
     )
 
 
-@pytest.mark.parametrize(("shape", "exit_code"), [("if-field", 1), ("if-bound", 2), ("match-field", 1), ("match-bound", 1)])
+@pytest.mark.parametrize("shape", list(BRANCH_FORMS))
 def test_target_232_keeps_the_failure_of_an_effectful_control_value_in_a_loop_body(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, shape: str, exit_code: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, shape: str
 ) -> None:
-    """Base behaviour at 2.32 is an internal exception, so only the public outcome is asserted."""
+    """Base behaviour at 2.32 is an internal exception, reported as `compiler_defect` since Task 13."""
 
     continue_form, _ = BRANCH_FORMS[shape]
     body = BRANCH_LOOP.replace("CONTINUE", continue_form)
@@ -336,4 +336,7 @@ def test_target_232_keeps_the_failure_of_an_effectful_control_value_in_a_loop_bo
     with caplog.at_level(logging.ERROR):
         outcome = _run(tmp_path, monkeypatch, probes)
 
-    assert (outcome, "compiler_defect_loop_control_value" in caplog.text) == ((exit_code, {}, ([], [], [])), False)
+    assert (outcome, [code for _, _, code in _DIAGNOSTIC.findall(caplog.text)]) == (
+        (2, {}, ([], [], [])),
+        ["compiler_defect"],
+    )

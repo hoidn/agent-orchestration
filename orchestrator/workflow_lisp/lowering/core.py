@@ -70,6 +70,7 @@ from ..contracts import (
 from ..diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
+    records_defect_provenance,
     with_diagnostic_metadata,
 )
 from ..expressions import (
@@ -996,6 +997,7 @@ def _normalized_public_result_guidance(
     )
 
 
+@records_defect_provenance("lowering")
 def _lower_one_workflow(
     typed_workflow: TypedWorkflowDef,
     *,

@@ -327,41 +327,40 @@ class Defect:
 # The cell typechecks, or is wrongly rejected by typecheck, and then fails: (form, position)
 # -> the first defect it reaches. A comment names the defect found under it, where one was
 # found by running the `let*`-bound form of the cell. Deleting a line declares the cell working.
-# The `TypeError` cells become exit 2 with code `compiler_defect` when internal exceptions
-# after typecheck are reported as diagnostics (plan Task 13): only their exit code and kind change.
+# An internal exception after typecheck is reported as exit 2 with code `compiler_defect`.
 KNOWN_DEFECTS = {
     ("plain-variant", "match-subject"): Defect("subject-producer", 2, "workflow_return_not_exportable", "defunctionalization"),
     ("plain-variant", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
-    ("plain-variant", "loop-state-field"): Defect("loop-state-union", 1, "TypeError", "lowering"),
+    ("plain-variant", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
     ("plain-variant", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("generic-variant", "match-subject"): Defect("subject-producer", 2, "workflow_return_not_exportable", "defunctionalization"),
     ("generic-variant", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
-    ("generic-variant", "loop-state-field"): Defect("loop-state-union", 1, "TypeError", "lowering"),
+    ("generic-variant", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
     ("generic-variant", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("defun-call", "match-subject"): Defect("subject-producer", 2, "wcc_lowering_route_unsupported", "defunctionalization"),
     ("defun-call", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
-    ("defun-call", "loop-state-field"): Defect("loop-state-union", 1, "TypeError", "lowering"),
+    ("defun-call", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
     ("defun-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("defun-call", "match-arm-result"): Defect("replay-frame-scope", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("pure-proc-call", "match-subject"): Defect("subject-producer", 2, "wcc_lowering_route_unsupported", "defunctionalization"),
     ("pure-proc-call", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
-    ("pure-proc-call", "loop-state-field"): Defect("loop-state-union", 1, "TypeError", "lowering"),
+    ("pure-proc-call", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
     ("pure-proc-call", "on-exhausted-value"): Defect("on-exhausted-call-edge", 2, "loop_recur_contract_invalid", "typecheck"),
     ("pure-proc-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("pure-proc-call", "match-arm-result"): Defect("replay-frame-scope", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("command-call", "loop-state-field"): Defect("loop-call-argument", 2, "workflow_signature_mismatch", "lowering"),
-    ("command-call", "done-value"): Defect("done-call", 1, "TypeError", "elaboration"),  # then loop-call-argument
+    ("command-call", "done-value"): Defect("done-call", 2, "compiler_defect", "elaboration"),  # then loop-call-argument
     ("command-call-field", "loop-state-field"): Defect("loop-call-argument", 2, "workflow_signature_mismatch", "lowering"),
-    ("command-call-field", "done-value"): Defect("done-call", 1, "TypeError", "elaboration"),
-    ("imported-wrapper-call", "loop-state-field"): Defect("loop-state-union", 1, "TypeError", "lowering"),  # then loop-call-argument
-    ("imported-wrapper-call", "done-value"): Defect("done-call", 1, "TypeError", "elaboration"),  # then loop-call-argument
+    ("command-call-field", "done-value"): Defect("done-call", 2, "compiler_defect", "elaboration"),
+    ("imported-wrapper-call", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),  # then loop-call-argument
+    ("imported-wrapper-call", "done-value"): Defect("done-call", 2, "compiler_defect", "elaboration"),  # then loop-call-argument
     ("imported-wrapper-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("generic-hook-call", "loop-state-field"): Defect("continue-typed-state", 2, "proc_ref_signature_invalid", "specialization"),  # then loop-state-union
-    ("generic-hook-call", "done-value"): Defect("done-call", 1, "TypeError", "elaboration"),  # then output resolution fails at run time
+    ("generic-hook-call", "done-value"): Defect("done-call", 2, "compiler_defect", "elaboration"),  # then output resolution fails at run time
     ("generic-hook-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("pure-match", "variant-field"): Defect("d", 2, "pure_result_replay_unavailable", "replay index at run start"),
-    ("pure-match", "loop-state-field"): Defect("loop-state-match", 1, "TypeError", "lowering"),
-    ("pure-match", "done-value"): Defect("done-match", 1, "TypeError", "elaboration"),  # then on-exhausted-match
+    ("pure-match", "loop-state-field"): Defect("loop-state-match", 2, "compiler_defect", "lowering"),
+    ("pure-match", "done-value"): Defect("done-match", 2, "compiler_defect", "elaboration"),  # then on-exhausted-match
     ("pure-match", "on-exhausted-value"): Defect("on-exhausted-match", 2, "workflow_return_not_exportable", "lowering"),
     ("pure-match", "procedure-argument"): Defect("d", 2, "pure_result_replay_unavailable", "replay index at run start"),
 }

@@ -23,7 +23,7 @@ from ..contracts import (
     derive_workflow_boundary_fields,
     root_workflow_boundary_field,
 )
-from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..expressions import (
     CompilerListNonemptyHeadExpr,
     EnumMemberExpr,
@@ -519,6 +519,7 @@ def _short_type_name(name: str) -> str:
     return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
+@records_defect_provenance("lowering")
 def _payload_expr(
     expr: Any,
     *,

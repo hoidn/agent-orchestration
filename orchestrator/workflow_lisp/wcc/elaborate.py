@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
 from ..conditionals import _contains_effect, classify_condition_expr, fold_pure_short_circuit
-from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import map_expr, walk_expr
 from ..expressions import (
@@ -1519,6 +1519,7 @@ def _phase_scope_from_expr(expr: WithPhaseExpr) -> WccPhaseScope:
     )
 
 
+@records_defect_provenance("elaboration")
 def _elaborate_expr_to_body(
     expr,
     *,
@@ -2576,6 +2577,7 @@ def _elaborate_control_binding_to_body(
     )
 
 
+@records_defect_provenance("elaboration")
 def _elaborate_expr_to_value(
     expr,
     *,

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import json
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -276,6 +278,8 @@ class LispFrontendDiagnostic:
     validation_pass: str | None = None
     authority_layer: str | None = None
     phased_delivery_diagnostic: PhasedDeliveryDiagnostic | None = None
+    # The internal exception behind a `compiler_defect` diagnostic, for debugging only.
+    cause: BaseException | None = field(default=None, compare=False, repr=False)
 
 
 class LispFrontendCompileError(Exception):
@@ -294,6 +298,82 @@ class LispFrontendCompileError(Exception):
             configuration_revision_conflict_paths
         )
         super().__init__(render_diagnostics(diagnostics))
+
+
+_DEFECT_PROVENANCE = "workflow_lisp_defect_provenance"
+
+
+def records_defect_provenance(stage: str) -> Callable[[Callable], Callable]:
+    """Decorate a dispatcher of a stage after typecheck; its first argument is the node it handles.
+
+    An exception escaping the dispatcher is tagged with `stage` and the node's authored
+    span and form path, unless a dispatcher nearer the raise site tagged it first, so
+    `compiler_defect_boundary` can locate the innermost authored form. A node without an
+    authored span (a plain value) leaves the tag to the enclosing dispatcher.
+    """
+
+    def decorate(dispatcher: Callable) -> Callable:
+        @functools.wraps(dispatcher)
+        def dispatch(node, *args, **kwargs):
+            try:
+                return dispatcher(node, *args, **kwargs)
+            except Exception as error:
+                location = None if hasattr(error, _DEFECT_PROVENANCE) else _authored_location(node)
+                if location is not None:
+                    setattr(error, _DEFECT_PROVENANCE, (stage, *location))
+                raise
+
+        return dispatch
+
+    return decorate
+
+
+def _authored_location(node: object) -> tuple[SourceSpan, tuple[str, ...]] | None:
+    """Span and form path of a surface or typed node, a typed definition, or a WCC node."""
+
+    for carrier in (node, getattr(node, "definition", None)):
+        if isinstance(getattr(carrier, "span", None), SourceSpan):
+            return carrier.span, tuple(getattr(carrier, "form_path", ()))
+    metadata = getattr(node, "metadata", None)
+    if isinstance(getattr(metadata, "source_span", None), SourceSpan):
+        return metadata.source_span, tuple(metadata.form_path)
+    return None
+
+
+@contextmanager
+def compiler_defect_boundary(module_path: Path) -> Iterator[None]:
+    """Report an internal exception raised after typecheck as one `compiler_defect` diagnostic.
+
+    Core calculus section 13.3: an elaboration, normalization, defunctionalization or
+    lowering failure on a typechecked program is a compiler defect. The diagnostic is at
+    the innermost node tagged by `records_defect_provenance`, else at the start of the
+    module, and keeps the exception as its `cause`. Diagnostics, assertion failures and
+    `MemoryError` pass unchanged; a `BaseException` that is not an `Exception` is never caught.
+    """
+
+    try:
+        yield
+    except (LispFrontendCompileError, AssertionError, MemoryError):
+        raise
+    except Exception as error:
+        module_start = SourcePosition(path=str(module_path), line=1, column=1, offset=0)
+        stage, span, form_path = getattr(
+            error,
+            _DEFECT_PROVENANCE,
+            ("lowering", SourceSpan(start=module_start, end=module_start), ("workflow-lisp",)),
+        )
+        diagnostic = LispFrontendDiagnostic(
+            code="compiler_defect",
+            message=(
+                f"the program passed typecheck, and {stage} failed on this form: this is a defect of "
+                f"the compiler, not of the program ({type(error).__name__}: {error})"
+            ),
+            span=span,
+            form_path=form_path,
+            phase="lowering",
+            cause=error,
+        )
+        raise LispFrontendCompileError((diagnostic,)) from error
 
 
 def render_diagnostic(diagnostic: LispFrontendDiagnostic) -> str:

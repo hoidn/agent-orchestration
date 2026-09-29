@@ -16,6 +16,7 @@ Effects are command-backed probes that append their argv to `<probe>.log`
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -282,8 +283,8 @@ def test_resume_after_the_first_committed_iteration_runs_no_committed_command_ag
     assert (state["status"], state["workflow_outputs"], _logs(probes)) == expected
 
 
-# Base behaviour at 2.32 is an internal exception (exit 1), so only the public
-# outcome is asserted: the exit code and that no command ran.
+# Base behaviour at 2.32 is an internal exception. Since Task 13 of the plan it is
+# reported as a `compiler_defect` diagnostic (exit 2), and no command runs.
 @pytest.mark.parametrize(
     ("body", "returns"),
     [
@@ -296,11 +297,14 @@ def test_resume_after_the_first_committed_iteration_runs_no_committed_command_ag
     ids=["loop-state-one-field", "loop-state-two-fields", "match-let-name", "match-let-call", "loop-match"],
 )
 def test_target_232_keeps_the_failure_it_has_at_the_base_commit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, returns: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, body: str, returns: str
 ) -> None:
     probes = _write_program(tmp_path, body=body, returns=returns, seed="draft", target="2.32")
 
-    assert _run(tmp_path, monkeypatch, probes) == (1, {}, ([], [], []))
+    with caplog.at_level(logging.ERROR):
+        outcome = _run(tmp_path, monkeypatch, probes)
+
+    assert (outcome, "[compiler_defect]" in caplog.text) == ((2, {}, ([], [], [])), True)
 
 
 # Admission is per defining module: a procedure defined at 2.33 is elaborated under
@@ -325,7 +329,7 @@ REFINED = (
     {"return__title": "draft+r+r+r", "return__score": 3},
     (["draft tidy", "draft+r tidy", "draft+r+r tidy"], ["draft tidy fb", "draft+r tidy fb", "draft+r+r tidy fb"], []),
 )
-NOTHING_RAN = (1, {}, ([], [], []))
+NOTHING_RAN = (2, {}, ([], [], []))  # a `compiler_defect` diagnostic (Task 13)
 
 
 def _write_cross_target_program(root: Path, *, entry_target: str, lib_target: str, entry_body: str) -> dict[str, Path]:
@@ -352,8 +356,17 @@ def _write_cross_target_program(root: Path, *, entry_target: str, lib_target: st
     ids=["2.32-entry-calls-a-2.33-definition", "2.33-entry-calls-a-2.32-definition", "2.32-entry-writes-the-forms"],
 )
 def test_the_forms_follow_the_target_of_the_module_that_defines_them(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_target: str, lib_target: str, entry_body: str, expected: tuple
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    entry_target: str,
+    lib_target: str,
+    entry_body: str,
+    expected: tuple,
 ) -> None:
     probes = _write_cross_target_program(tmp_path, entry_target=entry_target, lib_target=lib_target, entry_body=entry_body)
 
-    assert _run(tmp_path, monkeypatch, probes) == expected
+    with caplog.at_level(logging.ERROR):
+        outcome = _run(tmp_path, monkeypatch, probes)
+
+    assert (outcome, "[compiler_defect]" in caplog.text) == (expected, expected is NOTHING_RAN)

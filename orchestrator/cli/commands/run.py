@@ -573,6 +573,8 @@ def run_workflow(
         except LispFrontendCompileError as e:
             for diagnostic in e.diagnostics:
                 logger.error(render_diagnostic(diagnostic))
+                if diagnostic.cause is not None:
+                    logger.debug("internal exception behind this compiler defect", exc_info=diagnostic.cause)
             return _run_result(2)
         workflow = frontend_build.validated_bundle
         bundle = loaded_workflow_bundle(workflow)

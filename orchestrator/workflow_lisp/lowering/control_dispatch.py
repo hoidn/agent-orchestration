@@ -7,6 +7,7 @@ from typing import Any
 
 from ..compiler_session import LoweringSessionState
 from ..conditionals import classify_condition_expr, render_condition_predicate
+from ..diagnostics import records_defect_provenance
 from ..contracts import derive_workflow_boundary_fields
 from ..expressions import (
     BindProcExpr,
@@ -128,6 +129,7 @@ def _lower_finalize_selected_item(*args, **kwargs):
     return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
 
 
+@records_defect_provenance("lowering")
 def _lower_expression(
     typed_expr: TypedExpr,
     *,
@@ -444,6 +446,7 @@ def _normalize_let_binding(
     )
 
 
+@records_defect_provenance("lowering")
 def _lower_effectful_binding_expr(
     expr: Any,
     *,
