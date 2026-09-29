@@ -6,6 +6,7 @@ workflow executor: callers provide provenance and display settings explicitly,
 and this module never imports or reads executor or execution state.
 """
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -72,6 +73,17 @@ class CompiledFrontendIndex:
         self.step_origins_by_workflow = self._load_step_origins_by_workflow()
         self.step_origins = self._load_step_origins()
         self.command_boundaries = self._load_command_boundaries()
+
+    def for_workflow(self, workflow_name: str) -> "CompiledFrontendIndex":
+        """This index, resolving step names and ids among `workflow_name`'s steps.
+
+        A called workflow's bundle carries no source trace; its steps are
+        traced in the caller's build under the workflow's own name. The copy
+        shares this index's loaded tables.
+        """
+        scoped = copy.copy(self)
+        scoped.entry_workflow = workflow_name
+        return scoped
 
     def _load_source_trace_payload(
         self,
