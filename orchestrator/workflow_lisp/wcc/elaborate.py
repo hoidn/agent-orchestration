@@ -2196,15 +2196,15 @@ def _elaborate_let_star(
             )
 
         prefix, value = _body_to_prefix_and_value(binding_body)
-        if _at_2_33(type_env):
-            prefix, value = hoist_without_capture(
-                prefix,
-                value,
-                over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
-                scope=binding_scope,
-                value_env=local_env,
-                compile_time_bindings=local_compile_time_bindings,
-            )
+        # At every target: a correction of values, not of acceptance.
+        prefix, value = hoist_without_capture(
+            prefix,
+            value,
+            over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
+            scope=binding_scope,
+            value_env=local_env,
+            compile_time_bindings=local_compile_time_bindings,
+        )
         let_node = WccLet(
             metadata=local_scope.body_metadata(
                 role=f"let:{binding_name}",
@@ -2489,16 +2489,14 @@ def _elaborate_loop_recur_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    prefix = (*state_prefix, *budget_prefix)
-    if _at_2_33(type_env):
-        # The seed's and the budget's bindings run before the loop, whose body and
-        # exhaustion result are the source scope of the loop binder only.
-        prefix, (initial_state, budget) = hoist_parts_without_capture(
-            ((state_prefix, initial_state, state_scope), (budget_prefix, budget, budget_scope)),
-            over=((body, frozenset({expr.binding_name})), (exhaustion, frozenset({expr.binding_name}))),
-            value_env=value_env,
-            compile_time_bindings=compile_time_bindings,
-        )
+    # The seed's and the budget's bindings run before the loop, whose body and
+    # exhaustion result are the source scope of the loop binder only.
+    prefix, (initial_state, budget) = hoist_parts_without_capture(
+        ((state_prefix, initial_state, state_scope), (budget_prefix, budget, budget_scope)),
+        over=((body, frozenset({expr.binding_name})), (exhaustion, frozenset({expr.binding_name}))),
+        value_env=value_env,
+        compile_time_bindings=compile_time_bindings,
+    )
     rec_join = WccRecJoin(
         metadata=loop_scope.body_metadata(
             role=f"rec-join:{expr.binding_name}",
@@ -3017,9 +3015,9 @@ def _elaborate_operands_to_values(
 ) -> tuple[tuple[WccLet, ...], tuple[WccValue, ...]]:
     """Elaborate sibling operands, each in its scope, to one joined prefix and their values in order.
 
-    Every operand's bindings run before all the values. From target 2.33 a
-    binding that a later operand or an earlier value can see is renamed
-    (`hoist_parts_without_capture`); below 2.33 the prefixes are joined as they are.
+    Every operand's bindings run before all the values; a binding that a later
+    operand or an earlier value can see is renamed (`hoist_parts_without_capture`),
+    at every target.
     """
 
     parts = tuple(
@@ -3042,9 +3040,7 @@ def _elaborate_operands_to_values(
         )
         for operand, operand_scope in operands
     )
-    if _at_2_33(type_env):
-        return hoist_parts_without_capture(parts, value_env=value_env, compile_time_bindings=compile_time_bindings)
-    return tuple(let_node for prefix, _, _ in parts for let_node in prefix), tuple(value for _, value, _ in parts)
+    return hoist_parts_without_capture(parts, value_env=value_env, compile_time_bindings=compile_time_bindings)
 
 
 def _elaborate_if_to_value(
@@ -3955,16 +3951,15 @@ def _elaborate_effect_binding_to_body(
             active_phase_scope=active_phase_scope,
         )
         prebound_prefix, prebound_value = _body_to_prefix_and_value(prebound_body)
-        if _at_2_33(type_env):
-            # The argument's bindings run before the later arguments, the call and its continuation.
-            prebound_prefix, prebound_value = hoist_without_capture(
-                prebound_prefix,
-                prebound_value,
-                over=((current, frozenset({arg_name})),),
-                scope=prebound_scope,
-                value_env=value_env,
-                compile_time_bindings=compile_time_bindings,
-            )
+        # The argument's bindings run before the later arguments, the call and its continuation.
+        prebound_prefix, prebound_value = hoist_without_capture(
+            prebound_prefix,
+            prebound_value,
+            over=((current, frozenset({arg_name})),),
+            scope=prebound_scope,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
         current = WccLet(
             metadata=prebound_scope.body_metadata(
                 role=f"let:{arg_name}",

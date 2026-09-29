@@ -1,4 +1,9 @@
-"""Scope hygiene for bindings the elaborator hoists or generates (target 2.33).
+"""Scope hygiene for bindings the elaborator hoists or generates.
+
+Hoisted bindings are renamed at every target: a captured reference is a wrong
+value, and the owner's decision corrects wrong values in every version. Names
+are generated only for forms accepted from target 2.33 (effectful `loop-state`
+fields under `continue`).
 
 WCC binds by spelling (`WccLet.bound_name`); scope is the dominance of a
 `WccLet` over its body (design: workflow_lisp_core_calculus_middle_end.md
@@ -308,25 +313,27 @@ def hoist_parts_without_capture(
     `parts` are (prefix, value, scope) in authored order. The caller places
     every prefix, in order, before every value and before `over`, so part i's
     prefix is hoisted over the later parts, the earlier parts' values and
-    `over`. Returns the joined prefix and the values in order.
+    `over`. The earlier parts' prefixes count too: lowering resolves the free
+    names of a pure binding where the binding is used, which is after part i.
+    Returns the joined prefix and the values in order.
     """
 
-    prefix: list[WccLet] = []
-    values: list[WccValue] = []
-    for index, (part_prefix, part_value, part_scope) in enumerate(parts):
-        # A later part is a sequential scope of lets and a value, as a select arm is.
-        later = tuple((WccSelectArm(prefix=p, value=v), frozenset()) for p, v, _ in parts[index + 1 :])
+    # Each part is a sequential scope of lets and a value, as a select arm is. An
+    # earlier value also counts on its own: it reads its own prefix after part i's.
+    arms = [WccSelectArm(prefix=p, value=v) for p, v, _ in parts]
+    for index, (_, _, part_scope) in enumerate(parts):
+        arm = arms[index]
+        others = (*arms[:index], *(earlier.value for earlier in arms[:index]), *arms[index + 1 :])
         part_prefix, part_value = hoist_without_capture(
-            part_prefix,
-            part_value,
-            over=(*later, *((value, frozenset()) for value in values), *over),
+            arm.prefix,
+            arm.value,
+            over=(*((other, frozenset()) for other in others), *over),
             scope=part_scope,
             value_env=value_env,
             compile_time_bindings=compile_time_bindings,
         )
-        prefix.extend(part_prefix)
-        values.append(part_value)
-    return tuple(prefix), tuple(values)
+        arms[index] = WccSelectArm(prefix=part_prefix, value=part_value)
+    return tuple(let_node for arm in arms for let_node in arm.prefix), tuple(arm.value for arm in arms)
 
 
 def _rename(value: object, renamed: Mapping[str, WccNameAtom], *, at: WccLet) -> object:
