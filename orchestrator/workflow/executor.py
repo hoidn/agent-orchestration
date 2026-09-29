@@ -5119,6 +5119,7 @@ class WorkflowExecutor:
         ):
             return
         self._pending_interrupted_provider_rerun = None
+        self.state_manager.record_resume_diagnostic(context)
         self._emit_interrupted_provider_rerun(context)
 
     def _execute_step_loop(
@@ -5135,6 +5136,8 @@ class WorkflowExecutor:
 
         try:
             active_step_context: Dict[str, Any] = {}
+            default_resume_decision: Mapping[str, Any] | None = None
+            pending_effect_rerun: Mapping[str, Any] | None = None
             # Execute steps with control flow support
             if resume and getattr(self, "_active_human_input_resume", None) is None:
                 default_resume_decision = (
@@ -5143,6 +5146,7 @@ class WorkflowExecutor:
                         restart_node_id=resume_restart_node_id,
                     )
                 )
+                pending_effect_rerun = default_resume_decision.get("effect_rerun")
                 self._write_default_resume_report(default_resume_decision)
                 restore_decision = None
                 restore_kind = None
@@ -5192,18 +5196,22 @@ class WorkflowExecutor:
                     if restore_kind == "INVALID":
                         error_type = "lexical_restore_invalid"
                         error_message = "Lexical checkpoint restore candidate is invalid."
+                    resume_error_context = {
+                        "restart_node_id": resume_restart_node_id,
+                        "checkpoint_id": default_resume_decision.get("checkpoint_id"),
+                        "record_id": default_resume_decision.get("record_id"),
+                        "diagnostics": list(default_resume_decision.get("diagnostics", ()) or ()),
+                        "mode": default_resume_decision.get("mode"),
+                    }
+                    source_location = default_resume_decision.get("source_location")
+                    if isinstance(source_location, Mapping):
+                        resume_error_context["source_location"] = dict(source_location)
                     return _ExecuteStepLoopResult(
                         terminal_status,
                         self._fail_resume_state_integrity(
                             error_type,
                             error_message,
-                            {
-                                "restart_node_id": resume_restart_node_id,
-                                "checkpoint_id": default_resume_decision.get("checkpoint_id"),
-                                "record_id": default_resume_decision.get("record_id"),
-                                "diagnostics": list(default_resume_decision.get("diagnostics", ()) or ()),
-                                "mode": default_resume_decision.get("mode"),
-                            },
+                            resume_error_context,
                         ),
                     )
                 if (
@@ -5727,6 +5735,33 @@ class WorkflowExecutor:
                 self._arm_interrupted_provider_rerun(
                     interrupted_rerun_context
                 )
+                effect_rerun_kind = (
+                    pending_effect_rerun.get("effect_kind")
+                    if isinstance(pending_effect_rerun, Mapping)
+                    else None
+                )
+                reused_owner_visit = (
+                    effect_rerun_kind in {"run_ref", "trial"}
+                    and isinstance(pending_effect_rerun, Mapping)
+                    and pending_effect_rerun.get("discarded_visit") == visit_count
+                )
+                if (
+                    isinstance(pending_effect_rerun, Mapping)
+                    and pending_effect_rerun.get("step_id") == identity.step_id
+                    and (
+                        pending_effect_rerun.get("next_visit") == visit_count
+                        or reused_owner_visit
+                    )
+                ):
+                    if interrupted_rerun_context is None:
+                        dispatch_diagnostic = {
+                            **dict(pending_effect_rerun),
+                            "next_visit": visit_count,
+                        }
+                        self.state_manager.record_resume_diagnostic(
+                            dispatch_diagnostic
+                        )
+                    pending_effect_rerun = None
 
                 # Execute based on step type
                 with self._step_heartbeat(step_name):

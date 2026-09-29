@@ -83,6 +83,22 @@ Implementation forms:
 Migration decisions should be based on the behavior class. The implementation
 form determines urgency and enforcement severity.
 
+### Command rerun behavior
+
+Named `external_tool` and `certified_adapter` command boundaries may declare
+`must_not_repeat: true`. It is an exact JSON/Python boolean; strings and integer
+lookalikes are invalid. When omitted or false, the field is omitted from
+default binding, policy, and fingerprint payloads so existing artifacts keep
+their identity. A true declaration is included in command identity and the
+effect policy.
+
+Resume runs a command again when no committed result is available, regardless
+of whether the prior visit failed or was interrupted. This at-least-once rule
+does not claim that a failed command left the external world unchanged. A
+boundary declared `must_not_repeat: true` instead stops resume at that command
+with `lexical_restore_pending_effect_unsafe` and its validated source location.
+A validated committed command result is reused and never dispatched again.
+
 ## Certified Command Adapter
 
 A certified command adapter is a named command boundary that is allowed to

@@ -1778,14 +1778,21 @@ def _build_effect_resume_policy_payload(
     if step_kind == "command":
         payload = value.operation_payload if isinstance(value, WccPerform) else None
         adapter_name = None
+        command_name = None
         if isinstance(payload, LowerableCommandResult):
             adapter_name = payload.adapter_name
+            command_name = payload.step_name
         elif isinstance(payload, ResourceTransitionExpr) and payload.spec.mode != "declared_transition":
             adapter_name = "apply_resource_transition"
+            command_name = adapter_name
         elif isinstance(payload, Mapping):
+            command_name = value.target_name if isinstance(value, WccPerform) else None
             raw_adapter_name = payload.get("adapter_name")
             if isinstance(raw_adapter_name, str) and raw_adapter_name:
                 adapter_name = raw_adapter_name
+            raw_command_name = payload.get("step_name")
+            if isinstance(raw_command_name, str) and raw_command_name:
+                command_name = raw_command_name
         boundary_kind = step_kind
         evidence_requirements: dict[str, Any] = {
             "structured_output": {
@@ -1797,6 +1804,7 @@ def _build_effect_resume_policy_payload(
         }
         unsafe_pending_behavior = "fail_closed"
         policy_kind = "reuse_validated_structured_output"
+        must_not_repeat = False
         if adapter_name:
             boundary_kind = "certified_adapter"
             evidence_requirements["command_resume_protocol"] = {
@@ -1804,6 +1812,13 @@ def _build_effect_resume_policy_payload(
             }
             unsafe_pending_behavior = "requires_certified_resume_protocol"
             policy_kind = "certified_resume_protocol_required"
+        boundary_name = adapter_name or command_name
+        binding = (
+            context.command_boundary_environment.bindings_by_name.get(boundary_name)
+            if isinstance(boundary_name, str)
+            else None
+        )
+        must_not_repeat = getattr(binding, "must_not_repeat", False)
         return build_effect_resume_policy(
             policy_kind=policy_kind,
             effect_kind=step_kind,
@@ -1812,6 +1827,7 @@ def _build_effect_resume_policy_payload(
             source_map_origin_key=origin_key,
             evidence_requirements=evidence_requirements,
             unsafe_pending_behavior=unsafe_pending_behavior,
+            must_not_repeat=must_not_repeat,
         )
     if step_kind == "call":
         callee_workflow = None

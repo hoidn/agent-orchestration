@@ -341,6 +341,18 @@ class _CallFrameStateManager:
                 self.state.current_step = None
             self._persist()
 
+    def record_resume_diagnostic(self, diagnostic: Mapping[str, Any]) -> None:
+        """Append one diagnostic to this workflow's persisted frame state."""
+        if (
+            not isinstance(diagnostic, Mapping)
+            or not isinstance(diagnostic.get("diagnostic"), str)
+            or not diagnostic.get("diagnostic")
+        ):
+            raise ValueError("resume diagnostic is invalid")
+        with self._aggregate_state_mutation():
+            self.state.resume_diagnostics.append(deepcopy(dict(diagnostic)))
+            self._persist()
+
     def _refresh_state_chain_from_root(self) -> None:
         """Refresh every live call-frame manager after one root-owned commit."""
 

@@ -168,6 +168,62 @@ def test_interrupted_peer_group_at_least_once_does_not_claim_completed_same_visi
     assert guard is None
 
 
+def test_provider_group_checkpoint_reuses_only_an_exact_completed_visit() -> None:
+    from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+        _provider_group_result_relation,
+    )
+
+    point_payload = {
+        "effect_boundary": {"effect_kind": PEER_GROUP_KIND},
+        "presentation_key": "Peers",
+        "step_id": "root.peers",
+    }
+    state = {
+        "step_visits": {"Peers": 2},
+        "steps": {
+            "Peers": {
+                "status": "completed",
+                "step_id": "root.peers",
+                "visit_count": 2,
+            }
+        },
+    }
+    record = {"frame_identity": {"visit_count": 2}}
+
+    assert (
+        _provider_group_result_relation(
+            state=state,
+            point_payload=point_payload,
+            record=record,
+        )
+        == "committed"
+    )
+    assert (
+        _provider_group_result_relation(
+            state=state,
+            point_payload=point_payload,
+            record={"frame_identity": {"visit_count": 1}},
+        )
+        == "pending"
+    )
+    assert (
+        _provider_group_result_relation(
+            state={
+                **state,
+                "steps": {
+                    "Peers": {
+                        **state["steps"]["Peers"],
+                        "status": "failed",
+                    }
+                },
+            },
+            point_payload=point_payload,
+            record=record,
+        )
+        == "pending"
+    )
+
+
 def test_interrupted_peer_group_at_least_once_projection_mismatch_is_integrity_error_before_launch(
 ) -> None:
     state = _running_peer_group_state()
@@ -662,6 +718,15 @@ def test_interrupted_peer_group_visit_reruns_fresh_members(
 
     fresh_state = manager.load()
     assert fresh_state.status == "completed"
+    assert fresh_state.to_dict()["resume_diagnostics"] == [
+        {
+            "diagnostic": "provider_attempt_interrupted_rerun",
+            "family": "peer_group",
+            "step_id": step_id,
+            "discarded_visit": 1,
+            "next_visit": 2,
+        }
+    ]
     assert fresh_state.steps[step_name]["status"] == "completed"
     assert fresh_state.steps[step_name]["visit_count"] == 2
     assert fresh_state.steps[step_name]["artifacts"] == {

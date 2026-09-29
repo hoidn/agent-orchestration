@@ -40,6 +40,10 @@
     - provider interruption recovery is not a run-level failure; a validated
       in-flight visit is discarded and re-run under the at-least-once contract
       below
+  - `resume_diagnostics`: optional additive array of bounded diagnostic rows
+    recorded at effect redispatch. Each row has a diagnostic code, effect and
+    step identity, discarded visit, and actual dispatch visit; a validated
+    source location is included when available. Empty arrays are omitted.
   - `runtime_observability`: optional additive executor-session accounting used only for reports and status projections. It records one session per `run` or `resume` executor process under `executor_sessions[]`, with `session_id`, `entrypoint`, `pid`, optional `process_start_time`, `started_at`, `ended_at`, `status`, and `duration_ms`. Closed session durations contribute to active runtime; gaps between sessions do not.
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
@@ -223,9 +227,9 @@ The supported automatic creation policy selects this profile for a typed public
 `.orc` run, a new `.orc` force-restart root, and a fresh non-iterative typed
 Workflow Lisp child. Child selection comes from the callee's validated typed
 provenance and resolved non-iterative boundary, not from the parent profile,
-path suffix, alias, or step identity. A fresh retry after a failed
-non-iterative Workflow Lisp predecessor is new state and selects the profile;
-the failed predecessor remains byte-for-byte unchanged.
+path suffix, alias, or step identity. A failed non-iterative Workflow Lisp
+child resumes in the latest validated failed frame; it keeps that frame's
+persisted profile and does not allocate a fresh retry frame.
 
 Generic `StateManager.initialize(...)` callers remain explicit opt-in.
 Ordinary resume uses only the profile already persisted in the selected root
@@ -1031,8 +1035,8 @@ Checksum-compatible resume projection integrity:
   - Structurally valid bookkeeping does not excuse a stale or out-of-scope loop-local step or loop-contained call-boundary ID; exact generated-candidate resolution still applies before effects.
 - Call frames and Workflow Lisp retry lineage
   - Every mapping frame validates caller identity, import alias, boundary ownership, and status. Completed frames are unlimited historical records and never resumable. A non-Workflow-Lisp boundary has at most one non-completed resumable frame; multiple candidates are ambiguous.
-  - A Workflow Lisp boundary is identified only by typed loaded-bundle frontend capability and has one validated retry lineage, zero or one running member, and any number of failed predecessors. Retry lineage parsing and next-ID allocation are centralized and deterministic; mixed lineages, multiple running members, duplicate ordinals, malformed ordinals, or malformed statuses fail closed without mapping-order selection.
-  - With a running Workflow Lisp member, its checksum and resume-bound-input validation run first and win on failure. If they pass, every failed predecessor is checksum-validated and recursively projection-audited in ordinal order, then the running member's local scope is audited and resumed. Without a running member, every failed predecessor is checksum-validated and recursively audited before deterministic fresh-retry allocation. Failed predecessor state is never exempt from audit.
+  - A Workflow Lisp boundary is identified only by typed loaded-bundle frontend capability and has one validated retry lineage, zero or one running member, and any number of failed predecessors. Retry lineage parsing is centralized and deterministic; mixed lineages, multiple running members, duplicate ordinals, malformed ordinals, or malformed statuses fail closed without mapping-order selection.
+  - With a running Workflow Lisp member, its checksum and resume-bound-input validation run first and win on failure. If they pass, every failed predecessor is checksum-validated and recursively projection-audited in ordinal order, then the running member's local scope is audited and resumed. Without a running member, every failed predecessor is checksum-validated and recursively audited in ordinal order; the latest failed member's bound inputs and local scope are then validated before resuming that same frame. Failed predecessor state is never exempt from audit, and resume does not allocate a fresh retry frame.
 - Failure and mutation envelopes
   - The initial CLI root-checksum precheck retains its existing byte-immutable exit-`1` behavior before session/executor creation.
   - A direct or post-CLI-race structurally root checksum recheck failure persists `error.type: "workflow_checksum_mismatch"` with message `"Workflow has been modified since the run started"` and context fields `workflow_file`, `persisted_checksum`, and `current_checksum` (each string or JSON `null`) plus `reason`, which is exactly one of `workflow_modified`, `missing_recorded_checksum`, `missing_workflow_path`, or `workflow_unavailable`. It changes root `status`, `error`, and `updated_at`, leaves current step/steps/visits/loops/frames unchanged, and stops before projection audit or prologue. Already-open session/process metadata may remain; failed session closure cannot replace the checksum diagnostic.
@@ -1048,16 +1052,22 @@ Checksum-compatible resume projection integrity:
 
 Workflow Lisp lexical-checkpoint default resume:
 - Node-local restore selection is primary. A prior-boundary fallback is allowed only when the restart node owns lexical checkpoint metadata and restore selection positively reports typed `record_absent` for that node's next boundary.
+- On resume, an effect with no committed result runs again, whether its last settled attempt failed or its current visit was interrupted. A committed result is validated and reused; it is never dispatched again. The runtime records `workflow_effect_rerun` in the owning root or call-frame state's `resume_diagnostics` for each dispatch. The provider-specific `provider_attempt_interrupted_rerun` remains one-per-dispatch and is also recorded there.
+- A command boundary may explicitly set `must_not_repeat: true`. If the current command has no committed result, resume fails at that command with `lexical_restore_pending_effect_unsafe` and its validated authored source location. The default is at-least-once; failure or interruption alone is not evidence that an external command had no effect.
+- The current-effect zero-record case is narrow: the canonical selector must report `record_absent`, runtime state must identify the exact running step and matching visit counter (or an exact failed result row), `bound_inputs` must be present, and any pure prefix must still pass its exact replay witnesses. The runtime restores the nearest validated prior effect boundary when one exists; only a current effect with no prior boundary can enter at frame entry. This does not treat a present unreadable, malformed, incomplete, foreign, stale, or otherwise invalid index as absent, and does not admit a corrupt record, foreign identity, or general prior-boundary bypass.
 - Under exact `derived_pure_replay.v1`, replay-eligible pure points are filtered
   from the durable checkpoint candidate set before unique-nearest selection.
   They are replay-only: the runtime validates exact shells and dependency
   leaves without reading, reusing, or writing a pure-result bundle or
   pure-boundary checkpoint. Historical and noneligible pure points retain their
   existing replay-or-reuse policy.
-- `VALIDATED_FRAME_ENTRY_REPLAY` is the only admitted zero-record case. It
+- `VALIDATED_FRAME_ENTRY_REPLAY` remains the pure-replay zero-record case; it
   requires validated bound-input leaves and exact profile/progress witnesses.
-  It neither relaxes root/callee checksum or projection validation nor creates
-  a durable checkpoint.
+  The separate current-effect frame-entry case requires the exact current
+  effect cursor and bound inputs as described above, whether the current
+  attempt failed or was interrupted. Neither case
+  relaxes root/callee checksum or projection validation or creates a durable
+  checkpoint.
 - Only the canonical checkpoint index whose `program_point_id` matches the runtime-plan point and whose `storage_allocation_id` matches the canonical lexical-checkpoint-index allocation may establish absence. A missing canonical index or a valid canonical index with an empty `records` list is `record_absent`; a present unreadable, malformed, incomplete, foreign, stale, or otherwise invalid index is `record_present_unusable` and fails closed with a stable diagnostic.
 - Every index `record_id` must be one safe filename component and cannot introduce absolute or relative path structure, separators, traversal components, NULs, or unsupported filename characters. Its record reference must equal the canonical workspace-relative record path derived from that ID, checkpoint point, and storage scope. The lexical path must be a direct child of the canonical record family; after normalization and symlink resolution it must remain a direct child of the resolved family and below the resolved workspace. Absolute paths, parent escapes, record-path symlinks, and symlinked components below the workspace fail closed before record I/O. Entry `record_id`, `program_point_id`, `point_kind`, and `frame_identity` must match the runtime-plan point and loaded record as applicable, and the loaded record plus restore payload must pass the ordinary checkpoint-record and restore validators.
 - Canonical checkpoint index and record JSON must be read beneath a trusted workspace directory descriptor. Each parent component is opened descriptor-relative as a directory with no-follow semantics, and the final file is opened descriptor-relative with no-follow and nonblocking semantics, verified as a regular file with `fstat`, and decoded from that already-open descriptor; pathname validation followed by pathname reopen is not permitted. Nonblocking final-open support is required so a FIFO or other nonregular target is rejected without waiting for a peer; unavailable support fails closed. Missing canonical index state is `record_absent` only when the descriptor-relative open reports `FileNotFoundError`; symlink, permission, invalid-parent, nonregular target, unsupported descriptor-relative operation, or mutation-during-read state is present-unusable and fails closed. Record-side equivalents fail as reference-invalid or unreadable without weakening malformed-JSON diagnostics.

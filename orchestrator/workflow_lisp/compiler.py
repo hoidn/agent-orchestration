@@ -2384,6 +2384,8 @@ def _command_boundary_fingerprint_payload(
         "name": binding.name,
         "stable_command": list(binding.stable_command),
     }
+    if binding.must_not_repeat:
+        payload["must_not_repeat"] = True
     if isinstance(binding, CertifiedAdapterBinding):
         payload.update(
             {
