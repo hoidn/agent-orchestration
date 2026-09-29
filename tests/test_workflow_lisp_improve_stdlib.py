@@ -208,26 +208,36 @@ def test_target_232_caller_of_std_improve_is_rejected_with_the_required_target_d
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Owner: target admission (specs/versioning.md; CF-1b Task 1). A 2.32 module that imports "
-        "std/improve without writing a type application compiles: module-graph resolution "
-        "(orchestrator/workflow_lisp/modules.py:395) never compares an importer's target with the "
-        "imported module's target, and std/improve cannot add that check without a name-keyed branch."
-    ),
+def test_target_232_bare_import_of_std_improve_compiles(tmp_path: Path) -> None:
+    """Owner decision D3: target admission is per defining module, so an unused import is accepted."""
+
+    _write_sources(tmp_path, {"grt/entry.orc": BARE_IMPORT_232})
+
+    assert "grt/entry::run" in _compile(tmp_path).validated_bundles_by_name
+
+
+@pytest.mark.parametrize(
+    "use",
+    ["(d Decision[Out Out])", "(d Improvement[Out Out Out])"],
+    ids=["Decision", "Improvement"],
 )
-def test_target_232_bare_import_of_std_improve_is_rejected(tmp_path: Path) -> None:
-    entry = _write_sources(tmp_path, {"grt/entry.orc": BARE_IMPORT_232})
+def test_target_232_use_of_a_std_improve_union_is_rejected_at_the_use(tmp_path: Path, use: str) -> None:
+    source = BARE_IMPORT_232.replace(
+        "  (defworkflow run",
+        f"  (defproc pick ({use}) -> Out :effects () :lowering inline (record Out :n 1))\n  (defworkflow run",
+    )
+    entry = _write_sources(tmp_path, {"grt/entry.orc": source})
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path)
 
     diagnostic = excinfo.value.diagnostics[0]
-    assert (diagnostic.code, Path(diagnostic.span.start.path), diagnostic.span.start.line) == (
+    line = _line_of(source, use)
+    assert (diagnostic.code, Path(diagnostic.span.start.path), diagnostic.span.start.line, diagnostic.span.start.column) == (
         "generic_union_requires_dsl_2_33",
         entry,
-        _line_of(entry.read_text(encoding="utf-8"), "(import std/improve"),
+        line,
+        source.splitlines()[line - 1].index(use) + 1,
     )
 
 
