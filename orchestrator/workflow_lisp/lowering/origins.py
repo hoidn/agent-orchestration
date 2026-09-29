@@ -41,6 +41,7 @@ _SHARED_VALIDATION_CODE_RE = re.compile(
     r"variant_ref_unproved|"
     r"variant_ref_wrong_variant|"
     r"variant_unavailable|"
+    r"provider_parameters_missing|"
     r"atomic_commit_failed|"
     r"bundle_commit_aborted_invalid_candidate|"
     r"executable_ir_invalid|"

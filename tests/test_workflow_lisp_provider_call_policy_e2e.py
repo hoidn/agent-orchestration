@@ -45,7 +45,7 @@ EXPECTED_COMMANDS = {
         "--model",
         MODEL,
         "--config",
-        f"reasoning_effort={EFFORT}",
+        f"model_reasoning_effort={EFFORT}",
     ],
     "claude_unrestricted_workspace": [
         "claude",
@@ -439,7 +439,7 @@ def test_public_explicit_composed_keeps_exact_model_effort_translation(
     assert len(invocations) == 1
     command = invocations[0].command
     assert command[command.index("--model") + 1] == MODEL
-    assert f"reasoning_effort={EFFORT}" in command
+    assert f"model_reasoning_effort={EFFORT}" in command
     assert "composed" not in invocations[0].command
     assert all(
         "delivery" not in token and "materialization" not in token

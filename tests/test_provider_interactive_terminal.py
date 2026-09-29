@@ -436,7 +436,7 @@ def test_builtin_codex_prepares_policy_resolved_pre_prompt_command(
         "--model",
         "policy-model",
         "--config",
-        "reasoning_effort=medium",
+        "model_reasoning_effort=medium",
     )
     assert invocation.pre_prompt_command[-1:] == (
         "${PROMPT}",
@@ -446,7 +446,7 @@ def test_builtin_codex_prepares_policy_resolved_pre_prompt_command(
         "--model",
         "policy-model",
         "--config",
-        "reasoning_effort=medium",
+        "model_reasoning_effort=medium",
     )
     assert invocation.resolved_command[-1:] == (
         "task turn",

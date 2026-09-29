@@ -420,7 +420,7 @@ def test_builtin_codex_unrestricted_workspace_is_no_default_direct_profile() -> 
         "--model",
         "${model}",
         "--config",
-        "reasoning_effort=${reasoning_effort}",
+        "model_reasoning_effort=${reasoning_effort}",
     ]
     assert provider.call_policy_bindings == {
         "model": CallPolicyBinding(target_param="model"),
@@ -451,7 +451,7 @@ def test_builtin_codex_gpt55_unrestricted_workspace_is_defaulted_profile(
         "--model",
         "${model}",
         "--config",
-        "reasoning_effort=${reasoning_effort}",
+        "model_reasoning_effort=${reasoning_effort}",
     ]
     assert provider.call_policy_bindings == unrestricted.call_policy_bindings == {
         "model": CallPolicyBinding(target_param="model"),
@@ -482,7 +482,7 @@ def test_builtin_codex_gpt55_unrestricted_workspace_is_defaulted_profile(
         "--model",
         "gpt-5.5",
         "--config",
-        "reasoning_effort=high",
+        "model_reasoning_effort=high",
     ]
 
 
@@ -868,7 +868,7 @@ def test_codex_policy_maps_model_and_effort_on_actual_command_variant(
     assert invocation.command_variant == expected_variant
     assert invocation.command[: len(expected_prefix)] == expected_prefix
     assert invocation.command[invocation.command.index("--model") + 1] == "gpt-policy"
-    assert "reasoning_effort=medium" in invocation.command
+    assert "model_reasoning_effort=medium" in invocation.command
 
 
 @pytest.mark.parametrize(
@@ -909,7 +909,7 @@ def test_claude_policy_appends_effort_only_when_authored(
         (
             "codex_unrestricted_workspace",
             {"model": "gpt-policy", "effort": "medium"},
-            ["--model", "gpt-policy", "--config", "reasoning_effort=medium"],
+            ["--model", "gpt-policy", "--config", "model_reasoning_effort=medium"],
         ),
         (
             "claude_unrestricted_workspace",

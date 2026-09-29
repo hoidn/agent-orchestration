@@ -194,7 +194,7 @@ class LiveCodexBindings(SyntheticProviderBindings):
             "--model",
             _PROBE_MODEL,
             "--config",
-            f"reasoning_effort={_PROBE_EFFORT}",
+            f"model_reasoning_effort={_PROBE_EFFORT}",
             "--dangerously-bypass-approvals-and-sandbox",
         )
         support = InteractiveSessionSupport(

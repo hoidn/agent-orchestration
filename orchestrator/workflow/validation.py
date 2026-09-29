@@ -38,6 +38,7 @@ from orchestrator.workflow.loaded_bundle import (
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.executable_ir import (
     ProviderPeerGroupStepConfig,
+    ProviderStepConfig,
     ProviderSupervisionStepConfig,
 )
 from orchestrator.workflow.prompt_dependency_contract import (
@@ -1546,6 +1547,8 @@ class _WorkflowMappingValidator:
                     name,
                     version=version,
                 )
+
+            self._validate_provider_required_params(step, name)
 
             self._validate_prompt_attempt_carriage(
                 step=step,
@@ -3447,6 +3450,148 @@ class _WorkflowMappingValidator:
                     "provider_phased_interactive_capability_invalid: "
                     + "; ".join(capability_errors)
                 )
+
+    def _validate_provider_required_params(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+    ) -> None:
+        """Find missing direct call-policy parameters before provider launch."""
+        subject_refs = self._workflow_subject_refs(
+            "step_id",
+            step.get("id") or step_name,
+        )
+        self._validate_required_provider_params(
+            provider_name=step.get("provider"),
+            raw_params=step.get("provider_params"),
+            policy=step.get("provider_call_policy"),
+            step_name=step_name,
+            context="",
+            subject_refs=subject_refs,
+        )
+
+        adjudication = step.get("adjudicated_provider")
+        if isinstance(adjudication, Mapping):
+            # Adjudication runtimes pass only provider_params to candidates and
+            # evaluators; nested provider_call_policy fields are not consumed.
+            candidates = adjudication.get("candidates")
+            if isinstance(candidates, list):
+                for index, candidate in enumerate(candidates):
+                    if not isinstance(candidate, Mapping):
+                        continue
+                    candidate_id = candidate.get("id")
+                    candidate_label = (
+                        f"candidate '{candidate_id}'"
+                        if isinstance(candidate_id, str)
+                        else f"candidate {index}"
+                    )
+                    self._validate_required_provider_params(
+                        provider_name=candidate.get("provider"),
+                        raw_params=candidate.get("provider_params"),
+                        policy=None,
+                        step_name=step_name,
+                        context=f"adjudicated_provider {candidate_label}",
+                        subject_refs=subject_refs,
+                    )
+            evaluator = adjudication.get("evaluator")
+            if isinstance(evaluator, Mapping):
+                self._validate_required_provider_params(
+                    provider_name=evaluator.get("provider"),
+                    raw_params=evaluator.get("provider_params"),
+                    policy=None,
+                    step_name=step_name,
+                    context="adjudicated_provider evaluator",
+                    subject_refs=subject_refs,
+                )
+
+        supervision = step.get("provider_supervision")
+        if isinstance(supervision, ProviderSupervisionStepConfig):
+            for role in ("worker", "supervisor"):
+                member = getattr(supervision, role)
+                provider_config = member.provider_config
+                self._validate_provider_step_config_params(
+                    provider_config,
+                    step_name=step_name,
+                    context=(
+                        f"provider_supervision member '{member.member_id}'"
+                    ),
+                    subject_refs=subject_refs,
+                )
+
+        peer_group = step.get("provider_peer_group")
+        if isinstance(peer_group, ProviderPeerGroupStepConfig):
+            for member in peer_group.members:
+                self._validate_provider_step_config_params(
+                    member.provider_config,
+                    step_name=step_name,
+                    context=f"provider_peer_group member '{member.member_id}'",
+                    subject_refs=subject_refs,
+                )
+
+    def _validate_provider_step_config_params(
+        self,
+        config: ProviderStepConfig,
+        *,
+        step_name: str,
+        context: str,
+        subject_refs: tuple[ValidationSubjectRef, ...],
+    ) -> None:
+        self._validate_required_provider_params(
+            provider_name=config.provider,
+            raw_params=config.provider_params,
+            policy=config.provider_call_policy,
+            step_name=step_name,
+            context=context,
+            subject_refs=subject_refs,
+        )
+
+    def _validate_required_provider_params(
+        self,
+        *,
+        provider_name: Any,
+        raw_params: Any,
+        policy: Any,
+        step_name: str,
+        context: str,
+        subject_refs: tuple[ValidationSubjectRef, ...],
+    ) -> None:
+        if (
+            not isinstance(provider_name, str)
+            or "${" in provider_name
+        ):
+            return
+        template = self._provider_registry.get(provider_name)
+        if template is None:
+            return
+
+        # ProviderTemplate.validate already checks each direct target placeholder
+        # in every command variant; argv fragments are optional by contract.
+        required = {
+            binding.target_param
+            for binding in template.call_policy_bindings.values()
+            if binding.argv_fragment is None
+        }
+        if not required:
+            return
+
+        params = dict(raw_params) if isinstance(raw_params, Mapping) else {}
+        supplied = set(self._provider_registry.merge_params(provider_name, params))
+        if isinstance(policy, Mapping):
+            supplied.update(
+                binding.target_param
+                for option, binding in template.call_policy_bindings.items()
+                if binding.argv_fragment is None and option in policy
+            )
+
+        missing = sorted(required - supplied)
+        if missing:
+            invocation = f" {context}" if context else ""
+            self._add_error(
+                "provider_parameters_missing: "
+                f"Step '{step_name}'{invocation} provider '{provider_name}' is missing "
+                f"required parameter(s): {', '.join(missing)}",
+                subject_refs=subject_refs,
+            )
 
     def _validate_prompt_attempt_carriage(
         self,
