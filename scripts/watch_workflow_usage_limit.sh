@@ -273,7 +273,7 @@ send_orchestrator_command() {
     tmux send-keys -t "$TARGET" -l "$cmd; echo \"orchestrator-exit=\$?\""
     tmux send-keys -t "$TARGET" Enter
     pane="$(wait_for_command_exit)" || return 0
-    refusal="$(printf '%s\n' "$pane" | grep -Eo 'workspace_run_already_active: run [^ ]+ is active' | tail -n 1)"
+    refusal="$(printf '%s\n' "$pane" | grep -Eo 'workspace_run_already_active: (run [^ ]+ is active|another run is starting)' | tail -n 1)"
     if [[ -z "$refusal" ]]; then
       log "workflow command ended: $(printf '%s\n' "$pane" | grep -Eo 'orchestrator-exit=[0-9]+' | tail -n 1)"
       return 0

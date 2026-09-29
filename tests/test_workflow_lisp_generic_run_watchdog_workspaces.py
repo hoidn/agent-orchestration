@@ -244,7 +244,7 @@ def test_a_watchdog_started_in_the_target_workspace_while_the_target_is_active_i
 
     result = _watchdog(active_target["source_root"], target=active_target["source_root"], agent=agent)
 
-    assert (result.exit_code, "workspace_run_already_active" in caplog.text, agent.calls) == (1, True, 0)
+    assert (result.exit_code, "workspace_run_already_active" in caplog.text, agent.calls) == (2, True, 0)
 
 
 @pytest.mark.parametrize(

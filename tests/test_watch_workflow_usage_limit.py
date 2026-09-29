@@ -5,7 +5,7 @@ Contract: the script's usage text (RESUME_LOCK_WAIT_SECONDS) and specs/cli.md
 tmux server whose target pane shows a usage-limit message. `python -m
 orchestrator` in that pane is a stand-in package (the script prepends
 AGENT_ORCHESTRATION to PYTHONPATH) that logs each call and answers from a list
-of outcomes: `refuse` prints the workspace lock's refusal and exits 1, `fail`
+of outcomes: `refuse` and `guard` print the workspace lock's two refusals and exit 2, `fail`
 prints another error and exits 1, `run` keeps running as an admitted resume.
 The Claude readiness probe and conda are stand-ins too.
 """
@@ -33,7 +33,11 @@ outcomes = (here / "outcomes").read_text(encoding="utf-8").split()
 attempt = len(calls.read_text(encoding="utf-8").splitlines())
 outcome = outcomes[min(attempt, len(outcomes)) - 1]
 if outcome == "refuse":
-    sys.exit("Error: workspace_run_already_active: run other-run is active in /workspace")
+    print("Error: workspace_run_already_active: run other-run is active in /workspace", file=sys.stderr)
+    sys.exit(2)
+if outcome == "guard":
+    print("Error: workspace_run_already_active: another run is starting in /workspace: .orchestrate/workspace.guard is held", file=sys.stderr)
+    sys.exit(2)
 if outcome == "fail":
     sys.exit("Error: some other failure")
 time.sleep(60)
@@ -98,8 +102,8 @@ def _wait_for_calls(watcher, count: int, *, timeout: float = 60) -> None:
 
 @pytest.mark.parametrize(
     ("outcomes", "calls"),
-    [("refuse refuse run", 3), ("fail", 1)],
-    ids=["refused-twice-then-admitted", "another-failure"],
+    [("refuse refuse run", 3), ("guard run", 2), ("fail", 1)],
+    ids=["refused-twice-then-admitted", "guard-held-then-admitted", "another-failure"],
 )
 def test_only_a_refusal_by_the_workspace_lock_is_retried(watcher, outcomes: str, calls: int) -> None:
     process = watcher(outcomes)
