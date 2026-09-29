@@ -187,10 +187,11 @@ LIBRARY = REPO_ROOT / "workflows" / "library"
 WATCHDOG_EXTERNS = REPO_ROOT / "workflows" / "examples" / "inputs" / "workflow_lisp_migrations" / "generic_run_watchdog"
 
 
-def test_dry_run_names_the_rejected_form_inside_the_shipped_watchdog(
-    workspace: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """The documented launch of `generic_run_watchdog/watchdog.orc` (workflows/README.md)."""
+def test_dry_run_accepts_the_shipped_watchdog(workspace: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The documented launch of `generic_run_watchdog/watchdog.orc` (workflows/README.md).
+
+    Its source avoids the rejected shape: the repair arm passes the provider's
+    fields to the publisher and binds no pure value over them."""
 
     files = {
         "source": LIBRARY / "generic_run_watchdog" / "watchdog.orc",
@@ -198,11 +199,13 @@ def test_dry_run_names_the_rejected_form_inside_the_shipped_watchdog(
         **{name: Path(f"{WATCHDOG_EXTERNS}.{name}.json") for name in ("providers", "prompts", "commands")},
     }
     inputs = workspace / "inputs.json"
-    inputs.write_text(json.dumps({"target_run_id": "no-such-run"}), encoding="utf-8")
+    inputs.write_text(
+        json.dumps({"target_run_id": "no-such-run", "target_workspace": "/no/such/workspace"}), encoding="utf-8"
+    )
 
     result = _dry_run(files, entry="generic_run_watchdog/watchdog::watchdog", input_file=inputs)
 
-    assert (result.exit_code, _rejection(caplog)) == (2, _replay_rejection("watchdog.orc", 102, 5))
+    assert (result.exit_code, _errors(caplog)) == (0, [])
 
 
 # A called workflow runs in its own frame from its own bundle. `--dry-run` derives

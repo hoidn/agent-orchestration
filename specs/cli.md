@@ -21,6 +21,13 @@ lock. Existing per-run writer locks still coordinate mutation of a run;
 read-only reporting remains available. Concurrent execution requires separate
 workspaces. Result bundle paths and persisted result identities are unchanged.
 
+A `run`, `resume`, or `trial` started from inside an active run (by one of its
+command steps or providers) in that run's workspace is a competing invocation
+and is refused the same way; only nested workflow calls belong to the root run.
+A run that supervises another run therefore uses its own workspace: it reads
+the other run's workspace by path and starts `resume` or `run` for it with that
+workspace as the working directory.
+
 - Commands
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.

@@ -51,16 +51,32 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
 ## Generic Run Watchdog Launch
 
 New watchdog launches use the promoted Workflow Lisp primary. Supply the
-target run id and any desired provider or path overrides. The historical YAML
-twin is retired; this `.orc` entry is the live family route.
+target run id, the target's workspace, and any desired provider or path
+overrides. The historical YAML twin is retired; this `.orc` entry is the live
+family route.
+
+The watchdog is itself a run, and a workspace holds one active run at a time
+(`specs/cli.md`), so it runs in its own workspace, never in the target's:
+
+- Launch it from a workspace that holds this repository's `workflows/` tree,
+  for example a separate worktree or clone of this repository. Its run state,
+  watch bundle, evidence and result stay there.
+- `target_workspace` is the absolute path of the workspace where the target
+  runs. It must contain `.orchestrate/runs/<target_run_id>` and must not be
+  the watchdog's own workspace; otherwise the probe step fails.
+- The probe reads the target's state from `target_workspace`. The repair
+  agent resumes or relaunches the target with `target_workspace` as its
+  working directory.
 
 ```bash
+cd <watchdog-workspace>
 python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
   --entry-workflow generic_run_watchdog/watchdog::watchdog \
   --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.providers.json \
   --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.prompts.json \
   --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/generic_run_watchdog.commands.json \
-  --input target_run_id=<run-id>
+  --input target_run_id=<run-id> \
+  --input target_workspace=<absolute-path-of-the-target-workspace>
 ```
 
 ## Which Example Should I Copy?

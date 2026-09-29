@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Probe an orchestrator run and emit generic watchdog evidence."""
+"""Probe an orchestrator run and emit generic watchdog evidence.
+
+The target run lives in another workspace, named by `--target-workspace`; its
+state is read from there. Outputs are written under the current directory, the
+watchdog's own workspace.
+"""
 
 from __future__ import annotations
 
@@ -99,6 +104,21 @@ def _classify(state: dict[str, Any] | None, *, stale_seconds: int | None, max_st
     return "UNKNOWN", "INVESTIGATE"
 
 
+def _target_run_root(target_workspace: str, run_id: str) -> Path:
+    workspace = Path(target_workspace)
+    if not workspace.is_absolute():
+        raise SystemExit(f"--target-workspace must be an absolute path: {target_workspace}")
+    run_root = workspace / ".orchestrate/runs" / run_id
+    if not run_root.is_dir():
+        raise SystemExit(f"Target run directory not found: {run_root}")
+    if workspace.resolve() == REPO_ROOT.resolve():
+        raise SystemExit(
+            f"--target-workspace is the watchdog's own workspace ({workspace}); "
+            "run the watchdog in another workspace"
+        )
+    return run_root
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -119,6 +139,7 @@ def _write_runtime_bundle(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--target-workspace", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--evidence-root", required=True)
     parser.add_argument("--repair-result-target-path", required=True)
@@ -132,7 +153,7 @@ def main() -> int:
     if args.max_stale_minutes < 1:
         raise SystemExit("--max-stale-minutes must be positive")
 
-    state_path = REPO_ROOT / ".orchestrate/runs" / run_id / "state.json"
+    state_path = _target_run_root(args.target_workspace, run_id) / "state.json"
     state: dict[str, Any] | None
     state_load_error = ""
     try:
@@ -163,7 +184,8 @@ def main() -> int:
     evidence = {
         "schema": "orchestrator_run_watchdog_evidence/v1",
         "target_run_id": run_id,
-        "state_path": state_path.relative_to(REPO_ROOT).as_posix(),
+        "target_workspace": args.target_workspace,
+        "state_path": state_path.as_posix(),
         "state_load_error": state_load_error,
         "workflow_file": state.get("workflow_file") if state else "",
         "run_status": state.get("status") if state else "missing",
@@ -181,10 +203,11 @@ def main() -> int:
         "schema": "orchestrator_run_watch/v1",
         "watch_bundle_path": output_rel.as_posix(),
         "target_run_id": run_id,
+        "target_workspace": args.target_workspace,
         "watch_status": watch_status,
         "repair_required": repair_required,
         "recommended_recovery": recommended_recovery,
-        "state_path": state_path.relative_to(REPO_ROOT).as_posix(),
+        "state_path": state_path.as_posix(),
         "workflow_file": evidence["workflow_file"],
         "run_status": evidence["run_status"],
         "last_updated_at": evidence["last_updated_at"],

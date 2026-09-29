@@ -4,7 +4,15 @@ You are repairing a failed, crashed, stalled, or unknown orchestrator workflow r
 
 Authoritative inputs:
 
-- The injected watch bundle records the evidence paths, target run id, and the repair result target path.
+- The injected watch bundle records the evidence paths, target run id, the
+  target's workspace (`target_workspace`, an absolute path), the target's
+  `state_path`, and the repair result target path.
+
+Two workspaces are involved. Your working directory is the watchdog's
+workspace; the watch bundle, evidence, repair report, and repair result are
+there. The target run, its state, logs, and workflow files are in
+`target_workspace`, and paths recorded in the target's state are relative to
+it. Make repairs to the target's files in `target_workspace`.
 
 Before acting, diagnose and repair the target run's durable workflow mechanics on your own, without waiting for repeated prompting. Apply only fixes that are
 needed to recover the target run or its durable workflow mechanics. If a
@@ -16,14 +24,19 @@ Work carefully:
 1. Read the watch bundle and the referenced run-failure bundle.
 2. Identify the root cause from the target run's state, logs, or changed files.
 3. Classify the issue as `TRIVIAL` or `NONTRIVIAL`.
-4. If the fix is nontrivial, write an implementation plan under `docs/plans/` before changing behavior.
+4. If the fix is nontrivial, write an implementation plan under `docs/plans/` of `target_workspace` before changing behavior.
 5. Implement the minimal principled fix or execute the plan.
 6. Run relevant verification commands for the changed files.
 7. As one of the final actions, either:
-   - resume the target run with `python -m orchestrator resume <target_run_id>`;
+   - resume the target run with `target_workspace` as the working directory:
+     `cd <target_workspace> && python -m orchestrator resume <target_run_id>`;
    - relaunch or restart using the run's recorded command or the workflow's
-     recovery policy;
+     recovery policy, also with `target_workspace` as the working directory;
    - decline recovery only when the target run cannot be recovered safely.
+
+   Never resume or relaunch the target from the watchdog's workspace. Only one
+   run may be active in a workspace, so a resume started there is refused with
+   `workspace_run_already_active`, and the target's run state is not there.
 
 Do not invent workflow-specific assumptions. Prefer resume over fresh relaunch when the persisted state is usable.
 A one-run workspace patch is not a fix when the same generated workflow surface
@@ -32,7 +45,7 @@ generator when that is the root cause and run the narrow check that exercises
 the repaired surface. Report `BLOCKED` only with the specific failed condition.
 
 Do not report `FIXED_AND_RESUMED` just because the run state says `running`.
-After resume, re-read the target `state.json` and verify that the resumed pid is
+After resume, re-read the target `state.json` at `state_path` and verify that the resumed pid is
 alive, the heartbeat advanced, no top-level step is failed, and no
 `call_frames[*].state.steps` entry is failed. If any check fails, report
 `BLOCKED`; keep the actual recovery action taken, such as `RESUME`.
@@ -42,8 +55,8 @@ Return a native typed `ProviderRepairResult` record with these fields:
 - `repair_status`: `FIXED_AND_RESUMED`, `FIXED_AND_RELAUNCHED`, `PLAN_WRITTEN`, or `BLOCKED`;
 - `fix_complexity`: `TRIVIAL` or `NONTRIVIAL`;
 - `recovery_action`: `RESUME`, `RELAUNCH`, `RESTART`, or `DECLINED`;
-- `repair_report_path`: the produced repair report relpath under `artifacts/work`;
-- `plan_path`: the optional plan relpath, or an empty string; and
+- `repair_report_path`: the produced repair report relpath under `artifacts/work` of the watchdog's workspace;
+- `plan_path`: the optional plan relpath, relative to `target_workspace`, or an empty string; and
 - `new_run_id`: the replacement run id, or an empty string.
 
 Also retain the operator-facing compatibility contract: write the repair report
