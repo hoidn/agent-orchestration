@@ -11,7 +11,7 @@ import threading
 import time
 import traceback
 from copy import copy, deepcopy
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, NamedTuple, Optional
@@ -240,6 +240,36 @@ def _write_bundle_fd(descriptor: int, payload: bytes) -> None:
         if written <= 0:
             raise OSError("bundle materialization made no progress")
         remaining = remaining[written:]
+
+
+def _unlink_workspace_leaf(workspace: Path, relative_path: str) -> None:
+    """Remove the last component of a workspace-relative path; a missing one is fine.
+
+    Each parent is opened without following a symbolic link, relative to the
+    descriptor of the one before it, and the leaf is unlinked relative to the
+    last descriptor, as the OMP JSON transport creates its bundle leaf. A parent
+    replaced by a link after the caller validated the path therefore raises
+    instead of taking the removal outside the workspace. A link leaf is
+    removed, never its target.
+
+    Raises OSError when a parent is not a real directory or the leaf cannot be
+    removed (for example because it is a directory).
+    """
+    relative = Path(relative_path)
+    directory_fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for component in relative.parent.parts:
+            child_fd = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=directory_fd,
+            )
+            os.close(directory_fd)
+            directory_fd = child_fd
+        with suppress(FileNotFoundError):
+            os.unlink(relative.name, dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _is_structurally_root_state_manager(state_manager: Any) -> bool:
@@ -7426,14 +7456,18 @@ class WorkflowExecutor:
 
     def _prepare_absent_runtime_output_bundle(
         self,
+        step: RuntimeStepInput,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """Prepare a command or provider call's bundle path: parent present, file absent.
 
         A file left by an earlier iteration, run, or interrupted call must never
-        satisfy this call's result contract (specs/io.md). The final path
-        component is unlinked, never a symlink's target. Supervision, peer-group
-        and phased-delivery calls own their paths and reject a pre-existing file.
+        satisfy this call's result contract (specs/io.md). The removal never
+        follows a link (`_unlink_workspace_leaf`). When the path cannot be
+        cleared, `step` fails before launch with the output-contract violation
+        `stale_bundle_removal_failed` and the step's source origin. Supervision,
+        peer-group and phased-delivery calls own their paths and reject a
+        pre-existing file.
         """
         prepare_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
         if prepare_error is not None or not isinstance(resolved_output_bundle, dict):
@@ -7442,14 +7476,17 @@ class WorkflowExecutor:
         if not isinstance(bundle_path_value, str):
             return None
         try:
-            (self.workspace / bundle_path_value).unlink(missing_ok=True)
+            _unlink_workspace_leaf(self.workspace, bundle_path_value)
         except OSError as exc:
-            return self._contract_violation_result(
-                "Failed to remove a stale structured output bundle",
-                {
-                    "path": bundle_path_value,
-                    "error": str(exc),
-                },
+            violation = ContractViolation(
+                type="stale_bundle_removal_failed",
+                message="The result path could not be cleared before the call",
+                context={"path": bundle_path_value, "error": str(exc)},
+            )
+            return self._output_contract_failure_result(
+                step,
+                {'duration_ms': 0, 'output': ''},
+                [violation.to_dict()],
             )
         return None
 
@@ -8612,7 +8649,9 @@ class WorkflowExecutor:
             )
             if path_error is not None:
                 return path_error
-            bundle_path_error = self._prepare_absent_runtime_output_bundle(resolved_output_bundle)
+            bundle_path_error = self._prepare_absent_runtime_output_bundle(
+                step, resolved_output_bundle
+            )
             if bundle_path_error is not None:
                 return bundle_path_error
             command_env = self._env_with_runtime_output_bundle_path(
@@ -9683,7 +9722,7 @@ class WorkflowExecutor:
             if output_position_error is not None:
                 return None, None, step, output_position_error
             bundle_path_error = self._prepare_absent_runtime_output_bundle(
-                attempt_output_bundle
+                step, attempt_output_bundle
             )
             if bundle_path_error is not None:
                 return None, None, step, bundle_path_error
@@ -10968,7 +11007,7 @@ class WorkflowExecutor:
                 retry_policy.wait()
                 attempt += 1
                 bundle_path_error = self._prepare_absent_runtime_output_bundle(
-                    resolved_output_bundle
+                    step, resolved_output_bundle
                 )
                 if bundle_path_error is not None:
                     return bundle_path_error
@@ -12099,6 +12138,60 @@ class WorkflowExecutor:
             },
         }
 
+    def _output_contract_failure_result(
+        self,
+        step: RuntimeStepInput,
+        result: Dict[str, Any],
+        serialized_violations: List[Any],
+    ) -> Dict[str, Any]:
+        """Fail `result` with these output-contract violations.
+
+        Each violation gets `source_origins`: the origins of its subjects, or
+        else the origin of `step` in the compiled frontend index.
+        """
+        step_name = step.get('name', f'step_{self.current_step}')
+        step_id = self._step_id(step)
+        violations = []
+        for serialized_violation in serialized_violations:
+            if not isinstance(serialized_violation, Mapping):
+                violations.append(serialized_violation)
+                continue
+            enriched_violation = dict(serialized_violation)
+            subject_refs = enriched_violation.get('subject_refs', ())
+            if not isinstance(subject_refs, (list, tuple)):
+                subject_refs = ()
+            try:
+                origins = self._frontend_index.origins_for_subject_refs(
+                    subject_refs,
+                    fallback_step=(step_name, step_id),
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Failed to resolve optional output-contract lineage for step %s: %s",
+                    step_name,
+                    exc,
+                )
+                origins = []
+            serialized_origins = [
+                dict(origin)
+                for origin in origins
+                if isinstance(origin, Mapping)
+            ]
+            if serialized_origins:
+                enriched_violation['source_origins'] = serialized_origins
+            violations.append(enriched_violation)
+        failed_result = dict(result)
+        failed_result['status'] = 'failed'
+        failed_result['exit_code'] = 2
+        failed_result['error'] = {
+            'type': 'contract_violation',
+            'message': 'Expected output contract validation failed',
+            'context': {
+                'violations': violations
+            }
+        }
+        return failed_result
+
     def _apply_expected_outputs_contract(
         self,
         step: RuntimeStepInput,
@@ -12165,48 +12258,11 @@ class WorkflowExecutor:
                 )
             artifacts = {**expected_artifacts, **structured_artifacts}
         except OutputContractError as contract_error:
-            step_name = step.get('name', f'step_{self.current_step}')
-            step_id = self._step_id(step)
-            violations = []
-            for serialized_violation in contract_error.violations:
-                if not isinstance(serialized_violation, Mapping):
-                    violations.append(serialized_violation)
-                    continue
-                enriched_violation = dict(serialized_violation)
-                subject_refs = enriched_violation.get('subject_refs', ())
-                if not isinstance(subject_refs, (list, tuple)):
-                    subject_refs = ()
-                try:
-                    origins = self._frontend_index.origins_for_subject_refs(
-                        subject_refs,
-                        fallback_step=(step_name, step_id),
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to resolve optional output-contract lineage for step %s: %s",
-                        step_name,
-                        exc,
-                    )
-                    origins = []
-                serialized_origins = [
-                    dict(origin)
-                    for origin in origins
-                    if isinstance(origin, Mapping)
-                ]
-                if serialized_origins:
-                    enriched_violation['source_origins'] = serialized_origins
-                violations.append(enriched_violation)
-            failed_result = dict(result)
-            failed_result['status'] = 'failed'
-            failed_result['exit_code'] = 2
-            failed_result['error'] = {
-                'type': 'contract_violation',
-                'message': 'Expected output contract validation failed',
-                'context': {
-                    'violations': violations
-                }
-            }
-            return failed_result
+            return self._output_contract_failure_result(
+                step,
+                result,
+                contract_error.violations,
+            )
 
         # Some workflows intentionally keep on-disk pointer files as the single source of truth.
         # In that mode, we still validate expected_outputs but avoid duplicating artifact values
