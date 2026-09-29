@@ -10,10 +10,13 @@ raises `ClosedProgramGap` naming it:
 
 - P1: callee bodies are elaborated here, once per call site, as the flat route
   does during lowering (`defunctionalize._lower_wcc_procedure_call`).
-- P2: `WccOpaqueFrontendValue` (loop-state seeds and updates, lists, variant
-  tags) is replaced here by elaborating the surface expression it holds with the
-  elaborator's own body path.
-- P3: output contracts are derived here, with the function lowering uses.
+- P2: `WccOpaqueFrontendValue` (loop-state seeds and updates, lists, nonempty
+  list heads, variant tags, inlined pure calls) is replaced here by catalog nodes
+  or by elaborating the surface expression it holds with the elaborator's own
+  body path. `repairs.py` holds the two repairs applied to the elaborator's input.
+- P3: output contracts are derived here, with the function lowering uses; the
+  command, adapter document and prompt (asset path, or template and fills) are
+  resolved here from the build environment.
 - P6/P7: provenance is kept under the key "@" and left out of the digest.
   Generated names are renamed `%<n>`, and specialized callees are named by
   their canonical identity, because the elaborator's names for both digest
