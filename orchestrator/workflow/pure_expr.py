@@ -21,6 +21,9 @@ PURE_EXPR_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 DEFAULT_PURE_EXPR_MAX_NODES = 256
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
+# The first Workflow Lisp target with decimal literals in expressions and the
+# numeric operators (docs/design/workflow_lisp_numeric_surface.md).
+NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION = "2.34"
 
 _PURE_EXPR_SCHEMA_1_NODE_KINDS = frozenset(
     {

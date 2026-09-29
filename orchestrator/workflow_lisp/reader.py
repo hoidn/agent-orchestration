@@ -17,6 +17,18 @@ from .spans import SourcePosition, SourceSpan
 
 _INTEGER_RE = re.compile(r"-?\d+\Z")
 _FLOAT_RE = re.compile(r"-?(?:\d+\.\d*|\d*\.\d+)\Z")
+_EXPONENT_FLOAT_RE = re.compile(r"-?(?:\d+\.\d*|\.\d+|\d+)[eE][+-]?\d+\Z")
+
+
+def exponent_float_literal(token: str) -> float | None:
+    """Return the value of a decimal literal written with an exponent, else None.
+
+    The reader keeps such a token a symbol, as every target before 2.34 reads it;
+    the syntax layer reads it as a float for a module at 2.34 or newer (rule N1 of
+    docs/design/workflow_lisp_numeric_surface.md).
+    """
+
+    return float(token) if _EXPONENT_FLOAT_RE.match(token) else None
 
 
 @dataclass(frozen=True)

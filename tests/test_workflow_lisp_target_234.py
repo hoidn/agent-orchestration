@@ -82,6 +82,10 @@ GATE_PREDICATES = {
     "HUMAN_INPUT_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_human_input,
     "GENERIC_UNION_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_generic_unions,
 }
+# The gates of the surface that 2.34 adds, which 2.33 must not pass.
+GATES_FROM_234 = {
+    "NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_numeric_surface,
+}
 
 
 def _write_program(root: Path, target: str) -> dict[str, Path]:
@@ -213,7 +217,9 @@ def test_target_235_is_refused_as_unsupported(tmp_path: Path) -> None:
 
 
 def test_every_min_target_gate_has_a_predicate_here() -> None:
-    assert {name for name in vars(syntax) if name.endswith("_MIN_TARGET_DSL_VERSION")} == set(GATE_PREDICATES)
+    assert {name for name in vars(syntax) if name.endswith("_MIN_TARGET_DSL_VERSION")} == set(GATE_PREDICATES) | set(
+        GATES_FROM_234
+    )
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_PREDICATES))
@@ -221,6 +227,13 @@ def test_every_gate_that_233_passes_holds_at_234(gate: str) -> None:
     predicate = GATE_PREDICATES[gate]
 
     assert (predicate("2.33"), predicate("2.34")) == (True, True)
+
+
+@pytest.mark.parametrize("gate", sorted(GATES_FROM_234))
+def test_every_gate_of_234_surface_is_closed_at_233(gate: str) -> None:
+    predicate = GATES_FROM_234[gate]
+
+    assert (vars(syntax)[gate], predicate("2.33"), predicate("2.34")) == ("2.34", False, True)
 
 
 def test_target_234_is_2_33_or_newer() -> None:

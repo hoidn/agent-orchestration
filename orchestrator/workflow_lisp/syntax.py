@@ -13,8 +13,12 @@ module feeds.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
+import sys
 
+from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
@@ -357,6 +361,19 @@ def target_dsl_supports_trial(target_dsl_version: str) -> bool:
     return target >= minimum
 
 
+def target_dsl_supports_numeric_surface(target_dsl_version: str) -> bool:
+    """Return whether a target admits decimal literals in expressions and the numeric operators."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part) for part in NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
 def target_dsl_supports_strict_boolean_control_flow(
     target_dsl_version: str,
 ) -> bool:
@@ -670,6 +687,8 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
             span=root.span,
             code="module_declaration_missing",
         )
+    if target_dsl_supports_numeric_surface(header_values[":target-dsl"]):
+        forms = [replace(node, datum=_admit_decimal_literals(node.datum)) for node in forms]
     return WorkflowLispSyntaxModule(
         language_version=header_values[":language"],
         target_dsl_version=header_values[":target-dsl"],
@@ -1030,6 +1049,44 @@ def _parse_export_directive(node: SyntaxNode, datum: SyntaxDatum) -> ExportDirec
             _raise_error("`export` requires symbolic member names", span=item.span)
         names.append(identifier.resolved_name)
     return ExportDirective(names=tuple(names), span=node.span, form_path=node.form_path)
+
+
+def _admit_decimal_literals(datum: SyntaxDatum) -> SyntaxDatum:
+    """Apply rule N1 of the numeric surface to one datum of a module read at 2.34 or newer.
+
+    A symbol written as a literal with an exponent becomes a float, and a float
+    that is not a finite double is refused. Older targets skip this pass, so each
+    token reads there as it always did.
+    """
+
+    if isinstance(datum, SyntaxList):
+        return replace(datum, items=tuple(_admit_decimal_literals(item) for item in datum.items))
+    if isinstance(datum, SyntaxIdentifier):
+        value = exponent_float_literal(datum.display_name)
+        if value is None:
+            return datum
+        _require_finite_literal(value, written=f"`{datum.display_name}`", span=datum.span)
+        return SyntaxFloat(
+            value=value,
+            span=datum.span,
+            module_path=datum.module_path,
+            form_path=datum.form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if isinstance(datum, SyntaxFloat):
+        length = datum.span.end.offset - datum.span.start.offset
+        _require_finite_literal(datum.value, written=f"of {length} characters", span=datum.span)
+    return datum
+
+
+def _require_finite_literal(value: float, *, written: str, span: SourceSpan) -> None:
+    if not math.isfinite(value):
+        _raise_error(
+            f"decimal literal {written} does not fit a finite double; "
+            f"the largest finite double is {sys.float_info.max!r}",
+            span=span,
+            code="float_literal_not_finite",
+        )
 
 
 def _raise_error(message: str, *, span: SourceSpan, code: str = "frontend_parse_error") -> None:
