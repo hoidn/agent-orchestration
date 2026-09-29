@@ -33,25 +33,33 @@ N8), [execution facts](../reports/2026-09-29-workflow-lisp-execution-facts.md),
 
 ## Status, Authorities, And Scope
 
-Status: draft for the owner. The owner approved on 2026-09-29 the spike of
-Phase 1 and the repairs of the
-[shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md).
-Everything else waits for the decisions below.
+Status: Phases 0 and 1 selected. The owner approved on 2026-09-29 the spike
+of Phase 1, the repairs of the
+[shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
+and decisions 1 to 4 below. Phases 2 to 7 wait for gate G1.
+
+Decided on 2026-09-29:
+
+| # | Decision | Outcome |
+| --- | --- | --- |
+| 1 | The target that carries the surface changes of Phase 0 | 2.34, the target of the repetition reduction plan |
+| 2 | Whether Phase 0 includes the interim repair of the flat route, Task 2 | Yes |
+| 3 | Whether the numeric operators are adopted now or when a maintained workflow needs them | Now, with the fixture of the numeric surface design, section 4 |
+| 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time |
+| - | When Phase 0 starts and from which base | Now, from the integration branch of the repairs plan. It enters `main` after the repairs |
 
 Decisions needed:
 
 | # | Decision | Recommendation | Needed before |
 | --- | --- | --- | --- |
-| 1 | The target that carries the surface changes of Phase 0 | 2.34, the target of the repetition reduction plan | Task 3 |
-| 2 | Whether Phase 0 includes the interim repair of the flat route, Task 2 | Yes. It is small and lets the controller run on both routes, which the parity measure of the spike needs | Task 2 |
-| 3 | Whether the numeric operators are adopted now or when a maintained workflow needs them | Now, with the fixture of the numeric surface design, section 4 | Task 6 |
-| 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time | Phase 1 |
 | 5 | The choice between repairing the flat route, values as expressions, and evaluated execution | Decided at gate G1, on the spike's report | Phase 2 |
 | 6 | The number of the evaluated execution target | A new major number | Phase 2 |
 | 7 | The effect classes of the first release | Commands, composed providers, calls, transitions, views, requests for input | Phase 3 |
 | 8 | When older targets are retired | After the maintained workflows run at the new target | Phase 7 |
 
-Depends on: the shared defect repairs plan merged to `main`.
+Base: the integration branch of the shared defect repairs plan, with `main`
+and the paired search experiment merged in. Phases 0 and 1 merge to `main`
+after that plan does.
 
 Out of scope: YAML workflows; capture or rollback of workspace files; a
 policy that schedules work as each result arrives.
@@ -97,6 +105,29 @@ policy that schedules work as each result arrives.
 ---
 
 ## Phase 0: Independent Of The Execution Model
+
+### Task 0: Target 2.34 Exists
+
+- [ ] Complete
+
+Decision 1. Tasks 3, 4 and 6 start from this task's commit.
+
+**Read/trace:** `orchestrator/workflow_lisp/syntax.py` (the supported
+targets), `orchestrator/workflow/validation.py`,
+`orchestrator/workflow/run_ref/config.py`,
+`orchestrator/workflow/run_ref/bundle_transport.py`,
+`tests/test_workflow_lisp_target_233.py`, `specs/versioning.md`,
+`specs/dsl.md`.
+**Update:** those owners.
+**Create:** `tests/test_workflow_lisp_target_234.py`.
+
+1. Write failing tests: a program that declares target 2.34 compiles and
+   runs through the public run entry; at 2.34 it builds the artifacts it
+   builds at 2.33, apart from the version each artifact records.
+2. Implement. 2.34 accepts and lowers exactly what 2.33 does.
+3. State in `specs/versioning.md` that 2.34 exists and what later tasks add
+   to it.
+
 
 ### Task 1: A Refusal Prints What It Refused
 
@@ -182,6 +213,9 @@ fields, expected outputs), `orchestrator/workflow/signatures.py`,
 ### Task 5: What `.orc` Runs Today
 
 - [ ] Complete
+
+Runs with Task 10 of the shared defect repairs plan, which edits the same
+three documents, after Tasks 2, 3 and 6 of this plan.
 
 **Read:** the totality matrix and its report; the execution facts, sections
 D and E; `docs/orc_workflow_design_lessons.md`.
