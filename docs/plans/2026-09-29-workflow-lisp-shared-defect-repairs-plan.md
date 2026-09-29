@@ -512,6 +512,49 @@ new module beside it.
    same workspace is refused, and in `workflows/README.md` how to launch the
    watchdog.
 
+### Task 15: A Pure Binding Keeps Its Source Scope Where It Is Used
+
+- [ ] Complete
+
+Depends on Task 5. Found by the second fix round of Task 5. The owner's
+decision on capture (a silent wrong value is corrected at every target) is
+read as covering these two defects, because they are of the same class. The
+owner may reverse that reading.
+
+**Read/trace:** `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+(`_frontend_expr_from_wcc_value_with_env` and its environment),
+`orchestrator/workflow_lisp/wcc/lower.py`,
+`orchestrator/workflow_lisp/wcc/hygiene.py`, the expansion of `defun` calls
+that targets below 2.30 use, the second fix report of Task 5 ("Found and not
+repaired", items 2 and 3).
+**Update:** the owner of each defect.
+**Create:** tests in `tests/test_workflow_lisp_use_site_scope.py`.
+
+The defects:
+
+- Lowering substitutes a pure binding where it is used and resolves its free
+  names there. `(let* ((b 1) (v (+ b 1))) (let* ((b 5)) v))` returns 6 at
+  every target. Lexical scope gives 2.
+- Below target 2.30 a `defun` argument is evaluated inside the scope of the
+  callee's parameters. With `(defun select-second ((x Int) (y Int)) -> Int y)`
+  and `x` bound to 9, `(select-second 2 x)` returns 2. Lexical scope gives 9.
+
+1. Write failing tests through the public run entry. Each asserts the value
+   lexical scope gives and the ordered command log, at the oldest target
+   that accepts the program, at 2.32 and at 2.33. Cover the pure binding
+   used in: a rebinding `let*`, a record field, a condition, a `match` arm,
+   a loop body, an argument of an effect call, and with an effect between
+   the definition and the use. Cover the `defun` argument with one and with
+   two shadowed parameters, and with a nested `defun` call as the argument.
+2. Repair each defect in the stage that owns it. A binding's free names
+   resolve in the scope of its definition.
+3. Sweep every `.orc` program under `workflows/`, at one fixed path with
+   `PYTHONHASHSEED=0`, at the base of this task and at its head. List each
+   program whose build changes and the value that changed.
+4. Programs with no shadowed name build byte-identical artifacts at every
+   target.
+5. Give the sentence for `specs/versioning.md`; Task 10 writes it.
+
 ## D. Documents
 
 ### Task 10: Correct The Documents
