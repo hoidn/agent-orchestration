@@ -61,39 +61,49 @@ criteria, and the verdict rules.
 
 ## Authoring Pitfalls
 
-Each row was hit while writing the example workflows.
+Each row was hit while writing the example workflows. A rule is a restriction
+the language makes on purpose. A defect is a failure after typecheck or a
+wrong diagnostic; [Composition-First Procedures §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
+lists each known defect with its cause and the test that pins it.
 
-| Symptom | Cause | Write instead |
-| --- | --- | --- |
-| Compiler crash, `TypeError: unsupported nested WCC M2 prefix for LetStarExpr` | an effectful call used directly as a `match` scrutinee | bind it first: `(let* ((decision (review ...))) (match decision ...))` |
-| Compiler crash, `TypeError: unsupported pure projection expression: ProcedureCallExpr` | an effectful call written inside `loop-state :like` | bind it first: `(let* ((next (revise ...))) (continue (loop-state :like state :current next)))` |
-| `proc_ref_signature_invalid` | the call to a generic helper used directly as a `match` scrutinee | bind the helper's result with `let*`, then `match` |
-| `workflow_return_not_exportable` at `:max` | the bound comes from a workflow parameter | a compile-time integer constant of at least 1 |
-| `workflow_boundary_type_invalid`, "max_iterations must be > 0" | `:max 0` | zero is rejected at compile time; it is not a run-time outcome |
-| `workflow_boundary_type_invalid`, "may only override scalar repeat_until outputs" | targets 2.29 to 2.32: a loop result union with a path field outside the exhausted variant | declare target 2.28, or 2.33 once the CF-1b branch lands |
-| `workflow_boundary_type_invalid`, "without required author-time variant proof" | a `match` whose arms mix a plain variant with a loop, or, from 2.29, a caller that matches a union result into its own union | put the first check inside the loop, or give every arm an effectful step |
-| `collection_element_type_unsupported` | a list of records inside a union variant or a provider result | `List[String]`, or a path to a file the agent writes |
-| `module_path_mismatch` | the file name differs from the module name | name the file after the module |
-| `type_unknown` in a hook | a pure hook declared in the caller's module | make the hook command- or provider-backed |
-| Empty effect summary | hooks imported from another module | declare the hooks in the calling module when the summary matters |
+| Symptom | Kind | Cause | Write instead |
+| --- | --- | --- | --- |
+| `compiler_defect` (`unsupported nested WCC M2 prefix for LetStarExpr`) | Defect, below 2.33 | a `match` subject that elaborates to bindings, such as a `let*` expression, or a local wrapper around an imported effectful procedure, which older targets infer effect-free and inline | target 2.33; below it, bind the effectful call first: `(let* ((v (check ...))) (match v ...))` |
+| `compiler_defect` (`unsupported pure projection expression: ProcedureCallExpr`) | Defect, below 2.33 | an effectful call written inside `loop-state :like` | bind it first: `(let* ((next (revise ...))) (continue (loop-state :like state :current next)))`, or target 2.33 |
+| `compiler_defect_loop_control_value` (2.33; `compiler_defect` below) | Defect | an effectful `if` or `match` as a `loop-state` field, or bound by `let*` in a loop body | a `match` in tail position whose arms `continue` |
+| `proc_ref_signature_invalid` | Defect | below 2.33, the call to a generic helper used directly as a `match` subject; at 2.33 too, a generic call with hooks in a `loop-state` field under `continue` | bind the helper's result with `let*`, then `match`; at 2.33 the direct subject compiles |
+| `workflow_return_not_exportable` at `:max` | Rule | the bound comes from a workflow parameter | a compile-time integer constant of at least 1 |
+| `workflow_boundary_type_invalid`, "max_iterations must be > 0" | Rule | `:max 0` | zero is rejected at compile time; it is not a run-time outcome |
+| `workflow_boundary_type_invalid`, "may only override scalar repeat_until outputs" | Defect | targets 2.29 and later: a loop result union with a path field outside the exhausted variant | declare target 2.28 |
+| `workflow_boundary_type_invalid`, "without required author-time variant proof" | Defect | a `match` whose arms mix a plain variant with a loop, or, from 2.29, a caller that matches a union result into its own union. At 2.33 the first shape fails `--dry-run` with `pure_result_replay_unavailable`, "source contract disagrees with its binding type" | put the first check inside the loop, or give every arm an effectful step |
+| `pure_result_replay_unavailable`, "unknown result member" or "crosses the indexed frame scope", at `--dry-run` | Defect | pure bindings over a loop or command result: a record built with a literal in a `match` arm, or bindings in an `if` branch over a `call` made in that branch | pass the fields to the next effect instead of binding them |
+| `collection_element_type_unsupported` | Rule | a list of records inside a union variant or a provider result | `List[String]`, or a path to a file the agent writes |
+| `module_path_mismatch` | Rule | the file name differs from the module name | name the file after the module |
+| `compiler_defect` or `workflow_return_not_exportable` in `std/improve.orc` | Defect | a pure `improve` hook | make the hook command- or provider-backed |
+| Empty effect summary | Defect, below 2.33 | hooks imported from another module | declare the hooks in the calling module when the summary matters, or target 2.33 |
 
 Run `--dry-run` before any real call. It caught a missing `match` arm, a field
 of the wrong variant, an `Int` passed to a text slot, a prompt placeholder
-nobody fills, and a misspelt provider, each with file, line and column.
+nobody fills, and a misspelt provider, each with file, line and column. It
+also builds the pure-result replay index, so it reports the
+`pure_result_replay_unavailable` rejections above before any effect runs.
 
 ## Provider And Delivery Pitfalls
 
-`--dry-run` does not catch these. Each cost at least one paid call.
+Each cost at least one paid call. `--dry-run` catches only the first.
 
 | Pitfall | What to do |
 | --- | --- |
-| `claude_unrestricted_workspace` and `codex_unrestricted_workspace` have no default model or effort; the run fails with "Missing placeholders: model, effort" | pass `:model` and `:effort` on every `provider-result` |
-| Provider `codex` defaults to `gpt-5.4`, which the account rejects | name the model |
-| The codex CLI ignores `reasoning_effort`; the global setting applies | do not rely on `:effort` to lower cost with codex providers |
+| `claude_unrestricted_workspace` and `codex_unrestricted_workspace` have no default model or effort | pass `:model` and `:effort` on every `provider-result`; compile and `--dry-run` report `provider_parameters_missing` at the call |
 | No `:timeout-sec` | set one on every call that edits a repository |
 | An agent does the work and answers in prose, and the run fails with `missing_bundle_file` | end each prompt with an explicit sentence: write the JSON result to the file named by `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` |
 | That path is relative to the run workspace; an agent that changes directory writes the file elsewhere | keep the agent's work inside the workspace, or wrap the agent CLI to make the path absolute |
-| A provider that delivers nothing in loop iteration two or later is read as repeating its previous answer | until the runtime clears the file, remove it before each call in a wrapper |
+
+The runtime removes a call's result file before the call starts, so a provider
+that delivers nothing in a later loop iteration fails with
+`missing_bundle_file` instead of repeating its previous answer. Provider
+`codex` defaults to `gpt-5.5` and passes `:effort` as
+`model_reasoning_effort`.
 
 ## Before Spending On Real Calls
 
