@@ -555,6 +555,39 @@ The defects:
    target.
 5. Give the sentence for `specs/versioning.md`; Task 10 writes it.
 
+### Task 16: One Owner, Rooted At The Workspace Descriptor, For Every Result File
+
+- [ ] Complete
+
+Depends on Task 8. Three review rounds of Task 8 each found another site
+that reaches the workspace by path and can be led outside it when a
+directory is replaced by a symbolic link during a run: the removal, then the
+removal under a replaced root, then the read after the call and the creation
+of one provider kind's bundle. The cause is that result files are addressed
+by path at many sites. This task removes the cause.
+
+**Read/trace:** the third review of Task 8; `orchestrator/workflow/executor.py`
+(the no-follow walk of the second fix round, the read after the call,
+`_materialize_omp_output_bundle`); `orchestrator/contracts/output_contract.py`;
+`orchestrator/cli/commands/resume.py`.
+**Update:** those owners; `specs/io.md`; `specs/state.md`.
+**Create:** `orchestrator/workflow/workspace_files.py`; tests in
+`tests/test_workflow_result_path_confinement.py`.
+
+1. Inventory every site that creates, reads, validates, clears or checks a
+   result bundle file, an expected output file or a file under the state
+   root, and whether it goes by path or by descriptor.
+2. Write failing tests: the root replaced between the clearing and the read;
+   an ancestor replaced before a bundle is created; `resume` with a linked
+   `.orchestrate`; a phased-delivery refusal inside a call frame carries its
+   location.
+3. Implement one owner that performs every such operation from the root
+   descriptor the executor opened once. No second walk.
+4. Report where a copy of a rejected attempt's result could be kept. The
+   owner decides whether to keep it.
+5. A workspace with no symbolic link behaves as before: equal build
+   artifacts and run results for three shipped workflows.
+
 ## D. Documents
 
 ### Task 10: Correct The Documents
