@@ -4,14 +4,31 @@
 
 Only one run may execute in a workspace at a time. `run` and `resume`
 (including `--force-restart`) acquire a workspace lock before compilation or
-execution-state mutation. A competing invocation exits with
-`workspace_run_already_active`, naming the active run. Changing `--state-dir`
-does not bypass this rule. The trial SDK/CLI uses the same workspace lock;
-nested workflow calls belong to their root run and do not acquire it again.
+execution-state mutation. A competing invocation is refused with
+`workspace_run_already_active`, naming the active run, and `run`, `resume` and
+`trial` exit 2. Exit 2 means the request was refused before execution; exit 1
+stays the status of a workflow that ran and failed. Exit 2 is also the status
+of a compile or validation error, so a caller that must tell those apart reads
+the code. Changing `--state-dir` does not bypass this rule. The trial SDK/CLI
+uses the same workspace lock; nested workflow calls belong to their root run
+and do not acquire it again.
 Run-ref children own their separate clone workspace. `prompt run` can prepare
 or reserve its scaffold before entering the ordinary `run` owner, but cannot
 execute a provider while another run owns the workspace. The lock is not a
-transaction over scaffold authoring or reservation.
+transaction over scaffold authoring or reservation. Commands that are not
+runs take no workspace lock: `prompt resume` (with `--in-place` it runs a
+provider in the workspace), `input answer|cancel`, `report` and `dashboard`.
+
+The workspace is the physical current directory: a path that reaches it through
+a symbolic link names the same workspace. The lock is an exclusive `flock` on
+`.orchestrate/workspace.lock`, which records the owner's run ID as metadata. A
+starter holds `.orchestrate/workspace.guard` while it takes the lock and
+records its ID, so a refusal names the current owner. A starter waits at most
+5 seconds for the guard; if another starter still holds it, the request is
+refused with `workspace_run_already_active` and a message that the guard is
+held. Exclusion assumes a local filesystem. On NFS, `flock` is emulated with
+byte-range locks on the server, and with `local_lock=flock` or
+`local_lock=all` it excludes only processes on one host.
 
 The operating system releases ownership when execution returns (including
 failure or suspension) or the process dies. Retained lock metadata is not

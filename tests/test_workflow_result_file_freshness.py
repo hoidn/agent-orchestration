@@ -431,7 +431,7 @@ def test_two_concurrent_runs_do_not_share_the_result_file_of_a_promoted_call(tmp
         assert (tmp_path / "written").exists(), "first run never reached the held command"
         (active_run,) = _runs(tmp_path)
         second = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, timeout=20)
-        assert second.returncode == 1
+        assert second.returncode == 2
         assert "workspace_run_already_active" in second.stderr
         assert active_run.name in second.stderr
         assert not (tmp_path / "second").exists(), "second run dispatched a command"

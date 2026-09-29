@@ -7,6 +7,7 @@ import errno
 import fcntl
 import os
 from pathlib import Path
+import time
 from typing import Iterator
 
 from orchestrator.providers.omp_launch_fs import LaunchFsError, open_dir_no_follow
@@ -27,18 +28,30 @@ class RunAlreadyActiveError(RuntimeError):
 
 
 class WorkspaceAlreadyActiveError(RuntimeError):
-    """Another run owns execution in this workspace."""
+    """Another run owns execution in this workspace, or is starting in it
+    (``run_id`` is then None)."""
 
     code = "workspace_run_already_active"
 
-    def __init__(self, workspace: Path, run_id: str):
+    def __init__(self, workspace: Path, run_id: str | None):
         self.run_id = run_id
-        super().__init__(f"{self.code}: run {run_id} is active in {workspace}")
+        self.detail = (
+            f"run {run_id} is active in {workspace}"
+            if run_id is not None
+            else f"another run is starting in {workspace}: "
+            ".orchestrate/workspace.guard is held"
+        )
+        super().__init__(f"{self.code}: {self.detail}")
 
 
 @contextmanager
-def workspace_run_lock(workspace: Path, run_id: str) -> Iterator[None]:
-    """Serialize execution; retained files carry metadata, never lock authority."""
+def workspace_run_lock(
+    workspace: Path, run_id: str, guard_timeout: float = 5.0
+) -> Iterator[None]:
+    """Serialize execution; retained files carry metadata, never lock authority.
+
+    Waits at most ``guard_timeout`` seconds for the start guard, then refuses.
+    """
     root = Path(workspace) / ".orchestrate"
     root.mkdir(exist_ok=True)
     dir_fd = _open_root_no_follow(root)
@@ -49,7 +62,19 @@ def workspace_run_lock(workspace: Path, run_id: str) -> Iterator[None]:
             try:
                 # Serialize acquisition and owner publication so a contender
                 # cannot report the previous owner in the short publication gap.
-                fcntl.flock(guard_fd, fcntl.LOCK_EX)
+                # Bounded, so a starter stopped inside this section cannot
+                # block every later starter.
+                deadline = time.monotonic() + guard_timeout
+                while True:
+                    try:
+                        fcntl.flock(guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError as exc:
+                        if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                            raise
+                        if time.monotonic() >= deadline:
+                            raise WorkspaceAlreadyActiveError(workspace, None) from exc
+                    time.sleep(0.01)
                 try:
                     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError as exc:
