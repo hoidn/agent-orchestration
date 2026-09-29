@@ -150,17 +150,26 @@
       fixed comparison classifications only; neither report projection is a
       provider result or execution/resume input.
   - Result-file freshness (every target):
-    - Before each command or provider call with `output_bundle.path` or
-      `variant_output.path`, including each retry attempt and each call run
-      again on resume, the runtime creates the bundle parent and removes any
-      file at the resolved bundle path. A file left there by an earlier
-      iteration, an earlier run, or an interrupted or failed attempt is never
-      read as the result of the new call.
+    - Before each command call, and each provider call with composed delivery,
+      that has `output_bundle.path` or `variant_output.path`, including each
+      retry attempt and each call run again on resume, the runtime creates the
+      bundle parent and removes any file at the resolved bundle path. A file
+      left there by an earlier iteration, an earlier run, or an interrupted or
+      failed attempt is never read as the result of the new call.
+    - The removal opens each parent directory without following a symbolic
+      link and removes the last path component relative to that directory, so
+      it never acts outside the workspace. A symbolic link at the bundle path
+      is removed, never its target. If the path cannot be cleared (for example
+      because a directory is there), the step fails before launch with the
+      output-contract violation `stale_bundle_removal_failed`.
     - If the call exits `0` and the bundle file is absent, the step fails with
       the output-contract violation `missing_bundle_file`.
-    - Provider-supervision and provider-peer-group invocations below keep
-      their own rule: their provisional paths must already be absent, and a
-      pre-existing file fails before launch.
+    - These calls keep their own rule instead: a provider call with phased
+      delivery rejects a pre-existing bundle file with
+      `candidate_path_preexisting` (an exact rerun of an interrupted attempt
+      first discards that attempt's own candidates); provider-supervision and
+      provider-peer-group invocations below require their provisional paths to
+      be absent, and a pre-existing file fails before launch.
   - Provider-supervision IO (v2.16):
     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
       output bundles remain the execution and result transports. Observation
