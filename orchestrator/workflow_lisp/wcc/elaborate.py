@@ -5644,12 +5644,8 @@ def _infer_expr_type(
         catalog_type = catalog_operator_result_type(operator, arg_types)
         if catalog_type is not None:
             return catalog_type
-        if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?"}:
+        if operator in {"=", "!=", "and", "or", "not", "some?"}:
             return PrimitiveTypeRef(name="Bool")
-        if operator in {"+", "-", "*", "min", "max"}:
-            if not arg_types:
-                raise TypeError(f"pure operator `{operator}` requires arguments during WCC inference")
-            return arg_types[0]
         if operator == "or-else":
             if len(arg_types) != 2:
                 raise TypeError("pure operator `or-else` requires exactly two operands during WCC inference")

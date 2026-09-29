@@ -2280,10 +2280,8 @@ def _resolve_pure_op_type(expr: PureOpExpr, *, context: _LoweringContext) -> Typ
     catalog_type = catalog_operator_result_type(operator, resolved_arg_types)
     if catalog_type is not None:
         return catalog_type
-    if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?", "string/empty?"}:
+    if operator in {"=", "!=", "and", "or", "not", "some?", "string/empty?"}:
         return PrimitiveTypeRef(name="Bool")
-    if operator in {"+", "-", "*", "min", "max"}:
-        return resolved_arg_types[0]
     if operator == "or-else":
         if len(resolved_arg_types) != 2:
             return None

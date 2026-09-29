@@ -1266,10 +1266,10 @@ def _infer_expr_type(
         catalog_type = catalog_operator_result_type(operator, arg_types)
         if catalog_type is not None:
             return catalog_type
-        if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?"}:
+        if operator in {"=", "!=", "and", "or", "not", "some?"}:
             return PrimitiveTypeRef(name="Bool")
-        if operator in {"+", "-", "*", "min", "max", "or-else"}:
-            if operator == "or-else" and isinstance(arg_types[0], OptionalTypeRef):
+        if operator == "or-else":
+            if isinstance(arg_types[0], OptionalTypeRef):
                 return arg_types[0].item_type_ref
             return PrimitiveTypeRef(name="Int")
         if operator in {"string/concat", "symbol/name"}:

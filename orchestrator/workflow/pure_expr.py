@@ -1310,23 +1310,6 @@ def _derive_static_operator_type(
             )
         return _bool_type()
 
-    if operator in {"<", "<=", ">", ">="}:
-        left_type, right_type = arg_types
-        if not _descriptors_match(left_type, right_type):
-            _raise(
-                "pure_expr_operand_type_mismatch",
-                f"operator `{operator}` requires matching operand types",
-            )
-        if not (
-            _is_primitive_type(left_type, "Int")
-            or _is_primitive_type(left_type, "Float")
-        ):
-            _raise(
-                "pure_expr_operand_type_mismatch",
-                f"operator `{operator}` requires Int or Float operands",
-            )
-        return _bool_type()
-
     if operator in {"and", "or"}:
         for arg_type in arg_types:
             _require_primitive(arg_type, "Bool", operator=operator)
@@ -1335,11 +1318,6 @@ def _derive_static_operator_type(
     if operator == "not":
         _require_primitive(arg_types[0], "Bool", operator=operator)
         return _bool_type()
-
-    if operator in {"+", "-", "*", "min", "max"}:
-        for arg_type in arg_types:
-            _require_primitive(arg_type, "Int", operator=operator)
-        return _int_type()
 
     if operator == "string/concat":
         for arg_type in arg_types:
@@ -1819,25 +1797,6 @@ def evaluate_pure_operator(
             )
         return _bool_type(), (left_value == right_value if operator == "=" else left_value != right_value)
 
-    if operator in {"<", "<=", ">", ">="}:
-        left_type, right_type = arg_types
-        left_value, right_value = arg_values
-        if not _descriptors_match(left_type, right_type):
-            _raise("pure_expr_operand_type_mismatch", f"operator `{operator}` requires matching operand types")
-        if _is_primitive_type(left_type, "Int"):
-            pass
-        elif _is_primitive_type(left_type, "Float"):
-            pass
-        else:
-            _raise("pure_expr_operand_type_mismatch", f"operator `{operator}` requires Int or Float operands")
-        operations = {
-            "<": left_value < right_value,
-            "<=": left_value <= right_value,
-            ">": left_value > right_value,
-            ">=": left_value >= right_value,
-        }
-        return _bool_type(), operations[operator]
-
     if operator == "and":
         for arg_type in arg_types:
             _require_primitive(arg_type, "Bool", operator=operator)
@@ -1851,25 +1810,6 @@ def evaluate_pure_operator(
     if operator == "not":
         _require_primitive(arg_types[0], "Bool", operator=operator)
         return _bool_type(), not arg_values[0]
-
-    if operator in {"+", "-", "*", "min", "max"}:
-        for arg_type in arg_types:
-            _require_primitive(arg_type, "Int", operator=operator)
-        if operator == "+":
-            total = 0
-            for value in arg_values:
-                total = _checked_int(total + value)
-            return _int_type(), total
-        if operator == "-":
-            return _int_type(), _checked_int(arg_values[0] - arg_values[1])
-        if operator == "*":
-            total = 1
-            for value in arg_values:
-                total = _checked_int(total * value)
-            return _int_type(), total
-        if operator == "min":
-            return _int_type(), min(arg_values)
-        return _int_type(), max(arg_values)
 
     if operator == "string/concat":
         for arg_type in arg_types:

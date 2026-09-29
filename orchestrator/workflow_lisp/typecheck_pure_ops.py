@@ -202,19 +202,6 @@ def typecheck_pure_expr(
                 effect=merge_effect_summaries(*summaries),
             )
 
-        if operator in {"<", "<=", ">", ">="}:
-            left, right = arg_types
-            if left != right or not (_is_primitive(left, "Int") or _is_primitive(left, "Float")):
-                _raise_operand_mismatch(
-                    expr=expr,
-                    message=f"operator `{operator}` requires matching Int or Float operands",
-                )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
         if operator in {"and", "or"}:
             for arg_type in arg_types:
                 _require_primitive(
@@ -239,20 +226,6 @@ def typecheck_pure_expr(
             return typed_factory(
                 expr=rewritten,
                 type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator in {"+", "-", "*", "min", "max"}:
-            for arg_type in arg_types:
-                _require_primitive(
-                    expr=expr,
-                    type_ref=arg_type,
-                    name="Int",
-                    operator=operator,
-                )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Int"),
                 effect=merge_effect_summaries(*summaries),
             )
 
