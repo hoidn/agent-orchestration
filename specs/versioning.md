@@ -689,9 +689,19 @@
   - A pure binding's free names resolve in the scope of its definition, not
     where the binding is used. A binder between the definition and the use
     that spells a name the binding reads (a `let*` or `match` arm binding, a
-    loop or join parameter, or the parameter of an inlined procedure) does not
-    capture that name. Below target 2.30, a `defun` argument is evaluated in
-    the caller's scope, not in the scope of the parameters bound before it.
+    loop or join parameter, or the parameter or specialization binding of an
+    inlined procedure: a `bind-proc` value, a `let-proc` capture, a bound
+    procedure reference) does not capture that name. Below target 2.30, a
+    `defun` argument is evaluated in the caller's scope, not in the scope of
+    the parameters bound before it. From 2.30, a value bound by `bind-proc` or
+    captured by `let-proc` keeps the names of its definition when it is
+    expanded inside another procedure.
+  - Known defects, at every target: a `bind-proc` or `let-proc` value is
+    resolved where the procedure is called, so a binder of the defining body
+    between the definition and the call captures its names; member names of
+    `with-live-providers` capture in the settlement body. From 2.30, a
+    `let-proc` capture of an effect result evaluates the effect again where
+    the procedure is applied.
   - These corrections change only the value of a program whose result was not
     the value lexical scope gives: a silent wrong value is corrected at every
     target. A form that failed in lowering only because of such a capture now
