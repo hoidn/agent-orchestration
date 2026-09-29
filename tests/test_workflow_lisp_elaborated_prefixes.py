@@ -16,13 +16,11 @@ Effects are command-backed probes that append their argv to `<probe>.log`
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
 
 from tests.test_workflow_lisp_generic_unions_runtime import (
-    _compile,
     _log,
     _public_run,
     _public_run_files,
@@ -284,21 +282,78 @@ def test_resume_after_the_first_committed_iteration_runs_no_committed_command_ag
     assert (state["status"], state["workflow_outputs"], _logs(probes)) == expected
 
 
+# Base behaviour at 2.32 is an internal exception (exit 1), so only the public
+# outcome is asserted: the exit code and that no command ran.
 @pytest.mark.parametrize(
-    ("body", "returns", "message"),
+    ("body", "returns"),
     [
-        (_loop_body("one-field", "direct"), "Candidate", "unsupported pure projection expression: ProcedureCallExpr"),
-        (_loop_body("two-fields", "direct"), "Candidate", "unsupported pure projection expression: ProcedureCallExpr"),
-        (MATCHES["let-name"]["direct"], "Summary", "unsupported nested WCC M2 prefix for `LetStarExpr`"),
-        (MATCHES["let-call"]["direct"], "Summary", "unsupported nested WCC M2 prefix for `LetStarExpr`"),
-        (LOOP_MATCH, "Candidate", "unsupported nested WCC M2 prefix for `LetStarExpr`"),
+        (_loop_body("one-field", "direct"), "Candidate"),
+        (_loop_body("two-fields", "direct"), "Candidate"),
+        (MATCHES["let-name"]["direct"], "Summary"),
+        (MATCHES["let-call"]["direct"], "Summary"),
+        (LOOP_MATCH, "Candidate"),
     ],
     ids=["loop-state-one-field", "loop-state-two-fields", "match-let-name", "match-let-call", "loop-match"],
 )
 def test_target_232_keeps_the_failure_it_has_at_the_base_commit(
-    tmp_path: Path, body: str, returns: str, message: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, returns: str
 ) -> None:
     probes = _write_program(tmp_path, body=body, returns=returns, seed="draft", target="2.32")
 
-    with pytest.raises(TypeError, match=f"^{re.escape(message)}$"):
-        _compile(tmp_path, probes=probes)
+    assert _run(tmp_path, monkeypatch, probes) == (1, {}, ([], [], []))
+
+
+# Admission is per defining module: a procedure defined at 2.33 is elaborated under
+# 2.33 rules wherever it is inlined, and a caller at an older target may call it.
+# `refine` is LOOP_MATCH (both repaired forms) as a procedure of `grt/lib`.
+REFINE_HEADER = """(defproc refine ((seed Candidate)) -> Candidate
+    :effects ((uses-command probe_review) (uses-command probe_revise))
+    :lowering inline"""
+ENTRY = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "ENTRY_TARGET")
+  (defmodule grt/entry)
+  (import grt/lib :only (Candidate review revise refine))
+  (export run)
+  (defworkflow run () -> Candidate
+    BODY))
+"""
+DRAFT = '(record Candidate :title "draft" :score 0)'
+CALL_REFINE = f"(refine {DRAFT})"
+REFINED = (
+    0,
+    {"return__title": "draft+r+r+r", "return__score": 3},
+    (["draft tidy", "draft+r tidy", "draft+r+r tidy"], ["draft tidy fb", "draft+r tidy fb", "draft+r+r tidy fb"], []),
+)
+NOTHING_RAN = (1, {}, ([], [], []))
+
+
+def _write_cross_target_program(root: Path, *, entry_target: str, lib_target: str, entry_body: str) -> dict[str, Path]:
+    probes = _write_program(root, body=LOOP_MATCH.replace("SEED", "seed"), returns="Candidate", seed="draft", target=lib_target)
+    lib = (
+        (root / "grt" / "entry.orc")
+        .read_text(encoding="utf-8")
+        .replace("(defmodule grt/entry)", "(defmodule grt/lib)")
+        .replace("(export run)", "(export Candidate review revise refine)")
+        .replace("(defworkflow run () -> Candidate", REFINE_HEADER)
+    )
+    entry = ENTRY.replace("ENTRY_TARGET", entry_target).replace("BODY", entry_body)
+    _write_sources(root, {"grt/lib.orc": lib, "grt/entry.orc": entry})
+    return probes
+
+
+@pytest.mark.parametrize(
+    ("entry_target", "lib_target", "entry_body", "expected"),
+    [
+        ("2.32", "2.33", CALL_REFINE, REFINED),
+        ("2.33", "2.32", CALL_REFINE, NOTHING_RAN),
+        ("2.32", "2.33", LOOP_MATCH.replace("SEED", DRAFT), NOTHING_RAN),
+    ],
+    ids=["2.32-entry-calls-a-2.33-definition", "2.33-entry-calls-a-2.32-definition", "2.32-entry-writes-the-forms"],
+)
+def test_the_forms_follow_the_target_of_the_module_that_defines_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_target: str, lib_target: str, entry_body: str, expected: tuple
+) -> None:
+    probes = _write_cross_target_program(tmp_path, entry_target=entry_target, lib_target=lib_target, entry_body=entry_body)
+
+    assert _run(tmp_path, monkeypatch, probes) == expected
