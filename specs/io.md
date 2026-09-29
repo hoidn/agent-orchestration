@@ -32,7 +32,32 @@
       RFC 6901 value path. A present JSON `null` succeeds; it is distinct from
       a missing file or pointer. `description` and `format_hint` guidance are
       allowed, but `example` is rejected with
-      `value_guidance_example_unsupported`.
+      `value_guidance_example_unsupported`. From target 2.34 the non-finite
+      constants are refused per field instead, as below.
+    - Target 2.34 finite values (numeric surface rule N6): a `Float` that
+      enters a run is finite. Workflow inputs, fields of command and provider
+      result bundles (plain, variant and nested in a record, union, list or
+      map) and expected output files refuse, with the violation
+      `float_not_finite`:
+      - the JSON tokens `NaN`, `Infinity` and `-Infinity`;
+      - a string that reads as a non-finite number, such as `"nan"`, `"inf"`
+        or `"Infinity"`, where a string is read as a `Float`;
+      - a number too large for a double, such as `1e400` or an integer beyond
+        the double range.
+      The violation context prints the value as the double it reads as
+      (`nan`, `inf`, `-inf`). A bundle refusal names the field by its
+      `json_pointer` and, inside a nested value, its `value_path`; a refused
+      workflow input is named in the binding error, before the run exists.
+      A bundle is decoded with the non-finite tokens so that the refusal
+      names the field, and every non-finite number inside a `value` or nested
+      structural field is refused with the same code. A string in a nested
+      `Float` position remains a type error (`invalid_transportable_value`).
+      The target is the one of the workflow whose step or input is validated.
+    - Targets 2.33 and older keep their behaviour. They accept non-finite
+      values in workflow inputs, plain `float` bundle fields, variant fields
+      and expected output files, and write them to `state.json` as the tokens
+      `NaN`, `Infinity` and `-Infinity`. An integer too large for a double in
+      a `float` position fails the run with an uncaught `OverflowError`.
   - Command structured-bundle environment:
     - For command steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative bundle path before launch and sets
