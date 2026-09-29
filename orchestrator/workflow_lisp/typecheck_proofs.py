@@ -26,7 +26,7 @@ from .expressions import (
 )
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
-from .syntax import target_dsl_supports_strict_boolean_control_flow
+from .syntax import target_dsl_is_2_33_or_newer, target_dsl_supports_strict_boolean_control_flow
 from .type_env import (
     DiscriminantTypeRef,
     FrontendTypeEnvironment,
@@ -322,6 +322,18 @@ def _allocate_binding_identity(
     return BindingIdentity(path=form_path, kind=kind, name=name, ordinal=ordinal)
 
 
+def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
+    """Return the subject the typed `match` node carries.
+
+    From target 2.33 it is the typechecked subject, so a generic call reaches
+    specialization with its specialized callee. Earlier targets keep the
+    authored subject, so what they accept is unchanged.
+    """
+    if target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
+        return typed_subject_expr
+    return expr.subject
+
+
 def typecheck_match_expr(
     expr: MatchExpr,
     *,
@@ -441,7 +453,11 @@ def typecheck_match_expr(
             form_path=expr.form_path,
         )
     return typed_factory(
-        expr=replace(expr, arms=tuple(rewritten_arms)),
+        expr=replace(
+            expr,
+            subject=_kept_match_subject(expr, typed_subject.expr, context=context),
+            arms=tuple(rewritten_arms),
+        ),
         type_ref=arm_result_type,
         effect=merge_effect_summaries(*arm_summaries),
     )
