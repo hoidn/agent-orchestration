@@ -174,3 +174,35 @@ def test_token_reads_as_before_at_233_and_as_rule_n1_at_234(token: str) -> None:
 @pytest.mark.parametrize("token", SYMBOLS)
 def test_token_reads_as_a_symbol_at_every_target(token: str) -> None:
     assert {_read_token(token, target) for target in ("2.14", "2.33", "2.34")} == {(SyntaxIdentifier, token)}
+
+
+@pytest.mark.parametrize("literal", ["1e5", "2.5"], ids=["exponent", "decimal-point"])
+def test_a_macro_template_may_hold_a_decimal_literal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str
+) -> None:
+    source = (
+        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.34")\n'
+        "  (defmodule grt/entry)\n  (export run)\n"
+        f"  (defmacro emit () {literal})\n"
+        "  (defworkflow run () -> Float\n    (emit)))\n"
+    )
+    _write_sources(tmp_path, {"grt/entry.orc": source})
+    monkeypatch.chdir(tmp_path)
+
+    outcome = _public_run(_public_run_files(tmp_path, {}))
+
+    assert (outcome.exit_code, dict(outcome.workflow_outputs)) == (0, {"__result__": float(literal)})
+
+
+def test_target_233_refuses_a_decimal_literal_from_a_macro_template_as_it_refuses_one_written(tmp_path: Path) -> None:
+    written = _refusal(tmp_path / "written", _source("2.5", target="2.33"))
+    source = (
+        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
+        "  (defmodule grt/entry)\n  (export run)\n"
+        "  (defmacro emit () 2.5)\n"
+        "  (defworkflow run () -> Float\n    (emit)))\n"
+    )
+
+    from_macro = _refusal(tmp_path / "macro", source)
+
+    assert from_macro[0] == written[0]

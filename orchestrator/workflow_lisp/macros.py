@@ -18,6 +18,7 @@ from .syntax import (
     ExpansionStack,
     SyntaxBool,
     SyntaxDatum,
+    SyntaxFloat,
     SyntaxIdentifier,
     SyntaxInt,
     SyntaxKeyword,
@@ -448,7 +449,7 @@ def _instantiate_template(
                 expansion_stack=(frame,),
             )
         return clone_template_syntax(bound, frame=frame)
-    if isinstance(template, (SyntaxKeyword, SyntaxString, SyntaxInt, SyntaxBool)):
+    if isinstance(template, (SyntaxKeyword, SyntaxString, SyntaxInt, SyntaxFloat, SyntaxBool)):
         return clone_template_syntax(template, frame=frame)
     if not isinstance(template, SyntaxList):
         raise TypeError(f"unsupported macro template node: {type(template)!r}")
