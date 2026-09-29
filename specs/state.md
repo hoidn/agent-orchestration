@@ -3,6 +3,10 @@
 - Run identification
   - `run_id` format: `YYYYMMDDTHHMMSSZ-<6char>` (UTC timestamp + random suffix)
   - `RUN_ROOT`: `.orchestrate/runs/${run_id}` under WORKSPACE
+  - Reserved: `.orchestrate/workspace.lock` and `.orchestrate/workspace.guard`
+    under WORKSPACE hold the workspace execution lock (see
+    [CLI](cli.md), "Workspace execution ownership"). They are not run state and
+    are never removed.
 
 - State file schema (authoritative record)
   - `schema_version: "2.1"`
