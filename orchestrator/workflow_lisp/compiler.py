@@ -156,6 +156,7 @@ from .syntax import (
     syntax_head_name,
     syntax_identifier,
     syntax_node_datum,
+    target_dsl_is_2_33_or_newer,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_pure_call_composition,
 )
@@ -4887,6 +4888,15 @@ def _infer_stage3_effect_summaries(
     reset_parametric_specialization_requests(typecheck_session)
     try:
         procedure_effects_by_name = dict(procedure_effects_by_name or {})
+        # From target 2.33 the summaries of procedures compiled in earlier
+        # modules stay in every fixpoint round, so a local procedure that calls
+        # an imported effectful procedure keeps the callee's effects. Below 2.33
+        # they are dropped after the first round, as at `7984b51e`.
+        imported_procedure_effects = (
+            dict(procedure_effects_by_name)
+            if module is not None and target_dsl_is_2_33_or_newer(module.target_dsl_version)
+            else {}
+        )
         workflow_effects_by_name = dict(workflow_effects_by_name or {})
         visible_typed_procedures_by_name = dict(visible_typed_procedures_by_name or {})
         procedure_type_envs_by_name = dict(visible_procedure_type_envs_by_name or {})
@@ -5024,7 +5034,11 @@ def _infer_stage3_effect_summaries(
                 validate_declared=False,
             )
             next_procedure_effects = {
-                procedure.definition.name: procedure.transitive_effect_summary for procedure in typed_procedures
+                **imported_procedure_effects,
+                **{
+                    procedure.definition.name: procedure.transitive_effect_summary
+                    for procedure in typed_procedures
+                },
             }
             typed_workflows = typecheck_workflow_definitions(
                 workflow_defs,

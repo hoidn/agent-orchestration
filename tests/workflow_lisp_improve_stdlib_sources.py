@@ -124,7 +124,7 @@ ASSESS_LIB = (
 WRAPPED_REVIEW = """  (defproc review-candidate
     ((candidate Candidate) (brief Brief))
     -> Decision[Feedback Blocker]
-    :effects ()
+    :effects ((uses-command probe_review))
     :lowering inline
     (assess candidate brief))
 """
