@@ -98,7 +98,13 @@ from ..syntax import (
 from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
 from ..workflows import TypedWorkflowDef
 from ..workflow_refs import ResolvedWorkflowRef
-from .hygiene import fresh_name, generated_name_scope, hoist_without_capture, reserved_identifiers
+from .hygiene import (
+    fresh_name,
+    generated_name_scope,
+    hoist_parts_without_capture,
+    hoist_without_capture,
+    reserved_identifiers,
+)
 from .model import (
     WccBindingValue,
     WccBody,
@@ -2426,9 +2432,11 @@ def _elaborate_loop_recur_to_body(
     )
     loop_scope = scope.child_scope("rec-join", authored_binding_name=expr.binding_name)
     loop_name = f"__wcc_loop_{expr.binding_name}_{loop_scope.scope_id.rsplit(':', 1)[-1]}"
+    state_scope = loop_scope.child_scope("loop-state", authored_binding_name=expr.binding_name)
+    budget_scope = loop_scope.child_scope("loop-budget", authored_binding_name=expr.binding_name)
     state_prefix, initial_state = _elaborate_expr_to_value(
         expr.initial_state_expr,
-        scope=loop_scope.child_scope("loop-state", authored_binding_name=expr.binding_name),
+        scope=state_scope,
         type_env=type_env,
         value_env=value_env,
         workflow_return_types=workflow_return_types,
@@ -2440,7 +2448,7 @@ def _elaborate_loop_recur_to_body(
     )
     budget_prefix, budget = _elaborate_expr_to_value(
         expr.max_iterations_expr,
-        scope=loop_scope.child_scope("loop-budget", authored_binding_name=expr.binding_name),
+        scope=budget_scope,
         type_env=type_env,
         value_env=value_env,
         workflow_return_types=workflow_return_types,
@@ -2481,6 +2489,16 @@ def _elaborate_loop_recur_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    prefix = (*state_prefix, *budget_prefix)
+    if _at_2_33(type_env):
+        # The seed's and the budget's bindings run before the loop, whose body and
+        # exhaustion result are the source scope of the loop binder only.
+        prefix, (initial_state, budget) = hoist_parts_without_capture(
+            ((state_prefix, initial_state, state_scope), (budget_prefix, budget, budget_scope)),
+            over=((body, frozenset({expr.binding_name})), (exhaustion, frozenset({expr.binding_name}))),
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
     rec_join = WccRecJoin(
         metadata=loop_scope.body_metadata(
             role=f"rec-join:{expr.binding_name}",
@@ -2505,7 +2523,7 @@ def _elaborate_loop_recur_to_body(
             expr.effect_cardinality_diagnostic_code
         ),
     )
-    return _wrap_prefix_lets((*state_prefix, *budget_prefix), rec_join)
+    return _wrap_prefix_lets(prefix, rec_join)
 
 
 def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
@@ -2794,26 +2812,23 @@ def _elaborate_expr_to_value(
         )
     if isinstance(expr, RecordExpr):
         record_type = _require_record_type(expr, type_env=type_env)
-        prefix: list[WccLet] = []
-        fields: list[tuple[str, WccValue]] = []
-        for field_name, field_expr in expr.fields:
-            field_body = _elaborate_expr_to_body(
-                field_expr,
-                scope=scope.child_scope("record-field", authored_binding_name=field_name),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            field_prefix, field_value = _body_to_prefix_and_value(field_body)
-            prefix.extend(field_prefix)
-            fields.append((field_name, field_value))
+        prefix, field_values = _elaborate_operands_to_values(
+            tuple(
+                (field_expr, scope.child_scope("record-field", authored_binding_name=field_name))
+                for field_name, field_expr in expr.fields
+            ),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        fields = [(field_name, value) for (field_name, _), value in zip(expr.fields, field_values)]
         return (
-            tuple(prefix),
+            prefix,
             WccRecordAtom(
                 metadata=scope.atom_metadata(
                     role=f"record:{expr.type_name}",
@@ -2854,26 +2869,22 @@ def _elaborate_expr_to_value(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
-        prefix: list[WccLet] = []
-        args: list[WccValue] = []
-        for index, arg_expr in enumerate(expr.args):
-            arg_body = _elaborate_expr_to_body(
-                arg_expr,
-                scope=scope.child_scope("pure-op-arg", authored_binding_name=str(index)),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            arg_prefix, arg_value = _body_to_prefix_and_value(arg_body)
-            prefix.extend(arg_prefix)
-            args.append(arg_value)
+        prefix, args = _elaborate_operands_to_values(
+            tuple(
+                (arg_expr, scope.child_scope("pure-op-arg", authored_binding_name=str(index)))
+                for index, arg_expr in enumerate(expr.args)
+            ),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
         return (
-            tuple(prefix),
+            prefix,
             WccPureOp(
                 metadata=scope.value_metadata(
                     role=f"pure-op:{expr.operator}",
@@ -2894,10 +2905,14 @@ def _elaborate_expr_to_value(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
-        prefix: list[WccLet] = []
-        base_body = _elaborate_expr_to_body(
-            expr.base_expr,
-            scope=scope.child_scope("record-update-base", authored_binding_name="base"),
+        prefix, args = _elaborate_operands_to_values(
+            (
+                (expr.base_expr, scope.child_scope("record-update-base", authored_binding_name="base")),
+                *(
+                    (field_expr, scope.child_scope("record-update-field", authored_binding_name=field_name))
+                    for field_name, field_expr in expr.overrides
+                ),
+            ),
             type_env=type_env,
             value_env=value_env,
             workflow_return_types=workflow_return_types,
@@ -2907,29 +2922,9 @@ def _elaborate_expr_to_value(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-        base_prefix, base_value = _body_to_prefix_and_value(base_body)
-        prefix.extend(base_prefix)
-        args: list[WccValue] = [base_value]
-        field_names: list[str] = []
-        for field_name, field_expr in expr.overrides:
-            field_body = _elaborate_expr_to_body(
-                field_expr,
-                scope=scope.child_scope("record-update-field", authored_binding_name=field_name),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            field_prefix, field_value = _body_to_prefix_and_value(field_body)
-            prefix.extend(field_prefix)
-            field_names.append(field_name)
-            args.append(field_value)
+        field_names = [field_name for field_name, _ in expr.overrides]
         return (
-            tuple(prefix),
+            prefix,
             WccPureOp(
                 metadata=scope.value_metadata(
                     role="pure-op:record-update",
@@ -2945,26 +2940,23 @@ def _elaborate_expr_to_value(
         )
     if isinstance(expr, UnionVariantExpr):
         union_type = _require_union_type(expr, type_env=type_env)
-        prefix: list[WccLet] = []
-        fields: list[tuple[str, WccValue]] = []
-        for field_name, field_expr in expr.fields:
-            field_body = _elaborate_expr_to_body(
-                field_expr,
-                scope=scope.child_scope("union-field", authored_binding_name=field_name),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            field_prefix, field_value = _body_to_prefix_and_value(field_body)
-            prefix.extend(field_prefix)
-            fields.append((field_name, field_value))
+        prefix, field_values = _elaborate_operands_to_values(
+            tuple(
+                (field_expr, scope.child_scope("union-field", authored_binding_name=field_name))
+                for field_name, field_expr in expr.fields
+            ),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        fields = [(field_name, value) for (field_name, _), value in zip(expr.fields, field_values)]
         return (
-            tuple(prefix),
+            prefix,
             WccInject(
                 metadata=scope.value_metadata(
                     role=f"inject:{expr.variant_name}",
@@ -3010,6 +3002,49 @@ def _elaborate_expr_to_value(
         )
     raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
 
+
+def _elaborate_operands_to_values(
+    operands: tuple[tuple[object, WccIdentityFactory], ...],
+    *,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], tuple[WccValue, ...]]:
+    """Elaborate sibling operands, each in its scope, to one joined prefix and their values in order.
+
+    Every operand's bindings run before all the values. From target 2.33 a
+    binding that a later operand or an earlier value can see is renamed
+    (`hoist_parts_without_capture`); below 2.33 the prefixes are joined as they are.
+    """
+
+    parts = tuple(
+        (
+            *_body_to_prefix_and_value(
+                _elaborate_expr_to_body(
+                    operand,
+                    scope=operand_scope,
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                )
+            ),
+            operand_scope,
+        )
+        for operand, operand_scope in operands
+    )
+    if _at_2_33(type_env):
+        return hoist_parts_without_capture(parts, value_env=value_env, compile_time_bindings=compile_time_bindings)
+    return tuple(let_node for prefix, _, _ in parts for let_node in prefix), tuple(value for _, value, _ in parts)
 
 
 def _elaborate_if_to_value(
@@ -3920,6 +3955,16 @@ def _elaborate_effect_binding_to_body(
             active_phase_scope=active_phase_scope,
         )
         prebound_prefix, prebound_value = _body_to_prefix_and_value(prebound_body)
+        if _at_2_33(type_env):
+            # The argument's bindings run before the later arguments, the call and its continuation.
+            prebound_prefix, prebound_value = hoist_without_capture(
+                prebound_prefix,
+                prebound_value,
+                over=((current, frozenset({arg_name})),),
+                scope=prebound_scope,
+                value_env=value_env,
+                compile_time_bindings=compile_time_bindings,
+            )
         current = WccLet(
             metadata=prebound_scope.body_metadata(
                 role=f"let:{arg_name}",
