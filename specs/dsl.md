@@ -20,7 +20,7 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.33"`; composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (admitted revisions extend through `"2.34"`, which accepts what `"2.33"` accepts until later tasks add its surface; composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).

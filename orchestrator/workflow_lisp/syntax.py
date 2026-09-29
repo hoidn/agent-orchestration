@@ -40,6 +40,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.31",
         "2.32",
         "2.33",
+        "2.34",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
