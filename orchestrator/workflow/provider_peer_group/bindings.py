@@ -1074,12 +1074,14 @@ class WorkflowProviderPeerGroupBindings:
                 resolve_path_preserving_fd(
                     self.executor.state_manager.io_run_root)
             ).as_posix()
+            finite_floats = self.executor._refuses_non_finite_floats()
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(
                     validation_contract,
                     workspace=Path(
                         self.executor.state_manager.io_run_root
                     ),
+                    finite_floats=finite_floats,
                 )
             else:
                 validate_output_bundle(
@@ -1087,6 +1089,7 @@ class WorkflowProviderPeerGroupBindings:
                     workspace=Path(
                         self.executor.state_manager.io_run_root
                     ),
+                    finite_floats=finite_floats,
                 )
             if path.read_bytes() != exact_bytes:
                 raise ValueError(

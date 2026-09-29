@@ -675,6 +675,13 @@
     add finite values at every boundary, and the
     [repetition reduction plan](../docs/plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md)
     adds its rules at this target. State schema remains `2.1`.
+  - Finite values at boundaries (numeric surface rule N6): at 2.34 a
+    non-finite `Float` in a workflow input, a command or provider result field
+    or an expected output file is refused with `float_not_finite`, which names
+    the field (`specs/io.md`, deterministic artifact contracts). Compilation
+    and build artifacts are unchanged; 2.33 and older accept such values as
+    before. Digests of `Float` values are not yet rounded to 15 significant
+    digits (rule N7, third bullet).
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`

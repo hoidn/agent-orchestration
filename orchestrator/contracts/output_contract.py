@@ -73,8 +73,18 @@ class OutputContractError(Exception):
         super().__init__("; ".join(messages))
 
 
-def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Path) -> Any:
-    """Validate one in-memory typed value against an output-style contract."""
+def validate_contract_value(
+    raw_value: Any,
+    spec: Dict[str, Any],
+    workspace: Path,
+    *,
+    finite_floats: bool = False,
+) -> Any:
+    """Validate one in-memory typed value against an output-style contract.
+
+    `finite_floats` refuses a non-finite `Float` with `float_not_finite`
+    (numeric surface N6, from target 2.34); without it such values pass.
+    """
     resolved_workspace = workspace.resolve()
     value_type = spec.get("type")
 
@@ -92,6 +102,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
     elif isinstance(raw_value, str) and not _descriptor_contains_value(spec):
         normalized_value = raw_value if value_type == "string" else raw_value.strip()
@@ -100,6 +111,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
     else:
         parsed_value, violation = _parse_output_bundle_value(
@@ -107,6 +119,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
 
     if violation is not None:
@@ -115,8 +128,16 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
     return parsed_value
 
 
-def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace: Path) -> Dict[str, Any]:
-    """Validate expected output artifacts and return typed artifact values."""
+def validate_expected_outputs(
+    expected_outputs: List[Dict[str, Any]],
+    workspace: Path,
+    *,
+    finite_floats: bool = False,
+) -> Dict[str, Any]:
+    """Validate expected output artifacts and return typed artifact values.
+
+    `finite_floats` is as for `validate_contract_value`.
+    """
     resolved_workspace = workspace.resolve()
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
@@ -172,6 +193,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
         if violation is not None:
             violation.context["path"] = spec_path
@@ -532,8 +554,17 @@ def _resolve_union_output_projection_activity(
     return activity, violations
 
 
-def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
-    """Validate output_bundle JSON contract and return typed artifact values."""
+def validate_output_bundle(
+    output_bundle: Dict[str, Any],
+    workspace: Path,
+    *,
+    finite_floats: bool = False,
+) -> Dict[str, Any]:
+    """Validate output_bundle JSON contract and return typed artifact values.
+
+    `finite_floats` is as for `validate_contract_value`. With it, the document
+    is read with non-finite constants so that the refusal names the field.
+    """
     resolved_workspace = workspace.resolve()
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
@@ -562,7 +593,7 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
     try:
         document = _load_bundle_json(
             bundle_file.read_text(encoding="utf-8"),
-            reject_nonstandard_constants=_contract_contains_value(output_bundle),
+            reject_nonstandard_constants=_contract_contains_value(output_bundle) and not finite_floats,
         )
     except (json.JSONDecodeError, ValueError) as exc:
         raise OutputContractError([
@@ -657,6 +688,7 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
         if violation is not None:
             violation.context["path"] = bundle_path
@@ -673,8 +705,16 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
     return artifacts
 
 
-def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
-    """Validate a tagged-union JSON bundle and expose only the selected variant artifacts."""
+def validate_variant_output_bundle(
+    variant_output: Dict[str, Any],
+    workspace: Path,
+    *,
+    finite_floats: bool = False,
+) -> Dict[str, Any]:
+    """Validate a tagged-union JSON bundle and expose only the selected variant artifacts.
+
+    `finite_floats` is as for `validate_output_bundle`.
+    """
     resolved_workspace = workspace.resolve()
     violations: List[ContractViolation] = []
 
@@ -700,7 +740,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
     try:
         document = _load_bundle_json(
             bundle_file.read_text(encoding="utf-8"),
-            reject_nonstandard_constants=_contract_contains_value(variant_output),
+            reject_nonstandard_constants=_contract_contains_value(variant_output) and not finite_floats,
         )
     except (json.JSONDecodeError, ValueError) as exc:
         raise OutputContractError([
@@ -854,9 +894,11 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             value_type=spec.get("type"),
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
         if violation is not None:
-            violation.type = "variant_field_type_invalid"
+            if violation.type != "float_not_finite":
+                violation.type = "variant_field_type_invalid"
             violation.context["path"] = bundle_path
             violation.context["variant"] = parsed_discriminant
             violation.context["json_pointer"] = json_pointer
@@ -934,9 +976,11 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             value_type=spec.get("type"),
             spec=spec,
             workspace=resolved_workspace,
+            finite_floats=finite_floats,
         )
         if violation is not None:
-            violation.type = "variant_field_type_invalid"
+            if violation.type != "float_not_finite":
+                violation.type = "variant_field_type_invalid"
             violation.context["path"] = bundle_path
             violation.context["variant"] = parsed_discriminant
             violation.context["json_pointer"] = json_pointer
@@ -994,6 +1038,7 @@ def _parse_output_value(
     value_type: str,
     spec: Dict[str, Any],
     workspace: Path,
+    finite_floats: bool = False,
 ) -> tuple[Any, ContractViolation | None]:
     if value_type == "string":
         return raw_value, None
@@ -1020,7 +1065,7 @@ def _parse_output_value(
 
     if value_type == "float":
         try:
-            return float(raw_value), None
+            return _read_float(raw_value, finite_floats)
         except ValueError:
             return None, ContractViolation(
                 type="invalid_float",
@@ -1056,7 +1101,15 @@ def _parse_output_bundle_value(
     spec: Dict[str, Any],
     workspace: Path,
     value_path: str = "",
+    finite_floats: bool = False,
 ) -> tuple[Any, ContractViolation | None]:
+    if finite_floats and (
+        value_type == "value" or _descriptor_contains_direct_structure(spec)
+    ):
+        violation = _non_finite_number(raw_value, value_path)
+        if violation is not None:
+            return None, violation
+
     if _descriptor_contains_direct_structure(spec):
         from orchestrator.workflow.type_descriptor import (
             transport_descriptor_for_schema,
@@ -1112,6 +1165,7 @@ def _parse_output_bundle_value(
             spec=item_spec,
             workspace=workspace,
             value_path=value_path,
+            finite_floats=finite_floats,
         )
 
     if value_type == "list":
@@ -1136,6 +1190,7 @@ def _parse_output_bundle_value(
                 spec=item_spec,
                 workspace=workspace,
                 value_path=_append_value_path(value_path, str(index)),
+                finite_floats=finite_floats,
             )
             if violation is not None:
                 violation.context["index"] = index
@@ -1171,6 +1226,7 @@ def _parse_output_bundle_value(
                 spec=value_spec,
                 workspace=workspace,
                 value_path=_append_value_path(value_path, key),
+                finite_floats=finite_floats,
             )
             if violation is not None:
                 violation.context["key"] = key
@@ -1213,10 +1269,10 @@ def _parse_output_bundle_value(
 
     if value_type == "float":
         if isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
-            return float(raw_value), None
+            return _read_float(raw_value, finite_floats, value_path=value_path)
         if isinstance(raw_value, str):
             try:
-                return float(raw_value), None
+                return _read_float(raw_value, finite_floats, value_path=value_path)
             except ValueError:
                 pass
         return None, ContractViolation(
@@ -1253,6 +1309,61 @@ def _parse_output_bundle_value(
         type="unsupported_type",
         message="Output contract type is not supported",
         context={"type": value_type},
+    )
+
+
+def _read_float(
+    raw_value: int | float | str,
+    finite_floats: bool,
+    **context: str,
+) -> tuple[float | None, ContractViolation | None]:
+    """Read a JSON number or a numeric string as a double.
+
+    Raises `ValueError` for a string that is not a number. With
+    `finite_floats`, a value that is not a finite double is refused, including
+    an integer too large for a double; without it, such an integer raises
+    `OverflowError`.
+    """
+
+    try:
+        value = float(raw_value)
+    except OverflowError:
+        if not finite_floats:
+            raise
+        value = math.inf if raw_value > 0 else -math.inf
+    if finite_floats and not math.isfinite(value):
+        return None, _float_not_finite(value, **context)
+    return value, None
+
+
+def _non_finite_number(raw_value: Any, value_path: str) -> ContractViolation | None:
+    """Refuse the first non-finite number inside a decoded JSON value, if any."""
+
+    pending = [(value_path, raw_value)]
+    seen_container_ids: set[int] = set()
+    while pending:
+        path, item = pending.pop()
+        if type(item) is float and not math.isfinite(item):
+            return _float_not_finite(item, value_path=path)
+        if type(item) in (list, dict) and id(item) not in seen_container_ids:
+            seen_container_ids.add(id(item))
+            entries = item.items() if type(item) is dict else enumerate(item)
+            pending.extend(
+                reversed(
+                    [
+                        (_append_value_path(path, str(key)), child)
+                        for key, child in entries
+                    ]
+                )
+            )
+    return None
+
+
+def _float_not_finite(value: float, **context: str) -> ContractViolation:
+    return ContractViolation(
+        type="float_not_finite",
+        message="Float value is not finite",
+        context={"value": repr(value), **context},
     )
 
 

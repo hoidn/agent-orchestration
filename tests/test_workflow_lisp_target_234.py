@@ -81,6 +81,7 @@ GATE_PREDICATES = {
     "PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_provider_context_values,
     "HUMAN_INPUT_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_human_input,
     "GENERIC_UNION_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_generic_unions,
+    "FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION": syntax.target_dsl_refuses_non_finite_floats,
 }
 # The gates of the surface that 2.34 adds, which 2.33 must not pass.
 GATES_FROM_234 = {
@@ -226,7 +227,8 @@ def test_every_min_target_gate_has_a_predicate_here() -> None:
 def test_every_gate_that_233_passes_holds_at_234(gate: str) -> None:
     predicate = GATE_PREDICATES[gate]
 
-    assert (predicate("2.33"), predicate("2.34")) == (True, True)
+    # A gate of the 2.34 surface is closed at 2.33.
+    assert (predicate("2.33"), predicate("2.34")) == (getattr(syntax, gate) != "2.34", True)
 
 
 @pytest.mark.parametrize("gate", sorted(GATES_FROM_234))

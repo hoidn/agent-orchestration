@@ -43,6 +43,7 @@ from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 from orchestrator.workflow_lisp.wcc.route import (
     effective_persisted_lowering_schema_for_orc,
     lowering_route_for_schema,
@@ -523,6 +524,7 @@ def _resume_workflow_with_writer_lock_held(
                 workflow_public_input_contracts(workflow_bundle),
                 _public_rebind_inputs_for_force_restart(workflow_bundle, getattr(state, 'bound_inputs', {})),
                 workspace=workspace_dir,
+                finite_floats=target_dsl_refuses_non_finite_floats(workflow_bundle.surface.version),
             )
         except ValueError as exc:
             logger.error(f"Validation error: {exc}")

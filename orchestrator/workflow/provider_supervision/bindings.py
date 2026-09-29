@@ -1190,15 +1190,18 @@ class WorkflowProviderSupervisionBindings:
         )
         run_root = Path(self.executor.state_manager.io_run_root)
         try:
+            finite_floats = self.executor._refuses_non_finite_floats()
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(
                     validation_contract,
                     workspace=run_root,
+                    finite_floats=finite_floats,
                 )
             else:
                 artifacts = validate_output_bundle(
                     validation_contract,
                     workspace=run_root,
+                    finite_floats=finite_floats,
                 )
                 if descriptor.get("kind") not in {"record", "union"}:
                     return artifacts["__result__"]

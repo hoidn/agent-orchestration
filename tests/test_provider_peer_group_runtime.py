@@ -2008,6 +2008,9 @@ def _workflow_peer_bindings(
                 **kwargs,
             )
 
+        def _refuses_non_finite_floats(self) -> bool:
+            return False
+
         def _build_substitution_variables(
             self,
             _context: dict[str, Any],

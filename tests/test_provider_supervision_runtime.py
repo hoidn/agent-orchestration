@@ -185,6 +185,9 @@ class _RealBindingExecutor:
     def _provider_attempt_scope(self, **kwargs: Any) -> Any:
         return WorkflowExecutor._provider_attempt_scope(self, **kwargs)
 
+    def _refuses_non_finite_floats(self) -> bool:
+        return False
+
     def _compose_provider_attempt_for_step(
         self,
         step: dict[str, Any],

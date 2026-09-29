@@ -67,6 +67,7 @@ PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION = "2.30"
 PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
 HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
 GENERIC_UNION_MIN_TARGET_DSL_VERSION = "2.33"
+FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION = "2.34"
 HUMAN_REPLY_TYPE_NAME = "HumanReply"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
@@ -160,6 +161,20 @@ def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
         target = tuple(int(part) for part in target_dsl_version.split("."))
         minimum = tuple(
             int(part) for part in GENERIC_UNION_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_refuses_non_finite_floats(target_dsl_version: str) -> bool:
+    """Return whether a target refuses a non-finite `Float` where it enters a run."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False

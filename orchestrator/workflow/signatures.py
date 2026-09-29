@@ -40,8 +40,14 @@ def bind_workflow_inputs(
     input_specs: Mapping[str, Dict[str, Any]] | None,
     provided_inputs: Mapping[str, Any] | None,
     workspace: Path,
+    *,
+    finite_floats: bool = False,
 ) -> Dict[str, Any]:
-    """Bind and validate workflow inputs from CLI/runtime values."""
+    """Bind and validate workflow inputs from CLI/runtime values.
+
+    `finite_floats` refuses a non-finite `Float` input with `float_not_finite`
+    (numeric surface N6); the caller derives it from the workflow's target.
+    """
     specs = dict(input_specs or {})
     raw_inputs = dict(provided_inputs or {})
     bound_inputs: Dict[str, Any] = {}
@@ -75,10 +81,20 @@ def bind_workflow_inputs(
             continue
 
         try:
-            bound_inputs[name] = validate_contract_value(candidate, spec, workspace=workspace)
+            bound_inputs[name] = validate_contract_value(
+                candidate,
+                spec,
+                workspace=workspace,
+                finite_floats=finite_floats,
+            )
         except OutputContractError as exc:
+            message = "Workflow input binding failed"
+            for violation in exc.violations:
+                if violation["type"] == "float_not_finite":
+                    value = violation["context"]["value"]
+                    message += f": float_not_finite: input '{name}' is {value}, not a finite Float"
             raise WorkflowSignatureError(
-                "Workflow input binding failed",
+                message,
                 context={
                     "scope": "workflow_inputs",
                     "input": name,
