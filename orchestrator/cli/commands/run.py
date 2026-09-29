@@ -33,7 +33,9 @@ from orchestrator.workflow.loaded_bundle import (
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.workflow.pure_result_replay import (
     DERIVED_PURE_REPLAY_PROFILE,
+    PureReplayRuntime,
 )
+from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
@@ -591,6 +593,17 @@ def run_workflow(
                     warning.get("code"),
                     warning.get("path"),
                 )
+            # A run builds this runtime at start, before any effect
+            # (WorkflowExecutor._configure_pure_replay_runtime). Building it
+            # here reports the same rejection; it reads only the bundle.
+            PureReplayRuntime(
+                bundle=bundle,
+                scope_path=ResumeScopePath.root(
+                    _workflow_path_for_state(
+                        workspace, logical_workflow_path or workflow_path
+                    )
+                ),
+            )
             return _run_result(0)
 
         # Parse context
