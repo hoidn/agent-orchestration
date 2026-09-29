@@ -54,7 +54,13 @@ Decisions added on 2026-09-29, after the reviews of Tasks 8 and 9:
 - a result path may not pass through a symbolic link, inside the workspace or
   outside it;
 - an internal exception raised after typecheck is reported, in one place, as
-  a compiler-defect diagnostic with a code and the authored form (Task 13).
+  a compiler-defect diagnostic with a code and the authored form (Task 13);
+- a name bound inside a hoisted expression no longer captures the same name
+  outside it. This corrects a silent wrong value and applies to every target;
+  it is the one exception to the rule that older targets do not change
+  (Task 5);
+- a run that supervises another run lives in its own workspace, observes the
+  other's workspace by path, and resumes it there (Task 14).
 
 Out of scope:
 
@@ -467,6 +473,44 @@ ends and elaboration and lowering start), `orchestrator/workflow_lisp/wcc/`,
    hides one.
 4. Do not repair the defects. The totality matrix keeps each cell as a known
    defect and asserts the new code.
+
+### Task 14: The Watchdog Runs In Its Own Workspace
+
+- [ ] Complete
+
+Depends on Task 12.
+
+**Read/trace:** `workflows/library/generic_run_watchdog/` (the workflow, its
+scripts `probe_orchestrator_run.py` and the others, its prompts, in
+particular `repair_run_failure.md`), its inputs and its row in
+`workflows/README.md`, `scripts/watch_workflow_usage_limit.sh`,
+`tests/test_workflow_lisp_generic_run_watchdog.py`, the review of Task 12.
+**Update:** the watchdog workflow, its scripts and prompts,
+`workflows/README.md`, `specs/cli.md`.
+**Create:** tests in `tests/test_workflow_lisp_generic_run_watchdog.py` or a
+new module beside it.
+
+1. The watchdog takes the target's workspace as an input, a path. Its probe
+   reads the target's run state from that path and no longer from the
+   current directory. The watchdog's own run state and result files are in
+   the watchdog's workspace.
+2. Write failing tests through the public run entry, with stand-in
+   providers: while a target run is active in workspace T, a watchdog started
+   in workspace W observes it and reports it as running; with a stalled or
+   failed target, the watchdog's repair step resumes the target with T as the
+   working directory, and the target completes; a watchdog started in T while
+   the target is active is refused with `workspace_run_already_active`.
+3. The watchdog cannot start today: its compiled program is rejected by the
+   pure-result replay index at `watchdog.orc:102`. Rewrite the rejected form
+   so that the workflow starts, without changing what it does, and without
+   repairing the replay index. If no such form exists, stop and report the
+   forms tried with their diagnostics.
+4. `scripts/watch_workflow_usage_limit.sh` sends `resume` once. Make it
+   report a refusal by the workspace lock and retry after the active run
+   ends, or report why it cannot.
+5. State in `specs/cli.md` that a run started from inside another run in the
+   same workspace is refused, and in `workflows/README.md` how to launch the
+   watchdog.
 
 ## D. Documents
 
