@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from hashlib import sha1
 from typing import TYPE_CHECKING
@@ -88,15 +88,9 @@ from .type_env import (
     ProcRefTypeRef,
     TypeRef,
     WorkflowRefTypeRef,
-    _render_type_expr,
-    render_type_ref,
     type_refs_compatible,
 )
-from .type_expressions import (
-    parse_type_expression,
-    substitute_type_expression_names,
-    type_expression_names,
-)
+from .type_expressions import parse_type_expression, type_expression_names
 from .typecheck import TypedExpr, typecheck_expression
 
 if TYPE_CHECKING:
@@ -350,6 +344,7 @@ def retypecheck_resolved_function_definitions(
     typed_procedures_by_name: Mapping[str, object],
     typed_workflows_by_name: Mapping[str, object],
     compiler_session: CompilerSession,
+    inlined_constructor_type: Callable[[object, ExprNode], TypeRef] | None = None,
 ) -> tuple[TypedFunctionDef, ...]:
     """Strictly recheck every function after procedure selection has settled."""
 
@@ -374,6 +369,7 @@ def retypecheck_resolved_function_definitions(
             workflow_catalog=workflow_catalog,
             typed_workflows_by_name=typed_workflows_by_name,
             require_pure_procedure_calls=True,
+            inlined_constructor_type=inlined_constructor_type,
         )
         typed_body = typecheck_expression(
             normalized_body.expr,
@@ -862,8 +858,15 @@ def normalize_resolved_inline_procedure_calls(
     workflow_catalog: "WorkflowCatalog | None" = None,
     typed_workflows_by_name: Mapping[str, object] | None = None,
     require_pure_procedure_calls: bool = False,
+    inlined_constructor_type: Callable[[object, ExprNode], TypeRef] | None = None,
 ) -> TypedExpr | ExprNode:
-    """Reduce final-inline procedure calls through the shared typed-expression path."""
+    """Reduce final-inline procedure calls through the shared typed-expression path.
+
+    From target 2.33, each `record` and `variant` constructor copied out of a
+    selected procedure's body carries `inlined_constructor_type(procedure,
+    constructor)`, the type the procedure's own environment resolves it to.
+    Without it the copy keeps only its type text, as below 2.33.
+    """
 
     if not target_dsl_supports_pure_call_composition(target_dsl_version or ""):
         return node
@@ -1157,25 +1160,24 @@ def normalize_resolved_inline_procedure_calls(
                     if is_pure_function_expansion:
                         raise representation_unsupported() from None
                     return replace(expr, args=rewritten_args)
-                if target_dsl_is_2_33_or_newer(target_dsl_version or ""):
+                if inlined_constructor_type is not None and target_dsl_is_2_33_or_newer(
+                    target_dsl_version or ""
+                ):
                     # A generic template calling an unspecialized generic
                     # procedure records no type arguments for the call, so
-                    # type text naming the callee's parameters cannot be
-                    # specialized. Keep the call; each specialization of the
-                    # template calls a specialization of the callee.
+                    # type text naming the callee's parameters has no type
+                    # to resolve to. Keep the call; each specialization of
+                    # the template calls a specialization of the callee.
                     if _type_text_names(cloned_body) & {
                         type_param.name for type_param in signature.type_params
                     }:
                         if is_pure_function_expansion:
                             raise representation_unsupported()
                         return replace(expr, args=rewritten_args)
-                    type_bindings = getattr(
-                        getattr(procedure, "specialization", None), "type_bindings", None
+                    cloned_body = _with_resolved_constructor_types(
+                        cloned_body,
+                        lambda constructor: inlined_constructor_type(procedure, constructor),
                     )
-                    if type_bindings:
-                        cloned_body = _substitute_type_param_text(
-                            cloned_body, type_bindings, source_expr=expr
-                        )
                 call_bindings = _ordered_call_bindings(
                     params=signature.params,
                     args=expansion_args,
@@ -1292,34 +1294,18 @@ def _type_text_names(expr: ExprNode) -> frozenset[str]:
     )
 
 
-def _substitute_type_param_text(
+def _with_resolved_constructor_types(
     expr: ExprNode,
-    type_bindings: Mapping[str, TypeRef],
-    *,
-    source_expr: ExprNode,
+    constructor_type: Callable[[ExprNode], TypeRef],
 ) -> ExprNode:
-    """Write a specialization's type arguments into its cloned body's type text.
+    """Give each `record` and `variant` constructor in a copied body its resolved type.
 
-    In place, a specialized body resolves `(variant Outcome[T String] ...)`
-    through `type_env_with_type_params`, which binds `T`. The transplanted copy
-    is retyped in the caller's environment, which does not bind `T`, so the
-    copy must name the specialized type itself.
+    The copy is retyped and lowered in the caller's module, which may not see
+    these types; the carried `resolved_type` is used there instead of the
+    text. A constructor that already carries a type was inlined into the body
+    when the body's own module was compiled; `constructor_type` receives it
+    as well, since that type is written as the body's module sees it.
     """
-
-    where = {
-        "span": source_expr.span,
-        "form_path": source_expr.form_path,
-        "expansion_stack": source_expr.expansion_stack,
-    }
-    replacements = {
-        name: parse_type_expression(render_type_ref(type_ref), **where)
-        for name, type_ref in type_bindings.items()
-    }
-
-    def substitute(text: str) -> str:
-        parsed = parse_type_expression(text, **where)
-        substituted = substitute_type_expression_names(parsed, replacements)
-        return text if substituted == parsed else _render_type_expr(substituted)
 
     def rewrite(node: ExprNode) -> ExprNode:
         children = iter_child_exprs(node)
@@ -1328,7 +1314,7 @@ def _substitute_type_param_text(
                 node, {id(child): rewrite(child) for child in children}
             )
         if isinstance(node, RecordExpr | UnionVariantExpr):
-            return replace(node, type_name=substitute(node.type_name))
+            return replace(node, resolved_type=constructor_type(node))
         return node
 
     return rewrite(expr)

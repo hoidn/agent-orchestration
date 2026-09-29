@@ -168,6 +168,7 @@ def _inline_expr_from_wcc_value(value: WccValue, env: Mapping[str, object]):
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     if isinstance(value, WccInject):
         return UnionVariantExpr(
@@ -180,6 +181,7 @@ def _inline_expr_from_wcc_value(value: WccValue, env: Mapping[str, object]):
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     raise TypeError(f"unsupported WCC M1 lowering value: {type(value).__name__}")
 

@@ -591,7 +591,7 @@ def _typecheck(
             typed_factory=_typed,
         )
     if isinstance(expr, RecordExpr):
-        record_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)
+        record_type = type_env.resolve_constructor_type(expr)
         if not isinstance(record_type, RecordTypeRef):
             _raise_error(
                 f"`{expr.type_name}` is not a record type",
@@ -681,7 +681,7 @@ def _typecheck(
             effect=merge_effect_summaries(*field_summaries),
         )
     if isinstance(expr, UnionVariantExpr):
-        union_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)
+        union_type = type_env.resolve_constructor_type(expr)
         if not isinstance(union_type, UnionTypeRef):
             _raise_error(
                 f"`{expr.type_name}` is not a union type",

@@ -1962,11 +1962,7 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
         resolved = _resolved_proc_ref_value(expr, context=context, local_values={})
         return None if resolved is None else resolved.residual_type_ref
     if isinstance(expr, RecordExpr):
-        return context.type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
+        return context.type_env.resolve_constructor_type(expr)
     if isinstance(expr, RecordUpdateExpr):
         return _resolve_lowering_expr_type(expr.base_expr, context=context)
     if isinstance(expr, PureOpExpr):
@@ -2073,11 +2069,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             form_path=expr.form_path,
         )
     if isinstance(expr, RecordExpr):
-        return context.type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
+        return context.type_env.resolve_constructor_type(expr)
     if isinstance(expr, RecordUpdateExpr):
         return _resolve_lowering_expr_type(expr.base_expr, context=context)
     if isinstance(expr, LoopStateSeedExpr):
@@ -2119,11 +2111,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             else None
         )
     if isinstance(expr, UnionVariantExpr):
-        return context.type_env.resolve_type(
-            expr.type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
+        return context.type_env.resolve_constructor_type(expr)
     if isinstance(expr, PureOpExpr):
         return _resolve_pure_op_type(expr, context=context)
     if isinstance(expr, CompilerListNonemptyHeadExpr):

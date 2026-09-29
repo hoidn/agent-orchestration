@@ -152,13 +152,23 @@ class FieldAccessExpr:
 
 @dataclass(frozen=True)
 class RecordExpr:
-    """One record-construction form."""
+    """One record-construction form.
+
+    `resolved_type` is set only on a constructor copied out of an inlined
+    procedure body (target 2.33): the type its defining module resolved
+    `type_name` to. Later stages use it instead of resolving the text in the
+    caller's module (`resolve_constructor_type`). It is kept out of `repr`,
+    equality and build JSON.
+    """
 
     type_name: str
     fields: tuple[tuple[str, "ExprNode"], ...]
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    resolved_type: "TypeRef | None" = field(
+        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+    )
 
 
 @dataclass(frozen=True)
@@ -281,7 +291,7 @@ class LoopStateUpdateExpr:
 
 @dataclass(frozen=True)
 class UnionVariantExpr:
-    """One union-variant constructor."""
+    """One union-variant constructor; `resolved_type` as for `RecordExpr`."""
 
     type_name: str
     variant_name: str
@@ -289,6 +299,9 @@ class UnionVariantExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    resolved_type: "TypeRef | None" = field(
+        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+    )
 
 
 @dataclass(frozen=True)

@@ -386,6 +386,12 @@ class FrontendTypeEnvironment:
             nominal_descriptor_names_by_definition_id or {}
         )
 
+    @property
+    def module_name(self) -> str | None:
+        """Return the module this environment resolves for, if it has an import scope."""
+
+        return None if self._import_scope is None else self._import_scope.module_name
+
     @classmethod
     def from_module(
         cls,
@@ -639,6 +645,19 @@ class FrontendTypeEnvironment:
             local_type_params=local_type_params,
             session_state=session_state,
         )
+
+    def resolve_constructor_type(self, expr, **resolve_kwargs) -> TypeRef:
+        """Return the type of a `record` or `variant` constructor.
+
+        A constructor copied out of an inlined procedure body carries the type
+        its defining module resolved (`resolved_type`, target 2.33); any other
+        constructor resolves its `type_name` here, with `resolve_kwargs`
+        passed to `resolve_type`.
+        """
+
+        if expr.resolved_type is not None:
+            return expr.resolved_type
+        return self.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path, **resolve_kwargs)
 
     def resolve_declared_type(
         self,

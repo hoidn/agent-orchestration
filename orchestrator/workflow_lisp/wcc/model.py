@@ -242,6 +242,11 @@ class WccRecordAtom:
     metadata: WccNodeMetadata
     type_name: str
     fields: tuple[tuple[str, "WccValue"], ...]
+    # The `RecordExpr.resolved_type` of a constructor copied out of an inlined
+    # procedure body, carried back to the frontend expression on lowering.
+    resolved_type: TypeRef | None = field(
+        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+    )
 
 
 @dataclass(frozen=True)
@@ -267,6 +272,10 @@ class WccInject:
     union_name: str
     variant_name: str
     fields: tuple[tuple[str, WccValue], ...]
+    # As `WccRecordAtom.resolved_type`, for `UnionVariantExpr`.
+    resolved_type: TypeRef | None = field(
+        default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
+    )
 
 
 @dataclass(frozen=True)

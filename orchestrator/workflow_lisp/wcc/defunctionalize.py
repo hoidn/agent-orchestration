@@ -7177,6 +7177,7 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     if isinstance(value, WccPureOp):
         if value.operator == "record-update":
@@ -7216,6 +7217,7 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     if isinstance(value, WccSelect):
         return IfExpr(
@@ -7559,6 +7561,7 @@ def _frontend_expr_from_wcc_value(value: WccValue):
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     if isinstance(value, WccPureOp):
         if value.operator == "record-update":
@@ -7595,6 +7598,7 @@ def _frontend_expr_from_wcc_value(value: WccValue):
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
+            resolved_type=value.resolved_type,
         )
     if isinstance(value, WccSelect):
         return IfExpr(
