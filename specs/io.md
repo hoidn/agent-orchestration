@@ -149,6 +149,18 @@
       runs. Its Markdown projection contains status labels, role digests, and
       fixed comparison classifications only; neither report projection is a
       provider result or execution/resume input.
+  - Result-file freshness (every target):
+    - Before each command or provider call with `output_bundle.path` or
+      `variant_output.path`, including each retry attempt and each call run
+      again on resume, the runtime creates the bundle parent and removes any
+      file at the resolved bundle path. A file left there by an earlier
+      iteration, an earlier run, or an interrupted or failed attempt is never
+      read as the result of the new call.
+    - If the call exits `0` and the bundle file is absent, the step fails with
+      the output-contract violation `missing_bundle_file`.
+    - Provider-supervision and provider-peer-group invocations below keep
+      their own rule: their provisional paths must already be absent, and a
+      pre-existing file fails before launch.
   - Provider-supervision IO (v2.16):
     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
       output bundles remain the execution and result transports. Observation

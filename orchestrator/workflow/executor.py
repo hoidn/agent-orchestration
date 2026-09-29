@@ -7424,6 +7424,35 @@ class WorkflowExecutor:
 
         return None
 
+    def _prepare_absent_runtime_output_bundle(
+        self,
+        resolved_output_bundle: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Prepare a command or provider call's bundle path: parent present, file absent.
+
+        A file left by an earlier iteration, run, or interrupted call must never
+        satisfy this call's result contract (specs/io.md). The final path
+        component is unlinked, never a symlink's target. Supervision, peer-group
+        and phased-delivery calls own their paths and reject a pre-existing file.
+        """
+        prepare_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+        if prepare_error is not None or not isinstance(resolved_output_bundle, dict):
+            return prepare_error
+        bundle_path_value = resolved_output_bundle.get('path')
+        if not isinstance(bundle_path_value, str):
+            return None
+        try:
+            (self.workspace / bundle_path_value).unlink(missing_ok=True)
+        except OSError as exc:
+            return self._contract_violation_result(
+                "Failed to remove a stale structured output bundle",
+                {
+                    "path": bundle_path_value,
+                    "error": str(exc),
+                },
+            )
+        return None
+
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
         Write prompt to audit log with secrets masking.
@@ -8573,8 +8602,8 @@ class WorkflowExecutor:
                     )
 
             # For structured command contracts, expose the resolved bundle path
-            # to the command adapter via a reserved env var and ensure the
-            # runtime-owned bundle parent exists before launch.
+            # to the command adapter via a reserved env var; before launch the
+            # runtime-owned bundle parent exists and the bundle file does not.
             command_env = step.get('env')
             _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
                 step,
@@ -8583,7 +8612,7 @@ class WorkflowExecutor:
             )
             if path_error is not None:
                 return path_error
-            bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+            bundle_path_error = self._prepare_absent_runtime_output_bundle(resolved_output_bundle)
             if bundle_path_error is not None:
                 return bundle_path_error
             command_env = self._env_with_runtime_output_bundle_path(
@@ -9653,7 +9682,7 @@ class WorkflowExecutor:
             )
             if output_position_error is not None:
                 return None, None, step, output_position_error
-            bundle_path_error = self._prepare_runtime_output_bundle_parent(
+            bundle_path_error = self._prepare_absent_runtime_output_bundle(
                 attempt_output_bundle
             )
             if bundle_path_error is not None:
@@ -10938,6 +10967,11 @@ class WorkflowExecutor:
                     print(f"Provider failed with exit code {exec_result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
                 retry_policy.wait()
                 attempt += 1
+                bundle_path_error = self._prepare_absent_runtime_output_bundle(
+                    resolved_output_bundle
+                )
+                if bundle_path_error is not None:
+                    return bundle_path_error
                 continue
 
             # No retry needed or max retries reached
