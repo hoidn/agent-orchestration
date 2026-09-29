@@ -192,9 +192,10 @@ SKIPPED = {
 
 # Codes that the typechecker reports for a restriction, with the place that raises
 # each one (found by recording where each diagnostic of the matrix is created).
-# Not listed: `procedure_effect_mismatch` (raised at typecheck, but here only because
-# of case a), `proc_ref_signature_invalid` (specialization discovery after typecheck,
-# case c) and `workflow_return_not_exportable` (WCC defunctionalization, loop lowering).
+# Not listed, because they are raised after typecheck: `proc_ref_signature_invalid`
+# (specialization discovery), `workflow_return_not_exportable` and
+# `wcc_lowering_route_unsupported` (WCC defunctionalization, loop lowering) and
+# `workflow_signature_mismatch` (call lowering).
 RESTRICTION_CODES = frozenset({
     "effect_not_permitted",  # typecheck_dispatch._typecheck: record and variant fields must be pure
     "loop_recur_contract_invalid",  # typecheck_loop_recur: `:on-exhausted` must have an empty effect
@@ -221,65 +222,74 @@ RULES = {
     ("generic-hook-call", "on-exhausted-value"): "loop_recur_contract_invalid",
 }
 
-# What each known defect is at the base commit: the symptom and where it is raised.
+# What each known defect is after the shared defect repairs (Tasks 2 to 9 merged):
+# its kind, the symptom and where it is raised. Kinds: producer rule (decision brief
+# section 3, consequence 1), pure projection (consequence 2 at compile time, in the
+# older loop lowerer), pure-result replay (consequence 2 at run start; also reported
+# by `--dry-run`), and position not claimed by the repairs.
 DEFECTS = {
-    "a": "a union built without a producing step is a `match` subject: WCC defunctionalization reports "
-    "workflow_return_not_exportable, or elaboration raises `unsupported nested WCC M2 prefix` "
-    "(wcc/elaborate.py); for the imported wrapper, typecheck reports procedure_effect_mismatch because "
-    "the imported effect is missing from the inferred summary",
-    "b": "an effectful call in a `loop-state` field: `unsupported pure projection expression: "
-    "ProcedureCallExpr` (lowering/pure_projection.py)",
-    "c": "specialization discovery does not see the generic call and reports proc_ref_signature_invalid "
-    "(procedure_refs.py)",
-    "d": "the run is rejected at start: `pure replay binding references an unknown result member`",
-    "loop-state-union": "a union in a `loop-state` field: `unsupported pure projection expression: dict` "
-    "(lowering/pure_projection.py)",
-    "loop-state-match": "a `match` in a `loop-state` field: `unsupported pure projection expression: "
-    "MatchExpr` (lowering/pure_projection.py)",
-    "done-call": "an effectful call as a `done` value: `unsupported WCC elaboration node: ProcedureCallExpr` "
-    "(wcc/elaborate.py)",
-    "done-match": "a `match` as a `done` value: `unsupported WCC elaboration node: MatchExpr` (wcc/elaborate.py)",
-    "on-exhausted-match": "a `match` as the `:on-exhausted` value: loop lowering reports "
-    "workflow_return_not_exportable (lowering/control_loops.py)",
-    "replay-union-argument": "a union procedure argument: the run is rejected at start: "
-    "`pure replay union binding must have a literal variant`",
-    "replay-frame-scope": "a pure call in a `match` arm: the run is rejected at start: "
-    "`pure replay binding crosses the indexed frame scope`",
+    "subject-producer": "producer rule: a union that no step produced is a `match` subject. A variant built "
+    "without effects: workflow_return_not_exportable `requires case subjects to resolve to structured match "
+    "bindings`; a pure call: wcc_lowering_route_unsupported `requires case subjects with stable producer step "
+    "identities` (wcc/defunctionalize.py `_defunctionalize_case`)",
+    "loop-call-argument": "producer rule: in a `loop/recur` body a command-backed procedure is lowered as a "
+    "private-workflow call whose scalar arguments must be refs, and a literal argument has none: "
+    "workflow_signature_mismatch (lowering/procedures.py `_lower_procedure_call`); the `let*`-bound form fails "
+    "the same way",
+    "done-call": "position not claimed: an effectful call as a `done` value: `TypeError: unsupported WCC "
+    "elaboration node: ProcedureCallExpr` (wcc/elaborate.py `_elaborate_expr_to_value`, from the `DoneExpr` "
+    "branch of `_elaborate_expr_to_body`)",
+    "done-match": "position not claimed: a `match` as a `done` value: `TypeError: unsupported WCC elaboration "
+    "node: MatchExpr` (wcc/elaborate.py, as done-call)",
+    "continue-typed-state": "position not claimed: the `continue` typecheck handler keeps the authored state, "
+    "so specialization discovery sees the unspecialized generic call and reports proc_ref_signature_invalid "
+    "(procedure_refs.py `validate_proc_ref_value`); case c's cause at a second site",
+    "loop-state-union": "pure projection: a union-typed `loop-state` field, however it was produced: "
+    "`TypeError: unsupported pure projection expression: dict` (lowering/pure_projection.py "
+    "`_payload_resolved_local_value`)",
+    "loop-state-match": "pure projection: a `match` in a `loop-state` field: `TypeError: unsupported pure "
+    "projection expression: MatchExpr` (lowering/pure_projection.py `_payload_expr`)",
+    "on-exhausted-match": "pure projection: a `match` as the `:on-exhausted` value: workflow_return_not_exportable "
+    "`could not project result__n from MatchExpr` (lowering/control_loops.py `_loop_projection_materialize_values`)",
+    "replay-union-argument": "pure-result replay: a union procedure argument, literal or produced by a step: "
+    "`pure replay union binding must have a literal variant` (workflow/pure_result_replay.py "
+    "`_walk_typed_binding_value`)",
+    "replay-frame-scope": "pure-result replay: a pure call in a `match` arm: `pure replay binding crosses the "
+    "indexed frame scope` (workflow/pure_result_replay.py `_resolve_replay_ref`)",
+    "d": "pure-result replay, case d: a pure `match` whose arms build a record, as a variant field or procedure "
+    "argument: `pure replay binding references an unknown result member` (workflow/pure_result_replay.py "
+    "`_validate_result_member`)",
 }
 
-# The cell typechecks and then fails: (form, position) -> a key of DEFECTS.
-# Deleting a line here declares the cell working.
+# The cell typechecks and then fails: (form, position) -> a key of DEFECTS, the first
+# defect the cell reaches. A comment names the defect found under it, where one was found
+# by running the `let*`-bound form of the cell. Deleting a line here declares the cell working.
 KNOWN_DEFECTS = {
-    ("plain-variant", "match-subject"): "a",
+    ("plain-variant", "match-subject"): "subject-producer",
     ("plain-variant", "loop-state-field"): "loop-state-union",
     ("plain-variant", "procedure-argument"): "replay-union-argument",
-    ("generic-variant", "match-subject"): "a",
+    ("generic-variant", "match-subject"): "subject-producer",
     ("generic-variant", "loop-state-field"): "loop-state-union",
     ("generic-variant", "procedure-argument"): "replay-union-argument",
-    ("defun-call", "match-subject"): "a",
+    ("defun-call", "match-subject"): "subject-producer",
     ("defun-call", "loop-state-field"): "loop-state-union",
     ("defun-call", "procedure-argument"): "replay-union-argument",
     ("defun-call", "match-arm-result"): "replay-frame-scope",
-    ("pure-proc-call", "match-subject"): "a",
+    ("pure-proc-call", "match-subject"): "subject-producer",
     ("pure-proc-call", "loop-state-field"): "loop-state-union",
     ("pure-proc-call", "procedure-argument"): "replay-union-argument",
     ("pure-proc-call", "match-arm-result"): "replay-frame-scope",
-    ("command-call", "loop-state-field"): "b",
-    ("command-call", "done-value"): "done-call",
-    ("imported-wrapper-call", "let-binding"): "a",
-    ("imported-wrapper-call", "match-subject"): "a",
-    ("imported-wrapper-call", "loop-state-field"): "a",
-    ("imported-wrapper-call", "done-value"): "a",
-    ("imported-wrapper-call", "procedure-argument"): "a",
-    ("imported-wrapper-call", "match-arm-result"): "a",
-    ("imported-wrapper-call", "workflow-tail"): "a",
-    ("generic-hook-call", "match-subject"): "c",
-    ("generic-hook-call", "loop-state-field"): "c",
-    ("generic-hook-call", "done-value"): "done-call",
+    ("command-call", "loop-state-field"): "loop-call-argument",  # the case b repair itself holds for this shape
+    ("command-call", "done-value"): "done-call",  # then loop-call-argument
+    ("imported-wrapper-call", "loop-state-field"): "loop-state-union",  # then loop-call-argument
+    ("imported-wrapper-call", "done-value"): "done-call",  # then loop-call-argument
+    ("imported-wrapper-call", "procedure-argument"): "replay-union-argument",
+    ("generic-hook-call", "loop-state-field"): "continue-typed-state",  # then loop-state-union
+    ("generic-hook-call", "done-value"): "done-call",  # then the loop's output resolution fails at run time
     ("generic-hook-call", "procedure-argument"): "replay-union-argument",
     ("pure-match", "variant-field"): "d",
     ("pure-match", "loop-state-field"): "loop-state-match",
-    ("pure-match", "done-value"): "done-match",
+    ("pure-match", "done-value"): "done-match",  # then on-exhausted-match's projection failure
     ("pure-match", "on-exhausted-value"): "on-exhausted-match",
     ("pure-match", "procedure-argument"): "d",
 }
