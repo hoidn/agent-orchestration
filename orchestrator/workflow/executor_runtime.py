@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Mapping, Optional, Protocol, runtime_checkab
 from ..state import ForEachState, RunState, StepResult
 from ..variables.substitution import VariableSubstitutor
 from .executable_ir import ExecutableNode, ExecutableTransfer, ExecutableWorkflow
+from .frontend_origins import CompiledFrontendIndex
 from .loaded_bundle import LoadedWorkflowBundle
 from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
@@ -308,6 +309,16 @@ class CallRuntime(Protocol):
 
     @property
     def workspace(self) -> Path: ...
+
+    @property
+    def _workspace_fd(self) -> int:
+        """The workspace root held open since the run's executor was created."""
+        ...
+
+    @property
+    def _contract_origin_index(self) -> CompiledFrontendIndex:
+        """The index that resolves this workflow's output-contract failures."""
+        ...
 
     def _call_input_bindings(
         self,

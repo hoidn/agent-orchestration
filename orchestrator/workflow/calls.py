@@ -1274,6 +1274,8 @@ class CallExecutor:
                     None,
                 )
             ),
+            workspace_fd=self.executor._workspace_fd,
+            caller_frontend_index=self.executor._contract_origin_index,
         )
         child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = deepcopy(child_state_manager._snapshot())

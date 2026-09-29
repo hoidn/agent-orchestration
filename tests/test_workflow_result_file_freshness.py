@@ -33,6 +33,7 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.workflow import executor as executor_module
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
 from tests.test_workflow_lisp_generic_unions_runtime import _log, _public_run_files, _write_sources
@@ -309,20 +310,20 @@ def test_a_bundle_parent_replaced_by_a_link_after_validation_does_not_lead_the_r
     effect = _install(workspace, _Commands, body="call")
     effect.writes("every_call")
     monkeypatch.chdir(workspace)
-    validate = WorkflowExecutor._prepare_runtime_output_bundle_parent
+    clear = executor_module._clear_workspace_leaf
     victims: list[Path] = []
 
-    def validate_then_switch_parent(executor, bundle):
-        error = validate(executor, bundle)
+    def switch_parent_then_clear(root_fd, relative):
         if not victims:
-            parent = (workspace / bundle["path"]).parent
-            victims.append(outside / Path(bundle["path"]).name)
+            parent = workspace / relative.parent
+            parent.mkdir(parents=True, exist_ok=True)
+            victims.append(outside / relative.name)
             victims[0].write_text("outside", encoding="utf-8")
             parent.rename(parent.with_name(parent.name + ".validated"))
             parent.symlink_to(outside, target_is_directory=True)
-        return error
+        return clear(root_fd, relative)
 
-    with patch.object(WorkflowExecutor, "_prepare_runtime_output_bundle_parent", validate_then_switch_parent):
+    with patch.object(executor_module, "_clear_workspace_leaf", switch_parent_then_clear):
         _run_id, state = _run(effect)
 
     assert (victims[0].read_text(encoding="utf-8"), state["status"], effect.calls) == ("outside", "failed", 0)
@@ -333,21 +334,20 @@ def _bare_executor(workspace: Path) -> WorkflowExecutor:
 
     executor = object.__new__(WorkflowExecutor)
     executor.workspace = workspace
+    executor._pin_workspace_root(None)
     return executor
 
 
-@pytest.mark.parametrize("path", ["link/result.json", "../outside/result.json"], ids=["linked-parent", "dot-dot"])
-def test_a_bundle_path_through_a_link_or_dot_dot_is_rejected_and_nothing_outside_is_removed(
-    tmp_path: Path, path: str
-) -> None:
+def test_a_bundle_path_with_dot_dot_is_rejected_and_nothing_outside_is_removed(tmp_path: Path) -> None:
+    """A path through a link is refused with its code at the step source (`test_workflow_result_path_confinement`)."""
+
     workspace, outside = tmp_path / "workspace", tmp_path / "outside"
     workspace.mkdir()
     outside.mkdir()
-    (workspace / "link").symlink_to(outside, target_is_directory=True)
     victim = outside / "result.json"
     victim.write_text("outside", encoding="utf-8")
 
-    error = _bare_executor(workspace)._prepare_absent_runtime_output_bundle({}, {"path": path})
+    error = _bare_executor(workspace)._prepare_absent_runtime_output_bundle({}, {"path": "../outside/result.json"})
 
     assert (error["error"]["type"], victim.read_text(encoding="utf-8")) == ("contract_violation", "outside")
 

@@ -156,14 +156,27 @@
       bundle parent and removes any file at the resolved bundle path. A file
       left there by an earlier iteration, an earlier run, or an interrupted or
       failed attempt is never read as the result of the new call.
-    - The removal opens each parent directory without following a symbolic
-      link and removes the last path component relative to that directory, so
-      it never acts outside the workspace. A symbolic link at the bundle path
-      is removed, never its target. If the path cannot be cleared (for example
+    - The creation and removal start from the workspace root the run's
+      executor opened when it was created (a call frame uses the same one),
+      never from the workspace path looked up again, so a workspace root
+      replaced by a symbolic link during the run cannot move them. Each parent
+      directory is created when missing and opened without following a
+      symbolic link, and the last path component is removed relative to the
+      last parent, so they never act outside the workspace. A symbolic link at
+      the bundle path is removed, never its target.
+    - A result path never passes through a symbolic link, whether it points
+      inside or outside the workspace. If a parent on the path is a symbolic
+      link or not a directory, or the path cannot be cleared (for example
       because a directory is there), the step fails before launch with the
-      output-contract violation `stale_bundle_removal_failed`.
+      output-contract violation `stale_bundle_removal_failed`, which names the
+      path and the cause and carries the step's source origin, also for a step
+      of a called workflow.
+    - A workspace whose `.orchestrate` is a symbolic link is refused at run
+      start, before the build or any other effect, with `state_root_symlink`
+      naming the link.
     - If the call exits `0` and the bundle file is absent, the step fails with
-      the output-contract violation `missing_bundle_file`.
+      the output-contract violation `missing_bundle_file`, with the same
+      source origin.
     - These calls keep their own rule instead: a provider call with phased
       delivery rejects a pre-existing bundle file with
       `candidate_path_preexisting` (an exact rerun of an interrupted attempt

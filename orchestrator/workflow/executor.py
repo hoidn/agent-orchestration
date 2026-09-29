@@ -3,6 +3,7 @@ Workflow executor with for-each loop support.
 Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 """
 
+import errno
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ import re
 import threading
 import time
 import traceback
+import weakref
 from copy import copy, deepcopy
 from contextlib import contextmanager, suppress
 from hashlib import sha256
@@ -242,30 +244,42 @@ def _write_bundle_fd(descriptor: int, payload: bytes) -> None:
         remaining = remaining[written:]
 
 
-def _unlink_workspace_leaf(workspace: Path, relative_path: str) -> None:
-    """Remove the last component of a workspace-relative path; a missing one is fine.
+def _clear_workspace_leaf(root_fd: int, relative: Path) -> None:
+    """Create the parents of a workspace-relative path and remove its last component.
 
-    Each parent is opened without following a symbolic link, relative to the
-    descriptor of the one before it, and the leaf is unlinked relative to the
-    last descriptor, as the OMP JSON transport creates its bundle leaf. A parent
-    replaced by a link after the caller validated the path therefore raises
-    instead of taking the removal outside the workspace. A link leaf is
-    removed, never its target.
+    The walk starts at `root_fd`, the workspace root an executor holds open
+    from its creation, never at a path looked up again. Each parent is created
+    when missing and opened without following a symbolic link, relative to the
+    one before it; the leaf is unlinked relative to the last one, and a missing
+    leaf is fine. A root or parent replaced by a link after the run started
+    therefore cannot lead the walk outside the workspace, and a link leaf is
+    removed, never its target. Every descriptor the walk opens is closed on
+    every path; a descriptor whose close reports an error counts as released.
 
-    Raises OSError when a parent is not a real directory or the leaf cannot be
-    removed (for example because it is a directory).
+    Raises OSError when a parent is a symbolic link or not a directory, or the
+    leaf cannot be removed (for example because it is a directory).
     """
-    relative = Path(relative_path)
-    directory_fd = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    directory_fd = os.dup(root_fd)
     try:
         for component in relative.parent.parts:
-            child_fd = os.open(
-                component,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                dir_fd=directory_fd,
-            )
-            os.close(directory_fd)
-            directory_fd = child_fd
+            with suppress(FileExistsError):
+                os.mkdir(component, dir_fd=directory_fd)
+            try:
+                child_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=directory_fd,
+                )
+            except OSError as exc:
+                if exc.errno not in (errno.ELOOP, errno.ENOTDIR):
+                    raise
+                raise OSError(
+                    exc.errno,
+                    f"result path component {component!r} is a symbolic link "
+                    "or not a directory; make it a real directory",
+                ) from exc
+            parent_fd, directory_fd = directory_fd, child_fd
+            os.close(parent_fd)
         with suppress(FileNotFoundError):
             os.unlink(relative.name, dir_fd=directory_fd)
     finally:
@@ -311,6 +325,8 @@ class WorkflowExecutor:
         no_tools_conf_identity: tuple[int, int] | None = None,
         no_tools_conf_manifest_sha256: str | None = None,
         profile_conf_fd: int | None = None,
+        workspace_fd: int | None = None,
+        caller_frontend_index: CompiledFrontendIndex | None = None,
     ):
         """
         Initialize workflow executor.
@@ -322,6 +338,14 @@ class WorkflowExecutor:
             logs_dir: Directory for logs
             debug: Enable debug mode
             stream_output: Stream provider stdout/stderr live without enabling debug mode
+            workspace_fd: The caller's open descriptor of `workspace` (a call
+                frame's executor gets its caller's); it stays owned by the
+                caller. When omitted, `workspace` is opened here and held
+                until this executor is collected.
+            caller_frontend_index: The caller's compiled-frontend index (a
+                call frame's executor gets its caller's). Output-contract
+                failures of this workflow's steps resolve their source through
+                it when this bundle carries no source trace of its own.
         """
         self.loaded_bundle = workflow_bundle(workflow)
         if self.loaded_bundle is None:
@@ -365,6 +389,7 @@ class WorkflowExecutor:
         strict_flow = self.loaded_bundle.surface.strict_flow
         self.strict_flow = strict_flow if isinstance(strict_flow, bool) else True
         self.workspace = workspace
+        self._pin_workspace_root(workspace_fd)
         self.state_manager = state_manager
         self.debug = debug
         self.stream_output = stream_output
@@ -407,6 +432,9 @@ class WorkflowExecutor:
         provenance = workflow_provenance(workflow)
         workflow_path = provenance.workflow_path if provenance is not None else None
         self._frontend_index = CompiledFrontendIndex(provenance)
+        self._contract_origin_index = self._select_contract_origin_index(
+            provenance, caller_frontend_index
+        )
         self.asset_resolver = (
             WorkflowAssetResolver(Path(workflow_path))
             if workflow_path is not None
@@ -7454,6 +7482,39 @@ class WorkflowExecutor:
 
         return None
 
+    def _pin_workspace_root(self, workspace_fd: int | None) -> None:
+        """Hold the workspace root open for this executor's result-path operations.
+
+        `workspace_fd` is a caller's descriptor of the same root and stays the
+        caller's; without one, `self.workspace` is opened now and closed when
+        this executor is collected. A root replaced by a link after this point
+        cannot move where `_prepare_absent_runtime_output_bundle` acts.
+        """
+        if workspace_fd is None:
+            workspace_fd = os.open(
+                self.workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+            )
+            weakref.finalize(self, os.close, workspace_fd)
+        self._workspace_fd = workspace_fd
+
+    def _select_contract_origin_index(
+        self,
+        provenance: Any,
+        caller_frontend_index: CompiledFrontendIndex | None,
+    ) -> CompiledFrontendIndex:
+        """The index that resolves the source of this workflow's output-contract failures.
+
+        Only an entry bundle carries the build's source trace; a workflow it
+        calls is traced there under its own name, so a call frame's executor
+        resolves through its caller's index scoped to this workflow.
+        """
+        if caller_frontend_index is None or (
+            provenance is not None
+            and provenance.frontend_source_trace_path is not None
+        ):
+            return self._frontend_index
+        return caller_frontend_index.for_workflow(self.workflow_name)
+
     def _prepare_absent_runtime_output_bundle(
         self,
         step: RuntimeStepInput,
@@ -7462,21 +7523,31 @@ class WorkflowExecutor:
         """Prepare a command or provider call's bundle path: parent present, file absent.
 
         A file left by an earlier iteration, run, or interrupted call must never
-        satisfy this call's result contract (specs/io.md). The removal never
-        follows a link (`_unlink_workspace_leaf`). When the path cannot be
-        cleared, `step` fails before launch with the output-contract violation
-        `stale_bundle_removal_failed` and the step's source origin. Supervision,
-        peer-group and phased-delivery calls own their paths and reject a
-        pre-existing file.
+        satisfy this call's result contract (specs/io.md). The parents are
+        created and the file removed from the workspace root this executor
+        holds open, never through a symbolic link (`_clear_workspace_leaf`).
+        When the path cannot be cleared, `step` fails before launch with the
+        output-contract violation `stale_bundle_removal_failed` and the step's
+        source origin. Supervision, peer-group and phased-delivery calls own
+        their paths and reject a pre-existing file.
         """
-        prepare_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
-        if prepare_error is not None or not isinstance(resolved_output_bundle, dict):
-            return prepare_error
-        bundle_path_value = resolved_output_bundle.get('path')
+        bundle_path_value = (
+            resolved_output_bundle.get('path')
+            if isinstance(resolved_output_bundle, dict)
+            else None
+        )
         if not isinstance(bundle_path_value, str):
             return None
+        relative = Path(bundle_path_value)
+        if relative.is_absolute() and relative.is_relative_to(self.workspace):
+            relative = relative.relative_to(self.workspace)
+        if relative.is_absolute() or ".." in relative.parts:
+            return self._contract_violation_result(
+                "Structured output bundle path escapes the workspace",
+                {"path": bundle_path_value},
+            )
         try:
-            _unlink_workspace_leaf(self.workspace, bundle_path_value)
+            _clear_workspace_leaf(self._workspace_fd, relative)
         except OSError as exc:
             violation = ContractViolation(
                 type="stale_bundle_removal_failed",
@@ -12147,7 +12218,8 @@ class WorkflowExecutor:
         """Fail `result` with these output-contract violations.
 
         Each violation gets `source_origins`: the origins of its subjects, or
-        else the origin of `step` in the compiled frontend index.
+        else the origin of `step` in the compiled frontend index (for a call
+        frame's step, the caller's index scoped to this workflow).
         """
         step_name = step.get('name', f'step_{self.current_step}')
         step_id = self._step_id(step)
@@ -12161,7 +12233,7 @@ class WorkflowExecutor:
             if not isinstance(subject_refs, (list, tuple)):
                 subject_refs = ()
             try:
-                origins = self._frontend_index.origins_for_subject_refs(
+                origins = self._contract_origin_index.origins_for_subject_refs(
                     subject_refs,
                     fallback_step=(step_name, step_id),
                 )

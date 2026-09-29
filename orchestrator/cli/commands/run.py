@@ -210,6 +210,24 @@ def _workflow_path_for_state(workspace: Path, workflow_path: Path) -> str:
         return str(workflow_path)
 
 
+def _state_root_symlink_error(workspace: Path) -> str | None:
+    """The run-start refusal of a workspace whose `.orchestrate` is a symbolic link.
+
+    Build artifacts, run state and result files are created beneath it, and a
+    result path may not pass through a symbolic link (specs/io.md,
+    "Result-file freshness"), wherever the link points.
+    """
+    state_root = workspace / ".orchestrate"
+    if not state_root.is_symlink():
+        return None
+    return (
+        f"state_root_symlink: {state_root} is a symbolic link to "
+        f"{os.readlink(state_root)}; run state and result files may not pass "
+        "through a symbolic link. Replace the link with a real directory, for "
+        "example by moving the directory it points to into its place."
+    )
+
+
 def _cli_exception_error(exc: BaseException) -> dict[str, object]:
     return {
         "type": "cli_unhandled_exception",
@@ -531,6 +549,10 @@ def run_workflow(
     try:
         # Determine workspace
         workspace = Path.cwd()
+        state_root_error = _state_root_symlink_error(workspace)
+        if state_root_error is not None:
+            logger.error(state_root_error)
+            return _run_result(1)
         state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
         run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
