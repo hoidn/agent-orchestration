@@ -191,9 +191,9 @@ def test_malformed_payload_fails_at_the_provider_boundary_and_nothing_after_it_r
 ) -> None:
     exit_code, state, provider_calls, calls = _public_run(tmp_path, payload, monkeypatch)
 
-    failed = _failed_steps(state)
-    assert (exit_code != 0, state["status"], provider_calls, calls) == (True, "failed", 1, [])
-    assert [outcome for name, outcome in failed.items() if name.endswith("::review_1")] == [
+    other_steps = [name for name in state["steps"] if not name.endswith("::review_1")]
+    assert (exit_code != 0, state["status"], provider_calls, calls, other_steps) == (True, "failed", 1, [], [])
+    assert [outcome for name, outcome in _failed_steps(state).items() if name.endswith("::review_1")] == [
         ("contract_violation", [violation])
     ]
 
@@ -253,8 +253,10 @@ def test_target_232_rejects_an_applied_union_in_provider_result_returns(tmp_path
     diagnostic = excinfo.value.diagnostics[0]
     lines = RETURNS_ONLY_SOURCE.splitlines()
     line = next(number for number, text in enumerate(lines, start=1) if "(provider-result" in text)
-    assert (diagnostic.code, Path(diagnostic.span.start.path).name, diagnostic.span.start.line) == (
+    start = diagnostic.span.start
+    assert (diagnostic.code, Path(start.path).name, start.line, start.column) == (
         "generic_union_requires_dsl_2_33",
         "gpr_entry.orc",
         line,
+        lines[line - 1].index("(provider-result") + 1,
     )
