@@ -23,6 +23,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 
 from .bundle_transport import (
     BundleCapsuleValidationError,
@@ -1045,6 +1046,7 @@ def _execute_bundle(
             workflow_public_input_contracts(bundle),
             inputs,
             clone_root,
+            finite_floats=target_dsl_refuses_non_finite_floats(bundle.surface.version),
         )
     except Exception as exc:
         raise _ChildCommandError(

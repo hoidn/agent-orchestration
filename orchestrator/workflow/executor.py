@@ -3926,6 +3926,12 @@ class WorkflowExecutor:
         except ValueError:
             return False
 
+    def _refuses_non_finite_floats(self) -> bool:
+        """Numeric surface N6: from target 2.34 a `Float` that enters a run is finite."""
+        from ..workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
+
+        return target_dsl_refuses_non_finite_floats(self.workflow_version)
+
     @staticmethod
     def _parse_version_tuple(version: str) -> tuple[int, ...]:
         """Parse a dotted workflow version like 1.1.1 or 2.0 into a comparable tuple."""
@@ -12290,6 +12296,7 @@ class WorkflowExecutor:
         if path_error is not None:
             return path_error
 
+        finite_floats = self._refuses_non_finite_floats()
         try:
             expected_artifacts: Dict[str, Any] = {}
             if resolved_expected_outputs is not None:
@@ -12300,17 +12307,20 @@ class WorkflowExecutor:
                     )
                     or [],
                     workspace=self.workspace,
+                    finite_floats=finite_floats,
                 )
             structured_artifacts: Dict[str, Any] = {}
             if isinstance(variant_output, dict):
                 structured_artifacts = validate_variant_output_bundle(
                     resolved_output_bundle or {},
                     workspace=self.workspace,
+                    finite_floats=finite_floats,
                 )
             elif resolved_output_bundle:
                 structured_artifacts = validate_output_bundle(
                     resolved_output_bundle,
                     workspace=self.workspace,
+                    finite_floats=finite_floats,
                 )
             overlapping_names = sorted(
                 set(expected_artifacts) & set(structured_artifacts)

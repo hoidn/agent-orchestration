@@ -937,6 +937,7 @@ class _WorkflowPhasedProviderAttemptBindings:
                 )
                 or [],
                 workspace=self.executor.workspace,
+                finite_floats=self.executor._refuses_non_finite_floats(),
             )
         except OutputContractError as exc:
             return OutputPositionValidation(
@@ -996,15 +997,18 @@ class _WorkflowPhasedProviderAttemptBindings:
             )
         try:
             resolved_output_bundle = self.resolved_output_bundle or {}
+            finite_floats = self.executor._refuses_non_finite_floats()
             if isinstance(self.step.get("variant_output"), dict):
                 artifacts = validate_variant_output_bundle(
                     resolved_output_bundle,
                     workspace=self.executor.workspace,
+                    finite_floats=finite_floats,
                 )
             else:
                 artifacts = validate_output_bundle(
                     resolved_output_bundle,
                     workspace=self.executor.workspace,
+                    finite_floats=finite_floats,
                 )
             bundle_path = self.executor._resolve_workspace_path(
                 resolved_output_bundle["path"]

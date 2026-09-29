@@ -310,6 +310,7 @@ def test_phased_route_rejects_timeout_before_adapter_allocation_or_state(
 def _executor() -> WorkflowExecutor:
     executor = object.__new__(WorkflowExecutor)
     executor.current_step = 0
+    executor.workflow_version = "2.23"
     executor.state_manager = SimpleNamespace()
     executor._contract_violation_result = MethodType(
         lambda self, message, context=None: {

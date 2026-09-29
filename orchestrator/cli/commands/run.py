@@ -54,6 +54,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     render_diagnostic,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
 
@@ -684,6 +685,7 @@ def run_workflow(
             workflow_public_input_contracts(workflow),
             raw_inputs,
             workspace=workspace,
+            finite_floats=bundle is not None and target_dsl_refuses_non_finite_floats(bundle.surface.version),
         )
 
         if args.dry_run:
