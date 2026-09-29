@@ -325,11 +325,21 @@ def _allocate_binding_identity(
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
-    From target 2.33 it is the typechecked subject, so a generic call reaches
-    specialization with its specialized callee. Earlier targets keep the
-    authored subject, so what they accept is unchanged.
+    The authored subject, so every program that compiled before lowers as it did.
+    From target 2.33, a subject that calls a generic procedure through a hook whose
+    type uses a type parameter carries its typechecked form instead: that call
+    lowers only as the specialized procedure, as the same call bound with `let*`
+    does, and the authored call is rejected with `proc_ref_signature_invalid`.
     """
-    if target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
+    from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
+
+    if (
+        target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or "")
+        and context.procedure_catalog is not None
+        and calls_generic_procedure_through_type_dependent_hook(
+            expr.subject, procedure_catalog=context.procedure_catalog
+        )
+    ):
         return typed_subject_expr
     return expr.subject
 

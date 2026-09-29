@@ -2,11 +2,13 @@
 
 Contract: Task 3 of docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md;
 case c of docs/reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md,
-section 2.1. From target 2.33 the typed `match` carries its typechecked subject, so a
-generic helper called in subject position is specialized like the same call bound
-with `let*`. Targets up to 2.32 keep their earlier acceptance.
+section 2.1. From target 2.33, a subject that calls a generic helper through a hook
+whose type uses a type parameter is carried in its typechecked form, so the helper is
+specialized like the same call bound with `let*`. Every other subject stays authored,
+so a 2.33 program that compiled before keeps its step identities. Targets up to 2.32
+keep their earlier acceptance.
 
-Every program runs through the public run entry. Hooks are command-backed probes
+The behaviour tests run through the public run entry. Hooks are command-backed probes
 that append their argv to `<probe>.log`; the arms call the `probe_summarize`
 command, so each run's command log ends with the arm that was selected.
 """
@@ -17,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from tests.test_workflow_lisp_generic_unions_runtime import (
     _compile,
@@ -218,3 +221,69 @@ def test_target_232_generic_helper_as_match_subject_keeps_its_earlier_rejection(
         line,
         lines[line - 1].index("(proc-ref check-candidate)") + 1,
     )
+
+
+# Generic helpers that a 2.33 module could already call directly as a `match` subject at
+# 5c88cd2d: one without a hook, which runs a command, and one whose hook type does not use
+# its type parameter. Their direct form keeps the step identities recorded there. Those
+# name the authored helper; the `let*`-bound form names the specialized procedure, so the
+# two forms had different identities before this repair and still do.
+COMPATIBLE_HELPERS = {
+    "inspect": (
+        "  (defproc inspect :forall (S) ((subject S)) :where ((S is-record)) -> Checked\n"
+        "    :effects ((uses-command probe_check)) :lowering inline\n"
+        '    (command-result probe_check :argv ("python" "PROBE_CHECK" "revise-x") :returns Checked))\n',
+        '(inspect (record Candidate :title "revise-x" :score 0))',
+    ),
+    "judge-fixed": (
+        "  (defproc judge-fixed :forall (S) ((subject S) (check ProcRef[(Candidate) -> Checked]))\n"
+        "    :where ((S is-record)) -> Checked :effects () :lowering inline\n"
+        '    (check (record Candidate :title "revise-x" :score 0)))\n',
+        '(judge-fixed (record Candidate :title "revise-x" :score 0) (proc-ref check-candidate))',
+    ),
+}
+
+# Command step identities of the direct form, as built at 5c88cd2d.
+MATCH = "grt_entry_run__match___wcc_effect_subject_ebff489945cd0ca9"
+ARM_STEP_IDS = [
+    f"root.{MATCH}.{MATCH}__error.{MATCH}__error__grt_entry_summarize_2__probe_summarize",
+    f"root.{MATCH}.{MATCH}__ok.{MATCH}__ok__grt_entry_summarize_1__probe_summarize",
+]
+RECORDED_COMMAND_STEP_IDS = {
+    "inspect": ["root.grt_entry_run__grt_entry_inspect_1__probe_check", *ARM_STEP_IDS],
+    "judge-fixed": ["root.grt_entry_run__grt_entry_judge_fixed_1__check_1__probe_check", *ARM_STEP_IDS],
+}
+
+
+def _compatible_sources(probes: dict[str, Path], *, helper: str) -> dict[str, str]:
+    declaration, call = COMPATIBLE_HELPERS[helper]
+    entry = (
+        HEADER
+        + "  (defmodule grt/entry)\n  (export run)\n"
+        + CANDIDATE_CHECK.replace("Outcome[Candidate String]", "Checked")
+        + CHECKED
+        + declaration
+        + SUMMARIZE
+        + _run_body(call, CHECK_ARMS, bound=False)
+    )
+    return {
+        "grt/entry.orc": entry.replace("PROBE_CHECK", probes["probe_check"].as_posix()).replace(
+            "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix()
+        )
+    }
+
+
+@pytest.mark.parametrize("helper", sorted(COMPATIBLE_HELPERS))
+def test_generic_helper_that_already_compiled_as_match_subject_keeps_its_step_identities(
+    tmp_path: Path, helper: str
+) -> None:
+    """Plan, Global Constraints: a 2.33 program that compiled at the base keeps its step identities."""
+
+    probes = _probes(tmp_path, CHECK_PROBES)
+    _write_sources(tmp_path, _compatible_sources(probes, helper=helper))
+
+    nodes = _compile(tmp_path, probes=probes).validated_bundles_by_name["grt/entry::run"].ir.nodes
+
+    assert sorted(
+        node_id for node_id, node in nodes.items() if node.kind is ExecutableNodeKind.COMMAND
+    ) == RECORDED_COMMAND_STEP_IDS[helper]
