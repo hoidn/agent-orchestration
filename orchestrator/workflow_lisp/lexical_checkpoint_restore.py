@@ -1228,6 +1228,26 @@ def _proof_matches_current_selector_variant(
     return current_variant == expected_variant
 
 
+def _last_attempt_failed(record: Mapping[str, Any], *, step_name: Any, state: Mapping[str, Any]) -> bool:
+    """Whether state records the record's visit as the step's last attempt, completed with a failure.
+
+    Such a boundary committed no result and its completion is known, so it is
+    not a pending effect: resume restores the environment the record captured
+    before the effect and runs the effect again. A later visit that started
+    without a recorded result (``step_visits`` ahead of the failed result) is
+    still a pending effect.
+    """
+
+    visit_count = _mapping(record.get("frame_identity")).get("visit_count")
+    step_state = _mapping(_mapping(state.get("steps")).get(step_name))
+    return (
+        isinstance(visit_count, int)
+        and step_state.get("status") == "failed"
+        and step_state.get("visit_count") == visit_count
+        and _mapping(state.get("step_visits")).get(step_name) == visit_count
+    )
+
+
 def select_restore_candidate(
     *,
     state_manager: Any,
@@ -1279,6 +1299,13 @@ def select_restore_candidate(
             "reuse_validated_human_reply",
         }:
             if not has_completed_effect_refs:
+                # Only a single command or provider effect: a failed call, run-ref
+                # or trial may hold committed inner effects, and a certified
+                # adapter's completion is defined by its protocol.
+                if policy_kind == "reuse_validated_structured_output" and _last_attempt_failed(
+                    record, step_name=step_name, state=state
+                ):
+                    return "RERUN", (), None
                 unsafe_pending_behavior = policy.get("unsafe_pending_behavior")
                 if unsafe_pending_behavior == "audit_barrier":
                     return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
@@ -1735,6 +1762,15 @@ def select_restore_candidate(
                             policy_decision=policy_decision,
                             diagnostics=(),
                             transition_resume=transition_resume,
+                        )
+                    if policy_decision == "RERUN":
+                        # Nothing was in scope at this boundary: nothing to restore.
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_RESTORED,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=record_id,
+                            source_map_origin_key=origin_key,
+                            policy_decision=policy_decision,
                         )
                     saw_non_restorable = True
                     continue
