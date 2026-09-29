@@ -5,8 +5,9 @@ Tasks 8 and 9). Contract: docs/design/workflow_lisp_evaluated_execution.md secti
 Resume and the crash windows of section 8 are tested in `test_evaluated_execution_spike_resume.py`.
 
 Every effect is a command-backed procedure running the probe of the totality matrix,
-which appends `<command> <n>` to `probe.log`, or a stand-in provider. Programs live in
-`fixtures/evaluated_execution_spike/` or are cells of the totality matrix.
+which appends `<command> <n>` to `probe.log`, a stand-in provider, or a leaf command of
+the paired search. Programs live in `fixtures/evaluated_execution_spike/`, are cells of
+the totality matrix, or are the compact search controller of Task 7.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -23,7 +25,9 @@ from experiments.evaluated_execution_spike.closed import build_closed_program
 from experiments.evaluated_execution_spike.evaluator import evaluate
 from experiments.evaluated_execution_spike.frontend import typecheck_program
 from experiments.evaluated_execution_spike.memo import read_records
+from experiments.mlevolve_pair.search import run_search
 from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.workflow_lisp.build_manifest_io import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
@@ -70,11 +74,11 @@ def entry_workflow(sources: dict[str, str]) -> str:
     return next(iter(sources)).removesuffix(".orc") + "::run"
 
 
-def build(root: Path, sources: dict[str, str], *, boundaries=BOUNDARIES, **options):
+def build(root: Path, sources: dict[str, str], *, boundaries=BOUNDARIES, workflow=None, **options):
     entry = install(root, sources)
     typed = typecheck_program(
         entry,
-        entry_workflow=entry_workflow(sources),
+        entry_workflow=workflow or entry_workflow(sources),
         source_roots=(root,),
         command_boundaries=boundaries,
         provider_externs=PROVIDERS,
@@ -332,6 +336,12 @@ NESTING = {
     "three-arms-in-a-loop": _case(fixture("arms_in_loop"), {"__result__": 10}, ["fetch 1", "fetch 2", "fetch 3", "fetch 4"],
                                   flat="compiler_defect_loop_control_value"),
     "three-call-sites": _case(fixture("three_call_sites"), {"return__n": 6}, ["fetch 1", "fetch 2", "fetch 3"]),
+    # An `if` over two records bound by `let*` in a procedure called in a loop: the flat route compiles it and
+    # fails at run time. Over two lists, the form of the compact search controller, it refuses it.
+    "if-over-records-in-a-procedure": _case(fixture("if_over_records"), {"return__n": 4}, ["fetch 2"], {"branch": "B"},
+                                            flat="exit 1: pure_expr_payload_invalid"),
+    "if-over-lists-in-a-procedure": _case(fixture("if_over_lists"), {"return__n": 2, "return__parents": [{"n": 2}]},
+                                          ["fetch 2"], {"branch": "B"}, flat="workflow_return_not_exportable"),
 }
 
 PROGRAMS = {**{f"brief-{k}": v for k, v in DECISION_BRIEF.items()}, **NESTING}
@@ -401,6 +411,10 @@ def test_the_flat_route_refuses_with_its_code_or_agrees_with_the_spike(
 
     with caplog.at_level(logging.ERROR):
         exit_code, flat_outputs, flat_calls = flat(tmp_path / "flat", sources, monkeypatch, inputs=inputs)
+    if refusal is not None and refusal.startswith("exit 1: "):  # compiled, then failed at run time
+        state = next((tmp_path / "flat" / ".orchestrate" / "runs").glob("*/state.json")).read_text(encoding="utf-8")
+        assert (exit_code, refusal.removeprefix("exit 1: ") in state) == (1, True)
+        return
     if refusal is not None:
         assert (exit_code, _DIAGNOSTIC_CODE.findall(caplog.text)[:1]) == (2, [refusal])
         return
@@ -451,3 +465,47 @@ def test_a_stand_in_provider_agrees_with_the_flat_route(
 
     assert exit_code == 0
     assert (outputs(result.value), calls(tmp_path / "spike"), spike_provider.calls) == (flat_outputs, flat_calls, flat_provider.calls)
+
+
+# The compact search controller of the paired search (criterion 2) ----------------
+
+REPO = Path(__file__).resolve().parents[2]
+CONTROLLER = "mlevolve_pair/search_compact"
+
+
+def compact_controller(root: Path) -> tuple[dict[str, str], dict]:
+    """The controller's source, unchanged, and its command boundaries; its leaves copied under `root`.
+
+    Read from this checkout, or else from branch `phase0/t7`, where Task 7 adds it.
+    """
+
+    texts = []
+    for name in ("experiments/mlevolve_pair/search_compact.orc", "experiments/mlevolve_pair/commands_compact.json"):
+        if (REPO / name).exists():
+            texts.append((REPO / name).read_text(encoding="utf-8"))
+            continue
+        shown = subprocess.run(["git", "show", f"phase0/t7:{name}"], cwd=REPO, capture_output=True, text=True)
+        if shown.returncode != 0:
+            pytest.skip(f"{name} is neither in this checkout nor on branch phase0/t7")
+        texts.append(shown.stdout)
+    leaves = root / "experiments" / "mlevolve_pair"
+    leaves.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / "experiments" / "mlevolve_pair" / "leaves.py", leaves / "leaves.py")
+    boundaries = _parse_command_boundaries_manifest(json.loads(texts[1]), manifest_path=None)
+    return {f"{CONTROLLER}.orc": texts[0]}, boundaries
+
+
+def run_controller(root: Path, budget: int, **options):
+    sources, boundaries = compact_controller(root)
+    return spike(root, sources, inputs={"max_evaluations": budget, "target_score": 0.0},
+                 boundaries=boundaries, workflow=f"{CONTROLLER}::run-search", **options)
+
+
+@pytest.mark.parametrize("budget", [2, 3, 4, 7, 12])
+def test_the_compact_search_controller_makes_the_decisions_of_the_python_reference(tmp_path: Path, budget: int) -> None:
+    """Same decisions in order, same budget spent, same result: the whole result, trace included."""
+
+    _, result = run_controller(tmp_path, budget)
+
+    assert result.value == run_search(max_evaluations=budget)
+    assert len(records(tmp_path)) == 2 * result.value["evaluations"] - 2

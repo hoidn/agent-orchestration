@@ -33,6 +33,7 @@ from tests.experiments.test_evaluated_execution_spike import (
     fixture,
     install,
     records,
+    run_controller,
     run_root,
     spike,
     stand_in_provider,
@@ -258,3 +259,19 @@ def test_the_memo_has_one_writer(tmp_path: Path) -> None:
         with pytest.raises(MemoBusy):
             with Memo(tmp_path):
                 pass
+
+
+def test_the_compact_search_controller_resumed_after_each_effect_runs_no_committed_effect_twice(tmp_path: Path) -> None:
+    closed, once = run_controller(tmp_path / "once", 12)
+    committed = [r["identity"] for r in records(tmp_path / "once")]
+    assert len(committed) == 18
+
+    for k in range(1, len(committed) + 1):
+        root = tmp_path / f"stop-{k}"
+        with pytest.raises(Interrupt):
+            run_controller(root, 12, closed=closed, hook=stop_at("committed", k))
+        _, resumed = run_controller(root, 12, closed=closed)
+        launches = Counter(r["identity"] for r in records(root, "started"))
+
+        assert (resumed.value, [r["identity"] for r in records(root)]) == (once.value, committed), f"effect {k}"
+        assert set(launches.values()) == {1}, f"effect {k}"

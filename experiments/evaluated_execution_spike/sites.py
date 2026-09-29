@@ -143,7 +143,8 @@ class _Validator:
             if site is None or site in self.seen:
                 raise CheckedFormError(f"effect without a unique site: {site}")
             self.seen.add(site)
-            operands = [*node.get("argv", []), *node.get("inputs", []), *node.get("policy", {}).values()]
+            operands = [*node.get("argv", []), *node.get("inputs", []), *node.get("policy", {}).values(),
+                        *(value for _, value in node.get("document", []))]
             for item in operands + ([node["question"]] if "question" in node else []):
                 self.value(item, names)
         elif node["k"] == "call":

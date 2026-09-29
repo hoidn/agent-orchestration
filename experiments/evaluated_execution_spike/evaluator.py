@@ -243,6 +243,9 @@ class _Evaluator:
         kind = node["class"]
         if kind == "command":
             argv = [render_argument(self.value(a, env)) for a in node["argv"]]
+            if "document" in node:  # a certified adapter: one JSON object, fields in signature order
+                document = {key: self.value(v, env) for key, v in node["document"]}
+                argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
             return {"class": kind, "command": [*node["command"], *argv], "contract": node["contract"]}
         if kind == "provider":
             prompt = self.performers.workspace / node["prompt"]

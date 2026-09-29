@@ -334,32 +334,46 @@ class _Builder:
 
     def perform(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
         kind = perform.perform_kind
-        result_type = perform.metadata.type_ref
-        node = {"k": "perform", "result": d.desc(result_type)}
-        payload = perform.operation_payload or {}
+        node = {"k": "perform", "result": d.desc(perform.metadata.type_ref)}
         if kind == "command_result":
-            if payload.get("adapter_name"):
-                raise ClosedProgramGap("P3", "certified adapter commands have no performer in the spike")
-            stable = list(self.typed.command_boundaries[perform.target_name].stable_command)
-            return {**node, "class": "command", "boundary": perform.target_name, "command": stable,
-                    "argv": [self.value(a, d, env) for a in perform.positional_args[len(stable):]],
-                    "contract": self.contract(result_type, d, payload.get("return_spec")),
-                    "repeat": "never" if perform.target_name in self.no_repeat else "rerun"}
+            return {**node, **self.command(perform, d, env)}
         if kind == "provider_result":
-            unsupported = sorted(set(payload) & {"prompt_application", "context_expr", "prompt_dependencies",
-                                                 "session_artifact", "capture_context"})
-            if unsupported:
-                raise ClosedProgramGap("P3", f"provider payload parts {unsupported} have no closed form in the spike")
-            policy = {key: self.value(payload[key], d, env) for key in
-                      ("model", "effort", "delivery", "materialization_attempts", "timeout_sec") if key in payload}
-            return {**node, "class": "provider", "provider": self.typed.externs[perform.target_name].provider_id,
-                    # An asset prompt is read relative to the entry module, as the flat route reads it.
-                    "prompt": posixpath.normpath(posixpath.join(self.typed.entry_dir, self.typed.externs[perform.prompt_name].path)),
-                    "inputs": [self.value(a, d, env) for a in perform.positional_args], "policy": policy,
-                    "contract": self.contract(result_type, d, payload.get("return_spec")), "repeat": "rerun"}
+            return {**node, **self.provider(perform, d, env)}
         if kind == "request_input":
             return {**node, "class": "request_input", "question": self.value(perform.positional_args[0], d, env)}
         raise ClosedProgramGap("P3", f"effect class `{kind}` has no performer in the spike")
+
+    def command(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        payload = perform.operation_payload
+        boundary = payload.get("adapter_name") or perform.target_name
+        binding = self.typed.command_boundaries[boundary]
+        stable = list(binding.stable_command)
+        node = {"class": "command", "boundary": boundary, "command": stable,
+                "contract": self.contract(perform.metadata.type_ref, d, payload.get("return_spec")),
+                "repeat": "never" if boundary in self.no_repeat else "rerun"}
+        if payload.get("adapter_name") is None:
+            return {**node, "argv": [self.value(a, d, env) for a in perform.positional_args[len(stable):]]}
+        if binding.invocation_protocol not in (None, "json_object_positional_arg"):
+            raise ClosedProgramGap("P3", f"adapter protocol `{binding.invocation_protocol}` has no performer in the spike")
+        # P3: a certified adapter receives one JSON object, its fields in the order of the adapter's signature.
+        inputs = dict(payload["adapter_inputs"])
+        document = [[f.transport_key, self.value(inputs[f.name], d, env)] for f in binding.input_signature if f.name in inputs]
+        return {**node, "argv": [], "document": document}
+
+    def provider(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
+        payload = perform.operation_payload
+        unsupported = sorted(set(payload) & {"prompt_application", "context_expr", "prompt_dependencies",
+                                             "session_artifact", "capture_context"})
+        if unsupported:
+            raise ClosedProgramGap("P3", f"provider payload parts {unsupported} have no closed form in the spike")
+        policy = {key: self.value(payload[key], d, env) for key in
+                  ("model", "effort", "delivery", "materialization_attempts", "timeout_sec") if key in payload}
+        prompt = self.typed.externs[perform.prompt_name].path
+        return {"class": "provider", "provider": self.typed.externs[perform.target_name].provider_id,
+                # An asset prompt is read relative to the entry module, as the flat route reads it.
+                "prompt": posixpath.normpath(posixpath.join(self.typed.entry_dir, prompt)),
+                "inputs": [self.value(a, d, env) for a in perform.positional_args], "policy": policy,
+                "contract": self.contract(perform.metadata.type_ref, d, payload.get("return_spec")), "repeat": "rerun"}
 
     def contract(self, result_type: Any, d: _Def, return_spec: Any) -> dict[str, Any]:
         """P3: the output contract of the result type, derived as lowering derives it, without its path."""
