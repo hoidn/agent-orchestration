@@ -101,6 +101,17 @@ def test_stopping_after_each_committed_effect_and_resuming_gives_the_uninterrupt
         ), f"stopped after effect {k}"
 
 
+def test_evaluating_a_completed_run_again_launches_nothing_and_reaches_the_same_effects_in_order(tmp_path: Path) -> None:
+    sources, inputs, *_ = PROGRAMS["if-in-hook"]
+    closed, first = spike(tmp_path, sources, inputs=inputs)
+    launched = calls(tmp_path)
+
+    _, again = spike(tmp_path, sources, inputs=inputs, closed=closed)
+
+    assert (again.value, again.trace, calls(tmp_path)) == (first.value, first.trace, launched)
+    assert len(first.trace) == 7
+
+
 # The table of crash windows: where the process stops, then, for the stopped command,
 # whether it was launched before the stop, how many more times it runs on resume, and
 # the attempts its identity has after resume.
