@@ -22,7 +22,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import PureExprEvaluationError, evaluate_pure_expr
 
-from .sites import ClosedProgram, canonical_digest
+from .sites import SEPARATOR, ClosedProgram, canonical_digest
 from .memo import Memo
 from .performers import Performers, render_argument, result_path
 
@@ -124,6 +124,7 @@ class _Evaluator:
         self.program, self.run_root, self.performers, self.hook = program, run_root, performers, hook
         self.memo: Memo | None = None
         self.loops: list[int] = []  # the iteration of each enclosing loop, outermost first
+        self.frames: list[str] = []  # the call sites of the activation path, in the table form
         self.trace: list[str] = []
         self.diagnostics: list[dict[str, Any]] = []
 
@@ -198,9 +199,13 @@ class _Evaluator:
         kind = node["k"]
         if kind == "perform":
             return self.perform(node, env)
-        if kind == "call":
-            args = dict(zip(node["params"], (self.value(a, env) for a in node["args"])))
-            return _expect_halt(self.body(node["body"], args), f"the body of `{node['callee']}`")
+        if kind == "call":  # the table form keeps the body in `definitions` and names the call site `frame`
+            definition = node if "body" in node else self.program.tree["definitions"][node["callee"]]
+            args = dict(zip(definition["params"], (self.value(a, env) for a in node["args"])))
+            self.frames.extend([node["frame"]] if "frame" in node else [])
+            value = _expect_halt(self.body(definition["body"], args), f"the body of `{node['callee']}`")
+            del self.frames[len(self.frames) - ("frame" in node):]
+            return value
         return self.value(node, env)
 
     # Values
@@ -252,6 +257,7 @@ class _Evaluator:
     # Effects
 
     def identity(self, site: str) -> str:
+        site = SEPARATOR.join([*self.frames, site])
         if site.count("[*]") != len(self.loops):
             raise EvaluationFailed("compiler_defect", f"site `{site}` reached inside {len(self.loops)} loops")
         iterations = iter(self.loops)

@@ -33,6 +33,7 @@ from orchestrator.workflow.pure_expr import validate_pure_expr_payload
 from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
 from orchestrator.workflow_lisp.expressions import (
     CompilerListNonemptyHeadExpr,
+    GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
     ListExpr,
@@ -265,7 +266,13 @@ class _Builder:
         by_name = dict(perform.keyword_args)
         params = [p for p, _ in workflow.signature.params]
         wcc = self.elaborate_workflow(workflow, callee_def.type_env)
-        args = [by_name[p] for p in params]
+        defaults = workflow.signature.param_defaults
+        missing = [p for p in params if p not in by_name and p not in defaults]
+        if missing:
+            raise ClosedProgramGap("P1", f"workflow call of `{name}` binds no value to {missing}")
+        # A parameter the call leaves out takes its declared default.
+        args = [self.value(by_name[p], d, env) if p in by_name else {"k": "lit", "v": defaults[p].normalized_value}
+                for p in params]
         return self.attach(name, callee_def, params, args, wcc, dict(workflow.signature.params), d, env)
 
     def elaborate_workflow(self, workflow: Any, type_env: Any) -> Any:
@@ -284,7 +291,7 @@ class _Builder:
     def attach(self, callee, callee_def, params, args, wcc, value_env, d, env) -> dict[str, Any]:
         if callee in self.active:
             raise ClosedProgramGap("P1", f"recursive call of `{callee}`")
-        closed_args = [self.value(a, d, env) for a in args]
+        closed_args = [a if isinstance(a, dict) else self.value(a, d, env) for a in args]
         self.active = (*self.active, callee)
         try:
             bound = [callee_def.bind(p) for p in params]
@@ -389,8 +396,14 @@ class _Builder:
                     "compiler_owned": True, "invariant_diagnostic": "list_nonempty_invariant_broken"}
             source = [self.frontend(expr.source_expr, d, env)]
             return {**self.payload(head, item, [{"kind": "list", "item": item}], source, d), **_provenance(value)}
-        if isinstance(expr, (LetStarExpr, IfExpr)):  # an inlined pure call, or `if` below target 2.26
+        if isinstance(expr, IfExpr):  # below target 2.26 the elaborator keeps a pure `if` opaque, parts included
+            return {"k": "select", "cond": self.frontend(expr.condition_expr, d, env),
+                    "then": {"prefix": [], "value": self.frontend(expr.then_expr, d, env)},
+                    "else": {"prefix": [], "value": self.frontend(expr.else_expr, d, env)}}
+        if isinstance(expr, LetStarExpr):  # an inlined pure call
             return self.frontend(expr, d, env)
+        if isinstance(expr, GeneratedRelpathSeedExpr):  # a compiler-private path seed: its literal path (unverified)
+            return {"k": "lit", "v": expr.literal_path}
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")
 
     def loop_state_update(self, expr: LoopStateUpdateExpr, carrier: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:

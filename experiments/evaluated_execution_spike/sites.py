@@ -76,18 +76,6 @@ def strip_provenance(node: Any) -> Any:
     return node
 
 
-def _has_effect(node: Any, memo: dict[int, bool]) -> bool:
-    key = id(node)
-    if key not in memo:
-        if isinstance(node, dict):
-            memo[key] = node.get("k") == "perform" or any(_has_effect(v, memo) for v in node.values())
-        elif isinstance(node, list):
-            memo[key] = any(_has_effect(v, memo) for v in node)
-        else:
-            memo[key] = False
-    return memo[key]
-
-
 class _Scope:
     def __init__(self) -> None:
         self.unnamed = 0
@@ -101,18 +89,39 @@ class _Scope:
         return name if self.names[name] == 1 else f"{name}#{self.names[name]}"
 
 
-def assign_sites(tree: dict[str, Any]) -> list[str]:
-    """Write `site` on every perform node; return the site table in program order."""
+def assign_sites(tree: dict[str, Any], *, count_pure: bool = False) -> list[str]:
+    """Write `site` on every perform node; return the site table in program order.
 
-    walker = _SiteWalker()
+    `count_pure` is the other ordinal rule, measured by `test_evaluated_execution_spike_table.py`: every
+    unnamed binder of a scope takes an ordinal, pure or not."""
+
+    walker = _SiteWalker(count_pure=count_pure)
     walker.walk(tree["body"], [tree["entry"]])
     return walker.sites
 
 
 class _SiteWalker:
-    def __init__(self) -> None:
+    """In the tree form a call's body is walked under the call's segment. In the table form (`table.py`) a
+    call has no body: the call gets its segment as `frame`, and each definition is walked on its own."""
+
+    def __init__(self, definitions: dict[str, Any] | None = None, *, count_pure: bool = False) -> None:
         self.sites: list[str] = []
         self.memo: dict[int, bool] = {}
+        self.definitions = definitions or {}
+        self.count_pure = count_pure
+
+    def has_effect(self, node: Any) -> bool:
+        key = id(node)
+        if key not in self.memo:
+            if isinstance(node, dict) and node.get("k") == "call" and "body" not in node:
+                self.memo[key] = self.has_effect(self.definitions[node["callee"]]["body"])
+            elif isinstance(node, dict):
+                self.memo[key] = node.get("k") == "perform" or any(self.has_effect(v) for v in node.values())
+            elif isinstance(node, list):
+                self.memo[key] = any(self.has_effect(v) for v in node)
+            else:
+                self.memo[key] = False
+        return self.memo[key]
 
     def walk(self, node: dict[str, Any], prefix: list[str]) -> None:
         scope = _Scope()
@@ -135,13 +144,21 @@ class _SiteWalker:
         if bound["k"] == "perform":
             bound["site"] = SEPARATOR.join([*prefix, scope.label(node["name"])])
             self.sites.append(bound["site"])
-        elif bound["k"] == "call" and _has_effect(bound, self.memo):
-            self.walk(bound["body"], [*prefix, f"{scope.label(node['name'])}={bound['callee']}"])
+        elif bound["k"] == "call" and self.has_effect(bound):
+            segment = f"{scope.label(node['name'])}={bound['callee']}"
+            if "body" in bound:
+                self.walk(bound["body"], [*prefix, segment])
+            else:
+                bound["frame"] = SEPARATOR.join([*prefix, segment])
+        elif self.count_pure and node["name"].startswith("%"):
+            scope.label(node["name"])
         return node["body"]
 
     def join(self, node: dict[str, Any], prefix: list[str], scope: _Scope) -> dict[str, Any]:
-        if _has_effect(node["body"], self.memo):
+        if self.has_effect(node["body"]):
             self.walk(node["body"], [*prefix, scope.label(node["params"][0])])
+        elif self.count_pure and node["params"][0].startswith("%"):
+            scope.label(node["params"][0])
         return node["cont"]
 
 
@@ -150,9 +167,12 @@ class CheckedFormError(ValueError):
 
 
 def validate(tree: dict[str, Any]) -> None:
-    """Names are bound where used, jumps and continues have a target, every effect has one unique site."""
+    """Names are bound where used, jumps and continues have a target, every effect has one unique site
+    (within its definition, in the table form)."""
 
     _Validator().body(tree["body"], frozenset(name for name, _ in tree["params"]), frozenset(), False)
+    for definition in tree.get("definitions", {}).values():
+        _Validator().body(definition["body"], frozenset(definition["params"]), frozenset(), False)
 
 
 def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -205,7 +225,8 @@ class _Validator:
         elif node["k"] == "call":
             for item in node["args"]:
                 self.value(item, names)
-            self.body(node["body"], frozenset(node["params"]), frozenset(), False)
+            if "body" in node:
+                self.body(node["body"], frozenset(node["params"]), frozenset(), False)
         else:
             self.value(node, names)
 
