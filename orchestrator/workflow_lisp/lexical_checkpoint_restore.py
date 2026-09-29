@@ -111,26 +111,42 @@ def _provider_group_result_relation(
     point_payload: Mapping[str, Any],
     record: Mapping[str, Any],
 ) -> str:
-    """Classify whether the checkpoint visit has an atomically committed group result."""
+    """Classify whether the checkpoint visit has an atomically committed group result.
+
+    A group with no visit counter in state has not started a visit, so its
+    result is pending. A malformed counter, name or record visit is invalid.
+    """
 
     effect_kind = _mapping(point_payload.get("effect_boundary")).get("effect_kind")
     if effect_kind not in {"provider_supervision", "provider_peer_group"}:
         return "pending"
     step_name = point_payload.get("presentation_key")
     step_id = point_payload.get("step_id")
-    step_visit = _mapping(state.get("step_visits")).get(step_name)
     record_visit = _mapping(record.get("frame_identity")).get("visit_count")
-    if (
-        not isinstance(step_name, str)
-        or not isinstance(step_id, str)
-        or type(step_visit) is not int
-        or step_visit <= 0
-        or type(record_visit) is not int
-        or record_visit <= 0
-    ):
+    if not isinstance(step_name, str) or not isinstance(step_id, str) or not _is_positive_int(record_visit):
+        return "invalid"
+    step_visit = _mapping(state.get("step_visits")).get(step_name)
+    if step_visit is None:
+        return "pending"
+    if not _is_positive_int(step_visit):
         return "invalid"
     if record_visit != step_visit:
         return "pending"
+    return _provider_group_visit_relation(state=state, step_name=step_name, step_id=step_id, visit=step_visit)
+
+
+def _is_positive_int(value: Any) -> bool:
+    return type(value) is int and value > 0
+
+
+def _provider_group_visit_relation(
+    *,
+    state: Mapping[str, Any],
+    step_name: str,
+    step_id: str,
+    visit: int,
+) -> str:
+    """Relate the current group visit to its terminal result, as the resume planner reads it."""
 
     from orchestrator.workflow.resume_planner import ResumePlanner
 
@@ -139,7 +155,7 @@ def _provider_group_result_relation(
             dict(state),
             step_name=step_name,
             step_id=step_id,
-            visit_count=step_visit,
+            visit_count=visit,
         )
     except (TypeError, ValueError):
         return "invalid"
@@ -149,7 +165,7 @@ def _provider_group_result_relation(
     if (
         result_relation == "exact_terminal"
         and step_state.get("status") == "completed"
-        and step_state.get("visit_count") == step_visit
+        and step_state.get("visit_count") == visit
     ):
         return "committed"
     return "pending"

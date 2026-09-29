@@ -586,11 +586,9 @@ def test_public_compiler_carries_one_trial_across_all_compiler_views(
         executable_workflow=result.validated_bundle.ir,
         loaded_workflow=result.validated_bundle,
     )
-    assert decision.kind == lexical_checkpoint_restore.RESTORE_DECISION_NOT_RESTORABLE
-    assert decision.policy_decision is None
-    assert decision.diagnostics == (
-        lexical_checkpoint_restore.DIAGNOSTIC_CODES.pending_effect_unsafe,
-    )
+    assert decision.kind == lexical_checkpoint_restore.RESTORE_DECISION_RESTORED
+    assert decision.policy_decision == "RERUN"
+    assert decision.diagnostics == ()
     persisted_payload = json.loads(
         result.artifact_paths["persisted_workflow_surface"].read_text(
             encoding="utf-8"
