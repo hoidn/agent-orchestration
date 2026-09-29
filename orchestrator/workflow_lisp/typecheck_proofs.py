@@ -26,7 +26,7 @@ from .expressions import (
 )
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability
-from .syntax import target_dsl_supports_strict_boolean_control_flow
+from .syntax import target_dsl_is_2_33_or_newer, target_dsl_supports_strict_boolean_control_flow
 from .type_env import (
     DiscriminantTypeRef,
     FrontendTypeEnvironment,
@@ -440,8 +440,15 @@ def typecheck_match_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
+    # From 2.33 the typed node keeps the typechecked subject (a generic call carries
+    # its specialized callee); earlier targets keep the authored subject unchanged.
+    subject = (
+        typed_subject.expr
+        if target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or "")
+        else expr.subject
+    )
     return typed_factory(
-        expr=replace(expr, arms=tuple(rewritten_arms)),
+        expr=replace(expr, subject=subject, arms=tuple(rewritten_arms)),
         type_ref=arm_result_type,
         effect=merge_effect_summaries(*arm_summaries),
     )
