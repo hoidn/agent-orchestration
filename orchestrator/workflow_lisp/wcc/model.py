@@ -76,6 +76,10 @@ class WccIdentityFactory:
     owner_name: str
     lexical_owner_chain: tuple[str, ...] = ()
     route_schema_version: str = WCC_M1_ROUTE_SCHEMA_VERSION
+    # The variants of the `case` arms that enclose this scope, outermost first.
+    # Only names generated from target 2.33 read them (`hygiene.generated_name_scope`);
+    # `scope_id` and node ids leave them out, so every earlier identity stays the same.
+    enclosing_variants: tuple[str, ...] = ()
 
     @property
     def scope_id(self) -> str:
@@ -94,6 +98,7 @@ class WccIdentityFactory:
             owner_name=self.owner_name,
             lexical_owner_chain=(*self.lexical_owner_chain, segment),
             route_schema_version=self.route_schema_version,
+            enclosing_variants=self.enclosing_variants,
         )
 
     def _metadata(

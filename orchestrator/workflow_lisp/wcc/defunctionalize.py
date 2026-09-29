@@ -61,6 +61,7 @@ from ..reader import SourceReadTrace, _read_source_file_views
 from ..syntax import (
     HelperExpansionFrame,
     ProcedureExpansionFrame,
+    target_dsl_is_2_33_or_newer,
     target_dsl_supports_list_traversal,
     target_dsl_supports_pure_call_composition,
     target_dsl_supports_rich_loop_values,
@@ -2731,6 +2732,73 @@ def _loop_effect_compile_error(
     )
 
 
+def _wcc_body_nodes(body: WccBody):
+    """Yield `body` and every body nested in it, in pre-order."""
+
+    yield body
+    if isinstance(body, WccLet):
+        yield from _wcc_body_nodes(body.body)
+    elif isinstance(body, WccCase):
+        for arm in body.arms:
+            yield from _wcc_body_nodes(arm.body)
+    elif isinstance(body, WccIf):
+        yield from _wcc_body_nodes(body.then_body)
+        yield from _wcc_body_nodes(body.else_body)
+    elif isinstance(body, WccJoin):
+        yield from _wcc_body_nodes(body.body)
+        yield from _wcc_body_nodes(body.continuation)
+    elif isinstance(body, WccRecJoin):
+        yield from _wcc_body_nodes(body.body)
+        if body.exhaustion is not None:
+            yield from _wcc_body_nodes(body.exhaustion)
+
+
+def _performs_effect(node: WccBody, *, context: _LoweringContext) -> bool:
+    value = node.bound_value if isinstance(node, WccLet) else None
+    if isinstance(value, WccCall):
+        procedure = context.typed_procedures.get(value.specialized_callee_name) or context.typed_procedures.get(
+            value.callee_name
+        )
+        summary = getattr(procedure, "transitive_effect_summary", None)
+        return summary is not None and bool(summary.direct_effects or summary.transitive_effects)
+    return isinstance(value, (WccPerform, WccProviderSupervision, WccProviderPeerGroup))
+
+
+def _refuse_effectful_control_value(body: WccBody, *, context: _LoweringContext) -> None:
+    """Refuse a loop body that binds the value of an `if` or `match` with effects.
+
+    Such a binding elaborates to a join. The loop route hands the body to the
+    older loop lowerer, which cannot lower an effectful join and would fail with
+    an internal error (pure projection of a call, an unrenderable condition).
+    The program typechecked, so the refusal is a compiler defect, located at the
+    `if` or `match` (target 2.33 and newer; older targets keep their failure).
+    """
+
+    for node in _wcc_body_nodes(body):
+        inner_nodes = tuple(_wcc_body_nodes(node.body)) if isinstance(node, WccJoin) else ()
+        # A join holding a nested loop keeps its own failure (`unsupported WCC join binding`).
+        if not any(isinstance(inner, WccRecJoin) for inner in inner_nodes) and any(
+            _performs_effect(inner, context=context) for inner in inner_nodes
+        ):
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="compiler_defect_loop_control_value",
+                        message=(
+                            "compiler defect: the value of this `if` or `match` has effects and is bound "
+                            "inside a `loop/recur` body (by `let*` or as a `loop-state` field); the loop "
+                            "lowering route cannot lower it yet. The program typechecked, so this is a "
+                            "defect of the compiler, not of the program"
+                        ),
+                        span=node.metadata.source_span,
+                        form_path=node.metadata.form_path,
+                        expansion_stack=node.metadata.expansion_stack,
+                        phase="lowering",
+                    ),
+                )
+            )
+
+
 def _defunctionalize_rec_join(
     body: WccRecJoin,
     *,
@@ -2833,6 +2901,8 @@ def _defunctionalize_rec_join(
                 )
             )
 
+    if target_dsl_is_2_33_or_newer(getattr(context.type_env, "target_dsl_version", "") or ""):
+        _refuse_effectful_control_value(body.body, context=context)
     loop_local_values = _materialize_wcc_record_locals(local_values)
     loop_context = (
         replace(
