@@ -390,10 +390,12 @@ def public_boundary_trace(
     def validate_record(
         contract: dict[str, Any],
         workspace: Path,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         result = original_validate_record(
             contract,
             workspace,
+            **kwargs,
         )
         if _is_provider_record_contract(contract):
             trace.record_validated(workspace=workspace, kind="record")
@@ -402,10 +404,12 @@ def public_boundary_trace(
     def validate_variant(
         contract: dict[str, Any],
         workspace: Path,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         result = original_validate_variant(
             contract,
             workspace,
+            **kwargs,
         )
         trace.record_validated(workspace=workspace, kind="variant")
         return result
