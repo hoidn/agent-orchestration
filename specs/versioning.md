@@ -720,10 +720,11 @@
     whose call is never reached ran before and is refused now.
 
 - Amendment of targets 2.30 to 2.33 (pure payloads)
-  - A local value that reaches a pure payload by name and is used more than
-    once is emitted once and referred to, in payload schema 3. This includes
-    repeated `let*` values, loop state, and compiler-generated values such as
-    `list/map-effect` state. A `let*` inside a `loop/recur` update can be
+  - A nontrivial local expression that reaches a pure payload by name and is
+    used more than once is emitted once and referred to, in payload schema 3.
+    Sharing can affect repeated `let*` values, loop state, and compiler-generated
+    values such as `list/map-effect` state. Simple names, literals, field reads
+    and enum members remain inline. A `let*` inside a `loop/recur` update can be
     expanded before payload construction, so its value can still be copied
     at each use and the update can exceed the 256-node payload limit. Shared
     values used only inside an `if` branch, a short-circuit operand, or a
