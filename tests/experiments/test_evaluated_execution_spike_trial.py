@@ -223,9 +223,21 @@ def child(config_path: str) -> None:
     from experiments.evaluated_execution_spike.sites import ClosedProgram
 
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
-    if config.get("repaired"):
-        repair_cell_rows()
     workspace = Path(config["workspace"])
+    if config.get("pause_after_prepared"):
+        from orchestrator.workflow.trial import runtime
+
+        append = runtime.append_trial_cell_settlement
+
+        def pause_after_prepared(*args, **kwargs):
+            marker = workspace / "marker"
+            if not marker.exists():
+                marker.write_text("prepared", encoding="utf-8")
+                while True:
+                    time.sleep(0.05)
+            return append(*args, **kwargs)
+
+        runtime.append_trial_cell_settlement = pause_after_prepared
     hold = tuple(config["hold"]) if config.get("hold") else None
     stand_ins = StandIns(config["case"], workspace, hold)
     program = ClosedProgram.from_artifact(Path(config["program"]).read_text(encoding="utf-8"))
@@ -242,22 +254,6 @@ def child(config_path: str) -> None:
     result = spike_route(workspace, config["case"], program, (Path(config["capsule"]), config["capsule_digest"]),
                          stand_ins, hook=hook)
     print(json.dumps({"value": stable(result.value)}))
-
-
-def repaired_cell_rows(path: Path, cell):
-    """The runtime repair the resume of an evaluated trial needs, applied in a test process only: `_cell_rows`
-    (`orchestrator/workflow/trial/runtime.py:242`) reads `payload["cell"]` of every row, and the evaluation's
-    rows have none, so re-entering `execute_trial_cells` after the evaluation began raises `KeyError: 'cell'`."""
-
-    from orchestrator.workflow.trial.ledger import load_trial_event_ledger
-
-    return tuple(row for row in load_trial_event_ledger(path).rows[1:] if row.payload.get("cell") == cell.record)
-
-
-def repair_cell_rows() -> None:
-    from orchestrator.workflow.trial import runtime
-
-    runtime._cell_rows = repaired_cell_rows
 
 
 def stable(value: dict) -> dict:
@@ -478,12 +474,13 @@ EXPECTED_DECISIONS = {
 # Window: how the child stops; what a resume gives with the runtime as it is; the memo's attempts after it.
 # `hold`: a stand-in blocks inside the trial's `prepare` (a cell's child launch, the second judge call).
 KILLS = {
-    "resolved": ({"window": "resolved"}, "same", [1]),
-    "during a child run": ({"hold": ["child", "DESIGN_QA"]}, "same", [1, 2]),
-    "during the judge": ({"hold": ["judge", 2]}, "KeyError: 'cell'", [1, 2]),
-    "after the trial's pending commit": ({"window": "finished"}, "KeyError: 'cell'", [1, 2]),
-    "after the memo's commit": ({"window": "committed"}, "same", [1]),
-    "after the trial's final commit": ({"window": "settled"}, "same", [1]),
+    "resolved": ({"window": "resolved"}, [1]),
+    "during a child run": ({"hold": ["child", "DESIGN_QA"]}, [1, 2]),
+    "after cell preparation before settlement": ({"pause_after_prepared": True}, [1, 2]),
+    "during the judge": ({"hold": ["judge", 2]}, [1, 2]),
+    "after the trial's pending commit": ({"window": "finished"}, [1, 2]),
+    "after the memo's commit": ({"window": "committed"}, [1]),
+    "after the trial's final commit": ({"window": "settled"}, [1]),
 }
 
 
@@ -501,13 +498,11 @@ def unsettled_judged(rows: list[dict]) -> set[str]:
     return {arm[label] for label in allocated - settled}
 
 
-@pytest.mark.parametrize(("case", "repaired"), [("mixed", False), ("mixed", True), ("all-pass", True)],
-                         ids=["mixed-as-is", "mixed-repaired", "all-pass-repaired"])
-def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case: str, repaired: bool) -> None:
+@pytest.mark.parametrize("case", list(CASES))
+def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case: str) -> None:
     """A child is launched again only for a cell with no terminal record at the kill; no judge call repeats;
-    the trial's visit is prepared and committed once. With the runtime as it is, a resume after the
-    evaluation began fails; with its one-line repair, every resume completes, and a kill during the judge
-    spends each judge attempt in flight: the trial's evaluator budget (4 attempts, 4 packets) has none left."""
+    the trial's visit is prepared and committed once. A kill during the judge spends each judge attempt in
+    flight: the trial's evaluator budget (4 attempts, 4 packets) has none left."""
 
     from experiments.evaluated_execution_spike.memo import read_records
     from experiments.evaluated_execution_spike.sites import ClosedProgram
@@ -519,25 +514,24 @@ def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case:
     def config(name: str, **extra) -> dict:
         (tmp_path / name).mkdir()
         return {"workspace": str(tmp_path / name), "program": str(tmp_path / "program.json"), "case": case,
-                "capsule": str(capsule), "capsule_digest": digest, "repaired": repaired, **extra}
+                "capsule": str(capsule), "capsule_digest": digest, **extra}
 
     once = run_child(config("once"), tmp_path)["value"]
-    for name, (stop, as_is, attempts) in KILLS.items():
+    for name, (stop, attempts) in KILLS.items():
         slug = re.sub(r"\W+", "-", name)
         stopped = config(slug, **stop)
         kill_child(stopped, tmp_path)
         workspace = tmp_path / slug
         at_kill = ledger_rows(workspace)
+        if name == "after cell preparation before settlement":
+            assert any(row["kind"] == "cell_prepared" for row in at_kill)
+            assert not any(row["kind"] == "cell_settled" for row in at_kill)
         launched_at_kill = Counter(c["arm"] for c in lines(workspace / "child.log"))
         judged_at_kill = len(lines(workspace / "judge.log"))
         resumed = run_child({k: v for k, v in stopped.items() if k not in stop}, tmp_path)
         children = Counter(c["arm"] for c in lines(workspace / "child.log"))
         started = [r["attempt"] for r in read_records(workspace / "run") if r["record"] == "started"]
 
-        if not repaired and as_is != "same":
-            assert (as_is in resumed["error"], started, children, len(lines(workspace / "judge.log"))) == (
-                True, attempts, launched_at_kill, judged_at_kill), name
-            continue
         expected = once
         if name == "during the judge":  # each attempt in flight is spent; the budget has no retry left
             spent = unsettled_judged(at_kill)
@@ -553,21 +547,42 @@ def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case:
         assert (len(lines(workspace / "judge.log")), started) == (4, attempts), name
         assert (kinds["trial_prepared"], kinds["trial_parent_committed"]) == (1, 1), name
         assert derive_state(ClosedProgram.from_artifact(program.artifact()), workspace / "run")["status"] == "completed"
+        if name == "after cell preparation before settlement":
+            from orchestrator.workflow.trial.runtime import _prepared_binding
+            from orchestrator.workflow.trial.contracts import TrialCellKey
+            from orchestrator.workflow.trial.ledger import _active_rows_for_cell, load_trial_event_ledger
+
+            rows = ledger_rows(workspace)
+            prepared = Counter(row["payload"]["cell"]["arm_id"] for row in rows
+                               if row["kind"] == "cell_prepared")
+            discarded = {row["payload"]["cell"]["arm_id"] for row in rows
+                         if row["kind"] == "cell_discarded"}
+            committed = {row["payload"]["cell"]["arm_id"] for row in rows
+                         if row["kind"] == "cell_e1_committed"}
+            duplicate_prepared = {arm for arm, count in prepared.items() if count > 1}
+            assert duplicate_prepared & discarded
+            assert sum(prepared.values()) > len(committed)
+            ledger_path = next(workspace.rglob("trial-events.jsonl"))
+            for arm in duplicate_prepared:
+                cell = TrialCellKey(arm_id=arm, rep=1)
+                binding = _prepared_binding(ledger_path, cell)
+                active = _active_rows_for_cell(load_trial_event_ledger(ledger_path), cell)
+                current = [row for row in active if row.kind == "cell_prepared"]
+                assert len(current) == 1
+                assert binding.record == current[0].payload["settled_result"]
 
 
-@pytest.mark.parametrize("repaired", [False, True], ids=["as-is", "repaired"])
 @pytest.mark.parametrize("stop", ["judge", "prepared"])
 def test_the_present_route_resuming_a_trial_interrupted_after_its_evaluation_began(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop: str, repaired: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop: str
 ) -> None:
     """The same runtime on the present route: the run stops in process during the second judge call, or after
-    the trial's pending commit (at the parent's state commit); `orchestrator resume` then fails with the same
-    `KeyError: 'cell'`, and with the repair it completes as the spike's resume does."""
+    the trial's pending commit (at the parent's state commit); `orchestrator resume` completes as the spike's
+    resume does."""
 
     from orchestrator.cli.commands.resume import resume_workflow
     from orchestrator.state import StateManager
     from orchestrator.workflow.executor import WorkflowExecutor
-    from orchestrator.workflow.trial import runtime
 
     class Stop(BaseException):
         pass
@@ -590,8 +605,6 @@ def test_the_present_route_resuming_a_trial_interrupted_after_its_evaluation_beg
     monkeypatch.setattr(WorkflowExecutor, "_trial_runtime_dependencies", resumed.runtime_dependencies(), raising=False)
     monkeypatch.setattr(WorkflowExecutor, "_trial_evaluation_dependencies", resumed.evaluation_dependencies(),
                         raising=False)
-    if repaired:
-        monkeypatch.setattr(runtime, "_cell_rows", repaired_cell_rows)
     monkeypatch.chdir(workspace)
     run_id = next((workspace / ".orchestrate" / "runs").iterdir()).name
 
@@ -599,10 +612,6 @@ def test_the_present_route_resuming_a_trial_interrupted_after_its_evaluation_beg
 
     state = json.loads((workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
     launches = {kind: len(calls) for kind, calls in resumed.calls.items()}
-    if not repaired:
-        assert (code, state["error"]["exception_type"], state["error"]["message"], launches) == (
-            1, "KeyError", "'cell'", {"child": 0, "check": 0, "judge": 0})
-        return
     outcomes = [{"arm_id": o["arm_id"], "variant": o["variant"], "failure": (o.get("failure") or {}).get("code")}
                 for o in state["workflow_outputs"]["return__outcomes"]]
     spent = unsettled_judged(at_stop) if stop == "judge" else set()
