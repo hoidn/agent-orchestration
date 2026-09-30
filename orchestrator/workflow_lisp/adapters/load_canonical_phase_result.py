@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import sys
@@ -16,6 +17,7 @@ from orchestrator.workflow_lisp.contracts import structured_contract_semantic_di
 from orchestrator.workflow_lisp.adapters.reusable_phase_state_common import (
     emit_structured_result,
 )
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 
 def _emit_error(error_type: str) -> int:
@@ -39,14 +41,14 @@ def _load_payload(argv: list[str]) -> dict[str, object]:
     return json.loads(raw)
 
 
-def _bundle_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _bundle_sha256(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
-def _load_bundle(bundle_path: Path) -> dict[str, object] | None:
+def _load_bundle(content: bytes) -> dict[str, object] | None:
     try:
-        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        bundle = json.loads(content.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None
     if isinstance(bundle, str) or not isinstance(bundle, dict):
         return None
@@ -125,24 +127,46 @@ def main(argv: list[str] | None = None) -> int:
         expected_contract_fingerprint=expected_contract_fingerprint,
     ):
         return _emit_error("resume_state_contract_fingerprint_mismatch")
-    if not bundle_path.exists():
-        return _emit_error("resume_state_loader_schema_invalid")
-    if _bundle_sha256(bundle_path) != source_bundle_sha256:
-        return _emit_error("resume_state_bundle_mutated_before_load")
-    bundle = _load_bundle(bundle_path)
-    if bundle is None:
-        return _emit_error("resume_state_loader_schema_invalid")
-    runtime_contract = {"path": bundle_path.as_posix(), **structured_contract}
+    workspace_files = WorkspaceFiles(Path.cwd())
     try:
-        if structured_contract_kind == "record":
-            validate_output_bundle(runtime_contract, workspace=Path.cwd())
-        else:
-            validate_variant_output_bundle(runtime_contract, workspace=Path.cwd())
-    except OutputContractError as error:
-        if _is_unsafe_path_contract_error(error):
+        try:
+            bundle_bytes = workspace_files.read(bundle_path)
+        except FileNotFoundError:
+            return _emit_error("resume_state_loader_schema_invalid")
+        except ValueError:
             return _emit_error("resume_state_path_unsafe")
-        return _emit_error("resume_state_loader_schema_invalid")
-    return emit_structured_result(bundle)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR, errno.EINVAL):
+                return _emit_error("resume_state_path_unsafe")
+            return _emit_error("resume_state_loader_schema_invalid")
+        if _bundle_sha256(bundle_bytes) != source_bundle_sha256:
+            return _emit_error("resume_state_bundle_mutated_before_load")
+        bundle = _load_bundle(bundle_bytes)
+        if bundle is None:
+            return _emit_error("resume_state_loader_schema_invalid")
+        runtime_contract = {"path": bundle_path.as_posix(), **structured_contract}
+        try:
+            if structured_contract_kind == "record":
+                validate_output_bundle(
+                    runtime_contract,
+                    workspace=workspace_files.workspace,
+                    workspace_files=workspace_files,
+                    document_bytes=bundle_bytes,
+                )
+            else:
+                validate_variant_output_bundle(
+                    runtime_contract,
+                    workspace=workspace_files.workspace,
+                    workspace_files=workspace_files,
+                    document_bytes=bundle_bytes,
+                )
+        except OutputContractError as error:
+            if _is_unsafe_path_contract_error(error):
+                return _emit_error("resume_state_path_unsafe")
+            return _emit_error("resume_state_loader_schema_invalid")
+        return emit_structured_result(bundle)
+    finally:
+        workspace_files.close()
 
 
 if __name__ == "__main__":
