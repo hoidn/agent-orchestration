@@ -245,6 +245,14 @@ contract, but leaves its complete snapshot absent; importing that result at
 Its state is omitted from legacy pickle/capsule serialization; targets through
 2.34 retain their existing bundle admission and execution behavior.
 
+The original old-target snapshot also retains a frozen final structural
+boundary map for its source-produced workflows, captured after validation.
+It includes input/output contracts and semantic public/private projection
+and binding facts. Pairing compares those original facts, including default
+and union-projection presence and values, without reconstructing private
+lowering or comparing diagnostic provenance. The map stays transient; a
+typed-only producer that never made a flat bundle may leave it empty.
+
 An older decoded bundle can be paired explicitly with its matching original
 snapshot. Missing/incomplete or structurally mismatched pairing is refused
 before call admission with `compiled_workflow_source_required`, naming the
@@ -300,6 +308,14 @@ Source/ANF evaluation order is retained in preceding `let`s, before any
 argument permutation. Direct and projected slots form disjoint exhaustive
 partitions on both sides; projection may map one argument to several native
 parameters. Ordinary unannotated calls keep their strict positional rule.
+
+A bundle may expose a private context formal absent from its native source
+signature. Closure conversion must give that value an explicit context/capture
+parameter and forward it to the exact omitted bindings in the retained body,
+including through intermediate calls. Preserve the native source signature;
+the converted definition carries the extra parameter. An explicitly supplied
+context is evaluated once and wins over generated X1/X2/default values. No
+caller slot may be dropped or left outside the checked boundary relation.
 
 P5 independently validates every descriptor against canonical nominal facts,
 every projection path and complete field/active-variant coverage, matching

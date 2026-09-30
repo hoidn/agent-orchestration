@@ -284,6 +284,15 @@ Task 4 establishes bindings before renaming from `BoundProcArg.name`,
 `WccSpecializationCapture.owner_kind/argument_index/source_name`, and the
 retained workflow signature's defaults/hidden-context/compatibility facts.
 The native list remains its converted capture prefix plus residual parameters.
+A caller-only private context exposed by an admitted bundle becomes a typed
+context/capture parameter in that converted prefix, with its original source
+signature unchanged. Forward its value through the retained call graph to
+the exact omitted context bindings, including transitive wrappers. Supplied
+values are evaluated once and take precedence over X1/X2/default generation;
+they are never discarded. Retained semantic private binding/projection facts
+identify the boundary, while rewritten diagnostic provenance is not a callee
+identity. Include these converted parameters in the checked relation and
+canonical capture schema.
 Call slots are ordered: runtime captures in native capture-prefix order;
 retained caller-signature formals in declaration order, followed by otherwise
 unlisted private compatibility formals sorted by name; then native-only
@@ -680,6 +689,10 @@ class TypedProgram:
     entry_dir: str      # logical directory for asset lookup only, not definition identity
     source_file_digests: Mapping[str, str]  # module -> exact bytes consumed by this compile
     local_definition_keys: Mapping[str, object]  # old generated lookup name -> position-free lexical key
+    _compiled_bundle_boundaries: Mapping[
+        str, tuple[Mapping[str, Mapping[str, object]],
+                   Mapping[str, Mapping[str, object]], WorkflowBoundaryProjectionView]
+    ] = field(default_factory=dict, repr=False, compare=False)
 
     def workflow_type_env(self, name: str) -> FrontendTypeEnvironment: ...
     def procedure_type_env(self, procedure: TypedProcedureDef) -> FrontendTypeEnvironment: ...  # procedure_type_env_for
@@ -774,6 +787,21 @@ def compile_typed_program(
   check selected workflow/boundary contracts including private inputs, but
   claim structural consistency only, not historical body authenticity. Never
   reread `provenance.workflow_path`; recompiling changed source is replacement.
+  Populate `_compiled_bundle_boundaries` from each final source-produced
+  validated bundle at both existing digest/attachment points. Reuse the
+  input/output/projection accessors and existing configuration freezer;
+  detach nested contracts, lists and private-binding hints/provenance.
+  Retain complete `WorkflowBoundaryProjectionView`/`PrivateExecContextBinding`
+  facts, not just a digest or a new carrier. Pair against this original map,
+  comparing contract keys/structure, default and projection presence/values,
+  and semantic private classification/binding metadata. Ignore diagnostic
+  source provenance and contract routing `from`/`__allow_unresolved_source`.
+  Never capture expected facts from the candidate during admission or
+  rederive private lowering from native signatures. A missing selected map
+  entry refuses a bundle; typed-only snapshots may have an empty map. The
+  entryless result and selected source exports retain the complete map;
+  imported snapshots keep their own original maps. This field remains outside
+  legacy bundle serialization with the rest of `typed_program`.
 - The snapshot freezes retained maps and preserves each producer's source
   digests, bodies, native signatures, externs, command origins/configuration
   and logical asset base. `imported_programs` retains nested owners; do not
@@ -800,6 +828,9 @@ def compile_typed_program(
   the closed call and uses that snapshot's native body. Do not overwrite the
   native signature with a reconstructed caller view. This task carries facts;
   Tasks 4/5/7 own boundary translation/checking and scoped configuration.
+  Bundle imports always use the bundle caller-view wrapper; only
+  `imported_programs` uses the native-contract typed wrapper. A populated
+  snapshot does not replace the bundle's existing caller contract.
 - Consumed by: Tasks 3 to 10.
 
 - [ ] **Step 1: Write the failing tests**
