@@ -14,10 +14,12 @@ dependencies. A committed effect whose resolved input changed stops the resume w
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
+from experiments.evaluated_execution_spike.closed import ClosedProgramGap
 from experiments.evaluated_execution_spike.evaluator import EvaluationFailed
 from experiments.mlevolve_pair.search import run_search
 from orchestrator.cli.commands.resume import resume_workflow
@@ -33,6 +35,7 @@ from tests.experiments.test_evaluated_execution_spike import (
 )
 from tests.experiments.test_evaluated_execution_spike_programs import CONTROLLER, compact_controller, run_controller
 from tests.experiments.test_evaluated_execution_spike_resume import Interrupt, interrupted, stop_at
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_lisp_generic_unions_runtime import _public_run, _public_run_files
 from tests.workflow_lisp_totality_matrix_sources import COMMANDS, PROBE
 
@@ -176,3 +179,125 @@ def test_inputs_are_checked_against_their_declared_types_before_the_run_starts(t
         spike(tmp_path, fixture("loop_in_branch"), inputs=inputs)
 
     assert (refused.value.code, (tmp_path / ".orchestrate" / "spike" / "run" / "run.json").exists()) == (code, False)
+
+
+# Iteration 3, B: what a command runs, under each build option -----------------------------------------------
+
+SCRIPT = (
+    "import json, os, sys\nfrom pathlib import Path\nn = int(sys.argv[-1])\noffset = OFFSET\n"
+    'with open("trace.log", "a", encoding="utf-8") as log:\n    log.write(f"{n}\\n")\n'
+    'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"n": n + offset}))\n'
+)
+BY_RESOLVED_NAME = SCRIPT.replace("OFFSET", '0 if Path(__file__).resolve().stem == "v1" else 100')
+BY_MTIME = SCRIPT.replace("OFFSET", "Path(__file__).stat().st_mtime_ns % 1000")
+
+
+def _script(offset: int) -> str:
+    return SCRIPT.replace("OFFSET", str(offset))
+
+
+def _write(root: Path, name: str, text: str, mode: int | None = None) -> None:
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    if mode is not None:
+        path.chmod(mode)
+
+
+def _relink(root: Path, target: str) -> None:
+    (root / "probe.py").unlink(missing_ok=True)
+    (root / "probe.py").symlink_to(target)
+
+
+# The review's five cases (review 2, finding 1): the stable command, the implementation closure a boundary would
+# declare, the workspace before the run, and the change made after the first commit.
+HIDDEN = {
+    "wrapper": (["python", "wrapper.py"], ["payload.py"],
+                lambda r: (_write(r, "wrapper.py", 'import runpy\nrunpy.run_path("payload.py", run_name="__main__")\n'),
+                           _write(r, "payload.py", _script(0))),
+                lambda r: _write(r, "payload.py", _script(100))),
+    "directory": (["python", "pkg"], ["pkg"],
+                  lambda r: _write(r, "pkg/__main__.py", _script(0)),
+                  lambda r: _write(r, "pkg/__main__.py", _script(100))),
+    "path": (["reviewcmd"], [],
+             lambda r: _write(r, "bin/reviewcmd", "#!/usr/bin/env python\n" + _script(0), 0o755),
+             lambda r: _write(r, "bin/reviewcmd", "#!/usr/bin/env python\n" + _script(100), 0o755)),
+    "symlink-same-bytes": (["python", "probe.py"], [],
+                           lambda r: (_write(r, "v1.py", BY_RESOLVED_NAME), _write(r, "v2.py", BY_RESOLVED_NAME),
+                                      _relink(r, "v1.py")),
+                           lambda r: _relink(r, "v2.py")),
+    "mtime": (["python", "mtime.py"], [],
+              lambda r: (_write(r, "mtime.py", BY_MTIME), os.utime(r / "mtime.py", ns=(1, 1))),
+              lambda r: os.utime(r / "mtime.py", ns=(101, 101))),
+}
+
+# What a resume does after the change: (outcome, value or refused files, launches in all). 206 and 209 are
+# values no uninterrupted run gives (6 before the change; 306, or 6 + 3 * 101 % 1000 for mtime, after it).
+REUSE_206, REUSE_209 = ("reuses", {"n": 206}, 3), ("reuses", {"n": 209}, 3)
+EXPECTED_HIDDEN = {
+    ("wrapper", "trusting"): REUSE_206,
+    ("wrapper", "declared-without-closure"): REUSE_206,  # outside the promise: nothing names payload.py
+    ("wrapper", "declared"): ("refuses", ["payload.py"], 1),
+    ("directory", "trusting"): REUSE_206,
+    ("directory", "declared-without-closure"): ("refuses", ["pkg"], 1),  # a stable-command token naming a directory
+    ("directory", "declared"): ("refuses", ["pkg"], 1),
+    ("path", "trusting"): REUSE_206,
+    ("path", "declared-without-closure"): ("refuses", ["reviewcmd"], 1),  # the program, resolved on PATH
+    ("path", "declared"): ("refuses", ["reviewcmd"], 1),
+    ("symlink-same-bytes", "trusting"): REUSE_206,
+    ("symlink-same-bytes", "declared-without-closure"): ("refuses", ["probe.py"], 1),  # the link's target path
+    ("symlink-same-bytes", "declared"): ("refuses", ["probe.py"], 1),
+    ("mtime", "trusting"): REUSE_209,
+    ("mtime", "declared-without-closure"): REUSE_209,  # modification times are not bound: a documented limit
+    ("mtime", "declared"): REUSE_209,
+}
+
+
+def _hidden_case(root: Path, monkeypatch: pytest.MonkeyPatch, case: str, closure: str, closures: dict):
+    command, _, setup, change = HIDDEN[case]
+    root.mkdir(parents=True, exist_ok=True)
+    source = fixture("three_call_sites")["spk/three_call_sites.orc"]
+    source = source.replace('"python" "probe.py"', " ".join(f'"{word}"' for word in command))
+    sources = {"spk/three_call_sites.orc": source}
+    monkeypatch.setenv("PATH", f"{root / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.chdir(root)
+    boundaries = {"fetch": ExternalToolBinding(name="fetch", stable_command=tuple(command))}
+    closed = build(root, sources, boundaries=boundaries, closure=closure, closures=closures)
+    setup(root)
+    with pytest.raises(Interrupt):
+        spike(root, sources, closed=closed, hook=stop_at("committed", 1))
+    change(root)
+    try:
+        _, result = spike(root, sources, closed=closed)
+        outcome = ("reuses", result.value)
+    except EvaluationFailed as refused:
+        assert refused.code == "effect_input_diverged"
+        outcome = ("refuses", refused.detail["files"])
+    return (*outcome, len((root / "trace.log").read_text(encoding="utf-8").splitlines()))
+
+
+@pytest.mark.parametrize(("case", "option"), list(EXPECTED_HIDDEN), ids="/".join)
+def test_what_a_resume_does_after_a_hidden_change_under_each_build_option(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str, option: str
+) -> None:
+    """Stopped after the first commit, changed, resumed. `declared` declares the case's closure;
+    `declared-without-closure` is the same option with none declared."""
+
+    closures = {"fetch": HIDDEN[case][1]} if option == "declared" else {}
+    closure = "declared" if option.startswith("declared") else option
+
+    assert _hidden_case(tmp_path, monkeypatch, case, closure, closures) == EXPECTED_HIDDEN[(case, option)]
+
+
+@pytest.mark.parametrize("case", list(HIDDEN))
+def test_strict_refuses_a_boundary_without_a_closure_at_build_and_otherwise_resumes_as_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    with pytest.raises(ClosedProgramGap) as refused:
+        _hidden_case(tmp_path / "undeclared", monkeypatch, case, "strict", {})
+    declared = _hidden_case(tmp_path / "declared", monkeypatch, case, "strict", {"fetch": HIDDEN[case][1]})
+
+    assert (refused.value.prop, str(refused.value)) == (
+        "closure", "[closure] command boundary `fetch` declares no implementation closure (build option `strict`)")
+    assert declared == EXPECTED_HIDDEN[(case, "declared")]
+    assert not (tmp_path / "undeclared" / "trace.log").exists()

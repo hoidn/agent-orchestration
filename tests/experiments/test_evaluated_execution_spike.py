@@ -102,7 +102,7 @@ def spike(root: Path, sources: dict[str, str], *, inputs=None, run_id="run", hoo
     try:
         return closed, evaluate(closed, inputs=inputs or {}, workspace=root, run_root=run_root(root, run_id), hook=hook)
     finally:
-        for record in read_records(run_root(root, run_id)):
+        for record in (r for r in read_records(run_root(root, run_id)) if "identity" in r):
             assert re.sub(r"\[\d+\]", "[*]", record["identity"]) in closed.sites
 
 

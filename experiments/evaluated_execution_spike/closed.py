@@ -66,10 +66,31 @@ class ClosedProgramGap(Exception):
         self.prop = prop
 
 
-def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = frozenset()) -> ClosedProgram:
-    """`no_repeat` names command boundaries whose effect must not run again without a commit (section 8)."""
+CLOSURE_OPTIONS = ("declared", "strict", "trusting")
 
+
+def build_closed_program(
+    typed: TypedProgram,
+    *,
+    no_repeat: frozenset[str] = frozenset(),
+    closure: str = "declared",
+    closures: Mapping[str, list[str]] | None = None,
+) -> ClosedProgram:
+    """`no_repeat` names command boundaries whose effect must not run again without a commit (section 8).
+
+    `closure` is what a committed command's resolved input binds of what the command runs:
+    - `declared`: the stable command's workspace paths (files, or directories as their sorted files with
+      digests), the program resolved on PATH when it is a bare name, and the implementation closure the
+      boundary declares in `closures` (files and directories); a symbolic link also by the path it resolves
+      to. Anything else, modification times included, is outside the promise.
+    - `strict`: as `declared`; a command boundary without a declared closure is refused here.
+    - `trusting`: nothing (the present route).
+    """
+
+    if closure not in CLOSURE_OPTIONS:
+        raise ValueError(f"closure option `{closure}` is not one of {CLOSURE_OPTIONS}")
     builder = _Builder(typed, no_repeat)
+    builder.closure, builder.closures = closure, dict(closures or {})
     entry = typed.entry
     name = entry.definition.name
     d = _Def(name, name, typed.workflow_type_env(name))
@@ -79,6 +100,7 @@ def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = fro
     defaults = {d.ref(n): default.normalized_value for n, default in entry.signature.param_defaults.items()}
     tree = {
         "schema": SCHEMA,
+        "closure": closure,
         "entry": name,
         "params": params,
         "defaults": defaults,

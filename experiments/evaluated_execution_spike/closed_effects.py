@@ -51,7 +51,10 @@ def _command(builder: Any, perform: w.WccPerform, d: Any, env: dict[str, Any]) -
     boundary = payload.get("adapter_name") or perform.target_name
     binding = builder.typed.command_boundaries[boundary]
     stable = list(binding.stable_command)
-    node = {"class": "command", "boundary": boundary, "command": stable,
+    if builder.closure == "strict" and boundary not in builder.closures:
+        raise ClosedProgramGap("closure", f"command boundary `{boundary}` declares no implementation closure "
+                                          "(build option `strict`)")
+    node = {"class": "command", "boundary": boundary, "command": stable, "closure": builder.closures.get(boundary),
             "contract": _contract(perform.metadata.type_ref, d, payload.get("return_spec")),
             "repeat": "never" if boundary in builder.no_repeat else "rerun"}
     if payload.get("adapter_name") is None:

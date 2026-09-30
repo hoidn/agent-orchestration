@@ -8,7 +8,18 @@ runs nothing.
 `hook(event, identity)` is called at each moment of an attempt that the design's
 table of crash windows names: `resolved` (before `started`), `started` (before
 launch), `finished` (the result file is complete, `committed` not written) and
-`committed`. Tests raise from it to stop the process at that moment.
+`committed`; for a coordinator's effect also `settled`. Tests raise from it to
+stop the process at that moment.
+
+The run ends with a `terminal` record, written after every effect is committed
+and every coordinator's effect settled or reconciled. A view reports a run
+completed only from that record.
+
+Value dependence: every value computed carries the identities of the effects
+whose results it read (`self.reads`), through names, calls, loop state, join
+parameters and the conditions that chose a branch's outcome. A committed record
+keeps the identities its resolved input read (`depends_on`); `invalidate`
+follows them.
 """
 
 from __future__ import annotations
@@ -28,6 +39,14 @@ from .performers import Performers, render_argument, result_path
 
 Hook = Callable[[str, str], None]
 _LOOP = re.compile(r"\[\*\]")
+_PC = ("pc",)  # in an environment: the effects read by the conditions that chose the current branch
+_NONE: frozenset[str] = frozenset()
+
+
+def _dep(name: str) -> tuple[str, str]:
+    """In an environment: the key of the effects whose results the value of `name` read."""
+
+    return ("dep", name)
 
 
 class EvaluationFailed(Exception):
@@ -81,8 +100,42 @@ def evaluate(
     evaluator.coordinators = dict(coordinators or {})
     with Memo(run_root) as memo:
         evaluator.memo = memo
-        value = evaluator.run(bound)
+        try:
+            value = evaluator.run(bound)
+        except EvaluationFailed as failed:
+            memo.append({"record": "terminal", "outcome": "failed", "code": failed.code, "message": str(failed)})
+            raise
+        memo.append({"record": "terminal", "outcome": "completed", "value": value})
     return RunResult(value, evaluator.trace, evaluator.diagnostics)
+
+
+def invalidate(run_root: Path, identity: str) -> list[str]:
+    """The explicit continuation after a divergence. `identity` and every committed effect whose resolved
+    input read its result, directly or through another invalidated effect's result, lose their commits: one
+    `invalidated` record each, appended. The next resume runs exactly these again. Refused while an evaluator
+    holds the memo (`MemoBusy`), and when one of them is a coordinator's committed effect."""
+
+    with Memo(run_root) as memo:
+        if memo.entry(identity).committed is None:
+            raise EvaluationFailed("invalidate_not_committed", f"`{identity}` has no commit to invalidate")
+        chosen, grew = {identity}, True
+        while grew:
+            grown = {name for name, entry in memo.entries.items()
+                     if entry.committed is not None and chosen & set(entry.committed.get("depends_on", ()))}
+            grew, chosen = not grown <= chosen, chosen | grown
+        ordered = [name for name in memo.entries if name in chosen]
+        coordinated = [name for name in ordered if "proof" in memo.entries[name].committed]
+        if coordinated:
+            raise EvaluationFailed(
+                "invalidate_coordinator_committed",
+                f"{coordinated} committed through a coordinator whose own ledger holds the visit: the design must "
+                "decide whether a committed visit can be superseded (a new visit key or attempt for the same "
+                "identity) and what becomes of the superseded child run and its workspace delta",
+                detail={"coordinated": coordinated, "settled": [memo.entries[n].settled for n in coordinated]})
+        for name in ordered:
+            memo.append({"record": "invalidated", "identity": name, "attempt": memo.entries[name].committed["attempt"],
+                         "by": identity})
+    return ordered
 
 
 def bind_inputs(program: ClosedProgram, inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -141,6 +194,16 @@ class _Evaluator:
         self.dry = False  # a view's evaluation: stop at the first effect without a commit
         self.trace: list[str] = []
         self.diagnostics: list[dict[str, Any]] = []
+        self.reads: set[str] = set()  # the effects whose results the value being computed read
+
+    def traced(self, compute: Callable[[], Any]) -> tuple[Any, frozenset[str]]:
+        """`compute()`, and the identities of the effects whose results it read."""
+
+        outer, self.reads = self.reads, set()
+        try:
+            return compute(), frozenset(self.reads)
+        finally:
+            self.reads = outer
 
     def run(self, inputs: Mapping[str, Any]) -> Any:
         return _expect_halt(self.body(self.program.tree["body"], dict(inputs)), "the workflow body")
@@ -157,34 +220,40 @@ class _Evaluator:
         kind = node["k"]
         if kind == "loop":
             return ("halt", self.loop(node, env))
+        self.reads |= env.get(_PC, _NONE)  # an outcome depends on the conditions that chose it
         if kind in ("halt", "done"):
             return (kind, self.value(node["value"], env))
         args = [self.value(a, env) for a in node["args"]]
         return ("continue", args) if kind == "continue" else ("jump", node["join"], args)
 
     def step_let(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
-        env[node["name"]] = self.bound(node["value"], env)
+        env[node["name"]], env[_dep(node["name"])] = self.traced(lambda: self.bound(node["value"], env))
         return node["body"]
 
     def step_if(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
-        return node["then"] if self.condition(node["cond"], env) else node["else"]
+        cond, reads = self.traced(lambda: self.condition(node["cond"], env))
+        env[_PC] = env.get(_PC, _NONE) | reads
+        return node["then"] if cond else node["else"]
 
     def step_case(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
-        subject = self.value(node["subject"], env)
+        subject, reads = self.traced(lambda: self.value(node["subject"], env))
+        env[_PC] = env.get(_PC, _NONE) | reads
         for arm in node["arms"]:
             if arm["variant"] == subject["variant"]:
-                env[arm["bind"]] = subject
+                env[arm["bind"]], env[_dep(arm["bind"])] = subject, reads
                 return arm["body"]
         raise EvaluationFailed("compiler_defect", f"no arm for variant `{subject['variant']}`")
 
     def step_join(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any] | tuple:
-        outcome = self.body(node["body"], env)
+        outcome, reads = self.traced(lambda: self.body(node["body"], env))
         if outcome[0] == "jump" and outcome[1] == node["name"]:
             env.update(zip(node["params"], outcome[2]))
         elif outcome[0] == "halt":  # a loop in tail position of the join body gives its value
             env[node["params"][0]] = outcome[1]
         else:
+            self.reads |= reads
             return outcome
+        env.update({_dep(param): reads for param in node["params"]})
         return node["cont"]
 
     def condition(self, node: dict[str, Any], env: dict[str, Any]) -> bool:
@@ -194,12 +263,14 @@ class _Evaluator:
         return value
 
     def loop(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
-        state, budget = self.value(node["init"], env), self.value(node["budget"], env)
+        (state, budget), reads = self.traced(lambda: (self.value(node["init"], env), self.value(node["budget"], env)))
+        param = node["param"]
         for iteration in range(1, budget + 1):
             self.loops.append(iteration)
-            outcome = self.body(node["body"], {**env, node["param"]: state})
+            outcome, reads = self.traced(lambda: self.body(node["body"], {**env, param: state, _dep(param): reads}))
             self.loops.pop()
             if outcome[0] == "done":
+                self.reads |= reads
                 return outcome[1]
             if outcome[0] != "continue":
                 raise EvaluationFailed("compiler_defect", f"a loop body ended with `{outcome[0]}`")
@@ -207,7 +278,7 @@ class _Evaluator:
         if node["exhausted"] is None:
             raise EvaluationFailed(node["code"] or "loop_exhausted", f"the loop ran its {budget} iterations",
                                    detail={"budget": budget})
-        return _expect_halt(self.body(node["exhausted"], {**env, node["param"]: state}), "a loop exhaustion")
+        return _expect_halt(self.body(node["exhausted"], {**env, param: state, _dep(param): reads}), "a loop exhaustion")
 
     def bound(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
         kind = node["k"]
@@ -215,7 +286,9 @@ class _Evaluator:
             return self.perform(node, env)
         if kind == "call":  # the table form keeps the body in `definitions` and names the call site `frame`
             definition = node if "body" in node else self.program.tree["definitions"][node["callee"]]
-            args = dict(zip(definition["params"], (self.value(a, env) for a in node["args"])))
+            args = {}
+            for param, arg in zip(definition["params"], node["args"]):
+                args[param], args[_dep(param)] = self.traced(lambda arg=arg: self.value(arg, env))
             self.frames.extend([node["frame"]] if "frame" in node else [])
             value = _expect_halt(self.body(definition["body"], args), f"the body of `{node['callee']}`")
             del self.frames[len(self.frames) - ("frame" in node):]
@@ -231,6 +304,7 @@ class _Evaluator:
         return node["v"]
 
     def value_name(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        self.reads |= env.get(_dep(node["n"]), _NONE)
         return env[node["n"]]
 
     def value_field(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
@@ -294,8 +368,9 @@ class _Evaluator:
         if "document" in node:  # a certified adapter: one JSON object, fields in signature order
             document = {key: self.value(v, env) for key, v in node["document"]}
             argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
+        trusting = self.program.tree.get("closure") == "trusting"
         return {"class": "command", "command": [*node["command"], *argv], "contract": node["contract"],
-                "declared": self.performers.declared_files(node["command"])}
+                "declared": {} if trusting else self.performers.declared_files(node["command"], node.get("closure"))}
 
     def resolve_provider(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
         prompt, dependencies = node["prompt"], node.get("dependencies")
@@ -315,7 +390,8 @@ class _Evaluator:
         identity = self.identity(node["site"])
         if self.dry:
             return self.dry_perform(identity)
-        resolved = self.resolve(node, env)
+        resolved, reads = self.traced(lambda: self.resolve(node, env))
+        self.reads.add(identity)
         digest = canonical_digest(resolved)
         parts = {key: canonical_digest(part) for key, part in resolved.items()}
         self.trace.append(identity)
@@ -324,6 +400,9 @@ class _Evaluator:
             if entry.committed["input_digest"] == digest:
                 if node["class"] in self.coordinators:
                     self.coordinators[node["class"]].reconcile(node, identity, entry.committed.get("proof"))
+                    if not entry.settled:
+                        self.memo.append({"record": "settled", "identity": identity,
+                                          "attempt": entry.committed["attempt"], "by": "reconcile"})
                 return entry.committed["value"]
             recorded = entry.committed.get("input_parts", {})
             files = entry.committed.get("declared", {})
@@ -336,13 +415,14 @@ class _Evaluator:
             )
         if entry.suspended is not None:
             raise EffectSuspended(identity, entry.suspended["request"])
-        if entry.attempts:
+        if entry.attempts and not entry.invalidated:
             if node.get("repeat") == "never":
                 raise EvaluationFailed("lexical_restore_pending_effect_unsafe",
                                        f"`{identity}` started without a commit and must not repeat",
                                        at=node.get("@"), detail={"attempts": entry.attempts})
             self.diagnostics.append({"code": "effect_rerun", "identity": identity, "after": list(entry.attempts)})
-        return self.attempt(node, identity, max(entry.attempts, default=0) + 1, resolved, digest, parts)
+        return self.attempt(node, identity, max(entry.attempts, default=0) + 1, resolved, digest,
+                            {"input_parts": parts, "depends_on": sorted(reads)})
 
     def dry_perform(self, identity: str) -> Any:
         entry = self.memo.entry(identity)
@@ -351,15 +431,17 @@ class _Evaluator:
             raise Pending(identity, entry)
         return entry.committed["value"]
 
-    def attempt(self, node, identity, attempt, resolved, digest, parts) -> Any:
+    def attempt(self, node, identity, attempt, resolved, digest, inputs) -> Any:
+        """`inputs`: the digest of each part of the resolved input, and the effects whose results it read."""
+
         path = result_path(self.run_root, identity, attempt)
         record = {"identity": identity, "attempt": attempt, "input_digest": digest}
         self.hook("resolved", identity)
-        self.memo.append({**record, "record": "started", "input_parts": parts,
+        self.memo.append({**record, "record": "started", "input_parts": inputs["input_parts"],
                           "result_path": path.relative_to(self.run_root).as_posix()})
         self.hook("started", identity)
         if node["class"] == "request_input":
-            self.memo.append({**record, "record": "suspended", "request": resolved["question"]})
+            self.memo.append({**record, **inputs, "record": "suspended", "request": resolved["question"]})
             raise EffectSuspended(identity, resolved["question"])
         coordinator, proof = self.coordinators.get(node["class"]), None
         if coordinator is not None:
@@ -371,12 +453,13 @@ class _Evaluator:
             self.memo.append({**record, "record": "failed", **failure})
             raise EvaluationFailed(failure["code"], f"`{identity}` attempt {attempt} failed", at=node.get("@"),
                                    detail=failure)
-        self.memo.append({**record, "record": "committed", "input_parts": parts, "value": value,
+        self.memo.append({**record, **inputs, "record": "committed", "value": value,
                           "declared": resolved.get("declared", {}),
                           "result_path": path.relative_to(self.run_root).as_posix(),
                           "result_digest": canonical_digest(value), **({"proof": proof} if proof is not None else {})})
         self.hook("committed", identity)
         if coordinator is not None:
             coordinator.settle(node, identity, proof)
+            self.memo.append({**record, "record": "settled", "by": "settle"})
             self.hook("settled", identity)
         return value

@@ -107,10 +107,11 @@ def test_a_view_derived_from_the_memo_shows_what_the_flat_report_shows_and_where
     spike_in_progress, spike_finished = spike_reports(tmp_path / "spike")
 
     one, two, three = ('{"n": 1}\n', {"n": 1}), ('{"n": 2}\n', {"n": 2}), ('{"n": 3}\n', {"n": 3})
-    # In progress, killed. The flat report cannot tell a dead process from a live one; the memo's lock can.
+    # In progress, killed. The flat report cannot tell a dead process from a live one; the memo's lock can:
+    # without a writer and without the terminal record, the run is interrupted.
     assert summary(flat_in_progress) == {"status": "running", "outputs": {},
                                          "rows": [("completed", *one), ("running", "", {})]}
-    assert summary(spike_in_progress) == {"status": "running", "outputs": None,
+    assert summary(spike_in_progress) == {"status": "interrupted", "outputs": None,
                                           "rows": [("completed", *one), ("interrupted", "", {})]}
     # Finished. The flat route has one more row, a pure projection of the result; the spike has none.
     assert summary(flat_finished) == {"status": "completed", "outputs": {"return__n": 6},
