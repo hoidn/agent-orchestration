@@ -39,7 +39,8 @@ Selection cannot damage a candidate. Revision can: in one run three review
 rounds took a patch two judges would have merged from 8.0 to 4.0.
 
 `list/map-effect` runs its body in sequence. Four implementers take four times
-as long as one.
+as long as one. A `command-result` or a `call` of a workflow runs as its body;
+a call to an inline procedure that holds the command is refused ([drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today)).
 
 ## Writing A Review Loop
 
@@ -64,13 +65,16 @@ criteria, and the verdict rules.
 Each row was hit while writing the example workflows. A rule is a restriction
 the language makes on purpose. A defect is a failure after typecheck or a
 wrong diagnostic; [Composition-First Procedures §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
-lists each known defect with its cause and the test that pins it.
+lists each known defect with its cause and the test that pins it. Before
+writing, check the program's shape in the [drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today): a loop in a branch or in
+another loop, a large state update, a record as a command input, decimals, and
+a helper shared by branches inside a loop, each with the form that runs.
 
 | Symptom | Kind | Cause | Write instead |
 | --- | --- | --- | --- |
 | `compiler_defect` (`unsupported nested WCC M2 prefix for LetStarExpr`) | Defect, below 2.33 | a `match` subject that elaborates to bindings, such as a `let*` expression, or a local wrapper around an imported effectful procedure, which older targets infer effect-free and inline | target 2.33; below it, bind the effectful call first: `(let* ((v (check ...))) (match v ...))` |
 | `compiler_defect` (`unsupported pure projection expression: ProcedureCallExpr`) | Defect, below 2.33 | an effectful call written inside `loop-state :like` | bind it first: `(let* ((next (revise ...))) (continue (loop-state :like state :current next)))`, or target 2.33 |
-| `compiler_defect_loop_control_value` (2.33; `compiler_defect` below) | Defect | an effectful `if` or `match` as a `loop-state` field, or bound by `let*` in a loop body | a `match` in tail position whose arms `continue` |
+| `compiler_defect_loop_control_value` (from 2.33; `compiler_defect` below) | Defect | an effectful `if` or `match` as a `loop-state` field, or bound by `let*` in a loop body | a `match` in tail position whose arms `continue`; a procedure called there with a literal argument fails with `workflow_signature_mismatch`, so pass fields of the loop state, or call one helper that chooses the branch |
 | `proc_ref_signature_invalid` | Defect | below 2.33, the call to a generic helper used directly as a `match` subject; at 2.33 too, a generic call with hooks in a `loop-state` field under `continue` | bind the helper's result with `let*`, then `match`; at 2.33 the direct subject compiles |
 | `workflow_return_not_exportable` at `:max` | Rule | the bound comes from a workflow parameter | a compile-time integer constant of at least 1 |
 | `workflow_boundary_type_invalid`, "max_iterations must be > 0" | Rule | `:max 0` | zero is rejected at compile time; it is not a run-time outcome |

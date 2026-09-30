@@ -707,6 +707,12 @@
     target. A form that failed in lowering only because of such a capture now
     compiles; a form that a target refuses for any other reason stays refused.
     Programs without such a shadowed name build byte-identical artifacts.
+  - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
+    its stage and its exit code at every target. Its message, which a failed
+    run records in `state.json`, now names the operator and prints its
+    operands before the value and the bounds (``operator `+` with operands
+    [9223372036854775807, 1]: ...``), and its metadata gains `operator` and
+    `operands` beside `min`, `max` and `value`.
 
 - v2.34 additions (in progress)
   - Target 2.34 exists. Apart from the surface listed below, it accepts and

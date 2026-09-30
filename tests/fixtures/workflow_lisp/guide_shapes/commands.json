@@ -1,0 +1,104 @@
+{
+  "fetch": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "tests/fixtures/workflow_lisp/guide_shapes/probe.py"
+    ]
+  },
+  "bump": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "tests/fixtures/workflow_lisp/guide_shapes/probe.py"
+    ]
+  },
+  "fetch_record": {
+    "kind": "certified_adapter",
+    "stable_command": [
+      "python",
+      "tests/fixtures/workflow_lisp/guide_shapes/probe.py",
+      "fetch-record"
+    ],
+    "input_contract": {
+      "type": "object"
+    },
+    "output_type_name": "Box",
+    "effects": [
+      "structured_result"
+    ],
+    "path_safety": {
+      "kind": "workspace_relpath"
+    },
+    "source_map_behavior": "step",
+    "fixture_ids": [
+      "guide_shapes_fetch_record"
+    ],
+    "negative_fixture_ids": [
+      "guide_shapes_fetch_record_invalid"
+    ],
+    "behavior_class": "structured_result",
+    "input_signature": [
+      {
+        "name": "box",
+        "type_name": "Box",
+        "required": true,
+        "transport_key": "box"
+      }
+    ],
+    "artifact_contracts": [
+      "guide_shapes_box_bundle"
+    ],
+    "state_writes": [],
+    "error_codes": [
+      "guide_shapes_fetch_record_invalid"
+    ],
+    "owner_module": "guide_shapes/record_adapter_input",
+    "replacement_path": null,
+    "invocation_protocol": "json_object_positional_arg"
+  },
+  "fetch_fields": {
+    "kind": "certified_adapter",
+    "stable_command": [
+      "python",
+      "tests/fixtures/workflow_lisp/guide_shapes/probe.py",
+      "fetch-fields"
+    ],
+    "input_contract": {
+      "type": "object"
+    },
+    "output_type_name": "Box",
+    "effects": [
+      "structured_result"
+    ],
+    "path_safety": {
+      "kind": "workspace_relpath"
+    },
+    "source_map_behavior": "step",
+    "fixture_ids": [
+      "guide_shapes_fetch_fields"
+    ],
+    "negative_fixture_ids": [
+      "guide_shapes_fetch_fields_invalid"
+    ],
+    "behavior_class": "structured_result",
+    "input_signature": [
+      {
+        "name": "n",
+        "type_name": "Int",
+        "required": true,
+        "transport_key": "n"
+      }
+    ],
+    "artifact_contracts": [
+      "guide_shapes_box_bundle"
+    ],
+    "state_writes": [],
+    "error_codes": [
+      "guide_shapes_fetch_fields_invalid"
+    ],
+    "owner_module": "guide_shapes/record_fields_adapter_input",
+    "replacement_path": null,
+    "invocation_protocol": "json_object_positional_arg"
+  }
+}

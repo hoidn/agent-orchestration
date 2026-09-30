@@ -637,14 +637,17 @@ runtime evaluator.
 | Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, enum with same type | status/routing projection |
 | Ordering | `<`, `<=`, `>`, `>=` | `Int` with `Int`; `Float` with `Float` | iteration and attempt bounds |
 | Boolean | `and`, `or`, `not` | `Bool` operands | compound routing conditions |
-| Arithmetic | `+`, `-`, `*`, `min`, `max` | `Int` operands, `Int` result | iteration/item counting |
+| Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` operands, `Int` result | iteration/item counting |
+| Arithmetic, target 2.34 | the above, `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log` | all `Int` or all `Float` operands, same-type result; `/` and `float/` operators `Float` only | selection score of the search controller ([numeric surface](workflow_lisp_numeric_surface.md) §4) |
+| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | explicit `Int`/`Float` conversion | same fixture |
 | String | `string/concat`, `string/empty?`, `symbol/name` | strings/symbols only | reason/summary construction |
 | Option | `some?`, `or-else` | `Optional[T]`; fallback type `T` | optional defaults |
 | Record | `record-update` | record plus field bindings | loop-state evolution |
 
 Deliberate exclusions:
 
-- no division/modulo until justified;
+- no division/modulo until justified (justified at target 2.34 by the numeric
+  surface fixture);
 - no float equality;
 - no path string concatenation;
 - no deep record equality;
