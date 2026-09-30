@@ -204,10 +204,12 @@ govern lexical capture and forwarding. The spike's refusals of value,
 workflow and bound-reference specializations are missing evidence (§18),
 not additional exclusions.
 
-Compiler-generated run-reference result types and static configuration also
-use position-free identities: derive their site identity from the containing
-definition's canonical lexical site, and their type signature from canonical
-input/result descriptors. Do not copy the current span-derived `site_digest`
+Compiler-generated run-reference result types and static configuration use
+position-free identities: their configuration/type `site_digest` combines
+the containing definition's canonical lexical site with the canonical
+input/result structural signature. The existing neutral generated-name
+rule derives the result name from that digest; the effect site and runtime
+identity remain those of §6. Do not copy the current span-derived `site_digest`
 or `RunRefResult$…` name. The enclosing definition key uses that generated
 type's structural signature, avoiding a cycle between key and site. P5 checks
 the descriptors against their definitions and producers; recalculating a

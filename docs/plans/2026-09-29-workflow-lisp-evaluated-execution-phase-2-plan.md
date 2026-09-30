@@ -394,9 +394,11 @@ stripped tree (P6, P7).
   Maps sort by formal name; ordered arguments/fields retain declaration
   order. Runtime captures are explicit typed parameters/arguments, never
   runtime proc-ref values. Local keys ignore spans, generated names, body
-  digests and unrelated pure bindings. Run-ref generated types use their
-  structural input/result signature in definition keys; their final name
-  and config site digest use the containing canonical definition/site.
+  digests and unrelated pure bindings. Generated run-reference types use
+  their canonical input/result structural signature in definition keys;
+  after site assignment, Task 8 hashes the containing canonical definition,
+  local site and that signature together into `site_digest`, and the existing
+  neutral name rule derives the final nominal name from its first 16 hexadecimal characters.
 - Nominal type identities and descriptors recursively use the declaring
   module, exported or private. Applied arguments, list/optional members,
   fields and variants recurse; generated run-ref result names never reuse
@@ -1323,10 +1325,12 @@ execution facts A.5; design §4.2 and P6.
     uses `typed.local_definition_keys` and existing generated-local metadata,
     never `definition.name`'s span hash. No value/workflow/ref/capture form
     is turned into a release gap.
-  - Generated run-ref types: use canonical input/result structural signatures
-    when computing containing definition keys, then derive the final nominal
-    name/site digest from that definition and its assigned local site. This
-    is a two-pass finalization in Task 8, not a self-referential hash.
+  - Generated run-reference types use their canonical input/result structural
+    signature in definition keys; after site assignment, Task 8 hashes the
+    containing canonical definition, local site and that signature together
+    into `site_digest`, and the existing neutral name rule derives the final
+    nominal name from its first 16 hexadecimal characters. This is a two-pass
+    finalization in Task 8, not a self-referential hash.
   - `Renamer`: `bind(name) -> str` returns the name unchanged unless it
     starts with `__`, in which case it returns and records `%<n>`, `n`
     counting from 1 per definition; `ref(name) -> str` returns the recorded
@@ -1966,24 +1970,63 @@ execution facts A.2 and A.4.
     `session_artifact`, `capture_context` are gaps (form `provider-result`,
     naming the part: outside the portable subset, §1.1).
   - `run_ref`: path mode only. Translate inputs to closed typed values;
-    retain source/program selection and supported static policy. First build
-    a structural canonical input/result signature (recursively canonical
-    descriptors, no current generated `RunRefResult$…` name). After sites
-    are assigned, derive `site_digest` from the containing definition's
-    canonical name and local site, derive the generated result name from
-    that site and structural signature, and rewrite every occurrence in
-    entry/definition/node descriptors and `types`. Then call
+    retain source/program selection and supported static policy. First obtain
+    Task 6's canonical structural input/result signature `S`: ordered input
+    names and recursively canonical descriptors plus the structural result
+    contract, excluding generated run-reference nominal identities. Retain
+    user/private nominal identities, refinements, field order and the exact
+    fixed runtime result schemas. References to another generated run-reference
+    type use its structural signature, never its provisional or finalized
+    generated name. Use this same structural projection in containing
+    definition keys and on artifact read-back.
+
+    After site assignment, compute the 64-character lowercase hexadecimal
+    `site_digest = sha256(canonical_json(["workflow-lisp/run-ref-site/1", containing_canonical_definition, assigned_local_site, S])).hexdigest()`.
+    Here `canonical_json` uses the closed program's canonical UTF-8 JSON
+    encoding. Set `generated_result_type = "RunRefResult$" + site_digest[:16]`,
+    exactly as `build_run_ref_static_config` requires; do not derive a second
+    independent generated name. This configuration/type digest does not alter
+    the lexical site table or §6's runtime effect identity.
+
+    Rewrite generated type occurrences in entry/definition/node descriptors
+    and `types`, preserving structural definition keys. Recompute result
+    descriptor digests, then call the unchanged
     `build_run_ref_static_config`/`encode_run_ref_static_config` with these
     canonical facts and `RunRefInput(..., ReferenceBinding(f"inputs.{name}"))`.
-    Recompute result descriptor digests; never copy `payload.site_digest`,
-    `payload.result_digest` or span-based generated names. The definition
-    key uses the structural signature so finalization cannot create a hash
-    cycle. Reuse `compute_compiler_runtime_identity` only after verifying
-    its bytes are package-location independent. Decode/read-back validates
-    the config against the containing site, canonical result and inputs.
-    Bundle mode stays a located gap under §9.2. The Phase 3 caller adapter
-    reuses the existing run-ref ledger/runtime; this does not claim its
-    step-oriented caller integration works unchanged.
+    Never copy `payload.site_digest`, `payload.result_digest` or span-based
+    generated names. Finalization does not recompute a definition key from
+    finalized nominal names. Preserve the neutral schemas, fixed runtime
+    descriptors, naming rule and codecs; existing targets retain their
+    existing identity recipe.
+
+    Register the neutral result's fixed runtime records in `types` under their
+    reserved logical identities (`WorkspaceDelta`, `RunRefAccounting` and
+    their nested fixed records), with exactly the descriptors accepted by
+    `validate_run_ref_result_descriptor`; they are compiler-owned builtins,
+    not module-declared user nominals. At build, use compiler ownership
+    metadata, not spelling alone, to select this builtin treatment. A
+    user/private nominal still uses `module::Name`. Register the generated
+    envelope separately under its newly finalized `RunRefResult$<digest-prefix>`
+    name; never register its old span-derived name.
+
+    On artifact read-back, decode the config, reconstruct `S` from independently
+    checked descriptor/producer facts, and recompute the full digest using the
+    actual containing definition and assigned site. Require equality of all
+    64 digest characters, the generated name, result descriptor/digest and
+    ordered input names/types/reference bindings with the checked node and
+    `types`. The neutral decoder validates the exact fixed runtime records;
+    recursively compare each such record and the generated envelope with its
+    `types` entry and all uses. Reject conflicting descriptors under one
+    reserved identity. Successful neutral decoding alone does not establish
+    this lexical correspondence. Source/program/policy remain in the encoded
+    config and program digest; their changes must change semantic program
+    identity but need not change a generated type when its site and signature
+    are unchanged.
+
+    Reuse `compute_compiler_runtime_identity` after verifying package-location
+    independence. Bundle mode stays a located gap under §9.2. The Phase 3
+    caller adapter reuses the existing run-ref ledger/runtime; this does not
+    claim its step-oriented caller integration works unchanged.
   - the gaps of Task 4 stay for every other kind, each named by its surface
     form; this task adds a test per form.
 - Consumed by: Task 4's `binding()` (unchanged), Task 9, Task 10.
@@ -2018,6 +2061,13 @@ def test_a_provider_bundle_path_builds_with_its_producing_provider(tmp_path) -> 
 def test_a_path_mode_run_ref_carries_the_static_config_with_reference_bindings(tmp_path) -> None:
     config = decode_run_ref_static_config(base64.b64decode(node["config"]))
     assert [(i.name, i.binding.reference) for i in config.inputs] == [("seed", "inputs.seed")]
+    # Fixed runtime records and the generated envelope agree with `types`;
+    # private user nominals remain qualified, including nested producer results.
+
+def test_run_ref_readback_checks_the_full_site_digest_and_reserved_types(tmp_path) -> None:
+    # Change only the digest suffix after its first 16 characters, preserving
+    # the generated name, and recompute outer artifact digests: read-back refuses.
+    # Also refuse a conflicting fixed runtime record in `types`.
 
 @pytest.mark.parametrize("form", ["materialize-view", "resource-transition", "trial", "request-input", "with-live-providers", "run-provider-phase"])
 def test_a_form_outside_the_release_is_a_gap_at_its_own_location(tmp_path, form) -> None:   # Review focus 4
@@ -2062,6 +2112,7 @@ runtime evidence does not authorize dropping document slots or dependencies.
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/artifact.py`
 - Modify: `orchestrator/workflow_lisp/build.py` (share compiled-import manifest entry validation; keep legacy loader/initializer behavior)
+- Modify: `orchestrator/workflow_lisp/closed/target.py` (optional source-read trace forwarding through the existing target reader)
 - Modify: `orchestrator/cli/commands/compile.py` (`compile_workflow`, before `normalize_frontend_artifact_exports` at line 63)
 - Test: `tests/test_workflow_lisp_closed_program_compile_cli.py`
 
@@ -2117,7 +2168,11 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   loader returns the plain pair `(bundles_by_binding, programs_by_binding)`.
   `kind=compiled` remains `.orc`-only and each producer still disables recursive
   imported manifests. Create its trace before target inspection and preserve
-  it through the selected producer path. An old-target producer uses the
+  it through the selected producer path. Add optional `source_read_trace`
+  forwarding to the existing target-reader helpers; the target read and the
+  selected compile share that exact trace so a changed source revision is
+  detected. Existing callers without a trace keep their behavior. An
+  old-target producer uses the
   existing in-memory compilation, retaining its selected bundle/snapshot; an
   evaluated producer calls the typed Stage 3 path and selects its export
   without `_require_runnable_in_memory_build` or a fake bundle. Task 2's shared
@@ -2133,7 +2188,10 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   reread source to compute the key. Raw source digests affect build identity,
   not semantic `program_digest`.
 - `compile_workflow`: after the `.orc` check, `target = entry_target_dsl_version(workflow_path)`;
-  when `target_dsl_uses_evaluated_execution(target)`: any `--emit-*` flag
+  preserve the existing missing-source diagnostic
+  `workflow_lisp_cli_input_missing` and old-target validation precedence:
+  the routing pre-read must not turn a missing source into a generic I/O error.
+  When `target_dsl_uses_evaluated_execution(target)`: any `--emit-*` flag
   is refused with `workflow_lisp_cli_input_unsupported` naming the flag
   (the flat artifacts do not exist at this target); otherwise call
   `build_closed_program_bundle` and print the summary
@@ -2186,6 +2244,8 @@ def test_compiled_import_manifest_selects_old_and_evaluated_producers(tmp_path) 
     # CLI fourth manifest with one old runnable producer and one typed 2.35
     # producer; requested/unique export selection, no eager old initializer
     # for the new producer, both native bodies in the checked artifact.
+    # A producer edit between target inspection and compilation is refused
+    # by the shared trace's existing revision-consistency check.
 
 def test_imported_snapshot_configuration_and_source_contribute_to_build_identity(tmp_path) -> None:
     # Original producer digests, transitive bodies and scopes survive; unused
@@ -2221,9 +2281,9 @@ directory.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
 
-`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
 
 **What this makes harder later:** two build functions and two manifest
 schemas until Phase 7; Phase 3's `run` reads `closed_program.json` from the
