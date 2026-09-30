@@ -32,6 +32,7 @@ from .loaded_bundle import (
 from .predicates import PredicateEvaluationError
 from .pure_result_replay import DERIVED_PURE_REPLAY_PROFILE
 from .references import ReferenceResolutionError
+from ..workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 from .resume_projection_integrity import (
     CallFrameRetryLineage,
     CallFrameRetryLineageError,
@@ -315,6 +316,10 @@ class CallExecutor:
             )
 
         input_specs = workflow_runtime_input_contracts(imported_workflow)
+        callee = workflow_bundle(imported_workflow)
+        finite_floats = callee is not None and target_dsl_refuses_non_finite_floats(
+            callee.surface.version
+        )
 
         bound_inputs: Dict[str, Any] = {}
         for input_name, input_spec in input_specs.items():
@@ -341,6 +346,7 @@ class CallExecutor:
                         raw_value,
                         input_spec,
                         workspace=self.executor.workspace,
+                        finite_floats=finite_floats,
                     )
                 except OutputContractError as exc:
                     return None, step_results.contract_violation_result(
