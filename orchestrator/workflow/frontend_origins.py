@@ -21,7 +21,13 @@ _DEFAULT_PROVENANCE = object()
 _NODE_ORIGIN_SECTIONS = ("step_ids", "generated_inputs", "generated_outputs", "generated_paths", "generated_internal_inputs")
 
 
-def workflow_node_origin(source_trace_path: Path | None, workflow_name: str, node_id: str) -> Mapping[str, Any]:
+def workflow_node_origin(
+    source_trace_path: Path | None,
+    workflow_name: str,
+    node_id: str,
+    *,
+    step_name: str | None = None,
+) -> Mapping[str, Any]:
     """Return the authored origin of one executable node of one workflow.
 
     One build's source trace covers every workflow of the build. Node ids are
@@ -35,17 +41,46 @@ def workflow_node_origin(source_trace_path: Path | None, workflow_name: str, nod
     workflow = json.loads(Path(source_trace_path).read_text(encoding="utf-8"))["workflows"].get(workflow_name)
     if workflow is None:
         raise LookupError(f"{source_trace_path} has no workflow {workflow_name}")
+    origin = (
+        _workflow_step_origin(source_trace_path, workflow, workflow_name, step_name)
+        if step_name is not None
+        else _workflow_node_origin(source_trace_path, workflow, workflow_name, node_id)
+    )
+    if origin is None:
+        subject = f"step {step_name}" if step_name is not None else f"node {node_id}"
+        raise LookupError(f"{source_trace_path} has no origin for {subject} in workflow {workflow_name}")
+    if not Path(origin["path"]).is_file():
+        raise LookupError(f"{source_trace_path} places node {node_id} in {origin['path']}, which does not exist")
+    return origin
+
+
+def _workflow_step_origin(
+    source_trace_path: Path,
+    workflow: Mapping[str, Any],
+    workflow_name: str,
+    step_name: str,
+) -> Mapping[str, Any] | None:
+    step_origins = workflow.get("step_ids")
+    origin = step_origins.get(step_name) if isinstance(step_origins, Mapping) else None
+    if origin is None:
+        raise LookupError(
+            f"{source_trace_path} has no step {step_name} in workflow {workflow_name}"
+        )
+    return origin
+
+
+def _workflow_node_origin(
+    source_trace_path: Path,
+    workflow: Mapping[str, Any],
+    workflow_name: str,
+    node_id: str,
+) -> Mapping[str, Any] | None:
     keys = [node["origin_key"] for node in workflow["executable_nodes"] if node["node_id"] == node_id]
     if not keys:
         raise LookupError(f"{source_trace_path} has no node {node_id} in workflow {workflow_name}")
     sections = (workflow.get(section) or {} for section in _NODE_ORIGIN_SECTIONS)
     origins = (workflow["workflow_origin"], *(origin for section in sections for origin in section.values()))
-    origin = next((item for item in origins if item["origin_key"] == keys[0]), None)
-    if origin is None:
-        raise LookupError(f"{source_trace_path} has no origin {keys[0]} for node {node_id}")
-    if not Path(origin["path"]).is_file():
-        raise LookupError(f"{source_trace_path} places node {node_id} in {origin['path']}, which does not exist")
-    return origin
+    return next((item for item in origins if item["origin_key"] == keys[0]), None)
 
 
 class CompiledFrontendIndex:
