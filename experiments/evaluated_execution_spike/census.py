@@ -96,7 +96,7 @@ def measure(entry: Path, root: Path, workflow: str, manifests: dict) -> dict[str
     started = time.monotonic()
     typed = typecheck_program(entry, entry_workflow=workflow, source_roots=(root, *library),
                               command_boundaries=commands, provider_externs=providers, prompt_externs=prompts)
-    closed = build_closed_program(typed)
+    closed = build_closed_program(typed, closures={name: [] for name in commands})
     seconds = time.monotonic() - started
     table = to_table(closed)
     return {"nodes": count_nodes(closed.tree), "bytes": len(closed.artifact().encode()), "seconds": round(seconds, 2),

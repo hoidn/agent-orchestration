@@ -76,6 +76,7 @@ def entry_workflow(sources: dict[str, str]) -> str:
 def build(root: Path, sources: dict[str, str], *, boundaries=BOUNDARIES, workflow=None, providers=PROVIDERS,
           prompts=PROMPTS, **options):
     entry = install(root, sources)
+    options.setdefault("closures", {name: [] for name in boundaries})  # `strict`: every boundary declares one
     typed = typecheck_program(
         entry,
         entry_workflow=workflow or entry_workflow(sources),
@@ -254,7 +255,7 @@ def test_moving_the_package_changes_no_site_and_not_the_program_digest(tmp_path:
         "entry = Path(sys.argv[1])\n"
         "typed = typecheck_program(entry, entry_workflow='spk/if_in_hook::run', source_roots=(entry.parents[1],),\n"
         "    command_boundaries={'fetch': ExternalToolBinding(name='fetch', stable_command=('python', 'probe.py'))})\n"
-        "closed = build_closed_program(typed)\n"
+        "closed = build_closed_program(typed, closures={'fetch': []})\n"
         "print(json.dumps([closed.sites, closed.digest]))\n"
     )
     moved = subprocess.run(

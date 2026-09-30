@@ -30,7 +30,7 @@ from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.providers.types import ProviderParams
 from orchestrator.workflow.view_renderer import render_view
 
-from .sites import canonical_digest
+from .sites import canonical_digest, perform_nodes
 
 BUNDLE_ENV = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
 
@@ -122,6 +122,15 @@ def assemble_prompt(workspace: Path, resolved: dict[str, Any], contract: dict[st
 class Performers:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
+        self.pins: dict[str, str | None] = {}  # the programs found on PATH when the run started
+
+    def pin(self, tree: dict[str, Any]) -> dict[str, str | None]:
+        """Each program a command names bare (`python`), resolved on PATH once, when the run starts. The run
+        launches and binds these paths, whatever PATH says on a later resume."""
+
+        names = {node["command"][0] for node in perform_nodes(tree) if node["class"] == "command" and node["command"]}
+        return {name: shutil.which(name) for name in sorted(names)
+                if "/" not in name and not (self.workspace / name).exists()}
 
     def relative(self, path: Path) -> str:
         """A result path as the present route gives it to a provider or a command: relative to the workspace."""
@@ -139,7 +148,7 @@ class Performers:
             if "/" in token or path.exists():
                 files[token] = self.path_digest(path)
             elif index == 0:
-                found = shutil.which(token)
+                found = self.pins[token] if token in self.pins else shutil.which(token)
                 files[token] = {"path": found, "file": self.path_digest(Path(found))} if found else None
         for entry in closure or ():
             files[entry] = self.path_digest(self.workspace / entry)
@@ -173,7 +182,7 @@ class Performers:
     def perform(self, node: dict[str, Any], resolved: dict[str, Any], path: Path, identity: str) -> tuple[Any, dict | None]:
         path.parent.mkdir(parents=True)  # a new attempt directory: nothing of an earlier attempt is in it
         if node["class"] == "command":
-            failure = self.command(resolved, path)
+            failure = self.command(resolved, path) or self.closure_written(node, resolved)
         else:
             failure = self.provider(node, resolved, path, identity)
         if failure is not None:
@@ -187,6 +196,15 @@ class Performers:
         if result.exit_code != 0:
             return {"code": "command_failed", "exit_code": result.exit_code, "error": result.error}
         return None
+
+    def closure_written(self, node: dict[str, Any], resolved: dict[str, Any]) -> dict | None:
+        """Closures are read-only: a command that changed what it runs fails its attempt."""
+
+        if not resolved["declared"]:
+            return None
+        now = self.declared_files(node["command"], node.get("closure"))
+        written = sorted(name for name, digest in resolved["declared"].items() if now.get(name) != digest)
+        return {"code": "command_closure_written", "files": written} if written else None
 
     def provider(self, node: dict[str, Any], resolved: dict[str, Any], path: Path, identity: str) -> dict | None:
         prompt = assemble_prompt(self.workspace, resolved, node["contract"], path.relative_to(self.workspace).as_posix())

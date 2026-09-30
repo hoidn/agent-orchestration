@@ -9,7 +9,8 @@ come from `test_evaluated_execution_spike_programs.py`.
 Iteration 3, item F: nothing is normalized. Each field in which the routes differ has a
 rule, in `EXPECTED_DIFFERENCES`, that gives the value each route must send; a field not
 listed must be equal, so a new difference fails. A structured argument is now rendered as
-the flat route renders it (`json.dumps` defaults), so that difference is gone.
+the flat route renders it (`json.dumps` defaults), so that difference is gone. Iteration 4:
+the interpreter is pinned for the run and launched by its path (`command.command`).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -154,6 +156,14 @@ def _cwd(flat: dict, spike: dict, where: Where) -> None:
     assert (flat["cwd"], spike["cwd"]) == (None, repr(where.workspace))
 
 
+def _command(flat: dict, spike: dict, where: Where) -> None:
+    """Rule: a program a command names bare (`python`) is the one PATH gave when the run started, pinned for
+    the run and launched by its path; the rest of the command line is equal."""
+
+    assert "/" not in flat["command"][0] and spike["command"][0] == shutil.which(flat["command"][0])
+    assert flat["command"][1:] == spike["command"][1:]
+
+
 EXPECTED_DIFFERENCES = {
     "provider.context": _context,
     "provider.env": _env,
@@ -161,6 +171,7 @@ EXPECTED_DIFFERENCES = {
     "provider.execution_env_overlay": _site_key,
     "provider.cwd": _cwd,
     "command.env": _env,
+    "command.command": _command,
 }
 
 

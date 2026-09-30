@@ -96,8 +96,9 @@ def evaluate(
 
     run_root.mkdir(parents=True, exist_ok=True)
     bound = bind_inputs(program, inputs)
-    _check_run(run_root, program, bound)
-    evaluator = _Evaluator(program, run_root, Performers(workspace), hook or (lambda _event, _identity: None))
+    performers = Performers(workspace)
+    performers.pins = _check_run(run_root, program, bound, performers)
+    evaluator = _Evaluator(program, run_root, performers, hook or (lambda _event, _identity: None))
     evaluator.coordinators = dict(coordinators or {})
     with Memo(run_root) as memo:
         evaluator.memo = memo
@@ -110,21 +111,20 @@ def evaluate(
     return RunResult(value, evaluator.trace, evaluator.diagnostics)
 
 
-def invalidate(run_root: Path, identity: str) -> list[str]:
-    """The explicit continuation after a divergence. `identity` and every committed effect whose resolved
-    input read its result, directly or through another invalidated effect's result, lose their commits: one
-    `invalidated` record each, appended. The next resume runs exactly these again. Refused while an evaluator
-    holds the memo (`MemoBusy`), and when one of them is a coordinator's committed effect."""
+def invalidate(run_root: Path, identity: str, *, follow: str = "suffix") -> list[str]:
+    """The explicit continuation after a divergence: `identity` and the effects that follow it lose their
+    commits, one `invalidated` record each, appended; the next resume runs exactly these again.
+
+    `follow="suffix"` (the rule): every effect committed after `identity` in the journal, since a dependence
+    through a file is not recorded. `follow="values"`: only the effects whose resolved input read its result,
+    directly or through another invalidated effect's result. Refused while an evaluator holds the memo
+    (`MemoBusy`), and when one of them is a coordinator's committed effect."""
 
     with Memo(run_root) as memo:
         if memo.entry(identity).committed is None:
             raise EvaluationFailed("invalidate_not_committed", f"`{identity}` has no commit to invalidate")
-        chosen, grew = {identity}, True
-        while grew:
-            grown = {name for name, entry in memo.entries.items()
-                     if entry.committed is not None and chosen & set(entry.committed.get("depends_on", ()))}
-            grew, chosen = not grown <= chosen, chosen | grown
-        ordered = [name for name in memo.entries if name in chosen]
+        chosen = (_later_commits if follow == "suffix" else _value_dependents)(memo, identity)
+        ordered = sorted(chosen, key=lambda name: memo.entries[name].committed_at)
         coordinated = [name for name in ordered if "proof" in memo.entries[name].committed]
         if coordinated:
             raise EvaluationFailed(
@@ -137,6 +137,20 @@ def invalidate(run_root: Path, identity: str) -> list[str]:
             memo.append({"record": "invalidated", "identity": name, "attempt": memo.entries[name].committed["attempt"],
                          "by": identity})
     return ordered
+
+
+def _later_commits(memo: Memo, identity: str) -> set[str]:
+    at = memo.entry(identity).committed_at
+    return {name for name, entry in memo.entries.items() if entry.committed is not None and entry.committed_at >= at}
+
+
+def _value_dependents(memo: Memo, identity: str) -> set[str]:
+    chosen, grew = {identity}, True
+    while grew:
+        grown = {name for name, entry in memo.entries.items()
+                 if entry.committed is not None and chosen & set(entry.committed.get("depends_on", ()))}
+        grew, chosen = not grown <= chosen, chosen | grown
+    return chosen
 
 
 def bind_inputs(program: ClosedProgram, inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -163,20 +177,24 @@ def bind_inputs(program: ClosedProgram, inputs: Mapping[str, Any]) -> dict[str, 
     return bound
 
 
-def _check_run(run_root: Path, program: ClosedProgram, inputs: Mapping[str, Any]) -> None:
-    """The program identity and the bound inputs are fixed when the run starts; a resume must match them."""
+def _check_run(run_root: Path, program: ClosedProgram, inputs: Mapping[str, Any], performers: Performers) -> dict:
+    """The program identity and the bound inputs are fixed when the run starts; a resume must match them. So
+    are the programs its commands name bare (the interpreter): resolved on PATH once, and returned."""
 
     header = {"program": program.digest, "inputs": canonical_digest(dict(inputs))}
     path = run_root / "run.json"
     if not path.exists():
+        pins = {} if program.tree.get("closure") == "trusting" else performers.pin(program.tree)
         (run_root / "closed-program.json").write_text(program.artifact(), encoding="utf-8")
-        path.write_text(json.dumps({**header, "bound_inputs": dict(inputs)}, sort_keys=True), encoding="utf-8")
-        return
+        path.write_text(json.dumps({**header, "bound_inputs": dict(inputs), "programs": pins}, sort_keys=True),
+                        encoding="utf-8")
+        return pins
     recorded = json.loads(path.read_text(encoding="utf-8"))
     for key, code in (("program", "resume_program_changed"), ("inputs", "resume_inputs_changed")):
         if recorded[key] != header[key]:
             raise EvaluationFailed(code, f"the run started with {key} {recorded[key]}, not {header[key]}",
                                    detail={"recorded": recorded[key], "resumed": header[key]})
+    return recorded.get("programs", {})
 
 
 def _expect_halt(outcome: tuple, what: str) -> Any:
@@ -386,7 +404,8 @@ class _Evaluator:
             document = {key: self.value(v, env) for key, v in node["document"]}
             argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
         trusting = self.program.tree.get("closure") == "trusting"
-        return {"class": "command", "command": [*node["command"], *argv], "contract": node["contract"],
+        program = [self.performers.pins.get(node["command"][0], node["command"][0]), *node["command"][1:]]
+        return {"class": "command", "command": [*program, *argv], "contract": node["contract"],
                 "declared": {} if trusting else self.performers.declared_files(node["command"], node.get("closure"))}
 
     def resolve_provider(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:

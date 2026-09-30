@@ -30,6 +30,7 @@ from tests.experiments.test_evaluated_execution_spike import (
     fixture,
     install,
     records,
+    run_root,
     spike,
     stand_in_provider,
 )
@@ -260,6 +261,8 @@ def _hidden_case(root: Path, monkeypatch: pytest.MonkeyPatch, case: str, closure
     source = source.replace('"python" "probe.py"', " ".join(f'"{word}"' for word in command))
     sources = {"spk/three_call_sites.orc": source}
     monkeypatch.setenv("PATH", f"{root / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    # Closures are read-only; `python pkg` would write `pkg/__pycache__`, so caches go outside them.
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(root / ".pycache"))
     monkeypatch.chdir(root)
     boundaries = {"fetch": ExternalToolBinding(name="fetch", stable_command=tuple(command))}
     closed = build(root, sources, boundaries=boundaries, closure=closure, closures=closures)
@@ -301,3 +304,65 @@ def test_strict_refuses_a_boundary_without_a_closure_at_build_and_otherwise_resu
         "closure", "[closure] command boundary `fetch` declares no implementation closure (build option `strict`)")
     assert declared == EXPECTED_HIDDEN[(case, "declared")]
     assert not (tmp_path / "undeclared" / "trace.log").exists()
+
+
+# Iteration 4, the rules accepted after review 3 (findings 2 and 3) ------------------------------------------
+
+
+def test_strict_is_the_default_and_refuses_a_boundary_that_declares_no_closure(tmp_path: Path) -> None:
+    from experiments.evaluated_execution_spike.closed import build_closed_program
+    from experiments.evaluated_execution_spike.frontend import typecheck_program
+    from tests.experiments.test_evaluated_execution_spike import BOUNDARIES
+
+    entry = install(tmp_path, fixture("three_call_sites"))
+    typed = typecheck_program(entry, entry_workflow="spk/three_call_sites::run", source_roots=(tmp_path,),
+                              command_boundaries=BOUNDARIES)
+
+    with pytest.raises(ClosedProgramGap, match="command boundary `fetch` declares no implementation closure"):
+        build_closed_program(typed)
+
+
+def test_the_interpreter_is_pinned_when_the_run_starts_and_a_later_path_change_is_not_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 3 changed which `python` PATH finds between run and resume and got `effect_input_diverged`,
+    `files: ['python']`. The run now launches the interpreter PATH gave when it started."""
+
+    import shutil
+
+    monkeypatch.chdir(tmp_path)
+    sources = fixture("three_call_sites")
+    closed = build(tmp_path, sources)
+    started_with = shutil.which("python")
+    with pytest.raises(Interrupt):
+        spike(tmp_path, sources, closed=closed, hook=stop_at("committed", 1))
+    _write(tmp_path, "shadow/python", f'#!/bin/sh\necho used >> "{tmp_path}/shadow.log"\nexec "{started_with}" "$@"\n', 0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'shadow'}{os.pathsep}{os.environ['PATH']}")
+
+    _, resumed = spike(tmp_path, sources, closed=closed)
+
+    header = json.loads((run_root(tmp_path) / "run.json").read_text(encoding="utf-8"))
+    assert shutil.which("python") == str(tmp_path / "shadow" / "python")
+    assert (resumed.value, calls(tmp_path), header["programs"]) == ({"n": 6}, ["fetch 1", "fetch 2", "fetch 3"],
+                                                                    {"python": started_with})
+    assert not (tmp_path / "shadow.log").exists()
+
+
+def test_a_command_that_writes_into_its_closure_fails_its_attempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Closures are read-only (review 3, finding 3: a bytecode cache in a declared package refused every resume)."""
+
+    writing = _script(0).replace("n = int(sys.argv[-1])",
+                                 'n = int(sys.argv[-1])\nPath("pkg/cache.txt").write_text("cached", encoding="utf-8")')
+    command = ["python", "pkg"]
+    source = fixture("three_call_sites")["spk/three_call_sites.orc"].replace('"python" "probe.py"', '"python" "pkg"')
+    sources = {"spk/three_call_sites.orc": source}
+    monkeypatch.chdir(tmp_path)
+    boundaries = {"fetch": ExternalToolBinding(name="fetch", stable_command=tuple(command))}
+    closed = build(tmp_path, sources, boundaries=boundaries, closures={"fetch": ["pkg"]})
+    _write(tmp_path, "pkg/__main__.py", writing)
+
+    with pytest.raises(EvaluationFailed) as failed:
+        spike(tmp_path, sources, closed=closed)
+
+    assert (failed.value.code, failed.value.detail["files"], records(tmp_path, "failed")[0]["attempt"]) == (
+        "command_closure_written", ["pkg"], 1)
