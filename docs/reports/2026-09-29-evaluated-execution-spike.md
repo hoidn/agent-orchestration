@@ -44,7 +44,7 @@ The criteria were fixed in the plan before the spike started.
 | 4 | A valid file left by an attempt that did not commit is never a result | Pass | Each attempt has its own result path; the file of an interrupted attempt is not read |
 | 5 | Identity unchanged under blank lines and under a move of program and package | Pass | Also checked: identity or program digest DOES change when an effect's meaning changes |
 | 6 | Every identity in a memo is an instance of a site listed before the run | Pass | Checked on every run of every test |
-| 7 | Parity with the present route on programs it accepts | Pass, with named differences | Equal values and ordered effects on 68 matrix cells and the shipped examples. Requests compared field by field without normalising; six fields differ by a stated rule (section 5) |
+| 7 | Parity with the present route on programs it accepts | Pass, with named differences | Equal values and ordered effects on 68 matrix cells and the shipped examples. Requests compared field by field without normalising; five fields differ, each by a stated rule, and the present route runs helper commands that the program does not contain (section 6) |
 | 8 | Evaluator and memo under 2,000 lines | Pass | 625 lines. The whole spike is 2,331, of which 314 are measurement code |
 | 9 | What could not be built from the elaborator as it is | Reported | Ten properties, each supplied by the spike outside the elaborator (section 4) |
 
@@ -127,7 +127,7 @@ test must hold.
 | Every command boundary declares what it runs, even when that is nothing | With no declaration, a changed script called by an unchanged wrapper was reused without a refusal |
 | What a command declares is read-only, and the run's interpreter is fixed for the run | Binding the interpreter found on `PATH` makes an upgrade refuse every resume. A declared directory that the program writes into, such as a bytecode cache, refuses the next resume |
 | A view checks the terminal record against the settlements it implies | A memo edited by hand, with a terminal record and no settlement, was reported as completed |
-| The request a provider or a command receives is a contract | Six fields differ from the present route. A program can observe each |
+| The request a provider or a command receives is a contract | Five fields differ from the present route: the provider's context, the result path in the environment and in the prompt, the attempt's site key, the working directory. A program can observe each |
 | Every form and every coordinator in the release has evidence through the public run and resume entries | The spike has an adapter for one coordinator |
 
 Behaviour that depends on a file's modification time is outside any promise
@@ -144,7 +144,7 @@ that binds bytes. The design must say so.
 | Views beyond the report: dashboard, monitor, watchdog probe, prompt audit, judgment views | Architecture. A memo does not hold step visits, call frames, sessions or observation files |
 | Sessions and observation files of providers, secrets | Not designed |
 | Parallel map, typed input documents | Later phases of the plan |
-| 14 of 52 shipped workflows do not build | Ten for a missing performer, three for the two context forms above, one does not typecheck today |
+| 14 of 52 shipped workflows do not build | Ten for a missing performer, two for the two context forms above, one for a capability that no built-in provider declares, one does not typecheck today |
 
 ## 8. The Alternative: Repairing The Present Route
 
