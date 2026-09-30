@@ -1444,6 +1444,14 @@ def test_build_compile_entry_uses_fresh_session_after_failure(
         return SimpleNamespace(
             graph=SimpleNamespace(
                 entry_module_name="entry",
+                modules_by_name={
+                    "entry": SimpleNamespace(
+                        path=capture.source_path,
+                        syntax_module=SimpleNamespace(
+                            target_dsl_version="2.34"
+                        ),
+                    )
+                },
                 export_surfaces_by_name={
                     "entry": SimpleNamespace(workflows_by_name={})
                 },

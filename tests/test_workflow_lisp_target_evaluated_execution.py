@@ -10,6 +10,7 @@ import pytest
 
 from orchestrator.state import StateManager
 from orchestrator.workflow import validation
+from orchestrator.workflow_lisp import build as workflow_lisp_build
 from orchestrator.workflow.run_ref import bundle_transport, config as run_ref_config
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.target import (
@@ -19,6 +20,7 @@ from orchestrator.workflow_lisp.closed.target import (
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.monitor.process import write_process_metadata
 from tests.test_workflow_lisp_target_234 import (
     GATES_FROM_234,
     GATES_FROM_EVALUATED_EXECUTION,
@@ -110,6 +112,65 @@ def test_public_run_refuses_target_235_before_command_dispatch(
     assert f"{files['source']}:{line}:" in caplog.text
 
 
+def _replace_target_header(source: Path, before: str, after: str) -> None:
+    text = source.read_text(encoding="utf-8")
+    old = f'(:target-dsl "{before}")'
+    assert old in text
+    source.write_text(text.replace(old, f'(:target-dsl "{after}")', 1), encoding="utf-8")
+
+
+def _flip_after_early_guard_and_restore_after_compile(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    command_module,
+    source: Path,
+) -> None:
+    early_guard = command_module.refuse_run_at_evaluated_execution_target
+    compile_entrypoint = workflow_lisp_build.compile_stage3_entrypoint
+
+    def flip_after_guard(path: Path) -> None:
+        early_guard(path)
+        _replace_target_header(source, "2.34", TARGET)
+
+    def compile_then_restore(*args, **kwargs):
+        result = compile_entrypoint(*args, **kwargs)
+        reads = kwargs["source_read_trace"].raw_bytes_by_path
+        assert TARGET.encode() in reads[source.resolve()]
+        _replace_target_header(source, TARGET, "2.34")
+        return result
+
+    monkeypatch.setattr(command_module, "refuse_run_at_evaluated_execution_target", flip_after_guard)
+    monkeypatch.setattr(workflow_lisp_build, "compile_stage3_entrypoint", compile_then_restore)
+
+
+def test_public_run_refuses_compiled_snapshot_changed_after_early_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from orchestrator.cli.commands import run as run_command
+
+    files = _write_program(tmp_path, "2.34")
+    line = next(
+        n for n, source_line in enumerate(files["source"].read_text().splitlines(), 1)
+        if ":target-dsl" in source_line
+    )
+    _flip_after_early_guard_and_restore_after_compile(
+        monkeypatch,
+        command_module=run_command,
+        source=files["source"],
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(files)
+
+    assert _log(tmp_path / "probe_revise.py") == []
+    assert result.exit_code == 2
+    assert entry_target_dsl_version(files["source"]) == "2.34"
+    assert caplog.text.count("[evaluated_execution_unavailable]") == 1
+    assert f"{files['source']}:{line}:" in caplog.text
+
+
 def test_legacy_run_keeps_external_source_roots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -164,5 +225,43 @@ def test_public_resume_refuses_target_235_before_dispatch(
 
     assert exit_code == 2
     assert _log(tmp_path / "probe_revise.py") == []
+    assert caplog.text.count("[evaluated_execution_unavailable]") == 1
+    assert f"{files['source']}:{line}:" in caplog.text
+
+
+def test_public_resume_refuses_compiled_snapshot_changed_after_early_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from orchestrator.cli.commands import resume as resume_command
+
+    files = _write_program(tmp_path, "2.34")
+    line = next(
+        n for n, source_line in enumerate(files["source"].read_text().splitlines(), 1)
+        if ":target-dsl" in source_line
+    )
+    manager = StateManager(tmp_path, run_id="evaluated-execution-race-resume")
+    state = manager.initialize(files["source"].relative_to(tmp_path).as_posix())
+    state.status = "failed"
+    manager._write_state()
+    argv = [*_run_argv(files), "--command-boundaries-file", str(files["commands"])]
+    write_process_metadata(manager.run_root, argv=argv)
+    _flip_after_early_guard_and_restore_after_compile(
+        monkeypatch,
+        command_module=resume_command,
+        source=files["source"],
+    )
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = resume_workflow(
+        run_id=manager.run_id,
+        force_restart=True,
+        retry_delay_ms=0,
+    )
+
+    assert _log(tmp_path / "probe_revise.py") == []
+    assert exit_code == 2
+    assert entry_target_dsl_version(files["source"]) == "2.34"
     assert caplog.text.count("[evaluated_execution_unavailable]") == 1
     assert f"{files['source']}:{line}:" in caplog.text

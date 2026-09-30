@@ -23,7 +23,11 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
+from orchestrator.workflow_lisp.syntax import (
+    target_dsl_refuses_non_finite_floats,
+    target_dsl_uses_evaluated_execution,
+    EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+)
 
 from .bundle_transport import (
     BundleCapsuleValidationError,
@@ -108,6 +112,9 @@ _RUNTIME_FAILURE_REASONS = {
     ),
     "run_ref_child_result_invalid": frozenset(
         {"workflow_outputs_invalid", "child_failure_authority_invalid"}
+    ),
+    "evaluated_execution_unavailable": frozenset(
+        {"flat_execution_unavailable"}
     ),
 }
 _EXIT_ONE_REASONS = frozenset(
@@ -413,6 +420,43 @@ def validate_child_diagnostic_document(value: object) -> dict[str, Any]:
         raise ValueError("child diagnostic common authority is invalid")
     code = document["code"]
     reason = document["reason"]
+    if code == "evaluated_execution_unavailable":
+        expected = common | {
+            "rejected_value",
+            "secondary_causes",
+            "compile_diagnostics",
+        }
+        if frozenset(document) != frozenset(expected) or reason != (
+            "flat_execution_unavailable"
+        ):
+            raise ValueError("evaluated execution diagnostic shape is invalid")
+        rejected_value = document["rejected_value"]
+        if (
+            not isinstance(rejected_value, Mapping)
+            or set(rejected_value) != {"target_dsl_version"}
+            or not _nonempty_string(rejected_value["target_dsl_version"])
+            or not target_dsl_uses_evaluated_execution(
+                rejected_value["target_dsl_version"]
+            )
+        ):
+            raise ValueError("evaluated execution rejected value is invalid")
+        if document["secondary_causes"] != [
+            "evaluated_execution_minimum_target_dsl_version:"
+            + EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+        ]:
+            raise ValueError("evaluated execution limit authority is invalid")
+        compile_document = _validated_compile_diagnostics(
+            document["compile_diagnostics"]
+        )
+        diagnostics = compile_document["diagnostics"]
+        if (
+            compile_document["status"] != "rejected"
+            or len(diagnostics) != 1
+            or diagnostics[0]["code"] != code
+            or diagnostics[0]["phase"] != "lowering"
+        ):
+            raise ValueError("evaluated execution source location is invalid")
+        return document
     if code in _STRUCTURAL_REFUSAL_CODES:
         allowed_shapes = {
             frozenset(common | {"rejected_value", "secondary_causes"}),
@@ -1040,6 +1084,38 @@ def _execute_bundle(
     inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Execute one admitted bundle while owning its run-lifetime writer lock."""
+
+    if target_dsl_uses_evaluated_execution(bundle.surface.version):
+        from orchestrator.workflow_lisp.closed.target import (
+            _evaluated_execution_unavailable_diagnostic,
+        )
+        from orchestrator.workflow_lisp.diagnostics import (
+            build_compile_diagnostics_document,
+        )
+
+        diagnostic = _evaluated_execution_unavailable_diagnostic(
+            bundle.surface.version,
+            bundle.provenance.workflow_path,
+        )
+        raise _ChildCommandError(
+            "evaluated_execution_unavailable",
+            "flat_execution_unavailable",
+            details={
+                "rejected_value": {
+                    "target_dsl_version": bundle.surface.version
+                },
+                "secondary_causes": [
+                    "evaluated_execution_minimum_target_dsl_version:"
+                    + EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+                ],
+                "compile_diagnostics": (
+                    build_compile_diagnostics_document(
+                        status="rejected",
+                        diagnostics=(diagnostic,),
+                    )
+                ),
+            },
+        )
 
     try:
         bound_inputs = bind_workflow_inputs(

@@ -85,6 +85,7 @@ from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
 from .wcc.route import LoweringRoute, normalize_lowering_route
+from .closed.target import refuse_compiled_target_at_evaluated_execution_target
 
 
 # Artifact helpers remain re-exported from this historical module boundary so
@@ -1040,6 +1041,9 @@ def _compile_entry(
     pipeline): `compile_stage3_entrypoint` + `_select_entry_workflow`.
     """
 
+    active_source_read_trace = (
+        source_read_trace if source_read_trace is not None else SourceReadTrace()
+    )
     compiler_session = CompilerSession()
     compile_result = compile_stage3_entrypoint(
         compile_request_capture.source_path,
@@ -1058,8 +1062,17 @@ def _compile_entry(
         workspace_root=compile_request_capture.workspace_root,
         lint_profile=compile_request_capture.lint_profile,
         lowering_route=compile_request_capture.lowering_route,
-        source_read_trace=source_read_trace,
+        source_read_trace=active_source_read_trace,
         compiler_session=compiler_session,
+    )
+
+    entry_module_source = compile_result.graph.modules_by_name[
+        compile_result.graph.entry_module_name
+    ]
+    refuse_compiled_target_at_evaluated_execution_target(
+        entry_module_source.path,
+        entry_module_source.syntax_module.target_dsl_version,
+        active_source_read_trace.raw_bytes_by_path,
     )
 
     export_surface = compile_result.graph.export_surfaces_by_name[
