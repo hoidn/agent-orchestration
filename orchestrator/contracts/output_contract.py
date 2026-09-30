@@ -137,16 +137,23 @@ def validate_expected_outputs(
     workspace_files: Any | None = None,
 ) -> Dict[str, Any]:
     """Validate expected output artifacts and return typed artifact values."""
-    if workspace_files is None:
-        from orchestrator.workflow.workspace_files import WorkspaceFiles
+    if workspace_files is not None:
+        return _validate_expected_outputs_with_owner(
+            expected_outputs, workspace_files
+        )
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-        owner = WorkspaceFiles(workspace)
-        try:
-            return validate_expected_outputs(
-                expected_outputs, workspace, workspace_files=owner
-            )
-        finally:
-            owner.close()
+    owner = WorkspaceFiles(workspace)
+    try:
+        return _validate_expected_outputs_with_owner(expected_outputs, owner)
+    finally:
+        owner.close()
+
+
+def _validate_expected_outputs_with_owner(
+    expected_outputs: List[Dict[str, Any]],
+    workspace_files: Any,
+) -> Dict[str, Any]:
     resolved_workspace = workspace_files.workspace
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
@@ -590,19 +597,24 @@ def validate_output_bundle(
     document_bytes: bytes | None = None,
 ) -> Dict[str, Any]:
     """Validate output_bundle JSON contract and return typed artifact values."""
-    if workspace_files is None:
-        from orchestrator.workflow.workspace_files import WorkspaceFiles
+    if workspace_files is not None:
+        return _validate_output_bundle_with_owner(
+            output_bundle, workspace_files, document_bytes=document_bytes
+        )
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-        owner = WorkspaceFiles(workspace)
-        try:
-            return validate_output_bundle(
-                output_bundle,
-                workspace,
-                workspace_files=owner,
-                document_bytes=document_bytes,
-            )
-        finally:
-            owner.close()
+    owner = WorkspaceFiles(workspace)
+    try:
+        return _validate_output_bundle_with_owner(output_bundle, owner, document_bytes=document_bytes)
+    finally:
+        owner.close()
+
+
+def _validate_output_bundle_with_owner(
+    output_bundle: Dict[str, Any],
+    workspace_files: Any,
+    document_bytes: bytes | None = None,
+) -> Dict[str, Any]:
     resolved_workspace = workspace_files.workspace
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
@@ -768,19 +780,24 @@ def validate_variant_output_bundle(
     document_bytes: bytes | None = None,
 ) -> Dict[str, Any]:
     """Validate a tagged-union JSON bundle and expose only the selected variant artifacts."""
-    if workspace_files is None:
-        from orchestrator.workflow.workspace_files import WorkspaceFiles
+    if workspace_files is not None:
+        return _validate_variant_output_bundle_with_owner(
+            variant_output, workspace_files, document_bytes=document_bytes
+        )
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-        owner = WorkspaceFiles(workspace)
-        try:
-            return validate_variant_output_bundle(
-                variant_output,
-                workspace,
-                workspace_files=owner,
-                document_bytes=document_bytes,
-            )
-        finally:
-            owner.close()
+    owner = WorkspaceFiles(workspace)
+    try:
+        return _validate_variant_output_bundle_with_owner(variant_output, owner, document_bytes=document_bytes)
+    finally:
+        owner.close()
+
+
+def _validate_variant_output_bundle_with_owner(
+    variant_output: Dict[str, Any],
+    workspace_files: Any,
+    document_bytes: bytes | None = None,
+) -> Dict[str, Any]:
     resolved_workspace = workspace_files.workspace
     violations: List[ContractViolation] = []
 
