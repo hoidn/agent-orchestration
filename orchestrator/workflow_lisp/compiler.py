@@ -4545,6 +4545,11 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
         return False
     if not program.source_file_digests:
         return False
+    if any(
+        not isinstance(child, TypedProgram)
+        for child in program.imported_programs.values()
+    ):
+        return False
     imported_modules = {
         module_name
         for child in program.imported_programs.values()

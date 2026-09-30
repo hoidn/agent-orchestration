@@ -762,6 +762,54 @@ def test_partial_non_entry_workflow_prevents_snapshot_admission(
     assert path == producer_path
 
 
+def test_incomplete_transitive_program_snapshot_is_locally_refused(
+    tmp_path: Path,
+) -> None:
+    producer_path = tmp_path / "producer.orc"
+    producer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule producer)
+  (export get)
+  (defworkflow get () -> Int 1))
+''',
+        encoding="utf-8",
+    )
+    producer = compile_typed_program(
+        producer_path,
+        entry_workflow="get",
+        source_roots=(tmp_path,),
+        command_boundaries={},
+    )
+    incomplete = replace(producer, imported_programs={"missing": None})
+    consumer_path = tmp_path / "consumer.orc"
+    consumer_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule consumer)
+  (export run)
+  (defworkflow run () -> Int 1))
+''',
+        encoding="utf-8",
+    )
+
+    code, path, _line, _column = _error(
+        consumer_path,
+        lambda: compile_typed_program(
+            consumer_path,
+            entry_workflow="run",
+            source_roots=(tmp_path,),
+            command_boundaries={},
+            imported_programs={"dep": incomplete},
+        ),
+    )
+
+    assert code == "compiled_workflow_source_required"
+    assert path == producer_path
+
+
 @pytest.mark.parametrize("edit_source", [False, True])
 def test_imported_snapshot_must_match_an_overlapping_source_graph(
     tmp_path: Path, edit_source: bool,
