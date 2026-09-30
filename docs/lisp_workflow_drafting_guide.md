@@ -765,9 +765,9 @@ the body, or move it into a `defworkflow` and `call` that:
       (call fetch-one :n item))))
 ```
 
-It returns the same list after the same three commands. The forms that run effects
-at once are providers under `with-live-providers` (section 8A), provider peer
-groups (section 8B) and the arms of a `trial`
+It returns the same list after the same three commands. The forms that run
+effects at once are providers under `with-live-providers` (section 8A),
+provider peer groups (section 8B) and the arms of a `trial`
 ([execution facts, F](reports/2026-09-29-workflow-lisp-execution-facts.md#f-concurrency-that-exists)).
 
 ### A helper shared by two branches inside a loop (row 13)
