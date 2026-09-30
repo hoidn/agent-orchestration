@@ -373,3 +373,10 @@ def test_every_quoted_program_is_part_of_its_fixture() -> None:
 
     assert [body[0] for _, body in _fences(text) if body and _QUOTE_HEADER.fullmatch(body[0])], "no quote found"
     assert _quote_faults(text) == []
+
+
+@pytest.mark.xfail(strict=True, reason="F43: fixture headers with invalid suffixes are silently skipped")
+@pytest.mark.parametrize("suffix", [".orx", ""])
+def test_fixture_quote_with_invalid_suffix_is_reported(suffix: str) -> None:
+    header = f";; tests/fixtures/workflow_lisp/guide_shapes/decimal_arithmetic{suffix}"
+    assert _quote_faults(f"```lisp\n{header}\n(not-a-fixture-line)\n```\n") == [header]
