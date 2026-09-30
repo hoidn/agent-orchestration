@@ -1,6 +1,8 @@
 """Generated programs and their classification for `tests/test_workflow_lisp_totality_matrix.py`.
 
-One program per cell: one value form written in one position, at target 2.33.
+One program per cell: form, position, helper locality (calls only), and target.
+Original names retain target 2.33; `t234:` aliases select 2.34. `inline:` and
+`imported:` vary the selected outer helper, preserving its effects and value.
 Contract: docs/design/workflow_lisp_core_calculus_middle_end.md section 9
 (elaboration totality: a program that passes typecheck elaborates, normalizes
 and defunctionalizes; any restriction is a typecheck diagnostic that names it).
@@ -22,22 +24,30 @@ before the cell counts as its defect.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from tests import workflow_lisp_totality_matrix_extensions as regressions
+from tests import workflow_lisp_totality_matrix_locality as locality
 
 HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
 
 PROBE = """import json, os, sys
 from pathlib import Path
-command, n = sys.argv[1], int(sys.argv[2])
+command, raw = sys.argv[1:3]
 with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
-    log.write(f"{command} {n}\\n")
-payload = {
-    "fetch": {"n": n},
-    "find": {"variant": "HIT", "n": n},
-    "gate": {"variant": "OPEN", "n": n},
-    "check": {"variant": "SOME", "value": {"n": n}},
-}[command]
+    log.write(f"{command} {raw}\\n")
+if command == "step":
+    payload = {"flag": True, "note": raw}
+elif command in ("bump", "tick"):
+    payload = int(raw) + (command == "bump")
+else:
+    n = int(raw)
+    payload = {
+        "fetch": {"n": n},
+        "find": {"variant": "HIT", "n": n},
+        "gate": {"variant": "OPEN", "n": n},
+        "check": {"variant": "SOME", "value": {"n": n}},
+    }[command]
 bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
 if bundle:
     Path(bundle).parent.mkdir(parents=True, exist_ok=True)
@@ -45,7 +55,7 @@ if bundle:
 print(json.dumps(payload))
 """
 
-COMMANDS = ("fetch", "find", "gate", "check")
+COMMANDS = ("fetch", "find", "gate", "check", "bump", "tick", "step")
 
 # Declarations. In a program, `{probe}` becomes the probe path and `{type}` the form's type.
 BOX = "  (defrecord Box (n Int))\n"
@@ -97,6 +107,7 @@ class ValueType:
 
 TYPES = {
     "Int": ValueType("0", None, "held.v"),
+    "Float": ValueType("0.0", None, "held.v"),
     "Box": ValueType("(record Box :n 0)", None, "held.v.n"),
     "Pick": ValueType(
         "(variant Pick MISS :n 0)", "((HIT h) h.n) ((MISS m) m.n)", "(match held.v ((HIT h) h.n) ((MISS m) m.n))"
@@ -235,6 +246,7 @@ STAGES = (
     ("/workflow_lisp/lowering/origins.py:_remapped_shared_validation_diagnostic", "shared validation"),
     ("/workflow_lisp/lowering/", "lowering"),
     ("/workflow/pure_result_replay.py:", "replay index at run start"),  # `--dry-run` builds it too
+    ("/workflow/steps/pure_projection.py:", "runtime pure projection"),
 )
 
 # Codes that the typechecker reports for a restriction, with the place that raises each one.
@@ -367,7 +379,7 @@ KNOWN_DEFECTS = {
 
 
 def cells() -> list[tuple[str, str]]:
-    return [(form, position) for form in FORMS for position in POSITIONS]
+    return locality.expanded_cells(FORMS, POSITIONS) + locality.regression_cells(regressions.cells())
 
 
 def program(form_name: str, position_name: str, probe: str) -> dict[str, str]:
@@ -376,8 +388,13 @@ def program(form_name: str, position_name: str, probe: str) -> dict[str, str]:
     `position_name` is a key of POSITIONS, or "return-boundary" for RETURN_BOUNDARY.
     """
 
-    form = FORMS[form_name]
+    target, _, base = locality.axes(form_name)
+    if base.startswith("repro:"):
+        return locality.regression_sources(form_name, probe, regressions.program)
+    form = locality.form_value(form_name, FORMS, probe)
     position = RETURN_BOUNDARY if position_name == "return-boundary" else POSITIONS[position_name]
+    if form.type == "Float" and position_name == "variant-field":
+        position = replace(position, returns="Float", body=position.body.replace("((DROP d) d.n)", "((DROP d) 0.0)"))
     value_type = TYPES[form.type]
     fill = {
         "expr": form.expr, "type": form.type, "seed": value_type.seed, "arms": value_type.arms,
@@ -399,14 +416,18 @@ def program(form_name: str, position_name: str, probe: str) -> dict[str, str]:
     sources = {"grt/entry.orc": entry}
     if form.lib:
         sources["grt/lib.orc"] = LIB.format(probe=probe)
-    return sources
+    sources.update(locality.additional_sources(form_name, FORMS, HEADER, probe))
+    return locality.retarget(sources, target)
 
 
 def expected(form_name: str, position_name: str) -> tuple[dict[str, object], list[str]]:
     """The workflow outputs and the ordered command log of a working cell."""
 
-    form, position = FORMS[form_name], POSITIONS[position_name]
-    value = 7 if position_name in ("match-subject", "variant-field") else form.value
+    _, _, base = locality.axes(form_name)
+    if base.startswith("repro:"):
+        return regressions.expected(base)
+    form, position = locality.form_value(form_name, FORMS, "probe.py"), POSITIONS[position_name]
+    value = form.value if form.type == "Float" else 7 if position_name in ("match-subject", "variant-field") else form.value
     outputs = _flatten("return", value) if isinstance(value, dict) else {"__result__": value}
     return outputs, [*form.prelude_calls, *position.calls, *form.calls]
 
@@ -418,3 +439,7 @@ def _flatten(prefix: str, value: object) -> dict[str, object]:
     for key, item in value.items():
         flat.update(_flatten(f"{prefix}__{key}", item))
     return flat
+
+
+DEFECTS.update(locality.DEFECT_DETAILS)
+locality.add_classifications(cells(), RULES, KNOWN_DEFECTS, SKIPPED, Defect)
