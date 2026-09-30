@@ -707,6 +707,11 @@
     target. A form that failed in lowering only because of such a capture now
     compiles; a form that a target refuses for any other reason stays refused.
     Programs without such a shadowed name build byte-identical artifacts.
+  - A provider call that lacks a parameter which its provider's command
+    requires is refused when the workflow is validated, with
+    `provider_parameters_missing` at the call. Before, validation accepted
+    the workflow and the run failed when it reached the call. A workflow
+    whose call is never reached ran before and is refused now.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`

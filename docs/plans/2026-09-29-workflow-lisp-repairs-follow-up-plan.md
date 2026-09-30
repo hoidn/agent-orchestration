@@ -22,10 +22,9 @@ design, section 11 (known defects and rules).
 
 ## Status, Authorities, And Scope
 
-Status: selected by the coordinator on 2026-09-29 under the owner's standing
-instruction to keep delegated work moving. The owner has not reviewed this
-plan. Nothing here changes what a target accepts; each task changes what a
-run does after an interruption, or what a diagnostic says.
+Status: the owner confirmed the four tasks on 2026-09-29. Nothing here
+changes what a target accepts; each task changes what a run does after an
+interruption, or what a diagnostic says.
 
 Out of scope: every defect whose cause is that a value exists at run time
 only as the output of a step (the known-defect cells of the totality matrix,
