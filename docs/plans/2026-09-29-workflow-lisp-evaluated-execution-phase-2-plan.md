@@ -53,13 +53,11 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
   and the follow-up builtin-closure/recovery contracts. The implementation baseline is the
   actual clean base recorded before Task 1; `613993ad` is historical Phase 0
   evidence, not this revision's comparison base.
-- Decision 6 of the parent plan, the number of the new target, is open. This
-  plan writes `3.0` as a **provisional parameter, OWNER PENDING**, not a
-  selected target. The first execution decision is to obtain the owner's
-  number after presenting this concrete reviewed plan; document revision and
-  review continue without selecting it. Task 1 registers the target under
-  the number the owner sets, in one constant; every later task and every
-  fixture reads the number from that constant, never as a literal.
+- The owner selected **2.35** on 2026-09-30, closing parent-plan decision 6
+  after reviewing this plan. `PHASE2_BASE` is
+  `2e4c7a653d74c06e24c15c284662e5914abd5576`, the integrated Phase 0 head.
+  Task 1 registers the target in one gate constant; every later task and
+  every fixture reads the number from that constant, never as a literal.
 - In scope: the compiler's output at the new target and the manifest field
   `closure`; both command boundary kinds; portable composed providers with
   `asset_file`, `input_file` and all admitted `defprompt` slots; procedure and
@@ -363,7 +361,7 @@ skips the builds.
 - Modify: `orchestrator/workflow/run_ref/config.py`, `orchestrator/workflow/run_ref/bundle_transport.py` (`_SUPPORTED_TARGET_DSL_VERSIONS`)
 - Create: `orchestrator/workflow_lisp/closed/__init__.py` (empty docstring module), `orchestrator/workflow_lisp/closed/target.py`
 - Modify: `orchestrator/cli/commands/run.py` (`run_workflow`, before `build_frontend_bundle` at line 629), `orchestrator/cli/commands/resume.py` (before `build_frontend_bundle` at line 233)
-- Modify: `specs/versioning.md` (a `v3.0 additions` block after the `v2.34` block at line 736, a roadmap line after line 816, a table row after line 967), `specs/dsl.md` line 23 (admitted revisions extend through `"3.0"`), `specs/index.md` line 1 (the title's range)
+- Modify: `specs/versioning.md` (a `v2.35 additions` block after the `v2.34` block at line 736, a roadmap line after line 816, a table row after line 967), `specs/dsl.md` line 23 (admitted revisions extend through `"2.35"`), `specs/index.md` line 1 (the title's range)
 - Modify: `tests/test_workflow_lisp_target_234.py` (the gate dictionaries)
 - Test: `tests/test_workflow_lisp_target_evaluated_execution.py`
 
@@ -373,9 +371,8 @@ Task 0 report's list of every place a version is compared (every gate is
 edit); design §13.
 
 **Interfaces:**
-- Produces: `syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION: str = "3.0"`
-  (the placeholder; the owner's number replaces it here and nowhere else in
-  code) and `syntax.target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool`
+- Produces: `syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION: str = "2.35"`
+  (the owner-selected target; later tasks consume this constant) and `syntax.target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool`
   (tuple comparison `>=`, like `target_dsl_supports_numeric_surface`).
 - Produces: `closed.target.entry_target_dsl_version(path: Path) -> str`
   (reads the module with `compiler.compile_stage1_module` and returns
@@ -387,14 +384,12 @@ edit); design §13.
   today), when the target uses evaluated execution.
 - Consumed by: every later task (the predicate); Task 9 (`entry_target_dsl_version`).
 
-- [ ] **Step 0: Record the owner-selected target and implementation base.**
+- [x] **Step 0: Record the owner-selected target and implementation base.**
 
-Present this reviewed plan to the owner first. Decision 6 is OWNER PENDING;
-`3.0` below is parameterized documentation, not authorization to register it.
-Once the owner supplies the number, substitute it in registries/docs and use
-the constant in fixtures. Record `git rev-parse HEAD` as `PHASE2_BASE` for
-all compatibility comparisons. Do not start production edits before this
-execution decision; it does not block revising/reviewing this plan.
+The reviewed plan was presented and the owner selected **2.35** on
+2026-09-30. Use that number in the registries/docs and the gate constant in
+fixtures. `PHASE2_BASE=2e4c7a653d74c06e24c15c284662e5914abd5576` records the
+clean integrated source before Task 1 for compatibility comparisons.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -444,13 +439,13 @@ program: exit 2, same code). Add an unregistered next-version refusal derived fr
 - [ ] **Step 2: Run them; expected failures**
 
 `pytest -q tests/test_workflow_lisp_target_evaluated_execution.py`: the
-registry tests fail with `'3.0' not in ...`, the gate test with
+registry tests fail with `'2.35' not in ...`, the gate test with
 `AttributeError`, the run test with exit 0 and a command in the log (the
 program lowers on the flat route because every gate is `>=`).
 
 - [ ] **Step 3: Implement**
 
-Add `"3.0"` to the four registries and to the end of `DEFAULT_VERSION_ORDER`.
+Add `"2.35"` to the four registries and to the end of `DEFAULT_VERSION_ORDER`.
 Add the constant and predicate to `syntax.py`. Write `closed/target.py`.
 In `run_workflow` and in `resume`, inside the `try` that catches
 `LispFrontendCompileError` around `build_frontend_bundle`, call
@@ -470,12 +465,12 @@ commit did), `tests/test_workflow_lisp_target_233.py`.
 
 - [ ] **Step 5: Documents**
 
-`specs/versioning.md`: a block `v3.0 additions (in progress)` stating that
+`specs/versioning.md`: a block `v2.35 additions (in progress)` stating that
 the target exists, that a program at it is compiled to a closed program and
 not to steps, that `run` and `resume` refuse it with
 `evaluated_execution_unavailable` until the evaluator lands, and that the
 tasks of this plan add the closed program; a roadmap line; a table row.
-`specs/dsl.md` line 23: admitted revisions extend through `"3.0"`.
+`specs/dsl.md` line 23: admitted revisions extend through `"2.35"`.
 `specs/index.md` line 1: the range (two tests compare it with the highest
 supported version).
 
@@ -1997,7 +1992,7 @@ covers.
 ### Task 11: Documents
 
 **Files:**
-- Modify: `specs/versioning.md` (the `v3.0 additions` block of Task 1: add what Phase 2 added), `specs/io.md` (a bullet under the deterministic artifact contracts: the command boundary manifest field `closure`, C1, C2's meaning at build, accepted and ignored below the new target), `docs/design/workflow_command_adapter_contract.md` (a section "Command closure declaration" beside "Command rerun behavior"), `docs/design/workflow_lisp_core_calculus_middle_end.md` (§10.1: the closed program's constructs and values at the new target, with a pointer to the schema of this plan; §11.4: identity at the new target is site and activation path, no lowering schema; §15: the deferred "authority inversion" is selected at gate G1; §16: remove the corresponding line), `docs/design/workflow_lisp_evaluated_execution.md` (Metadata status: Phase 2 implemented at the new target, the evaluator not; §4.1 table: the "Today" column becomes "Before Phase 2"), `docs/lisp_workflow_drafting_guide.md` (§2A: a paragraph after the table stating what a program at the new target gets today: `compile` builds the closed program, `run` refuses with `evaluated_execution_unavailable`, the forms refused by `closed_program_gap`, the `closure` field required), `docs/index.md` (the evaluated execution row: Phase 2 implemented; the Phase 2 plan row), `docs/design/README.md` (the design's status cell), `docs/capability_status_matrix.md` (one row: evaluated execution target, compile implemented, run future)
+- Modify: `specs/versioning.md` (the `v2.35 additions` block of Task 1: add what Phase 2 added), `specs/io.md` (a bullet under the deterministic artifact contracts: the command boundary manifest field `closure`, C1, C2's meaning at build, accepted and ignored below the new target), `docs/design/workflow_command_adapter_contract.md` (a section "Command closure declaration" beside "Command rerun behavior"), `docs/design/workflow_lisp_core_calculus_middle_end.md` (§10.1: the closed program's constructs and values at the new target, with a pointer to the schema of this plan; §11.4: identity at the new target is site and activation path, no lowering schema; §15: the deferred "authority inversion" is selected at gate G1; §16: remove the corresponding line), `docs/design/workflow_lisp_evaluated_execution.md` (Metadata status: Phase 2 implemented at the new target, the evaluator not; §4.1 table: the "Today" column becomes "Before Phase 2"), `docs/lisp_workflow_drafting_guide.md` (§2A: a paragraph after the table stating what a program at the new target gets today: `compile` builds the closed program, `run` refuses with `evaluated_execution_unavailable`, the forms refused by `closed_program_gap`, the `closure` field required), `docs/index.md` (the evaluated execution row: Phase 2 implemented; the Phase 2 plan row), `docs/design/README.md` (the design's status cell), `docs/capability_status_matrix.md` (one row: evaluated execution target, compile implemented, run future)
 - Test: the existing document tests `tests/test_workflow_lisp_drain_roadmap_routing.py` (one known failure, `test_historical_q2_index_routes_current_selection_to_evolution_entry_gates`), `tests/test_monitor_docs.py`, and `tests/test_workflow_lisp_guide_programs.py` (the guide's quoted programs are unchanged)
 
 - [ ] **Step 1:** Read each document's section named above and the

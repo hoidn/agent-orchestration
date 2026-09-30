@@ -38,9 +38,10 @@ Status: Phases 0 and 1 are complete; the report for gate G1 is
 Phases 0 and 1 were selected as follows. The owner approved on 2026-09-29 the spike
 of Phase 1, the repairs of the
 [shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
-and decisions 1 to 4 below. Phases 2 to 7 wait for gate G1.
+and decisions 1 to 4 below. Gate G1 selected evaluated execution; Phase 2
+execution is authorized at target 2.35. Later phases retain their staged gates.
 
-Decided on 2026-09-29:
+Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
 | # | Decision | Outcome |
 | --- | --- | --- |
@@ -50,13 +51,13 @@ Decided on 2026-09-29:
 | 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time |
 | - | When Phase 0 starts and from which base | Now, from the integration branch of the repairs plan. It enters `main` after the repairs |
 | 5 | Gate G1: the choice of architecture | Evaluated execution, built in stages at a new target. Beside Phase 2, one more experiment: a shipped workflow with a coordinator that is not a run reference, through both routes |
+| 6 | The number of the evaluated execution target | 2.35, selected by the owner on 2026-09-30 |
 | 7 | The effect classes of the first release | Commands, composed providers, calls of workflows, run references. Each other class enters later, with its own adapter and its own evidence through the public run and resume entries |
 
 Decisions needed:
 
 | # | Decision | Recommendation | Needed before |
 | --- | --- | --- | --- |
-| 6 | The number of the evaluated execution target | A new major number | Phase 2 |
 | 8 | When older targets are retired | After the maintained workflows run at the new target | Phase 7 |
 
 Base: the integration branch of the shared defect repairs plan, with `main`

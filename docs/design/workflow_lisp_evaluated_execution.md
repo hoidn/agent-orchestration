@@ -20,7 +20,7 @@
   (gate report, §10); they are cited below as "spike iteration N"
 - **Plan:** [evaluated execution plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md).
   Its decisions 5 and 7 fix the architecture and the scope of the first
-  release; its decision 6, the number of the new target, is open.
+  release; the owner closed decision 6 by selecting target 2.35 on 2026-09-30.
 - **Amends when the first release lands:**
   [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md)
   (§10.1 constructs, §11.4 identity, §15 alternatives, §16 deferred work),
@@ -962,9 +962,9 @@ Codes this design introduces or keeps, and where each is raised:
 
 ## 13. Targets And Compatibility
 
-- Evaluated execution applies from one new target, whose number is decision
-  6 of the plan, still open. A program at that target runs on the evaluator
-  only.
+- Evaluated execution applies from target **2.35**, selected by the owner
+  on 2026-09-30 (plan decision 6). A program at that target runs on the
+  evaluator only.
 - Programs at targets that exist today compile and run as they do, with
   byte-identical build artifacts.
 - A run started under one profile is resumed under it; a run started under
@@ -1092,11 +1092,11 @@ Each claim is an open prerequisite until its fixture passes.
 
 The first three iterations' 38 decisions are rules above. Later-admission
 questions from iteration 4 and remaining feasibility evidence do not change
-the first-release architecture or authorize a new target number.
+the first-release architecture. The owner selected target **2.35** on
+2026-09-30, closing plan decision 6.
 
 | # | Question | Answered by |
 | --- | --- | --- |
-| 1 | The number of the new target | The owner: plan, decision 6. A new major number, because the run state profile and the runtime change |
 | 2 | When older targets are retired | The owner: plan, decision 8. After the maintained workflows run at the new target |
 | 3 | Whether K1 to K5 hold for a coordinator that is not a run reference | Iteration 4 supplies bounded trial evidence; §9.3 prerequisites must pass before that class enters |
 | 4 | Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values equal the present route's | One program per context form, run on both routes, with the equality asserted on the values (§18) |
