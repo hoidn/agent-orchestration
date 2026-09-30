@@ -370,20 +370,20 @@ the ordinal rule's moves are measured against the alternative (gate report,
 | Rule | Statement |
 | --- | --- |
 | M1 | The memo is an append-only journal of JSON lines under the run root, `memo.jsonl`. One writer holds an exclusive lock on it for the life of a run or resume. A second writer is refused with `memo_busy` |
-| M2 | Each record is written and synchronized to disk before the evaluator proceeds. The run root's directory is synchronized after the journal is created |
+| M2 | Each record is written and synchronized to disk before the evaluator proceeds. No record may be appended until the program artifact, header, empty journal and their directory entries have been durably published (§8.4) |
 | M3 | A final line without its newline was never written whole and is not a record. The next writer truncates it before appending |
-| M4 | A result exists only as a `committed` record that no later `invalidated` record cancels. A file at a path, however valid and however recent, is not one |
+| M4 | A result exists only as a `committed` record that no later `invalidated` range covers (C8). A file at a path, however valid and however recent, is not one |
 | M5 | The `committed` record holds the validated value inline, beside the result file's path and digest. The value is the authority; the file is evidence |
 | M6 | A command that writes to the memo from outside a run (the answer of a request for input, an invalidation) takes the writer's lock and appends under it |
 
 | Record | Written | Content |
 | --- | --- | --- |
-| `started` | Synchronized before exclusive creation of the attempt directory; reserves the ordinal, not proof of a launch | identity, attempt ordinal, digest of the resolved input and of each of its parts, result path, time |
+| `started` | Synchronized before exclusive creation of the attempt directory; reserves the ordinal, not proof of a launch | identity, attempt ordinal, digest of the resolved input and of each of its parts, declared implementation-file evidence (C2), result path, time |
 | `committed` | After the result passed its contract | identity, attempt ordinal, input digest and parts, the validated value, result path and digest, the digests of the declared files (C2), the identities its input read (C9), `effect_class` from the checked site and the coordinator's proof when required (K5), time |
 | `failed` | After an attempt ended without a valid result | identity, attempt ordinal, code, exit information, the contract violations if any |
 | `suspended` | When an effect waits for a person (a later release) | identity, attempt ordinal, the request |
 | `settled` | After a coordinator's final commit (`by: settle`), or its reconciliation on a memo hit (`by: reconcile`) | identity, attempt ordinal |
-| `invalidated` | By the explicit continuation (C8) | identity, attempt ordinal, the effect chosen |
+| `invalidated` | Once for the whole suffix, by the explicit continuation (C8) | `from_commit`: byte offset of the chosen active `committed` record's first byte; time. No per-effect records; affected identities/attempts are reconstructed from the preceding journal prefix |
 | `terminal` | `completed` only after `halt`, every reached effect committed and every committed coordinator settled; `failed` after an attempt or evaluation fails, with no unsettled committed coordinator | no identity; `completed` with the value of `halt`, or `failed` with the code and message |
 
 A failed terminal does not require the failed effect to have committed.
@@ -416,10 +416,10 @@ files that differ.
 
 | Rule | Statement |
 | --- | --- |
-| C1 | Every external-tool and certified-adapter binding in the command manifest declares `closure`, using the common grammar below. An empty list is a declaration. An absent field is refused at build with `command_boundary_closure_missing`; `null` is not an empty declaration. No build option weakens this rule |
+| C1 | Every external-tool and certified-adapter binding, whether manifest-supplied or compiler-supplied, declares `closure`, using the common rules below. An empty list is a declaration, not a fallback for unknown implementation files. An absent field is refused at build with `command_boundary_closure_missing`; `null` is not an empty declaration. No build option or builtin exception weakens this rule |
 | C2 | The resolved input of a command binds, by content: each stable-command token that names a workspace path, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
 | C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
-| C4 | A closure is read-only. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. A resume that finds a declared file changed refuses before any launch (C7), whoever changed it. Caches and outputs, including generated adapter input documents and attempt files, live outside every closure. Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
+| C4 | A closure is read-only. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). Caches and outputs, including generated adapter input documents and attempt files, live outside every closure. Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
 | C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares. A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
 | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
@@ -436,11 +436,49 @@ This normalization does not rewrite stable-command argv or change its existing
 path resolution. An explicitly absolute declaration remains location-bound;
 moving source files alone does not rewrite it.
 
+Compiler-supplied adapters have an authoritative checked-in path array beside
+their existing binding declaration (`stdlib_contracts.py` for the stdlib
+catalog; the existing compiler factory for other injected adapters). Its
+relative base is the installed `orchestrator` package directory, not the
+workspace. No new user field chooses this base: trusted binding origin,
+preserved during injection, determines it. A manifest override keeps manifest
+semantics even when its name matches a builtin. Normalize both origins into
+closed rows `(base, path)`, where base is `workspace`, `absolute`, or the fixed
+logical package identity `package:orchestrator`; the hashing and read-only
+rules are otherwise shared. An injected adapter without the checked-in
+declaration refuses with `command_boundary_closure_missing`; supply the
+declaration to admit it, rather than exclude its command class.
+
+For the current builtin `validate_review_findings_v1`, the bounded initial
+declaration is `["."]` under `package:orchestrator`. Importing its parent
+package loads the compiler, and its result helper imports shared contracts
+and I/O code, so the leaf adapter file alone is not its implementation.
+Declaring the package directory avoids an import-discovery system or a guessed
+empty closure; it intentionally makes other package-file changes diverge too.
+A smaller future checked-in closure needs evidence for its complete package
+dependencies. All package caches must therefore be disabled or outside that
+directory in both evaluator and child processes; existing caches are not
+excluded from directory hashing.
+
+Resolve this logical base through the loaded package location already used
+by `_builtin_stdlib_source_root` and the command executor's package/PYTHONPATH
+seam. The absolute installation prefix is launch-time location, not program
+or input identity: evidence paths/targets within that package use
+`package:orchestrator/<relative path>`, while a symlink escaping it retains its
+absolute resolved target under C2. Identical package bytes moved together keep
+the digest; changing those bytes diverges. Before dispatch, the builtin
+module's resolved launch origin must be this declared package tree (including
+workspace/PYTHONPATH shadowing checks); hashing one installation and executing
+another is forbidden. Keep the existing module command and resolver seam,
+with a fail-closed origin check, not a second adapter loader or a user knob.
+
 At build, grammar and presence are checked; filesystem contents belong to
 resolved inputs at run/resume, because the workspace may not yet exist.
 Both binding models preserve absence separately from `[]`. The closed
 artifact includes the canonical normalized command configuration for **all**
-manifest entries, including unused ones, beside the resolved extern bindings.
+manifest entries, including unused ones, and injected bindings actually used
+by the program, beside the resolved extern bindings. Package declarations
+contribute logical base/path rows, never their installation prefixes.
 Thus changing an unused boundary changes the program digest (C7), not only a
 build-cache key; JSON whitespace or key order alone does not. The same
 canonical type/configuration rules apply to in-memory bindings. Source-read
@@ -449,15 +487,16 @@ not a later reread that can race a source edit. Raw source-byte fingerprints
 belong to the build cache; they do not enter the semantic program digest and
 undo P6's formatting invariance.
 
-Runtime evidence is a sorted map keyed by the declared normalized path (and
+Runtime evidence is a sorted map keyed by the declared logical base/path (and
 the stable-command token's position where applicable). A regular file row
 contains `kind: file` and `sha256:<digest of bytes>`. A directory row contains
 `kind: directory` and the SHA-256 of canonical JSON rows of its files, sorted
 by relative POSIX path, each carrying the file evidence. All files, including
 dotfiles and caches, participate; empty directories contribute no file rows.
 For paths through symlinks, each row additionally binds the resolved target,
-workspace-relative when inside the workspace and absolute otherwise. Directory
-traversal follows declared symlink targets and records their target identity;
+relative to its workspace/package base when inside that base and absolute
+otherwise. Directory traversal follows declared symlink targets and records
+their target identity;
 cycles, missing/dangling entries, unsupported file kinds and unreadable files
 fail closed. No absent path is hashed as an empty file. On a memo hit these
 failures are divergences; before a first attempt they are closure-resolution
@@ -505,14 +544,27 @@ view never invokes reconciliation.
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
 | A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files |
-| A `started` or `failed` attempt, no commit, not invalidated | If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe`. Otherwise record `effect_rerun`, naming the identity and its earlier attempts, and run the next attempt |
-| An `invalidated` record after the last commit | Run the next attempt. No rerun diagnostic |
+| A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts, and run the next attempt |
+| An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
 | A `suspended` record and no commit | Stop and report the pending request |
 | Nothing | Run the first attempt |
 
 `must_not_repeat` is the manifest field that exists today
 (`specs/state.md`; command adapter contract). The spike stood in for it with
 a build option; the field is the declaration.
+
+For a command whose latest `started` has no corresponding `committed`, the
+implementation-file evidence in that start is the retry baseline. This covers
+explicit `command_closure_written`, any other failed attempt, and a crash
+before the failure record, including before dispatch. Compare all C2-bound
+implementation paths, including package closures and stable-command files,
+but not C3's interpreter. Changed, missing or unreadable evidence stops resume
+with `effect_input_diverged` before another `started` or launch. Restoring the
+original bytes/targets permits the ordinary next-attempt rule, still subject
+to `must_not_repeat`. No override or additional approval surface is introduced.
+An invalidation may cancel committed results, but cannot forgive a newer
+uncommitted attempt's closure mismatch. A start that did commit and was later
+invalidated does not pin that explicitly authorized re-execution to old bytes.
 
 ### 8.2 Running an attempt
 
@@ -570,7 +622,30 @@ run twice (gate report, §2, criterion 3).
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
-program artifact is written beside it. Resume takes the writer lock without
+program artifact is written beside it. Initial publication is durable:
+
+1. Create the run root and empty journal, hold the writer lock, and synchronize
+   every newly created ancestor's directory entry, including the run root's
+   entry in its parent. No attempt or external dispatch is allowed yet.
+2. Publish the checked program artifact via a same-directory temporary file:
+   write, synchronize the file, atomically rename to its final name, and
+   synchronize the containing directory. Publish `run.json` the same way,
+   after the program artifact, binding its digest. Reuse the existing durable
+   atomic-write helper; ordinary atomic replacement without synchronization
+   is insufficient.
+3. Synchronize the empty journal and the run-root directory containing all
+   three entries. Only after every operation succeeds may any journal record
+   become durable or an attempt be allocated/dispatched. Never replace the
+   header or program after journal activity begins.
+
+A crash during publication may leave an incomplete initialization, but no
+effect has been dispatched. Resume launches nothing until both authority files
+are valid and durably present. A nonempty journal with missing/invalid
+authority is `memo_inconsistent`; never rebuild missing authority from current
+source or overwrite it. This uses the header's existing readiness role, not
+an additional initialization journal or marker.
+
+Resume takes the writer lock without
 changing the journal, freshly builds the authored entry with the current
 manifests/configuration, and compares that program digest and the newly bound
 input digest with the header. A mismatch refuses with `resume_program_changed`
@@ -584,8 +659,10 @@ without repairing them yet and validate their classes, sites and settlements.
 Before any mutation, launch or coordinator reconciliation, replay the active
 committed prefix using stored result values, freshly resolving every input and
 checking it in commit order. This supplies later inputs dependent on earlier
-results. Stop at the first uncommitted effect; an active later commit that
-replay cannot reach is inconsistent, not permission to launch past it. Only
+results. At the first uncommitted effect, also check any latest `started`
+implementation-file evidence under §8.1 before stopping preflight. An active
+later commit that replay cannot reach is inconsistent, not permission to
+launch past it. Only
 after preflight passes may M3 repair a torn tail and evaluation continue.
 This preflight and evaluation share one interpreter; they are not separate
 resume planners. Files changed concurrently after preflight remain outside a
@@ -605,12 +682,31 @@ flight completes on the release that started it.
 ### 8.5 Explicit continuation after a divergence
 
 A resume that stops with `effect_input_diverged` does not rerun anything.
-The continuation is explicit.
+For a committed result, the continuation is C8. For an uncommitted attempt's
+implementation mismatch, restore its `started` evidence under C4; invalidation
+does not bypass that guard.
 
 | Rule | Statement |
 | --- | --- |
-| C8 | `invalidate <run> <identity>` appends one `invalidated` record for the chosen effect and for every later committed effect, in journal order. The next resume runs exactly those again; every earlier commit stays. The operation is refused while a writer holds the memo (`memo_busy`), when the chosen effect has no commit (`invalidate_not_committed`), and when the suffix holds a committed coordinator effect (`invalidate_coordinator_committed`): a committed child run is never superseded (K8) |
+| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run is never superseded (K8) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
+
+The range's `from_commit` names the chosen commit's immutable byte offset in
+`memo.jsonl`. On replay, inspect the complete prefix immediately before the
+range record and cancel precisely the commits active in that prefix whose
+offset is at or after the anchor. The record itself closes the range; later
+retry commits are not canceled by it. Validate that the anchor names an active
+commit and that its suffix contains no coordinator commit, or report
+`memo_inconsistent`. Derive the chosen identity and affected attempts from
+those records, without storing a second list or emitting per-effect records.
+
+One complete range record reopens the preceding terminal and changes every
+affected row's status to `invalidated`. A crash before it or during a torn
+line cancels nothing; a surviving complete record cancels the entire suffix,
+including after an acknowledgment is lost. Retrying the command may report
+`invalidate_not_committed` because the operation already took effect, but the
+run remains resumable with the whole suffix canceled. There is no partially
+applied invalidation to repair and no batch-intent protocol.
 
 The spike followed values only and reran one of two file-dependent effects,
 mixing old and new results (gate report, §6); C8 is the last review's
@@ -754,7 +850,7 @@ on order. For this profile the runtime derives views by these rules.
 | V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. A later release adds `suspended`, for a pending request |
 | V3 | A `terminal` record is checked against §7.1: every active coordinator commit, identified by its checked `effect_class`, must have a matching `settled` record for that identity and attempt before the terminal. A completed terminal additionally requires replay to reach the same `halt` with no missing commit; a failed terminal may have an uncommitted failure. Missing proof, class mismatch, missing settlement or adjacent terminals yield `memo_inconsistent`, with no completed outputs |
 | V4 | Liveness comes from the writer's lock, not from a heartbeat: a process that died released it, and the view says `interrupted` at once. The present report says `running` until a heartbeat is 300 seconds old |
-| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` from `invalidated`. `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
+| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
 | V6 | Per-attempt files live in the attempt's directory (§8.2): `result.json`, `stdout.txt`, `stderr.txt`, and `prompt.txt` for a provider. A row's output preview reads them. Nothing is named by step name; nothing is overwritten by a later attempt |
 | V7 | The memo does not carry, and the view does not report: `step_visits`, `transition_count`, `call_frames`, the prompt-context audit, judgment views, observability summaries, provider sessions and observation files, the heartbeat. The readers that need them (the resume planner, the projection integrity audit, the dashboard cursor's frame walk, the human-input guard, the prompt session lookup, the monitor email's log lookup by step name) are not used at the new target, or are adapted to V6 when their class enters. Sessions and observation files enter with the classes that need them, named by identity digest and attempt |
 | V8 | A view launches or reconciles nothing and may be taken while the writer holds the lock. Cost is the journal scan plus pure replay of the reached program; no linear bound in memo length covers unbounded pure work. The spike measured 0.17 seconds for its 5,000-effect specimen (gate report, §5) |
@@ -847,14 +943,14 @@ Codes this design introduces or keeps, and where each is raised:
 | `closed_program_gap` | At target-aware admission: a form or effect class explicitly outside this release (§1.1); not a fallback for a missing implementation of an admitted form |
 | `command_boundary_closure_missing` | At build: a boundary without a `closure` field (C1) |
 | `command_boundary_manifest_invalid` | At build: a malformed closure declaration, including `null` (C1) |
-| `command_closure_unreadable` | Before a first attempt: a missing, unreadable or unsupported declared path, with path/reason (C2); on a memo hit use `effect_input_diverged` |
+| `command_closure_unreadable` | Before a first attempt: a missing, unreadable or unsupported declared path, with path/reason (C2); when comparing a prior start/commit use `effect_input_diverged` |
 | `command_closure_written` | Before commit: declared closure evidence changed during the command attempt (C4) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
 | `interpreter_changed` | A diagnostic, not a refusal, at resume (C3) |
 | `memo_busy` | A second writer (M1, C8) |
-| `memo_inconsistent` | A view whose terminal record fails its check (V3) |
-| `effect_input_diverged` | At the first committed effect whose input differs (§8.1) |
+| `memo_inconsistent` | Missing authority with journal activity (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
+| `effect_input_diverged` | At the first committed effect whose input differs, or before retrying an uncommitted command whose implementation evidence differs from `started` (§8.1) |
 | `effect_rerun` | A diagnostic in the run's result and the view, naming the identity and its earlier attempts (§8.1) |
 | `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept |
 | `effect_attempt_path_exists` | Exclusive allocation collides after the ordinal's synchronized `started`; append `failed`, preserve the directory, launch nothing (§8.2) |
@@ -960,6 +1056,9 @@ repeat.
 | A coordinator other than a run reference (later admission) | One shipped workflow through both routes, killed at both gaps, plus its internal interruption semantics and proof authority | Iteration 4's trial specimen; runtime defect and changed-decision/settlement/capsule limits in §9.3 remain prerequisites |
 | The request contract | Every field of every request compared without normalising; a field not in R1 to R12 is equal | Met (spike iteration 3, F) |
 | Attempt allocation | External kills before/after the synchronized `started`, after exclusive directory creation and before dispatch; next ordinal on resume, old evidence unchanged, no dispatch on collision, and conservative refusal for `must_not_repeat` | Open; the spike did not implement the design's original pre-`started` allocation order |
+| Durable run authority | Fault injection before/after each program/header write, file sync, rename and directory sync, including run-root creation and empty-journal sync. Model unsynchronized writes disappearing: either valid authority survives for every durable record, or no effect was dispatched. Missing authority with a nonempty journal refuses without reconstruction | Open; this is a crash/power-loss contract, not a demonstrated production failure |
+| Retry after a closure change | A command modifies its declared script and exits: C4 fails it; resume with unchanged `.orc` source launches nothing until original implementation evidence is restored. Repeat with a kill after modification but before `failed`, with a changed package helper, and with `must_not_repeat` | Open; the missing guard was a contract counterexample, not a demonstrated production failure |
+| Atomic suffix invalidation | Kill before append, within a torn range line, after a complete write/before sync, after sync and before acknowledgment. Each recovered memo cancels none or the entire selected suffix; no later commit is stranded, future retry commits survive, and a coordinator anywhere in the suffix refuses before append | Open; one range record replaces the per-effect invalidation writes |
 | Clean terminal resume | Resume a completed effectful run and a pure-only run twice: identical memo bytes and results; failed-attempt resume appends `started` before a later terminal; repeated preflight/pure failure adds no duplicate terminal | Open; iteration 3 appended adjacent completed terminals |
 | Dispatch accounting | Command/provider executor configured to retry receives a retryable failure: one external dispatch, one `started`, one directory, then `failed`; explicit resume reserves the next attempt or refuses `must_not_repeat` | Open |
 | Early divergence | Change a declared file bound by a later committed effect whose inputs depend on earlier results; refuse before launch, reconciliation, tail repair or view replacement, with the first divergent commit in journal order | Open; the spike's on-encounter check alone is insufficient |
@@ -984,6 +1083,7 @@ Each claim is an open prerequisite until its fixture passes.
 | Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical; an old entry calling a new-target module is refused | Open; the spike and Phase 2 draft still flat-lower imports |
 | Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Open; current generated names/configuration contain source positions |
 | Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged inputs and ignore closure in binding payloads when supplied | Open; current parser/models discard `closure` |
+| Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Open; declaration/injection/package-location seams exist, but their evaluated-route closure carriage and launch-origin check do not |
 
 ## 19. Decisions Still Open
 
