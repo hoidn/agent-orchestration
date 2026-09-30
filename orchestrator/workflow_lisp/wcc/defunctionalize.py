@@ -144,6 +144,7 @@ from .elaborate import (
     elaborate_typed_workflow,
     elaborate_typed_workflow_body,
 )
+from .use_site_scope import names_read_where_used, rename_capturing_binders
 from .model import (
     WCC_M2_ROUTE_SCHEMA_VERSION,
     WCC_M3_ROUTE_SCHEMA_VERSION,
@@ -755,9 +756,10 @@ def _lower_one_wcc_workflow(
             route_schema_version=route_schema_version,
         )
     )
+    local_values = _signature_local_values(typed_workflow)
+    wcc_body, _ = rename_capturing_binders(wcc_body, reserved=local_values)
     scope_analysis = analyze_wcc_body(wcc_body)
     continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
-    local_values = _signature_local_values(typed_workflow)
     lexical_checkpoint_points: list[Mapping[str, object]] = []
     steps, terminal = _defunctionalize_body(
         wcc_body,
@@ -1778,14 +1780,21 @@ def _build_effect_resume_policy_payload(
     if step_kind == "command":
         payload = value.operation_payload if isinstance(value, WccPerform) else None
         adapter_name = None
+        command_name = None
         if isinstance(payload, LowerableCommandResult):
             adapter_name = payload.adapter_name
+            command_name = payload.step_name
         elif isinstance(payload, ResourceTransitionExpr) and payload.spec.mode != "declared_transition":
             adapter_name = "apply_resource_transition"
+            command_name = adapter_name
         elif isinstance(payload, Mapping):
+            command_name = value.target_name if isinstance(value, WccPerform) else None
             raw_adapter_name = payload.get("adapter_name")
             if isinstance(raw_adapter_name, str) and raw_adapter_name:
                 adapter_name = raw_adapter_name
+            raw_command_name = payload.get("step_name")
+            if isinstance(raw_command_name, str) and raw_command_name:
+                command_name = raw_command_name
         boundary_kind = step_kind
         evidence_requirements: dict[str, Any] = {
             "structured_output": {
@@ -1797,6 +1806,7 @@ def _build_effect_resume_policy_payload(
         }
         unsafe_pending_behavior = "fail_closed"
         policy_kind = "reuse_validated_structured_output"
+        must_not_repeat = False
         if adapter_name:
             boundary_kind = "certified_adapter"
             evidence_requirements["command_resume_protocol"] = {
@@ -1804,6 +1814,13 @@ def _build_effect_resume_policy_payload(
             }
             unsafe_pending_behavior = "requires_certified_resume_protocol"
             policy_kind = "certified_resume_protocol_required"
+        boundary_name = adapter_name or command_name
+        binding = (
+            context.command_boundary_environment.bindings_by_name.get(boundary_name)
+            if isinstance(boundary_name, str)
+            else None
+        )
+        must_not_repeat = getattr(binding, "must_not_repeat", False)
         return build_effect_resume_policy(
             policy_kind=policy_kind,
             effect_kind=step_kind,
@@ -1812,6 +1829,7 @@ def _build_effect_resume_policy_payload(
             source_map_origin_key=origin_key,
             evidence_requirements=evidence_requirements,
             unsafe_pending_behavior=unsafe_pending_behavior,
+            must_not_repeat=must_not_repeat,
         )
     if step_kind == "call":
         callee_workflow = None
@@ -6681,13 +6699,13 @@ def _lower_wcc_procedure_call(
         span=value.metadata.source_span,
         form_path=value.metadata.form_path,
     )
-    child_locals = dict(local_values)
-    if procedure.specialization is not None:
-        child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
-        child_locals.update(dict(getattr(procedure.specialization, "value_bindings", {})))
-    for arg_expr, (param_name, _) in zip(arg_exprs, procedure.signature.params, strict=True):
-        child_locals[param_name] = _resolve_wcc_inline_expr_value(arg_expr, local_values=local_values)
+    specialization_bindings: dict[str, Any] = {}
+    for kind in ("workflow_ref_bindings", "proc_ref_bindings", "value_bindings"):
+        specialization_bindings.update(dict(getattr(procedure.specialization, kind, {})))
+    child_locals = {**dict(local_values), **specialization_bindings}
+    arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)
+    for arg_value, (param_name, _) in zip(arg_values, procedure.signature.params, strict=True):
+        child_locals[param_name] = arg_value
 
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal
@@ -6765,6 +6783,23 @@ def _lower_wcc_procedure_call(
             route_schema_version=route_schema_version,
         )
     )
+    # The body's binders are its parameters, its specialization bindings and
+    # its own lets; the arguments and the specialization values are pure values
+    # from outside the body, whose names resolve in the caller's scope.
+    wcc_body, renamed_params = rename_capturing_binders(
+        wcc_body,
+        live=names_read_where_used((*arg_values, *specialization_bindings.values()), local_values),
+        params=(*(param_name for param_name, _ in procedure.signature.params), *specialization_bindings),
+        reserved=child_locals,
+    )
+    if renamed_params:
+        child_locals, child_context = _with_renamed_params(
+            renamed_params,
+            child_locals=child_locals,
+            child_context=child_context,
+            caller_locals=local_values,
+            caller_context=context,
+        )
     steps, terminal = _defunctionalize_body(
         wcc_body,
         context=child_context,
@@ -6783,6 +6818,32 @@ def _lower_wcc_procedure_call(
         )
     _rewrite_nested_sibling_step_refs(steps)
     return steps, terminal
+
+
+def _with_renamed_params(
+    renamed: Mapping[str, str],
+    *,
+    child_locals: Mapping[str, Any],
+    child_context: _LoweringContext,
+    caller_locals: Mapping[str, Any],
+    caller_context: _LoweringContext,
+) -> tuple[dict[str, Any], _LoweringContext]:
+    """Bind each renamed parameter or specialization binding under its new spelling.
+
+    The old spelling keeps the caller's binding, which the arguments and the specialization values read.
+    """
+
+    values = dict(child_locals)
+    types = dict(child_context.local_type_bindings)
+    for old, new in renamed.items():
+        values[new] = values.pop(old)
+        if old in types:
+            types[new] = types.pop(old)
+        if old in caller_locals:
+            values[old] = caller_locals[old]
+        if old in caller_context.local_type_bindings:
+            types[old] = caller_context.local_type_bindings[old]
+    return values, replace(child_context, local_type_bindings=types)
 
 
 def _residual_wcc_procedure_call_args(

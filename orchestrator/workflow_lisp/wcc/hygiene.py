@@ -23,6 +23,9 @@ nested `let*`, a `match` arm, a `list/map` or loop binder, a `let-proc`
 parameter, a WCC `let`, `case` arm, join or loop parameter, a provider group
 member) starts a scope the renaming does not enter.
 
+`use_site_scope` renames, with these helpers, the binders that would capture
+a name that a pure binding reads where lowering uses it.
+
 Dependencies: `expression_traversal` (free names and renaming of frontend
 expressions, which thread their own binders).
 """
@@ -128,13 +131,17 @@ def _free_names(node: object, bound: frozenset[str] = frozenset()) -> set[str]:
     return set()
 
 
-def _renamed(node: object, renamed: Mapping[str, WccNameAtom], bound: frozenset[str] = frozenset()) -> object:
-    """Rebuild `node` with each free reference to a key of `renamed` renamed; unchanged parts stay identical."""
+def _renamed(node: object, renamed: Mapping[str, WccNameAtom | str], bound: frozenset[str] = frozenset()) -> object:
+    """Rebuild `node` with each free reference to a key of `renamed` renamed; unchanged parts stay identical.
+
+    A reference becomes the atom `renamed` gives, or keeps its metadata under
+    the spelling `renamed` gives.
+    """
 
     if renamed.keys() <= bound:
         return node
     if isinstance(node, WccNameAtom):
-        return node if node.name in bound else renamed.get(node.name, node)
+        return node if node.name in bound else _renamed_atom(node, renamed.get(node.name, node))
     if isinstance(node, ExprNode):
         return map_expr(node, lambda name: _renamed_name(name, renamed), bound=bound)
     if isinstance(node, WccSelectArm):
@@ -150,15 +157,29 @@ def _renamed(node: object, renamed: Mapping[str, WccNameAtom], bound: frozenset[
     return node
 
 
-def _renamed_name(name: NameExpr, renamed: Mapping[str, WccNameAtom]) -> NameExpr:
-    return replace(name, name=renamed[name.name].name) if name.name in renamed else name
+def _spelling(target: WccNameAtom | str) -> str:
+    return target if isinstance(target, str) else target.name
 
 
-def _renamed_items(node: Mapping | tuple | list, renamed: Mapping[str, WccNameAtom], bound: frozenset[str]) -> object:
+def _renamed_atom(node: WccNameAtom, target: WccNameAtom | str) -> WccNameAtom:
+    return replace(node, name=target) if isinstance(target, str) else target
+
+
+def _renamed_name(name: NameExpr, renamed: Mapping[str, WccNameAtom | str]) -> NameExpr:
+    return replace(name, name=_spelling(renamed[name.name])) if name.name in renamed else name
+
+
+def _renamed_items(node: Mapping | tuple | list, renamed: Mapping[str, WccNameAtom | str], bound: frozenset[str]) -> object:
     """`_renamed` for the items of a container; an unchanged container stays identical."""
 
+    return _rebuilt_items(node, lambda item: _renamed(item, renamed, bound))
+
+
+def _rebuilt_items(node: Mapping | tuple | list, rebuild: Callable[[object], object]) -> object:
+    """`node` with `rebuild` applied to each item; an unchanged container stays identical."""
+
     keys = list(node) if isinstance(node, Mapping) else range(len(node))
-    items = [_renamed(node[key], renamed, bound) for key in keys]
+    items = [rebuild(node[key]) for key in keys]
     if all(new is node[key] for new, key in zip(items, keys)):
         return node
     if isinstance(node, Mapping):
@@ -166,22 +187,29 @@ def _renamed_items(node: Mapping | tuple | list, renamed: Mapping[str, WccNameAt
     return tuple(items) if isinstance(node, tuple) else items
 
 
-def _renamed_fields(node: object, renamed: Mapping[str, WccNameAtom], bound: frozenset[str]) -> object:
+def _renamed_fields(node: object, renamed: Mapping[str, WccNameAtom | str], bound: frozenset[str]) -> object:
     """`_renamed` for the fields of one dataclass node, each under the names the node binds around it."""
+
+    changes = _field_changes(node, lambda name, old: _renamed(old, renamed, bound | _bound_by(node, name)))
+    live = renamed.keys() - bound
+    if isinstance(node, WccProviderPeerGroupMember) and live & set(node.lexical_capture_names):
+        # A peer group member spells the environment it captures as strings.
+        captures = (_spelling(renamed[name]) if name in live else name for name in node.lexical_capture_names)
+        changes["lexical_capture_names"] = tuple(sorted(captures))
+    return replace(node, **changes) if changes else node
+
+
+def _field_changes(node: object, rebuild: Callable[[str, object], object]) -> dict[str, object]:
+    """The fields of dataclass `node` that `rebuild(field name, value)` changes, with their new values."""
 
     changes = {}
     for field in dataclass_fields(node):
         if field.init:
             old = getattr(node, field.name)
-            new = _renamed(old, renamed, bound | _bound_by(node, field.name))
+            new = rebuild(field.name, old)
             if new is not old:
                 changes[field.name] = new
-    live = renamed.keys() - bound
-    if isinstance(node, WccProviderPeerGroupMember) and live & set(node.lexical_capture_names):
-        # A peer group member spells the environment it captures as strings.
-        captures = (renamed[name].name if name in live else name for name in node.lexical_capture_names)
-        changes["lexical_capture_names"] = tuple(sorted(captures))
-    return replace(node, **changes) if changes else node
+    return changes
 
 
 def _names_seen_by(
@@ -313,17 +341,15 @@ def hoist_parts_without_capture(
     `parts` are (prefix, value, scope) in authored order. The caller places
     every prefix, in order, before every value and before `over`, so part i's
     prefix is hoisted over the later parts, the earlier parts' values and
-    `over`. The earlier parts' prefixes count too: lowering resolves the free
-    names of a pure binding where the binding is used, which is after part i.
-    Returns the joined prefix and the values in order.
+    `over`. Returns the joined prefix and the values in order.
     """
 
     # Each part is a sequential scope of lets and a value, as a select arm is. An
-    # earlier value also counts on its own: it reads its own prefix after part i's.
+    # earlier value reads its own prefix after part i's.
     arms = [WccSelectArm(prefix=p, value=v) for p, v, _ in parts]
     for index, (_, _, part_scope) in enumerate(parts):
         arm = arms[index]
-        others = (*arms[:index], *(earlier.value for earlier in arms[:index]), *arms[index + 1 :])
+        others = (*(earlier.value for earlier in arms[:index]), *arms[index + 1 :])
         part_prefix, part_value = hoist_without_capture(
             arm.prefix,
             arm.value,

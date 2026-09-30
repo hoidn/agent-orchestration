@@ -62,6 +62,21 @@ Decisions added on 2026-09-29, after the reviews of Tasks 8 and 9:
 - a run that supervises another run lives in its own workspace, observes the
   other's workspace by path, and resumes it there (Task 14).
 
+Decisions added on 2026-09-29, after the third review round:
+
+- only Critical findings block the merge: a silent wrong value, a loss of
+  data, or an effect outside the workspace. A failing test is always
+  repaired. Important and Minor findings are recorded as known defects, each
+  with a test that pins it, and go to the follow-up list;
+- the two silent wrong values of Task 15 are corrected at every target;
+- Task 16 does not block the merge: it lands from its own branch after its
+  review. Task 8 merges as it is;
+- a workspace refusal exits 2 in `run`, `resume` and `trial`;
+- at 2.33 the `match` node keeps the authored subject outside the case of
+  Task 3, step 3; from 2.34 it carries the typed subject always;
+- whether a copy of a rejected attempt's result is kept is decided on the
+  cost report of Task 16.
+
 Out of scope:
 
 - the feasibility spike of the decision brief, section 10. It gets its own
@@ -139,7 +154,7 @@ Expected at `7984b51e`: 137 passed. Record the count.
 
 ### Task 1: Totality Matrix
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `tests/test_workflow_lisp_improve_stdlib.py` and
 `tests/workflow_lisp_improve_stdlib_sources.py` (command-backed procedures,
@@ -179,7 +194,7 @@ command boundary files, the public run helper),
 
 ### Task 2: Effect Inference Includes Imported Procedures
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/compiler.py`
 (`_infer_stage3_effect_summaries`, and the map rebuilt from local procedures
@@ -215,7 +230,7 @@ wrapper declares `:effects ()`).
 
 ### Task 3: `match` Keeps Its Typechecked Subject
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/typecheck_proofs.py`
 (`typecheck_match_expr`, line 325),
@@ -229,14 +244,19 @@ near line 1237), `orchestrator/workflow_lisp/procedure_refs.py` (line 203).
    log as the form bound with `let*`, for APPROVED, BLOCKED and EXHAUSTED; the
    same for a second generic helper over an unrelated generic union.
 2. Write the 2.32 control for a non-generic helper with `proc-ref` hooks.
-3. Implement: the typed `match` node carries the typechecked subject.
+3. Implement: the typed `match` node carries the typechecked subject where
+   a generic signature declares a hook that depends on a type parameter. In
+   every other case target 2.33 keeps the authored subject, so that programs
+   that compiled at the base keep their step and checkpoint identities. The
+   typed subject is carried in every case from target 2.34 (owner's decision
+   of 2026-09-29, after the third review).
 4. Check whether other typecheck handlers discard the typechecked form of a
    child. Report each one found; repair it only if a test of this task needs
    it.
 
 ### Task 4: Inlining Substitutes Specialized Types
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/functions.py`
 (`normalize_resolved_inline_procedure_calls`, line 846),
@@ -261,7 +281,7 @@ normalized under its defining-module environment before it is transplanted).
 
 ### Task 5: The Elaborator Accepts Bound Prefixes In `loop-state` Fields And `match` Subjects
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/wcc/elaborate.py`
 (`_elaborate_expr_to_value`, which returns prefix bindings and a value;
@@ -291,7 +311,7 @@ normalized under its defining-module environment before it is transplanted).
 
 ### Task 6: `defprompt` Results Of An Applied Generic Union
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `tests/test_workflow_lisp_generic_union_provider_results.py`
 (the pattern to follow), `orchestrator/contracts/output_contract.py`,
@@ -315,7 +335,7 @@ normalized under its defining-module environment before it is transplanted).
 
 ### Task 7: `--dry-run` Builds The Pure-Result Replay Index
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/cli/commands/run.py` (the early return for
 `--dry-run` near line 586), `orchestrator/workflow/pure_result_replay.py`
@@ -336,7 +356,7 @@ index cannot be derived without a runtime object.
 
 ### Task 8: A Result File Is Absent Before Every Call
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow/executor.py`
 (`_prepare_runtime_output_bundle_parent`, line 7394; where
@@ -367,7 +387,7 @@ the file to be absent).
 
 ### Task 9: Resume After A Known Failure
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`
 (the policy branch near lines 1260 to 1290),
@@ -391,7 +411,7 @@ unknown), `orchestrator/workflow/executor.py` (line 5102),
 
 ### Task 11: One Rule For Resume Of An Effect Without A Committed Result
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/lexical_checkpoint_restore.py`,
 `orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py` (the
@@ -427,7 +447,7 @@ a committed result never runs again.
 
 ### Task 12: One Run At A Time In A Workspace
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** how a run directory is created and locked today
 (`orchestrator/state.py`, `tests/test_run_lock.py`), `specs/state.md`,
@@ -448,7 +468,7 @@ a committed result never runs again.
 
 ### Task 13: Internal Failures After Typecheck Are Compiler-Defect Diagnostics
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/compiler.py` (where typecheck
 ends and elaboration and lowering start), `orchestrator/workflow_lisp/wcc/`,
@@ -476,7 +496,7 @@ ends and elaboration and lowering start), `orchestrator/workflow_lisp/wcc/`,
 
 ### Task 14: The Watchdog Runs In Its Own Workspace
 
-- [ ] Complete
+- [x] Complete
 
 Depends on Task 12.
 
@@ -514,7 +534,7 @@ new module beside it.
 
 ### Task 15: A Pure Binding Keeps Its Source Scope Where It Is Used
 
-- [ ] Complete
+- [x] Complete
 
 Depends on Task 5. Found by the second fix round of Task 5. The owner's
 decision on capture (a silent wrong value is corrected at every target) is
@@ -592,7 +612,7 @@ by path at many sites. This task removes the cause.
 
 ### Task 10: Correct The Documents
 
-- [ ] Complete
+- [x] Complete
 
 **Read:** the reports of Tasks 1 to 9; `docs/index.md`;
 `docs/design/workflow_lisp_core_calculus_middle_end.md` §12.
@@ -625,14 +645,55 @@ by path at many sites. This task removes the cause.
 
 ## Closeout And Consequent Actions
 
-- [ ] Merge the task branches into the integration branch; run the totality
-  matrix; turn each strict `xfail` that now passes into a plain test. Record
-  the three counts before and after.
-- [ ] Byte identity for older targets, as the global constraints state.
-- [ ] Full suite in tmux: `pytest -q -n 16 --dist=worksteal`, compared with
-  the failure set of `7984b51e` run the same way; no new failures.
-- [ ] Public evidence, fresh output: the six programs of the decision brief,
-  section 2.1, in their direct form.
-- [ ] Whole-branch review.
-- [ ] Merge to `main` by fast-forward; push.
-- [ ] Write the plan for the spike of the decision brief, section 10.
+Closed on 2026-09-29, except Task 16, which lands from its own branch after
+its review (owner's decision).
+
+- [x] Task branches merged into the integration branch. Totality matrix:
+  12 rule, 68 working, 34 known defect, 6 skipped, of 120 cells. At the
+  start of the plan the matrix did not exist; its first measurement gave
+  27 known defects under a coarser check, and 34 when each cell had to
+  show the failure and the stage recorded for it.
+- [x] Byte identity for older targets: shown per task, for shipped programs
+  with no shadowed name. Artifacts of a program that uses a trial or a run
+  reference hold a digest of the compiler's own code and differ after any
+  change of the package; that field is excluded from the claim.
+- [x] Full suite, 16 workers, at `7984b51e` and at the integration head.
+  Baseline: 350 failed, 16,266 passed. Head: 351 failed, 16,772 passed,
+  47 expected failures. No test fails at the head that passes at the
+  baseline, apart from tests that are unstable under load and pass alone
+  on both sides. The first run at the head found eight failures in two
+  modules that no task had run; they were adaptations of tests to decided
+  contracts and were repaired before the second run.
+- [x] Public evidence: the whole-branch review ran ten sentences of the
+  specifications as programs through the public entries, the three
+  recommended examples with stand-in providers, and a run started at the
+  base and resumed at the head.
+- [x] Whole-branch review, by a reviewer of another model family: approved
+  with notes, no Critical finding.
+- [x] Merge to `main` by fast-forward; push.
+- [x] Plan for the spike:
+  [evaluated execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md).
+
+Known defects left open, each pinned by a test or recorded in the
+composition-first design, section 11:
+
+- a value bound by `bind-proc` or captured by `let-proc` is resolved where
+  the procedure is called, so a later binder of the defining body captures
+  its names (a silent wrong value, present before this plan; no shipped
+  program uses these forms);
+- from 2.30, a `let-proc` capture of an effect result evaluates the effect
+  again where the procedure is applied;
+- the check of required provider parameters refuses at validation, at every
+  target, a call that a run refused only when it reached it. The owner has
+  not yet confirmed this as an exception to the rule for older targets;
+- resume refuses an interrupted effect in a second call of one workflow and
+  after a provider group;
+- the replay index refuses pure bindings in a branch over the result of a
+  call made in that branch.
+
+What the plan showed about the cause. Name capture was repaired in four
+rounds, and each review found another site, because lowering resolves names
+in six separate environments. The 34 known-defect cells, the three separate
+refusals that one search controller met, and those rounds have one cause:
+a value exists at run time only as the output of a step. Repairing it is
+the subject of the evaluated execution plan.

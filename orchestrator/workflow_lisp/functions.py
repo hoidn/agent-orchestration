@@ -11,6 +11,7 @@ from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expression_traversal import (
     _rebuild_with_replacements,
+    free_expr_names,
     iter_child_exprs,
     map_expr,
     walk_expr,
@@ -92,6 +93,7 @@ from .type_env import (
 )
 from .type_expressions import parse_type_expression, type_expression_names
 from .typecheck import TypedExpr, typecheck_expression
+from .wcc.hygiene import fresh_name, reserved_identifiers
 
 if TYPE_CHECKING:
     from .procedures import ProcedureCatalog
@@ -504,20 +506,15 @@ def _normalize_expr(
                 allocator=expand_admitted_containers,
             )
             if isinstance(expand_admitted_containers, _HygienicExpansionMode)
-            else tuple(
-                (param_name, arg_expr)
-                for (param_name, _), arg_expr in zip(
-                    function_def.signature.params,
-                    normalized_args,
-                    strict=True,
-                )
+            else _sequential_call_bindings(
+                params=function_def.signature.params,
+                args=normalized_args,
+                body=cloned_body,
             )
         )
-        if isinstance(call_bindings, _OrderedCallBindings):
+        if call_bindings.formal_names or isinstance(expand_admitted_containers, _HygienicExpansionMode):
             cloned_body = _rename_free_names(cloned_body, call_bindings.formal_names)
-            bindings = call_bindings.bindings
-        else:
-            bindings = call_bindings
+        bindings = call_bindings.bindings
         return LetStarExpr(
             bindings=bindings,
             body=_normalize_expr(
@@ -1221,21 +1218,24 @@ def normalize_resolved_inline_procedure_calls(
                         {},
                     )
                 )
+                # Formals are renamed before nested calls expand: a nested
+                # call copies in the bound values of its callee's
+                # specialization, whose names belong to their definition.
                 expanded = LetStarExpr(
                     bindings=(
                         *static_call_bindings.bindings,
                         *call_bindings.bindings,
                     ),
-                    body=_rename_free_names(
-                        rewrite(
+                    body=rewrite(
+                        _rename_free_names(
                             cloned_body,
-                            proc_ref_bindings=body_proc_ref_bindings,
-                            workflow_ref_bindings=body_workflow_ref_bindings,
+                            {
+                                **static_call_bindings.formal_names,
+                                **call_bindings.formal_names,
+                            },
                         ),
-                        {
-                            **static_call_bindings.formal_names,
-                            **call_bindings.formal_names,
-                        },
+                        proc_ref_bindings=body_proc_ref_bindings,
+                        workflow_ref_bindings=body_workflow_ref_bindings,
                     ),
                     span=expr.span,
                     form_path=expr.form_path,
@@ -1389,6 +1389,30 @@ def _ordered_call_bindings(
     )
     return _OrderedCallBindings(
         bindings=(*temporary_bindings, *formal_bindings),
+        formal_names=formal_names,
+    )
+
+
+def _sequential_call_bindings(
+    *,
+    params: tuple[tuple[str, TypeRef], ...],
+    args: tuple[ExprNode, ...],
+    body: ExprNode,
+) -> _OrderedCallBindings:
+    """Bind each parameter to its argument in order, as targets below 2.30 do.
+
+    `let*` binds in order, so a parameter would capture a later argument's
+    reference to the caller's binding of the same name. Such a parameter gets
+    a fresh name, which the body's references follow.
+    """
+
+    formal_names: dict[str, str] = {}
+    for index, (param_name, _) in enumerate(params):
+        if any(param_name in free_expr_names(arg) for arg in args[index + 1 :]):
+            reserved = reserved_identifiers((*args, body), value_env={}, compile_time_bindings={})
+            formal_names[param_name] = fresh_name(param_name, reserved | {name for name, _ in params} | set(formal_names.values()))
+    return _OrderedCallBindings(
+        bindings=tuple((formal_names.get(param_name, param_name), arg) for (param_name, _), arg in zip(params, args, strict=True)),
         formal_names=formal_names,
     )
 

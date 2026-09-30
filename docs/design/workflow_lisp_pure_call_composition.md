@@ -269,12 +269,16 @@ For example, `f(x, y) = y` called as `f(2, x)` with caller `x = 9` returns 9,
 not 2. Body cloning retains lexical shadowing and call/definition provenance.
 
 Preparation fixtures under
-`tests/fixtures/workflow_lisp/pure_call_composition_preparation/` demonstrate
-that these are existing function-expansion defects, not merely risks of the
-new procedure-call surface: caller-name capture changes returned values and an
-unused fallible argument disappears. An equivalent `defun` is therefore not automatically a valid
-semantic control. Verify explicit-binding controls independently and repair the
-shared normalization/payload owners under the selected target.
+`tests/fixtures/workflow_lisp/pure_call_composition_preparation/` demonstrated
+two existing function-expansion defects, not merely risks of the new
+procedure-call surface: caller-name capture changed returned values, and an
+unused fallible argument disappears. Caller-name capture is corrected at every
+target, including the `defun` expansion below 2.30, which now evaluates its
+arguments in the caller's scope (`specs/versioning.md`, exceptions to target
+stability). The unused fallible argument still disappears. An equivalent
+`defun` is therefore not automatically a valid semantic control. Verify
+explicit-binding controls independently and repair the shared
+normalization/payload owners under the selected target.
 
 Only payloads needing the new node use schema 3, under the selected EC-1 target.
 Existing schema-1/2 payloads and old-target lowering remain unchanged; validators
@@ -335,7 +339,9 @@ representation. Target 2.30 follows the independently selected union-input 2.28
 and rich-loop 2.29 increments. The reviewed phase order and schema-3 contract are
 implemented for the bounded subset; practical benefit remains unestablished. Historical
 targets keep their existing pipeline, diagnostics and schema-1/2 bytes, including
-characterized function-expansion limitations rather than rewriting checkpoints.
+characterized function-expansion limitations rather than rewriting checkpoints,
+except for the capture corrections that apply to every target; programs without
+a shadowed name keep their bytes.
 
 The first supported subset excludes effectful expression composition, public
 workflow calls, private execution frames inside pure payloads, runtime-selected

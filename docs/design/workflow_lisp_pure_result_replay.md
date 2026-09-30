@@ -340,6 +340,11 @@ settlement is the next consumer, its already-typed output contract addresses
 seed it. An interrupted eligible pure node seeds its own input closure but is
 executed as the interrupted visit, not as read-only overlay preparation.
 
+`orchestrator run --dry-run` derives the same index for the root bundle and
+for each called workflow that a fresh run opens under the profile outside loop
+iterations, and rejects the program as the run start would, without running an
+effect or writing run state.
+
 This index is identity-neutral: it is never serialized, never added to
 checkpoint or executable digests, and never used to modify historical state.
 If exact typing cannot be derived from the validated current executable, the
@@ -515,8 +520,11 @@ Replay fails before any later effect dispatch when:
 - the recomputed value violates its output contract.
 
 The stable top-level diagnostic is `pure_result_replay_unavailable`. Its
-context contains only the executable step identity, source origin when
-available, and one reason:
+context carries one reason and the identities that locate the failure, such as
+`node_id` or `restart_node_id`, and for an index rejection the rejected
+reference (`ref`, `member` or `binding_path`) and its workflow. The CLI prints
+the authored source location when the build's source map places the node, and
+otherwise says why the location is unavailable. The reasons:
 
 - `durable_input_missing`
 - `durable_input_invalid`

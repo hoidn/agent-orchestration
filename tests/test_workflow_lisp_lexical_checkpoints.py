@@ -1130,7 +1130,7 @@ def test_provider_supervision_uses_generic_completed_effect_checkpoint_route(
     }
 
 
-def test_provider_supervision_missing_terminal_checkpoint_is_not_restore_candidate(
+def test_provider_supervision_missing_terminal_checkpoint_is_rerun_candidate(
     tmp_path: Path,
 ) -> None:
     checkpoints = _module()
@@ -1185,9 +1185,10 @@ def test_provider_supervision_missing_terminal_checkpoint_is_not_restore_candida
         loaded_workflow=bundle,
     )
 
-    assert decision.kind == restore.RESTORE_DECISION_NOT_RESTORABLE
+    assert decision.kind == restore.RESTORE_DECISION_RESTORED
+    assert decision.policy_decision == "RERUN"
     assert decision.restore_payload is None
-    assert decision.diagnostics == (restore.DIAGNOSTIC_CODES.pending_effect_unsafe,)
+    assert decision.diagnostics == ()
     assert decision.selection_observation == restore.RESTORE_SELECTION_RECORD_PRESENT
 
 

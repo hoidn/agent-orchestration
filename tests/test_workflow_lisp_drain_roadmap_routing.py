@@ -3862,7 +3862,7 @@ def test_task_4_3_closeout_guard_rejects_weakened_or_contradictory_state(
         _assert_task_4_3_closeout_state(mutated_state, "mutated Task 4.3 state")
 
 
-def test_design_delta_primary_remains_routed_after_yaml_archive() -> None:
+def test_deprecated_design_delta_drain_remains_routed_after_yaml_archive() -> None:
     orc_path = "workflows/library/lisp_frontend_design_delta/drain.orc"
     yaml_path = "workflows/examples/lisp_frontend_design_delta_drain.yaml"
     workflow_catalog_path = REPO_ROOT / "workflows" / "README.md"
@@ -3872,7 +3872,7 @@ def test_design_delta_primary_remains_routed_after_yaml_archive() -> None:
     )[0]
     assert orc_path in preferred
     assert yaml_path not in preferred
-    assert "Primary" in _markdown_table_row(workflow_catalog_path, orc_path)
+    assert "Deprecated" in _markdown_table_row(workflow_catalog_path, orc_path)
     assert yaml_path not in workflow_catalog
 
     migration_record = (
@@ -3981,7 +3981,7 @@ def test_provider_invocation_profile_is_separate_generic_implemented_data() -> N
     assert (
         '["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", '
         '"--skip-git-repo-check", "--model", "${model}", "--config", '
-        '"reasoning_effort=${reasoning_effort}"]'
+        '"model_reasoning_effort=${reasoning_effort}"]'
     ) in row
     assert (
         '["claude", "-p", "--model", "${model}", "--effort", "${effort}", '

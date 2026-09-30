@@ -268,3 +268,24 @@ def test_the_probe_refuses_a_target_workspace_it_cannot_observe(tmp_path: Path, 
     )
 
     assert (probe.returncode, (watchdog / "state/watchdog/watch.json").exists()) == (1, False)
+
+
+@pytest.mark.parametrize("run_id", ["..", "."])
+def test_the_probe_refuses_a_run_id_that_names_a_directory_above_the_run(tmp_path: Path, run_id: str) -> None:
+    watchdog = _install_watchdog(tmp_path / "W")
+    runs = tmp_path / "T" / ".orchestrate" / "runs"
+    runs.mkdir(parents=True)
+    for state in (runs.parent / "state.json", runs / "state.json"):
+        state.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+
+    probe = subprocess.run(
+        [
+            sys.executable, "workflows/library/scripts/probe_orchestrator_run.py",
+            "--run-id", run_id, "--target-workspace", str(tmp_path / "T"),
+            "--output", "state/watchdog/watch.json", "--evidence-root", "artifacts/work/watchdog",
+            "--repair-result-target-path", "artifacts/work/watchdog/repair-result.json",
+        ],
+        cwd=watchdog, capture_output=True, text=True, check=False,
+    )
+
+    assert (probe.returncode, (watchdog / "state/watchdog/watch.json").exists()) == (1, False)

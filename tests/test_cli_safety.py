@@ -35,6 +35,7 @@ def _state_manager_mock(workspace: Path) -> MagicMock:
     manager = MagicMock(spec=prototype)
     manager.run_root = prototype.run_root
     manager.logs_dir = prototype.logs_dir
+    manager.run_id = "test-run-123"
     manager.state = MagicMock()
     assert isinstance(manager, StateManager)
     return manager

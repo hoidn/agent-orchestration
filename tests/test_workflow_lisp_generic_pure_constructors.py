@@ -10,8 +10,9 @@ transplanted).
 At target 2.33 a procedure with no effects is inlined with the types its own
 module resolves: an applied generic union over its own type parameter, a
 union joined with a sibling generic call, and a type its caller cannot see.
-Targets 2.30 to 2.32 keep their behaviour. Every program runs through the
-public run entry; effects are command-backed probes.
+Targets 2.30 to 2.32 keep their behaviour. Program tests use the public run
+entry and command-backed effects. Owner checks cover two carried-type cases
+not reached by the public programs tried here.
 """
 
 from __future__ import annotations
@@ -21,6 +22,13 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow_lisp.definitions import RecordDef, RecordField, UnionDef, UnionVariant
+from orchestrator.workflow_lisp.expressions import ListExpr, LiteralExpr, NameExpr, RecordExpr, UnionVariantExpr
+from orchestrator.workflow_lisp.lowering.control_loops import _loop_seed_pure_projection_expr
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment, ListTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef,
+)
 from tests.test_workflow_lisp_generic_unions_runtime import (
     _log,
     _public_run,
@@ -312,10 +320,8 @@ def test_at_2_32_a_type_parameter_does_not_shadow_a_module_record_in_an_inlined_
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, {"return__value__name": "module"})
 
 
-# `make` builds the hidden `Private` inside the visible `Outer`. As a `loop-state`
-# field's initial value, the seed is rebuilt as a record of the generated loop-state
-# type; the rebuilt record keeps its type (`resolved_type`) instead of resolving the
-# generated name again, and the field values keep theirs.
+# `make` builds the hidden `Private` inside the visible `Outer`. The public
+# program returns that value after using it as a `loop-state` seed.
 SEED_LIB = """  (defmodule grt/lib)
   (export Outer make)
   (defrecord Private (word String))
@@ -369,7 +375,7 @@ LOOP_ENTRY = """  (defmodule grt/entry)
     ],
     ids=["seed-from-imported-body", "loop-in-imported-body"],
 )
-def test_loop_state_seed_rebuilt_from_an_inlined_body_keeps_its_types(
+def test_imported_loop_programs_return_private_record_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lib: str, entry: str, expected: dict[str, object]
 ) -> None:
     _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER + entry})
@@ -381,8 +387,8 @@ def test_loop_state_seed_rebuilt_from_an_inlined_body_keeps_its_types(
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, expected)
 
 
-# `check` is inlined at two specializations; each copy of its body constructs the
-# same text with its own type, and each result is read through its own record type.
+# `check` is inlined at two specializations; the public program reads both
+# results through their corresponding record fields.
 TWO_SPECIALIZATIONS = """  (defmodule grt/entry)
   (export run)
   (defrecord Cand (title String))
@@ -400,7 +406,7 @@ TWO_SPECIALIZATIONS = """  (defmodule grt/entry)
 
 
 @pytest.mark.parametrize(("ok", "expected"), [("true", ("a", "b")), ("false", ("rejected", "rejected"))])
-def test_two_specializations_of_one_body_keep_their_own_types(
+def test_two_specialized_workflows_return_their_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: str, expected: tuple[str, str]
 ) -> None:
     _write_sources(tmp_path, {"grt/entry.orc": HEADER + TWO_SPECIALIZATIONS})
@@ -414,3 +420,51 @@ def test_two_specializations_of_one_body_keep_their_own_types(
         0,
         {"return__a": expected[0], "return__b": expected[1]},
     )
+
+
+@pytest.mark.parametrize("kind", ["record", "union"])
+def test_equal_source_constructors_with_different_carried_types_are_distinct_keys(kind: str) -> None:
+    """No public program among four tested shapes distinguishes these nodes today."""
+
+    position = SourcePosition("probe.orc", 1, 1, 0)
+    span = SourceSpan(position, position)
+    if kind == "record":
+        first_type = RecordTypeRef("First", RecordDef("First", (), span), {})
+        second_type = RecordTypeRef("Second", RecordDef("Second", (), span), {})
+        constructor = lambda typ: RecordExpr("Same", (), span, ("record",), resolved_type=typ)
+    else:
+        variant = UnionVariant("OK", (), span)
+        first_type = UnionTypeRef("First", UnionDef("First", (variant,), span), {"OK": {}})
+        second_type = UnionTypeRef("Second", UnionDef("Second", (variant,), span), {"OK": {}})
+        constructor = lambda typ: UnionVariantExpr("Same", "OK", (), span, ("variant",), resolved_type=typ)
+
+    first, second = constructor(first_type), constructor(second_type)
+    values = {first: "first", second: "second"}
+
+    assert first != second
+    assert len(values) == 2
+    assert (values[first], values[second]) == ("first", "second")
+
+
+def test_rebuilt_loop_seed_resolves_its_private_carried_type() -> None:
+    """No public program among three tested shapes needs this carried seed type today."""
+
+    position = SourcePosition("probe.orc", 1, 1, 0)
+    span = SourceSpan(position, position)
+    string_type = PrimitiveTypeRef("String")
+    list_type = ListTypeRef("List[String]", string_type)
+    seed_type = RecordTypeRef(
+        "PrivateSeed",
+        RecordDef("PrivateSeed", (RecordField("marks", "List[String]", span),), span),
+        {"marks": list_type},
+    )
+    marks = ListExpr((LiteralExpr("m", "string", span, ("list",)),), string_type, span, ("list",))
+    rebuilt = _loop_seed_pure_projection_expr(
+        NameExpr("seed", span, ("loop",)),
+        state_type=seed_type,
+        local_values={"seed": {"marks": marks}},
+    )
+
+    assert isinstance(rebuilt, RecordExpr)
+    assert rebuilt.resolved_type is seed_type
+    assert FrontendTypeEnvironment({}, target_dsl_version="2.33").resolve_constructor_type(rebuilt) is seed_type

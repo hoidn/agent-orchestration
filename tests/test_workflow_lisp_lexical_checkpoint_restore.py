@@ -3017,6 +3017,74 @@ def test_runtime_resume_reuses_committed_transition_result_from_audit_evidence(t
     assert payload["transition_decision"] == "COMMITTED_RESULT_REUSED"
 
 
+def test_runtime_resume_reuses_transition_receipt_after_interrupt_before_step_commit(
+    tmp_path: Path,
+) -> None:
+    workflow_path, bundle = _compile_source_fixture(
+        tmp_path,
+        filename="lexical_checkpoint_transition_resume.orc",
+        source=TRANSITION_RESUME_FIXTURE_SOURCE,
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="restore-transition-interrupted-before-commit",
+    )
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_transition_resume_execution_inputs(tmp_path),
+    )
+    transition_point = _checkpoint_point_by_step_suffix(
+        bundle,
+        "lexical_checkpoint_transition_resume_orchestrate__transition",
+    )
+    real_execute_transition = WorkflowExecutor._execute_resource_transition
+
+    class _InterruptedAfterTransitionCommit(BaseException):
+        pass
+
+    def interrupt_before_step_result(self, step, state, *, scope=None):
+        result = real_execute_transition(self, step, state, scope=scope)
+        assert result["status"] == "completed"
+        raise _InterruptedAfterTransitionCommit
+
+    with patch.object(
+        WorkflowExecutor,
+        "_execute_resource_transition",
+        interrupt_before_step_result,
+    ), pytest.raises(_InterruptedAfterTransitionCommit):
+        WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    interrupted = state_manager.load().to_dict()
+    assert interrupted["current_step"]["step_id"] == transition_point.step_id
+    assert transition_point.presentation_key not in interrupted["steps"]
+    [audit_path] = list((tmp_path / "state" / "workflow_lisp").rglob("*audit.jsonl"))
+    assert [
+        json.loads(line)["outcome_code"]
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+    ] == ["committed"]
+
+    resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(
+        resume=True
+    )
+
+    assert resumed["status"] == "completed"
+    audit_rows = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["outcome_code"] for row in audit_rows] == [
+        "committed",
+        "replayed",
+    ]
+    diagnostics = state_manager.load().to_dict()["resume_diagnostics"]
+    assert [row["diagnostic"] for row in diagnostics] == [
+        "workflow_effect_rerun"
+    ]
+    assert diagnostics[0]["effect_kind"] == "resource_transition"
+    assert diagnostics[0]["step_id"] == transition_point.step_id
+
+
 def test_runtime_resume_restores_private_artifact_ref_binding_before_effect_boundary(tmp_path: Path) -> None:
     bundle, state_manager, first_run = _materialize_restore_sidecars(
         tmp_path,

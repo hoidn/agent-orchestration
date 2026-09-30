@@ -148,7 +148,7 @@ def main() -> int:
     args = parser.parse_args()
 
     run_id = str(args.run_id).strip()
-    if not RUN_ID_RE.fullmatch(run_id):
+    if not RUN_ID_RE.fullmatch(run_id) or run_id in {".", ".."}:
         raise SystemExit(f"Unsafe run id: {run_id}")
     if args.max_stale_minutes < 1:
         raise SystemExit("--max-stale-minutes must be positive")

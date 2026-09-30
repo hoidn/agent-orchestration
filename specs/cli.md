@@ -47,7 +47,7 @@ workspace as the working directory.
 
 - Commands
   - `orchestrate run <workflow.orc> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
-    - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.
+    - `--dry-run` validates the workflow and may emit advisory warnings that do not change the exit code. A pure-result replay-index failure is an error only when the compiled structure guarantees that the call is reached; failures along a path under a branch, match arm, or loop body are warnings. Conditions are not evaluated, and a real run is refused if it reaches the call.
   - `orchestrate resume <run_id>`
     - If persisted authoritative state proves an exact interrupted in-flight
       ordinary, session, supervision, peer-group, phased, or adjudicated

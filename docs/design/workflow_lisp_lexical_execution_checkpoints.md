@@ -437,26 +437,30 @@ derived from its form and declarations:
 | Historical or noneligible pure projection | `replay_or_reuse` | Reuse the bundle if present and digest-valid, else re-evaluate; recurrent and loop-owned nodes remain in this class. |
 | Provider result | `reuse_validated_or_rerun` | If a validated structured-output bundle exists for this boundary's identity, reuse it (no re-prompt); otherwise re-run the provider from the boundary. Never resume "inside" a provider. |
 | Command result (declared idempotent) | `reuse_validated_or_rerun` | Same as provider: bundle reuse or full re-run. |
-| Command result (non-idempotent, no protocol) | `fail_closed` | If the checkpoint shows this boundary pending (started, completion unknown), resume refuses with `pending_effect_unsafe`, naming the step, the source form, and the operator's options. |
-| Command result (certified resume protocol) | `protocol` | The adapter declares how to determine completion (e.g., an idempotency receipt or completion probe) and the runtime applies it; the protocol is part of adapter certification. |
+| Command result (default, including certified adapters) | `reuse_validated_or_rerun` | With no committed result, whether the last attempt failed or the visit was interrupted, resume runs the command again and records `workflow_effect_rerun`. A committed result is validated and reused. This is at-least-once: failure or interruption is not evidence that the command had no external effect. |
+| Command result declared `must_not_repeat: true` | `fail_closed` | With no committed result, resume refuses with `lexical_restore_pending_effect_unsafe`, naming the step and its source form. |
 | Workflow call | `recursive` | Resume descends into the callee's own checkpoint/boundary structure. |
 | Resource transition | `evidence` | Committed = idempotency key present in audit: skip re-application, re-read the resource at current version. Not committed: re-apply through the full transition contract (version check, preconditions, conflict policy). Never restore resource state from the checkpoint. |
 | Materialized view | `regenerate` | Views are never reused as authority; regenerate from the typed value if a consumer needs the file. |
 
 The pending-effect rule deserves emphasis because it is where real systems
-corrupt themselves: if the run died *after starting* a non-idempotent
-external command and *before validating* its result, there is no safe
-automatic answer. The design's answer is honesty — fail closed, say
-exactly which boundary is unsafe and why, and make safe-by-declaration
-(idempotence or a certified protocol) the path to automation.
+corrupt themselves: if the run died *after starting* an external command and
+*before validating* its result, the runtime cannot know whether the effect
+happened. The owner's decision of 2026-09-29 makes the default at-least-once:
+the command runs again and the rerun is recorded. A command that must not run
+twice declares `must_not_repeat: true`, and resume then fails closed at it,
+naming the boundary. [`specs/state.md`](../../specs/state.md) states the rule
+and the shapes where resume still fails closed as known defects.
 
 This table incorporates the accepted M2 pure-result-replay contract only; it
 does not change the draft status of the broader checkpoint design. Historical
 and noneligible pure projections retain `replay_or_reuse`. For the exact
 profile's admitted class, replay-only filtering occurs before unique-nearest
-durable-boundary selection. A zero-record frame-entry case may use only
-`VALIDATED_FRAME_ENTRY_REPLAY`; an invalid nearest durable record still fails
-closed and never causes a scan to an older point.
+durable-boundary selection. A zero-record frame-entry case uses
+`VALIDATED_FRAME_ENTRY_REPLAY` for pure replay, or the current-effect
+frame-entry case for an effect with no prior boundary (`specs/state.md`); an
+invalid nearest durable record still fails closed and never causes a scan to
+an older point.
 
 ### 8.5 What authors see
 
@@ -467,8 +471,8 @@ stop accepting summary/pointer/bundle targets that existed for resume;
 `resume-or-start` remains exactly the authored surface for *domain* reuse
 (typed prior-state validation) and stops being pressed into service as an
 execution-position mechanism. The single authored addition is at the FFI
-edge: a certified adapter may declare a resume protocol, and a
-non-idempotent command without one is simply not auto-resumable.
+edge: a command boundary may declare `must_not_repeat: true`, and resume then
+stops at that command instead of running it again.
 
 ## 9. Tranche R0: Resume Semantics Census And Characterization
 
@@ -776,11 +780,11 @@ Audit shows exactly one transition.
 
 ### 18.4 Unsafe command non-rerun
 
-A run crashes while a non-idempotent external command (no certified
-resume protocol) is pending. Resume fails closed with
-`pending_effect_unsafe`, naming the step, its authored source form, and
-the options: verify and mark, re-run explicitly, or certify a protocol.
-No automatic re-execution occurs.
+A run crashes while an external command declared `must_not_repeat: true` is
+pending. Resume fails closed with `lexical_restore_pending_effect_unsafe`,
+naming the step and its authored source form. No automatic re-execution
+occurs. A command without that declaration runs again, and the rerun is
+recorded.
 
 ### 18.5 Plumbing-free public boundary
 

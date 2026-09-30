@@ -2324,7 +2324,7 @@ def test_design_delta_drain_builder_row_retains_private_workflow_boundary(
     ]
     assert route["readiness_label"] == "promotion_eligible"
     assert route["route_label"] == "wcc_default"
-    assert route["copy_safety"] == "preferred_current_guidance"
+    assert route["copy_safety"] == "legacy_compatibility_only"
 
     source = DESIGN_DELTA_DRAIN.read_text(encoding="utf-8")
     builder = "build-drain-runtime-owned"

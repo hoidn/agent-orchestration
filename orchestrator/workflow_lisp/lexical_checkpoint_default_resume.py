@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from orchestrator._common.canonical import canonical_json_dumps
+from orchestrator.workflow.frontend_origins import CompiledFrontendIndex
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_provenance
 
 
@@ -63,6 +65,98 @@ AUTHORITY_FORBIDDEN_SOURCES = {
     "checkpoint_path": "lexical_default_resume_checkpoint_used_as_authority",
     "report_path": "lexical_default_resume_checkpoint_used_as_authority",
 }
+
+
+def _interrupted_effect_cursor(
+    state: Mapping[str, Any], step_id: str
+) -> tuple[str, int] | None:
+    current = _mapping(state.get("current_step"))
+    name = current.get("name")
+    visit = current.get("visit_count")
+    if (
+        current.get("step_id") != step_id
+        or current.get("status") != "running"
+        or not isinstance(name, str)
+        or type(visit) is not int
+        or _mapping(state.get("step_visits")).get(name) != visit
+    ):
+        return None
+    return name, visit
+
+
+def _current_effect_attempt(state: Mapping[str, Any], point: Any) -> tuple[str, int] | None:
+    from orchestrator.workflow_lisp.lexical_checkpoints import _point_payload
+
+    point_payload = _point_payload(point)
+    if not _mapping(point_payload.get("effect_boundary")):
+        return None
+    step_name = point_payload.get("presentation_key")
+    step_id = point_payload.get("step_id")
+    visits = _mapping(state.get("step_visits"))
+    visit = visits.get(step_name)
+    if not isinstance(step_name, str) or not isinstance(step_id, str):
+        return None
+    if type(visit) is not int or visit < 1:
+        return None
+    current = _interrupted_effect_cursor(state, step_id)
+    if current == (step_name, visit):
+        return "interrupted", visit
+    result = _mapping(_mapping(state.get("steps")).get(step_name))
+    if (
+        result.get("step_id") == step_id
+        and result.get("status") == "failed"
+        and result.get("visit_count") == visit
+    ):
+        return "failed", visit
+    return None
+
+
+def _point_source_location(*, point: Any, loaded_workflow: Any) -> dict[str, Any] | None:
+    origin_key = getattr(point, "origin_key", None)
+    if not isinstance(origin_key, str) or loaded_workflow is None:
+        return None
+    provenance = workflow_provenance(loaded_workflow)
+    origin = CompiledFrontendIndex(provenance).origins_by_key.get(origin_key)
+    if not isinstance(origin, Mapping) or origin.get("origin_key") != origin_key:
+        return None
+    path, line, column = origin.get("path"), origin.get("line"), origin.get("column")
+    if not isinstance(path, str) or type(line) is not int or type(column) is not int:
+        return None
+    source_root = getattr(provenance, "source_root", None)
+    if isinstance(source_root, Path):
+        try:
+            path = Path(path).resolve().relative_to(source_root.resolve()).as_posix()
+        except (OSError, ValueError):
+            pass
+    return {
+        "path": path,
+        "line": line,
+        "column": column,
+        "step_id": getattr(point, "step_id", None),
+    }
+
+
+def _effect_rerun_event(
+    *, point: Any, attempt: tuple[str, int], loaded_workflow: Any
+) -> dict[str, Any]:
+    from orchestrator.workflow_lisp.lexical_checkpoints import _point_payload
+
+    point_payload = _point_payload(point)
+    effect_boundary = _mapping(point_payload.get("effect_boundary"))
+    status, visit = attempt
+    event = {
+        "diagnostic": "workflow_effect_rerun",
+        "effect_kind": effect_boundary.get("effect_kind"),
+        "step_id": point_payload.get("step_id"),
+        "discarded_visit": visit,
+        "next_visit": visit + 1,
+        "source_location": _point_source_location(
+            point=point,
+            loaded_workflow=loaded_workflow,
+        ),
+        "attempt_status": status,
+    }
+    return {key: value for key, value in event.items() if value is not None}
 
 
 def _nearest_prior_effect_boundary(
@@ -226,6 +320,7 @@ def _validated_frame_entry_replay(
     runtime_plan: Any,
     state: Mapping[str, Any],
     restart_node_id: str,
+    current_effect_point: Any | None = None,
 ) -> bool:
     """Admit only a reached all-pure prefix with complete shell witnesses."""
 
@@ -243,11 +338,15 @@ def _validated_frame_entry_replay(
     ):
         return False
     prefix = ordered_node_ids[: ordered_node_ids.index(restart_node_id)]
+    if replay_runtime is None and (prefix or current_effect_point is None):
+        return False
 
     bound_inputs = state.get("bound_inputs")
     if not isinstance(bound_inputs, Mapping):
         return False
     if not prefix:
+        if current_effect_point is not None:
+            return _current_effect_attempt(state, current_effect_point) is not None
         replay_node = replay_runtime.index.nodes.get(restart_node_id)
         if replay_node is None:
             return False
@@ -286,6 +385,8 @@ def _validated_frame_entry_replay(
             for binding in replay_node.bindings
         ):
             return False
+    if current_effect_point is not None:
+        return _current_effect_attempt(state, current_effect_point) is not None
     return True
 
 
@@ -663,6 +764,25 @@ def determine_runtime_default_resume_decision(
         if getattr(point, "node_id", None) == restart_node_id
     ]
     if payload["restore_decision"] == "RESTORED":
+        if getattr(restore_decision, "policy_decision", None) == "RERUN":
+            current_point = next(
+                (
+                    point
+                    for point in relevant_points
+                    if _current_effect_attempt(state, point) is not None
+                    and getattr(point, "checkpoint_id", None)
+                    == getattr(restore_decision, "checkpoint_id", None)
+                ),
+                None,
+            )
+            if current_point is not None:
+                attempt = _current_effect_attempt(state, current_point)
+                if attempt is not None:
+                    payload["effect_rerun"] = _effect_rerun_event(
+                        point=current_point,
+                        attempt=attempt,
+                        loaded_workflow=loaded_workflow,
+                    )
         payload["mode"] = MODE_LEXICAL_CHECKPOINT_DEFAULT
         payload["diagnostics"].extend(decision_diagnostics)
         return payload
@@ -674,6 +794,39 @@ def determine_runtime_default_resume_decision(
         ]
         return payload
     if payload["restore_decision"] == "NOT_RESTORABLE":
+        current_effect_attempt = next(
+            (
+                (point, attempt)
+                for point in relevant_points
+                if (attempt := _current_effect_attempt(state, point)) is not None
+            ),
+            None,
+        )
+        if current_effect_attempt is not None:
+            current_point, attempt = current_effect_attempt
+            current_effect_boundary = _mapping(
+                _mapping(getattr(current_point, "details", {})).get("effect_boundary")
+            )
+            current_policy = _mapping(current_effect_boundary.get("policy"))
+            if current_policy.get("must_not_repeat") is True:
+                payload["mode"] = MODE_FAIL_CLOSED
+                payload["diagnostics"] = [
+                    "lexical_restore_pending_effect_unsafe"
+                ]
+                payload["source_location"] = _point_source_location(
+                    point=current_point,
+                    loaded_workflow=loaded_workflow,
+                )
+                return payload
+            if (
+                getattr(restore_decision, "selection_observation", None)
+                == "record_absent"
+            ):
+                payload["effect_rerun"] = _effect_rerun_event(
+                    point=current_point,
+                    attempt=attempt,
+                    loaded_workflow=loaded_workflow,
+                )
         if required_effect_point is not None:
             payload["mode"] = MODE_FAIL_CLOSED
             payload["diagnostics"] = [
@@ -697,13 +850,17 @@ def determine_runtime_default_resume_decision(
                     if (
                         prior_diagnostic
                         == "lexical_default_resume_prior_boundary_missing"
-                        and replay_runtime is not None
                         and not decision_diagnostics
                         and _validated_frame_entry_replay(
                             replay_runtime=replay_runtime,
                             runtime_plan=runtime_plan,
                             state=state,
                             restart_node_id=restart_node_id,
+                            current_effect_point=(
+                                current_effect_attempt[0]
+                                if current_effect_attempt is not None
+                                else None
+                            ),
                         )
                     ):
                         payload.update(
