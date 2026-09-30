@@ -178,18 +178,32 @@ JSON (UTF-8, sorted object keys, compact separators, finite numbers only):
  value bindings, capture parameters, residual parameter and result types)
 ```
 
-Binding maps become arrays sorted by formal parameter name; ordered type
-arguments, residual parameters and record fields retain declaration order.
-The readable callee name is `module::name` for an unspecialized top-level
-definition; otherwise it appends the full SHA-256 of the tuple. The tuple is
-retained with the definition, so equal names with unequal keys are refused.
+The [Phase 2 shared key schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#canonical-definition-keys)
+fixes the exact nine-element JSON array, reference bindings, capture routes,
+residual signature and source-independent checks. Binding maps use declared
+formal names, or `["local", index]` for a generated local's captured formal;
+local selectors sort by index before ordinary strings sorted by name.
+Ordered type arguments, residual parameter types and record fields retain
+declaration order. The residual signature excludes the capture prefix.
+
+The readable base is `kind + ":" + module + "::" + declared_name`, where
+`kind` is `procedure` or `workflow`; the entry uses the workflow kind. A
+local callable uses its authored local name in that position and retains
+its enclosing declaration and ordinal in the key. An unspecialized top-level
+callable uses the base alone; every local, specialized or capture-converted
+callable appends `[<full lowercase SHA-256 of the canonical JSON key>]`.
+Kind qualification is unconditional: same-name procedures and workflows
+are admitted and must occupy distinct entries, independently of what else
+is present. The tuple is retained with the definition; names must derive
+from their keys, and equal names with unequal keys are refused. The pure
+key-to-name operation in `closed/names.py` is shared by builder and checker.
 
 | Component | Canonical content |
 | --- | --- |
 | Module and definition | The declared module identity, carried from linking, and the declared callable name; an unmoduled standalone entry uses a fixed entry namespace. Import aliases, source paths, spans, generated flat-route names and `repr(TypeRef)` are never identity |
 | Types | Nominals use declaring module, declared name and recursively canonical arguments, including private nominals; structural constructors use their kind and canonical children. The same rule applies recursively to every descriptor in the artifact, not only to specialization keys |
-| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal name, type and binding as below; forwarding resolves to that target, not an alias |
-| Workflow reference | The canonical workflow key and its resolved extern-rebinding plan, by formal extern name and resolved binding identity |
+| Procedure reference | The recursively canonical target key, residual signature and each bound argument's formal selector, type and binding; bound rows biject with the target's bound-formal facts, including category, value or mapped capture route. All views derive from one resolved binding; forwarding resolves to that target, not an alias |
+| Workflow reference | The canonical workflow key and its resolved extern-rebinding plan, by formal extern name and exact provider/prompt row from the shared schema; no unresolved alias or opaque payload |
 | Value binding | The checked, closed expression substituted into the specialized body, with canonical types and alpha-normalized local names; tagged literals preserve distinctions such as `Bool`, `Int` and `Float` |
 | Captured runtime value | An explicit typed parameter in the closed definition and a value argument at the call. The key records the capture's owning formal/argument route and type, not the captured runtime value or a caller's local spelling. Evaluation at the binding's lexical scope happens once, before forwarding; later calls pass that value |
 | Local `let-proc` definition | The enclosing declared definition, lexical local-procedure scope/name (same-name local declarations disambiguated in that scope), residual signature and capture schema; never the existing span-derived generated name or a digest of the body. Pure-binding insertion/renaming must not change this local key |
@@ -203,6 +217,19 @@ and [local procedure](workflow_lisp_let_proc_local_proc_refs.md) contracts
 govern lexical capture and forwarding. The spike's refusals of value,
 workflow and bound-reference specializations are missing evidence (§18),
 not additional exclusions.
+
+Capture rows are `{type, routes}` in native prefix order; their indexes bind
+the converted parameters without caller-local names or runtime values.
+Direct/local/reference routes identify semantic formals. Context routes
+identify original declarations, per-callee static call occurrences and
+typed source/native field paths, never a converted name/key that contains
+the same capture. Intermediate wrappers carry route suffixes; the caller's
+canonical nominal descriptor is preserved. P5 checks prefix types/order,
+reference-binding agreement and actual forwarding/terminal transfers as
+specified in the shared schema. Inserting unrelated pure bindings or calls
+to another declaration changes no route occurrence. Inserting an earlier
+call to the same declaration can change its later occurrences, just as an
+earlier same-name local declaration can change retained local ordinals.
 
 Compiler-generated run-reference result types and static configuration use
 position-free identities: their configuration/type `site_digest` combines
@@ -455,7 +482,7 @@ activation path = frames from the entry to the definition
 | I3 | Local paths follow the traversal table below. Each effect ends in its own binder, and each effectful call has a frame at its binding. The separator in the presentation is ` / ` |
 | I4 | An unnamed binder (a generated name) takes `#<k>`, its ordinal among the unnamed binders of its scope whose value performs an effect. Pure bindings take no ordinal, so a pure refactoring moves no identity. A repeated name takes `<name>#<k>` |
 | I5 | An attempt is an ordinal under an identity. Attempts never change the identity |
-| I6 | The canonical text of an identity is its presentation key: the entry, then each segment, with each `[*]` replaced by the iteration reached. Example: `run-search / loop:state[3] / repair=search::repair-one / propose` |
+| I6 | The canonical text of an identity is its presentation key: the entry, then each segment, with each `[*]` replaced by the iteration reached. Example: `workflow:search::run-search / loop:state[3] / repair=workflow:search::repair-one / propose` |
 | I7 | The canonical text never names a file. A path derived from an identity uses a digest of the text (§8.2) |
 
 Nothing else enters: no source span, no file path, no text of a type, no

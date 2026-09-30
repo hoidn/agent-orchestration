@@ -182,7 +182,7 @@ tasks; a task that needs another key adds it here first.
   "schema": "workflow-lisp/closed-program/1",
   "representation": "table/1",
   "target": "<OWNER_SELECTED_TARGET>",
-  "entry": "grt/entry::run",
+  "entry": "workflow:grt/entry::run",
   "params": [["seed", {"kind": "primitive", "name": "Int"}]],
   "defaults": {"seed": 1},
   "result": {"kind": "record", "name": "grt/entry::Box", "fields": [...]},
@@ -190,7 +190,7 @@ tasks; a task that needs another key adds it here first.
   "types": {"grt/entry::Box": <canonical nominal descriptor>},
   "configuration": {"commands": <all canonical command bindings>, "providers": <all resolved provider bindings>, "prompts": <all resolved prompt bindings>, "imports": {"<configuration digest>": {"commands": <producer commands>, "providers": <producer providers>, "prompts": <producer prompts>}}},
   "definitions": {"<canonical callee name>": {"key": <canonical definition tuple>, "params": [["n", <descriptor>]], "result": <descriptor>, "body": <body>}},
-  "sites": [["grt/entry::fetch", "#1"]]
+  "sites": [["procedure:grt/entry::fetch", "#1"]]
 }
 ```
 
@@ -218,6 +218,427 @@ tasks; a task that needs another key adds it here first.
   (including unused entries) and compiler-injected bindings used by the
   program, normalized using the same rules as in-memory bindings; provenance and raw manifest bytes are excluded. Its semantic
   content enters `program_digest`, not just the build-cache key.
+
+### Canonical definition keys
+
+This is the exact shared wire schema for design §4.2 and Tasks 4–8.
+The [design](../design/workflow_lisp_evaluated_execution.md#42-a-table-of-definitions)
+owns the semantic requirements; all producers and readers use this one
+representation, including hand-written Task 5 fixtures.
+
+A definition's `key` is exactly the nine-element JSON array below. All
+maps represented as binding rows use the formal ordering below and have
+no duplicate formal; descriptor fields, type arguments, signatures and the
+capture prefix keep their semantic order. No provenance, runtime capture
+value, caller-local binder spelling, import alias, generated flat wire
+prefix, legacy generated callable name, source position or body digest
+appears in it. `closed/names.py:canonical_callee_name_from_key` is the sole
+key-to-name algorithm, shared by the builder and artifact checker. It uses
+`workflow.pure_expr.canonical_json_for_pure_value` encoded as UTF-8, without
+a newline, and the full lowercase SHA-256. Task 7's canonical artifact
+encoding uses the same JSON settings; its artifact newline is not hashed
+into the definition name.
+
+```text
+K = [module, kind, declaration, types, procedures, workflows, values,
+     captures, residual]
+```
+
+| Index | Exact JSON shape | Meaning |
+| --- | --- | --- |
+| 0 | nonempty string | Declaring module; the existing standalone entry namespace is `entry` (`closed/frontend.py:compile_typed_program`). |
+| 1 | `"procedure"` or `"workflow"` | Source callable kind, unchanged by conversion. |
+| 2 | declared-name string, or `{"owner": DId, "name": local_name, "ordinal": n}` | Top-level declaration, or stable local declaration. The local owner is the enclosing top-level declaration; `n` is the retained zero-based same-owner/same-local-name declaration ordinal. |
+| 3 | `[[formal, T], ...]` | Canonical type substitutions. |
+| 4 | `[[formal, PRef], ...]` | Resolved procedure-reference substitutions. |
+| 5 | `[[formal, WRef], ...]` | Resolved workflow-reference substitutions, including extern rebinding. |
+| 6 | `[[formal, T, ClosedValue], ...]` | Actual closed-expression substitutions, not runtime captures. |
+| 7 | `[{"type": D, "routes": [Route, ...]}, ...]` | Ordered runtime capture prefix. Array position is its zero-based capture index; no parameter-name or value field. |
+| 8 | `{"params": [T, ...], "result": T}` | Ordered residual parameter **types**, excluding runtime captures and erased compile-time parameters, plus result type. |
+
+An ordinary declared `formal` is its string name. A generated local
+procedure's captured formal is instead `["local", n]`, using the same
+original capture-list index as its local capture route; this applies to
+compile-time reference/value captures as well as runtime captures. No raw
+caller capture name is copied into a binding map or `PRef.bound`. Bindings
+are ordered with local selectors first by integer index, then ordinary
+formal strings lexicographically. Type-variable formals in `types` remain
+ordinary strings. These plain selectors also occur in reference-formal
+paths; they introduce no new runtime value or identity lookup.
+Extern formal names in `WRef.externs` remain ordinary nonempty strings;
+the local selector belongs only to callable parameter/capture bindings.
+
+`DId` is exactly `[module, kind, declaration]`, the first three fields of a
+key. Its local `owner` must be a top-level `DId`, so this is finite. It is
+declaration identity, **not** a canonical converted name, full definition
+key or hash. Routes never contain a converted target key: their identity
+must not recursively contain the capture row being constructed.
+
+The residual signature intentionally has no binder names. Names remain in
+`definition.params` for lexical binding, and declared formal names remain
+in binding/route rows where keyword ownership matters. This avoids putting
+a renamed generated binder into the key and makes the required
+capture-prefix/residual-type check purely positional. Signature order and
+every exact descriptor remain significant.
+
+`D` is the key projection of an existing recursively canonical normalized
+runtime descriptor: ordinary nominal definitions still agree with
+`tree.types`, while generated run-reference envelopes use the structural
+marker below, recursively even inside a captured or nested type. `T`
+additionally allows the key-only compile-time reference signatures:
+
+```text
+{"kind": "procedure-reference", "signature": {"params": [T, ...], "result": T}}
+{"kind": "workflow-reference",  "signature": {"params": [T, ...], "result": T}}
+{"kind": "run-ref-result", "signature": S}
+```
+
+The first two encode static callable types when a bound argument itself is
+a reference; they are not runtime values/descriptors and are forbidden in
+the final runtime capture/residual signature. `S` is Task 8's already-owned
+canonical input/result structural signature, recursively projecting other
+generated run-reference types in the same way. It retains user nominal
+identities and fixed neutral runtime records. Its exact producer projection
+remains Task 8's owner; no span-derived or finalized `RunRefResult$...` name
+enters this key marker. P5 compares the key projection of the finalized
+runtime signature, not the marker directly to a runtime descriptor.
+
+#### Reference and closed-binding rows
+
+```text
+PRef = {"target": K, "residual": Signature,
+        "bound": [[formal, T, Binding], ...]}
+WRef = {"target": K,
+        "externs": {"providers": [[formal, BindingRow], ...],
+                    "prompts":   [[formal, BindingRow], ...]}}
+Signature = {"params": [T, ...], "result": T}
+Binding = {"value": ClosedValue}
+        | {"capture": capture_index}
+        | {"procedure": PRef}
+        | {"workflow": WRef}
+```
+
+Each map shown has exactly its displayed keys; each `Binding` has exactly
+one of its four alternatives. `PRef.target` is the recursively canonical
+**converted** target; `PRef.residual` equals that target's residual
+signature. `bound` records every bound formal/type/binding, using the formal
+ordering above. A `capture` index refers to the capture array of the immediately
+enclosing definition key whose binding facts contain the reference, not
+the target key's capture array. Entering a nested `target` key starts a new
+index scope. The corresponding reference-formal route identifies which
+target binding receives it; nested bound references compose those formal
+routes. Forwarding aliases are resolved before producing this data.
+
+##### Mandatory `PRef.bound`/target agreement
+
+`PRef.bound` is a second view of the target's binding facts, not independent
+authority. Task 4/6 derives the converted target key, the bound rows and the
+residual signature from **one** resolved reference plus its already-merged
+specialization facts. It uses `ResolvedProcRefValue.signature_params`,
+`bound_args`, `residual_params` and the existing specialization owner; it
+does not produce the three views from separate guessed signatures.
+
+P5 derives the target's bound-formal table from these persisted facts:
+
+| Target fact | Bound row category and canonical type |
+| --- | --- |
+| `target[4]` procedure binding | `procedure`; type is `{"kind":"procedure-reference","signature": selected_PRef.residual}`. |
+| `target[5]` workflow binding | `workflow`; type is `{"kind":"workflow-reference","signature": selected_WRef.target[8]}`. |
+| `target[6]` closed value binding | `value`; exact persisted type and alpha-normalized closed expression. |
+| A target capture route `["parameter", f]` or `["local", n]` | `capture`; terminal formal selector `f` or `["local",n]` and the capture's exact projected type. |
+
+Type substitutions in `target[3]` are not bound value parameters. Captures
+whose routes start with `reference` or `context` are carried requirements
+of those bindings/bodies, not additional root bound formals. A formal must
+have exactly one category across the table; overlapping value/ref/direct
+capture claims are invalid. Nested reference captures are checked inside
+their reference binding rather than fabricated as another bound formal.
+
+There must be a bijection between this table and `PRef.bound`: same formal
+selectors, canonical types, categories and exact binding content. Missing,
+extra, duplicate or differently categorized rows fail the key check even
+if the target/residual/name otherwise look plausible. In particular, a
+literal bound in the target cannot be replaced by a capture row or another
+literal solely because its type matches.
+
+For capture rows, derive a target-capture-index to enclosing-capture-index
+mapping from the reference's formal path and the capture routes. Prefix
+the target's ordinary/local terminal route with that reference path and
+require the enclosing capture to contain precisely that owner route with
+the same canonical type. The bound row's `capture` index must be this
+mapped index, not merely an in-range index of a compatible type. Apply the
+same mapping recursively when comparing nested `procedure` bindings:
+target-key capture indexes are scoped to that target key, while the bound
+view's indexes are scoped to the enclosing key. The mapping is a comparison
+operation over existing arrays, not a persisted second routing table.
+Lifting a target route already of the form
+`["reference", target_path, terminal]` concatenates the enclosing reference
+path with `target_path`; it does not drop the nested owner or treat a local
+capture selector as an authored parameter name.
+
+At construction, remove the resolved bound formal selectors from the
+original ordered `signature_params` **after type substitution**, erase
+compile-time reference parameters through the existing specialization
+owner, and require the remaining ordered parameter types and result to
+equal both `PRef.residual` and `target[8]`. For a reachable target definition,
+P5 also checks its actual parameter list: target capture prefix followed
+by exactly that residual suffix. The construction additionally checks that
+no bound formal survives in that suffix; P5 does not infer authored formal
+identity from a renamed capture binder.
+When only a recursive target key is retained, P5 checks its complete bound
+partition plus residual equality. It does not pretend that an unavailable
+authored parameter spelling/order can be authenticated from the artifact.
+Changing both mutually consistent views and the body remains a different
+program, subject to the durable artifact digest.
+
+##### Exact resolved extern rows (no opaque `BindingRow`)
+
+In `WRef.externs.providers`, each `BindingRow` is exactly:
+
+```json
+{"provider_id":"resolved-provider-id"}
+```
+
+In `WRef.externs.prompts`, each `BindingRow` is exactly one of:
+
+```json
+{"source_kind":"asset_file","path":"prompts/review.md","asset_base":"."}
+{"source_kind":"input_file","path":"inputs/review.md"}
+```
+
+`provider_id` is a string with at least one non-whitespace character,
+preserved exactly as `ProviderExtern.provider_id`. Prompt `path` is a
+string with at least one non-whitespace character, preserved exactly as
+`PromptExtern.path`; no stripping, rebasing or file read is part of this
+row. `source_kind` is exactly `asset_file` or `input_file`. `asset_base`
+is required only for `asset_file`, is the nonempty logical entry directory
+already required by the shared provider-node schema, and comes from the
+retained **producing** source owner; it is never the consumer directory or
+an incidental absolute installation/source prefix. Its serialized string
+and lookup semantics are exactly the same as `perform.prompt.asset_base`.
+No `asset_base` key is accepted on `input_file`. Missing/extra keys, mixed
+source variants, nonstring values, empty/whitespace-only ids/paths, alias
+objects and provenance wrappers fail P5's row validation.
+
+These are a direct semantic projection of existing owners, now fixed for
+Task 5 fixtures: `workflows.py:ProviderExtern` (name/provider id),
+`PromptExtern` (name/source kind/path), `_coerce_prompt_extern_source` and
+`build_extern_environment` validate the binding values; the shared Phase 2
+provider-node schema already fixes source-kind/path/asset-base carriage.
+`prompt_extern_source_payload` currently serializes the same source
+selection as `{asset_file: path}` or `{input_file: path}`; the closed row
+uses the existing node's explicit `source_kind`/`path` spelling so the
+configuration row and effect need no competing source grammar. The extern
+lookup `name` is not duplicated inside a row; the binding map's formal
+already identifies the use. `defprompt` is a typed prompt application,
+not `PromptExtern`, and therefore is not a third extern-row alternative.
+Its template/slots remain in the existing provider effect grammar.
+
+Task 7 must emit these same rows in `configuration.providers/prompts`;
+Task 8 consumes them under the definition's selected configuration scope.
+Resolve workflow extern rebinding all the way to the actual row in that
+source scope before building the key. Do not persist
+`WorkflowExternRebindingPlan`'s unresolved tuple of names. Two formal refs
+resolving to the same row have the same binding identity. Different provider
+ids, prompt source kinds, paths or logical asset bases distinguish keys.
+There is no new hash and no whole-scope digest in a row; unused unrelated
+configuration entries still affect the program digest as already required.
+
+`ClosedValue` uses the shared closed-value grammar, canonical type
+projection and no `@`. Every lexical binder/reference **inside that key
+expression** is alpha-normalized by binding traversal, including authored
+local names; this is separate from the body's rule that preserves authored
+names. Literals keep their type tag (`Bool`, `Int`, `Float`, refinements).
+An expression with a runtime free value is closure-converted first: it
+cannot be serialized with a caller's free name. A runtime bind-site
+computation is evaluated once into a capture, not copied into the key's
+closed substitutions. No runtime procedure/workflow reference survives.
+
+#### Capture routes
+
+Every capture row has a nonempty `routes` array, deduplicated and sorted by
+canonical JSON bytes. Capture **rows themselves are not sorted**: their
+order is the actual converted native prefix. Do not merge two independently
+bound captures because their values, types or schemas happen to be equal.
+One row can have multiple routes when one already-bound value is forwarded
+to multiple recipients. Different capture rows cannot claim the same
+terminal recipient field: competing bindings are a defect, not a reason
+to choose a value by array order.
+
+The closed route grammar is:
+
+| Route | Exact array | Owner of the terminal identity |
+| --- | --- | --- |
+| Direct ordinary bound parameter | `["parameter", formal]` | The current declared callable's formal. |
+| Local lexical capture | `["local", n]` | Index in `GeneratedLocalProcedure.capture_names`, before erasing compile-time captures; no captured identifier spelling. |
+| Bound argument of a selected procedure reference | `["reference", [reference_formal, ...], terminal]` | Nonempty path through resolved reference formals. `terminal` is `["parameter", formal]` or `["local", n]` in the selected target. |
+| Caller-only context recipient | `["context", [Hop, ...], native_formal, [[source_path, native_path], ...]]` | Nonempty route through actual retained calls, ending at the original omitted native formal and its typed field paths. |
+
+```text
+Hop = [callee_DId, occurrence]
+source_path = [field_segment, ...]  # relative to this capture's descriptor
+native_path = [field_segment, ...]  # relative to native_formal's descriptor
+```
+
+Every integer here must be a non-Boolean, nonnegative integer. Field paths
+are structural string-segment arrays, with `[]` denoting the root; they are
+not flattened wire names and exclude the caller's parameter/root spelling.
+Context field pairs are unique, sorted by canonical JSON bytes, and retain
+all and only the captured source fields transferred at that recipient. The
+existing structural boundary rule supplies union paths/activity when
+applicable; there is no legacy-mode flag. Destination coverage,
+type/refinement compatibility and any nominal crossing are checked through
+the existing exhaustive `call.boundary` relation, not a whole-record cast.
+
+The starting owner of a context route is the definition whose key holds the
+row. Each hop selects one actual call in that owner's body. `occurrence`
+is its zero-based ordinal among calls to that same `callee_DId` in the full
+semantic traversal already specified for §6, ignoring calls to other
+declarations and all non-call binders/nodes. Traversal enters all specified
+value/body edges but does not inline or enter a callee's definition. The
+next hop starts in the selected callee. Task 4 establishes the ephemeral
+retained-WCC-to-closed-call association during conversion; Task 5 derives
+these same ordinals from closed calls and their callee keys. No new call
+field, effect site or runtime routing table is introduced.
+
+Intermediate converted wrappers carry the suffix of the route beginning
+in their own body. The terminal native callee already owns its ordinary
+context formal; that formal is not a new capture unless independently
+required by another conversion. Captured descriptor `D` remains the caller
+nominal descriptor all the way through forwarding wrappers.
+
+`WccSpecializationCapture.owner_kind == "callee"` supplies direct target
+ownership; `"argument"` plus `argument_index` must first resolve the
+original formal using the retained base signature and reference binding.
+`source_name` is lookup evidence for `BoundProcArg`/local capture metadata,
+never automatically the persisted formal. Generated local captures use
+their ordered metadata index. Thus source aliases and caller spellings
+cannot accidentally become routes.
+
+#### Why a repeated-call ordinal is needed
+
+This is a representational counterexample, not a claim that a new compiled
+source fixture has been admitted or run:
+
+```text
+wrapper(capture A, capture B, ordinary payload):
+    call leaf(payload)   # retained omission selected for A
+    call leaf(payload)   # retained omission selected for B
+```
+
+Both recipients have the same declared `leaf`, native formal `phase__ctx`
+and structural fields. If `A` and `B` share a nominal context type,
+`(leaf, formal, fields)` alone assigns them indistinguishable routes; the
+conversion in which A feeds the first call and B the second must differ
+from the conversion with those recipients exchanged. The exact retained
+call selection, when supplied by the already-admitted binding facts, gives
+occurrences 0 and 1. It does not invent permission to supply two private
+groups. Equivalently, one explicit native binding and one admitted omission
+must not let a capture overwrite the explicitly bound occurrence.
+
+Inserting a pure `let`, renaming any result binder, or inserting a call to
+another declaration changes neither ordinal. Inserting an earlier call to
+the **same** declaration can change it; that changes the relevant call
+structure and is the stated ceiling. Swapping runtime values supplied to
+the same fixed A/B slots changes call inputs only; swapping the slots'
+recipient routes changes the converted definition key.
+
+#### Name derivation and source-independent checks
+
+For a top-level declaration, the readable base is
+`kind + ":" + module + "::" + declared_name`, where `kind` is the exact
+`procedure`/`workflow` key tag. For a local declaration, substitute
+`local_name` for `declared_name`; its enclosing owner and ordinal are
+already in the hashed key. The entry uses its `workflow:` base too.
+The source admits same-name procedures and workflows; this fixed qualifier
+is never selected conditionally by discovering collisions elsewhere in
+the program. A top-level key with all five arrays
+`K[3:8]` empty is unspecialized and uses the base alone. Every other key,
+including every local key and every context-converted key, uses
+`base + "[" + sha256(canonical_json_bytes(K)).hexdigest() + "]"`.
+No independent specialization flag is needed. A frontend specialization
+with no semantic substitutions/captures is canonicalized to its base.
+
+P5 validates the key's shape and canonical order before deriving a name;
+it then requires exact equality to its `definitions` map key. Equal names
+with unequal keys remain a defect; two entries with equal keys and
+different names are invalid too. JSON decoding still owns duplicate-object
+key/nonfinite rejection before the dict-only checker runs.
+
+For `c = len(K[7])`, P5 requires:
+
+1. `definition.params` has `c + len(K[8].params)` entries, unique lexical
+   binders, and the key projections of the first `c` descriptors equal the
+   capture descriptors in order. The remaining descriptors and
+   `definition.result`, after that same accepted generated-run-ref key
+   projection, equal the residual signature.
+2. Capture routes have the declared closed shape. Reference routes resolve
+   through the actual reference-binding facts in the key; local indexes
+   remain slot identities, not claims that an artifact reader can recover
+   the original authored capture spelling. Context hops resolve to actual
+   closed calls by callee `DId` and occurrence. Their source/native paths
+   have valid checked descriptors.
+3. At an annotated call into a converted definition, caller slots `[0:c]`
+   are its capture prefix in the same order and with the same descriptors.
+   A direct pair for native capture slot `j` is `[j,j]`; an unrelated caller
+   slot cannot masquerade as capture `j`. Call argument values are checked
+   against these slots, not compared with values in the key. All remaining
+   direct/projection indices retain the shared exhaustive-partition rules.
+   Being in the residual suffix does not by itself authorize `direct`.
+4. Context forwarding agrees with the persisted route: an intermediate
+   call transfers this already-bound capture to the matching suffix capture
+   in the selected converted callee; terminal transfer/projection sends
+   its identified fields to the identified native formal. Track these
+   existing explicit capture/name/field transfers while checking the body;
+   do not accept a route string merely because a compatible callee exists
+   elsewhere. The internal annotated terminal call also covers every
+   ordinary residual input and both outputs.
+
+These are internal-consistency checks. A coordinated, type-valid change
+to a key, name, body and call arguments is another program, not something
+source-free P5 can authenticate against unavailable historical source.
+Phase 3's stored artifact/run-header digest remains the authenticity check.
+
+#### Capture examples
+
+For declared `sample::add(x: Int, y: Int) -> Int`, runtime-binding `x`
+produces this key; calls with capture values 7 and 11 share the key/name
+and differ only in their first value argument:
+
+```json
+["sample","procedure","add",[],[],[],[],
+ [{"type":{"kind":"primitive","name":"Int"},"routes":[["parameter","x"]]}],
+ {"params":[{"kind":"primitive","name":"Int"}],"result":{"kind":"primitive","name":"Int"}}]
+```
+
+The converted parameter types are `[Int, Int]`: capture first, residual
+`y` second. The name is `procedure:sample::add[<full key hash>]`. A genuinely
+substituted closed literal instead belongs in `values`, with its type tag.
+
+For caller-only context forwarded through native declarations
+`producer::entry -> producer::middle -> producer::run-phase`, the entry's
+capture row retains the full canonical `consumer::PhaseCtx` descriptor and
+this route (the exact full descriptor remains in `type`, not a nominal-only
+label):
+
+```json
+["context",[[["producer","workflow","middle"],0],
+            [["producer","workflow","run-phase"],0]],"phase__ctx",
+ [[["artifact-root"],["artifact-root"]],
+  [["phase-name"],["phase-name"]],
+  [["run","artifact-root"],["run","artifact-root"]],
+  [["run","run-id"],["run","run-id"]],
+  [["run","state-root"],["run","state-root"]],
+  [["state-root"],["state-root"]]]]
+```
+
+`middle` carries the suffix containing only the `run-phase` hop; that
+terminal native callee retains its ordinary `producer::PhaseCtx` formal.
+The outer capture is promoted once at slot 0 and uses direct pair `[0,0]`;
+the terminal nominal crossing uses the complete checked projection. Two
+values of one caller descriptor/routes reuse both converted wrapper keys.
+A different caller nominal, recipient occurrence/formal or field mapping
+changes the keys; relocation, aliases and generated wire prefixes do not.
 
 ### Body nodes
 
@@ -412,13 +833,15 @@ stripped tree (P6, P7).
 - Generated binders (`__wcc_*`, `__spike_*`-style names from the elaborator)
   are renamed `%<n>` per definition, in order of binding. Authored names are
   kept.
-- An unspecialized top-level name is `module::name`; a specialized/local
-  name appends the full SHA-256 of the canonical definition tuple in design
-  §4.2. Persist that tuple as `key`: declaring module, definition kind,
-  declared/local key, type/procedure-reference/workflow-reference/value
-  bindings, explicit capture schema, residual parameter/result types.
-  Maps sort by formal name; ordered arguments/fields retain declaration
-  order. Runtime captures are explicit typed parameters/arguments, never
+- Callable keys and names follow [Canonical definition keys](#canonical-definition-keys):
+  the base is unconditionally `procedure:module::name` or
+  `workflow:module::name`, including the entry. Unspecialized top-level
+  definitions use the base alone; specialized/local/capture-converted names
+  append the full canonical-key SHA-256 in brackets. The same pure
+  `canonical_callee_name_from_key` operation serves builder and checker.
+  Persist the complete nine-component tuple and ordered residual types;
+  sort formal selectors as specified there, retaining argument/field order.
+  Runtime captures are explicit typed parameters/arguments, never
   runtime proc-ref values. Local keys ignore spans, generated names, body
   digests and unrelated pure bindings. Generated run-reference types use
   their canonical input/result structural signature in definition keys;
@@ -446,9 +869,9 @@ stripped tree (P6, P7).
 | --- | --- | --- | --- |
 | 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` |
 | 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (source producers and graph), `workflows.py` (result and signatures), `workflow/loaded_bundle.py`, `build_artifacts.py` (source digests), `build.py` (export selector) |
-| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py` |
-| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `workflow/type_descriptor.py` (boundary projection checking) |
-| 6 | Names that hold no path | C | `closed/names.py`, `type_env.py` (declaring module index) |
+| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py`, `expressions.py`, `typecheck_structural_values.py`, `build_manifest_io.py` (transient loop operand order) |
+| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `closed/names.py` (pure key-to-name helper only), `workflow/type_descriptor.py` (boundary projection checking) |
+| 6 | Names that hold no path | C2 (after 5) | `closed/names.py` (extend with typed construction), `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
 | 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` |
 | 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py`, `closed/build.py` (run-ref finalization call) |
@@ -456,8 +879,9 @@ stripped tree (P6, P7).
 | 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` |
 | 11 | Documents | F | `specs/versioning.md`, `specs/io.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_lisp_evaluated_execution.md` (status lines), `docs/lisp_workflow_drafting_guide.md`, `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md` |
 
-Order: A, then B, then C (Tasks 3, 5 and 6 may run in parallel), then
-C2 (Task 7, after Task 5's validator and helper are merged), then D (Task 4),
+Order: A, then B, then C (Tasks 3 and 5 may run in parallel), then
+C2 (Tasks 6 and 7 may run in parallel after Task 5's validator and pure
+name helper are merged), then D (Task 4),
 then E (Tasks 8 and 9 may run in parallel), then F (Tasks 10 and 11).
 Task 9 initially tests the command-only route from Task 4; its provider and
 run-ref integration selectors run after Task 8 is merged. Task 11's status
@@ -1193,16 +1617,25 @@ Phase 7 removes the flag with the flat route.
 ### Task 5: Sites And The Checked Form
 
 **Files:**
-- Create: `orchestrator/workflow_lisp/closed/sites.py`, `orchestrator/workflow_lisp/closed/check.py`
+- Create: `orchestrator/workflow_lisp/closed/sites.py`, `orchestrator/workflow_lisp/closed/check.py`, `orchestrator/workflow_lisp/closed/names.py` (pure key-to-name helper only; Task 6 extends it)
 - Modify: `orchestrator/workflow/type_descriptor.py` (source-independent compiled-boundary projection validation)
 - Test: `tests/test_workflow_lisp_closed_program_sites.py`, `tests/test_workflow_lisp_closed_program_check.py`
 
 **Read first:** `experiments/evaluated_execution_spike/sites.py` (`_Scope`,
 `_SiteWalker`, `_Validator`) and `table.py` (`to_table`, `_local_sites`);
-design §6 (I1 to I4), P4, P5. These two modules are pure functions over the
-schema above; no compiler import.
+design §6 (I1 to I4), P4, P5, and the complete
+[canonical key schema](#canonical-definition-keys). These modules/helper
+are pure functions over the shared schema; no compiler/frontend import.
 
 **Interfaces:**
+- Produces: `names.canonical_callee_name_from_key(key: list) -> str`, the
+  sole [key-to-name operation](#name-derivation-and-source-independent-checks).
+  Use `workflow.pure_expr.canonical_json_for_pure_value` encoded as UTF-8
+  without a newline and `hashlib.sha256`; do not depend on future
+  `closed/program.py`. `check.py` validates the key's exact shape, formal
+  ordering, reference-binding bijection, resolved extern rows and capture/
+  residual agreement before calling it. Hand-written fixtures use this
+  actual helper, with no placeholder naming algorithm or deferred check.
 - Produces: `sites.SEPARATOR = " / "`;
   `sites.assign_sites(tree: dict) -> list[tuple[str, str]]`: writes
   `site` (the local path) on every `perform` and `frame` (the local prefix
@@ -1251,6 +1684,15 @@ schema above; no compiler import.
   malformed/duplicate JSON keys and nonfinite numbers before typed checking,
   and reject duplicate definition/type/parameter identities rather than
   silently overwriting them.
+- Check every [reference binding](#mandatory-prefboundtarget-agreement)
+  against its converted target facts, including category/type/value and
+  route-based capture-index remapping in nested reference scopes. Validate
+  the exact [resolved extern rows](#exact-resolved-extern-rows-no-opaque-bindingrow)
+  now, before Task 7 produces them. Derive capture prefix indexes and static
+  context-call occurrences from the persisted key and closed bodies; check
+  forwarding suffixes and terminal transfers rather than trusting route
+  labels. The pure name helper gives same-named procedure/workflow keys
+  distinct names without a program-wide collision inventory.
 - Validate the shared `call.boundary` schema independently. Each argument is
   checked once against its aligned caller slot; `direct` pairs and projected
   roots partition both caller and native parameters exactly. Check capture
@@ -1272,8 +1714,8 @@ schema above; no compiler import.
   recipe and fixed runtime record identities. The neutral decoder establishes
   the static config's internal consistency; this checker also establishes
   correspondence with the containing definition/site, node and `types` table.
-- Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 7
-  (`validate` when an artifact is read back).
+- Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 6
+  (the existing pure name helper), Task 7 (`validate` on artifact read-back).
 
 - [ ] **Step 1: Write the failing tests on hand-written trees**
 
@@ -1284,10 +1726,10 @@ in these trees need only `{"k": "perform", "class": "command", "result": {...}, 
 ```python
 def test_three_arms_in_a_loop_give_three_sites_with_the_frame_and_the_loop_segment() -> None:
     # entry body: loop(param "state") whose body binds `got` to a case with three arms,
-    # each arm binding `%1` to a call of "cp/arms_in_loop::fetch"; the definition's body performs one unnamed effect
+    # each arm binding `%1` to a call of "procedure:cp/arms_in_loop::fetch"; the definition's body performs one unnamed effect
     table = assign_sites(t)
-    assert table == [("cp/arms_in_loop::fetch", "#1")]
-    assert [n["frame"] for n in calls(t)] == [f"loop:state[*] / got / {arm} / #1=cp/arms_in_loop::fetch" for arm in (...)]
+    assert table == [("procedure:cp/arms_in_loop::fetch", "#1")]
+    assert [n["frame"] for n in calls(t)] == [f"loop:state[*] / got / {arm} / #1=procedure:cp/arms_in_loop::fetch" for arm in (...)]
 
 def test_a_pure_binding_takes_no_ordinal_and_a_repeated_name_takes_a_counter() -> None:
     # lets: %1 = op, %2 = perform, x = perform, x = perform  ->  sites ["#1", "x", "x#2"]
@@ -1332,9 +1774,20 @@ dropped capture slots, redirected recipient paths, altered capture types,
 wrong direct pairs and missing residual/output coverage. Test missing/incorrect
 configuration scope and effects matched against the wrong owner's binding.
 
+Add valid nine-component keys and tamper their name/hash, formal ordering,
+bound rows (missing/extra/duplicate/category/type/value), nested capture
+indexes of the same type, and capture prefix count/order/types. Exercise
+both callable kinds under one module/name, local capture selectors, every
+exact provider/prompt row variant, and a repeated-same-callee context route
+whose other occurrence has an explicit binding. Pure-binding insertion,
+binder renaming and a call to another declaration leave its occurrence
+unchanged. These key and row checks are complete in Task 5; only their
+production source/descriptor construction waits for the later tasks.
+
 - [ ] **Step 2: Run; expected failure** `ImportError`.
 
-- [ ] **Step 3: Implement** `sites.py` and `check.py` over the shared schema.
+- [ ] **Step 3: Implement** `sites.py`, `check.py` and the pure helper in
+`names.py` over the shared schema.
 Use small node dispatchers as in the spike, with an independent validation
 walk. The spike's small validator is not a full type checker; do not preserve
 its omitted type checks to meet its historical line estimate.
@@ -1349,9 +1802,9 @@ existing nominal and transport validation behavior.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
+`git add -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
 
-`git commit -m "feat: effect sites and the checked form of the closed program" -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
+`git commit -m "feat: effect sites and the checked form of the closed program" -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
 
 **What this makes harder later:** `par-map` (Phase 5) adds an item segment
 `[<index>]` (I2) to the walker and a node kind to the validator; both are
@@ -1362,7 +1815,7 @@ one case each.
 ### Task 6: Names That Hold No Path
 
 **Files:**
-- Create: `orchestrator/workflow_lisp/closed/names.py`
+- Modify: `orchestrator/workflow_lisp/closed/names.py` (Task 5 created the pure key-to-name helper; extend it with typed construction)
 - Modify: `orchestrator/workflow_lisp/type_env.py` (`FrontendTypeEnvironment.from_module`, line 604: the map of nominal descriptor names; a sibling map and a method)
 - Test: `tests/test_workflow_lisp_closed_program_names.py`
 
@@ -1372,9 +1825,14 @@ one case each.
 `proc_ref_specialization_name`); `normalized_type_descriptor.py` lines 102
 to 175 (`_nominal_descriptor_name`: exported types get `module::Name`, a
 non-exported type its bare name, found through the span's file path);
-execution facts A.5; design §4.2 and P6.
+execution facts A.5; design §4.2 and P6; the
+[canonical key schema](#canonical-definition-keys). Merge Task 5 first.
 
 **Interfaces:**
+- Consumes: Task 5's `canonical_callee_name_from_key`. Keep frontend imports
+  under `TYPE_CHECKING` or inside typed constructors so the checker can
+  import the pure helper without loading the frontend. Do not import
+  `closed.check` or `closed.program` into `names.py`.
 - Produces: `FrontendTypeEnvironment.declaring_module(type_ref: TypeRef) -> str | None`:
   the `defmodule` name of the module that declares the nominal type behind
   `type_ref` (`RecordDef`, `UnionDef`, `EnumDef`, `PathDef`, `SchemaDef`),
@@ -1404,24 +1862,34 @@ execution facts A.5; design §4.2 and P6.
     Preserve refinements/path roots. Do not change the old descriptor route.
   - `canonical_definition_key(definition, *, typed, binding_facts,
     capture_parameters, residual_signature) -> list`: construct the complete
-    §4.2 tuple. Task 4 supplies checked closed value expressions and explicit
-    capture parameters before calling this function. Procedure-reference
+    [shared nine-component tuple](#canonical-definition-keys). Task 4 supplies
+    checked closed value expressions and explicit capture parameters before
+    calling this function. Procedure-reference
     facts include recursive target keys, residual signatures and every bound
     argument's formal/type/closed binding; workflow-reference facts include
-    canonical workflow keys and resolved extern rebinding. Alpha-normalize
-    bound value expressions, retaining tagged primitive kinds. Runtime capture
+    canonical workflow keys and the exact resolved provider/prompt rows.
+    Derive `PRef.target`, its bound rows and residual signature from one
+    resolved binding plus merged specialization facts; enforce the shared
+    category/type/value/capture-route bijection and ordered residual partition.
+    Alpha-normalize bound value expressions, retaining tagged primitive kinds. Runtime capture
     facts identify owning formal/argument routes and types, not caller names
     or runtime values. Caller-only private context captures use this same schema:
-    canonical recipient/formal routes and the caller's canonical captured type,
+    declaration-only recipient/formal routes, per-callee static call
+    occurrences, typed field paths and the caller's canonical captured type,
     excluding import aliases, generated wire prefixes, paths and spans. Two
     values of that type/routes share a body; distinct nominal capture types
     may require distinct converted keys. Memoize by the complete converted
     key; context conversion uses the existing specialized-name rule.
-    Sort binding maps by formal, preserve ordered fields.
-  - `canonical_callee_name(definition, *, key) -> str`: use `module::name`
-    only for an unspecialized top-level definition; append full SHA-256 of
-    canonical JSON key otherwise. Store `key` beside the body and refuse
-    equal names with unequal keys as a compiler defect. A local definition
+    Sort formal selectors as the shared schema specifies; preserve ordered
+    fields. The historical `typed.local_definition_keys` six-tuple supplies
+    owner/name/ordinal metadata, not the wire key: resolve types from typed
+    facts and local captures by index, never copy `(name, type_name)` rows.
+  - `canonical_callee_name(definition, *, key) -> str`: delegate to Task 5's
+    pure `canonical_callee_name_from_key`. Bases are unconditionally
+    `procedure:module::name` or `workflow:module::name`; the shared rule
+    appends the key hash for local/specialized/capture-converted definitions.
+    Store `key` beside the body and refuse equal names with unequal keys as
+    a compiler defect. A local definition
     uses `typed.local_definition_keys` and existing generated-local metadata,
     never `definition.name`'s span hash. No value/workflow/ref/capture form
     is turned into a release gap.
@@ -1447,7 +1915,7 @@ def test_a_specialized_callee_is_named_by_its_base_and_canonical_arguments(tmp_p
     typed = compile(tmp_path, fixture("if_in_hook"))
     (spec,) = [p for p in typed.procedures.values() if p.specialization is not None and p.specialization.base_name == "std/improve::improve"]
     key = canonical_definition_key(spec, typed=typed, **closed_binding_facts(spec))
-    assert canonical_callee_name(spec, key=key) == "std/improve::improve[" + sha256(canonical_json(key)).hexdigest() + "]"
+    assert canonical_callee_name(spec, key=key) == "procedure:std/improve::improve[" + sha256(canonical_json(key)).hexdigest() + "]"
     # Inspect the tuple too: all four type bindings and both reference targets are retained.
 
 def test_private_type_identities_and_descriptors_are_recursively_qualified(tmp_path) -> None:
@@ -1475,12 +1943,18 @@ Use existing bound-reference forwarding and let-proc fixtures; Task 4 adds
 public-builder checks once conversion exists. No placeholder capture helper
 is a production dependency of this task: key unit cases use explicit plain
 binding facts; public integration follows in Task 4.
+Include one source-admitted same-name procedure/workflow pair, both reached
+by the entry, and require distinct kind-qualified names. Exercise local
+compile-time and runtime capture selectors, nested bound-reference index
+scopes and each fixed resolved extern row. Different runtime capture values
+reuse keys; changes in caller nominal descriptors or recipient routes do not.
 
 - [ ] **Step 2: Run; expected failures** `ImportError`; then missing binding
 facts or bare private nominal names until implemented.
 
 - [ ] **Step 3: Implement.** `declaring_module` first (a map beside the existing one), then recursive
-descriptors and complete key/name functions in `names.py`. Do not reuse
+descriptors and complete key constructors in `names.py`, preserving the
+single pure key-to-name helper. Do not reuse
 `repr`, generated local names or raw typechecker run-ref result names.
 
 - [ ] **Step 4: Run; expected pass.**
@@ -1582,6 +2056,14 @@ unless added there; do not add it).
   enter these rows. Artifact validation checks scope digests/references and
   effects under their owning scope. All rows and `call.boundary` participate
   in semantic identity and read-back; no special unvalidated side file.
+- Emit the exact [resolved extern rows](#exact-resolved-extern-rows-no-opaque-bindingrow)
+  already checked by Task 5: providers use `{provider_id}`; prompts use
+  `{source_kind, path, asset_base}` for `asset_file`, or `{source_kind, path}`
+  for `input_file`. Reuse `ProviderExtern`, `PromptExtern` and the existing
+  normalization owners; retain the producer's logical asset base and exact
+  bound path. No alias/provenance wrapper, policy/template payload or new
+  binding hash is introduced. The same rows serve `WRef.externs` and the
+  selected root/imported configuration; Task 8 consumes them.
 - Keep `closure` out of old-target binding serialization/fingerprints even
   when explicitly supplied: inspect `_json_data` and every boundary payload
   producer, and omit it in the old route's projection, not globally in the
@@ -1674,6 +2156,10 @@ unused producer binding changes program identity; scope/key changes that
 mismatch the selected effect fail checked read-back. Equal configurations
 share one row, and relocation/provenance changes add no incidental paths.
 These checks exercise the semantic projection, not raw bundle fingerprints.
+Round-trip both prompt source variants and resolved provider ids, asserting
+the same rows in workflow-reference keys and their selected configuration.
+Reject mixed/extra/missing keys and an asset base on `input_file`; preserve
+the producing owner's logical base for `asset_file` after relocation.
 
 - [ ] **Step 3: Implement** the artifact, canonical configuration and
 closure carriage/old-route omission in their existing owners.
@@ -1812,6 +2298,8 @@ class Builder:
   signatures. Resolve an explicit alias through that owner's selected import
   entry before emitting its canonical callee. Register Task 7's canonical
   configuration row for each imported owner and select it on its definitions.
+  Keep workflow and procedure declaration kinds distinct in this index;
+  same source `module::name` does not imply one closed callable identity.
 - Rules this task implements, each cited:
   - P1: `call` → `{"k": "call", "callee": canonical, "args": [...]}`; the
     callee's body elaborated once with `elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name, type_env=d.source_program.procedure_type_env(procedure), value_env=_procedure_signature_local_type_bindings(procedure), workflow_return_types=<every workflow's return type>, procedure_return_types=<every procedure's, generic templates excluded (case e)>, route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)`,
@@ -1834,13 +2322,20 @@ class Builder:
   - Before P1 names are computed, convert existing `BoundProcArg`, value/
     workflow/reference specialization facts and generated local capture facts
     into closed bindings. Substituted compile-time expressions enter the full
-    key; runtime captures become leading typed residual parameters with call
-    arguments, evaluated once at their lexical binding before forwarding.
+    key; runtime captures become a leading typed capture prefix before
+    the residual parameters, with call arguments evaluated once at their
+    lexical binding before forwarding.
     Preserve the existing `_procedure_signature_local_type_bindings` and
     forwarding rules; never retain surface expressions or runtime refs in
     the artifact. Two captures of the same body share a definition; differing
     substitutions/reference targets/rebindings do not. The plain converted
     facts feed Task 6; no extra closure framework/module is needed.
+    Use the exact [key grammar](#canonical-definition-keys), derive each
+    `PRef.target`/bound/residual view from one resolved binding, and preserve
+    the shared bound-formal bijection. Generated-local metadata supplies
+    owner/name/ordinal and capture indexes; its historical raw capture/type
+    names are not the wire schema. Resolve workflow externs to Task 7's
+    exact rows, never an unresolved rebinding alias tuple.
   - For an admitted bundle exposing a private formal absent from its native
     entry, perform the shared context-capture conversion before computing
     keys. Match exact omitted recipients through the owner's resolved typed/
@@ -1854,6 +2349,10 @@ class Builder:
     matching recipient originally fed by the group, not the first compatible
     type; unrelated edges gain no capture. An unaccounted admitted group is a
     translation defect to repair, not a new release exclusion.
+    Associate actual retained calls with their closed nodes and use the
+    shared declaration-only/per-callee-occurrence routes; forwarding wrappers
+    carry suffixes. No converted-key/hash cycle, runtime routing table or
+    source-position/binder-derived discriminator is needed.
   - P2: every `WccOpaqueFrontendValue` is translated in `values.py`:
     `UnionVariantTagExpr` → `lit`; `LoopStateSeedExpr` → `record` (type: the
     carrier descriptor); `LoopStateUpdateExpr` → `op` with a `record_update`
@@ -1915,7 +2414,7 @@ Through `build(root, sources)` of the helpers module (`install`,
 ```python
 def test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames(tmp_path) -> None:
     closed = build(tmp_path, fixture("three_call_sites"))
-    callee = "cp/three_call_sites::fetch"
+    callee = "procedure:cp/three_call_sites::fetch"
     assert sorted(closed.tree["definitions"]) == [callee]
     assert closed.sites == ((callee, "#1"),)
     assert [c["frame"] for c in calls(closed.tree["body"])] == [f"{n}={callee}" for n in ("a", "b", "c")]
@@ -1931,13 +2430,17 @@ def test_the_program_holds_no_surface_object(tmp_path) -> None:
         assert_all_leaves_are_json_values(closed.tree)  # no frontend Expr/TypeRef objects
 
 def test_an_effectful_argument_gives_two_frames_in_source_order(tmp_path) -> None:
-    # (fetch (inc 4)): ordered frames #1=...::inc then #2=...::fetch;
+    # (fetch (inc 4)): ordered frames #1=procedure:...::inc then #2=procedure:...::fetch;
     # sites are only the performs in the two callee definitions.
 
 def test_all_reference_bindings_and_runtime_captures_close(tmp_path) -> None:
     # Public builds: same-base value/workflow specializations differ; bound proc refs forward;
     # one captured computation is bound once before two calls, both passing that same value;
     # nested let-proc captures work and no runtime ProcRef or surface Expr survives.
+
+def test_same_named_procedure_and_workflow_are_distinct_closed_definitions(tmp_path) -> None:
+    # One entry reaches both admitted callable kinds; retain both bodies under
+    # procedure:collision::same and workflow:collision::same, then read back.
 
 def test_imported_old_target_loop_in_branch_builds_without_flat_lowering(tmp_path) -> None:
     # Task 2's imported fixture now reaches ClosedProgram and passes from_artifact.
@@ -1970,7 +2473,7 @@ def test_a_recursive_call_is_a_gap_at_the_call(tmp_path) -> None:
 def test_a_command_node_carries_its_boundary_closure_contract_and_repeat_rule(tmp_path) -> None:
     closed = build(tmp_path, fixture("three_call_sites"),
                    boundaries={"fetch": ExternalToolBinding("fetch", ("python", "probe.py"), closure=("probe.py",), must_not_repeat=True)})
-    (node,) = performs(closed, "cp/three_call_sites::fetch")
+    (node,) = performs(closed, "procedure:cp/three_call_sites::fetch")
     assert (node["class"], node["boundary"], node["command"], node["closure"], node["repeat"], node["contract"]["kind"]) == \
         ("command", "fetch", ["python", "probe.py"], [{"base": "workspace", "path": "probe.py"}], "never", "output_bundle")
     assert "path" not in node["contract"]["payload"]
@@ -2075,17 +2578,20 @@ execution facts A.2 and A.4.
 
 **Interfaces:**
 - Consumes: Task 4's `translate_perform`, `Builder.value`, `Builder.desc`,
-  `ClosedProgramGap`.
+  `ClosedProgramGap`; Task 7's exact resolved provider/prompt configuration
+  rows and the shared structural key projection for generated run-ref types.
 - Produces: two more branches of `translate_perform`, each a `perform` node
   of the schema:
   - `provider_result`: `provider` = `d.externs[target].provider_id`;
+    it agrees with the selected configuration's `{provider_id}` row.
     `prompt` preserves `PromptExtern.source_kind` and exact bound `path`.
     `asset_file` carries the logical entry asset base used by the current
     lookup; `input_file` retains workspace/input lookup semantics. Never
     prepend an asset root or reinterpret an input file. Resolve imported
     extern rebindings through the typed module environment, not only the
-    entry's alias map. For `defprompt`, emit template and the ordered typed
-    slot rows defined above. Preserve `doc` references as required content
+    entry's alias map, and use the same exact prompt row as `WRef.externs`
+    and the selected configuration. For `defprompt`, emit template and the
+    ordered typed slot rows defined above. Preserve `doc` references as required content
     injections (prepend, declaration order), with no renderer; other slots
     retain renderer, repeated placeholder positions, refinements and output
     roles/expected-output facts. Reuse semantic projections from
@@ -2349,7 +2855,7 @@ def test_compile_writes_the_closed_program_and_its_manifest(tmp_path) -> None:
     program = ClosedProgram.from_artifact((build_dir / "closed_program.json").read_text())
     manifest = json.loads((build_dir / "manifest.json").read_text())
     assert (summary["program_digest"], manifest["program_digest"], manifest["build_key"]) == (program.digest, program.digest, build_dir.name)
-    assert program.tree["entry"] == "grt/entry::run" and program.sites
+    assert program.tree["entry"] == "workflow:grt/entry::run" and program.sites
 
 def test_two_builds_of_one_source_at_two_paths_give_one_digest_and_one_build_key(tmp_path) -> None:   # Review focus 5, P7
     a = compile_cli(write(tmp_path / "here")); b = compile_cli(write(tmp_path / "elsewhere" / "deeper"))
