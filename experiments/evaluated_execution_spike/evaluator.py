@@ -195,6 +195,7 @@ class _Evaluator:
         self.trace: list[str] = []
         self.diagnostics: list[dict[str, Any]] = []
         self.reads: set[str] = set()  # the effects whose results the value being computed read
+        self.result_file = ""  # the result file of the last effect reached, relative to the workspace
 
     def traced(self, compute: Callable[[], Any]) -> tuple[Any, frozenset[str]]:
         """`compute()`, and the identities of the effects whose results it read."""
@@ -228,6 +229,8 @@ class _Evaluator:
 
     def step_let(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
         env[node["name"]], env[_dep(node["name"])] = self.traced(lambda: self.bound(node["value"], env))
+        if node["value"]["k"] == "perform":
+            env[("path", node["name"])] = self.result_file
         return node["body"]
 
     def step_if(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
@@ -329,6 +332,17 @@ class _Evaluator:
             local[let["name"]] = self.bound(let["value"], local)
         return self.value(arm["value"], local)
 
+    def value_result_path(self, node: dict[str, Any], env: dict[str, Any]) -> str:
+        """`provider-bundle-path`: the committed attempt's result file, relative to the workspace."""
+
+        self.reads |= env.get(_dep(node["n"]), _NONE)
+        return env[("path", node["n"])]
+
+    def value_context(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
+        """A value of the run itself, the same on every resume: its identity is the run root's name."""
+
+        return {"run-id": self.run_root.name}[node["field"]]
+
     def value_block(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
         return _expect_halt(self.body(node["body"], env), "a value block")
 
@@ -397,6 +411,7 @@ class _Evaluator:
         self.trace.append(identity)
         entry = self.memo.entry(identity)
         if entry.committed is not None:
+            self.result_file = self.performers.relative(self.run_root / entry.committed.get("result_path", "."))
             if entry.committed["input_digest"] == digest:
                 if node["class"] in self.coordinators:
                     self.coordinators[node["class"]].reconcile(node, identity, entry.committed.get("proof"))
@@ -429,12 +444,14 @@ class _Evaluator:
         self.trace.append(identity)
         if entry.committed is None:
             raise Pending(identity, entry)
+        self.result_file = self.performers.relative(self.run_root / entry.committed.get("result_path", "."))
         return entry.committed["value"]
 
     def attempt(self, node, identity, attempt, resolved, digest, inputs) -> Any:
         """`inputs`: the digest of each part of the resolved input, and the effects whose results it read."""
 
         path = result_path(self.run_root, identity, attempt)
+        self.result_file = self.performers.relative(path)
         record = {"identity": identity, "attempt": attempt, "input_digest": digest}
         self.hook("resolved", identity)
         self.memo.append({**record, "record": "started", "input_parts": inputs["input_parts"],

@@ -8,7 +8,8 @@ Node kinds of the closed program, all plain JSON:
          continue (loop, args), done (value)
 - bound: perform (class, ..., site), call (callee, params, args, body), or a value
 - value: lit (v), name (n), field (base, path), record (fields), inject (variant, fields),
-         op (payload, args), select (cond, then, else: prefix + value), list (items), block (body)
+         op (payload, args), select (cond, then, else: prefix + value), list (items), block (body),
+         context (field: a value of the run, `run-id`), result_path (n: the result file of the effect bound to n)
 
 A site is the lexical path from the entry to a `perform`: the entry's name, then
 one segment per enclosing construct. A call is `<binder>=<callee>`, a branch

@@ -13,9 +13,21 @@ from dataclasses import fields, is_dataclass, replace
 from typing import Any
 
 from orchestrator.workflow_lisp.conditionals import _contains_effect
-from orchestrator.workflow_lisp.expressions import DoneExpr, LetStarExpr, MatchExpr, NameExpr
+from orchestrator.workflow_lisp.expressions import (
+    CallExpr,
+    CommandResultExpr,
+    DoneExpr,
+    LetStarExpr,
+    MatchExpr,
+    NameExpr,
+    ProcedureCallExpr,
+    ProviderResultExpr,
+)
 
 _EXPRESSION_MODULES = frozenset({"orchestrator.workflow_lisp.expressions", "orchestrator.workflow_lisp.prompts"})
+# The argument fields of an effectful call: expressions, or (name, expression) pairs.
+_ARGUMENTS = {ProcedureCallExpr: ("args",), CallExpr: ("bindings",), CommandResultExpr: ("argv", "adapter_inputs"),
+              ProviderResultExpr: ("inputs",)}
 
 
 def elaboration_return_types(procedures: dict[str, Any]) -> dict[str, Any]:
@@ -36,11 +48,13 @@ def elaboration_return_types(procedures: dict[str, Any]) -> dict[str, Any]:
 
 
 def bind_done_values(typed_body: Any) -> Any:
-    """Defects done-call and done-match of the totality matrix (P2).
+    """Defects done-call and done-match of the totality matrix (P2), and an effectful call as an argument.
 
     `_elaborate_expr_to_value` has no rule for an effect or a `match` written as
-    a `done` value. The change: bind it with `let*` first, as
-    `_bind_effectful_loop_state_fields` does for a `continue` state field.
+    a `done` value, nor for an effectful call as the argument of another effectful
+    call (`(fetch (inc 4))`). The change: bind it with `let*` first, as
+    `_bind_effectful_loop_state_fields` does for a `continue` state field; the
+    arguments of one call in source order.
     """
 
     counter = itertools.count(1)
@@ -54,6 +68,25 @@ def bind_done_values(typed_body: Any) -> Any:
             bindings=((name, node.result_expr),), body=replace(node, result_expr=NameExpr(name=name, **where)), **where
         )
 
+    def bind_arguments(node: Any) -> Any:
+        where = {"span": node.span, "form_path": node.form_path, "expansion_stack": node.expansion_stack}
+        bindings: list[tuple[str, Any]] = []
+
+        def named(expr: Any) -> Any:
+            if isinstance(expr, NameExpr) or not _contains_effect(expr):
+                return expr
+            bindings.append((f"__spike_arg_{next(counter)}", expr))
+            return NameExpr(name=bindings[-1][0], **where)
+
+        changes = {}
+        for name in _ARGUMENTS[type(node)]:
+            items = getattr(node, name)
+            pairs = bool(items) and isinstance(items[0], tuple)
+            changes[name] = tuple((key, named(e)) for key, e in items) if pairs else tuple(named(e) for e in items)
+        if not bindings:
+            return node
+        return LetStarExpr(bindings=tuple(bindings), body=replace(node, **changes), **where)
+
     def rewrite(node: Any) -> Any:
         if isinstance(node, tuple):
             items = tuple(rewrite(item) for item in node)
@@ -62,6 +95,8 @@ def bind_done_values(typed_body: Any) -> Any:
             return node
         changes = {f.name: new for f in fields(node) if (new := rewrite(getattr(node, f.name))) is not getattr(node, f.name)}
         node = replace(node, **changes) if changes else node
+        if type(node) in _ARGUMENTS:
+            return bind_arguments(node)
         return bind(node) if isinstance(node, DoneExpr) else node
 
     expr = rewrite(typed_body.expr)
