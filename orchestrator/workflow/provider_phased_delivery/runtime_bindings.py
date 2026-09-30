@@ -125,7 +125,9 @@ class _WorkflowPhasedProviderAttemptBindings:
             raise ValueError("phased bindings require explicit phased delivery")
         timeout_sec = step.get("timeout_sec", 3600)
         if not is_finite_positive_number(timeout_sec):
-            raise ValueError("phased timeout_sec must be positive")
+            raise ValueError(
+                f"phased timeout_sec value={timeout_sec!r}; minimum_exclusive=0; finite_required=true"
+            )
         self._attempt_timeout_sec = timeout_sec
         self.executor = executor
         self.step = step
@@ -261,7 +263,9 @@ class _WorkflowPhasedProviderAttemptBindings:
         else:
             timeout = self.step.get("timeout_sec", 3600)
         if not is_finite_positive_number(timeout):
-            raise ValueError("phased timeout_sec must be positive")
+            raise ValueError(
+                f"phased timeout_sec value={timeout!r}; minimum_exclusive=0; finite_required=true"
+            )
         return float(time.monotonic() + timeout)
 
     def _resolved_runtime_context(self) -> RuntimeContext:

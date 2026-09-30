@@ -7,6 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import time
@@ -68,6 +69,7 @@ _SCORER_CONFIG_KEYS = {
     "evidence_limits",
     "evidence_confidentiality",
 }
+logger = logging.getLogger(__name__)
 
 
 class TrialEvaluationError(ValueError):
@@ -322,11 +324,18 @@ def evaluate_trial_packets(
         or max_evaluator_concurrency < 1
         or max_evaluator_concurrency > max_evaluator_attempts
     ):
-        raise TrialEvaluationError("trial evaluator attempt budget is invalid")
+        raise TrialEvaluationError(
+            "trial evaluator attempt budget is outside its bounds; "
+            f"max_evaluator_attempts={max_evaluator_attempts!r}, minimum=1; "
+            f"max_evaluator_concurrency={max_evaluator_concurrency!r}, "
+            f"minimum=1, maximum={max_evaluator_attempts!r}"
+        )
     if deadline_unix_ns is not None and (
         type(deadline_unix_ns) is not int or deadline_unix_ns < 0
     ):
-        raise TrialEvaluationError("trial evaluator deadline is invalid")
+        raise TrialEvaluationError(
+            f"trial evaluator deadline value={deadline_unix_ns!r}; minimum=0"
+        )
     if not callable(wall_time_ns):
         raise TypeError("trial evaluator wall clock must be callable")
 
@@ -477,7 +486,11 @@ def evaluate_trial_packets(
         if row["charged_attempts"] != expected_attempts:
             raise TrialEvaluationError("persisted trial score attempt authority disagrees")
     if preflight_replay.charged_attempt_count > max_evaluator_attempts:
-        raise TrialEvaluationError("persisted evaluator attempts exceed the trial budget")
+        raise TrialEvaluationError(
+            "persisted evaluator attempts exceed the trial budget; "
+            f"attempts_used={preflight_replay.charged_attempt_count}, "
+            f"max_evaluator_attempts={max_evaluator_attempts}"
+        )
 
     existing_score_events = {
         row.payload["opaque_label"]: row
@@ -622,7 +635,11 @@ def evaluate_trial_packets(
     pending = [label for label in labels if states[label]["settled_row"] is None]
     attempts_used = replay.charged_attempt_count
     if attempts_used > max_evaluator_attempts:
-        raise TrialEvaluationError("persisted evaluator attempts exceed the trial budget")
+        raise TrialEvaluationError(
+            "persisted evaluator attempts exceed the trial budget; "
+            f"attempts_used={attempts_used}, "
+            f"max_evaluator_attempts={max_evaluator_attempts}"
+        )
 
     def persist_rows() -> None:
         materialize_run_score_ledger(
@@ -634,10 +651,14 @@ def evaluate_trial_packets(
             score_ledger_path,
         )
 
+    deadline_observed_ns: int | None = None
+
     def deadline_expired() -> bool:
+        nonlocal deadline_observed_ns
         if deadline_unix_ns is None:
             return False
-        return wall_now_ns() >= deadline_unix_ns
+        deadline_observed_ns = wall_now_ns()
+        return deadline_observed_ns >= deadline_unix_ns
 
     evaluator_workspace.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=max_evaluator_concurrency) as pool:
@@ -785,11 +806,27 @@ def evaluate_trial_packets(
                         terminal_attempt_settlement_row_digest=settlement.row_digest,
                     )
 
+    deadline_exhausted = bool(pending and deadline_expired())
     exhausted_code = (
         "trial_evaluator_deadline_exhausted"
-        if pending and deadline_expired()
+        if deadline_exhausted
         else "trial_evaluator_attempts_exhausted"
     )
+    if pending:
+        deadline_detail = (
+            f", observed_unix_ns={deadline_observed_ns}, "
+            f"deadline_unix_ns={deadline_unix_ns}"
+            if deadline_unix_ns is not None
+            else ""
+        )
+        logger.warning(
+            "trial evaluator stopped with pending packets: %s, attempts_used=%s, "
+            "max_evaluator_attempts=%s%s",
+            exhausted_code,
+            attempts_used,
+            max_evaluator_attempts,
+            deadline_detail,
+        )
     for label in pending:
         row = _score_row(
             trial_request_digest=trial_request_digest,
