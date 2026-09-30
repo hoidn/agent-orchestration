@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -42,11 +43,13 @@ def result_path(run_root: Path, identity: str, attempt: int) -> Path:
 
 
 def render_argument(value: Any) -> str:
+    """A value in a command's argv, rendered as the present route's variable substitution renders it."""
+
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (str, int)):
+    if isinstance(value, (str, int, float)):
         return str(value)
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return json.dumps(value)
 
 
 def project(value: Any, desc: dict[str, Any]) -> Any:
@@ -120,6 +123,11 @@ class Performers:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
 
+    def relative(self, path: Path) -> str:
+        """A result path as the present route gives it to a provider or a command: relative to the workspace."""
+
+        return os.path.relpath(path, self.workspace)
+
     def declared_files(self, tokens: list[str], closure: list[str] | None) -> dict[str, Any]:
         """What a command runs, bound by the `declared` rule: each token of the stable command that names a
         workspace path, the program (the first token) resolved on PATH now when it is a bare name, and each
@@ -174,7 +182,7 @@ class Performers:
 
     def command(self, resolved: dict[str, Any], path: Path) -> dict | None:
         executor = StepExecutor(self.workspace, logs_dir=path.parent)
-        result = executor.execute_command("command", resolved["command"], env={BUNDLE_ENV: str(path)})
+        result = executor.execute_command("command", resolved["command"], env={BUNDLE_ENV: self.relative(path)})
         (path.parent / "stdout.txt").write_text(result.capture_result.output or "", encoding="utf-8")  # evidence
         if result.exit_code != 0:
             return {"code": "command_failed", "exit_code": result.exit_code, "error": result.error}
@@ -187,7 +195,7 @@ class Performers:
         executor = ProviderExecutor(self.workspace, ProviderRegistry())
         invocation, error = executor.prepare_invocation(
             provider_name=resolved["provider"], params=ProviderParams(params={}), context={}, prompt_content=prompt,
-            session_request=None, env={BUNDLE_ENV: str(path)}, secrets=None, timeout_sec=policy.get("timeout_sec"),
+            session_request=None, env={BUNDLE_ENV: self.relative(path)}, secrets=None, timeout_sec=policy.get("timeout_sec"),
             provider_call_policy={key: policy[key] for key in ("model", "effort") if key in policy},
             provider_session_dir=None, provider_session_identity=None,
         )
