@@ -3362,7 +3362,7 @@ def test_resume_rejects_second_writer_before_state_or_provider_mutation(
         after = _persisted_tree_snapshot(manager.run_root)
 
     captured = capsys.readouterr()
-    assert result == 1
+    assert result == 2
     assert "run_already_active" in captured.err
     assert not mock_executor.called
     assert after == before

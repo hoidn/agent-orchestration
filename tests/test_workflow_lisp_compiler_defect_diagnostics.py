@@ -64,6 +64,39 @@ JUDGE = """(workflow-lisp
 """
 
 
+# Task 5 review 3, finding 1: a scalar effectful call written in a `loop-state :like` field.
+# Procedure lowering asserts that the procedure's private workflow returns a record or a union.
+TICK = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.33")
+  (defmodule grt/entry)
+  (export run)
+  (defproc tick ((n Int)) -> Int
+    :effects ((uses-command tick))
+    :lowering inline
+    (command-result tick :argv ("python" "PROBE" n) :returns Int))
+  (defworkflow run () -> Int
+    (loop/recur :max 2
+      :state (loop-state (n Int 0))
+      :on-exhausted state.n
+      (fn (state)
+        (if (= state.n 1)
+            (done state.n)
+            (continue (loop-state :like state :n (tick (+ state.n 1)))))))))
+"""
+
+TICK_PROBE = """import json, os, sys
+from pathlib import Path
+with open(Path(__file__).with_suffix(".log"), "a", encoding="utf-8") as log:
+    log.write(f"tick {sys.argv[1]}\\n")
+bundle = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+if bundle:
+    Path(bundle).parent.mkdir(parents=True, exist_ok=True)
+    Path(bundle).write_text(sys.argv[1], encoding="utf-8")
+print(sys.argv[1])
+"""
+
+
 def _diagnostics(caplog: pytest.LogCaptureFixture) -> list[tuple[str, ...]]:
     """(path, line, column, code, message) of each diagnostic the run logged."""
 
@@ -93,6 +126,14 @@ def _run_judge(root: Path, monkeypatch: pytest.MonkeyPatch):
     _write_sources(root, {"grt/entry.orc": JUDGE})
     monkeypatch.chdir(root)
     return _public_run(_public_run_files(root, {})).exit_code, JUDGE, []
+
+
+def _run_tick(root: Path, monkeypatch: pytest.MonkeyPatch):
+    probe = _write_probe(root, "tick", TICK_PROBE)
+    _write_sources(root, {"grt/entry.orc": TICK.replace("PROBE", probe.as_posix())})
+    monkeypatch.chdir(root)
+    exit_code = _public_run(_public_run_files(root, {"tick": probe})).exit_code
+    return exit_code, (root / "grt" / "entry.orc").read_text(encoding="utf-8"), _log(probe)
 
 
 def _run_branch_value_at_232(root: Path, monkeypatch: pytest.MonkeyPatch):
@@ -127,6 +168,7 @@ CASES = {
         "lowering",
         "ValueError: pure boolean conditions require WCC pure-projection lowering",
     ),
+    "assertion-error-in-lowering": (_run_tick, "(tick (+ state.n 1))", "lowering", "AssertionError"),
 }
 
 
@@ -146,11 +188,13 @@ def test_an_internal_exception_after_typecheck_is_a_compiler_defect_at_the_form_
         [row[:4] for row in found],
         commands,
         {part: part in message for part in ("passed typecheck", "defect of the compiler", stage, internal)},
+        "Traceback" in caplog.text,
     ) == (
         2,
         [(str(tmp_path / "grt" / "entry.orc"), *_location(source, form), "compiler_defect")],
         [],
         dict.fromkeys(("passed typecheck", "defect of the compiler", stage, internal), True),
+        False,
     ), caplog.text
 
 
@@ -178,7 +222,7 @@ def test_a_program_that_compiles_runs_as_before(tmp_path: Path, monkeypatch: pyt
 @pytest.mark.parametrize(
     ("raised", "outcome"),
     [(AssertionError, 1), (MemoryError, 1), (KeyboardInterrupt, KeyboardInterrupt)],
-    ids=["assertion", "memory-error", "keyboard-interrupt"],
+    ids=["harness-assertion", "memory-error", "keyboard-interrupt"],
 )
 def test_assertions_memory_errors_and_interrupts_are_not_converted(
     tmp_path: Path,
@@ -187,6 +231,8 @@ def test_assertions_memory_errors_and_interrupts_are_not_converted(
     raised: type[BaseException],
     outcome: object,
 ) -> None:
+    """The failure is raised by the test's stand-in for a compiler stage, not by the compiler's code."""
+
     def fail(*_args: object, **_kwargs: object) -> None:
         raise raised("injected")
 
