@@ -42,7 +42,7 @@ from ..expressions import (
     UnionVariantExpr,
     UnionVariantTagExpr,
 )
-from ..expression_traversal import walk_expr
+from ..expression_traversal import iter_child_exprs, walk_expr
 from ..normalized_type_descriptor import (
     _cached_module_export_info,
     _module_export_info,
@@ -75,6 +75,27 @@ from .values import ProjectedPathRef, _resolve_inline_expr_value
 
 PURE_PROJECTION_EFFECT_KIND = "pure_projection"
 _LEXICAL_LOCAL_BINDING = object()
+_INLINE_LOCAL_VALUE_EXPR_TYPES = (
+    FieldAccessExpr,
+    EnumMemberExpr,
+    IfExpr,
+    LetStarExpr,
+    ListExpr,
+    ListMapExpr,
+    CompilerListNonemptyHeadExpr,
+    LiteralExpr,
+    NameExpr,
+    PathJoinUnderExpr,
+    PureOpExpr,
+    RecordExpr,
+    RecordUpdateExpr,
+    UnionVariantExpr,
+)
+_SHAREABLE_LOCAL_VALUE_EXPR_TYPES = tuple(
+    expr_type
+    for expr_type in _INLINE_LOCAL_VALUE_EXPR_TYPES
+    if expr_type not in {FieldAccessExpr, EnumMemberExpr, LiteralExpr}
+)
 
 
 @dataclass(frozen=True)
@@ -364,15 +385,93 @@ def build_pure_projection_payload(
 
     bindings: dict[str, dict[str, Any]] = {}
     binding_refs: dict[str, Any] = {}
+    diagnostic_sources: dict[int, tuple[str, str, int, int]] = {}
+    shared_names: set[str] = set()
+    if target_dsl_supports_pure_call_composition(
+        getattr(context.type_env, "target_dsl_version", "") or ""
+    ):
+        shared_names = {
+            name
+            for name, (eager_uses, lazy_uses) in _expanded_local_name_uses(
+                expr,
+                local_values=local_values,
+            ).items()
+            if name in context.local_type_bindings
+            and _is_shareable_local_value(
+                local_values.get(name),
+                context.local_type_bindings[name],
+            )
+            and eager_uses + lazy_uses > 1
+            and (
+                lazy_uses == 0
+                or _is_lazy_safe_local_value(
+                    local_values.get(name),
+                    context.local_type_bindings[name],
+                )
+            )
+        }
+    lexical_bindings: dict[str, Any] = {}
+    lexical_types: dict[str, TypeRef] = {}
+    payload_bindings: list[dict[str, Any]] = []
+    for name, local_value in local_values.items():
+        if name not in shared_names:
+            continue
+        binding_type = context.local_type_bindings[name]
+        if isinstance(local_value, Mapping):
+            value_node, binding_type = _payload_record_local_value(
+                local_value,
+                type_ref=binding_type,
+                context=context,
+                local_values=local_values,
+                lexical_bindings=lexical_bindings,
+                lexical_types=lexical_types,
+                bindings=bindings,
+                binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=id(expr),
+            )
+        else:
+            value_node, binding_type = _payload_expr(
+                local_value,
+                context=context,
+                local_values=local_values,
+                lexical_bindings=lexical_bindings,
+                lexical_types=lexical_types,
+                bindings=bindings,
+                binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=id(expr),
+            )
+        payload_bindings.append(
+            {
+                "name": name,
+                "type": _type_descriptor(
+                    binding_type,
+                    type_env=context.type_env,
+                    source_read_trace=context.source_read_trace,
+                ),
+                "value": value_node,
+            }
+        )
+        lexical_bindings[name] = _LEXICAL_LOCAL_BINDING
+        lexical_types[name] = binding_type
     payload_expr, inferred_type = _payload_expr(
         expr,
         context=context,
         local_values=local_values,
-        lexical_bindings={},
-        lexical_types={},
+        lexical_bindings=lexical_bindings,
+        lexical_types=lexical_types,
         bindings=bindings,
         binding_refs=binding_refs,
+        diagnostic_sources=diagnostic_sources,
+        diagnostic_root_id=id(expr),
     )
+    if payload_bindings:
+        payload_expr = {
+            "kind": "let",
+            "bindings": payload_bindings,
+            "body": payload_expr,
+        }
     if not _pure_projection_type_equivalent(
         inferred_type,
         result_type,
@@ -410,7 +509,7 @@ def build_pure_projection_payload(
         "expr": payload_expr,
     }
     try:
-        validate_pure_expr_payload(payload)
+        validate_pure_expr_payload(payload, diagnostic_sources=diagnostic_sources)
     except PureExprEvaluationError as exc:
         _raise_pure_expr_error(
             exc,
@@ -419,6 +518,126 @@ def build_pure_projection_payload(
             expansion_stack=getattr(expr, "expansion_stack", ()),
         )
     return payload, binding_refs
+
+
+def _is_shareable_local_value(value: Any, type_ref: TypeRef) -> bool:
+    return isinstance(value, _SHAREABLE_LOCAL_VALUE_EXPR_TYPES) or (
+        isinstance(value, Mapping)
+        and isinstance(type_ref, RecordTypeRef)
+        and _is_complete_record_local_value(value, type_ref)
+    )
+
+
+def _is_lazy_safe_local_value(value: Any, type_ref: TypeRef) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and isinstance(type_ref, RecordTypeRef)
+        and _is_complete_record_local_value(value, type_ref)
+        and _record_values_are_resolved(value)
+    )
+
+
+def _record_values_are_resolved(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return all(_record_values_are_resolved(item) for item in value.values())
+    return value is None or isinstance(value, (str, bool, int, float))
+
+
+def _expanded_local_name_uses(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> dict[str, tuple[int, int]]:
+    """Count eager and lazy free-name uses after inline local-value expansion."""
+
+    summaries: dict[str, dict[str, tuple[int, int]]] = {}
+
+    def value_summary(name: str, active: frozenset[str] = frozenset()) -> dict[str, tuple[int, int]]:
+        if name in summaries:
+            return summaries[name]
+        value = local_values.get(name)
+        if name in active or not isinstance(value, _INLINE_LOCAL_VALUE_EXPR_TYPES):
+            return {}
+        summary = _direct_local_name_uses(value)
+        for dependency, (eager, lazy) in tuple(summary.items()):
+            for leaf, (leaf_eager, leaf_lazy) in value_summary(
+                dependency,
+                active | {name},
+            ).items():
+                previous_eager, previous_lazy = summary.get(leaf, (0, 0))
+                summary[leaf] = (
+                    previous_eager + eager * leaf_eager,
+                    previous_lazy + eager * leaf_lazy + lazy * (leaf_eager + leaf_lazy),
+                )
+        summaries[name] = summary
+        return summary
+
+    result = _direct_local_name_uses(expr)
+    for name, (eager, lazy) in tuple(result.items()):
+        for dependency, (dep_eager, dep_lazy) in value_summary(name).items():
+            previous_eager, previous_lazy = result.get(dependency, (0, 0))
+            result[dependency] = (
+                previous_eager + eager * dep_eager,
+                previous_lazy + eager * dep_lazy + lazy * (dep_eager + dep_lazy),
+            )
+    return result
+
+
+def _direct_local_name_uses(expr: Any) -> dict[str, tuple[int, int]]:
+    """Count free names by whether this expression can skip evaluating them."""
+
+    uses: dict[str, tuple[int, int]] = {}
+
+    def visit(node: Any, bound: frozenset[str], lazy: bool) -> None:
+        if isinstance(node, NameExpr):
+            if node.name not in bound:
+                eager_uses, lazy_uses = uses.get(node.name, (0, 0))
+                uses[node.name] = (eager_uses, lazy_uses + 1) if lazy else (eager_uses + 1, lazy_uses)
+            return
+        for child, child_bound, child_lazy in _local_name_use_children(
+            node,
+            bound=bound,
+            lazy=lazy,
+        ):
+            visit(child, child_bound, child_lazy)
+
+    visit(expr, frozenset(), False)
+    return uses
+
+
+def _local_name_use_children(
+    node: Any,
+    *,
+    bound: frozenset[str],
+    lazy: bool,
+) -> tuple[tuple[Any, frozenset[str], bool], ...]:
+    if isinstance(node, LetStarExpr):
+        scope = set(bound)
+        children = []
+        for name, value in node.bindings:
+            children.append((value, frozenset(scope), lazy))
+            scope.add(name)
+        children.append((node.body, frozenset(scope), lazy))
+        return tuple(children)
+    if isinstance(node, FieldAccessExpr):
+        return ((node.base, bound, lazy),)
+    if isinstance(node, IfExpr):
+        return (
+            (node.condition_expr, bound, lazy),
+            (node.then_expr, bound, True),
+            (node.else_expr, bound, True),
+        )
+    if isinstance(node, ListMapExpr):
+        return (
+            (node.source_expr, bound, lazy),
+            (node.body_expr, bound | {node.binder_name}, True),
+        )
+    if isinstance(node, PureOpExpr) and node.operator in {"and", "or", "or-else"}:
+        return tuple(
+            (argument, bound, lazy or index > 0)
+            for index, argument in enumerate(node.args)
+        )
+    return tuple((child, bound, lazy) for child in iter_child_exprs(node))
 
 
 def _required_pure_expr_schema_version(
@@ -519,7 +738,6 @@ def _short_type_name(name: str) -> str:
     return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
-@records_defect_provenance("lowering")
 def _payload_expr(
     expr: Any,
     *,
@@ -529,6 +747,45 @@ def _payload_expr(
     lexical_types: Mapping[str, TypeRef],
     bindings: dict[str, dict[str, Any]],
     binding_refs: dict[str, Any],
+    diagnostic_sources: dict[int, tuple[str, str, int, int]] | None = None,
+    diagnostic_root_id: int | None = None,
+) -> tuple[dict[str, Any], TypeRef]:
+    payload_expr, inferred_type = _payload_expr_impl(
+        expr,
+        context=context,
+        local_values=local_values,
+        lexical_bindings=lexical_bindings,
+        lexical_types=lexical_types,
+        bindings=bindings,
+        binding_refs=binding_refs,
+        diagnostic_sources=diagnostic_sources,
+        diagnostic_root_id=diagnostic_root_id,
+    )
+    if diagnostic_sources is not None and id(expr) != diagnostic_root_id:
+        start = getattr(getattr(getattr(expr, "span", None), "start", None), "line", None)
+        position = getattr(getattr(expr, "span", None), "start", None)
+        path = getattr(position, "path", None)
+        column = getattr(position, "column", None)
+        if isinstance(path, str) and isinstance(start, int) and isinstance(column, int):
+            diagnostic_sources.setdefault(
+                id(payload_expr),
+                (type(expr).__name__, path, start, column),
+            )
+    return payload_expr, inferred_type
+
+
+@records_defect_provenance("lowering")
+def _payload_expr_impl(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    lexical_bindings: Mapping[str, Any],
+    lexical_types: Mapping[str, TypeRef],
+    bindings: dict[str, dict[str, Any]],
+    binding_refs: dict[str, Any],
+    diagnostic_sources: dict[int, tuple[str, str, int, int]] | None,
+    diagnostic_root_id: int | None,
 ) -> tuple[dict[str, Any], TypeRef]:
     if isinstance(expr, LetStarExpr):
         if target_dsl_supports_pure_call_composition(
@@ -546,6 +803,8 @@ def _payload_expr(
                     lexical_types=child_types,
                     bindings=bindings,
                     binding_refs=binding_refs,
+                    diagnostic_sources=diagnostic_sources,
+                    diagnostic_root_id=diagnostic_root_id,
                 )
                 payload_bindings.append(
                     {
@@ -568,6 +827,8 @@ def _payload_expr(
                 lexical_types=child_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )
             return {
                 "kind": "let",
@@ -591,6 +852,8 @@ def _payload_expr(
             lexical_types=child_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
     if isinstance(expr, NameExpr):
         if expr.name in lexical_bindings:
@@ -605,6 +868,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )
         local_binding = local_values.get(expr.name)
         type_ref = lexical_types.get(expr.name) or context.local_type_bindings.get(expr.name)
@@ -625,27 +890,11 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )
         if (
-            isinstance(
-                local_binding,
-                (
-                    FieldAccessExpr,
-                    EnumMemberExpr,
-                    IfExpr,
-                    LetStarExpr,
-                    ListExpr,
-                    ListMapExpr,
-                    CompilerListNonemptyHeadExpr,
-                    LiteralExpr,
-                    NameExpr,
-                    PathJoinUnderExpr,
-                    PureOpExpr,
-                    RecordExpr,
-                    RecordUpdateExpr,
-                    UnionVariantExpr,
-                ),
-            )
+            isinstance(local_binding, _INLINE_LOCAL_VALUE_EXPR_TYPES)
             and local_binding is not expr
         ):
             return _payload_expr(
@@ -656,6 +905,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )
         bindings.setdefault(
             expr.name,
@@ -731,6 +982,8 @@ def _payload_expr(
                     lexical_types=lexical_types,
                     bindings=bindings,
                     binding_refs=binding_refs,
+                    diagnostic_sources=diagnostic_sources,
+                    diagnostic_root_id=diagnostic_root_id,
                 )
         else:
             base_node, base_type = _payload_expr(
@@ -741,6 +994,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )
         node = base_node
         type_ref = _infer_expr_type(
@@ -773,6 +1028,8 @@ def _payload_expr(
                         lexical_types=lexical_types,
                         bindings=bindings,
                         binding_refs=binding_refs,
+                        diagnostic_sources=diagnostic_sources,
+                        diagnostic_root_id=diagnostic_root_id,
                     )[0],
                 }
                 for field_name, field_expr in expr.fields
@@ -799,6 +1056,8 @@ def _payload_expr(
                         lexical_types=lexical_types,
                         bindings=bindings,
                         binding_refs=binding_refs,
+                        diagnostic_sources=diagnostic_sources,
+                        diagnostic_root_id=diagnostic_root_id,
                     )[0],
                 }
                 for field_name, field_expr in expr.fields
@@ -821,6 +1080,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )[0],
             "fields": [
                 {
@@ -833,6 +1094,8 @@ def _payload_expr(
                         lexical_types=lexical_types,
                         bindings=bindings,
                         binding_refs=binding_refs,
+                        diagnostic_sources=diagnostic_sources,
+                        diagnostic_root_id=diagnostic_root_id,
                     )[0],
                 }
                 for field_name, field_expr in expr.overrides
@@ -852,6 +1115,8 @@ def _payload_expr(
                     lexical_types=lexical_types,
                     bindings=bindings,
                     binding_refs=binding_refs,
+                    diagnostic_sources=diagnostic_sources,
+                    diagnostic_root_id=diagnostic_root_id,
                 )[0]
                 for arg in expr.args
             ],
@@ -875,6 +1140,8 @@ def _payload_expr(
                     lexical_types=lexical_types,
                     bindings=bindings,
                     binding_refs=binding_refs,
+                    diagnostic_sources=diagnostic_sources,
+                    diagnostic_root_id=diagnostic_root_id,
                 )[0]
                 for item in expr.items
             ],
@@ -888,6 +1155,8 @@ def _payload_expr(
             lexical_types=lexical_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
         if (
             not isinstance(source_type, ListTypeRef)
@@ -934,6 +1203,8 @@ def _payload_expr(
             lexical_types=lexical_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
         assert isinstance(source_type, ListTypeRef)
         child_bindings = dict(lexical_bindings)
@@ -948,6 +1219,8 @@ def _payload_expr(
             lexical_types=child_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
         return {
             "kind": "list_map",
@@ -984,6 +1257,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )[0],
         }, type_ref
     if isinstance(expr, IfExpr):
@@ -998,6 +1273,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )[0],
             "then": _payload_expr(
                 expr.then_expr,
@@ -1007,6 +1284,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )[0],
             "else": _payload_expr(
                 expr.else_expr,
@@ -1016,6 +1295,8 @@ def _payload_expr(
                 lexical_types=lexical_types,
                 bindings=bindings,
                 binding_refs=binding_refs,
+                diagnostic_sources=diagnostic_sources,
+                diagnostic_root_id=diagnostic_root_id,
             )[0],
         }, type_ref
     raise TypeError(f"unsupported pure projection expression: {type(expr).__name__}")
@@ -1031,6 +1312,8 @@ def _payload_record_local_value(
     lexical_types: Mapping[str, TypeRef],
     bindings: dict[str, dict[str, Any]],
     binding_refs: dict[str, Any],
+    diagnostic_sources: dict[int, tuple[str, str, int, int]] | None = None,
+    diagnostic_root_id: int | None = None,
 ) -> tuple[dict[str, Any], TypeRef]:
     """Turn a WCC-resolved record mapping into one typed lexical payload."""
 
@@ -1055,6 +1338,8 @@ def _payload_record_local_value(
             lexical_types=lexical_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
         fields.append({"name": field.name, "value": value_node})
     return {
@@ -1087,6 +1372,8 @@ def _payload_resolved_local_value(
     lexical_types: Mapping[str, TypeRef],
     bindings: dict[str, dict[str, Any]],
     binding_refs: dict[str, Any],
+    diagnostic_sources: dict[int, tuple[str, str, int, int]] | None = None,
+    diagnostic_root_id: int | None = None,
 ) -> tuple[dict[str, Any], TypeRef]:
     """Lower one resolved WCC local while retaining its declared field type."""
 
@@ -1100,6 +1387,8 @@ def _payload_resolved_local_value(
             lexical_types=lexical_types,
             bindings=bindings,
             binding_refs=binding_refs,
+            diagnostic_sources=diagnostic_sources,
+            diagnostic_root_id=diagnostic_root_id,
         )
     if isinstance(value, str):
         bindings.setdefault(
@@ -1135,6 +1424,8 @@ def _payload_resolved_local_value(
         lexical_types=lexical_types,
         bindings=bindings,
         binding_refs=binding_refs,
+        diagnostic_sources=diagnostic_sources,
+        diagnostic_root_id=diagnostic_root_id,
     )
 
 
