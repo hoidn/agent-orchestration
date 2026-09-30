@@ -602,7 +602,6 @@ def _resume_workflow_with_writer_lock_held(
 
     session_id: str | None = None
     session_status = "failed"
-    executor: WorkflowExecutor | None = None
     try:
         with state_manager.state_transaction() as transaction_state:
             session_id = open_executor_session(
@@ -679,19 +678,15 @@ def _resume_workflow_with_writer_lock_held(
         state_manager.update_status('failed')
         return 1
     finally:
-        try:
-            if session_id is not None and state_manager.state is not None:
-                with state_manager.state_transaction() as transaction_state:
-                    close_executor_session(
-                        transaction_state,
-                        session_id=session_id,
-                        status=session_status,
-                    )
-                state = state_manager.state
-                assert state is not None
-        finally:
-            if executor is not None:
-                executor.close()
+        if session_id is not None and state_manager.state is not None:
+            with state_manager.state_transaction() as transaction_state:
+                close_executor_session(
+                    transaction_state,
+                    session_id=session_id,
+                    status=session_status,
+                )
+            state = state_manager.state
+            assert state is not None
 
 
 def resume_workflow(

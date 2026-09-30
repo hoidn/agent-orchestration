@@ -318,14 +318,10 @@ def test_run_closes_state_and_writer_lock_when_executor_close_raises(
     workflow = _write_workflow(tmp_path)
     monkeypatch.chdir(tmp_path)
     original_executor_close = WorkflowExecutor.close
-    close_calls = 0
 
     def close_then_raise(executor: WorkflowExecutor) -> None:
-        nonlocal close_calls
-        close_calls += 1
         original_executor_close(executor)
-        if close_calls == 2:
-            raise OSError("executor close failed")
+        raise OSError("executor close failed")
 
     closed_managers: list[StateManager] = []
     original_manager_close = StateManager.close
@@ -337,9 +333,8 @@ def test_run_closes_state_and_writer_lock_when_executor_close_raises(
     monkeypatch.setattr(WorkflowExecutor, "close", close_then_raise)
     monkeypatch.setattr(StateManager, "close", record_manager_close)
 
-    with pytest.raises(OSError, match="executor close failed"):
-        run_workflow(_run_args(workflow))
+    result = run_workflow(_run_args(workflow))
 
-    assert len(closed_managers) == 1
+    assert (result.exit_code, len(closed_managers)) == (1, 1)
     with run_writer_lock(closed_managers[0].run_root):
         pass
