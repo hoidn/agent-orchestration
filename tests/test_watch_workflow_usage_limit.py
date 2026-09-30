@@ -15,6 +15,7 @@ The Claude readiness probe and conda are stand-ins too.
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -180,7 +181,7 @@ def test_an_exit_line_pushed_out_of_the_usual_capture_is_still_found(watcher) ->
 
 
 @pytest.mark.xfail(
-    reason="a late refusal followed by an admitted fresh run leaves the watchdog on the completed run",
+    reason="F50: a late refusal followed by an admitted fresh run leaves the watchdog on the completed run",
     strict=True,
     raises=AssertionError,
 )
@@ -207,9 +208,18 @@ def test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id(watcher) ->
     process = watcher("late run_limit run")
     _wait_for_calls(watcher, 3)
 
-    assert watcher.calls() == [
+    calls = watcher.calls()
+    if calls[:2] != [
         "run workflow.orc --stream-output",
         "run workflow.orc --stream-output",
-        "resume fresh-run --stream-output",
-    ]
-    assert process.poll() is None
+    ]:
+        pytest.fail(f"fresh-run admission setup sent unexpected commands: {calls}")
+    fresh_state = json.loads(
+        (workspace / ".orchestrate" / "runs" / "fresh-run" / "state.json").read_text(encoding="utf-8")
+    )
+    if fresh_state["run_id"] != "fresh-run" or fresh_state["status"] != "running":
+        pytest.fail(f"fresh run was not admitted: {fresh_state}")
+    if process.poll() is not None:
+        pytest.fail("watchdog exited before following the admitted fresh run")
+
+    assert calls[2:] == ["resume fresh-run --stream-output"]
