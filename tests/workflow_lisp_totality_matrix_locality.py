@@ -43,8 +43,8 @@ DEFECT_DETAILS = {
                         "a list if bound in an inline procedure is not lowered"),
     "nested-loop": ("structured repeat_until is only supported on top-level steps",
                     "a loop inside an if branch fails shared validation"),
-    "scalar-private-workflow": ("AssertionError",
-                                "a scalar-returning procedure in loop state hits the private-workflow assertion"),
+    "scalar-private-workflow": ("compiler_defect",
+                                "a scalar-returning procedure in loop state hits a lowering assertion reported as a compiler defect"),
 }
 
 REPRO_FAILURES = {
@@ -53,7 +53,7 @@ REPRO_FAILURES = {
     "repro:nested-effectful-argument": ("nested-call-argument", 2, "compiler_defect", "elaboration"),
     "repro:pure-helper-exhaustion": ("nested-loop", 2, "workflow_boundary_type_invalid", "shared validation"),
     "repro:call-result-in-if": ("replay-frame-scope", 2, "pure_result_replay_unavailable", "replay index at run start"),
-    "repro:scalar-call-loop-state": ("scalar-private-workflow", 1, "AssertionError", "lowering"),
+    "repro:scalar-call-loop-state": ("scalar-private-workflow", 2, "compiler_defect", "lowering"),
 }
 
 

@@ -494,10 +494,13 @@ def test_trial_enormous_numeric_threshold_uses_closed_diagnostic() -> None:
             form_path=FORM_PATH,
         )
 
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "trial_evaluation_contract_invalid"
     assert (
-        excinfo.value.diagnostics[0].code
-        == "trial_evaluation_contract_invalid"
+        f"value=<integer with {threshold.value.bit_length()} bits>"
+        in diagnostic.message
     )
+    assert "cannot be represented as a finite number" in diagnostic.message
 
 
 def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> None:

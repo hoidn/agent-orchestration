@@ -2349,11 +2349,15 @@ def _trial_number(
     try:
         value = float(node.value)
     except OverflowError:
+        try:
+            value_description = str(node.value)
+        except ValueError:
+            value_description = f"<integer with {node.value.bit_length()} bits>"
         _trial_fail(
             node,
             code="trial_evaluation_contract_invalid",
             message=(
-                f"{label} value={node.value} cannot be represented as a finite number"
+                f"{label} value={value_description} cannot be represented as a finite number"
             ),
             form_path=form_path,
         )
