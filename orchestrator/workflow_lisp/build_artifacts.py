@@ -109,6 +109,24 @@ def _source_file_digests_from_trace(
 ) -> dict[str, str]:
     """Resolve graph digests from the exact compiler-read revision vector."""
 
+    return _source_file_digests_for_modules(
+        {
+            module_name: module_source.path
+            for module_name, module_source in compile_result.graph.modules_by_name.items()
+        },
+        source_read_records=source_read_records,
+        source_revision_vector=source_revision_vector,
+    )
+
+
+def _source_file_digests_for_modules(
+    module_paths: Mapping[str, Path],
+    *,
+    source_read_records: tuple[SourceReadRecord, ...],
+    source_revision_vector: tuple[tuple[Path, str], ...],
+) -> dict[str, str]:
+    """Resolve module digests without requiring a linked graph result."""
+
     revisions_by_path: dict[Path, str] = {}
     for canonical_path, revision in source_revision_vector:
         if canonical_path in revisions_by_path:
@@ -126,8 +144,8 @@ def _source_file_digests_from_trace(
         raise ValueError("source read trace records and revision vector mismatch")
 
     source_file_digests: dict[str, str] = {}
-    for module_name, module_source in sorted(compile_result.graph.modules_by_name.items()):
-        revision = revisions_by_path.get(module_source.path)
+    for module_name, module_path in sorted(module_paths.items()):
+        revision = revisions_by_path.get(module_path)
         if revision is None:
             raise ValueError(
                 f"source read trace is missing compiled module `{module_name}`"

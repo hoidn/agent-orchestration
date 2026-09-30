@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional
 
 from .core_ast import CoreWorkflowAST
 from .executable_ir import ExecutablePrivateArtifact, ExecutableWorkflow
@@ -23,6 +23,9 @@ from .surface_ast import (
     WorkflowProvenance,
 )
 
+if TYPE_CHECKING:
+    from orchestrator.workflow_lisp.closed.frontend import TypedProgram
+
 
 @dataclass(frozen=True)
 class LoadedWorkflowBundle:
@@ -36,6 +39,20 @@ class LoadedWorkflowBundle:
     runtime_plan: WorkflowRuntimePlan
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
+    typed_program: "TypedProgram | None" = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
+
+    def __getstate__(self) -> dict[str, object]:
+        """Keep compiler-only typed bodies out of persisted bundle state."""
+
+        return {
+            key: value
+            for key, value in self.__dict__.items()
+            if key != "typed_program"
+        }
 
     def __repr__(self) -> str:
         """Summarize without recursing `imports`.

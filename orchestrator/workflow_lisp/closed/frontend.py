@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from ..command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -18,8 +20,17 @@ from ..syntax import (
     syntax_node_datum,
 )
 from ..type_env import FrontendTypeEnvironment
-from ..workflows import ExternEnvironment, ProviderExtern, PromptExtern, TypedWorkflowDef
+from ..workflows import (
+    ExternEnvironment,
+    ProviderExtern,
+    PromptExtern,
+    TypedWorkflowDef,
+    WorkflowSignature,
+)
 from .. import syntax
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.loaded_bundle import WorkflowBoundaryProjectionView
 
 
 @dataclass(frozen=True)
@@ -41,9 +52,120 @@ class TypedProgram:
     entry_dir: str
     source_file_digests: Mapping[str, str]
     local_definition_keys: Mapping[str, object]
+    imported_programs: Mapping[str, "TypedProgram"]
+    module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
+    _compiled_bundle_boundaries: Mapping[
+        str,
+        tuple[
+            Mapping[str, Mapping[str, object]],
+            Mapping[str, Mapping[str, object]],
+            "WorkflowBoundaryProjectionView",
+        ],
+    ] = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        from ..build import _freeze_configuration_value
+
+        immutable_value = _freeze_configuration_value
+
+        for name in (
+            "workflows",
+            "procedures",
+            "procedure_type_envs",
+            "workflow_type_envs",
+            "module_type_envs",
+            "command_boundaries",
+            "command_boundary_origins",
+            "externs",
+            "configuration_bindings",
+            "source_file_digests",
+            "local_definition_keys",
+            "imported_programs",
+        ):
+            value = getattr(self, name)
+            object.__setattr__(self, name, MappingProxyType(dict(value)))
+        object.__setattr__(
+            self,
+            "module_externs",
+            immutable_value(self.module_externs),
+        )
+        object.__setattr__(
+            self,
+            "configuration_bindings",
+            immutable_value(self.configuration_bindings),
+        )
+        object.__setattr__(
+            self,
+            "module_workflow_signatures",
+            immutable_value(self.module_workflow_signatures),
+        )
+        from orchestrator.workflow.loaded_bundle import WorkflowBoundaryProjectionView
+
+        frozen_boundaries = {}
+        for workflow_name, facts in self._compiled_bundle_boundaries.items():
+            input_contracts, output_contracts, projection = facts
+            if not isinstance(projection, WorkflowBoundaryProjectionView):
+                continue
+            frozen_bindings = tuple(
+                replace(
+                    binding,
+                    projection_hints=immutable_value(binding.projection_hints),
+                    source_provenance=immutable_value(binding.source_provenance),
+                )
+                for binding in projection.private_runtime_context_bindings
+            )
+            frozen_projection = replace(
+                projection,
+                public_input_contracts=immutable_value(
+                    projection.public_input_contracts
+                ),
+                private_runtime_context_bindings=frozen_bindings,
+                private_managed_write_root_inputs=tuple(
+                    projection.private_managed_write_root_inputs
+                ),
+                private_compatibility_bridge_inputs=tuple(
+                    projection.private_compatibility_bridge_inputs
+                ),
+            )
+            frozen_boundaries[workflow_name] = (
+                immutable_value(input_contracts),
+                immutable_value(output_contracts),
+                frozen_projection,
+            )
+        object.__setattr__(
+            self,
+            "_compiled_bundle_boundaries",
+            immutable_value(frozen_boundaries),
+        )
 
     def workflow_type_env(self, name: str) -> FrontendTypeEnvironment:
         return self.workflow_type_envs[name]
+
+    def _workflow_type_env_with_retained_nominal_names(
+        self, name: str
+    ) -> FrontendTypeEnvironment:
+        """Resolve descriptors from the retained module owners without source reads."""
+
+        from copy import copy
+
+        environment = copy(self.workflow_type_env(name))
+        nominal_names = dict(
+            getattr(
+                environment,
+                "_nominal_descriptor_names_by_definition_id",
+                {},
+            )
+        )
+        for module_env in self.module_type_envs.values():
+            nominal_names.update(
+                getattr(
+                    module_env,
+                    "_nominal_descriptor_names_by_definition_id",
+                    {},
+                )
+            )
+        environment._nominal_descriptor_names_by_definition_id = nominal_names
+        return environment
 
     def procedure_type_env(self, procedure: TypedProcedureDef) -> FrontendTypeEnvironment:
         return procedure_type_env_for(
@@ -167,16 +289,41 @@ def typed_program_from_graph(
     local_definition_keys: Mapping[str, object],
     command_boundary_origins: Mapping[str, str] | None = None,
     configuration_bindings: Mapping[str, object] | None = None,
+    imported_programs: Mapping[str, TypedProgram] | None = None,
+    module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]] | None = None,
 ) -> TypedProgram:
+    from ..build import _freeze_command_boundaries, _freeze_configuration_mapping
+
+    direct_imported_programs = dict(imported_programs or {})
+    imported_snapshots = []
+    pending_imports = list(direct_imported_programs.values())
+    seen_imports: set[int] = set()
+    while pending_imports:
+        imported = pending_imports.pop()
+        if id(imported) in seen_imports:
+            continue
+        seen_imports.add(id(imported))
+        imported_snapshots.append(imported)
+        pending_imports.extend(imported.imported_programs.values())
+
     workflows = {
         **dict(typed_workflows_by_name),
         **{workflow.definition.name: workflow for workflow in typed_workflows},
     }
+    for imported in imported_snapshots:
+        for name, workflow in imported.workflows.items():
+            workflows.setdefault(name, workflow)
     procedures = {
         procedure.definition.name: procedure
         for procedure in resolved_combined_procedures
     }
+    for imported in imported_snapshots:
+        for name, procedure in imported.procedures.items():
+            procedures.setdefault(name, procedure)
     procedure_type_envs = dict(combined_procedure_type_envs)
+    for imported in imported_snapshots:
+        for name, procedure_type_env in imported.procedure_type_envs.items():
+            procedure_type_envs.setdefault(name, procedure_type_env)
     for procedure in procedures.values():
         procedure_type_envs.setdefault(
             procedure.definition.name,
@@ -190,6 +337,40 @@ def typed_program_from_graph(
         **dict(workflow_type_envs_by_name),
         **{workflow.definition.name: type_env for workflow in typed_workflows},
     }
+    module_type_envs = dict(module_type_envs)
+    module_externs = {name: dict(bindings) for name, bindings in module_externs.items()}
+    local_definition_keys = dict(local_definition_keys)
+    module_workflow_signatures = {
+        name: dict(signatures)
+        for name, signatures in (module_workflow_signatures or {}).items()
+    }
+    for imported in imported_snapshots:
+        for name, owner_env in imported.workflow_type_envs.items():
+            workflow_type_envs.setdefault(name, owner_env)
+        for name, owner_env in imported.module_type_envs.items():
+            module_type_envs.setdefault(name, owner_env)
+        for name, owner_externs in imported.module_externs.items():
+            module_externs.setdefault(name, dict(owner_externs))
+        for name, key in imported.local_definition_keys.items():
+            local_definition_keys.setdefault(name, key)
+        for module_name, signatures in imported.module_workflow_signatures.items():
+            module_workflow_signatures.setdefault(module_name, dict(signatures))
+    command_boundaries = _freeze_command_boundaries(
+        command_boundary_environment.bindings_by_name
+    )
+    frozen_configuration = dict(configuration_bindings or {})
+    configured_boundaries = frozen_configuration.get("command_boundaries")
+    if isinstance(configured_boundaries, Mapping):
+        frozen_configuration["command_boundaries"] = _freeze_command_boundaries(
+            configured_boundaries
+        )
+    used_boundaries = frozen_configuration.get("used_command_boundaries")
+    if isinstance(used_boundaries, Mapping):
+        frozen_configuration["used_command_boundaries"] = {
+            module_name: _freeze_command_boundaries(bindings)
+            for module_name, bindings in used_boundaries.items()
+            if isinstance(bindings, Mapping)
+        }
     return TypedProgram(
         entry=None,
         workflows=workflows,
@@ -197,17 +378,19 @@ def typed_program_from_graph(
         type_env=type_env,
         procedure_type_envs=procedure_type_envs,
         workflow_type_envs=workflow_type_envs,
-        module_type_envs=dict(module_type_envs),
-        command_boundaries=dict(command_boundary_environment.bindings_by_name),
+        module_type_envs=module_type_envs,
+        command_boundaries=command_boundaries,
         command_boundary_origins=dict(command_boundary_origins or {}),
         externs=dict(extern_environment.bindings_by_name),
-        module_externs={name: dict(bindings) for name, bindings in module_externs.items()},
-        configuration_bindings=dict(configuration_bindings or {}),
+        module_externs=module_externs,
+        configuration_bindings=_freeze_configuration_mapping(frozen_configuration),
         target=target,
         entry_module=entry_module,
         entry_dir=entry_dir,
         source_file_digests={},
-        local_definition_keys=dict(local_definition_keys),
+        local_definition_keys=local_definition_keys,
+        imported_programs=direct_imported_programs,
+        module_workflow_signatures=module_workflow_signatures,
     )
 
 
@@ -219,10 +402,13 @@ def compile_typed_program(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
+    imported_workflow_bundles: Mapping[str, object] | None = None,
+    imported_programs: Mapping[str, TypedProgram] | None = None,
     workspace_root: Path | None = None,
     source_read_trace: SourceReadTrace | None = None,
 ) -> TypedProgram:
     from .. import compiler
+    from ..build import _select_entry_workflow_from_surface
     from ..build_artifacts import _source_file_digests_from_trace
     from ..build_manifest_io import _cli_request_diagnostic
     from .target import _entry_target_header_from_tree
@@ -252,6 +438,8 @@ def compile_typed_program(
         source_roots=source_roots,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
+        imported_workflow_bundles=imported_workflow_bundles,
+        imported_programs=imported_programs,
         command_boundaries=command_boundaries,
         validate_shared=True,
         workspace_root=workspace_root,
@@ -261,10 +449,35 @@ def compile_typed_program(
     )
     entry_module_name = result.graph.entry_module_name
     export_surface = result.graph.export_surfaces_by_name[entry_module_name]
-    binding = export_surface.workflows_by_name.get(entry_workflow)
-    canonical_name = binding.canonical_name if binding is not None else entry_workflow
-    if source_syntax.module_name is None and "::" not in canonical_name:
-        canonical_name = f"entry::{canonical_name}"
+    entry_module = result.graph.modules_by_name[entry_module_name]
+    entry_workflow_names = {
+        workflow.definition.name for workflow in result.entry_result.typed_workflows
+    }
+    if source_syntax.module_name is None:
+        canonical_name = (
+            entry_workflow
+            if "::" in entry_workflow
+            else f"entry::{entry_workflow}"
+        )
+        if canonical_name not in entry_workflow_names:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="entry_workflow_unknown",
+                        message=f"entry workflow `{entry_workflow}` is not present in the typed program",
+                        path=entry_path,
+                    ),
+                )
+            )
+    else:
+        entry_selection = _select_entry_workflow_from_surface(
+            export_surface,
+            requested_name=entry_workflow,
+            available_names=entry_workflow_names,
+            source_path=entry_path,
+            entry_span=entry_module.syntax_module.span,
+        )
+        canonical_name = entry_selection.canonical_name
     program = result.entry_result.typed_program
     if not isinstance(program, TypedProgram):
         raise RuntimeError("evaluated-entry compilation did not produce a TypedProgram")
