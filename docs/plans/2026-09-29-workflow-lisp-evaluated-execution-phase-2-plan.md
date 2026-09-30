@@ -402,7 +402,9 @@ stripped tree (P6, P7).
 - Nominal type identities and descriptors recursively use the declaring
   module, exported or private. Applied arguments, list/optional members,
   fields and variants recurse; generated run-ref result names never reuse
-  `RunRefResult$…` from typecheck.
+  `RunRefResult$…` from typecheck. Compiler-owned fixed run-ref runtime records
+  retain the neutral codec's reserved logical identities, as specified in
+  Task 8; user declarations with the same spelling remain module-qualified.
 - Site segments follow the full traversal table of design §6: `select`
   prefixes under binder/arm, `block` under binder/`block`, join body under
   result binder/`body` with its continuation at the enclosing prefix, loop
@@ -1182,6 +1184,10 @@ schema above; no compiler import.
   Ordinary calls retain strict nominal/positional matching. Resolve every
   definition configuration scope and verify its digest and effect bindings;
   missing or mismatched scopes fail `configuration_scope`.
+- Run-reference read-back checks use Task 8's exact configuration/type digest
+  recipe and fixed runtime record identities. The neutral decoder establishes
+  the static config's internal consistency; this checker also establishes
+  correspondence with the containing definition/site, node and `types` table.
 - Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 7
   (`validate` when an artifact is read back).
 
@@ -1928,6 +1934,7 @@ small context translation, not hidden as a new exclusion.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (call run-ref finalization after site assignment and before validation)
+- Modify if needed: `orchestrator/workflow_lisp/closed/check.py` (complete and verify the Task 5 read-back checks against finalized run-reference nodes)
 - Test: `tests/test_workflow_lisp_closed_program_effects.py`
 
 **Read first:** the spike's `closed_effects.py` in full; design P3, §1.1
@@ -2096,9 +2103,9 @@ behaviour for commands).
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py tests/test_workflow_lisp_closed_program_effects.py`
+`git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_effects.py`
 
-`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py tests/test_workflow_lisp_closed_program_effects.py`
+`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_effects.py`
 
 **What this makes harder later:** each later class replaces a gap branch.
 Phase 3 still proves assembled prompt parity and run-ref caller integration;
