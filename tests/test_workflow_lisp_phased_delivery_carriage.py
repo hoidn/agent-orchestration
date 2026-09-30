@@ -305,6 +305,10 @@ def test_phased_policy_rejects_target_pairing_boolean_and_range_errors(
 
     diagnostic = exc_info.value.diagnostics[0]
     assert diagnostic.code == code
+    if reason == "attempts_out_of_range":
+        assert f"value={canonical_value}" in diagnostic.message
+        assert "minimum=1" in diagnostic.message
+        assert "maximum=3" in diagnostic.message
     assert diagnostic.span.start.path.endswith("policy.orc")
     assert diagnostic.span.start.line == 14
     serialized = serialize_diagnostic(diagnostic)
@@ -333,6 +337,45 @@ def test_phased_policy_rejects_target_pairing_boolean_and_range_errors(
         "provider_application"
     ]
     assert exact["related_sources"][0]["kind"] == "authored_span"
+
+
+@pytest.mark.parametrize("attempts", (0, 4))
+def test_public_run_reports_phased_materialization_value_and_range(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    attempts: int,
+) -> None:
+    from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_files
+
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.23")
+  (defmodule grt/entry)
+  (export run)
+  (defrecord Result (approved Bool))
+  (defprompt review-prompt (:fills (subject :text)) -> Result "Review {{subject}}")
+  (defworkflow run ((subject String)) -> Result
+    (provider-result providers.review
+      :prompt (review-prompt :subject subject)
+      :delivery :phased :materialization-attempts {attempts})))
+''',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    files = _public_run_files(tmp_path, {})
+    files["providers"].write_text('{"providers.review":"test-provider"}', encoding="utf-8")
+
+    result = _public_run(files)
+
+    assert result.exit_code == 2
+    assert "provider_phased_delivery_policy_invalid" in caplog.text
+    assert f"value={attempts}" in caplog.text
+    assert "minimum=1" in caplog.text
+    assert "maximum=3" in caplog.text
 
 
 def test_phased_fragment_requires_non_empty_generated_contract_suffix(

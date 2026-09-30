@@ -196,7 +196,7 @@ def _elaborate_dependency_expr(
     return expr
 
 
-def _diagnostic_for_clause(clause: str) -> tuple[str, int, int]:
+def _diagnostic_for_clause(clause: str) -> tuple[str, int, int, str]:
     source = (
         "(provider-result providers.execute :prompt prompts.execute :inputs () "
         f":prompt-dependencies {clause} :returns Bool)"
@@ -209,7 +209,12 @@ def _diagnostic_for_clause(clause: str) -> tuple[str, int, int]:
             ),
         )
     diagnostic = excinfo.value.diagnostics[0]
-    return diagnostic.code, diagnostic.span.start.offset, diagnostic.span.end.offset
+    return (
+        diagnostic.code,
+        diagnostic.span.start.offset,
+        diagnostic.span.end.offset,
+        diagnostic.message,
+    )
 
 
 def _type_env() -> FrontendTypeEnvironment:
@@ -330,7 +335,7 @@ def test_parser_prompt_dependencies_rejects_invalid_closed_shape_with_operand_sp
     expected_code: str,
     token: str,
 ) -> None:
-    code, start, end = _diagnostic_for_clause(clause)
+    code, start, end, _message = _diagnostic_for_clause(clause)
     source = (
         "(provider-result providers.execute :prompt prompts.execute :inputs () "
         f":prompt-dependencies {clause} :returns Bool)"
@@ -351,11 +356,58 @@ def test_parser_prompt_dependency_instruction_accepts_utf8_byte_boundary(byte_co
 
 def test_parser_prompt_dependency_instruction_rejects_utf8_byte_overflow() -> None:
     instruction = "a" * 261629 + "é"
-    code, start, end = _diagnostic_for_clause(
+    code, start, end, message = _diagnostic_for_clause(
         f'(:required (required_path) :instruction "{instruction}")'
     )
     assert code == "prompt_dependency_instruction_exceeds_byte_limit"
+    assert "instruction_bytes=261631" in message
+    assert "maximum_bytes=261630" in message
     assert 0 < start < end
+
+
+def test_public_run_reports_prompt_instruction_utf8_byte_overflow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_files
+
+    instruction = "a" * 261629 + "é"
+    source = f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.15")
+  (defmodule grt/entry)
+  (export run)
+  (defpath RequiredPath :kind relpath :under "artifacts/work" :must-exist true)
+  (defrecord Inputs (required RequiredPath))
+  (defrecord Result (approved Bool))
+  (defworkflow run ((inputs Inputs)) -> Result
+    (provider-result providers.execute
+      :prompt prompts.execute
+      :inputs ()
+      :prompt-dependencies
+        (:required (inputs.required) :instruction "{instruction}")
+      :returns Result)))
+'''
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text(source, encoding="utf-8")
+    (tmp_path / "prompt.md").write_text("Review {{required}}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    files = _public_run_files(tmp_path, {})
+    files["providers"].write_text(
+        '{"providers.execute":"test-provider"}', encoding="utf-8"
+    )
+    files["prompts"].write_text(
+        '{"prompts.execute":"prompt.md"}', encoding="utf-8"
+    )
+
+    result = _public_run(files)
+
+    assert result.exit_code == 2
+    assert "prompt_dependency_instruction_exceeds_byte_limit" in caplog.text
+    assert "instruction_bytes=261631" in caplog.text
+    assert "maximum_bytes=261630" in caplog.text
 
 
 def test_type_prompt_dependencies_accepts_relpath_name_and_field_projection() -> None:

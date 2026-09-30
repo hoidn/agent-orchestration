@@ -138,11 +138,11 @@ def test_phased_timeout_finite_positive_boundary_precedes_side_effects(
         )
         assert clock_calls == [None]
     else:
-        with pytest.raises(
-            ValueError,
-            match="^phased timeout_sec must be positive$",
-        ):
+        with pytest.raises(ValueError) as excinfo:
             binding.derive_attempt_deadline(object())
+        assert f"value={timeout_sec!r}" in str(excinfo.value)
+        assert "minimum_exclusive=0" in str(excinfo.value)
+        assert "finite_required=true" in str(excinfo.value)
         assert clock_calls == []
 
     assert publication_calls == []
@@ -299,9 +299,10 @@ def test_phased_route_rejects_timeout_before_adapter_allocation_or_state(
 
     assert result["status"] == "failed"
     assert result["error"]["type"] == "provider_phased_preparation_failed"
-    assert result["error"]["context"]["error"] == (
-        "phased timeout_sec must be positive"
-    )
+    message = result["error"]["context"]["error"]
+    assert f"value={timeout_sec!r}" in message
+    assert "minimum_exclusive=0" in message
+    assert "finite_required=true" in message
     assert calls == []
     assert state == state_before
     assert not StateManagerSpy.run_root.exists()

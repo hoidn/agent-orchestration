@@ -663,6 +663,58 @@ def test_production_revalidation_enforces_binding_schema_exclusions_and_caps(
         opaque_label_binding=binding,
     ) == packet
 
+    packet_size = len(canonical_json_bytes(packet))
+    item_limit = max(
+        len(canonical_json_bytes(item)) for item in packet["items"]
+    )
+    packet_limit = packet_size - 1
+    assert packet_limit >= item_limit
+    current = fixture["request"]
+    evaluation = current.static_config.evaluation
+    evaluation["max_item_bytes"] = item_limit
+    evaluation["max_packet_bytes"] = packet_limit
+    limited_static = build_trial_static_config(
+        compiler_runtime_identity_digest=(
+            current.static_config.compiler_runtime_identity_digest
+        ),
+        site_digest=current.static_config.site_digest,
+        arms=current.static_config.arms,
+        reps=current.static_config.reps,
+        max_concurrency=current.static_config.max_concurrency,
+        evaluation=evaluation,
+        budget=current.static_config.budget,
+        result_descriptor=current.static_config.result_descriptor,
+        result_digest=current.static_config.result_digest,
+        target_dsl_version=current.static_config.target_dsl_version,
+    )
+    limited_request = build_trial_runtime_request(
+        step_config=replace(current.step_config, trial=limited_static),
+        visit=current.visit,
+        resolved_inputs_by_arm=current.resolved_inputs_by_arm,
+    )
+    cell_index = current.cell_domain.index(outcome.cell)
+    limited_cell = limited_request.cell_domain[cell_index]
+    limited_sealed = build_sealed_opaque_label_map(
+        limited_request.cell_domain,
+        salt=b"task-eight-packet-projection" * 2,
+    )
+    limited_binding = next(
+        row for row in limited_sealed.bindings if row.cell == limited_cell
+    )
+    limited_packet = deepcopy(packet)
+    limited_packet["evaluation_id"] = limited_binding.opaque_label
+    assert len(canonical_json_bytes(limited_packet)) == packet_size
+    with pytest.raises(TrialPacketError) as packet_limit_error:
+        validate_trial_cell_evaluation_packet(
+            limited_packet,
+            request=limited_request,
+            cell=limited_cell,
+            opaque_label_binding=limited_binding,
+        )
+    assert packet_limit_error.value.code == "trial_packet_limit_invalid"
+    assert f"packet_bytes={packet_size}" in str(packet_limit_error.value)
+    assert f"max_packet_bytes={packet_limit}" in str(packet_limit_error.value)
+
     excluded = deepcopy(packet)
     excluded["items"][0]["value"] = {
         "answer": True,
@@ -735,8 +787,16 @@ def test_production_revalidation_enforces_binding_schema_exclusions_and_caps(
                 cell=outcome.cell,
                 opaque_label_binding=binding,
             )
-        except TrialPacketError:
-            pass
+        except TrialPacketError as exc:
+            if tampered is oversized:
+                item_size = len(canonical_json_bytes(tampered["items"][0]))
+                assert exc.code == "trial_packet_limit_invalid"
+                assert f"item_bytes={item_size}" in str(exc)
+                assert "max_item_bytes=65536" in str(exc)
+            if tampered is diff_over_cap:
+                assert exc.code == "trial_packet_limit_invalid"
+                assert "diff_text_bytes=5000" in str(exc)
+                assert "diff_cap_bytes=4096" in str(exc)
         else:
             raise AssertionError("forged production packet was accepted")
 
