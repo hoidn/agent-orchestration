@@ -21,7 +21,9 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "watch_workflow_usage_limit.sh"
-POLL_SECONDS = 2
+# The script reads the pane once per poll, so a refusal printed later than one poll is not
+# seen. Five seconds leaves room for a loaded machine; two did not under the full suite.
+POLL_SECONDS = 5
 
 STAND_IN_ORCHESTRATOR = """import sys, time
 from pathlib import Path
