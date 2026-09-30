@@ -512,15 +512,35 @@ comes from a program in
 run through the public run entry at targets 2.33 and 2.34.
 [`tests/test_workflow_lisp_guide_programs.py`](../tests/test_workflow_lisp_guide_programs.py)
 runs every program again and checks its exit code, its value and command log,
-or its diagnostic code and location. It also checks that each program quoted
-here is part of its file. The two targets differ only for decimals (rows 9
-and 10).
+or its diagnostic code, its location and the stage that raised it. It also
+checks that each program quoted here is part of its file. The two targets
+differ only for decimals (rows 3, 9 and 10).
 
-A **rule** is a restriction the language makes on purpose. A **defect** is a
-failure after typecheck or a wrong diagnostic;
-[composition-first §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
-lists the known ones with their causes. Exit 2 means the program was refused
-before any command ran. Exit 1 means it compiled and a step failed at run time.
+The kind of a refusal follows from the stage that raises it, by the rule of
+[middle-end §13.3](design/workflow_lisp_core_calculus_middle_end.md#133-diagnostics-contract):
+
+- **Rule**: the typechecker refuses the form by name.
+- **Defect**: a refusal after typecheck of a form the typechecker accepts, a
+  wrong diagnostic, or a wrong value.
+  [Composition-first §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)
+  lists the known defects with their causes.
+- **Reader**: at 2.33 the frontend refuses a decimal operator or literal while
+  it reads the source into expressions, before typecheck. Targets that exist
+  keep their behaviour on purpose
+  ([numeric surface §6](design/workflow_lisp_numeric_surface.md#6-targets-and-compatibility)).
+- **Limit**: the 256-node bound of a pure payload, raised after typecheck by
+  `validate_pure_expr_payload` (`orchestrator/workflow/pure_expr.py`) when the
+  program is lowered. It is a limit and not a defect because the design makes a
+  payload size fixed at compile time part of the pure evaluator's contract
+  ([adapter-retirement design §8.4](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md#84-pure-expression-core)),
+  and the refusal names the bound and prints the count, as
+  [principle 28](design/workflow_language_design_principles.md#28-refusals-must-name-their-rule)
+  asks.
+- **No such form**: the language has no form for the shape, so no program is
+  refused; the fixture shows what the nearest form does.
+
+Exit 2 means the program was refused before any command ran. Exit 1 means it
+compiled and a step failed at run time.
 Most defects below share one cause: at run time a value exists only as the
 output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
@@ -542,26 +562,26 @@ The commands are `probe.py`: `bump n` returns `{n: n+1}`, `fetch n` returns
 `{n: n}`, and each call appends `<command> <n>` to
 `.orchestrate/guide-probe.log`.
 
-| # | Shape | At 2.33 and 2.34 | Kind | Write instead |
+| # | Shape | At 2.33 and 2.34 | Kind (stage) | Write instead |
 | --- | --- | --- | --- | --- |
-| 1 | A loop in a branch of an `if` | exit 2, `workflow_boundary_type_invalid`, located at the loop's `:on-exhausted` value | Defect | the loop in its own `defworkflow`, `call`ed from the branch |
-| 2 | A loop in a loop | exit 2, `compiler_defect` at the outer loop | Defect | the inner loop in its own `defworkflow` |
-| 3 | An `:on-exhausted` value that calls a helper | a `defun` runs; a `defproc` declared `:effects ()` gets exit 2, `loop_recur_contract_invalid` | Defect | a `defun` |
-| 4 | A state update over many fields | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Rule: 256 nodes | target 2.30 or later |
-| 5 | A bound value used many times in one expression | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Rule: 256 nodes | target 2.30 or later |
-| 6 | One expression of more than 256 nodes | exit 2, `pure_expr_payload_too_large` | Rule | split it into `defun`s |
-| 7 | A record in a command's `:argv` | exit 2, `workflow_return_not_exportable` at the record | Defect | pass its fields |
-| 8 | A record as an input of a certified adapter | exit 2, `command_adapter_input_not_projectable` | Rule | declare and pass its fields |
-| 9 | Arithmetic over decimals | 2.33: exit 2, `pure_expr_operator_unsupported`. 2.34: runs | Rule | target 2.34 |
-| 10 | A decimal literal in an expression | 2.33: exit 2, `frontend_parse_error`. 2.34: runs | Rule | at 2.33, a parameter default |
-| 11 | Commands in parallel | no form for it; `list/map-effect` runs its commands one after another | Rule | - |
-| 12 | A `list/map-effect` body that calls a procedure | exit 2, `list_map_effect_body_unsupported` | Defect | `command-result` in the body, or a `call` of a `defworkflow` |
-| 13 | A helper shared by two branches inside a loop | exit 2, `compiler_defect_loop_control_value` or `workflow_signature_mismatch` | Defect | one call; the helper chooses the branch |
-| 14 | A `let*` binding whose value is an `if` over two lists, in a procedure called in a loop | exit 2, `workflow_return_not_exportable` | Defect | write the `if` inside the record that the state update appends |
-| 15 | A `let*` binding whose value is an `if` over two records, in a procedure called in a loop | compiles; exit 1, `pure_expr_payload_invalid` | Defect | bind the choice through a `defun` |
-| 16 | An effectful call as the argument of another | exit 2, `compiler_defect` | Defect | bind the inner call with `let*` first |
+| 1 | A loop in a branch of an `if` | exit 2, `workflow_boundary_type_invalid`, located at the loop's `:on-exhausted` value | Defect (shared validation) | the loop in its own `defworkflow`, `call`ed from the branch |
+| 2 | A loop in a loop | exit 2, `compiler_defect` at the outer loop | Defect (defunctionalization) | the inner loop in its own `defworkflow` |
+| 3 | An `:on-exhausted` value that calls a helper or applies an operator | a `defun` that builds a record runs; a `defproc` declared `:effects ()` gets exit 2, `loop_recur_contract_invalid`; an operator over `Int`, or over `Float` at 2.34, written there or inside a `defun`, gets exit 2, `workflow_return_not_exportable` | Defect (typecheck, wrongly applied; lowering) | a `defun`; for an operator, a `loop-state` field that holds the value |
+| 4 | A state update over many fields | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Limit at 2.29 (payload validation) | target 2.30 or later |
+| 5 | A bound value used many times in one expression | runs; at 2.29, exit 2, `pure_expr_payload_too_large` | Limit at 2.29 (payload validation) | target 2.30 or later |
+| 6 | One expression of more than 256 nodes | exit 2, `pure_expr_payload_too_large` | Limit (payload validation) | split it into `defun`s |
+| 7 | A record in a command's `:argv` | exit 2, `workflow_return_not_exportable` at the record | Defect (lowering) | pass its fields |
+| 8 | A record as an input of a certified adapter | exit 2, `command_adapter_input_not_projectable` | Rule (typecheck) | declare and pass its fields |
+| 9 | Arithmetic over decimals | 2.33: exit 2, `pure_expr_operator_unsupported`. 2.34: runs | Reader, at 2.33 | target 2.34 |
+| 10 | A decimal literal in an expression | 2.33: exit 2, `frontend_parse_error`. 2.34: runs | Reader, at 2.33 | at 2.33, a parameter default |
+| 11 | Commands in parallel | the language has no form for it; the fixture shows `list/map-effect` running its commands one after another | No such form | - |
+| 12 | A `list/map-effect` body that calls a procedure | exit 2, `list_map_effect_body_unsupported` | Defect (defunctionalization) | `command-result` in the body, or a `call` of a `defworkflow` |
+| 13 | A helper shared by two branches inside a loop | exit 2, `compiler_defect_loop_control_value` or `workflow_signature_mismatch` | Defect (defunctionalization; lowering) | one call; the helper chooses the branch |
+| 14 | A `let*` binding whose value is an `if` over two lists, in a procedure called in a loop | exit 2, `workflow_return_not_exportable` | Defect (lowering) | the `if` written inside the record that the procedure puts in the loop state, the record chosen through a `defun` |
+| 15 | A `let*` binding whose value is an `if` over two records, in a procedure called in a loop | compiles; exit 1, `pure_expr_payload_invalid` | Defect (run time) | bind the choice through a `defun` |
+| 16 | An effectful call as the argument of another | exit 2, `compiler_defect` | Defect (elaboration) | bind the inner call with `let*` first |
 | 17 | A name bound inside an expression that shadows an outer name | runs, with the value of lexical scope | - | - |
-| 18 | A `bind-proc` value used under a later binder of a name it reads | runs, with the captured value | Defect | - |
+| 18 | A `bind-proc` value used under a later binder of a name it reads | runs, but reads the later binder's value: 13 where lexical scope gives 7 | Defect (wrong value) | rename the later binding |
 
 The two forms of the paired search controller meet rows 1 and 14. The form
 with a copy per branch,
@@ -625,9 +645,44 @@ A `defun` helper in `:on-exhausted` runs (`on_exhausted_helper.orc` returns
 written as a `defproc` declared `:effects ()` is refused with
 `loop_recur_contract_invalid` ("exhaustion projection must be pure") at the
 call (`on_exhausted_pure_proc.orc`, line 19, column 21): the defect
-`on-exhausted-call-edge` of composition-first §11.3. When the loop is in a
-branch, row 1 is reported at the helper call with two notes, "helper call
-site" and "helper definition":
+`on-exhausted-call-edge` of composition-first §11.3; the typechecker applies
+its purity check wrongly.
+
+An operator as the `:on-exhausted` value is refused after typecheck, in
+lowering, with `workflow_return_not_exportable` ("`loop/recur` could not
+project `result` from `PureOpExpr`") at the value: for `Int` at 2.33 and 2.34
+(`on_exhausted_operator.orc`, line 9, column 21), and for `Float` at 2.34,
+although the operator is admitted elsewhere:
+
+```lisp
+;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_float_operator.orc
+  (defworkflow run ((base Float)) -> Float
+    (loop/recur :max 1
+      :state (loop-state (turn Int 0))
+      :on-exhausted (+ base base)
+```
+
+At 2.33 the typechecker refuses the `Float` addition first
+(`pure_expr_operand_type_mismatch`, a rule). The same operator inside a
+`defun` called as the `:on-exhausted` value is refused the same way at 2.34
+(`on_exhausted_float_defun.orc`, line 11, column 21). The extended totality
+matrix pins the `Float` cell (`t234:float-operator/on-exhausted-value`).
+Compute the value in a `loop-state` field, where the operator is admitted, and
+name the field:
+
+```lisp
+;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_float_in_state.orc
+    (loop/recur :max 1
+      :state (loop-state (turn Int 0) (fallback Float (+ base base)))
+      :on-exhausted state.fallback
+```
+
+With `base=1.25` it returns 2.5 when the bound is reached. The same form over
+`Int` (`on_exhausted_operator_in_state.orc`) returns 6 for `base=3` at 2.33
+and 2.34.
+
+When the loop is in a branch, row 1 is reported at the `:on-exhausted` helper
+call with two notes, "helper call site" and "helper definition":
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/on_exhausted_helper_in_branch.orc
@@ -643,7 +698,9 @@ what `search.orc` meets.
 ### The size of a pure expression (rows 4 to 6)
 
 A pure expression lowers to one payload of at most 256 nodes. The bound is a
-rule and has no stated reason
+limit, raised in lowering by `validate_pure_expr_payload`, and the runtime
+checks each payload again before it evaluates it; no document gives a reason
+for the number 256
 ([execution facts, E.3](reports/2026-09-29-workflow-lisp-execution-facts.md#e3-the-256-node-bound)).
 From target 2.30 a value bound by `let*` and used more than once is emitted
 once and referred to. Below 2.30 (run here at 2.29) it is copied at each use:
@@ -715,7 +772,7 @@ returns `{n: 4}` after `fetch-fields 4`.
 ```
 
 At 2.34, with `total=3.5`, `visits=2` and `all-visits=10`, it returns
-`3.3594745197170104`. At 2.33 it is refused with
+`3.3594745197170104`. At 2.33 the reader refuses it, before typecheck, with
 `pure_expr_operator_unsupported` ("unsupported pure operator `/`") at line 7,
 column 9. At 2.34 with `visits=0` it compiles and the step fails at run time,
 exit 1, `pure_expr_division_by_zero`, which prints the operator `/` and the
@@ -723,10 +780,10 @@ operands `[3.5, 0.0]`. The operators and their refusals are in
 [section 9A](#9a-pure-computation-and-typed-projection).
 
 A decimal literal in an expression, `(let* ((threshold 0.5)) ...)`, is
-refused at 2.33 with `frontend_parse_error` ("float literals are only
-supported in `defworkflow` parameter defaults", `decimal_literal.orc`, line 7,
-column 23) and runs at 2.34. At 2.33, write the constant as a parameter
-default:
+refused at 2.33 by the reader with `frontend_parse_error` ("float literals
+are only supported in `defworkflow` parameter defaults", `decimal_literal.orc`,
+line 7, column 23) and runs at 2.34. At 2.33, write the constant as a
+parameter default:
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/decimal_default.orc
@@ -736,8 +793,9 @@ default:
 
 ### Parallel commands (rows 11 and 12)
 
-No form runs two commands of one workflow at once. `list/map-effect` runs its
-body once per item, in list order:
+The language has no form that runs two commands of one workflow at once, so
+no program is refused for it. The fixture shows the nearest form:
+`list/map-effect` runs its body once per item, in list order:
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/commands_in_sequence.orc
@@ -818,11 +876,15 @@ It returns `{a: 6, b: 4, turn: 4}` after `bump 0` to `bump 3`.
 Exit 2: ``[workflow_return_not_exportable] Stage 3 lowering does not support
 let* binding `IfExpr` ``, at the `parents` binding (line 17, column 21). This
 is the refusal of `search_compact.orc`. The same procedure called outside a
-loop runs. Write the `if` over the two lists inside the record that the state
-update appends, and choose the record through a `defun`:
+loop runs. The form below computes the same `Out` with the same command. It
+changes three things: the loop state carries the result (`Walk` holds `out`);
+`pick` writes the `Out` into that state instead of returning it; the `if` over
+the two lists is written inside the `Out` record, and the record `current` is
+chosen through a `defun` (row 15):
 
 ```lisp
 ;; tests/fixtures/workflow_lisp/guide_shapes/list_in_state_update.orc
+  (defrecord Walk (pair Pair) (out Out))
   (defun choose ((pair Pair) (branch String)) -> Box
     (if (= branch "A") pair.a pair.b))
   (defproc pick ((walk Walk) (branch String)) -> Walk
@@ -831,15 +893,18 @@ update appends, and choose the record through a `defun`:
     (let* ((current (choose walk.pair branch))
            (got (fetch current.n)))
       (record-update walk
-        :turn (+ walk.turn 1)
-        :history (list/append walk.history
-                   (record Trial :parents (if (= branch "C") (list walk.pair.a) (list current)) :n got.n)))))
+        :out (record Out :n got.n :parents (if (= branch "C") (list walk.pair.b) (list current))))))
+...
+      (fn (state)
+        (let* ((next (pick state branch)))
+          (done next.out))))))
 ```
 
-With `branch=B` it runs two iterations and appends
-`{parents: [{n: 2}], n: 2}` twice. Binding the list with `let*`, returning a
-new record that holds it from `done`, or building it in a `defun` that takes
-the chosen record were each refused.
+It returns `{n: 1, parents: [{n: 1}]}` after `fetch 1` for `branch=A`, and
+`{n: 2, parents: [{n: 2}]}` after `fetch 2` for `branch=C`: what the refused
+source computes. Binding the list with `let*`, returning from `done` a record
+that the procedure built with a list in it, or building the list in a `defun`
+that takes the chosen record were each refused.
 
 An `if` over two records bound by `let*` compiles:
 
@@ -910,7 +975,17 @@ It returns 15, the value of lexical scope, after `bump 1`, `bump 10`.
         (hook 5)))))
 ```
 
-It returns 13, not 7: the later `b` is read.
+It returns 13, not 7: the value bound to `hook` reads the later `b`, a defect.
+Do not rebind a name that a `bind-proc` value reads between the binding and
+the call; rename the later binding:
+
+```lisp
+;; tests/fixtures/workflow_lisp/guide_shapes/bind_proc_renamed.orc
+      (let* ((c 7))
+        (hook 5)))))
+```
+
+It returns 7.
 
 ## 3. Semantic Authority Rules
 
