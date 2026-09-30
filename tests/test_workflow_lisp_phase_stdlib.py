@@ -4651,6 +4651,105 @@ def test_load_canonical_phase_result_accepts_bundle_path_contract(
     assert json.loads(captured.out) == bundle
 
 
+def test_load_canonical_phase_result_keeps_bundle_bytes_after_path_replacement(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    bundle_bytes = json.dumps(bundle).encode("utf-8")
+    bundle_path.write_bytes(bundle_bytes)
+    external_root = tmp_path.parent / f"{tmp_path.name}_external"
+    external_root.mkdir()
+    external_bundle_path = external_root / "checks-state.json"
+    external_bundle_path.write_text(
+        json.dumps({"checks_report": "external-sentinel.md"}),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    original_read = load_canonical_phase_result.WorkspaceFiles.read
+    original_path_read_bytes = Path.read_bytes
+    original_path_read_text = Path.read_text
+    read_paths: list[Path] = []
+    external_bundle_reads: list[Path] = []
+
+    def replace_bundle_after_read(owner, path: str | Path) -> bytes:
+        candidate = Path(path)
+        read_paths.append(candidate)
+        content = original_read(owner, path)
+        if candidate == Path("checks-state.json"):
+            bundle_path.unlink()
+            bundle_path.symlink_to(external_bundle_path)
+        return content
+
+    def track_external_bundle_read(path: Path) -> None:
+        if path == bundle_path and path.is_symlink():
+            external_bundle_reads.append(path)
+
+    def tracked_path_read_bytes(path: Path) -> bytes:
+        track_external_bundle_read(path)
+        return original_path_read_bytes(path)
+
+    def tracked_path_read_text(
+        path: Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> str:
+        track_external_bundle_read(path)
+        return original_path_read_text(path, encoding=encoding, errors=errors)
+
+    monkeypatch.setattr(
+        load_canonical_phase_result.WorkspaceFiles,
+        "read",
+        replace_bundle_after_read,
+    )
+    monkeypatch.setattr(Path, "read_bytes", tracked_path_read_bytes)
+    monkeypatch.setattr(Path, "read_text", tracked_path_read_text)
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+                }
+            ),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert json.loads(captured.out) == bundle
+    assert bundle_path.is_symlink()
+    assert read_paths == [Path("checks-state.json")]
+    assert external_bundle_reads == []
+
+
 def test_load_canonical_phase_result_rejects_digest_mismatch_before_emit(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
