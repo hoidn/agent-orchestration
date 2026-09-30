@@ -1649,8 +1649,29 @@ def test_workflow_executor_persists_provider_supervision_current_step_before_run
 def _atomic_finalizer_executor(
     tmp_path: Path,
     manager: StateManager,
-) -> WorkflowExecutor:
+) -> tuple[WorkflowExecutor, list[tuple[str, bool, str, str]]]:
     executor = object.__new__(WorkflowExecutor)
+    checkpoint_observations: list[tuple[str, bool, str, str]] = []
+
+    def observe_checkpoint(
+        _state: dict[str, Any],
+        step_name: str,
+        _step: Any,
+        finalized: dict[str, Any],
+    ) -> None:
+        persisted = manager.load()
+        checkpoint_observations.append(
+            (
+                step_name,
+                persisted.current_step is None,
+                persisted.steps[step_name]["status"],
+                finalized["status"],
+            )
+        )
+
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        observe_checkpoint
+    )
     executor.state_manager = manager
     executor.dataflow_manager = DataflowManager(
         workspace=tmp_path,
@@ -1687,7 +1708,7 @@ def _atomic_finalizer_executor(
     executor._emit_step_summary = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: None
     )
-    return executor
+    return executor, checkpoint_observations
 
 
 def test_provider_supervision_pending_consumes_share_one_terminal_state_write(
@@ -1725,7 +1746,10 @@ def test_provider_supervision_pending_consumes_share_one_terminal_state_write(
     state["_resolved_consumes"] = {
         "Live": {"input_artifact": "value"},
     }
-    executor = _atomic_finalizer_executor(tmp_path, manager)
+    executor, checkpoint_observations = _atomic_finalizer_executor(
+        tmp_path,
+        manager,
+    )
 
     result = WorkflowExecutor._finalize_provider_supervision_settlement(
         executor,
@@ -1749,6 +1773,9 @@ def test_provider_supervision_pending_consumes_share_one_terminal_state_write(
     assert persisted.artifact_consumes["__global__"] == {
         "input_artifact": 3,
     }
+    assert checkpoint_observations == [
+        ("Live", True, "completed", "completed")
+    ]
 
 
 def test_provider_supervision_terminal_metadata_failure_does_not_override_atomic_result(
@@ -1770,7 +1797,10 @@ def test_provider_supervision_terminal_metadata_failure_does_not_override_atomic
         visit_count=1,
     )
     state = manager.load().to_dict()
-    executor = _atomic_finalizer_executor(tmp_path, manager)
+    executor, checkpoint_observations = _atomic_finalizer_executor(
+        tmp_path,
+        manager,
+    )
 
     def fail_terminal_metadata(*_args: Any, **_kwargs: Any) -> None:
         raise OSError("terminal metadata is unwritable")
@@ -1799,6 +1829,9 @@ def test_provider_supervision_terminal_metadata_failure_does_not_override_atomic
     assert persisted.steps["Live"]["artifacts"] == {
         "__result__": "selected",
     }
+    assert checkpoint_observations == [
+        ("Live", True, "completed", "completed")
+    ]
 
 
 def test_provider_supervision_rejects_current_step_drift_before_settlement_write(
@@ -1837,7 +1870,7 @@ def test_provider_supervision_rejects_current_step_drift_before_settlement_write
         original_write()
 
     monkeypatch.setattr(manager, "_write_state", count_write)
-    executor = _atomic_finalizer_executor(tmp_path, manager)
+    executor, _ = _atomic_finalizer_executor(tmp_path, manager)
 
     with pytest.raises(
         ValueError,
