@@ -786,15 +786,18 @@ commands and a provider beside it (gate report, §5; spike iteration 3, E).
 Spike iteration 4 tested the shipped `qa_placement_trial::compare` with
 stand-in children/judges through both routes and 18 external kills. It is
 bounded feasibility evidence for later trials, not first-release admission:
-the existing trial runtime raises `KeyError: 'cell'` on resume after evaluation
-starts. With a test-process repair, the two commit gaps recover, but a kill
-during judging spends in-flight attempts and can change the decision. Its
-settlement adapter supplies synthetic parent state to an existing state
+that iteration found a trial runtime `KeyError: 'cell'` after evaluation
+starts and used a test-process repair to exercise the two commit gaps. The
+Phase 0 integration correction selects the active attempt's ledger rows for
+recovery and terminal validation, also excluding discarded preparations; the
+regressions now exercise the production runtime without that patch. A kill
+during judging still spends in-flight attempts and can change the decision.
+The settlement adapter supplies synthetic parent state to an existing state
 validator; this does not prove independent validation of memo commit authority.
 
-Before trials or bundle mode enter, evidence must cover that runtime defect,
-an explicit interrupted-judge budget policy, settlement against the actual
-memo commit/proof, distinct per-arm input bindings, and location-independent
+Before trials or bundle mode enter, evidence must retain that recovery coverage
+and establish an explicit interrupted-judge budget policy, settlement against
+the actual memo commit/proof, distinct per-arm input bindings, and location-independent
 child capsules built by the parent's compiler. A trial's sealed-label salt
 may remain in its own durable ledger; K5's proof must bind the ledger authority
 needed for replay, rather than redraw it. Phased delivery still needs its own
@@ -1053,7 +1056,7 @@ repeat.
 | The interpreter fixed for the run | Changing `PATH` alone launches the recorded executable with no change diagnostic. Changing bytes at that path emits `interpreter_changed` and continues on it; a missing/unlaunchable recorded path refuses. No interpreter digest enters effect-input identity | Iteration 4 demonstrated PATH pinning but retained digest-based refusal; the accepted C3 changed-bytes policy remains to prove |
 | An undeclared closure | A boundary without a `closure` field is refused at build, and a wrapper whose second script changed is never reused | Met for the refusal under `strict` (spike iteration 3, B); C1 makes it the only rule |
 | A terminal record without its settlements | A memo with a terminal record and a coordinator commit lacking `settled` is reported `memo_inconsistent`, with no outputs | Failed on the spike (gate report, §6); V3 is the rule to test |
-| A coordinator other than a run reference (later admission) | One shipped workflow through both routes, killed at both gaps, plus its internal interruption semantics and proof authority | Iteration 4's trial specimen; runtime defect and changed-decision/settlement/capsule limits in §9.3 remain prerequisites |
+| A coordinator other than a run reference (later admission) | One shipped workflow through both routes, killed at both gaps, plus its internal interruption semantics and proof authority | Iteration 4's trial specimen, with production recovery coverage after the Phase 0 correction; changed-decision/settlement/capsule limits in §9.3 remain prerequisites |
 | The request contract | Every field of every request compared without normalising; a field not in R1 to R12 is equal | Met (spike iteration 3, F) |
 | Attempt allocation | External kills before/after the synchronized `started`, after exclusive directory creation and before dispatch; next ordinal on resume, old evidence unchanged, no dispatch on collision, and conservative refusal for `must_not_repeat` | Open; the spike did not implement the design's original pre-`started` allocation order |
 | Durable run authority | Fault injection before/after each program/header write, file sync, rename and directory sync, including run-root creation and empty-journal sync. Model unsynchronized writes disappearing: either valid authority survives for every durable record, or no effect was dispatched. Missing authority with a nonempty journal refuses without reconstruction | Open; this is a crash/power-loss contract, not a demonstrated production failure |
