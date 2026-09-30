@@ -48,20 +48,19 @@ class ClosedProgram:
         """The program read back from its artifact, as another process does to resume a run."""
 
         tree = json.loads(text)
-        sites: list[str] = []
+        sites = sorted(node["site"] for node in perform_nodes(tree))
+        return cls(tree=tree, sites=tuple(sites), digest=canonical_digest(strip_provenance(tree)))
 
-        def walk(node: Any) -> None:
-            if isinstance(node, dict):
-                if node.get("k") == "perform":
-                    sites.append(node["site"])
-                for value in node.values():
-                    walk(value)
-            elif isinstance(node, list):
-                for value in node:
-                    walk(value)
 
-        walk(tree)
-        return cls(tree=tree, sites=tuple(sorted(sites)), digest=canonical_digest(strip_provenance(tree)))
+def perform_nodes(node: Any) -> list[dict[str, Any]]:
+    """Every effect node under `node`, in document order."""
+
+    if isinstance(node, list):
+        return [found for item in node for found in perform_nodes(item)]
+    if not isinstance(node, dict):
+        return []
+    found = [node] if node.get("k") == "perform" else []
+    return found + [inner for value in node.values() for inner in perform_nodes(value)]
 
 
 def canonical_digest(value: Any) -> str:

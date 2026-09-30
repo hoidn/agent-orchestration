@@ -37,6 +37,7 @@ class Entry:
     failed: dict[str, Any] | None = None
     settled: bool = False
     invalidated: bool = False  # the last attempt was committed, then invalidated: a rerun was asked for
+    committed_at: int = 0  # the journal position of the current commit
 
 
 def read_records(run_root: Path) -> list[dict[str, Any]]:
@@ -53,6 +54,7 @@ class Memo:
     def __init__(self, run_root: Path) -> None:
         self.path = run_root / MEMO_FILE
         self.entries: dict[str, Entry] = {}
+        self.position = 0  # records indexed so far
         self._file = None
 
     def __enter__(self) -> "Memo":
@@ -85,6 +87,7 @@ class Memo:
         self._index(record)
 
     def _index(self, record: dict[str, Any]) -> None:
+        self.position += 1
         if "identity" not in record:  # the run's `terminal` record
             return
         entry = self.entries.setdefault(record["identity"], Entry())
@@ -93,7 +96,7 @@ class Memo:
             entry.attempts.append(record["attempt"])
             entry.invalidated = False
         elif kind == "committed":
-            entry.committed, entry.settled = record, False
+            entry.committed, entry.settled, entry.committed_at = record, False, self.position
         elif kind == "suspended":
             entry.suspended = record
         elif kind == "failed":

@@ -80,17 +80,19 @@ def build_closed_program(
     typed: TypedProgram,
     *,
     no_repeat: frozenset[str] = frozenset(),
-    closure: str = "declared",
+    closure: str = "strict",
     closures: Mapping[str, list[str]] | None = None,
 ) -> ClosedProgram:
     """`no_repeat` names command boundaries whose effect must not run again without a commit (section 8).
 
     `closure` is what a committed command's resolved input binds of what the command runs:
-    - `declared`: the stable command's workspace paths (files, or directories as their sorted files with
-      digests), the program resolved on PATH when it is a bare name, and the implementation closure the
-      boundary declares in `closures` (files and directories); a symbolic link also by the path it resolves
-      to. Anything else, modification times included, is outside the promise.
-    - `strict`: as `declared`; a command boundary without a declared closure is refused here.
+    - `strict` (the rule): every command boundary declares its implementation closure in `closures`, even
+      empty; one that does not is refused here. Bound: the stable command's workspace paths (files, or
+      directories as their sorted files with digests), the program a bare name finds on PATH when the run
+      starts (pinned for the run), and the closure's files and directories; a symbolic link also by the path
+      it resolves to. Closures are read-only: a command that changes one fails its attempt. Modification
+      times are outside the promise.
+    - `declared`: as `strict`, and a boundary may declare no closure.
     - `trusting`: nothing (the present route).
     """
 

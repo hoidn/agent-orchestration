@@ -3,7 +3,7 @@
 Throwaway. One program, `decisive.orc`, holds what review 2 asked for together:
 
 - a command whose declared program is a wrapper (`wrapper.py`) that runs a second script
-  (`payload.py`), built with `closure="declared"` and the closure `["payload.py"]`;
+  (`payload.py`), built under `strict` (the default) with the closure `["payload.py"]`;
 - a called workflow (`review`) holding a provider;
 - a run reference compiled from the source (path mode), whose input is the provider's
   score and whose value feeds the last command.
@@ -182,7 +182,7 @@ def build(workspace: Path, repo: Path, form: dict = FULL):
                               command_boundaries={"fetch": ExternalToolBinding(name="fetch",
                                                                                stable_command=("python", "wrapper.py"))},
                               provider_externs={"providers.review": "codex"}, prompt_externs={"prompts.review": "review.md"})
-    return build_closed_program(typed, closure="declared", closures={"fetch": ["payload.py"]})
+    return build_closed_program(typed, closures={"fetch": ["payload.py"]})
 
 
 # 1. Both routes in process ----------------------------------------------------------------------------
