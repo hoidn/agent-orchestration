@@ -16,6 +16,7 @@ from orchestrator.workflow.step_results import to_step_result
 from orchestrator.workflow.trial.contracts import build_sealed_opaque_label_map
 from orchestrator.workflow.trial.contracts import derive_trial_cell_effect_scopes
 from orchestrator.workflow.trial.ledger import load_trial_event_ledger
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_workflow_trial_adjudication import _blinded_cell_harnesses
 from tests.test_workflow_trial_outer_settlement import _prepare_terminal_trial
 from tests.test_workflow_trial_runtime import _execute
@@ -291,6 +292,7 @@ def test_trial_executor_atomically_commits_typed_result_before_ledger_edge(
 
     executor = object.__new__(WorkflowExecutor)
     executor.workspace = workspace
+    executor.workspace_files = WorkspaceFiles(workspace)
     executor.state_manager = FakeStateManager()
     executor.loaded_bundle = SimpleNamespace(
         provenance=SimpleNamespace(frontend_build_root=build_root),

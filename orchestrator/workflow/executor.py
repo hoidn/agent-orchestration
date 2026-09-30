@@ -4722,7 +4722,10 @@ class WorkflowExecutor:
             Final execution state
         """
         try:
-            if self._owns_workspace_files and self.workspace_files.closed:
+            if (
+                getattr(self, "_owns_workspace_files", False)
+                and self.workspace_files.closed
+            ):
                 self._reopen_owned_result_files()
             # Override retry config if provided
             if max_retries is not None:
