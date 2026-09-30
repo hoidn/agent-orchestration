@@ -23,13 +23,14 @@ from tests.workflow_lisp_totality_matrix_sources import COMMANDS, PROBE
 
 REPO = Path(__file__).resolve().parents[2]
 HOLDING_PROBE = PROBE.replace(
-    "payload = {",
-    'if Path("hold").exists() and n == 2:\n'
-    '    Path("marker").write_text("during")\n'
-    "    import time\n"
-    "    while True:\n"
-    "        time.sleep(0.05)\n"
-    "payload = {",
+    'else:\n    n = int(raw)\n    payload = {',
+    'else:\n    n = int(raw)\n'
+    '    if Path("hold").exists() and command == "fetch" and n == 2:\n'
+    '        Path("marker").write_text("during")\n'
+    "        import time\n"
+    "        while True:\n"
+    "            time.sleep(0.05)\n"
+    "    payload = {",
     1,
 )
 ENV = {**os.environ, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
