@@ -25,16 +25,15 @@ raises `ClosedProgramGap` naming it:
 
 from __future__ import annotations
 
-import posixpath
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from orchestrator.workflow.pure_expr import validate_pure_expr_payload
-from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
 from orchestrator.workflow_lisp.expressions import (
     CompilerListNonemptyHeadExpr,
+    GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
     ListExpr,
@@ -50,6 +49,7 @@ from orchestrator.workflow_lisp.wcc import model as w
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import _elaborate_expr_to_body, elaborate_typed_workflow_body
 
+from .closed_effects import translate_perform
 from .frontend import TypedProgram
 from .repairs import bind_done_values, elaboration_return_types
 from .sites import ClosedProgram, assign_sites, canonical_digest, strip_provenance, validate
@@ -76,10 +76,12 @@ def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = fro
     params = [[d.bind(param), d.desc(type_ref)] for param, type_ref in entry.signature.params]
     wcc = builder.elaborate_workflow(entry, d.type_env)
     body = builder.body(normalize_wcc_body_to_anf(wcc), d, dict(entry.signature.params))
+    defaults = {d.ref(n): default.normalized_value for n, default in entry.signature.param_defaults.items()}
     tree = {
         "schema": SCHEMA,
         "entry": name,
         "params": params,
+        "defaults": defaults,
         "result": d.desc(entry.signature.return_type_ref),
         "body": body,
     }
@@ -264,7 +266,13 @@ class _Builder:
         by_name = dict(perform.keyword_args)
         params = [p for p, _ in workflow.signature.params]
         wcc = self.elaborate_workflow(workflow, callee_def.type_env)
-        args = [by_name[p] for p in params]
+        defaults = workflow.signature.param_defaults
+        missing = [p for p in params if p not in by_name and p not in defaults]
+        if missing:
+            raise ClosedProgramGap("P1", f"workflow call of `{name}` binds no value to {missing}")
+        # A parameter the call leaves out takes its declared default.
+        args = [self.value(by_name[p], d, env) if p in by_name else {"k": "lit", "v": defaults[p].normalized_value}
+                for p in params]
         return self.attach(name, callee_def, params, args, wcc, dict(workflow.signature.params), d, env)
 
     def elaborate_workflow(self, workflow: Any, type_env: Any) -> Any:
@@ -283,7 +291,7 @@ class _Builder:
     def attach(self, callee, callee_def, params, args, wcc, value_env, d, env) -> dict[str, Any]:
         if callee in self.active:
             raise ClosedProgramGap("P1", f"recursive call of `{callee}`")
-        closed_args = [self.value(a, d, env) for a in args]
+        closed_args = [a if isinstance(a, dict) else self.value(a, d, env) for a in args]
         self.active = (*self.active, callee)
         try:
             bound = [callee_def.bind(p) for p in params]
@@ -310,66 +318,7 @@ class _Builder:
         return f"{spec.base_name}[{', '.join(args)}]"
 
     def perform(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
-        kind = perform.perform_kind
-        node = {"k": "perform", "result": d.desc(perform.metadata.type_ref)}
-        if kind == "command_result":
-            return {**node, **self.command(perform, d, env)}
-        if kind == "provider_result":
-            return {**node, **self.provider(perform, d, env)}
-        if kind == "request_input":
-            return {**node, "class": "request_input", "question": self.value(perform.positional_args[0], d, env)}
-        raise ClosedProgramGap("P3", f"effect class `{kind}` has no performer in the spike")
-
-    def command(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
-        payload = perform.operation_payload
-        boundary = payload.get("adapter_name") or perform.target_name
-        binding = self.typed.command_boundaries[boundary]
-        stable = list(binding.stable_command)
-        node = {"class": "command", "boundary": boundary, "command": stable,
-                "contract": self.contract(perform.metadata.type_ref, d, payload.get("return_spec")),
-                "repeat": "never" if boundary in self.no_repeat else "rerun"}
-        if payload.get("adapter_name") is None:
-            return {**node, "argv": [self.value(a, d, env) for a in perform.positional_args[len(stable):]]}
-        if binding.invocation_protocol not in (None, "json_object_positional_arg"):
-            raise ClosedProgramGap("P3", f"adapter protocol `{binding.invocation_protocol}` has no performer in the spike")
-        # P3: a certified adapter receives one JSON object, its fields in the order of the adapter's signature.
-        inputs = dict(payload["adapter_inputs"])
-        document = [[f.transport_key, self.value(inputs[f.name], d, env)] for f in binding.input_signature if f.name in inputs]
-        return {**node, "argv": [], "document": document}
-
-    def provider(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
-        payload = perform.operation_payload
-        unsupported = sorted(set(payload) & {"context_expr", "prompt_dependencies", "session_artifact", "capture_context"})
-        if unsupported:
-            raise ClosedProgramGap("P3", f"provider payload parts {unsupported} have no closed form in the spike")
-        policy = {key: self.value(payload[key], d, env) for key in
-                  ("model", "effort", "delivery", "materialization_attempts", "timeout_sec") if key in payload}
-        return {"class": "provider", "provider": self.typed.externs[perform.target_name].provider_id,
-                "prompt": self.prompt(perform, d, env),
-                "inputs": [self.value(a, d, env) for a in perform.positional_args], "policy": policy,
-                "contract": self.contract(perform.metadata.type_ref, d, payload.get("return_spec")), "repeat": "rerun"}
-
-    def prompt(self, perform: w.WccPerform, d: _Def, env: dict[str, Any]) -> str | dict[str, Any]:
-        """An asset prompt: its path, relative to the entry module as the flat route reads it.
-        A `defprompt` application: its template and its fills, each with its renderer (P3)."""
-
-        application = perform.operation_payload.get("prompt_application")
-        if application is None:
-            path = self.typed.externs[perform.prompt_name].path
-            return posixpath.normpath(posixpath.join(self.typed.entry_dir, path))
-        if any(fill.renderer_id is None for fill in application.fills):
-            raise ClosedProgramGap("P3", "a document prompt slot has no closed form in the spike")
-        return {"template": application.prompt.declaration.template.text,
-                "fills": [[f.name, f.renderer_id, self.value(f.value_expr, d, env)] for f in application.fills]}
-
-    def contract(self, result_type: Any, d: _Def, return_spec: Any) -> dict[str, Any]:
-        """P3: the output contract of the result type, derived as lowering derives it, without its path."""
-
-        contract = derive_prompt_guided_structured_result_contract(
-            result_type, workflow_name=d.canonical, step_id="effect", type_env=d.type_env,
-            guidance=getattr(return_spec, "guidance", None),
-        )
-        return {"kind": contract.contract_kind, "payload": {k: v for k, v in contract.payload.items() if k != "path"}}
+        return translate_perform(self, perform, d, env)
 
     # Values ---------------------------------------------------------------
 
@@ -447,8 +396,14 @@ class _Builder:
                     "compiler_owned": True, "invariant_diagnostic": "list_nonempty_invariant_broken"}
             source = [self.frontend(expr.source_expr, d, env)]
             return {**self.payload(head, item, [{"kind": "list", "item": item}], source, d), **_provenance(value)}
-        if isinstance(expr, (LetStarExpr, IfExpr)):  # an inlined pure call, or `if` below target 2.26
+        if isinstance(expr, IfExpr):  # below target 2.26 the elaborator keeps a pure `if` opaque, parts included
+            return {"k": "select", "cond": self.frontend(expr.condition_expr, d, env),
+                    "then": {"prefix": [], "value": self.frontend(expr.then_expr, d, env)},
+                    "else": {"prefix": [], "value": self.frontend(expr.else_expr, d, env)}}
+        if isinstance(expr, LetStarExpr):  # an inlined pure call
             return self.frontend(expr, d, env)
+        if isinstance(expr, GeneratedRelpathSeedExpr):  # a compiler-private path seed: its literal path (unverified)
+            return {"k": "lit", "v": expr.literal_path}
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")
 
     def loop_state_update(self, expr: LoopStateUpdateExpr, carrier: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:

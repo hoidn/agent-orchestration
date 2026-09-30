@@ -42,6 +42,26 @@ class ClosedProgram:
 
         return json.dumps(self.tree, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
+    @classmethod
+    def from_artifact(cls, text: str) -> "ClosedProgram":
+        """The program read back from its artifact, as another process does to resume a run."""
+
+        tree = json.loads(text)
+        sites: list[str] = []
+
+        def walk(node: Any) -> None:
+            if isinstance(node, dict):
+                if node.get("k") == "perform":
+                    sites.append(node["site"])
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(tree)
+        return cls(tree=tree, sites=tuple(sorted(sites)), digest=canonical_digest(strip_provenance(tree)))
+
 
 def canonical_digest(value: Any) -> str:
     text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
@@ -54,18 +74,6 @@ def strip_provenance(node: Any) -> Any:
     if isinstance(node, list):
         return [strip_provenance(item) for item in node]
     return node
-
-
-def _has_effect(node: Any, memo: dict[int, bool]) -> bool:
-    key = id(node)
-    if key not in memo:
-        if isinstance(node, dict):
-            memo[key] = node.get("k") == "perform" or any(_has_effect(v, memo) for v in node.values())
-        elif isinstance(node, list):
-            memo[key] = any(_has_effect(v, memo) for v in node)
-        else:
-            memo[key] = False
-    return memo[key]
 
 
 class _Scope:
@@ -81,18 +89,39 @@ class _Scope:
         return name if self.names[name] == 1 else f"{name}#{self.names[name]}"
 
 
-def assign_sites(tree: dict[str, Any]) -> list[str]:
-    """Write `site` on every perform node; return the site table in program order."""
+def assign_sites(tree: dict[str, Any], *, count_pure: bool = False) -> list[str]:
+    """Write `site` on every perform node; return the site table in program order.
 
-    walker = _SiteWalker()
+    `count_pure` is the other ordinal rule, measured by `test_evaluated_execution_spike_table.py`: every
+    unnamed binder of a scope takes an ordinal, pure or not."""
+
+    walker = _SiteWalker(count_pure=count_pure)
     walker.walk(tree["body"], [tree["entry"]])
     return walker.sites
 
 
 class _SiteWalker:
-    def __init__(self) -> None:
+    """In the tree form a call's body is walked under the call's segment. In the table form (`table.py`) a
+    call has no body: the call gets its segment as `frame`, and each definition is walked on its own."""
+
+    def __init__(self, definitions: dict[str, Any] | None = None, *, count_pure: bool = False) -> None:
         self.sites: list[str] = []
         self.memo: dict[int, bool] = {}
+        self.definitions = definitions or {}
+        self.count_pure = count_pure
+
+    def has_effect(self, node: Any) -> bool:
+        key = id(node)
+        if key not in self.memo:
+            if isinstance(node, dict) and node.get("k") == "call" and "body" not in node:
+                self.memo[key] = self.has_effect(self.definitions[node["callee"]]["body"])
+            elif isinstance(node, dict):
+                self.memo[key] = node.get("k") == "perform" or any(self.has_effect(v) for v in node.values())
+            elif isinstance(node, list):
+                self.memo[key] = any(self.has_effect(v) for v in node)
+            else:
+                self.memo[key] = False
+        return self.memo[key]
 
     def walk(self, node: dict[str, Any], prefix: list[str]) -> None:
         scope = _Scope()
@@ -115,13 +144,21 @@ class _SiteWalker:
         if bound["k"] == "perform":
             bound["site"] = SEPARATOR.join([*prefix, scope.label(node["name"])])
             self.sites.append(bound["site"])
-        elif bound["k"] == "call" and _has_effect(bound, self.memo):
-            self.walk(bound["body"], [*prefix, f"{scope.label(node['name'])}={bound['callee']}"])
+        elif bound["k"] == "call" and self.has_effect(bound):
+            segment = f"{scope.label(node['name'])}={bound['callee']}"
+            if "body" in bound:
+                self.walk(bound["body"], [*prefix, segment])
+            else:
+                bound["frame"] = SEPARATOR.join([*prefix, segment])
+        elif self.count_pure and node["name"].startswith("%"):
+            scope.label(node["name"])
         return node["body"]
 
     def join(self, node: dict[str, Any], prefix: list[str], scope: _Scope) -> dict[str, Any]:
-        if _has_effect(node["body"], self.memo):
+        if self.has_effect(node["body"]):
             self.walk(node["body"], [*prefix, scope.label(node["params"][0])])
+        elif self.count_pure and node["params"][0].startswith("%"):
+            scope.label(node["params"][0])
         return node["cont"]
 
 
@@ -130,9 +167,12 @@ class CheckedFormError(ValueError):
 
 
 def validate(tree: dict[str, Any]) -> None:
-    """Names are bound where used, jumps and continues have a target, every effect has one unique site."""
+    """Names are bound where used, jumps and continues have a target, every effect has one unique site
+    (within its definition, in the table form)."""
 
-    _Validator().body(tree["body"], frozenset(name for name, _ in tree["params"]), frozenset(), False)
+    _Validator().body(tree["body"], frozenset(name for name, _ in tree["params"]), frozenset(), None)
+    for definition in tree.get("definitions", {}).values():
+        _Validator().body(definition["body"], frozenset(definition["params"]), frozenset(), None)
 
 
 def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -142,6 +182,15 @@ def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
     if kind in ("record", "inject"):
         return [item for _, item in node["fields"]]
     return node.get("args", node.get("items", []))
+
+
+def _perform_operands(node: dict[str, Any]) -> list[dict[str, Any]]:
+    fills = node["prompt"]["fills"] if isinstance(node.get("prompt"), dict) else []
+    dependencies = node.get("dependencies") or {"required": [], "optional": []}
+    return [*node.get("argv", []), *node.get("policy", {}).values(), *dependencies["required"],
+            *dependencies["optional"], *(value for _, value in node.get("document", [])),
+            *(value for *_, value in [*fills, *node.get("inputs", [])]),
+            *([node["question"]] if "question" in node else [])]
 
 
 class _Validator:
@@ -161,7 +210,7 @@ class _Validator:
                     inner = inner | {let["name"]}
                 self.value(arm["value"], inner)
         elif kind == "block":
-            self.body(node["body"], names, frozenset(), False)
+            self.body(node["body"], names, frozenset(), None)
         for child in _value_children(node):
             self.value(child, names)
 
@@ -171,19 +220,17 @@ class _Validator:
             if site is None or site in self.seen:
                 raise CheckedFormError(f"effect without a unique site: {site}")
             self.seen.add(site)
-            fills = node["prompt"]["fills"] if isinstance(node.get("prompt"), dict) else []
-            operands = [*node.get("argv", []), *node.get("inputs", []), *node.get("policy", {}).values(),
-                        *(value for _, value in node.get("document", [])), *(value for *_, value in fills)]
-            for item in operands + ([node["question"]] if "question" in node else []):
+            for item in _perform_operands(node):
                 self.value(item, names)
         elif node["k"] == "call":
             for item in node["args"]:
                 self.value(item, names)
-            self.body(node["body"], frozenset(node["params"]), frozenset(), False)
+            if "body" in node:
+                self.body(node["body"], frozenset(node["params"]), frozenset(), None)
         else:
             self.value(node, names)
 
-    def body(self, node: dict[str, Any], names: frozenset[str], joins: frozenset[str], in_loop: bool) -> None:
+    def body(self, node: dict[str, Any], names: frozenset[str], joins: frozenset[str], loop: str | None) -> None:
         while node["k"] == "let":
             self.bound(node["value"], names)
             names = names | {node["name"]}
@@ -191,38 +238,38 @@ class _Validator:
         tail = getattr(self, "tail_" + node["k"], None)
         if tail is None:
             raise CheckedFormError(f"unknown node kind `{node['k']}`")
-        tail(node, names, joins, in_loop)
+        tail(node, names, joins, loop)
 
-    def tail_halt(self, node, names, joins, in_loop) -> None:
+    def tail_halt(self, node, names, joins, loop) -> None:
         self.value(node["value"], names)
 
     tail_done = tail_halt
 
-    def tail_jump(self, node, names, joins, in_loop) -> None:
-        if (node["k"] == "jump" and node["join"] not in joins) or (node["k"] == "continue" and not in_loop):
-            raise CheckedFormError(f"`{node['k']}` without an enclosing target")
+    def tail_jump(self, node, names, joins, loop) -> None:
+        if (node["k"] == "jump" and node["join"] not in joins) or (node["k"] == "continue" and node["loop"] != loop):
+            raise CheckedFormError(f"`{node['k']}` does not name its enclosing target")
         for item in node["args"]:
             self.value(item, names)
 
     tail_continue = tail_jump
 
-    def tail_if(self, node, names, joins, in_loop) -> None:
+    def tail_if(self, node, names, joins, loop) -> None:
         self.value(node["cond"], names)
-        self.body(node["then"], names, joins, in_loop)
-        self.body(node["else"], names, joins, in_loop)
+        self.body(node["then"], names, joins, loop)
+        self.body(node["else"], names, joins, loop)
 
-    def tail_case(self, node, names, joins, in_loop) -> None:
+    def tail_case(self, node, names, joins, loop) -> None:
         self.value(node["subject"], names)
         for arm in node["arms"]:
-            self.body(arm["body"], names | {arm["bind"]}, joins, in_loop)
+            self.body(arm["body"], names | {arm["bind"]}, joins, loop)
 
-    def tail_join(self, node, names, joins, in_loop) -> None:
-        self.body(node["body"], names, joins | {node["name"]}, in_loop)
-        self.body(node["cont"], names | set(node["params"]), joins, in_loop)
+    def tail_join(self, node, names, joins, loop) -> None:
+        self.body(node["body"], names, joins | {node["name"]}, loop)
+        self.body(node["cont"], names | set(node["params"]), joins, loop)
 
-    def tail_loop(self, node, names, joins, in_loop) -> None:
+    def tail_loop(self, node, names, joins, loop) -> None:
         self.value(node["budget"], names)
         self.value(node["init"], names)
-        self.body(node["body"], names | {node["param"]}, frozenset(), True)
+        self.body(node["body"], names | {node["param"]}, frozenset(), node["name"])
         if node["exhausted"] is not None:
-            self.body(node["exhausted"], names | {node["param"]}, frozenset(), False)
+            self.body(node["exhausted"], names | {node["param"]}, frozenset(), None)

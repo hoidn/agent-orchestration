@@ -29,6 +29,7 @@ class Entry:
     attempts: list[int] = field(default_factory=list)
     committed: dict[str, Any] | None = None
     suspended: dict[str, Any] | None = None
+    failed: dict[str, Any] | None = None
 
 
 def read_records(run_root: Path) -> list[dict[str, Any]]:
@@ -85,6 +86,31 @@ class Memo:
             entry.committed = record
         elif kind == "suspended":
             entry.suspended = record
+        elif kind == "failed":
+            entry.failed = record
+
+
+class MemoSnapshot(Memo):
+    """The memo as a reader sees it: indexed, not locked, never written. A view reads a run in progress this way."""
+
+    def __init__(self, run_root: Path) -> None:
+        super().__init__(run_root)
+        for record in read_records(run_root):
+            self._index(record)
+
+    def append(self, record: dict[str, Any]) -> None:
+        raise RuntimeError("a memo snapshot is not written")
+
+    def writer_alive(self) -> bool:
+        """Whether a writer holds the memo: a process that died released its lock."""
+
+        with open(self.path, "rb") as memo:
+            try:
+                fcntl.flock(memo.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(memo.fileno(), fcntl.LOCK_UN)
+            return False
 
 
 def answer(run_root: Path, identity: str, text: str) -> None:

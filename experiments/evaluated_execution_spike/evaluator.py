@@ -22,7 +22,7 @@ from typing import Any
 
 from orchestrator.workflow.pure_expr import PureExprEvaluationError, evaluate_pure_expr
 
-from .sites import ClosedProgram, canonical_digest
+from .sites import SEPARATOR, ClosedProgram, canonical_digest
 from .memo import Memo
 from .performers import Performers, render_argument, result_path
 
@@ -46,6 +46,14 @@ class EffectSuspended(Exception):
         self.identity, self.request = identity, request
 
 
+class Pending(Exception):
+    """A view's evaluation reached an effect without a commit: the run stands there."""
+
+    def __init__(self, identity: str, entry: Any) -> None:
+        super().__init__(identity)
+        self.identity, self.entry = identity, entry
+
+
 @dataclass
 class RunResult:
     value: Any
@@ -60,16 +68,45 @@ def evaluate(
     workspace: Path,
     run_root: Path,
     hook: Hook | None = None,
+    coordinators: Mapping[str, Any] | None = None,
 ) -> RunResult:
-    """Run, or resume, the program in `run_root`."""
+    """Run, or resume, the program in `run_root`. `coordinators` maps an effect class to a coordinator
+    with its own ledger: `prepare` (its pending commit), `settle` (its final commit, after the memo's
+    `committed`) and `reconcile` (on resume, when the memo holds the commit)."""
 
     run_root.mkdir(parents=True, exist_ok=True)
-    _check_run(run_root, program, inputs)
+    bound = bind_inputs(program, inputs)
+    _check_run(run_root, program, bound)
     evaluator = _Evaluator(program, run_root, Performers(workspace), hook or (lambda _event, _identity: None))
+    evaluator.coordinators = dict(coordinators or {})
     with Memo(run_root) as memo:
         evaluator.memo = memo
-        value = evaluator.run(inputs)
+        value = evaluator.run(bound)
     return RunResult(value, evaluator.trace, evaluator.diagnostics)
+
+
+def bind_inputs(program: ClosedProgram, inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The run's inputs: declared defaults applied, then each value checked against its declared type by the
+    catalog's coercion. The run's input digest is taken over these."""
+
+    params, defaults = program.tree["params"], program.tree.get("defaults", {})
+    unknown = sorted(set(inputs) - {name for name, _ in params})
+    missing = [name for name, _ in params if name not in inputs and name not in defaults]
+    if unknown or missing:
+        raise EvaluationFailed("workflow_input_missing" if missing else "workflow_input_unknown",
+                               f"inputs {missing or unknown} are not bound or not declared",
+                               detail={"missing": missing, "unknown": unknown})
+    bound = {}
+    for name, desc in params:
+        value = inputs[name] if name in inputs else defaults[name]
+        payload = {"pure_expr_schema_version": 2, "result_type": desc, "bindings": {"v": {"type": desc}},
+                   "expr": {"kind": "binding", "name": "v"}}
+        try:
+            bound[name] = evaluate_pure_expr(payload, resolved_bindings={"v": value})
+        except PureExprEvaluationError as exc:
+            raise EvaluationFailed("workflow_input_invalid", f"input `{name}` is not a {desc.get('name', desc['kind'])}",
+                                   detail={"input": name, "value": value, "cause": exc.code}) from exc
+    return bound
 
 
 def _check_run(run_root: Path, program: ClosedProgram, inputs: Mapping[str, Any]) -> None:
@@ -79,7 +116,7 @@ def _check_run(run_root: Path, program: ClosedProgram, inputs: Mapping[str, Any]
     path = run_root / "run.json"
     if not path.exists():
         (run_root / "closed-program.json").write_text(program.artifact(), encoding="utf-8")
-        path.write_text(json.dumps(header, sort_keys=True), encoding="utf-8")
+        path.write_text(json.dumps({**header, "bound_inputs": dict(inputs)}, sort_keys=True), encoding="utf-8")
         return
     recorded = json.loads(path.read_text(encoding="utf-8"))
     for key, code in (("program", "resume_program_changed"), ("inputs", "resume_inputs_changed")):
@@ -99,16 +136,14 @@ class _Evaluator:
         self.program, self.run_root, self.performers, self.hook = program, run_root, performers, hook
         self.memo: Memo | None = None
         self.loops: list[int] = []  # the iteration of each enclosing loop, outermost first
+        self.frames: list[str] = []  # the call sites of the activation path, in the table form
+        self.coordinators: dict[str, Any] = {}
+        self.dry = False  # a view's evaluation: stop at the first effect without a commit
         self.trace: list[str] = []
         self.diagnostics: list[dict[str, Any]] = []
 
     def run(self, inputs: Mapping[str, Any]) -> Any:
-        tree = self.program.tree
-        missing = [name for name, _ in tree["params"] if name not in inputs]
-        if missing:
-            raise EvaluationFailed("workflow_input_missing", f"inputs {missing} are not bound")
-        env = {name: inputs[name] for name, _ in tree["params"]}
-        return _expect_halt(self.body(tree["body"], env), "the workflow body")
+        return _expect_halt(self.body(self.program.tree["body"], dict(inputs)), "the workflow body")
 
     # Bodies: each returns ("halt", v), ("done", v), ("continue", [v]) or ("jump", join, [v]).
     # `let`, `if`, `case` and `join` continue in the same body; a step returns the next node or an outcome.
@@ -178,9 +213,13 @@ class _Evaluator:
         kind = node["k"]
         if kind == "perform":
             return self.perform(node, env)
-        if kind == "call":
-            args = dict(zip(node["params"], (self.value(a, env) for a in node["args"])))
-            return _expect_halt(self.body(node["body"], args), f"the body of `{node['callee']}`")
+        if kind == "call":  # the table form keeps the body in `definitions` and names the call site `frame`
+            definition = node if "body" in node else self.program.tree["definitions"][node["callee"]]
+            args = dict(zip(definition["params"], (self.value(a, env) for a in node["args"])))
+            self.frames.extend([node["frame"]] if "frame" in node else [])
+            value = _expect_halt(self.body(definition["body"], args), f"the body of `{node['callee']}`")
+            del self.frames[len(self.frames) - ("frame" in node):]
+            return value
         return self.value(node, env)
 
     # Values
@@ -232,37 +271,50 @@ class _Evaluator:
     # Effects
 
     def identity(self, site: str) -> str:
+        site = SEPARATOR.join([*self.frames, site])
         if site.count("[*]") != len(self.loops):
             raise EvaluationFailed("compiler_defect", f"site `{site}` reached inside {len(self.loops)} loops")
         iterations = iter(self.loops)
         return _LOOP.sub(lambda _m: f"[{next(iterations)}]", site)
 
     def resolve(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
-        """Everything that determines what the effect is asked to do (section 7)."""
+        """Everything that determines what the effect is asked to do (section 7), with the digest of every
+        file its boundary declares: a command's program files, a provider's prompt asset and dependencies."""
 
-        kind = node["class"]
-        if kind == "command":
-            argv = [render_argument(self.value(a, env)) for a in node["argv"]]
-            if "document" in node:  # a certified adapter: one JSON object, fields in signature order
-                document = {key: self.value(v, env) for key, v in node["document"]}
-                argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
-            return {"class": kind, "command": [*node["command"], *argv], "contract": node["contract"]}
-        if kind == "provider":
-            prompt = node["prompt"]
-            if isinstance(prompt, dict):
-                prompt = {**prompt, "fills": [[name, renderer, self.value(v, env)] for name, renderer, v in prompt["fills"]]}
-                text = prompt
-            else:
-                text = (self.performers.workspace / prompt).read_text(encoding="utf-8")
-            return {"class": kind, "provider": node["provider"], "prompt": prompt, "prompt_digest": canonical_digest(text),
-                    "inputs": [self.value(a, env) for a in node["inputs"]],
-                    "policy": {k: self.value(v, env) for k, v in node["policy"].items()}, "contract": node["contract"]}
-        return {"class": kind, "question": self.value(node["question"], env)}
+        if node["class"] == "command":
+            return self.resolve_command(node, env)
+        if node["class"] == "provider":
+            return self.resolve_provider(node, env)
+        if node["class"] == "request_input":
+            return {"class": node["class"], "question": self.value(node["question"], env)}
+        return {"class": node["class"], "inputs": [self.value(v, env) for v in node.get("inputs", [])]}
+
+    def resolve_command(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        argv = [render_argument(self.value(a, env)) for a in node["argv"]]
+        if "document" in node:  # a certified adapter: one JSON object, fields in signature order
+            document = {key: self.value(v, env) for key, v in node["document"]}
+            argv.append(json.dumps(document, separators=(",", ":"), ensure_ascii=False, allow_nan=False))
+        return {"class": "command", "command": [*node["command"], *argv], "contract": node["contract"],
+                "declared": self.performers.declared_files(node["command"])}
+
+    def resolve_provider(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
+        prompt, dependencies = node["prompt"], node.get("dependencies")
+        if isinstance(prompt, dict):
+            prompt = {**prompt, "fills": [[n, r, self.value(v, env)] for n, r, v in prompt["fills"]]}
+        if dependencies:
+            dependencies = {**dependencies, **{role: [self.value(v, env) for v in dependencies[role]]
+                                               for role in ("required", "optional")}}
+        return {"class": "provider", "provider": node["provider"], "prompt": prompt, "dependencies": dependencies,
+                "inputs": [[n, r, self.value(v, env)] for n, r, v in node["inputs"]],
+                "policy": {k: self.value(v, env) for k, v in node["policy"].items()}, "contract": node["contract"],
+                "declared": self.performers.provider_files(prompt, dependencies)}
 
     def perform(self, node: dict[str, Any], env: dict[str, Any]) -> Any:
         """The table of section 8: what the memo holds for the identity decides the action."""
 
         identity = self.identity(node["site"])
+        if self.dry:
+            return self.dry_perform(identity)
         resolved = self.resolve(node, env)
         digest = canonical_digest(resolved)
         parts = {key: canonical_digest(part) for key, part in resolved.items()}
@@ -270,12 +322,17 @@ class _Evaluator:
         entry = self.memo.entry(identity)
         if entry.committed is not None:
             if entry.committed["input_digest"] == digest:
+                if node["class"] in self.coordinators:
+                    self.coordinators[node["class"]].reconcile(node, identity, entry.committed.get("proof"))
                 return entry.committed["value"]
             recorded = entry.committed.get("input_parts", {})
+            files = entry.committed.get("declared", {})
             raise EvaluationFailed(
                 "effect_input_diverged", f"`{identity}` committed with another input", at=node.get("@"),
                 detail={"recorded": entry.committed["input_digest"], "resolved": digest,
-                        "differs": sorted(key for key in parts if recorded.get(key) != parts[key])},
+                        "differs": sorted(key for key in parts if recorded.get(key) != parts[key]),
+                        "files": sorted(f for f in {*files, *resolved.get("declared", {})}
+                                        if files.get(f) != resolved.get("declared", {}).get(f))},
             )
         if entry.suspended is not None:
             raise EffectSuspended(identity, entry.suspended["request"])
@@ -287,6 +344,13 @@ class _Evaluator:
             self.diagnostics.append({"code": "effect_rerun", "identity": identity, "after": list(entry.attempts)})
         return self.attempt(node, identity, max(entry.attempts, default=0) + 1, resolved, digest, parts)
 
+    def dry_perform(self, identity: str) -> Any:
+        entry = self.memo.entry(identity)
+        self.trace.append(identity)
+        if entry.committed is None:
+            raise Pending(identity, entry)
+        return entry.committed["value"]
+
     def attempt(self, node, identity, attempt, resolved, digest, parts) -> Any:
         path = result_path(self.run_root, identity, attempt)
         record = {"identity": identity, "attempt": attempt, "input_digest": digest}
@@ -297,14 +361,22 @@ class _Evaluator:
         if node["class"] == "request_input":
             self.memo.append({**record, "record": "suspended", "request": resolved["question"]})
             raise EffectSuspended(identity, resolved["question"])
-        value, failure = self.performers.perform(node, resolved, path)
+        coordinator, proof = self.coordinators.get(node["class"]), None
+        if coordinator is not None:
+            value, failure, proof = coordinator.prepare(node, resolved, identity, attempt)
+        else:
+            value, failure = self.performers.perform(node, resolved, path, identity)
         self.hook("finished", identity)
         if failure is not None:
             self.memo.append({**record, "record": "failed", **failure})
             raise EvaluationFailed(failure["code"], f"`{identity}` attempt {attempt} failed", at=node.get("@"),
                                    detail=failure)
         self.memo.append({**record, "record": "committed", "input_parts": parts, "value": value,
+                          "declared": resolved.get("declared", {}),
                           "result_path": path.relative_to(self.run_root).as_posix(),
-                          "result_digest": canonical_digest(value)})
+                          "result_digest": canonical_digest(value), **({"proof": proof} if proof is not None else {})})
         self.hook("committed", identity)
+        if coordinator is not None:
+            coordinator.settle(node, identity, proof)
+            self.hook("settled", identity)
         return value

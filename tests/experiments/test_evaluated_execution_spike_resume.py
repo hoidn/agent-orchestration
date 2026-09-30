@@ -235,7 +235,9 @@ def test_a_committed_effect_whose_resolved_input_changed_stops_resume_and_names_
     with pytest.raises(EvaluationFailed) as diverged:
         spike(tmp_path, sources, inputs={"draft": "d1"}, closed=closed)
 
-    assert (diverged.value.code, diverged.value.detail["differs"]) == ("effect_input_diverged", ["prompt_digest"])
+    assert (diverged.value.code, diverged.value.detail["differs"], diverged.value.detail["files"]) == (
+        "effect_input_diverged", ["declared"], ["spk/review.md"]
+    )
     assert diverged.value.detail["recorded"] != diverged.value.detail["resolved"]
 
 
