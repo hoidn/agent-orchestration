@@ -415,14 +415,14 @@ stripped tree (P6, P7).
 | Task | What | Group | Files it owns |
 | --- | --- | --- | --- |
 | 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` |
-| 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (`_compile_stage3_graph`), `workflows.py` (`Stage3CompileResult`) |
+| 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (source producers and graph), `workflows.py` (result and signatures), `workflow/loaded_bundle.py`, `build_artifacts.py` (source digests), `build.py` (export selector) |
 | 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py` |
-| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py` |
+| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `workflow/type_descriptor.py` (boundary projection checking) |
 | 6 | Names that hold no path | C | `closed/names.py`, `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
 | 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` |
 | 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py`, `closed/build.py` (run-ref finalization call) |
-| 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `cli/commands/compile.py` |
+| 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `build.py` (manifest validation), `cli/commands/compile.py` |
 | 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` |
 | 11 | Documents | F | `specs/versioning.md`, `specs/io.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_lisp_evaluated_execution.md` (status lines), `docs/lisp_workflow_drafting_guide.md`, `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md` |
 
@@ -1228,10 +1228,13 @@ Use small node dispatchers as in the spike, with an independent validation
 walk. The spike's small validator is not a full type checker; do not preserve
 its omitted type checks to meet its historical line estimate.
 
-- [ ] **Step 4: Run; expected pass.** Collect-only on both modules.
+- [ ] **Step 4: Run; expected pass.** Collect-only on both modules. Run the
+existing descriptor and pure-expression tests that exercise the shared
+`workflow/type_descriptor.py` owner, using narrow selectors first.
 
-- [ ] **Step 5: Compatibility evidence:** no shared module touched; state
-so.
+- [ ] **Step 5: Compatibility evidence:** the descriptor owner is shared.
+Run the four-program comparison under Global Constraints and preserve its
+existing nominal and transport validation behavior.
 
 - [ ] **Step 6: Commit**
 
