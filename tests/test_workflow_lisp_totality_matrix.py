@@ -1,4 +1,4 @@
-"""Totality matrix: value forms x positions at target 2.33, run through the public run entry.
+"""Totality matrix: forms, positions, call locality, and targets 2.33/2.34 via public run.
 
 Contract: docs/design/workflow_lisp_core_calculus_middle_end.md sections 9 and 13.3;
 Task 1 of docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md.
@@ -14,8 +14,9 @@ Every generated cell has exactly one classification, kept in
   defect's name. Any other outcome fails the test, success included (a strict xfail): a
   repaired cell is declared working by deleting its line from `KNOWN_DEFECTS`.
 
-The stage of a failure is read from the frames where it started (see `STAGES`); to find
-them, the test records where each frontend diagnostic is created.
+The stage of a failure is read from the frames where it started (see `STAGES`); the
+test records frontend diagnostics and pure-expression exceptions. Runtime errors
+that the executor handles internally are matched to their persisted step error.
 
 Cells whose form's type cannot occupy the position are listed in `SKIPPED` and not
 generated. The classification test writes the counts to `totality-matrix-counts.json` in
@@ -36,6 +37,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.pure_expr import PureExprEvaluationError
 from orchestrator.workflow_lisp.diagnostics import LispFrontendDiagnostic
 from tests.test_workflow_lisp_generic_unions_runtime import (
     _log,
@@ -110,7 +112,25 @@ def _record_diagnostic_origins(monkeypatch: pytest.MonkeyPatch) -> list[tuple[st
             origins.append((self.code, _where(frame for frame, _ in traceback.walk_stack(None))))
 
     monkeypatch.setattr(LispFrontendDiagnostic, "__init__", recording_init)
+    create_pure_error = PureExprEvaluationError.__init__
+
+    def recording_pure_error(self, code, message, **kwargs) -> None:
+        create_pure_error(self, code, message, **kwargs)
+        origins.append((code, _where(frame for frame, _ in traceback.walk_stack(None))))
+
+    monkeypatch.setattr(PureExprEvaluationError, "__init__", recording_pure_error)
     return origins
+
+
+def _runtime_error(result) -> dict | None:
+    if result.run_root is None:
+        return None
+    state_path = result.run_root / "state.json"
+    if not state_path.exists():
+        return None
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    return next((step["error"] for step in state.get("steps", {}).values()
+                 if step.get("error", {}).get("type", "").startswith("pure_expr_")), None)
 
 
 def _run(root: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, form: str, position: str):
@@ -131,8 +151,13 @@ def _run(root: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureF
         stage = _stage(next((origin for code, origin in origins if code == kind), []))
     elif exceptions:
         kind, stage = type(exceptions[0]).__name__, _stage(_origin(exceptions[0]))
+    errors = caplog.text
+    if result.exit_code and kind is None and (error := _runtime_error(result)):
+        kind = error["type"]
+        stage = _stage(next((origin for code, origin in reversed(origins) if code == kind), []))
+        errors += "\n" + json.dumps(error, sort_keys=True)
     listing = "\n".join(f"--- {path}\n{text}" for path, text in sources.items())
-    return Outcome(result.exit_code, kind, stage, caplog.text, dict(result.workflow_outputs), _log(probe), listing)
+    return Outcome(result.exit_code, kind, stage, errors, dict(result.workflow_outputs), _log(probe), listing)
 
 
 def _rule_cells() -> list:
@@ -148,6 +173,7 @@ def _runnable() -> list:
 
 
 def test_every_cell_has_exactly_one_classification(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    assert len(cells()) == len(set(cells())), "matrix cell identifiers must be unique"
     tables = {"skipped": SKIPPED, "rule": RULES, "known defect": KNOWN_DEFECTS}
     found = {cell: [name for name, table in tables.items() if cell in table] or ["working"] for cell in cells()}
     counts = Counter(kind for kinds in found.values() for kind in kinds)
