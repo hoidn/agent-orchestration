@@ -20,6 +20,12 @@
   `tests/test_subworkflow_calls.py`, and `tests/test_resume_command.py`
 - **Implementation target:**
   `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
+- **Update 2026-09-29:** a failed Workflow Lisp call frame with no running
+  member is now resumed in place: after the ordinal audit of every failed
+  predecessor, the latest failed frame is validated and resumed, and no retry
+  frame is allocated (`specs/state.md`, call frames and retry lineage). The
+  sections below are corrected to that rule; `next_unused_retry_frame_id`
+  remains in the lineage API but has no production caller.
 
 ## Summary
 
@@ -203,7 +209,8 @@ Adapters invoke it:
   persistence because the parent call visit has already started.
 - Workflow Lisp failed retry history is recursively checksum/audit validated
   after a running member's checksum/resume-bound guards but before its local
-  audit/resume, and before fresh retry/allocation when no running member exists.
+  audit/resume, and before the latest failed frame is resumed when no running
+  member exists.
   Both paths therefore increase resume cost with lineage length and reject
   stale history that was formerly ignored.
 - Each deeper scope is audited only when its ordinary call boundary is reached.
@@ -358,7 +365,7 @@ Allowed statuses are exactly `completed`, `running`, and `failed`:
   candidate;
 - `failed` with a Workflow Lisp selected target: retry-history member whose
   selected-callee checksum and local explicit identities must validate before
-  resume or fresh retry is authorized.
+  resume is authorized.
 
 Workflow Lisp target capability is derived from the loaded selected bundle's
 typed frontend capability/provenance, never a file suffix,
@@ -387,9 +394,9 @@ next_unused_retry_frame_id(lineage) -> str
 The base failed frame has ordinal `0`; `::retry::N` members have positive
 integer ordinals. Duplicate ordinals, missing/invalid ordinals, nested retry
 markers, mixed base lineages for one boundary, or a retry member whose
-caller/alias/boundary differs fail closed. Allocation returns the deterministic
-next unused positive ordinal from the validated lineage, not a key selected by
-mapping iteration.
+caller/alias/boundary differs fail closed. `next_unused_retry_frame_id`
+returns the deterministic next unused positive ordinal from the validated
+lineage, not a key selected by mapping iteration; resume does not call it.
 
 Selection algorithm:
 
@@ -405,8 +412,8 @@ Selection algorithm:
    every failed predecessor in ordinal order, then audit the running member's
    local scope and resume it;
 8. if no Workflow Lisp running member exists, checksum and recursively audit
-   every failed predecessor in ordinal order, then allocate the deterministic
-   next unused retry ID and start fresh.
+   every failed predecessor in ordinal order, then validate the latest failed
+   member's bound inputs and local scope and resume that same frame.
 
 Failed predecessor local state is never exempt from audit. This is a deliberate
 fail-closed strengthening over current behavior. Multiple running members fail
@@ -780,7 +787,7 @@ new report schema is required.
 - Exact frame classes preserve completed history and typed Workflow Lisp retry
   lineages without map-order selection; failed history is checksum/local
   audited after running checksum/resume-bound guards but before running local
-  audit/resume, or before fresh retry.
+  audit/resume, or before the latest failed frame is resumed.
 - Optional omission applies to every schema-recognized step-result row that
   supports existing fallback, independent of status.
 - Active and all terminal success/successful-exhaustion/failed-exhaustion loop
@@ -791,7 +798,7 @@ new report schema is required.
 - New projection slot/reverse-resolution APIs.
 - Current alias on `CallBoundaryProjection`.
 - New typed frame classification and `CallFrameRetryLineageIndex` APIs,
-  including deterministic next-ID allocation.
+  including deterministic next-ID allocation, which resume no longer calls.
 - New pure scoped auditor and exact diagnostic.
 - New early-root atomic recorder.
 - Root-manager-only executor checksum/audit path with no bypass/receipt.
@@ -898,8 +905,9 @@ Diagnostics are bounded and identity-only.
 CLI performs two O(root-scope size) scans. Each reached call scans the selected
 callee local scope. A Workflow Lisp running-member resume additionally
 checksum/audits each failed predecessor after running checksum/resume-bound
-guards and before running local audit/resume; a fresh-retry path does so before
-allocation. Cost on both paths is linear in validated retry-history state.
+guards and before running local audit/resume; a failed-frame resume does so
+before resuming the latest failed frame. Cost on both paths is linear in
+validated retry-history state.
 This is accepted for anti-TOCTOU and fail-closed history correctness. No cache
 or receipt is persisted.
 
@@ -968,7 +976,7 @@ Retained:
 - initial CLI root checksum byte-immutable behavior;
 - callee checksum behavior and actual boundary;
 - completed frame history;
-- legitimate typed Workflow Lisp multi-retry history and fresh retry;
+- legitimate typed Workflow Lisp multi-retry history and failed-frame resume;
 - ordinary parent nested-failure persistence;
 - fresh execution and force restart.
 
@@ -1021,8 +1029,8 @@ stop and revise rather than fall back to map order.
 - Workflow Lisp running member plus failed history;
 - running checksum and resume-bound mismatch precedence before stale history;
 - checksum/local audit of every failed predecessor before running local audit/
-  resume or fresh retry;
-- deterministic next unused retry ID;
+  resume or failed-frame resume;
+- deterministic next unused retry ID from the lineage API;
 - multiple running, mixed lineage, duplicate/malformed ordinal rejection;
 - unknown status/non-mapping rejection;
 - non-Workflow-Lisp multi-noncompleted combinations ambiguous;
@@ -1100,10 +1108,10 @@ stop and revise rather than fall back to map order.
 | Missing call boundary | `missing_call_boundary` at scope entry |
 | Ambiguous call-boundary projection candidates | `ambiguous_call_boundary` at scope entry |
 | Unique failed non-Workflow-Lisp frame | Resumed and checksum/local audited |
-| Workflow Lisp failed retry history, no running member | Every predecessor checksum/local audit passes; deterministic next unused retry ID allocated |
+| Workflow Lisp failed retry history, no running member | Every predecessor checksum/local audit passes; the latest failed frame is validated and resumed; no retry frame is allocated |
 | Workflow Lisp running member plus failed history | Running checksum/resume-bound passes first; then every failed predecessor checksum/local audit; then running local audit/resume |
 | Running Workflow Lisp checksum mismatch plus stale predecessor | Running checksum mismatch wins; predecessor history is not audited |
-| Workflow Lisp stale failed predecessor | Running resume or fresh retry denied with checksum or projection diagnostic |
+| Workflow Lisp stale failed predecessor | Running or failed-frame resume denied with checksum or projection diagnostic |
 | Workflow Lisp multiple running/mixed lineage/duplicate ordinal | Ambiguous or unsupported failure; no allocation |
 | Non-Workflow-Lisp multiple non-completed frames | Ambiguous failure |
 | Stale parent caller/alias | Root/local scoped failure; no fresh frame selected |
@@ -1159,7 +1167,7 @@ Stop and revise if:
   succeeds;
 - legitimate retry state cannot be represented by one typed lineage;
 - failed retry history cannot be checksum/local audited after running guards
-  but before running local audit/resume, or before fresh retry;
+  but before running local audit/resume, or before failed-frame resume;
 - loop identities require caller-side parsing;
 - optional omission cannot be derived from recognized step-result schema and
   existing fallback support;

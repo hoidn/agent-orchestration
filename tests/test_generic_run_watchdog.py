@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_state(workspace: Path, run_id: str, payload: dict) -> Path:
-    state_path = workspace / ".orchestrate/runs" / run_id / "state.json"
+    state_path = _target_workspace(workspace) / ".orchestrate/runs" / run_id / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     merged = {
         "schema_version": "2.1",
@@ -25,6 +25,12 @@ def _write_state(workspace: Path, run_id: str, payload: dict) -> Path:
     return state_path
 
 
+def _target_workspace(workspace: Path) -> Path:
+    """The workspace of the observed run, beside the watchdog's own workspace."""
+
+    return workspace.with_name(workspace.name + "-target")
+
+
 def _run_probe(workspace: Path, run_id: str, *extra: str) -> dict:
     output = "state/watchdog/watch.json"
     subprocess.run(
@@ -33,6 +39,8 @@ def _run_probe(workspace: Path, run_id: str, *extra: str) -> dict:
             str(ROOT / "workflows/library/scripts/probe_orchestrator_run.py"),
             "--run-id",
             run_id,
+            "--target-workspace",
+            str(_target_workspace(workspace)),
             "--output",
             output,
             "--evidence-root",
@@ -126,6 +134,8 @@ def test_watchdog_commands_write_runtime_and_compatibility_outputs(tmp_path):
         [
             "--run-id",
             "target-run",
+            "--target-workspace",
+            str(_target_workspace(workspace)),
             "--output",
             "state/watchdog/watch.json",
             "--evidence-root",
@@ -204,6 +214,8 @@ def test_watchdog_commands_write_runtime_and_compatibility_outputs(tmp_path):
         [
             "--run-id",
             "target-run",
+            "--target-workspace",
+            str(_target_workspace(workspace)),
             "--output",
             "state/watchdog/same-path-watch.json",
             "--evidence-root",

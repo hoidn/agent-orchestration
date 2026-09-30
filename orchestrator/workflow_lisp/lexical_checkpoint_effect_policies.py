@@ -93,7 +93,10 @@ def build_effect_resume_policy(
     source_map_origin_key: str,
     evidence_requirements: Mapping[str, Any] | None = None,
     unsafe_pending_behavior: str = "fail_closed",
+    must_not_repeat: bool = False,
 ) -> dict[str, Any]:
+    if type(must_not_repeat) is not bool:
+        raise ValueError(DIAGNOSTIC_CODES.schema_invalid)
     policy = {
         "schema_version": EFFECT_RESUME_POLICY_SCHEMA_VERSION,
         "policy_kind": policy_kind,
@@ -104,6 +107,8 @@ def build_effect_resume_policy(
         "evidence_requirements": dict(_mapping(evidence_requirements)),
         "unsafe_pending_behavior": unsafe_pending_behavior,
     }
+    if must_not_repeat:
+        policy["must_not_repeat"] = True
     policy["policy_digest"] = derive_effect_resume_policy_digest(policy)
     validate_effect_resume_policy(policy)
     return policy
@@ -120,6 +125,8 @@ def derive_effect_resume_policy_digest(policy: Mapping[str, Any]) -> str:
         "unsafe_pending_behavior": policy.get("unsafe_pending_behavior"),
         "evidence_requirements": dict(_mapping(policy.get("evidence_requirements"))),
     }
+    if policy.get("must_not_repeat") is True:
+        normalized["must_not_repeat"] = True
     return _sha256_json(normalized)
 
 
@@ -130,10 +137,17 @@ def validate_effect_resume_policy(
 ) -> None:
     if policy.get("schema_version") != EFFECT_RESUME_POLICY_SCHEMA_VERSION:
         raise ValueError(DIAGNOSTIC_CODES.schema_invalid)
+    if "must_not_repeat" in policy and policy.get("must_not_repeat") is not True:
+        raise ValueError(DIAGNOSTIC_CODES.schema_invalid)
     policy_kind = _non_empty_string(policy.get("policy_kind"), DIAGNOSTIC_CODES.policy_unknown)
     if policy_kind not in POLICY_KINDS:
         raise ValueError(DIAGNOSTIC_CODES.policy_unknown)
-    _non_empty_string(policy.get("effect_kind"), DIAGNOSTIC_CODES.evidence_invalid)
+    effect_kind = _non_empty_string(
+        policy.get("effect_kind"),
+        DIAGNOSTIC_CODES.evidence_invalid,
+    )
+    if policy.get("must_not_repeat") is True and effect_kind != "command":
+        raise ValueError(DIAGNOSTIC_CODES.schema_invalid)
     _non_empty_string(policy.get("boundary_kind"), DIAGNOSTIC_CODES.boundary_mismatch)
     _non_empty_string(policy.get("step_id"), DIAGNOSTIC_CODES.evidence_missing)
     source_map_origin_key = _non_empty_string(

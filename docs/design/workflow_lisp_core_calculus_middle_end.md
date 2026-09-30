@@ -346,6 +346,15 @@ route eliminates class 5 and prevents recurrence of 1-4 in future forms.
 - Dual-compile equivalence evidence, not inspection, gates each migration
   stage and the deletion of each legacy lowerer.
 
+Status of two invariants in the current checkout (2026-09-29). Elaboration
+totality does not hold: the
+[totality matrix](../../tests/workflow_lisp_totality_matrix_sources.py) pins the
+generated programs that typecheck and then fail, and
+[composition-first §11](workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233) lists each known defect with its cause. Scoped
+environments hold at every target for the bindings the elaborator hoists and
+for the use of pure bindings in lowering, apart from three binder forms the
+renaming pass does not know, listed in the same section.
+
 ## 10. The Workflow Core Calculus
 
 ### 10.1 Constructs
@@ -684,6 +693,21 @@ All language-boundary rejection happens at or before typecheck:
 - shared-validation failures on generic-route output are likewise compiler
   defects unless the workflow violates a contract the typechecker does not
   own (path safety against the live filesystem, for example).
+
+In the current checkout an internal exception raised after typecheck by
+elaboration, normalization, defunctionalization or lowering is reported as one
+`compiler_defect` diagnostic (exit 2). It says that the program passed
+typecheck, names the stage, and points at the authored form being handled;
+`--debug` prints the internal traceback. An `AssertionError` is not converted.
+Three internal checks have codes of their own: `compiler_defect_loop_control_value`,
+`compiler_defect_hoisted_binding_rename` and
+`compiler_defect_constructor_type_dropped`. A pure-result replay index
+rejection is reported as `pure_result_replay_unavailable` with the authored
+location and says that it is a compiler defect. Located diagnostics that
+lowering raises under other codes, such as `workflow_return_not_exportable`,
+`wcc_lowering_route_unsupported` and `workflow_signature_mismatch`, keep their
+codes and do not say so; shared-validation failures are outside the
+conversion.
 
 ### 13.4 Dual-compile equivalence policy
 

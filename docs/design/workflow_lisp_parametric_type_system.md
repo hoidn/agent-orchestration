@@ -379,11 +379,12 @@ The domain meaning and result variants remain owned by the composition design.
   `(variant Improvement[S F B] EXHAUSTED :value state.current)`. Targets 2.29
   to 2.32 reject that at compile time only in a loop result, and accept it
   elsewhere. Targets below 2.29 reject it wherever the variant is built.
-  One form is not supported at 2.33: a generic procedure with no effects that
-  constructs an applied union over its own type parameters outside
-  `loop/recur`. Every call to it is rejected with
-  `generic_union_unresolved_argument`. Give the procedure a command or
-  provider step, or write the application with concrete arguments.
+  At 2.33 a generic procedure with no effects may construct an applied union
+  over its own type parameters outside `loop/recur`, from its own module or
+  imported. Its inlined copy carries each record and variant constructor's
+  type, resolved in the defining module and specialized for the call.
+  `if` and `cond` compare two applied unions by declaration and arguments,
+  not by spelling.
 - **Boundaries and diagnostics.** `provider-result :returns` may name an
   applied union such as `Decision[ReviewNotes ReviewBlocker]`. Its
   instantiated concrete descriptor is the provider's output contract; output
@@ -392,9 +393,11 @@ The domain meaning and result variants remain owned by the composition design.
   `variant_forbidden_field_present`, or `variant_field_type_invalid`, and no
   value reaches the caller. An ordinary adapter procedure converts a provider
   result with an existing concrete declaration into an instantiated union.
-  A `defprompt` whose result is an applied union compiles at 2.33, but it is
-  outside the supported contract and no test covers it; supporting it is a
-  separately selected extension through this same type-system owner.
+  A `defprompt` whose result is an applied union has the same contract at
+  2.33: no type variable reaches the contract the provider receives, and the
+  four codes above report malformed output at the provider boundary. Below
+  2.33 it is rejected with `generic_union_requires_dsl_2_33` at the declared
+  result type.
   Reject wrong arity, recursive instantiation cycles, and actual payload
   shapes unsupported at existing transport or descriptor boundaries. The
   generic-union diagnostic codes are:
@@ -412,6 +415,20 @@ The domain meaning and result variants remain owned by the composition design.
   Each diagnostic points at the use and keeps its source-map location. Where
   the named type has a declaration, all but `generic_union_requires_dsl_2_33`
   also give that declaration's location in a note.
+- **Generic calls as `match` subjects.** From 2.33 a call to a generic
+  procedure that passes a hook whose declared type uses one of the procedure's
+  type parameters, such as `improve`, may be written directly as a `match`
+  subject; the typed `match` then carries the typechecked subject, so the call
+  is specialized as it is when bound with `let*`. At 2.33 every other subject
+  stays authored, so that programs that compiled before keep their step
+  identities; a generic call without such a hook is accepted in both forms,
+  which lower to different step identities. From 2.34 the typed `match`
+  carries the typechecked subject in every case. Below 2.33 the direct form
+  of a generic helper with such a hook is rejected with
+  `proc_ref_signature_invalid`. The `continue` handler still keeps its
+  authored state, so a generic call with hooks in a `loop-state` field is
+  rejected the same way at 2.33 (a known defect,
+  [composition-first §11](workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233)).
 - **Minimum acceptance cases.** An unrelated `Outcome[T E]` union uses the same
   compiler path; an imported alias matches its origin while a same-short-name
   declaration from another module does not; nested applications in `ProcRef`

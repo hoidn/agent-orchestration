@@ -46,9 +46,19 @@ Use this guide for authoring judgment. Use
 [Capability Status Matrix](capability_status_matrix.md) for current
 availability and copy-safety status. Use the component-contract docs for
 current-checkout behavior. Use the unified design for future or deferred
-surfaces. Use [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
-as the concrete checklist for Design Delta Drain-style authoring shape.
-Use `specs/` for normative runtime and DSL behavior.
+surfaces. Use `specs/` for normative runtime and DSL behavior.
+
+The Design Delta family (`workflows/library/lisp_frontend_design_delta/`) is
+deprecated, apart from its reusable library procedures. Do not start new work
+from it, and read
+[Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
+as a historical checklist for that family's shape. Start from a recent example
+instead: [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
+for a `std/improve` review loop, or
+[`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
+[`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
+for generate-and-select and a hand-written review loop. Each passes
+`--dry-run` through the command-line entry.
 
 Use the retired [Workflow Drafting Guide](workflow_drafting_guide.md) only to
 translate or audit historical YAML/YML definitions and evidence. It is not an
@@ -2387,9 +2397,9 @@ type. The result is `APPROVED` (`value`, `evidence`), `BLOCKED` (`value`,
 limits. Whether a review loop is worth its calls is a separate question; see
 [Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
 
-Bind the result with `let*`, then `match` it. A call to `improve` written
-directly as the `match` scrutinee is rejected (see
-[the rejection table](#improve-rejections)). From the example below:
+The result may be matched directly, `(match (improve ...) ...)`, or bound
+with `let*` first. [The rejection table](#improve-rejections) lists the forms
+that fail at compile time. From the example below:
 
 ```lisp
 (import std/improve :only (Decision improve))
@@ -2411,8 +2421,8 @@ Its review hook returns `Decision[ReviewNotes ReviewBlocker]` straight from
 with an adapter instead.
 
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-is evidence for the target-2.33 surface (route-readiness
-`migration_evidence_only`), not a template. Dry-run it from the repository
+is the recent example for a `std/improve` review loop at target 2.33
+(route-readiness `preferred_current_guidance`). Dry-run it from the repository
 root:
 
 ```bash
@@ -2437,17 +2447,23 @@ delivery defects recorded as candidate work in the
 
 Each case below fails at compile time. Most of these diagnostics point into
 `std/improve.orc`, not at the caller, so the table names the form each one
-points at.
+points at. A rule is a restriction the language makes on purpose; a defect is
+a failure after typecheck or a wrong diagnostic, listed with its cause in
+[Composition-First Procedures §11](design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
 
-| Case | Code | Where it points |
-| --- | --- | --- |
-| `limit` is `0` or negative | `workflow_boundary_type_invalid` (`repeat_until.max_iterations must be > 0`) | `std/improve.orc`, the `:on-exhausted` line; a note gives the call site |
-| `limit` is a workflow parameter | `workflow_return_not_exportable` | `std/improve.orc`, the `loop/recur :max limit` line |
-| `inputs` is a `String` or `Int` literal | `workflow_signature_mismatch` | `std/improve.orc`, the `review` call |
-| the review hook is pure (it calls no command or provider) | `generic_union_unresolved_argument` | `std/improve.orc`, the `review` call; a note gives the call site |
-| the revise hook is pure | `type_unknown` | `std/improve.orc`, the `revise` call; a note gives the call site |
-| the call to `improve` is the `match` scrutinee | `proc_ref_signature_invalid` | the caller's first `proc-ref` argument |
-| `initial` is a record literal that contains a list of record literals | `type_unknown` | the caller, at the inner record's type name; build `initial` in a procedure of the calling module instead |
+| Case | Kind | Code | Where it points |
+| --- | --- | --- | --- |
+| `limit` is `0` or negative | Rule | `workflow_boundary_type_invalid` (`repeat_until.max_iterations must be > 0`) | `std/improve.orc`, the `:on-exhausted` line; a note gives the call site |
+| `limit` is a workflow parameter | Rule | `workflow_return_not_exportable` (`must lower from a literal integer`) | `std/improve.orc`, the `loop/recur :max limit` line |
+| `inputs` is a `String` or `Int` literal | Defect | `workflow_signature_mismatch` | `std/improve.orc`, the `review` call; pass a record or a `String` workflow parameter |
+| the review hook is pure (it calls no command or provider) | Defect | `compiler_defect` (an internal `KeyError`) | `std/improve.orc`, the `review` call; make the hook command- or provider-backed |
+| the revise hook is pure | Defect | `workflow_return_not_exportable` (`does not support let* binding`) | `std/improve.orc`, the `revise` call; make the hook command- or provider-backed |
+| `initial` is a record literal that contains a list of record literals | Defect | `type_unknown` | the caller, at the inner record's type name; build `initial` in a procedure of the calling module instead |
+
+A pure `match` over the result whose arms build a record that holds a
+literal compiles, but `--dry-run` and the run start reject it with
+`pure_result_replay_unavailable`; see composition-first §11 for the forms
+that run.
 
 ## 14. Provider Prompt Guidance
 

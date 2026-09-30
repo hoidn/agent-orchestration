@@ -564,7 +564,9 @@
 - v2.30 additions (Workflow Lisp resolved-inline pure-call composition)
   - The development catalog admits resolved-inline pure-call normalization and
     ordered schema-3 lexical bindings. Earlier targets preserve their existing
-    pipeline and payload behavior. No runtime procedure interpreter is added.
+    pipeline and payload behavior, apart from the scope corrections listed under
+    "Exceptions to target stability" below. No runtime procedure interpreter is
+    added.
   - Selected-hook context, strict effect/representation diagnostics, eager
     once-only evaluation and public committed-boundary resume are covered by
     Package C. Private/effectful/unrepresentable calls remain excluded. See the
@@ -612,11 +614,48 @@
     contracts. The
     [parametric type-system design](../docs/design/workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
     owns application, argument binding, identity, and diagnostics.
-  - `provider-result :returns` may name an applied generic union. Provider
-    output that does not satisfy the instantiated contract fails at the
-    provider boundary with `variant_discriminant_invalid`,
-    `variant_required_field_missing`, `variant_forbidden_field_present`, or
-    `variant_field_type_invalid`.
+  - `provider-result :returns` and a `defprompt` result may name an applied
+    generic union. The instantiated concrete descriptor is the provider's
+    output contract, and no type parameter reaches it. Provider output that
+    does not satisfy it fails at the provider boundary with
+    `variant_discriminant_invalid`, `variant_required_field_missing`,
+    `variant_forbidden_field_present`, or `variant_field_type_invalid`, and no
+    later step runs. Below 2.33 an applied union in a `defprompt` result is
+    rejected with `generic_union_requires_dsl_2_33` at the declared result
+    type.
+  - The inferred effects of a procedure include the effects of the imported
+    procedures it calls, and of hooks declared in another module and passed
+    with `proc-ref`. A declared `:effects` clause must match that inference:
+    a local wrapper that calls an imported command-backed procedure and
+    declares `:effects ()` is rejected with `procedure_effect_mismatch`, which
+    names the missing effect. Older targets keep their earlier inference, which
+    omits imported effects, so such a wrapper compiles there and the same
+    module retargeted to 2.33 is rejected.
+  - A procedure with no effects may construct an applied generic union over
+    its own type parameters, called from its own module or imported. Its
+    inlined copy carries each record and variant constructor's type, resolved
+    in the defining module and specialized for the call, so the copy may build
+    a type that its caller cannot name. `if` and `cond` join two applied
+    unions when they have the same declaration and arguments, whether the
+    types were written in the caller or in an imported module. Older targets
+    resolve those constructor types in the caller, as before.
+  - An effectful call may be written inside a `loop-state :like` field under
+    `continue`, and a `match` subject may be an expression whose elaboration
+    produces bindings, such as a `let*` or an inlined procedure with effects.
+    The program returns the same value and runs the same commands, once each
+    and in the same order, as the program that binds the call with `let*`
+    first. Older targets keep the failure they had.
+  - A call to a generic procedure that passes a hook whose declared type uses
+    one of the procedure's type parameters, such as `improve`, may be written
+    directly as a `match` subject, and so may the application of a typed
+    prompt. In exactly these cases the typed `match` carries the typechecked
+    subject; in every other case it carries the authored subject, so a program
+    that compiled before these forms were admitted keeps its lowered output and
+    step identities. A generic call without such a hook is accepted directly as
+    a subject and bound by `let*`, and the two forms lower to different step
+    identities. From target 2.34 the typed `match` carries the typechecked
+    subject in every case. Older targets keep their rejection of the direct
+    form (`proc_ref_signature_invalid` for a generic helper).
   - The bundled `std/improve` module exports `Decision`, `Improvement`, and the
     value-returning review helper `improve`; the
     [composition-first design](../docs/design/workflow_lisp_composition_first.md)
@@ -637,13 +676,37 @@
     older-target module carries 2.33 lowering for that procedure. An
     older-target module can hold, `match` and pass on applied-union values
     whose type it cannot name.
-  - A `defprompt` whose result is an applied generic union compiles at 2.33,
-    but it is outside the 2.33 contract and no test covers it.
-    `provider-result :returns` is the supported way to get an applied union
-    from a provider.
-  - It does not add generic records or explicit procedure type arguments. A
-    module targeting 2.33 that uses none of the new forms compiles as an
-    ordinary module. State schema remains `2.1`.
+  - It does not add generic records or explicit procedure type arguments.
+    State schema remains `2.1`.
+
+- Exceptions to target stability (every target)
+  - A name bound inside an expression that the compiler hoists no longer
+    captures a reference to an outer binding of the same name. The hoisted
+    expressions are a `let*` binding value, including a condition; a `match`
+    subject; an operand of a pure operator or of a record, record-update or
+    variant constructor; an argument of an effect call; and a loop's seed or
+    `:max`.
+  - A pure binding's free names resolve in the scope of its definition, not
+    where the binding is used. A binder between the definition and the use
+    that spells a name the binding reads (a `let*` or `match` arm binding, a
+    loop or join parameter, or the parameter or specialization binding of an
+    inlined procedure: a `bind-proc` value, a `let-proc` capture, a bound
+    procedure reference) does not capture that name. Below target 2.30, a
+    `defun` argument is evaluated in the caller's scope, not in the scope of
+    the parameters bound before it. From 2.30, a value bound by `bind-proc` or
+    captured by `let-proc` keeps the names of its definition when it is
+    expanded inside another procedure.
+  - Known defects, at every target: a `bind-proc` or `let-proc` value is
+    resolved where the procedure is called, so a binder of the defining body
+    between the definition and the call captures its names; member names of
+    `with-live-providers` capture in the settlement body. From 2.30, a
+    `let-proc` capture of an effect result evaluates the effect again where
+    the procedure is applied.
+  - These corrections change only the value of a program whose result was not
+    the value lexical scope gives: a silent wrong value is corrected at every
+    target. A form that failed in lowering only because of such a capture now
+    compiles; a form that a target refuses for any other reason stays refused.
+    Programs without such a shadowed name build byte-identical artifacts.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
@@ -832,9 +895,9 @@ Planned acceptance:
 | 2.27 | Workflow Lisp explicit fresh-session artifact | Adds one optional entry-root/sequential-spine `provider-result :session-artifact <bare-symbol>` that synthesizes a scalar String artifact and reuses existing fresh `provider_session` publication. Omission stays transient; invalid placement, duplicates, collisions, unsupported templates, and targets below 2.27 reject. State schema remains `2.1`; no new public IR/runtime form. |
 | 2.28 | Workflow Lisp whole-union prompt inputs | Adds direct closed-union and eligible list-of-union inputs through the existing canonical renderer. Variant-shaped compiler sources resolve only active payloads; literal/ref data remain distinct. Existing output contracts, phase fallback, old targets, and state schema `2.1` are preserved. |
 | 2.29 | Workflow Lisp rich loop values and precise scoped union guards | Complete record/union list descriptors, state-derived exhaustion packaging and exact discriminant `{ref, allowed}` proof, with public committed-resume delivery. No new state store or schema; existing pure-only default-resume limits remain. |
-| 2.30 | Workflow Lisp pure-call expression composition | Resolved-inline normalization and schema-3 ordered lexical bindings, including selected hooks and committed-boundary resume. Private/effectful/unrepresentable calls remain excluded; old targets and state schema stay unchanged. |
+| 2.30 | Workflow Lisp pure-call expression composition | Resolved-inline normalization and schema-3 ordered lexical bindings, including selected hooks and committed-boundary resume. Private/effectful/unrepresentable calls remain excluded; state schema stays unchanged, and old targets are unchanged apart from the scope corrections under "Exceptions to target stability". |
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
-| 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments; an applied-union `defprompt` result compiles but is outside the contract. State schema remains 2.1. |
+| 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

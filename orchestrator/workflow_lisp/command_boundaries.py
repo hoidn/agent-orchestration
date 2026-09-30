@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -89,6 +89,10 @@ class ExternalToolBinding:
     expiry_condition: str | None = None
     evidence_refs: tuple[str, ...] = ()
     retirement_status: str | None = None
+    must_not_repeat: bool = field(
+        default=False,
+        metadata={"json_omit_if_empty": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,10 @@ class CertifiedAdapterBinding:
     expiry_condition: str | None = None
     evidence_refs: tuple[str, ...] = ()
     retirement_status: str | None = None
+    must_not_repeat: bool = field(
+        default=False,
+        metadata={"json_omit_if_empty": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -188,6 +196,16 @@ def build_command_boundary_environment(
                 LispFrontendDiagnostic(
                     code="command_adapter_missing_contract",
                     message="command boundary bindings require non-empty names",
+                    span=_environment_span(),
+                    phase="typecheck",
+                )
+            )
+            continue
+        if type(binding.must_not_repeat) is not bool:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=f"command boundary `{name}` must_not_repeat must be a boolean",
                     span=_environment_span(),
                     phase="typecheck",
                 )

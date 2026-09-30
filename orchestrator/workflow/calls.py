@@ -41,7 +41,6 @@ from .resume_projection_integrity import (
     audit_scope,
     classify_terminal_result,
     index_retry_lineage,
-    next_unused_retry_frame_id,
     projection_integrity_failed_result,
 )
 from .state_projection import CallBoundaryProjection, ResumeProjectionValidationError
@@ -137,33 +136,6 @@ class CallExecutor:
             self._resume_scope_path(),
         )
         raise AssertionError("unreachable call-boundary resolution")
-
-    def _allocate_retry_frame_id(
-        self,
-        lineage: CallFrameRetryLineage,
-        provisional_frame_id: str,
-        *,
-        step_id: str,
-        call_frames: Mapping[str, Any],
-        imported_workflow: Any,
-    ) -> str:
-        """Rederive and authorize one fresh retry only after history validation."""
-        reindexed = self._retry_lineage_for_step(
-            step_id=step_id,
-            call_frames=call_frames,
-            imported_workflow=imported_workflow,
-        )
-        allocated_frame_id = next_unused_retry_frame_id(reindexed)
-        if (
-            reindexed != lineage
-            or allocated_frame_id != provisional_frame_id
-        ):
-            raise CallFrameRetryLineageError(
-                "ambiguous_resumable_call_frame",
-                frame_id=allocated_frame_id,
-                offending_value=allocated_frame_id,
-            )
-        return allocated_frame_id
 
     @staticmethod
     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
@@ -288,7 +260,7 @@ class CallExecutor:
                 if lineage.running_member is not None:
                     return lineage.running_member.frame_id
                 if lineage.failed_predecessors:
-                    return lineage.base_frame_id
+                    return lineage.failed_predecessors[-1].frame_id
 
         return fresh_frame_id
 
@@ -1042,29 +1014,17 @@ class CallExecutor:
             if retry_lineage is not None
             else None
         )
-        force_fresh_workflow_lisp_retry = (
-            retry_lineage is not None
-            and workflow_lisp_target
-            and running_member is None
-            and bool(retry_lineage.failed_predecessors)
-        )
-        provisional_retry_frame_id = (
-            next_unused_retry_frame_id(retry_lineage)
-            if force_fresh_workflow_lisp_retry
+        failed_resume_member = (
+            retry_lineage.failed_predecessors[-1]
+            if workflow_lisp_target
+            and retry_lineage is not None
+            and retry_lineage.failed_predecessors
             else None
         )
-        if isinstance(provisional_retry_frame_id, str):
-            frame_id = provisional_retry_frame_id
-        elif running_member is not None:
-            frame_id = running_member.frame_id
-        else:
-            frame_id = fresh_frame_id
+        resume_member = running_member or failed_resume_member
+        frame_id = resume_member.frame_id if resume_member is not None else fresh_frame_id
 
-        existing_frame = (
-            call_frames.get(frame_id)
-            if not force_fresh_workflow_lisp_retry
-            else None
-        )
+        existing_frame = call_frames.get(frame_id)
         child_existing_frame = (
             existing_frame
             if isinstance(existing_frame, dict)
@@ -1156,6 +1116,23 @@ class CallExecutor:
 
         if (
             self.executor.resume_mode
+            and workflow_lisp_target
+            and running_member is None
+            and failed_resume_member is not None
+        ):
+            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=failed_resume_member.frame_id,
+                imported_workflow=imported_target,
+                existing_frame=dict(failed_resume_member.frame),
+                expected_bound_inputs=bound_inputs,
+            )
+            if resume_bound_input_error is not None:
+                return resume_bound_input_error
+
+        if (
+            self.executor.resume_mode
             and not workflow_lisp_target
             and running_member is not None
         ):
@@ -1202,25 +1179,6 @@ class CallExecutor:
                         child_existing_frame
                     ),
                     self._resume_scope_path().child(frame_id),
-                )
-
-        if force_fresh_workflow_lisp_retry:
-            assert retry_lineage is not None
-            assert provisional_retry_frame_id is not None
-            try:
-                frame_id = self._allocate_retry_frame_id(
-                    retry_lineage,
-                    provisional_retry_frame_id,
-                    step_id=step_id,
-                    call_frames=call_frames,
-                    imported_workflow=imported_target,
-                )
-            except CallFrameRetryLineageError as exc:
-                return self.resume_state_invalid_result(
-                    step_name=step_name,
-                    call_alias=call_alias,
-                    frame_id=provisional_retry_frame_id,
-                    detail=exc.reason,
                 )
 
         child_state_manager = _CallFrameStateManager(
@@ -1354,41 +1312,85 @@ def fresh_call_frame_uses_replay_profile(
     )
 
 
+def _call_may_be_skipped(
+    caller: LoadedWorkflowBundle,
+    boundary: CallBoundaryProjection,
+) -> bool:
+    if boundary.iteration_owner_node_id is not None:
+        return True
+    node = caller.ir.nodes.get(boundary.node_id)
+    if getattr(node, "bound_when_predicate", None) is not None:
+        return True
+    selections = (
+        *caller.projection.structured_if_branches.values(),
+        *caller.projection.structured_match_cases.values(),
+    )
+    return any(
+        boundary.presentation_key in selection.step_presentation_keys
+        for branches in selections
+        for selection in branches.values()
+    )
+
+
+def _walk_replay_queue(
+    pending,
+    unconditional_pending,
+    conditional_pending,
+    walked: set[int],
+    yielded: set[int],
+):
+    while pending:
+        caller, path, reached_unconditionally, uses_replay_profile = pending.popleft()
+        caller_id = id(caller)
+        if uses_replay_profile and caller_id not in yielded:
+            yielded.add(caller_id)
+            yield caller, path, reached_unconditionally
+        if caller_id in walked:
+            continue
+        walked.add(caller_id)
+        for boundary in caller.projection.call_boundaries.values():
+            callee = workflow_import_bundle(caller, boundary.import_alias)
+            if callee is None:
+                continue
+            callee_path = (*path, (caller, boundary))
+            unconditional = reached_unconditionally and not _call_may_be_skipped(
+                caller, boundary
+            )
+            uses_profile = fresh_call_frame_uses_replay_profile(callee, boundary)
+            next_queue = unconditional_pending if unconditional else conditional_pending
+            next_queue.append((callee, callee_path, unconditional, uses_profile))
+
+
 def replay_profile_bundles(
     bundle: LoadedWorkflowBundle,
 ) -> Iterator[
     tuple[
         LoadedWorkflowBundle,
         tuple[tuple[LoadedWorkflowBundle, CallBoundaryProjection], ...],
+        bool,
     ]
 ]:
-    """Yield each bundle a fresh run of ``bundle`` derives a replay index for.
+    """Yield each replay-indexed bundle and whether every path reaches it.
 
     The root comes first, with an empty call path. Then, once each, every
     callee a frame opens under the replay profile, with the first call path
-    (outermost call first) the breadth-first walk finds. Callees are resolved as
-    ``CallExecutor.execute_call`` resolves them, from the caller's imports by
-    the call boundary's alias. A callee reached only inside a loop iteration is
-    not yielded but is still walked, since its own calls may use the profile.
-    Nothing runs: no frame, run directory or state is created. Bundles are
-    shared across import paths, so each is walked once.
+    (outermost call first) the breadth-first walk finds. Reachability follows
+    the compiled branch and loop structure, not the values of conditions. If a
+    bundle has both conditional and unconditional paths, the unconditional path
+    wins. Callees are resolved as ``CallExecutor.execute_call`` resolves them,
+    from the caller's imports by the call boundary's alias. A callee reached
+    only inside a loop iteration is not yielded but is still walked, since its
+    own calls may use the profile. Nothing runs: no frame, run directory or
+    state is created. Guaranteed paths are expanded before conditional paths,
+    so each shared bundle is expanded once under its strongest reachability.
     """
-    yield bundle, ()
-    yielded = {id(bundle)}
-    walked = {id(bundle)}
-    pending = deque([(bundle, ())])
-    while pending:
-        caller, path = pending.popleft()
-        for boundary in caller.projection.call_boundaries.values():
-            callee = workflow_import_bundle(caller, boundary.import_alias)
-            if callee is None:
-                continue
-            callee_path = (*path, (caller, boundary))
-            if id(callee) not in yielded and fresh_call_frame_uses_replay_profile(
-                callee, boundary
-            ):
-                yielded.add(id(callee))
-                yield callee, callee_path
-            if id(callee) not in walked:
-                walked.add(id(callee))
-                pending.append((callee, callee_path))
+    guaranteed = deque([(bundle, (), True, True)])
+    conditional = deque()
+    walked: set[int] = set()
+    yielded: set[int] = set()
+    yield from _walk_replay_queue(
+        guaranteed, guaranteed, conditional, walked, yielded
+    )
+    yield from _walk_replay_queue(
+        conditional, guaranteed, conditional, walked, yielded
+    )

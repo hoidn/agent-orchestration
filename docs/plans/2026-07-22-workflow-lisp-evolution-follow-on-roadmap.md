@@ -12,7 +12,10 @@ On 2026-09-28 the owner selected CF-1a and slated CF-1b ahead of R1b's
 review/revision composition; see the
 [CF-1 selection record](#cf-1--composition-first-procedures-pending-unselected).
 CF-1a is closed, CF-1b is implemented at target 2.33, and CF-1c consumer
-migration is on hold.
+migration is on hold. On 2026-09-29 the owner approved the defect repairs of
+the [value/effect decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md) and the brief's feasibility spike after
+them; the repairs are implemented and the spike is the next selected work
+([Independent Work And Successor](#independent-work-and-successor)).
 Publication alone does not select
 later studies, new language surfaces, or source promotion.
 
@@ -486,7 +489,7 @@ are outside this workstream.
 | CF-1a — investigate substrate and settle the bounded plan | Adopt the proposed generic-union contract through the parametric type owner, select the module name and target boundary, and probe existing generic exhaustion/lexical-input support without requiring the new generic-union syntax. Confirm removing `ctx` drops no identity/resume dependency. Inventory the maintained consumers' public results and validation obligations. The initial prompt route is concrete provider results plus domain adapters; direct generic `defprompt` results are deferred. | Accept a plan once material contract/ownership choices are resolved and discovered substrate gaps have explicit owner-level corrections and acceptance checks. Do not require implementing generic unions before planning them. If projection, capture or transport obstructs the use case, reconsider those foundations rather than add seeds/counters or abandon composition by default. |
 | CF-1b — generic unions and the value-returning slice | Implement the type owner's application, constructor-identity and recursive argument-binding contract through the existing specialization pipeline, with diagnostics and version boundaries. Ship `Decision[F B]`, `Improvement[S F B]`, and `improve`; a structured-value caller whose revised candidate reaches a deterministic consumer; an unrelated `Outcome[T E]`; supported non-record `I` coverage while retaining `S is-record` as the first-delivery loop/exhaustion limit; imported alias/homonym and unused-type-argument identity checks; public compile/run/resume with interruptions after committed review and revision. Use the concrete-prompt adapter route. | Record supported behavior and remaining limits. New-feature executable evidence is acceptance of this step, not a prerequisite implementation for CF-1a. Keep existing `std/phase` exports available and identify only review/revise's mismatch as legacy behavior. No cross-API checkpoint compatibility or utility advantage follows from a passing slice. **Implemented 2026-09-28 at target 2.33.** The supported contract is in the design (§§3–6, and §7's effect behavior before EL-1), its limits in design §11, and the evidence in the [capability matrix](../capability_status_matrix.md). A hook may also return an applied union straight from `provider-result`; adapters remain the route for concrete results. |
 | CF-1c — migrate and substitute on real callers | Follow the [master plan](2026-09-28-composition-first-master-plan.md): a shared review-domain module, then the three examples migrated by parallel subagents through domain review/revision adapters, then the utility evaluation, and only after that evidence the two design-delta library phases and retirement. Preserve approved and blocked report/findings/blocker data and validation, including findings consumption after resume. The examples publish no previous-review metadata on exhaustion; the library phases keep it with typed initial absence. Existing provider procedure bodies need not change. Substitute the reviewer with sequential two-review-plus-adjudication, then add a typed proposal field consumed downstream and record actual editing/plumbing cost. The historical parametric-document example is not an unchanged-hook migration. This also serves the [composition plan's](2026-09-22-value-and-continuation-composition-implementation-plan.md) qualitative follow-on evaluation for the increments actually exercised; do not run a duplicate study or claim unexercised context/human-input benefits. | Assess programmability, reuse and diagnosis on actual usage, without a productivity score or new harness. Improve demonstrated recurring friction, reconsider an obstructive foundation, or retain a smaller useful subset. Inventory consumers per declaration; retire only displaced review/revise helpers/macros and unused supporting types, preserving independent `std/phase` exports. Remove adapters only when their domain obligations have another real owner. |
-| CF-1d — optional extensions by named caller | Support for direct instantiated generic `defprompt` results (the compiler already accepts an applied-union `defprompt` result at 2.33, but it is unsupported and untested), fixer-side blockage, generic records, and document snapshot/version references, each only when a maintained caller needs it and through the existing owner. For direct generic prompt results, prove instantiation/contract-generation ordering and compare with the working adapter route. | Cancel unbuilt extensions freely; after adverse evidence, remove unnecessary built machinery while preserving independently useful behavior. None is required to close CF-1b or CF-1c, and none reopens the budget or ledger machinery excluded here. |
+| CF-1d — optional extensions by named caller | Direct instantiated generic `defprompt` results joined the 2.33 contract on 2026-09-29, with provider-boundary tests; the remaining extensions are fixer-side blockage, generic records, and document snapshot/version references, each only when a maintained caller needs it and through the existing owner. For direct generic prompt results, prove instantiation/contract-generation ordering and compare with the working adapter route. | Cancel unbuilt extensions freely; after adverse evidence, remove unnecessary built machinery while preserving independently useful behavior. None is required to close CF-1b or CF-1c, and none reopens the budget or ledger machinery excluded here. |
 
 **Selection record (2026-09-28):** the owner selected the following order,
 grounded in the C1 report's friction table, which names the `std/phase` result
@@ -553,10 +556,10 @@ accepted governing/version contracts, and a reviewed plan; it is implemented.
 CF-1c needs a working slice and is on hold under step 4. EL-1 is not a
 prerequisite: before EL-1 lands, `improve` has no direct validator command and
 uses the current generic-hook forwarding regime. Its transitive summary
-includes the selected adapters' provider/command effects when the hooks are
-declared in the caller's module. The effects of hooks declared in another
-module are missing from that summary; cross-module effect inference is owned
-by EL-1. EL-1 later migrates forwarding declarations to omission. EC-1 and PC-1 are
+includes the selected adapters' provider/command effects. For a caller at
+target 2.33 that holds wherever the hooks are declared; for a caller below
+2.33 the effects of hooks declared in another module are missing from that
+summary. EL-1 later migrates forwarding declarations to omission. EC-1 and PC-1 are
 unaffected. Compiler edits in the
 type-environment and specialization owners must be coordinated with any
 concurrent EC-1 or PC-1 work before execution. No research allocation changes.
@@ -580,11 +583,11 @@ dependency: `improve` has no `ctx` parameter and resumes correctly, and
 a `ctx`-borne dependency. The first-delivery `S is-record` limit is retained,
 while `I` need not be a record or authored loop state.
 
-The same check found a WCC elaboration `TypeError` for a pure inline review
-hook used as a loop-body `match` scrutinee; binding it with `let*` is rejected
-by the Stage 3 loop rule. CF-1b's deterministic tests therefore use command-
-or provider-backed review hooks until the frontend supports or diagnoses that
-shape. This separate frontend defect is not a CF-1 prerequisite.
+The same check found that a pure inline review hook fails after typecheck;
+it is now reported as a `compiler_defect` diagnostic, and a pure revise hook
+as `workflow_return_not_exportable`. CF-1b's deterministic tests therefore use
+command- or provider-backed review hooks. This separate frontend defect is not
+a CF-1 prerequisite; [design §11](../design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233) lists it with the other known defects.
 
 **Compatibility and closure:** new declarations change bundled-module digests
 and require a target bump with versioned acceptance/rejection tests and recorded
@@ -684,19 +687,18 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
-  1. provider result delivery defects: a stale result file from a previous
-     loop iteration is accepted as new; the result path in
+  1. provider result delivery defects: the result path in
      `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is relative to the run workspace;
      materialization of the result from the agent's final text does not
-     happen; provider `codex` defaults to a model the account rejects;
-     `reasoning_effort` is ignored;
+     happen. Closed on 2026-09-29: a result file left by an earlier call is
+     removed before the next call; provider `codex` defaults to `gpt-5.5` and
+     passes the effort as `model_reasoning_effort`;
   2. parallel execution of `list/map-effect` bodies, which run in sequence;
   3. a comparison of workflows with a single call on a large task.
 - Follow-up work recorded on 2026-09-28 from the final review of CF-1b, each
   unselected until planned:
-  1. a generic procedure with no effects cannot construct an applied union
-     over its own type parameters outside `loop/recur`; every call is rejected
-     with `generic_union_unresolved_argument`;
+  1. closed on 2026-09-29: a generic procedure with no effects now constructs
+     an applied union over its own type parameters at target 2.33;
   2. at targets below 2.33 a bracketed type that is not a generic union, such
      as a misspelt `Lst[Int]`, reports `generic_union_requires_dsl_2_33`
      where it reported `type_expression_invalid`; what those targets accept
@@ -705,6 +707,22 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
      programs that the public run rejects at start, because their helper
      skips that validation; they need a public-run form or a strict `xfail`
      naming the pure-result replay limit.
+- Defect repairs selected by the owner on 2026-09-29 from the
+  [value/effect decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md), section 7, are implemented: effect
+  inference over imported procedures, typed `match` subjects for generic
+  calls with type-dependent hooks, specialized types in inlined bodies,
+  bound prefixes in `loop-state` fields and `match` subjects, applied-union
+  `defprompt` results, the replay index during `--dry-run`, fresh result
+  files, at-least-once resume with a `must_not_repeat` opt-out, one run at a
+  time in a workspace, compiler-defect diagnostics, the watchdog in its own
+  workspace, and lexical scope for hoisted and pure bindings at every target.
+  The known defects that remain, cases d and f of the brief among them, are
+  listed in [composition-first §11](../design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
+- **Next selected work (owner, 2026-09-29):** the feasibility spike of the
+  [decision brief, section 10](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md#10-spike-scope-and-criteria-fixed-in-advance),
+  with its criteria fixed there. Its plan is written after the defect repairs
+  merge. The choice between the brief's options and the version policy for an
+  inverted runtime wait for its result.
 
 ## Routing And Historical Records
 

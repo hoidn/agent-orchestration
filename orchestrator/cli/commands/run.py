@@ -268,9 +268,11 @@ def render_replay_index_rejection(
     except Exception as lookup_error:  # The lookup must never replace the rejection.
         origin, line, column = {}, 1, 1
         notes = [f"source location could not be determined: {_lookup_failure(lookup_error, source_map)}"]
-    for caller, node_id in call_sites:
+    for caller, node_id, step_name in call_sites:
         try:
-            site = workflow_node_origin(source_map, caller, node_id)
+            if not isinstance(step_name, str):
+                raise LookupError("the semantic call statement could not be determined")
+            site = workflow_node_origin(source_map, caller, node_id, step_name=step_name)
             notes.append(f"workflow call site at {site['path']}:{site['line']}:{site['column']}")
         except Exception as lookup_error:  # As above: a note, never a replacement.
             notes.append(f"workflow call site in {caller} could not be located: {_lookup_failure(lookup_error, source_map)}")
@@ -290,6 +292,19 @@ def render_replay_index_rejection(
     )
     # Without an origin the file is known and the line is not: drop the placeholder.
     return text if origin else text.replace(f"{path}:1:1: ", f"{path}: ", 1)
+
+
+def _call_site_step_name(bundle: LoadedWorkflowBundle, node_id: str) -> str | None:
+    """Resolve a call boundary to its semantic statement's exact source step name."""
+    workflow = bundle.semantic_ir.workflows.get(bundle.surface.name)
+    if workflow is None:
+        return None
+    matches = [
+        statement.step_name
+        for statement in workflow.statements.values()
+        if statement.step_kind == "call" and node_id in statement.executable_node_ids
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _lookup_failure(error: Exception, source_map: Path | None) -> str:
@@ -704,23 +719,33 @@ def run_workflow(
                     workspace, logical_workflow_path or workflow_path
                 )
             )
-            for frame_bundle, call_path in replay_profile_bundles(bundle):
+            for frame_bundle, call_path, reached_unconditionally in replay_profile_bundles(bundle):
                 try:
                     # The scope path is only type-checked here; derivation
                     # reads the bundle alone.
                     PureReplayRuntime(bundle=frame_bundle, scope_path=scope_path)
                 except PureResultReplayIndexError as exc:
-                    raise PureResultReplayIndexError(
+                    rejection = PureResultReplayIndexError(
                         exc.reason,
                         str(exc),
                         context={
                             **exc.context,
                             "call_sites": [
-                                (caller.surface.name, boundary.node_id)
+                                (
+                                    caller.surface.name,
+                                    boundary.node_id,
+                                    _call_site_step_name(caller, boundary.node_id),
+                                )
                                 for caller, boundary in reversed(call_path)
                             ],
                         },
-                    ) from exc
+                    )
+                    if reached_unconditionally:
+                        raise rejection from exc
+                    logger.warning(
+                        "%s\nnote: this run is refused only if it reaches this call.",
+                        render_replay_index_rejection(rejection, bundle),
+                    )
             return _run_result(0)
 
         # Parse context
