@@ -403,7 +403,10 @@ The currently implemented authoring surface includes:
 - the closed pure-expression operator surface (`=`, `!=`, `<`, `<=`, `>`,
   `>=`, `and`, `or`, `not`, `+`, `-`, `*`, `min`, `max`, `string/concat`,
   `string/empty?`, `symbol/name`, `some?`, `or-else`, `record-update`),
-  lowering through compiler-generated `pure_projection` steps; see Section 9A
+  lowering through compiler-generated `pure_projection` steps; see Section 9A.
+  Target 2.34 adds decimal literals in expressions and the numeric operators
+  `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`,
+  `int/to-float`, `float/floor` and `float/round`
 - `match`
 - `loop/recur`
 - target-2.18 list construction and total list operators, pure `list/map`,
@@ -2335,17 +2338,29 @@ Section 10.2):
 | Equality | `=`, `!=` over `String`, `Int`, `Bool`, `Symbol`, same-type enums |
 | Ordering | `<`, `<=`, `>`, `>=` over `Int` pairs or `Float` pairs |
 | Boolean | `and`, `or`, `not` |
-| Arithmetic | `+`, `-`, `*`, `min`, `max` over `Int`, fail-closed on 64-bit overflow |
+| Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` over `Int`, fail-closed on 64-bit overflow |
+| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` over two or more operands, all `Int` or all `Float`; `-` over two; `/` over two `Float`; `int/div` (rounds toward negative infinity) and `int/mod` (sign of the divisor) over two `Int`; `float/abs`, `float/sqrt`, `float/log` (natural) over one `Float` |
+| Conversion, target 2.34 | `int/to-float`; `float/floor` and `float/round` (halves to even) to `Int`, refused outside 64 bits |
 | String | `string/concat`, `string/empty?`, `symbol/name` |
 | Option | `some?`, `or-else` |
 | Record | `record-update` |
 
-There is deliberately no division, float equality, path-string concatenation,
-collection operators, regex, time, randomness, or IO. If a workflow seems to
-need one of those, that is a design question for the adapter-retirement
-target
-(`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`),
-not a reason to fall back to a command step or grow the surface informally.
+At 2.34 a decimal literal (`1.5`, `-0.25`, `2e-3`) is an expression wherever
+an expression is admitted; at 2.33 and older it is admitted only as a
+`defworkflow` parameter default. Operands of mixed types are refused at
+compile time (`pure_expr_operand_type_mismatch`); nothing converts silently.
+Also at 2.34, a non-finite `Float` in a workflow input, a command or provider
+result field, an expected output file or saved state read on resume is
+refused with `float_not_finite`, which names the field (`specs/io.md`).
+Section 2A runs these forms at both targets.
+
+There is deliberately no float equality, path-string concatenation,
+collection operator beyond the list surface of Section 17.2, regex, time,
+randomness, or IO, and no division before target 2.34. If a workflow seems to
+need one of those, that is a design question for the adapter-retirement target
+(`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
+or the [numeric surface](design/workflow_lisp_numeric_surface.md), not a
+reason to fall back to a command step or grow the surface informally.
 
 Typed projection example — compare, default, and construct without Python:
 
@@ -2371,7 +2386,9 @@ Choosing the surface:
 | Durable state mutation: queue, ledger, run-state | `resource-transition` (Section 13.4), never a bare command step |
 
 What lowering generates: maximal pure regions become one compiler-generated
-`pure_projection` step with a validated payload, payload digest, and a
+`pure_projection` step with a validated payload of at most 256 nodes (from
+target 2.30 a `let*` value used more than once is counted once; Section 2A
+shows the refusal and how to split an expression), payload digest, and a
 private managed result bundle (`PURE_PROJECTION_BUNDLE`, resume-safe at step
 scope). The step is visibility, not authority transfer: the expression body
 stays effect-free, the generated bundle path is private, and
@@ -2381,8 +2398,18 @@ way.
 
 Failures are typed and fail-closed — expect `pure_expr_overflow`,
 `pure_expr_float_equality_forbidden`, `pure_expr_union_equality_forbidden`,
-`pure_expr_path_string_concat_forbidden`, or
-`pure_expr_operator_unsupported`, never silent coercion.
+`pure_expr_path_string_concat_forbidden`, `pure_expr_operand_type_mismatch`,
+`pure_expr_payload_too_large`, or `pure_expr_operator_unsupported`, never
+silent coercion. At 2.34 add `pure_expr_division_by_zero`,
+`pure_expr_float_domain` (`float/sqrt` of a negative value, `float/log` of
+zero or less), `pure_expr_float_not_finite`, and `float_literal_not_finite`
+for a literal that is not a finite double. `pure_expr_overflow`,
+`pure_expr_division_by_zero`, `pure_expr_float_domain` and
+`pure_expr_float_not_finite` name the operator and print its operands;
+`pure_expr_overflow` does so at every target and also prints the value and
+the 64-bit bounds. A refusal at run time points at the generated step's pure region,
+not at the failing application: in `(let* ((q (/ a b))) (+ q 1.0))` it points
+at `(+ q 1.0)`.
 
 Copy-safe fixtures:
 `tests/fixtures/workflow_lisp/valid/pure_expr_loop_counter.orc` and

@@ -1609,7 +1609,9 @@ Supported operators are exact and closed:
 | Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality, deep union equality, or deep record equality. |
 | Ordering | `<`, `<=`, `>`, `>=` | `Int x Int`, `Float x Float` -> `Bool` | Ordering is allowed for `Float`; equality is not. |
 | Boolean | `and`, `or`, `not` | `Bool` -> `Bool` | Computed `Bool` values remain proof-neutral. |
-| Arithmetic | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
+| Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
+| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | all `Int` or all `Float` -> same type; `/` and the `float/` operators `Float` -> `Float`; `int/div` and `int/mod` `Int` -> `Int` | [Numeric surface](workflow_lisp_numeric_surface.md) rules N2 and N4: mixed operands refused at compile time; refusals `pure_expr_division_by_zero`, `pure_expr_float_domain`, `pure_expr_float_not_finite`, `pure_expr_overflow` name the operator and print the operands. |
+| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Numeric surface rule N3: nothing converts silently; `float/round` rounds halves to even; a result outside 64 bits is refused. |
 | String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
@@ -1617,7 +1619,8 @@ Supported operators are exact and closed:
 
 Deliberate exclusions stay enforced by typed diagnostics:
 
-- no division or modulo;
+- no division or modulo before target 2.34; decimal literals in expressions from
+  target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
 - no collection operators beyond the exact target-2.18 list surface;
 - no regex, time, IO, randomness, workflow calls, provider calls, or command execution;
