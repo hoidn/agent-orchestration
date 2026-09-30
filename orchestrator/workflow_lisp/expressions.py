@@ -2313,10 +2313,15 @@ def _trial_positive_int(
         or isinstance(node.value, bool)
         or node.value <= 0
     ):
+        value_detail = (
+            f" value={node.value}, minimum=1"
+            if isinstance(node, SyntaxInt) and not isinstance(node.value, bool)
+            else ""
+        )
         _trial_fail(
             node,
             code=code,
-            message=f"{label} must be a positive integer literal",
+            message=f"{label} must be a positive integer literal;{value_detail or ' minimum=1'}",
             form_path=form_path,
         )
     return node.value
@@ -2344,14 +2349,19 @@ def _trial_number(
         _trial_fail(
             node,
             code="trial_evaluation_contract_invalid",
-            message=f"{label} is outside its accepted numeric range",
+            message=(
+                f"{label} value={node.value} cannot be represented as a finite number"
+            ),
             form_path=form_path,
         )
     if not math.isfinite(value) or (value <= 0 if positive else value < 0):
         _trial_fail(
             node,
             code="trial_evaluation_contract_invalid",
-            message=f"{label} is outside its accepted numeric range",
+            message=(
+                f"{label} value={node.value} is outside its accepted range; "
+                f"minimum={'greater than 0' if positive else 0}"
+            ),
             form_path=form_path,
         )
     return value
@@ -2574,7 +2584,11 @@ def _parse_trial_evaluation(
         _trial_fail(
             limits_node,
             code="trial_packet_limit_invalid",
-            message="max packet bytes must be at least max item bytes",
+            message=(
+                "max packet bytes must be at least max item bytes; "
+                f"max_packet_bytes={max_packet_bytes}, "
+                f"max_item_bytes={max_item_bytes}"
+            ),
             form_path=form_path,
         )
 
@@ -2804,7 +2818,11 @@ def _parse_trial_budget(
         _trial_fail(
             node,
             code="trial_budget_invalid",
-            message="evaluator concurrency cannot exceed evaluator attempts",
+            message=(
+                "evaluator concurrency cannot exceed evaluator attempts; "
+                f"max_evaluator_concurrency={values[':max-evaluator-concurrency']}, "
+                f"max_evaluator_attempts={values[':max-evaluator-attempts']}"
+            ),
             form_path=form_path,
         )
     return TrialBudget(
@@ -2938,7 +2956,9 @@ def _parse_trial_syntax_list(
         _trial_fail(
             arms_node,
             code="trial_arms_invalid",
-            message="trial requires between 2 and 16 static arms",
+            message=(
+                f"trial arm count={len(arms)}; minimum_arms=2, maximum_arms=16"
+            ),
             form_path=form_path,
         )
     reps = _trial_positive_int(
@@ -2951,7 +2971,10 @@ def _parse_trial_syntax_list(
         _trial_fail(
             sections[":reps"],
             code="trial_reps_invalid",
-            message="trial repetitions or total cells exceed their bounds",
+            message=(
+                f"repetitions={reps}, maximum_repetitions=64; "
+                f"cells={len(arms) * reps}, maximum_cells=256"
+            ),
             form_path=form_path,
         )
     max_concurrency = _trial_positive_int(
@@ -2964,7 +2987,11 @@ def _parse_trial_syntax_list(
         _trial_fail(
             sections[":max-concurrency"],
             code="trial_concurrency_invalid",
-            message="trial arm concurrency exceeds its bound or cell count",
+            message=(
+                f"concurrency={max_concurrency}, "
+                f"maximum_concurrency={min(32, len(arms) * reps)}, "
+                f"cells={len(arms) * reps}"
+            ),
             form_path=form_path,
         )
     return TrialExpr(
@@ -3215,8 +3242,17 @@ def _elaborate_list_map_effect(
         or isinstance(datum.items[3].value, bool)
         or datum.items[3].value <= 0
     ):
+        max_value = datum.items[3].value if len(datum.items) > 3 and isinstance(datum.items[3], SyntaxInt) else None
+        limit_detail = (
+            f"value={max_value}, minimum=1"
+            if max_value is not None and not isinstance(max_value, bool)
+            else "minimum=1"
+        )
         _raise_error(
-            "`list/map-effect` requires `:max` followed by a positive integer literal",
+            (
+                "`list/map-effect` requires `:max` followed by a positive integer "
+                f"literal; {limit_detail}"
+            ),
             code="list_map_effect_max_invalid",
             span=datum.span,
             form_path=form_path,
@@ -4565,10 +4601,16 @@ def _elaborate_with_live_provider_peers(
         <= len(raw_bindings.items)
         <= MAX_STATIC_LIVE_PROVIDER_PEERS
     ):
+        maximum = MAX_STATIC_LIVE_PROVIDER_PEERS
+        actual = (
+            len(raw_bindings.items)
+            if isinstance(raw_bindings, SyntaxList)
+            else "invalid"
+        )
         _raise_error(
             (
-                "`with-live-provider-peers` requires between two and "
-                f"{MAX_STATIC_LIVE_PROVIDER_PEERS} bindings"
+                "`with-live-provider-peers` binding count must be within its bounds; "
+                f"value={actual}, minimum=2, maximum={maximum}"
             ),
             code="with_live_provider_peers_bindings_invalid",
             span=raw_bindings.span,
@@ -5399,7 +5441,10 @@ def _elaborate_provider_result(
                 else None
             )
             _raise_error(
-                "`provider-result :materialization-attempts` must be a literal integer in 1..3",
+                (
+                    "`provider-result :materialization-attempts` must be a literal "
+                    f"integer in 1..3; value={attempts_node.value}, minimum=1, maximum=3"
+                ),
                 code="provider_phased_delivery_policy_invalid",
                 span=attempts_node.span,
                 form_path=form_path,
@@ -5780,8 +5825,12 @@ def _elaborate_prompt_dependencies(
             )
         instruction = instruction_node.value
         if len(instruction.encode("utf-8", errors="strict")) > 261630:
+            instruction_bytes = len(instruction.encode("utf-8", errors="strict"))
             _raise_error(
-                "prompt dependency instruction exceeds its UTF-8 byte limit",
+                (
+                    "prompt dependency instruction exceeds its UTF-8 byte limit; "
+                    f"instruction_bytes={instruction_bytes}, maximum_bytes=261630"
+                ),
                 code="prompt_dependency_instruction_exceeds_byte_limit",
                 span=instruction_node.span,
                 form_path=form_path,

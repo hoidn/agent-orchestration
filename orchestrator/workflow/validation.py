@@ -2092,7 +2092,10 @@ class _WorkflowMappingValidator:
             return
         if value < 0 or (value == 0 and not allow_zero):
             comparator = ">= 0" if allow_zero else "> 0"
-            self._add_error(f"{context} must be {comparator}")
+            minimum = 0 if allow_zero else 1
+            self._add_error(
+                f"{context} value={value} must be {comparator}; minimum={minimum}"
+            )
 
     def _validate_if_statement(
         self,
