@@ -310,7 +310,9 @@ def _case(sources, value, log, inputs=None, flat=None):
 
 def _cell(form: str, position: str):
     defect = KNOWN_DEFECTS.get((form, position))
-    return _case(matrix(form, position), *expected(form, position), flat=defect.kind if defect else None)
+    # A known defect that compiles and fails at run time (exit 1) is checked against the run's state.
+    refusal = None if defect is None else defect.kind if defect.exit_code == 2 else f"exit 1: {defect.kind}"
+    return _case(matrix(form, position), *expected(form, position), flat=refusal)
 
 
 DECISION_BRIEF = {
@@ -425,8 +427,10 @@ def test_the_flat_route_refuses_with_its_code_or_agrees_with_the_spike(
     with caplog.at_level(logging.ERROR):
         exit_code, flat_outputs, flat_calls = flat(tmp_path / "flat", sources, monkeypatch, inputs=inputs)
     if refusal is not None and refusal.startswith("exit 1: "):  # compiled, then failed at run time
-        state = next((tmp_path / "flat" / ".orchestrate" / "runs").glob("*/state.json")).read_text(encoding="utf-8")
-        assert (exit_code, refusal.removeprefix("exit 1: ") in state) == (1, True)
+        # A failure inside a run is recorded in its state; a crash before the run has one is only logged.
+        states = list((tmp_path / "flat" / ".orchestrate" / "runs").glob("*/state.json"))
+        evidence = states[0].read_text(encoding="utf-8") if states else caplog.text
+        assert (exit_code, refusal.removeprefix("exit 1: ") in evidence) == (1, True)
         return
     if refusal is not None:
         assert (exit_code, _DIAGNOSTIC_CODE.findall(caplog.text)[:1]) == (2, [refusal])
