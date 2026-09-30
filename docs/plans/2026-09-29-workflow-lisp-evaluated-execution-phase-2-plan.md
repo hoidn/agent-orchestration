@@ -5,16 +5,18 @@
 > task, with `superpowers:test-driven-development` for every behaviour change
 > and `superpowers:verification-before-completion` before any completion
 > claim. One worktree per task. Tasks of one group touch disjoint files and
-> run in parallel. Reviews are made by a reviewer of a model family other than
-> the implementer's. Steps use checkbox (`- [ ]`) syntax for tracking.
+> may run in parallel only after their listed prerequisites are merged. Use
+> the repository role assignments: Implementation Luna 6 xhigh, Review Sol 6
+> high, Design Astra 6 xhigh, Planning Astra 6 high. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The compiler produces, for a program at the evaluated execution
 target, the closed program that Phase 3's evaluator will run: whole,
 calculus-only, with complete effect nodes, a site table, a checked form,
 provenance outside identity, and a digest that is the program's identity.
 
-**Architecture:** The pipeline at the new target stops after typecheck and
-does not lower to steps. A new package `orchestrator/workflow_lisp/closed/`
+**Architecture:** An evaluated-entry compilation stops after typecheck
+throughout its source graph, including older imports, and never lowers to
+steps. A new package `orchestrator/workflow_lisp/closed/`
 takes the typed program, elaborates every reachable definition once with the
 compiler's own elaborator and normal-form pass (both changed at the new target
 only), and translates the result into a table of plain JSON definitions. The
@@ -30,7 +32,7 @@ catalog (`orchestrator/workflow/pure_expr.py`), canonical JSON, pytest.
 
 **Spec:** [evaluated execution](../design/workflow_lisp_evaluated_execution.md),
 sections 1.1 (`closed_program_gap`), 4 (P1 to P7, the table of definitions,
-the constructs, X1 to X4), 6 (I1 to I7), 7.3 (C1 as a manifest rule), 12
+the constructs, X1 to X4), 6 (I1 to I7), 7.3 (C1 for supplied and injected command bindings), 12
 (codes) and 13 (targets). Facts: the
 [execution facts](../reports/2026-09-29-workflow-lisp-execution-facts.md)
 (A.1 to A.5). Evidence and measured sizes: the
@@ -46,14 +48,23 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
 
 - Parent plan: [evaluated execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md),
   Phase 2 (milestones P1 to P7). Entry condition: gate G1, decided
-  2026-09-29. Base: the phase 0 branch at `613993ad`, which holds the revised
-  design.
+  2026-09-29. Governing revisions: design commits `181e4ed9` and
+  `9fa10443`, reconciled with all twelve independent Phase 2 review findings
+  and the follow-up builtin-closure/recovery contracts. The implementation baseline is the
+  actual clean base recorded before Task 1; `613993ad` is historical Phase 0
+  evidence, not this revision's comparison base.
 - Decision 6 of the parent plan, the number of the new target, is open. This
-  plan writes `3.0` as the placeholder. Task 1 registers the target under
+  plan writes `3.0` as a **provisional parameter, OWNER PENDING**, not a
+  selected target. The first execution decision is to obtain the owner's
+  number after presenting this concrete reviewed plan; document revision and
+  review continue without selecting it. Task 1 registers the target under
   the number the owner sets, in one constant; every later task and every
   fixture reads the number from that constant, never as a literal.
 - In scope: the compiler's output at the new target and the manifest field
-  `closure`. Out of scope, Phase 3 and later: the evaluator, the memo,
+  `closure`; both command boundary kinds; portable composed providers with
+  `asset_file`, `input_file` and all admitted `defprompt` slots; procedure and
+  workflow calls including value/reference bindings, `bind-proc` captures and
+  bounded `let-proc`; path-mode run references. Out of scope, Phase 3 and later: the evaluator, the memo,
   performers, coordinators, views, `run` and `resume` at the new target,
   typed input documents, `par-map`.
 - Phase 2 does not make the new target runnable. `orchestrator run` and
@@ -78,8 +89,10 @@ Every task's requirements include these lines.
   the base into a scratch directory, `python -m orchestrator compile` with
   every `--emit-*` flag, `diff -r` on the emitted files and on
   `.orchestrate/build/<key>/`).
-- No identity introduced by this plan contains a file path, a source position
-  or the text of a type. `repr(TypeRef)` never enters a name or a digest of
+- No generated identity introduced by this plan contains a source-file path,
+  source position or `repr` of a type. Authored semantic paths (prompt
+  bindings, run-ref sources, closure declarations and type roots) remain
+  program content; explicitly absolute declarations stay location-bound. `repr(TypeRef)` never enters a name or a digest of
   the closed program (execution facts A.5).
 - Every refusal has a code and a source location, and prints the value it
   refused and the limit it applied.
@@ -92,11 +105,19 @@ Every task's requirements include these lines.
   Narrow selectors, one module at a time, serial, with
   `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD python -m pytest -q -p no:cacheprovider --basetemp=<scratch>/pytest`.
   One full run at the phase closeout, alone, in tmux.
-- New modules stay under 500 lines and new functions under cyclomatic
-  complexity 12. `wcc/elaborate.py`, `compiler.py` and `build.py` are large
-  already: add the fewest lines there and put new logic under
-  `orchestrator/workflow_lisp/closed/`.
-- Commit by pathspec (`git commit -- <paths>`). Commit messages carry no tool
+- Reuse the existing signature, effect-summary, catalog, source-read and
+  descriptor owners. Add no generic signature abstraction, fake validated
+  bundle or extra compatibility layer. Keep the existing small `closed/`
+  file responsibilities below; split only when concrete code needs it, not
+  to satisfy arbitrary line or complexity limits. An admitted form that
+  cannot be closed is a compiler defect to repair, never an extra release gap.
+- Reviews record every finding. Only Critical evidence of observed silent
+  wrong results, data loss or writes outside the workspace blocks the owner's
+  review/merge gate; other findings are handled and recorded. Failing checks
+  are repaired, not relabeled acceptable. Scope changes still need an
+  explicit owner/design decision.
+- Commit by pathspec (`git commit -m "<message>" -- <paths>`), after staging
+  the task's created/changed files. Commit messages carry no tool
   or assistant attribution.
 - The spike under `experiments/evaluated_execution_spike/` is read as the
   prototype and never imported by production code or by this plan's tests.
@@ -108,10 +129,10 @@ Every task's requirements include these lines.
 Five input classes most likely to bite, each pinned by a test in the task
 that owns the code.
 
-1. One procedure called from three arms of one `match` inside a loop must
-   give one site per arm, each with the frame `<binder>=<callee>` and the
-   loop segment `loop:<param>[*]`, and the same three sites when the loop is
-   moved into a called workflow. Task 5 tests it on `arms_in_loop.orc`; Task
+1. One procedure called from three arms of one `match` inside a loop has
+   one local `perform` site in its definition and three call frames, each
+   with `<binder>=<callee>` and `loop:<param>[*]`. Moving the loop into a
+   called workflow preserves that separation; calls never add site rows. Task 5 tests `arms_in_loop.orc`; Task
    4 tests the table form gives one definition for the callee.
 2. A program moved to another path, and the orchestrator package moved to
    another path, must give the same sites and the same program digest; the
@@ -138,7 +159,9 @@ that owns the code.
 
 ## The Closed Program's Form
 
-Every task from 4 on reads and writes this schema. It is the contract between
+Every task from 4 on reads and writes this schema. Code excerpts below
+omit repeated typed/provenance fields for readability; actual fixtures must
+fill every field required here and pass `validate`. It is the contract between
 tasks; a task that needs another key adds it here first.
 
 ### The program
@@ -147,26 +170,35 @@ tasks; a task that needs another key adds it here first.
 {
   "schema": "workflow-lisp/closed-program/1",
   "representation": "table/1",
-  "target": "3.0",
+  "target": "<OWNER_SELECTED_TARGET>",
   "entry": "grt/entry::run",
   "params": [["seed", {"kind": "primitive", "name": "Int"}]],
   "defaults": {"seed": 1},
   "result": {"kind": "record", "name": "grt/entry::Box", "fields": [...]},
   "body": <body>,
-  "definitions": {"<canonical callee name>": {"params": ["n"], "body": <body>}},
-  "sites": [["grt/entry::run", "a=grt/entry::fetch"], ["grt/entry::fetch", "#1"]]
+  "types": {"grt/entry::Box": <canonical nominal descriptor>},
+  "configuration": {"commands": <all canonical command bindings>, "providers": <all resolved provider bindings>, "prompts": <all resolved prompt bindings>},
+  "definitions": {"<canonical callee name>": {"key": <canonical definition tuple>, "params": [["n", <descriptor>]], "result": <descriptor>, "body": <body>}},
+  "sites": [["grt/entry::fetch", "#1"]]
 }
 ```
 
 - `params` lists the entry's declared parameters, hidden context parameters
   excluded (they are bound in the body, X1). `defaults` holds each declared
   default as its normalized value. Type descriptors are the compiler's
-  normalized descriptors (`compiler_normalized_type_descriptor`), which name
-  a type `module::Name` and hold no path.
+  normalized descriptor shapes, recursively canonicalized by Task 6. The
+  existing descriptor builder alone is insufficient: private nominals also
+  require `module::Name`. `types` holds the canonical definitions of every
+  reachable nominal, including private and generated result types; all uses
+  must match it. No source path is included.
 - `definitions` holds one entry per canonical callee name (§4.2), procedures
   and called workflows alike. A body is stored once.
-- `sites` is the site table (P4): `[definition, local path]` in program
-  order, the entry first, then each definition in first-call order.
+- `sites` is the site table (P4): one `[definition, local path]` per
+  `perform`, entry first then definitions in first-call order. Call frames
+  stay on call nodes. `configuration` contains every parsed manifest binding
+  (including unused entries) and compiler-injected bindings used by the
+  program, normalized using the same rules as in-memory bindings; provenance and raw manifest bytes are excluded. Its semantic
+  content enters `program_digest`, not just the build-cache key.
 
 ### Body nodes
 
@@ -176,9 +208,9 @@ tasks; a task that needs another key adds it here first.
 | `halt` | `value` | result of the definition, or of a `block` |
 | `if` | `cond` (value), `then`, `else` (bodies) | strict `Bool` |
 | `case` | `subject` (value), `arms`: `[{variant, bind, body}]` | variant elimination |
-| `join` | `name`, `params` (names), `body`, `cont` | second-class continuation; a `halt` reached in `body` is the join's value (§4.3) |
+| `join` | `name`, `params` (`[[name, descriptor]]`), `result` (descriptor), `body`, `cont` | second-class continuation; a `halt` reached in `body` is the join's value (§4.3) |
 | `jump` | `join`, `args` (values) | |
-| `loop` | `name`, `param`, `budget` (value), `init` (value), `body`, `exhausted` (body or `null`), `code` | bounded iteration; `code` is the exhaustion diagnostic code |
+| `loop` | `name`, `param`, `state_type`, `result` (descriptors), `budget` (value), `init` (value), `body`, `exhausted` (body or `null`), `code` | bounded iteration; `code` is the exhaustion diagnostic code |
 | `continue` | `loop`, `args` (values) | names the loop it is in |
 | `done` | `value` | |
 
@@ -187,15 +219,15 @@ tasks; a task that needs another key adds it here first.
 | `k` | Keys | Rule |
 | --- | --- | --- |
 | `perform` | `class`, `result` (descriptor), `repeat` (`"rerun"` or `"never"`), `site` (set by the site walker), and the class's keys below | one effect |
-| `call` | `callee` (canonical name), `args` (values), `frame` (set by the site walker when the callee performs an effect) | evaluation of a definition's body (§9.2) |
+| `call` | `callee` (canonical name), `args` (values), `type` (result descriptor), `frame` (set by the site walker when the callee performs an effect) | evaluation of a definition's body (§9.2) |
 | a value | | |
 
 Effect classes of the first release (§1.1, §9.2):
 
 | `class` | Keys |
 | --- | --- |
-| `command` | `boundary`, `command` (stable tokens), `closure` (list of paths from the manifest, C1), `contract` (`{kind, payload}` without a `path`), and either `argv` (values) or `document` (`[[transport_key, value]]` in signature order, for a certified adapter) |
-| `provider` | `provider` (provider id), `prompt` (`{"asset": "<path relative to the source root>"}` or `{"template": "<text>", "fills": [[name, renderer_id, value]]}`), `inputs` (`[[name, renderer_id, value]]`, named as lowering names typed prompt inputs), `dependencies` (`{required: [values], optional: [values], position, instruction}` or `null`), `policy` (`{model, effort, delivery, materialization_attempts, timeout_sec}`, each present only when declared, as values), `contract` |
+| `command` | `boundary`, `command` (stable tokens), `closure` (canonical `[{base, path}]` rows, C1; base is `workspace`, `absolute` or `package:orchestrator`), `contract` (`{kind, payload}` without a `path`), and either `argv` (values) or `document` (`[[transport_key, value]]` in signature order, for a certified adapter) |
+| `provider` | `provider` (provider id), `prompt` (`{"source_kind": "asset_file" or "input_file", "path": "<exact bound path>", "asset_base": "<logical entry directory>"}`; `asset_base` only for asset lookup, or `{"template": "<text>", "fills": <ordered typed slot rows>}`), `inputs` (`[[name, renderer_id, value]]`, named as lowering names typed prompt inputs), `dependencies` (`{required: [values], optional: [values], position, instruction}` or `null`), `policy` (`{model, effort, delivery, materialization_attempts, timeout_sec}`, each present only when declared, as values), `contract` |
 | `run_ref` | `config` (base64 of `encode_run_ref_static_config`, path mode only, inputs bound as the references `inputs.<name>`, K7), `inputs` (`[[name, value]]`) |
 
 A workflow `call` is not a `perform`: it is a `call` node whose callee is the
@@ -205,19 +237,43 @@ workflow's canonical name (§9.2, "a call is evaluation").
 
 | `k` | Keys | Rule |
 | --- | --- | --- |
-| `lit` | `v` | literal; a variant tag is a literal |
+| `lit` | `v`, `type` (descriptor) | literal; a variant tag is a literal |
 | `name` | `n` | |
 | `field` | `base` (value), `path` (field names) | |
 | `record` | `type` (descriptor), `fields` (`[[name, value]]`) | |
 | `inject` | `type` (descriptor), `variant`, `fields` | |
 | `op` | `payload` (a pure catalog payload, `pure_expr_schema_version` 2, bindings `a0..an`), `args` (values) | one catalog operator; `record_update`, `list_nonempty_head` and `path_join_under` are catalog node kinds |
 | `select` | `cond`, `then`, `else`, each arm `{prefix: [{name, value}], value}` | conditional value |
-| `list` | `items` (values) | |
+| `list` | `items` (values), `type` (descriptor) | |
 | `list_map` | `binder`, `source` (value), `body` (value), `type` (descriptor of the result list) | `list/map` with a pure body; the body reads `binder` as a name |
 | `path_join` | `base` (value), `child` (`lit`), `type` (path descriptor) | X3 for a generic `PhaseCtx`: the base path joined with a literal child, under the descriptor's root |
 | `block` | `body` | a body evaluated for its value (§4.3) |
 | `context` | `field` (`"run-id"`) | a value the run supplies (X1) |
 | `result_path` | `n` (the binder of a provider effect), `type` (path descriptor) | the committed attempt's result file (X4) |
+
+### Type facts and prompt slot rows
+
+Every value has one derivable type. Literal/list nodes carry `type` because
+empty lists, numeric kinds, enums and refined paths cannot always be inferred
+from JSON alone; `name` and `field` derive it from the typed environment.
+Record/inject/path nodes already carry descriptors; `op` uses its catalog
+result descriptor; `select`/`block` derive a common branch/body result;
+`context.run-id` is `String`; `result_path` must reference a provider result
+binding and its declared path type. Definition/entry, join and loop results,
+all parameter types and effect result/contract types are persisted. Case
+bind types derive from the subject union's selected variant. The validator
+uses these facts without a frontend environment or authored files.
+
+A prompt slot row is `{name, kind, type, value, renderer_id, output_role,
+placeholder_ordinals}` in declaration order. For `doc`, `renderer_id` is
+null and the row additionally retains required document-reference/content
+injection semantics (prepend, declaration order); it is not a rendered text
+placeholder. Other kinds retain their selected renderer, refinements, repeated
+placeholder positions and any declared output role/path/expected-output
+facts. Reuse the existing fragment/dependency owners' semantic projections;
+keep step ids and source subjects under provenance. Explicit dependencies
+retain ordered operands, role, position and instruction. Do not reduce these
+to counts or discard output-slot semantics.
 
 ### Provenance
 
@@ -231,44 +287,59 @@ stripped tree (P6, P7).
 - Generated binders (`__wcc_*`, `__spike_*`-style names from the elaborator)
   are renamed `%<n>` per definition, in order of binding. Authored names are
   kept.
-- A canonical callee name is `module::name`, or for a specialization
-  `base[K=<canonical type identity>, ..., ref=<canonical callee name>]` with
-  keys sorted (§4.2). A canonical type identity is `module::Name` for a
-  nominal type (the declaring module, exported or not), with applied
-  arguments `Name[arg, ...]`, `List[...]`, `Optional[...]` recursively.
-- A site's segments and ordinals follow I3 and I4: `then`, `else`, a `case`
-  arm's variant, `loop:<param>[*]` (`loop[*]` when the param is generated),
-  `loop:<param> / exhausted`, a join's binder when its body performs an
-  effect, then the effect's own binder; an unnamed effectful binder takes
-  `#<k>`; a repeated name takes `<name>#<k>`. Separator ` / `.
+- An unspecialized top-level name is `module::name`; a specialized/local
+  name appends the full SHA-256 of the canonical definition tuple in design
+  §4.2. Persist that tuple as `key`: declaring module, definition kind,
+  declared/local key, type/procedure-reference/workflow-reference/value
+  bindings, explicit capture schema, residual parameter/result types.
+  Maps sort by formal name; ordered arguments/fields retain declaration
+  order. Runtime captures are explicit typed parameters/arguments, never
+  runtime proc-ref values. Local keys ignore spans, generated names, body
+  digests and unrelated pure bindings. Run-ref generated types use their
+  structural input/result signature in definition keys; their final name
+  and config site digest use the containing canonical definition/site.
+- Nominal type identities and descriptors recursively use the declaring
+  module, exported or private. Applied arguments, list/optional members,
+  fields and variants recurse; generated run-ref result names never reuse
+  `RunRefResult$…` from typecheck.
+- Site segments follow the full traversal table of design §6: `select`
+  prefixes under binder/arm, `block` under binder/`block`, join body under
+  result binder/`body` with its continuation at the enclosing prefix, loop
+  body/exhaustion separately. Pure bindings consume no effect ordinal.
+  Segments are tagged internally; presentation escapes `% / = # [ ]` in
+  authored names using UTF-8 percent encoding. Calls get frames only.
 
 ---
 
 ## Task Map
 
-| Task | What | Group | Files it owns | Estimate (lines of code, tests excluded) |
-| --- | --- | --- | --- | --- |
-| 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` | 70; Task 0 of Phase 0 was 60 |
-| 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (`_compile_stage3_graph`), `workflows.py` (`Stage3CompileResult`) | 110; the spike's `frontend.py` is 97 by monkeypatch, the gate report estimates 20 for the seam |
-| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py` | 100; gate report estimates 30 + 5 + 15 + 30 for `done` values, `continue`, arguments and `phase-target`, plus the flag |
-| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py` | 250; spike measured 59 + 80 (sites) and 101 (validator) |
-| 6 | Names that hold no path | C | `closed/names.py`, `type_env.py` (declaring module index) | 90; gate report estimates 60, spike measured 43 |
-| 7 | The program artifact, its digest, and the manifest field `closure` | C | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py` | 130; spike measured 38 for the artifact, plus about 40 for the field |
-| 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` | 520; spike measured 470 (`closed.py`) + 73 (surface objects) + 82 (table) + 40 (commands), less what Tasks 5 to 7 own |
-| 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py` | 160; spike measured 165 for all classes, gate report estimates 150 to 250 |
-| 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `cli/commands/compile.py` | 150; gate report estimates 100 |
-| 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` | 180 (test helper); spike's census is 135 |
-| 11 | Documents | F | `specs/versioning.md`, `specs/io.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_lisp_evaluated_execution.md` (status lines), `docs/lisp_workflow_drafting_guide.md`, `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md` | prose |
+| Task | What | Group | Files it owns |
+| --- | --- | --- | --- |
+| 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` |
+| 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (`_compile_stage3_graph`), `workflows.py` (`Stage3CompileResult`) |
+| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py` |
+| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py` |
+| 6 | Names that hold no path | C | `closed/names.py`, `type_env.py` (declaring module index) |
+| 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
+| 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` |
+| 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py` |
+| 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `cli/commands/compile.py` |
+| 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` |
+| 11 | Documents | F | `specs/versioning.md`, `specs/io.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_lisp_evaluated_execution.md` (status lines), `docs/lisp_workflow_drafting_guide.md`, `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md` |
 
-Order: A, then B, then C (Tasks 3, 5, 6 and 7 in parallel), then D, then E
-(Tasks 8 and 9 in parallel), then F (Tasks 10 and 11 in parallel). Group C
-runs in parallel because its four tasks touch disjoint files and consume
-only the schema above and the interfaces of Tasks 1 and 2. Total estimate:
-about 1,760 lines of production code. The spike's closed-program side
-(`closed.py`, `closed_effects.py`, `sites.py`, `table.py`, `repairs.py`,
-`frontend.py`) is 1,193 lines; the compiler's version carries the manifest
-field, the build key, the CLI branch and the target, which the spike stood
-in for.
+Order: A, then B, then C (Tasks 3, 5 and 6 may run in parallel), then
+C2 (Task 7, after Task 5's validator and helper are merged), then D (Task 4),
+then E (Tasks 8 and 9 may run in parallel), then F (Tasks 10 and 11).
+Task 9 initially tests the command-only route from Task 4; its provider and
+run-ref integration selectors run after Task 8 is merged. Task 11's status
+edits land only after Task 10's evidence. Merge prerequisites into each
+isolated worktree before dispatch. File disjointness alone is insufficient.
+
+Spike line counts are historical evidence, not implementation budgets:
+revised capture conversion, recursive descriptors, full
+artifact typing and total traversal were not proved by the spike. Reuse the
+existing owners named in each task; no new runtime or generic framework is
+part of this plan.
 
 Every task ends with the compatibility evidence named in the task, using the
 programs of this table; a task that touches no shared module states so and
@@ -315,6 +386,15 @@ edit); design §13.
   today), when the target uses evaluated execution.
 - Consumed by: every later task (the predicate); Task 9 (`entry_target_dsl_version`).
 
+- [ ] **Step 0: Record the owner-selected target and implementation base.**
+
+Present this reviewed plan to the owner first. Decision 6 is OWNER PENDING;
+`3.0` below is parameterized documentation, not authorization to register it.
+Once the owner supplies the number, substitute it in registries/docs and use
+the constant in fixtures. Record `git rev-parse HEAD` as `PHASE2_BASE` for
+all compatibility comparisons. Do not start production edits before this
+execution decision; it does not block revising/reviewing this plan.
+
 - [ ] **Step 1: Write the failing tests**
 
 `tests/test_workflow_lisp_target_evaluated_execution.py`, importing
@@ -357,7 +437,7 @@ holds none, assert on the captured log records' `code` through `caplog` with
 the diagnostic's rendered location, which `render_diagnostic` prints as
 `<path>:<line>:<column>: [<code>]`). Add the resume test the same way
 (`orchestrator resume` on a run directory whose `workflow_file` names the
-program: exit 2, same code). Add the `3.1` refusal
+program: exit 2, same code). Add an unregistered next-version refusal derived from the selected target
 (`target_dsl_unsupported`, as `test_target_235_is_refused_as_unsupported`).
 
 - [ ] **Step 2: Run them; expected failures**
@@ -405,7 +485,9 @@ every artifact byte-identical (the registries add a member; no gate changes).
 
 - [ ] **Step 7: Commit**
 
-`git commit -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py -m "feat: register the evaluated execution target and refuse to run it before the evaluator exists"`
+`git add -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py`
+
+`git commit -m "feat: register the evaluated execution target and refuse to run it before the evaluator exists" -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py`
 
 **What this makes harder later:** Phase 3 must remove the guard in `run` and
 `resume` and route the new target to the evaluator; the test that pins the
@@ -434,7 +516,7 @@ topological order); `compile_stage3_entrypoint` (line 651); how
 ```python
 @dataclass(frozen=True)
 class TypedProgram:
-    entry: TypedWorkflowDef
+    entry: TypedWorkflowDef | None  # None only during graph assembly; public return always selected
     workflows: Mapping[str, TypedWorkflowDef]          # every typed workflow of the graph, by canonical name
     procedures: Mapping[str, TypedProcedureDef]        # every typed procedure, specializations included
     type_env: FrontendTypeEnvironment                  # the entry module's
@@ -442,10 +524,15 @@ class TypedProgram:
     workflow_type_envs: Mapping[str, FrontendTypeEnvironment]
     module_type_envs: Mapping[str, FrontendTypeEnvironment]   # module name -> its environment, whole graph
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]
-    externs: Mapping[str, ProviderExtern | PromptExtern]     # extern_environment.bindings_by_name
+    command_boundary_origins: Mapping[str, str]  # trusted workspace/package origin; Task 7 adds injection carriage
+    externs: Mapping[str, ProviderExtern | PromptExtern]     # entry resolved environment
+    module_externs: Mapping[str, Mapping[str, ProviderExtern | PromptExtern]]  # existing environments, no alias flattening
+    configuration_bindings: Mapping[str, object]  # all caller/manifest bindings plus used injected bindings
     target: str
     entry_module: str
-    entry_dir: str      # the entry module's directory relative to the first source root, POSIX
+    entry_dir: str      # logical directory for asset lookup only, not definition identity
+    source_file_digests: Mapping[str, str]  # module -> exact bytes consumed by this compile
+    local_definition_keys: Mapping[str, object]  # old generated lookup name -> position-free lexical key
 
     def workflow_type_env(self, name: str) -> FrontendTypeEnvironment: ...
     def procedure_type_env(self, procedure: TypedProcedureDef) -> FrontendTypeEnvironment: ...  # procedure_type_env_for
@@ -458,25 +545,47 @@ def compile_typed_program(
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
     workspace_root: Path | None = None,
+    source_read_trace: SourceReadTrace | None = None,
 ) -> TypedProgram
 ```
 
   It calls `compile_stage3_entrypoint(...)` with `validate_shared=True`,
-  `lowering_route=None`, and returns `result.entry_result.typed_program`.
+  `lowering_route=None`, forwarding one supplied or newly created
+  `SourceReadTrace` through entry reading, imports and all compiler reads.
+  Before returning the selected `TypedProgram`, call
+  `_source_file_digests_from_trace(compile_result=result,
+  source_read_records=trace.records, source_revision_vector=trace.revision_vector)`
+  and retain its module-to-digest map. Never reread source after compile to
+  form it. The existing linked result provides the module graph; no new
+  signature or graph-result abstraction is needed.
   It raises `LispFrontendCompileError` with `evaluated_execution_target_required`
   at the `:target-dsl` span when the entry module's target does not use
   evaluated execution, and the typechecker's own diagnostics unchanged when
   the program does not typecheck.
 - Produces: `Stage3CompileResult.typed_program: object | None = None`
-  (a `TypedProgram` for a module at the new target, else `None`).
-- Rule of `_compile_stage3_graph` at the new target (§13): the entry module,
-  and every module of the graph whose own target uses evaluated execution,
-  skip `_lower_workflows_for_route` and get `lowered_workflows=()`,
-  `validated_bundles={}` and a `typed_program`. A module at an older target
-  imported by the entry lowers as today (its bundle feeds the importer's
-  `call` typecheck through `external_workflow_names`). The closed program
-  elaborates the imported definitions again under the new target's rules
-  (Task 3's flag), so their flat lowering is unused by the closed route.
+  (a `TypedProgram` snapshot for source modules in an evaluated-entry graph,
+  else `None`; public selection happens after the complete graph returns).
+- Rule of `_compile_stage3_graph` (§13): compute `closed_entry` once from
+  `graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version`.
+  When true, skip `_lower_workflows_for_route` and bundle validation/production
+  for **every source module**, including imports declared at older targets.
+  Keep imported typed signatures (`_imported_workflow_signatures`), procedure/
+  workflow effects, catalogs, environments and typed bodies published in the
+  same topological order. `_workflow_name_resolver` already resolves graph
+  imports through `import_scope`; do not fabricate `validated_bundles` just to
+  populate `external_workflow_names`. Explicit externally supplied compiled
+  bundles remain distinct: a reachable target lacking source/typed body is a
+  missing-body integration prerequisite: inventory its existing producer and
+  preserve the accepted call contract by supplying its typed source body. Do
+  not quietly add external calls to release exclusions or fabricate a body
+  from flat steps; an admitted call missing its body is a compiler defect.
+  The first release's source calls remain admitted.
+- For an older-target entry, preserve the existing lowering path. Detect an
+  older-to-evaluated call/import edge before lowering the new module, and
+  emit `evaluated_execution_target_direction_invalid` at its import/call
+  source location, naming both modules/targets. Also check call edges inside
+  an evaluated-entry graph: an imported older module cannot call back into a
+  module declared at the new target. New-entry-to-old-import remains allowed.
 - Consumed by: Tasks 3 to 10.
 
 - [ ] **Step 1: Write the failing tests**
@@ -503,9 +612,24 @@ def test_the_graph_result_at_the_new_target_holds_no_lowered_workflow(tmp_path) 
                                        validate_shared=True, workspace_root=tmp_path, lowering_route=None)
     assert (result.entry_result.lowered_workflows, result.entry_result.typed_program is not None) == ((), True)
 
-def test_an_imported_module_at_an_older_target_is_lowered_and_its_procedures_are_typed(tmp_path) -> None:
-    # if_in_hook imports std/improve (2.33): its validated bundle exists, and `std/improve::improve[...]`
-    # specializations are in typed.procedures
+def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(tmp_path, monkeypatch) -> None:
+    # New entry calls an imported old-target workflow with a typecorrect loop in a branch.
+    # Replace _lower_workflows_for_route with a raising sentinel: neither module calls it.
+    # Every source result has lowered_workflows == () and validated_bundles == {};
+    # old workflow signature/effects/body and imported procedure specializations survive.
+    ...
+
+def test_the_same_old_entry_keeps_its_existing_flat_route_refusal(tmp_path) -> None:
+    # Compile the old module itself through compile_stage3_entrypoint and pin its current code/location.
+    ...
+
+def test_an_old_to_new_edge_has_a_located_target_direction_refusal(tmp_path) -> None:
+    # Test old entry -> new module and new entry -> old helper -> new callee; neither silently crosses runtimes.
+    ...
+
+def test_source_digests_describe_the_compile_reads_not_a_later_reread(tmp_path, monkeypatch) -> None:
+    # Record source bytes, then mutate an imported file after its traced read but before API return.
+    # Returned map hashes the consumed bytes; a fresh next compile observes the edit.
     ...
 
 def test_a_type_error_at_the_new_target_keeps_its_code(tmp_path) -> None:
@@ -525,21 +649,31 @@ graph still lowers, `loop_in_branch` fails with
 
 - [ ] **Step 3: Implement**
 
-In `_compile_stage3_graph`, before the `_lower_workflows_for_route` call:
-`closed = target_dsl_uses_evaluated_execution(module_source.syntax_module.target_dsl_version)`.
-When `closed`, do not lower; build the `TypedProgram` from the same
+In `_compile_stage3_graph`, derive `closed_entry` from the entry target
+**before the module loop** and check target-direction edges. When
+`closed_entry`, do not lower; build the `TypedProgram` from the same
 arguments the lowering call receives (`typed_workflows`,
 `resolved_combined_procedures`, `typed_workflows_by_name`,
 `combined_procedure_type_envs`, `workflow_type_envs_by_name`,
-`extern_environment`, `command_boundary_environment`, `type_env`), plus
+`extern_environment`, `command_boundary_environment`, `type_env`), retaining
+extern bindings by declaring module and resolved workflow-reference rebinding
+so identical aliases in different modules cannot overwrite one another, plus
 `module_type_envs` accumulated across the loop (a dict the loop fills with
-`type_env` per module name) and `entry_dir`. Put the construction in
+`type_env` per module name), local-definition lexical facts and `entry_dir`.
+Use existing `GeneratedLocalProcedure` metadata for owner/name/capture facts;
+recover same-name lexical scope order from the expanded declaration tree,
+counting local declarations only. Spans may match an existing node to its
+metadata during this compile, but never enter the resulting key. Retain this
+small side map, rather than changing old type/definition repr or the existing
+span-derived naming function. Put the construction in
 `closed/frontend.py` as `typed_program_from_graph(**kwargs) -> TypedProgram`
-so `compiler.py` gains about ten lines. The graph stays entry-agnostic:
+so graph routing remains a small change in its existing owner. The graph
+stays entry-agnostic:
 `typed_program_from_graph` sets `entry` to `None`, and
 `compile_typed_program` resolves it after the compile: the export surface
 of the entry module (`result.graph.export_surfaces_by_name[entry module].workflows_by_name`)
-maps `entry_workflow` to its canonical name, which must be in
+maps `entry_workflow` to its canonical name (also preserve the existing
+standalone-entry selection using a fixed namespace), which must be in
 `typed.workflows`; otherwise raise `entry_workflow_unknown` at the source
 path, the code and location `build._select_entry_workflow` gives today
 (that function cannot be reused: it requires a validated bundle). Return
@@ -564,7 +698,9 @@ the new target).
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py -m "feat: a public compile entry that stops after typecheck at the evaluated execution target"`
+`git add -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
+
+`git commit -m "feat: a public compile entry that stops after typecheck at the evaluated execution target" -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
 
 **What this makes harder later:** `build_frontend_bundle` still expects a
 validated bundle; Task 9 gives the closed route its own build function
@@ -577,6 +713,7 @@ When Phase 7 retires the flat route, the two build functions merge.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/wcc/model.py` (`WccIdentityFactory`, line 73)
+- Inspect, modify only if necessary: `orchestrator/workflow_lisp/wcc/anf.py` (the gated normalization path)
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`: `elaborate_typed_workflow_body` (line 219), the `DoneExpr` branch of `_elaborate_expr_to_body` (line 1662), `_retarget_loop_continue` (line 2529) and its call at line 2465, the `PhaseTargetExpr` branch of `_elaborate_expr_to_value` (line 2736), `_prebind_effect_argument_matches` (line 4077)
 - Test: `tests/test_workflow_lisp_closed_program_elaboration.py`
 
@@ -618,9 +755,10 @@ report iteration 3, D1 and D2.
 - Rule 4 (X3): in the `PhaseTargetExpr` branch, when `scope.closed_program`:
   `active_phase_scope` must be set (else raise the `phase_translation_body_invalid`
   the flat route raises); `ctx = active_phase_scope.ctx_expr` must be a
-  `NameExpr` or `FieldAccessExpr` (else `closed_program_gap`, form
-  `with-phase`, "context expression is not a name"). Infer the context's
-  type. If its record has the field `implementation_state_bundle_path`,
+  `NameExpr` or `FieldAccessExpr` after once-only binding at the with-phase
+  site. If another admitted context expression arrives, prebind it through
+  the same normalization seam; it is not a new `closed_program_gap`. Infer
+  the context's type. If its record has the field `implementation_state_bundle_path`,
   return `WccFieldAccessAtom(base=<ctx as a name atom>, fields=(*ctx.fields, IMPLEMENTATION_ATTEMPT_TARGET_FIELDS[target]))`,
   typed by the record's field type (`type_env.record_field`). Otherwise return
   `WccPureOp(operator="path/join", args=(WccFieldAccessAtom(ctx, (..., "artifact-root")), WccLiteralAtom(f"{phase_name}/{suffix}", literal_kind="string")), field_names=())`
@@ -630,6 +768,13 @@ report iteration 3, D1 and D2.
   value); the flat route never sees it.
 - Rule 5 (case e, gate report §4): no elaborator change. The builder passes
   `procedure_return_types` without generic templates (Task 4).
+- Rule 6 (design §4.3): audit every child edge, not just call operands.
+  Effect-containing `select`/`block` under aggregates, operator operands,
+  conditions, loop seed/budget, `halt`, `jump`, `continue` and `done` values
+  are bound before use. Hoist only within the selected arm/iteration and in
+  source order, preserving short-circuiting. Extend the gated elaborator
+  prebinding seam first; change `wcc/anf.py` only if normalization loses a
+  binding. No hidden effectful child survives outside walked bindings.
 - Consumed by: Task 4 (`closed_program=True`), Task 8.
 
 - [ ] **Step 1: Write the failing tests**
@@ -673,7 +818,10 @@ def test_below_the_new_target_the_rules_are_off(tmp_path) -> None:
     # closed_program=False on EFFECT_ARGUMENT raises TypeError("unsupported WCC elaboration node: ProcedureCallExpr")
 ```
 
-Add: a `continue` whose state field holds an effect still binds it (the
+Add parameterized WCC-shape cases for select prefixes, nested blocks, join
+body/continuation, record/list fields, operator operands, conditions and each
+terminal/loop operand. Assert order and branch-local binding, with an unchosen
+arm still under that arm. Also a `continue` whose state field holds an effect still binds it (the
 2.33 rule is unchanged); the `#`-ordinal-relevant shape of Review Focus 1 is
 not this task's.
 
@@ -683,7 +831,7 @@ not this task's.
 argument and `done` cases; `{"__wcc_current_loop__"}` for the `continue`
 case; `WccPhaseTargetAtom` where a field access is expected.
 
-- [ ] **Step 3: Implement the five rules**
+- [ ] **Step 3: Implement the six rules**
 
 Each rule under `if scope.closed_program`. Keep every existing branch byte
 for byte on the other path.
@@ -705,7 +853,9 @@ ids must not move.
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py tests/test_workflow_lisp_closed_program_elaboration.py tests/fixtures/workflow_lisp/closed_program -m "feat: elaborate effectful arguments, done values, continue targets and phase-target for the closed program"`
+`git add -- orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py tests/test_workflow_lisp_closed_program_elaboration.py tests/fixtures/workflow_lisp/closed_program`
+
+`git commit -m "feat: elaborate effectful arguments, done values, continue targets and phase-target for the closed program" -- orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py tests/test_workflow_lisp_closed_program_elaboration.py tests/fixtures/workflow_lisp/closed_program`
 
 **What this makes harder later:** `path/join` is an operator the catalog does
 not know; if Phase 3 wants to evaluate it through the catalog, the catalog
@@ -731,8 +881,9 @@ schema above; no compiler import.
   `site` (the local path) on every `perform` and `frame` (the local prefix
   plus `<binder>=<callee>`) on every `call` whose callee performs an effect,
   walking the entry body then each definition body on its own; returns the
-  site table in program order. A `call`'s effectfulness is read from
-  `tree["definitions"][callee]` (memoized). An unnamed binder is one that
+  site table in program order, appending **only `perform`** rows. A `call`'s effectfulness is read from
+  `tree["definitions"][callee]` (memoized with a visiting guard that reports
+  `call_cycle` rather than recursing forever on malformed input). An unnamed binder is one that
   starts with `%`.
 - Produces: `check.CheckedFormError(ValueError)` with attributes `rule: str`
   and `location: str | None` (the `@.span` of the offending node when it has
@@ -746,7 +897,32 @@ schema above; no compiler import.
   value; every `op` payload passes `validate_pure_expr_payload`; every
   `record` and `inject` has field names equal to its descriptor's; every
   `path_join` has a path descriptor with a root; the `k` of every node is
-  one of the schema's.
+  one of the schema's. Walk every edge listed in design §6, including
+  select prefixes/values, block body, separate join body/continuation and
+  exhaustion. Independently enumerate all performs/calls rather than
+  trusting the site walk: enforce a site-table bijection, exactly one frame
+  per effectful call and no call row in `sites`.
+- `validate` also infers/checks every value against the persisted `types`
+  table and typed environments. Require exact nominal definitions, primitive
+  literal kinds (Bool is not Int), list elements, field projections,
+  record/variant field types, catalog argument/result types, strict Bool
+  conditions, select arm agreement and block result types. Check entry and
+  callee defaults/params/results, capture/call arity and argument/result
+  types, join jump/result types, loop seed/state/budget/continue/done/
+  exhaustion results, provider result-path origins and every perform's
+  result against its command/provider contract or decoded run-ref result.
+  Effects must also match their canonical configuration entry. Reuse pure
+  catalog descriptor validation/coercion and assignability semantics; do not
+  invoke frontend typecheck or accept equality of two unvalidated copied
+  labels as proof. Unknown/missing type facts and mismatches fail read-back
+  with a stable rule (e.g. `type_mismatch`, `nominal_definition`,
+  `call_signature`, `effect_result`, `entry_result`). This proves internal
+  type/contract consistency, including definition-name/key agreement and
+  capture/residual signature agreement, not artifact authenticity: Phase 3 separately
+  compares the stored artifact's digest with its durable run header. Reject
+  malformed/duplicate JSON keys and nonfinite numbers before typed checking,
+  and reject duplicate definition/type/parameter identities rather than
+  silently overwriting them.
 - Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 7
   (`validate` when an artifact is read back).
 
@@ -761,8 +937,7 @@ def test_three_arms_in_a_loop_give_three_sites_with_the_frame_and_the_loop_segme
     # entry body: loop(param "state") whose body binds `got` to a case with three arms,
     # each arm binding `%1` to a call of "cp/arms_in_loop::fetch"; the definition's body performs one unnamed effect
     table = assign_sites(t)
-    assert table == [("cp/arms_in_loop::run", f"loop:state[*] / got / {arm} / #1=cp/arms_in_loop::fetch") for arm in ("FIRST", "SECOND", "THIRD")] \
-        + [("cp/arms_in_loop::fetch", "#1")]
+    assert table == [("cp/arms_in_loop::fetch", "#1")]
     assert [n["frame"] for n in calls(t)] == [f"loop:state[*] / got / {arm} / #1=cp/arms_in_loop::fetch" for arm in (...)]
 
 def test_a_pure_binding_takes_no_ordinal_and_a_repeated_name_takes_a_counter() -> None:
@@ -775,18 +950,29 @@ def test_a_call_of_a_pure_definition_gets_no_frame_and_no_site() -> None:
 def test_the_exhaustion_body_is_its_own_segment() -> None:   # "loop:state / exhausted / e"
 ```
 
+Add hand-written valid trees with effects in each select arm prefix, a
+nested block, join body and continuation with the same authored binder, and
+loop exhaustion. Assert independent node/site bijection and call-frame
+counts. Tamper an unvisited effect, insert a call into `sites`, remove a
+frame, and use authored punctuation to test collision-free presentation.
+
 For `check.validate`, one test per rule, each tampering one node of a valid
 tree and asserting `CheckedFormError.rule`: `unbound_name`, `jump_target`,
 `continue_target` (a `continue` naming an outer loop from an inner loop),
 `site_missing`, `site_duplicate`, `callee_unknown`, `call_cycle`,
-`budget_missing`, `payload_invalid` (a `result_type` changed in an `op`
-payload: the catalog refuses), `record_fields`, `node_kind`.
+`budget_missing`, `payload_invalid`, `record_fields`, `node_kind` plus the
+type rules above. Change non-operator descriptors independently: perform
+result, entry result, list-map result item, nested record field, call result/
+argument, loop state and private nominal name. Each must fail even after the
+attacker recomputes the outer digest. Add valid typed trees covering all
+value forms so the validator does not reject supported forms indiscriminately.
 
 - [ ] **Step 2: Run; expected failure** `ImportError`.
 
-- [ ] **Step 3: Implement** `sites.py` (about 130 lines) and `check.py`
-(about 120 lines), each function under complexity 12: one method per node
-kind, as the spike's `_Validator.tail_*`.
+- [ ] **Step 3: Implement** `sites.py` and `check.py` over the shared schema.
+Use small node dispatchers as in the spike, with an independent validation
+walk. The spike's small validator is not a full type checker; do not preserve
+its omitted type checks to meet its historical line estimate.
 
 - [ ] **Step 4: Run; expected pass.** Collect-only on both modules.
 
@@ -795,7 +981,9 @@ so.
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py -m "feat: effect sites and the checked form of the closed program"`
+`git add -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
+
+`git commit -m "feat: effect sites and the checked form of the closed program" -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
 
 **What this makes harder later:** `par-map` (Phase 5) adds an item segment
 `[<index>]` (I2) to the walker and a node kind to the validator; both are
@@ -836,17 +1024,37 @@ execution facts A.5; design §4.2 and P6.
     `ListTypeRef`/`OptionalTypeRef` as `List[<item>]`/`Optional[<item>]`; an
     applied union as `<template identity>[<arg identity>, ...]`. It never
     reads a span, a path or `repr`. A type whose module cannot be found
-    raises `CanonicalNameError(type name)`; the builder reports it as
-    `closed_program_gap` (a type without a declaring module is a form the
-    closed program cannot name).
-  - `canonical_callee_name(procedure: TypedProcedureDef, *, typed: TypedProgram) -> str`:
-    `procedure.definition.name` when `procedure.specialization is None`;
-    else `f"{spec.base_name}[{', '.join(parts)}]"` with one `K=<identity>`
-    per `spec.type_bindings` and one `key=<canonical callee name of the
-    target procedure>` per `spec.proc_ref_bindings`, keys sorted; a
-    specialization with `value_bindings` or `workflow_ref_bindings`, or a
-    proc-ref with bound arguments, raises `CanonicalNameError` (reported as
-    `closed_program_gap`, form `bind-proc`).
+    raises `CanonicalNameError(type name)`; the builder reports it as a
+    located compiler defect and repairs the declaring-module facts. Builtin
+    and standalone types use their stable logical namespaces. Failure to
+    name an admitted type is not a release exclusion.
+  - `canonical_type_descriptor(type_ref, *, typed) -> dict`: reuse the
+    normalized descriptor shape and recursively replace all nominal names
+    from the declaring-module index, including nested fields, variants,
+    applied arguments, list/optional members and private imported types.
+    Register/check each nominal definition in the program `types` table.
+    Preserve refinements/path roots. Do not change the old descriptor route.
+  - `canonical_definition_key(definition, *, typed, binding_facts,
+    capture_parameters, residual_signature) -> list`: construct the complete
+    §4.2 tuple. Task 4 supplies checked closed value expressions and explicit
+    capture parameters before calling this function. Procedure-reference
+    facts include recursive target keys, residual signatures and every bound
+    argument's formal/type/closed binding; workflow-reference facts include
+    canonical workflow keys and resolved extern rebinding. Alpha-normalize
+    bound value expressions, retaining tagged primitive kinds. Runtime capture
+    facts identify owning formal/argument routes and types, not caller names
+    or runtime values. Sort binding maps by formal, preserve ordered fields.
+  - `canonical_callee_name(definition, *, key) -> str`: use `module::name`
+    only for an unspecialized top-level definition; append full SHA-256 of
+    canonical JSON key otherwise. Store `key` beside the body and refuse
+    equal names with unequal keys as a compiler defect. A local definition
+    uses `typed.local_definition_keys` and existing generated-local metadata,
+    never `definition.name`'s span hash. No value/workflow/ref/capture form
+    is turned into a release gap.
+  - Generated run-ref types: use canonical input/result structural signatures
+    when computing containing definition keys, then derive the final nominal
+    name/site digest from that definition and its assigned local site. This
+    is a two-pass finalization in Task 8, not a self-referential hash.
   - `Renamer`: `bind(name) -> str` returns the name unchanged unless it
     starts with `__`, in which case it returns and records `%<n>`, `n`
     counting from 1 per definition; `ref(name) -> str` returns the recorded
@@ -862,12 +1070,14 @@ Through `compile_typed_program` on `if_in_hook.orc` (it specializes
 def test_a_specialized_callee_is_named_by_its_base_and_canonical_arguments(tmp_path) -> None:
     typed = compile(tmp_path, fixture("if_in_hook"))
     (spec,) = [p for p in typed.procedures.values() if p.specialization is not None and p.specialization.base_name == "std/improve::improve"]
-    assert canonical_callee_name(spec, typed=typed) == (
-        "std/improve::improve[B=cp/if_in_hook::Note, F=cp/if_in_hook::Note, I=cp/if_in_hook::Brief, "
-        "S=cp/if_in_hook::Candidate, review=cp/if_in_hook::review, revise=cp/if_in_hook::revise]")
+    key = canonical_definition_key(spec, typed=typed, **closed_binding_facts(spec))
+    assert canonical_callee_name(spec, key=key) == "std/improve::improve[" + sha256(canonical_json(key)).hexdigest() + "]"
+    # Inspect the tuple too: all four type bindings and both reference targets are retained.
 
-def test_a_non_exported_type_is_named_by_its_declaring_module(tmp_path) -> None:
-    # Note is not exported by cp/if_in_hook; the descriptor route names it `Note`, the identity `cp/if_in_hook::Note`
+def test_private_type_identities_and_descriptors_are_recursively_qualified(tmp_path) -> None:
+    # Two imported modules each declare private Note, nested in exported records/unions/lists.
+    # Their identities and descriptors differ by declared module, including entry/effect result fields.
+
 
 def test_no_identity_holds_a_path_a_position_or_a_type_repr(tmp_path) -> None:
     for name in every_canonical_name(typed):
@@ -880,11 +1090,22 @@ def test_generated_names_are_renumbered_per_definition() -> None:
     r = Renamer(); assert [r.bind("__wcc_anf_ab12"), r.bind("x"), r.bind("__wcc_effect_cd34"), r.ref("__wcc_anf_ab12")] == ["%1", "x", "%2", "%1"]
 ```
 
-- [ ] **Step 2: Run; expected failures** `ImportError`; then the bare
-`Note` in the second test.
+Add key tests for same base/types with different value substitutions,
+workflow references, extern rebindings and bound proc-ref arguments: distinct
+keys/names. Two runtime captures of one converted body share a key and have
+different call values. Add let-proc same-name nested/sibling scope cases;
+blank lines, relocation, pure-binding insertion/renaming change no local key.
+Use existing bound-reference forwarding and let-proc fixtures; Task 4 adds
+public-builder checks once conversion exists. No placeholder capture helper
+is a production dependency of this task: key unit cases use explicit plain
+binding facts; public integration follows in Task 4.
 
-- [ ] **Step 3: Implement.** `declaring_module` first (a map filled beside
-the existing one, about 15 lines), then `names.py` (about 80 lines).
+- [ ] **Step 2: Run; expected failures** `ImportError`; then missing binding
+facts or bare private nominal names until implemented.
+
+- [ ] **Step 3: Implement.** `declaring_module` first (a map beside the existing one), then recursive
+descriptors and complete key/name functions in `names.py`. Do not reuse
+`repr`, generated local names or raw typechecker run-ref result names.
 
 - [ ] **Step 4: Run; expected pass.**
 
@@ -897,7 +1118,9 @@ whose step ids and binding schema digests hold `repr(TypeRef)`: if
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/type_env.py tests/test_workflow_lisp_closed_program_names.py -m "feat: canonical callee and type identities for the closed program"`
+`git add -- orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/type_env.py tests/test_workflow_lisp_closed_program_names.py`
+
+`git commit -m "feat: canonical callee and type identities for the closed program" -- orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/type_env.py tests/test_workflow_lisp_closed_program_names.py`
 
 **What this makes harder later:** two naming schemes coexist (digested
 `%parametric-call.*` names for steps, canonical names for the closed
@@ -910,6 +1133,7 @@ program) until Phase 7.
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/program.py`
 - Modify: `orchestrator/workflow_lisp/command_boundaries.py` (`ExternalToolBinding` line 80, `CertifiedAdapterBinding` line 129), `orchestrator/workflow_lisp/build_manifest_io.py` (`_parse_command_boundaries_manifest`, both `kind` branches; `_require_optional_string_array` exists)
+- Modify: `orchestrator/workflow_lisp/stdlib_contracts.py` (checked-in builtin declarations), `orchestrator/workflow_lisp/compiler.py` (existing injection factories and `_augment_builtin_command_boundaries` origin carriage), `orchestrator/workflow_lisp/closed/frontend.py` (retain effective origins/configuration)
 - Test: `tests/test_workflow_lisp_closed_program_artifact.py`, `tests/test_workflow_lisp_command_boundary_closure.py`
 
 **Read first:** the spike's `sites.py` lines 35 to 78 (`ClosedProgram`,
@@ -937,10 +1161,56 @@ unless added there; do not add it).
   - `program_digest(tree) -> str` = `canonical_digest(strip_provenance(tree))`
     (P7: `sites` are in the tree and enter the digest; `@` does not).
 - Produces: `ExternalToolBinding.closure: tuple[str, ...] | None = field(default=None, metadata={"json_omit_if_none": True})`,
-  the same on `CertifiedAdapterBinding`; the manifest key `closure`, an
-  array of strings (workspace-relative paths of files and directories),
-  parsed with `_require_optional_string_array` into the field; absent means
-  `None`. An empty array is a declaration (`()`), not `None`.
+  the same on `CertifiedAdapterBinding`. Both parser branches preserve
+  absence (`None`) versus `[]` (`()`); explicit `null` is invalid, not absence.
+  Validate each path as a nonempty literal string without NUL; no globs,
+  environment expansion or exclusions. Use the existing array validator only
+  where its null/empty rules match, otherwise add the direct presence check.
+  Add `canonical_command_configuration(bindings, *, origins)` in `program.py`: project
+  all semantic fields of both boundary kinds, including adapter signature,
+  protocol, return contract, stable argv, repeat rule and closure. Normalize
+  closure separators and `.` components, retaining `..`, sort/deduplicate;
+  relative paths use the command workspace, absolute declarations stay
+  absolute. Do not use `posixpath.normpath` (it collapses `..` across symlinks).
+  A simple component filter suffices; retain root `.` for an empty relative
+  component sequence. No filesystem reads during compile. Emit sorted
+  `{base, path}` rows: ordinary relative paths use `workspace`; absolute
+  declarations use `absolute`; trusted injected relative paths use
+  `package:orchestrator`. Apply the grammar to in-memory bindings too.
+- Compiler-owned declarations are required, never exempt. Add the explicit
+  checked-in `closure=(".",)` to `validate_review_findings_v1` beside its
+  binding in `stdlib_contracts.py`; inventory other admitted injected command
+  bindings in the existing compiler factories and give each an authoritative
+  declaration there. The initial package-root declaration binds transitive
+  compiler/contracts/I/O imports as well as the adapter; no import-discovery
+  system or unknown empty declaration is introduced. Its accepted cost is
+  divergence for unrelated package-file changes until a smaller closure is
+  audited. Later excluded effect classes remain excluded as classes, but a
+  reachable admitted command may not lack C1.
+- Preserve trusted origin in `CommandBoundaryEnvironment` alongside
+  `bindings_by_name` (a small origin map, default workspace for supplied
+  bindings). Existing injection functions set package origin only for the
+  binding instances they actually inject; preserve the map while rebuilding
+  environments and carry it into `TypedProgram`. Never infer builtin origin
+  from a matching name: a retained manifest override remains workspace-based.
+  `configuration.commands` includes all supplied entries and every injected
+  binding used by the closed program. No user field selects package origin,
+  and no absolute installation prefix enters program identity.
+- Keep `closure` out of old-target binding serialization/fingerprints even
+  when explicitly supplied: inspect `_json_data` and every boundary payload
+  producer, and omit it in the old route's projection, not globally in the
+  model. The existing raw-manifest-byte cache hashing algorithm remains
+  untouched. `json_omit_if_none` alone does not handle explicit closure.
+- Runtime-only closure work belongs to Phase 3: workspace/symlink resolution,
+  sorted file/directory content evidence (including dotfiles/caches),
+  missing/unreadable/cyclic-path refusal and disjoint input/result/cache
+  destinations. Phase 2 persists declarations sufficient for those rules;
+  it neither hashes unavailable workspace contents nor adds exclusions.
+  Phase 3 resolves `package:orchestrator` through the existing loaded-package/
+  PYTHONPATH seam, binds package-relative evidence (external symlink targets
+  remain absolute), and checks dispatch origin against that declared tree
+  to prevent workspace/PYTHONPATH shadowing. Caches in evaluator and children
+  must be disabled or outside the declared package; none are ignored.
 - The refusal C1 itself (`command_boundary_closure_missing`) is Task 4's
   (`require_command_closures`), because it is a rule of the new target and
   Task 4 owns the command node; this task only carries the field.
@@ -962,13 +1232,20 @@ def test_the_digest_leaves_provenance_out_and_the_artifact_keeps_it() -> None:
 def test_the_artifact_reads_back_to_the_same_tree_sites_and_digest() -> None:
 
 def test_a_tampered_operator_payload_is_refused_when_the_artifact_is_read() -> None:
-    text = program.artifact().replace('"name":"Int"', '"name":"String"', 1)   # inside an op payload's result_type
+    tree = json.loads(program.artifact())
+    selected_op(tree)["payload"]["result_type"] = STRING_DESCRIPTOR
+    text = json.dumps(tree)
     with pytest.raises(ClosedProgramInvalid) as e: ClosedProgram.from_artifact(text)
     assert (e.value.code, e.value.rule) == ("closed_program_invalid", "payload_invalid")
 
 def test_another_representation_or_schema_is_refused_when_read() -> None:   # rule "representation"
 
 def test_a_site_table_that_disagrees_with_the_nodes_is_refused() -> None:   # rule "sites"
+
+def test_readback_refuses_non_operator_type_tampering() -> None:
+    # Parameterize explicit JSON paths for perform.result, entry.result, list_map.type,
+    # nested record field and call result/argument; recompute digest before readback.
+    # Assert the corresponding checked-form rule, not just digest inequality.
 ```
 
 `tests/test_workflow_lisp_command_boundary_closure.py`:
@@ -981,32 +1258,49 @@ def test_closure_is_parsed_into_the_binding_and_absent_is_none(tmp_path) -> None
     bindings = _parse_command_boundaries_manifest(payload, manifest_path=tmp_path / "commands.json")
     assert [bindings[n].closure for n in "abc"] == [("lib/", "b.py"), None, ()]
 
-def test_a_closure_that_is_not_an_array_of_strings_is_refused() -> None:   # command_boundary_manifest_invalid, naming `closure`
+@pytest.mark.parametrize("kind", ["external_tool", "certified_adapter"])
+def test_closure_grammar_and_canonicalization_for_both_kinds(kind) -> None:
+    # Reject null, scalar, non-string, empty path and NUL; absence differs from [].
+    # a//./b and a/b deduplicate; a/../b is retained; absolute and overlapping entries survive.
+    # In-memory bindings obey the same rules; nonexistent paths need no compile-time reads.
+
+def test_injected_adapters_keep_package_closure_and_manifest_overrides_keep_workspace_origin(tmp_path) -> None:
+    # Use compile_typed_program (Task 2) plus canonical configuration projection here.
+    # Task 4 adds full build/read-back for a std/phase path using validate_review_findings_v1:
+    # closure == [{"base": "package:orchestrator", "path": "."}], no installed absolute prefix.
+    # Grammar/origin tests run here; Task 4 adds removal of the authoritative declaration
+    # and its located command_boundary_closure_missing refusal after injection.
+    # A retained manifest override with the same name has workspace rows, not package rows.
+    # Task 9 proves package relocation preserves the full artifact digest; declaration edits change it.
 
 def test_at_2_34_a_manifest_with_closure_builds_the_artifacts_of_one_without(tmp_path) -> None:
     # the PROGRAM of test_workflow_lisp_target_234 at 2.34, built twice with the two manifests through `_build`;
-    # every artifact equal after mapping the build key (the fingerprint digests the manifest bytes as read;
-    # that is today's rule for any manifest edit and is not changed here)
+    # Compare all semantic/binding artifacts byte-for-byte; only map the changed build key
+    # and declared raw-manifest fingerprint/provenance fields. Assert closure is absent
+    # even when supplied. Never broadly scrub a new semantic difference.
 ```
 
 - [ ] **Step 2: Run; expected failures** `ImportError`; `AttributeError: closure`.
 
-- [ ] **Step 3: Implement** `program.py` (about 90 lines); the field and its
-parsing (about 25 lines).
+- [ ] **Step 3: Implement** the artifact, canonical configuration and
+closure carriage/old-route omission in their existing owners.
 
 - [ ] **Step 4: Run; expected pass.** Then `tests/test_workflow_lisp_build_manifest_io.py`
-if it exists (find the manifest parser's owner tests with `grep -rl _parse_command_boundaries_manifest tests`),
+if it exists (find the manifest parser's owner tests with `rg -l _parse_command_boundaries_manifest tests`),
 and `tests/test_workflow_lisp_target_234.py`.
 
 - [ ] **Step 5: Compatibility evidence**
 
 The four programs of the table, whose manifests lack the field:
-byte-identical (`json_omit_if_none` keeps every serialized binding the
-same; the fingerprint payload lists fields explicitly).
+byte-identical (old-target payload producers omit closure/origin even for
+injected declarations; `json_omit_if_none` is sufficient only for absent
+manifest declarations, and fingerprint payloads retain their old field set).
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/program.py orchestrator/workflow_lisp/command_boundaries.py orchestrator/workflow_lisp/build_manifest_io.py tests/test_workflow_lisp_closed_program_artifact.py tests/test_workflow_lisp_command_boundary_closure.py -m "feat: the closed program artifact with its digest, and the command boundary closure field"`
+`git add -- orchestrator/workflow_lisp/closed/program.py orchestrator/workflow_lisp/command_boundaries.py orchestrator/workflow_lisp/build_manifest_io.py orchestrator/workflow_lisp/stdlib_contracts.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/closed/frontend.py tests/test_workflow_lisp_closed_program_artifact.py tests/test_workflow_lisp_command_boundary_closure.py`
+
+`git commit -m "feat: the closed program artifact with its digest, and the command boundary closure field" -- orchestrator/workflow_lisp/closed/program.py orchestrator/workflow_lisp/command_boundaries.py orchestrator/workflow_lisp/build_manifest_io.py orchestrator/workflow_lisp/stdlib_contracts.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/closed/frontend.py tests/test_workflow_lisp_closed_program_artifact.py tests/test_workflow_lisp_command_boundary_closure.py`
 
 **What this makes harder later:** a second representation (Phase 5 or later)
 must keep `from_artifact` refusing the other one, and the run header must
@@ -1038,7 +1332,7 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
 - Consumes: `TypedProgram` (Task 2); `elaborate_typed_workflow_body(..., closed_program=True)`
   (Task 3); `sites.assign_sites`, `check.validate` (Task 5);
   `names.canonical_callee_name`, `canonical_type_identity`, `Renamer`
-  (Task 6); `program.ClosedProgram`, `program_digest`, `SCHEMA`,
+  and `canonical_type_descriptor`, `canonical_definition_key` (Task 6); `program.ClosedProgram`, `program_digest`, `SCHEMA`,
   `REPRESENTATION`, the bindings' `closure` field (Task 7).
 - Produces: `build.build_closed_program(typed: TypedProgram) -> ClosedProgram`.
   Steps inside: `require_command_closures(typed.command_boundaries, manifest_path=None)`
@@ -1047,7 +1341,9 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
   parameters of the entry as leading `let`s (X1), translate the body, attach
   each callee once by canonical name into `definitions` (memoized; a callee
   reached twice with two different bodies is a defect: raise `ValueError`,
-  reported as `compiler_defect`), then `assign_sites`, `validate`,
+  reported as `compiler_defect`), add canonical `types` and complete
+  `configuration`, then `assign_sites`, finalize generated run-ref types/config
+  (Task 8), `validate`,
   `program_digest`. The whole build runs under
   `compiler_defect_boundary(entry path)` so that an internal error is a
   `compiler_defect` located at the innermost node
@@ -1059,20 +1355,25 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
     `closure is None`, `code="command_boundary_closure_missing"`, at the
     manifest path (`_cli_request_diagnostic`) when given, else at
     `command_boundaries._environment_span()`, message naming the boundary,
-    `notes=(f"boundary={name}",)`. Only boundaries the manifest or the
-    caller supplied are checked; the compiler's builtin boundaries added by
-    `_augment_builtin_command_boundaries` (resume, resource transitions) are
-    outside the release and are not.
+    `notes=(f"boundary={name}",)`. Check all supplied entries and used
+    compiler-injected command boundaries; preserve the originating manifest
+    or command-form location. Validate builtin declarations after injection
+    and again before translating any generated admitted command. A builtin
+    name is not an exemption. Require Task 7's origin-aware canonical rows;
+    never substitute `[]` when declaration data is missing.
   - `translate_perform(builder: Builder, perform: WccPerform, d: Definition, env) -> dict`,
     for `perform_kind == "command_result"`: `boundary` = `payload["adapter_name"] or perform.target_name`;
-    `command` = the binding's `stable_command`; `closure` = `list(binding.closure)`;
+    `command` = the binding's `stable_command`; `closure` = its canonical
+    normalized declaration from `configuration.commands`;
     `contract` = `derive_prompt_guided_structured_result_contract(result type, workflow_name=d.canonical, step_id="effect", type_env=d.type_env, guidance=return_spec.guidance)`
-    as `{kind, payload without "path"}`; `repeat` = `"never"` when
+    as `{kind, payload without "path" or source_map_subject}`; move the
+    latter diagnostic subject under `@` rather than into program identity; `repeat` = `"never"` when
     `binding.must_not_repeat` else `"rerun"`; `argv` = the values after the
     stable tokens, or for a certified adapter `document` = `[[field.transport_key, value]]`
-    in `input_signature` order over the declared inputs (an adapter with an
-    `invocation_protocol` other than `None`/`json_object_positional_arg` is
-    a `ClosedProgramGap`, form `command-result`, naming the protocol). Every
+    in `input_signature` order over the declared inputs. Preserve currently
+    admitted invocation protocols; malformed protocols keep their boundary
+    validation diagnostic, and a missing admitted translation is a defect,
+    not a new release exclusion. Every
     other `perform_kind`, and the binding values `WccProviderSupervision`
     and `WccProviderPeerGroup`, raise `ClosedProgramGap` with the surface
     form's name (`provider-result`, `run-ref`, `request-input`, `trial`,
@@ -1095,13 +1396,14 @@ class Definition:
     canonical: str            # the canonical callee name, or the entry's name
     owner: str                # the elaborator's owner name (definition.name)
     type_env: FrontendTypeEnvironment
+    externs: Mapping[str, ProviderExtern | PromptExtern]  # declaring module plus resolved specialization rebinding
     renamer: Renamer
     loops: list[str]          # innermost last
 
 class Builder:
     typed: TypedProgram
     def value(self, value: WccValue, d: Definition, env: Mapping[str, TypeRef]) -> dict: ...
-    def desc(self, type_ref: TypeRef, d: Definition) -> dict: ...     # compiler_normalized_type_descriptor; DiscriminantTypeRef -> enum descriptor
+    def desc(self, type_ref: TypeRef, d: Definition) -> dict: ...     # Task 6 recursive canonical descriptor; register nominal facts
     def body(self, node: WccBody, d: Definition, env) -> dict: ...
     def binding(self, value: WccBindingValue, d: Definition, env) -> dict: ...   # perform -> effects.translate_perform(self, ...), call -> self.call, workflow_call -> self.workflow_call
 ```
@@ -1110,7 +1412,7 @@ class Builder:
   - P1: `call` → `{"k": "call", "callee": canonical, "args": [...]}`; the
     callee's body elaborated once with `elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name, type_env=typed.procedure_type_env(procedure), value_env=_procedure_signature_local_type_bindings(procedure), workflow_return_types=<every workflow's return type>, procedure_return_types=<every procedure's, generic templates excluded (case e)>, route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)`,
     normalized with `normalize_wcc_body_to_anf`, stored under
-    `definitions[canonical] = {"params": [renamed params], "body": ...}`. A
+    `definitions[canonical] = {"key": key, "params": [[renamed param, descriptor]], "result": descriptor, "body": ...}`. A
     recursive call (the callee is on the active stack) is a `ClosedProgramGap`
     with form `call` ("recursive call"). `workflow_call` likewise, by the
     workflow's canonical name, with keyword arguments matched to parameters,
@@ -1118,6 +1420,16 @@ class Builder:
     when the signature has a hidden context requirement for it, the X1/X2
     value; a parameter with neither is a defect of the typechecker
     (`ValueError`).
+  - Before P1 names are computed, convert existing `BoundProcArg`, value/
+    workflow/reference specialization facts and generated local capture facts
+    into closed bindings. Substituted compile-time expressions enter the full
+    key; runtime captures become leading typed residual parameters with call
+    arguments, evaluated once at their lexical binding before forwarding.
+    Preserve the existing `_procedure_signature_local_type_bindings` and
+    forwarding rules; never retain surface expressions or runtime refs in
+    the artifact. Two captures of the same body share a definition; differing
+    substitutions/reference targets/rebindings do not. The plain converted
+    facts feed Task 6; no extra closure framework/module is needed.
   - P2: every `WccOpaqueFrontendValue` is translated in `values.py`:
     `UnionVariantTagExpr` → `lit`; `LoopStateSeedExpr` → `record` (type: the
     carrier descriptor); `LoopStateUpdateExpr` → `op` with a `record_update`
@@ -1173,18 +1485,37 @@ def test_three_call_sites_of_one_procedure_are_one_definition_and_three_frames(t
     closed = build(tmp_path, fixture("three_call_sites"))
     callee = "cp/three_call_sites::fetch"
     assert sorted(closed.tree["definitions"]) == [callee]
-    assert closed.sites == ((entry, f"a={callee}"), (entry, f"b={callee}"), (entry, f"c={callee}"), (callee, "#1"))
+    assert closed.sites == ((callee, "#1"),)
+    assert [c["frame"] for c in calls(closed.tree["body"])] == [f"{n}={callee}" for n in ("a", "b", "c")]
 
 def test_one_procedure_in_three_arms_of_a_match_in_a_loop(tmp_path) -> None:      # Review focus 1
-    assert closed.sites == tuple((entry, f"loop:state[*] / got / {arm} / #1={callee}") for arm in ("FIRST", "SECOND", "THIRD")) + ((callee, "#1"),)
+    assert closed.sites == ((callee, "#1"),)
+    assert len(calls(closed.tree["body"])) == 3   # check each arm's loop/frame prefix separately
 
 def test_the_program_holds_no_surface_object(tmp_path) -> None:
     for name in ("arms_in_loop", "loop_in_loop", "if_over_lists"):
-        text = build(tmp_path / name, fixture(name)).artifact()
-        assert "Expr" not in text and "opaque" not in text
+        closed = build(tmp_path / name, fixture(name))
+        validate(closed.tree)  # every node kind/child is in the closed schema
+        assert_all_leaves_are_json_values(closed.tree)  # no frontend Expr/TypeRef objects
 
-def test_an_effectful_argument_gives_two_sites_in_source_order(tmp_path) -> None:
-    # (fetch (inc 4)): sites [(entry, "#1=cp/...::inc"), (entry, "#2=cp/...::fetch"), ...]
+def test_an_effectful_argument_gives_two_frames_in_source_order(tmp_path) -> None:
+    # (fetch (inc 4)): ordered frames #1=...::inc then #2=...::fetch;
+    # sites are only the performs in the two callee definitions.
+
+def test_all_reference_bindings_and_runtime_captures_close(tmp_path) -> None:
+    # Public builds: same-base value/workflow specializations differ; bound proc refs forward;
+    # one captured computation is bound once before two calls, both passing that same value;
+    # nested let-proc captures work and no runtime ProcRef or surface Expr survives.
+
+def test_imported_old_target_loop_in_branch_builds_without_flat_lowering(tmp_path) -> None:
+    # Task 2's imported fixture now reaches ClosedProgram and passes from_artifact.
+
+def test_private_nominals_remain_distinct_in_entry_effect_and_nested_descriptors(tmp_path) -> None:
+    # Two imported private Note types are recursively module-qualified everywhere.
+
+def test_used_injected_adapter_requires_its_declared_package_closure(tmp_path) -> None:
+    # Full build/read-back of Task 7's injected adapter; remove declaration to assert
+    # located command_boundary_closure_missing. A real manifest override keeps workspace base.
 
 def test_a_loop_in_a_branch_and_a_loop_in_a_loop_build(tmp_path) -> None:
     assert build(tmp_path / "a", fixture("loop_in_branch")).sites and build(tmp_path / "b", fixture("loop_in_loop")).sites
@@ -1201,7 +1532,7 @@ def test_a_command_node_carries_its_boundary_closure_contract_and_repeat_rule(tm
                    boundaries={"fetch": ExternalToolBinding("fetch", ("python", "probe.py"), closure=("probe.py",), must_not_repeat=True)})
     (node,) = performs(closed, "cp/three_call_sites::fetch")
     assert (node["class"], node["boundary"], node["command"], node["closure"], node["repeat"], node["contract"]["kind"]) == \
-        ("command", "fetch", ["python", "probe.py"], ["probe.py"], "never", "output_bundle")
+        ("command", "fetch", ["python", "probe.py"], [{"base": "workspace", "path": "probe.py"}], "never", "output_bundle")
     assert "path" not in node["contract"]["payload"]
     assert node["argv"] == [{"k": "lit", "v": "fetch"}, {"k": "name", "n": "n"}]
 
@@ -1246,8 +1577,9 @@ for `let`/`halt`/`if`/`case`/`join`/`jump`/`loop`/`continue`/`done`;
 `values.py` for atoms, ops, select, then each opaque kind; `effects.py`
 (`require_command_closures`, the command node, the gaps); `call` and
 `workflow_call` with the memoized table; `context.py`; the X4 typecheck
-line; sites, validate, digest at the end. Keep `build.py` and `values.py`
-each under 500 lines; `context.py` is about 60, `effects.py` about 80 here.
+line; canonical type/config facts, sites, generated-identity finalization,
+validate and digest at the end. Keep the existing responsibilities small;
+add no modules solely to meet a line estimate.
 
 - [ ] **Step 4: Run; expected pass.** Then Tasks 5, 6, 7 modules (they are
 unchanged but their consumers are new).
@@ -1259,14 +1591,15 @@ byte-identical.
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program -m "feat: build the closed program as a table of definitions with the run's context values"`
+`git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
 
-**What this makes harder later:** callee bodies are elaborated twice for an
-imported module at an older target (once by the flat route for its bundle,
-once here); Phase 7 removes the first. A `PhaseCtx` derived from an item
-context (`std/drain`) is built by the same rule as any other, and if the
-owner's experiment finds the present route's value differs, only
-`context.py` changes.
+`git commit -m "feat: build the closed program as a table of definitions with the run's context values" -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
+
+**What this makes harder later:** both target routes retain their own
+elaboration consumers until flat-route retirement. Imported source modules
+are never flat-lowered during an evaluated-entry build. Context-value runtime
+parity remains Phase 3 evidence; any discrepancy must be repaired in the
+small context translation, not hidden as a new exclusion.
 
 ---
 
@@ -1293,15 +1626,21 @@ execution facts A.2 and A.4.
   `ClosedProgramGap`.
 - Produces: two more branches of `translate_perform`, each a `perform` node
   of the schema:
-  - `provider_result`: `provider` = `typed.externs[target].provider_id`;
-    `prompt` = `{"asset": posixpath.normpath(posixpath.join(typed.entry_dir, extern.path))}`
-    (the asset path relative to the source root, as the flat route reads it
-    relative to the entry module; program content, not provenance) or
-    `{"template": application.prompt.declaration.template.text, "fills": [[fill.name, fill.renderer_id, value]]}`
-    (a fill without a renderer id, a document slot, is a gap, form
-    `defprompt`); `inputs` = `[[name, renderer_id, value]]` with the name the
-    last field of a field access, the variable's name, or `"inputs"`, and
-    the renderer `resolve_default_view_renderer("path_value" if path else "any_pure_value").renderer_id`;
+  - `provider_result`: `provider` = `d.externs[target].provider_id`;
+    `prompt` preserves `PromptExtern.source_kind` and exact bound `path`.
+    `asset_file` carries the logical entry asset base used by the current
+    lookup; `input_file` retains workspace/input lookup semantics. Never
+    prepend an asset root or reinterpret an input file. Resolve imported
+    extern rebindings through the typed module environment, not only the
+    entry's alias map. For `defprompt`, emit template and the ordered typed
+    slot rows defined above. Preserve `doc` references as required content
+    injections (prepend, declaration order), with no renderer; other slots
+    retain renderer, repeated placeholder positions, refinements and output
+    roles/expected-output facts. Reuse semantic projections from
+    `_build_compiler_prompt_fragment_contract` in `lowering/phase_scope.py`
+    and `_lower_prompt_fragment_dependencies` without constructing flat steps
+    or copying their step-id-based identity. `inputs` retains the established
+    typed names, renderer selection and value expressions;
     `dependencies` from `WccPromptDependencyPayload` rows by role, with
     `position` and `instruction`; `policy` = each of `model`, `effort`,
     `delivery`, `materialization_attempts`, `timeout_sec` present in the
@@ -1309,10 +1648,25 @@ execution facts A.2 and A.4.
     from the declared result type; `repeat` = `"rerun"`. Payload parts `context_expr`,
     `session_artifact`, `capture_context` are gaps (form `provider-result`,
     naming the part: outside the portable subset, §1.1).
-  - `run_ref`: path mode only; `config` = base64 of
-    `encode_run_ref_static_config(build_run_ref_static_config(compiler_runtime_identity_digest=compute_compiler_runtime_identity().digest, site_digest=payload.site_digest, source=payload.source, program=payload.program, inputs=<one RunRefInput per input with ReferenceBinding(f"inputs.{name}")>, result_descriptor=payload.result_descriptor, result_digest=payload.result_digest, target_dsl_version=typed.target))`;
-    `inputs` = `[[name, value]]`; bundle mode is a gap (form `run-ref`,
-    "bundle mode is a later release", §9.2).
+  - `run_ref`: path mode only. Translate inputs to closed typed values;
+    retain source/program selection and supported static policy. First build
+    a structural canonical input/result signature (recursively canonical
+    descriptors, no current generated `RunRefResult$…` name). After sites
+    are assigned, derive `site_digest` from the containing definition's
+    canonical name and local site, derive the generated result name from
+    that site and structural signature, and rewrite every occurrence in
+    entry/definition/node descriptors and `types`. Then call
+    `build_run_ref_static_config`/`encode_run_ref_static_config` with these
+    canonical facts and `RunRefInput(..., ReferenceBinding(f"inputs.{name}"))`.
+    Recompute result descriptor digests; never copy `payload.site_digest`,
+    `payload.result_digest` or span-based generated names. The definition
+    key uses the structural signature so finalization cannot create a hash
+    cycle. Reuse `compute_compiler_runtime_identity` only after verifying
+    its bytes are package-location independent. Decode/read-back validates
+    the config against the containing site, canonical result and inputs.
+    Bundle mode stays a located gap under §9.2. The Phase 3 caller adapter
+    reuses the existing run-ref ledger/runtime; this does not claim its
+    step-oriented caller integration works unchanged.
   - the gaps of Task 4 stay for every other kind, each named by its surface
     form; this task adds a test per form.
 - Consumed by: Task 4's `binding()` (unchanged), Task 9, Task 10.
@@ -1321,10 +1675,24 @@ execution facts A.2 and A.4.
 
 ```python
 def test_a_provider_node_carries_prompt_inputs_policy_dependencies_and_contract(tmp_path) -> None:
-    # provider_review.orc and prompt_dependency.orc: prompt {"asset": "cp/review.md"}; inputs [["draft", "<renderer>", {...}]];
+    # provider_review.orc and prompt_dependency.orc: prompt source_kind/path/base; inputs [["draft", "<renderer>", {...}]];
     # policy {"model": lit, ...}; dependencies {"required": [...], "optional": [], "position": ..., "instruction": ...}
 
+@pytest.mark.parametrize("source_kind", ["asset_file", "input_file"])
+def test_prompt_source_selection_matches_the_existing_lookup(tmp_path, source_kind) -> None:
+    # Put distinct sentinel bytes at the asset and workspace/input locations;
+    # public compile preserves source_kind/path and the matching existing resolver
+    # selects the same bytes as the old route. Assert source selection/content
+    # digest, not authored prompt phrasing; neither source is silently coerced.
+
 def test_a_defprompt_application_carries_its_template_and_fills(tmp_path) -> None:
+    # Include doc, text, value, path and output-role slots; compare semantic
+    # document dependencies/renderers/ordering/refinements/output facts with old lowering.
+
+def test_path_run_ref_and_let_proc_ignore_formatting_and_location(tmp_path) -> None:
+    # Public build after blank lines/comments and source/package relocation:
+    # keys, generated names, decoded config/site_digest, sites and program digest equal.
+    # Changing the actual input/result signature or bound source changes semantic identity.
 
 def test_a_path_mode_run_ref_carries_the_static_config_with_reference_bindings(tmp_path) -> None:
     config = decode_run_ref_static_config(base64.b64decode(node["config"]))
@@ -1343,8 +1711,10 @@ def test_a_provider_with_context_capture_and_a_bundle_run_ref_are_gaps(tmp_path)
 `form=provider-result` and `form=run-ref` where nodes are expected; the
 gap tests pass already (Task 4 raised them) and stay as the record.
 
-- [ ] **Step 3: Implement** (about 160 lines, one function per class:
-`_provider`, `_prompt`, `_inputs`, `_dependencies`, `_run_ref`).
+- [ ] **Step 3: Implement** the existing effect dispatch, with helpers
+`_provider`, `_prompt`, `_inputs`, `_dependencies`, `_run_ref` as needed.
+Task 8 owns finalization of run-ref config/descriptors after Task 5 assigns
+sites; keep this helper in `effects.py`.
 
 - [ ] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
 behaviour for commands).
@@ -1353,12 +1723,14 @@ behaviour for commands).
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/effects.py tests/test_workflow_lisp_closed_program_effects.py -m "feat: provider and run reference nodes in the closed program"`
+`git add -- orchestrator/workflow_lisp/closed/effects.py tests/test_workflow_lisp_closed_program_effects.py`
 
-**What this makes harder later:** each later class (Phase 4) replaces one
-gap branch with a translation; the prompt dependency rendering (design §19,
-5) is decided when Phase 3 assembles prompts, and may add a key to the
-`dependencies` node.
+`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py tests/test_workflow_lisp_closed_program_effects.py`
+
+**What this makes harder later:** each later class replaces a gap branch.
+Phase 3 still proves assembled prompt parity and run-ref caller integration;
+Phase 2 must already preserve all assembly/contract facts, so that remaining
+runtime evidence does not authorize dropping document slots or dependencies.
 
 ---
 
@@ -1398,15 +1770,18 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   `build_closed_program_bundle` resolves the request as `build.py` does,
   loads the three manifests with the same loaders, calls
   `require_command_closures(parsed, manifest_path=request.command_boundaries_path)`,
-  then `compile_typed_program`, then `build_closed_program`, writes
+  then `compile_typed_program` with a fresh `SourceReadTrace`, then `build_closed_program`, writes
   `closed_program.json` (`program.artifact()`) and `manifest.json`
   (`{"schema_version": "closed-program-build/1", "build_key", "program_digest", "representation", "target", "entry_workflow", "source_path", "source_roots", "sites": <count>, "artifact_paths": {"closed_program": "build/<key>/closed_program.json"}}`,
   written with `indent=2, sort_keys=True`). `closed_build_key` is
-  `sha256(canonical JSON of its arguments)[:16]`; it holds no path (source
-  files are keyed by module name with their content digests, taken from the
-  compile's `SourceReadTrace` as `_source_file_digests_from_trace` does), so
-  two builds of one source at two paths share one build directory, which
-  the second overwrites (the artifacts differ only in provenance).
+  `sha256(canonical JSON of its arguments)[:16]`; it holds no incidental
+  source/install location (authored semantic paths remain). Source files are
+  keyed by module name with content digests, taken from the
+  exact compile via `typed.source_file_digests` from Task 2's traced API, so
+  equivalent builds in relocated workspaces use the same key under each
+  workspace's build root. Within one workspace, atomically replace cache
+  artifacts only after a successful validated build; provenance can differ.
+  A build cache is not the durable run authority of Phase 3.
 - `compile_workflow`: after the `.orc` check, `target = entry_target_dsl_version(workflow_path)`;
   when `target_dsl_uses_evaluated_execution(target)`: any `--emit-*` flag
   is refused with `workflow_lisp_cli_input_unsupported` naming the flag
@@ -1417,14 +1792,17 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   through `_print_machine_document`. Errors are handled by the same
   `except` clauses as today.
 - Consumed by: Task 10 (the corpus builds through this function), Phase 3
-  (`run` reads the artifact).
+  (`run` reads the checked artifact; resume freshly compiles current source/
+  config and compares semantic program identity before memo access, then
+  validates and executes the stored artifact).
 
 - [ ] **Step 1: Write the failing tests**
 
 Through `python -m orchestrator compile` in a subprocess with
 `PYTHONHASHSEED=0` (the `_build` helper of `tests/test_workflow_lisp_target_234.py`
 adapted: no `--emit-*` flags; the program is `PROGRAM` of that module at the
-new target, with `closure: []` added to its manifest):
+new target, with its actual task-owned probe scripts explicitly declared
+in each manifest closure):
 
 ```python
 def test_compile_writes_the_closed_program_and_its_manifest(tmp_path) -> None:
@@ -1441,9 +1819,18 @@ def test_two_builds_of_one_source_at_two_paths_give_one_digest_and_one_build_key
 def test_moving_the_orchestrator_package_changes_no_digest(tmp_path) -> None:
     # copy `orchestrator/` to tmp_path/package, run the CLI with PYTHONPATH there, as the spike's test did
 
-def test_blank_lines_and_comments_change_no_digest_and_no_site(tmp_path) -> None:
+@pytest.mark.parametrize("shape", ["specialized_import", "path_run_ref", "let_proc", "bound_capture"])
+def test_blank_lines_and_comments_change_no_digest_and_no_site(tmp_path, shape) -> None:
+    # Raw source digests/build key change; semantic program digest, generated names and sites do not.
 
 def test_a_changed_stable_command_or_closure_changes_the_digest(tmp_path) -> None:    # C7
+
+def test_an_unused_manifest_entry_changes_program_digest(tmp_path) -> None:
+    # Both command kinds; also provider/prompt resolved configuration changes.
+    # JSON whitespace/key order and normalized closure duplicates change no semantic digest.
+
+def test_build_key_uses_the_same_compile_source_snapshot(tmp_path) -> None:
+    # Mutate an import after its traced read; key uses consumed bytes, next build uses new bytes.
 
 def test_an_emit_flag_is_refused_at_the_new_target(tmp_path) -> None:    # exit 2, workflow_lisp_cli_input_unsupported
 
@@ -1462,7 +1849,7 @@ code); record it.
 branch (about 30 lines).
 
 - [ ] **Step 4: Run; expected pass.** Then `tests/test_workflow_lisp_target_234.py`
-and the compile command's existing tests (`grep -rl compile_workflow tests | head`).
+and the compile command's existing tests (`rg -l compile_workflow tests`).
 
 - [ ] **Step 5: Compatibility evidence**
 
@@ -1472,7 +1859,9 @@ directory.
 
 - [ ] **Step 6: Commit**
 
-`git commit -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py -m "feat: compile a program at the evaluated execution target to its closed program artifact"`
+`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+
+`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
 
 **What this makes harder later:** two build functions and two manifest
 schemas until Phase 7; Phase 3's `run` reads `closed_program.json` from the
@@ -1504,9 +1893,15 @@ design §18 first row; Phase 2 milestones P1, P2, P3.
   `codex` for every provider name found in every module under the source
   root; prompts from a manifest else an empty file per prompt name; commands
   from a manifest else `["python", "<the leading literal words of :argv>"]`,
-  and `closure: []` added to every command boundary that lacks it (a
-  certified adapter with no manifest cannot be synthesized: the workflow is
-  recorded as `not_synthesizable`).
+  and an explicit audited closure declaration for every fixture command.
+  Do not synthesize an unknown `closure: []`: use checked-in known manifest
+  declarations, compiler-owned declarations, or a task-owned stand-in script
+  whose implementation is explicitly declared. Empty closure is only for a
+  boundary whose empty promise is consciously authored. Record synthetic
+  commands/prompts as compile-only evidence, never runtime parity. A boundary
+  lacking enough signature/implementation facts to prepare is recorded as
+  `not_synthesizable`, with the exact missing facts; it is not a new language
+  gap, and the admission matrix must separately cover that supported form.
 - Produces: `EXPECTED: dict[str, Outcome]` pinned per workflow: `built`
   (with its site count), `gap(form)`, `refused(code)` (a typecheck refusal
   the flat route gives too), `not_synthesizable`.
@@ -1520,7 +1915,8 @@ def test_every_shipped_workflow_builds_a_closed_program_or_is_refused_by_a_gap_n
     outcome = try_build(prepared)          # Built(program) | Gap(form, line) | Refused(code) | NotSynthesizable
     assert outcome == EXPECTED[str(workflow)]
     if isinstance(outcome, Built):
-        assert outcome.program.sites and "Expr" not in outcome.program.artifact()      # P1, P2
+        validate(outcome.program.tree)      # P1, P2; pure programs may have zero sites
+        assert_perform_site_bijection(outcome.program)
         assert ClosedProgram.from_artifact(outcome.program.artifact()).digest == outcome.program.digest   # P5, P7
 
 def test_the_partition_is_stated() -> None:
@@ -1552,20 +1948,36 @@ from the run, with one line of justification per correction in the report.
 - [ ] **Step 4: Run; expected pass.** Time the module; it should stay under
 three minutes serial (38 builds at 0.1 to 0.3 s each plus typecheck).
 
-- [ ] **Step 5: P3 evidence** (contract and prompt assembly equal to the flat
-route's): for `workflows/examples/improve_experiment_proposal.orc` and the
-two single-call workflows, compile at their own target through
-`compile_stage3_entrypoint` and read, per provider and command step, the
-lowered step's `output_bundle`/`expected_outputs` contract (without `path`)
-and its `typed_prompt_inputs` rows (name and renderer); assert they equal
-the closed program's `contract` and `inputs` for the same effect (matched
-by canonical name and binder). Prompt dependency rows are compared by count
-and role only (their rendering is the open item, design §19, 5). Add this as
+- [ ] **Step 5: P3 evidence** (contracts and complete prompt assembly facts).
+
+For `workflows/examples/improve_experiment_proposal.orc`, the two single-call
+workflows, and dedicated input-file/document-slot fixtures, compile both
+routes and compare each matched effect's runtime semantics. Remove only the
+intentional transport output `path` (R3) and diagnostic `source_map_subject`/
+source-map provenance, explicitly naming each ignored field. Keep all output
+validation fields, renderer ids, slot kinds/types/order/output roles,
+placeholder positions, policy and dependencies' ordered values, roles,
+position and instruction. Normalize canonical private type names through the
+known module mapping, never by deleting nominal distinctions. Compare prompt
+source kind and lookup selection using distinct file contents. Counts alone
+are not dependency parity. Reuse existing pure prompt/dependency projection
+helpers where available; full executor-free prompt assembly and request
+comparison through `run`/`resume` remain Phase 3 evidence. Test name:
 `test_contracts_and_prompt_inputs_equal_the_flat_routes_for_the_real_programs`.
+
+Add an explicit admission matrix alongside the shipped corpus: external-tool
+and certified-adapter commands; both prompt source kinds; document/rendered/
+output slots; plain/generic/value/workflow/ref-bound/captured/local calls;
+path run-ref; all nested control edges in design §6. Include direct,
+same-module-helper and imported-old-helper shapes for the formerly failing
+positions. Every admitted matrix entry builds and round-trips; an internal
+compiler failure is repaired, never added to `EXPECTED` as a new gap.
 
 - [ ] **Step 6: Commit**
 
-`git commit -- tests/workflow_lisp_closed_program_corpus.py tests/test_workflow_lisp_closed_program_corpus.py -m "test: every shipped workflow builds a closed program or is refused by a gap naming the form"`
+`git add -- tests/workflow_lisp_closed_program_corpus.py tests/test_workflow_lisp_closed_program_corpus.py`
+
+`git commit -m "test: every shipped workflow builds a closed program or is refused by a gap naming the form" -- tests/workflow_lisp_closed_program_corpus.py tests/test_workflow_lisp_closed_program_corpus.py`
 
 **What this makes harder later:** the pinned partition changes with every
 Phase 4 class; the expectation table is the record of what the first release
@@ -1584,13 +1996,16 @@ covers.
 - [ ] **Step 2:** Write the changes. Every statement names the code or the
 test that makes it true. No status word beyond "implemented", "refused",
 "open".
-- [ ] **Step 3:** Run the three test modules one at a time; expected: the
-one known failure only.
+- [ ] **Step 3:** Run the three test modules one at a time. Record the historical
+known failure as baseline evidence, then repair any remaining failure in the
+appropriate owner before closeout; never claim a failing selector passed.
 - [ ] **Step 4:** Check every relative link of the touched documents resolves
 (a ten-line script over `\[[^\]]*\]\(([^)#]+)` per file).
 - [ ] **Step 5: Commit**
 
-`git commit -- specs docs -m "docs: record the closed program at the evaluated execution target"`
+`git add -- specs docs`
+
+`git commit -m "docs: record the closed program at the evaluated execution target" -- specs docs`
 
 ---
 
@@ -1599,12 +2014,12 @@ one known failure only.
 | Milestone | Evidence | Task |
 | --- | --- | --- |
 | P1. Callee bodies are part of the program | Every corpus workflow whose classes are in the release builds with one definition per canonical callee and no elaboration after `build_closed_program` returns; `three_call_sites` gives one definition and three frames | 4, 10 |
-| P2. No surface object in a node | `check.validate` refuses an unknown `k`; the artifact of every built corpus workflow contains no `Expr` and no `opaque` | 4, 5, 10 |
+| P2. No surface object in a node | `check.validate` refuses an unknown `k`; every corpus tree is schema-valid JSON with no frontend objects (authored string contents are unrestricted) | 4, 5, 10 |
 | P3. Effects carry contract, prompt assembly, policy and repeat rule | Command, provider and run-ref node tests; the contract and typed prompt inputs of the real programs equal the flat route's | 8, 10 |
-| P4. The site table | Review focus 1 on `arms_in_loop`; sites split into frames and a local site | 4, 5 |
-| P5. The normal form is checked when built | One tampering test per rule; a tampered payload refused on read | 5, 7 |
+| P4. The site table | Review focus 1 on `arms_in_loop`; one local perform site, call frames separate; total traversal and bijection | 4, 5 |
+| P5. The normal form is checked when built | Every value/call/control/effect/entry type checked; operator and non-operator tampering refused on read | 5, 7 |
 | P6. Provenance outside identity | Blank lines, a moved program and a moved package change no site and no digest; no name holds a path, a position or a type repr | 6, 9 |
-| P7. The program is an artifact with a digest | Two builds at two paths give one digest and one build key | 7, 9 |
+| P7. The program is an artifact with a digest | Two builds at two paths share identity; unused semantic config edits change program digest; same-compile source bytes key the cache | 7, 9 |
 
 ## What Stays Open
 
@@ -1616,49 +2031,74 @@ one known failure only.
   the flat route's constants (`_runtime_context_default_value`).
 - The rendering of prompt dependency snapshots (design §19, 5): Phase 3,
   when prompt assembly runs outside the executor; the `dependencies` node
-  carries the rows and their position and may gain a key then.
+  already carries all rows, slot kinds, values, policy and ordering needed
+  to prove parity; Phase 3 verifies their actual rendering.
 - Which forms outside the release the corpus uses, by count: Task 10's
   expectation table is the answer and the input to Phase 4's order.
-- `bind-proc` specializations with captures, value bindings or workflow-ref
-  bindings, and proc refs with bound arguments: gaps in the first release
-  (Task 6); whether any maintained workflow needs them is read from the
-  corpus table.
 - Whether a `list_map` value should instead be a catalog payload: decided
   here as a closed value over its binder (the evaluator extends the
   environment per item); Phase 3 may revisit if the catalog's own `list_map`
   is cheaper to evaluate.
 
-## Self-Review Record
+## Verification Commands And Phase 3 Handoff
 
-Spec coverage: §1.1 (`closed_program_gap`): Tasks 4, 8, 10. §4.1 P1 to P7:
-the milestone table. §4.2 (table, canonical names): Tasks 4, 6. §4.3
-(constructs, elaboration rules): Tasks 3, 4. §4.4 X1 to X4: Task 4 (X3's
-elaboration in Task 3). §6 I1 to I7: Task 5 (I5 to I7 are run-time rules;
-I6's text is produced from a site and frames by Phase 3). §7.3 C1: Tasks 4,
-7, 9. §12 codes: `closed_program_gap` (4, 8), `command_boundary_closure_missing`
-(4, 9), `evaluated_execution_unavailable` (1; not in the design's table,
-added by this plan for the interval before Phase 3, and to be recorded in
-the design by Task 11). §13: Tasks 1, 2, 7. Placeholder scan: no "TBD",
-no "similar to": each task repeats what it needs. Type consistency:
-`TypedProgram`, `Definition`, `Builder`, `ClosedProgram`, `assign_sites`,
-`validate`, `translate_perform`, `require_command_closures`,
-`canonical_callee_name`, `canonical_type_identity`, `Renamer`,
-`build_closed_program`, `build_closed_program_bundle`, `closed_build_key`,
-`entry_target_dsl_version`, `target_dsl_uses_evaluated_execution` are named
-the same in every task that uses them. Review focus: each of the five lines
-names its owning task and test.
+Run from the implementation worktree root. For each new/renamed test module,
+collect it before the narrow test. Substitute a task-owned scratch path:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD python -m pytest --collect-only -q -p no:cacheprovider tests/test_workflow_lisp_closed_program_frontend.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$PWD python -m pytest -q -p no:cacheprovider --basetemp=/tmp/phase2-task2/pytest tests/test_workflow_lisp_closed_program_frontend.py
+```
+
+Apply the same commands to each exact test module named in Tasks 1–10;
+run existing owner selectors named in each task serially. Run Task 9's
+provider/run-ref selectors after Task 8, then the corpus after both. Before
+commit inspect `git diff --check` and the actual diff; stage/commit only the
+listed paths (include an inspected adjacent owner only when necessary).
+
+Compile smoke, from the worktree root after Task 9's helper installs its
+selected-target source/manifests at `/tmp/phase2-smoke` (no flat emit flags):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 PYTHONPATH=$PWD python -m orchestrator compile /tmp/phase2-smoke/grt/entry.orc --entry-workflow grt/entry::run --source-root /tmp/phase2-smoke --provider-externs-file /tmp/phase2-smoke/providers.json --prompt-externs-file /tmp/phase2-smoke/prompts.json --command-boundaries-file /tmp/phase2-smoke/commands.json
+```
+
+Task 9's subprocess fixtures must also compile a provider/run-ref specimen
+using the same flags and task-owned manifests. Retain fresh exit 0, summary,
+artifact read-back and perform/site bijection results. This public CLI
+integration plus corpus round-trip is the Phase 2 orchestrator smoke; `run`
+and `resume` intentionally remain unavailable and their no-launch refusal is
+tested in Task 1. No external provider dispatch or Phase 3 evaluator is
+needed for compile-only scope. The plan revision itself runs document checks,
+not these future tests against nonexistent implementation modules.
+
+Phase 3 consumes the checked `effect_class`, result contracts, full call/
+capture/type facts, source-kind-preserving prompts, canonical configuration,
+site/frame separation and position-free run-ref config. Its plan must retain
+fresh compile versus header comparison before memo reads, stored-artifact
+validation, preflight in journal order, durable `started` before allocation,
+durable atomic header/program publication before `started`, closure evidence
+checks before retrying uncommitted attempts, one atomic anchored suffix-
+invalidation record, one external dispatch per memo attempt, run-ref settlement classification,
+clean-terminal idempotence and profile-aware reader adapters. Closure content
+hashes/symlink rules, interpreter pinning (no PATH re-resolution), caches
+outside closure and output disjointness remain runtime work. No journal,
+retry, terminal, trial-SDK or reader implementation enters this plan.
 
 ## Closeout
 
 - [ ] Byte identity for the four programs of the table at the phase's head
-  against `613993ad`.
+  against the recorded `PHASE2_BASE`.
 - [ ] Full suite in tmux, alone: `pytest -q -n 16 --dist=worksteal`,
-  compared with the failure set of `613993ad`; no new failures.
+  after narrow selectors pass. Record and resolve failures; do not weaken
+  verification or accept a new failure by updating expectations.
 - [ ] Fresh output: `python -m orchestrator compile` of
   `experiments/mlevolve_pair/search_compact.orc` retargeted, and of the
   `std/improve` example, at the new target; the summaries and the site
   counts in the report.
 - [ ] The corpus table of Task 10 in the report, with the count built.
-- [ ] Review of the phase by a reviewer of a model family other than the
-  implementers'.
-- [ ] Merge to `main` by fast-forward; push.
+- [ ] Review by the repository Review role (Sol 6 high), with the owner's
+  Critical-only gate above and every finding/evidence disposition recorded.
+- [ ] Integrate according to the coordinator's authorized branch workflow;
+  this document revision itself neither implements Phase 2 nor authorizes a
+  target number, merge or push.
