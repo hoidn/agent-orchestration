@@ -764,4 +764,4 @@ def resume_workflow(
     except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as exc:
         logger.error(str(exc))
         print(f"Error: {exc}", file=sys.stderr)
-        return 2 if isinstance(exc, WorkspaceAlreadyActiveError) else 1
+        return 2
