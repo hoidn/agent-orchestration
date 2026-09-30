@@ -144,6 +144,9 @@ BOUND_INPUT_ARGS=""
 PROBE_OUTPUT=""
 PROBE_EXIT_CODE=0
 PROBE_RESET_EPOCH=""
+PENDING_CMD=""
+PENDING_TOKEN=""
+LOCK_WAITED=0
 
 log() {
   printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG"
@@ -247,45 +250,65 @@ sleep_with_target_checks() {
   return 0
 }
 
-# Print the pane once the sent command has printed its exit marker. Fails when
-# the command is still running after POLL_SECONDS: it was admitted.
-wait_for_command_exit() {
-  local deadline=$(( SECONDS + POLL_SECONDS )) pane
-  while (( SECONDS < deadline )); do
-    pane="$(capture_target)"
-    if printf '%s\n' "$pane" | grep -Eq 'orchestrator-exit=[0-9]+'; then
-      printf '%s\n' "$pane"
-      return 0
-    fi
-    sleep 1
-  done
-  return 1
+# Type PENDING_CMD into the target pane as a new attempt. The attempt prints a start line
+# and an exit line that carry a token unique to it.
+start_attempt() {
+  PENDING_TOKEN="$(date +%s%N)"
+  clear_target_pane
+  log "relaunching workflow: $PENDING_CMD"
+  tmux send-keys -t "$TARGET" -l "echo orchestrator-attempt-$PENDING_TOKEN; $PENDING_CMD; echo \"orchestrator-exit-$PENDING_TOKEN=\$?\""
+  tmux send-keys -t "$TARGET" Enter
 }
 
-# Send an orchestrator run/resume command to the target pane. While the
-# workspace lock refuses it (another run is active in WORKSPACE), send it again
-# every POLL_SECONDS, for at most RESUME_LOCK_WAIT_SECONDS.
-send_orchestrator_command() {
-  local cmd="$1" waited=0 pane refusal
+# Print what the pending attempt printed, from its start line through its exit line. Reads
+# the pane's whole history, so an exit line that later output pushed out of capture_target's
+# lines is still found. Fails while the attempt has not exited.
+attempt_output() {
+  tmux capture-pane -p -J -t "$TARGET" -S - 2>/dev/null | awk -v token="$PENDING_TOKEN" '
+    { sub(/[ \t]+$/, "") }
+    $0 == "orchestrator-attempt-" token { started = 1; out = ""; next }
+    started { out = out $0 "\n" }
+    started && $0 ~ ("orchestrator-exit-" token "=[0-9]+$") { printf "%s", out; found = 1; exit }
+    END { exit !found }
+  '
+}
+
+# Follow the pending attempt for up to $1 seconds. An attempt still running then was admitted;
+# the main loop follows it again every poll, so a later exit is still decided here. While the
+# workspace lock refuses the command it is sent again every POLL_SECONDS, for at most
+# RESUME_LOCK_WAIT_SECONDS; any other exit ends the command.
+follow_orchestrator_command() {
+  local seconds="$1" deadline output refusal
   while true; do
-    clear_target_pane
-    log "relaunching workflow: $cmd"
-    tmux send-keys -t "$TARGET" -l "$cmd; echo \"orchestrator-exit=\$?\""
-    tmux send-keys -t "$TARGET" Enter
-    pane="$(wait_for_command_exit)" || return 0
-    refusal="$(printf '%s\n' "$pane" | grep -Eo 'workspace_run_already_active: (run [^ ]+ is active|another run is starting)' | tail -n 1)"
+    deadline=$(( SECONDS + seconds ))
+    until output="$(attempt_output)"; do
+      (( SECONDS < deadline )) || return 0
+      sleep 1
+    done
+    PENDING_TOKEN=""
+    refusal="$(printf '%s\n' "$output" | grep -Eo 'workspace_run_already_active: (run [^ ]+ is active|another run is starting)' | tail -n 1)"
     if [[ -z "$refusal" ]]; then
-      log "workflow command ended: $(printf '%s\n' "$pane" | grep -Eo 'orchestrator-exit=[0-9]+' | tail -n 1)"
+      log "workflow command ended: ${output##*$'\n'}"
       return 0
     fi
-    if (( waited >= RESUME_LOCK_WAIT_SECONDS )); then
-      log "still refused after ${waited}s (RESUME_LOCK_WAIT_SECONDS=$RESUME_LOCK_WAIT_SECONDS): $refusal; watchdog exiting"
+    if (( LOCK_WAITED >= RESUME_LOCK_WAIT_SECONDS )); then
+      log "still refused after ${LOCK_WAITED}s (RESUME_LOCK_WAIT_SECONDS=$RESUME_LOCK_WAIT_SECONDS): $refusal; watchdog exiting"
       exit 1
     fi
-    log "refused: $refusal; retrying in ${POLL_SECONDS}s (waited ${waited}s of ${RESUME_LOCK_WAIT_SECONDS}s)"
+    log "refused: $refusal; retrying in ${POLL_SECONDS}s (waited ${LOCK_WAITED}s of ${RESUME_LOCK_WAIT_SECONDS}s)"
     sleep_with_target_checks "$POLL_SECONDS" || return 0
-    waited=$(( waited + POLL_SECONDS ))
+    LOCK_WAITED=$(( LOCK_WAITED + POLL_SECONDS ))
+    start_attempt
+    seconds="$POLL_SECONDS"
   done
+}
+
+# Send an orchestrator run/resume command to the target pane and follow it for one poll.
+send_orchestrator_command() {
+  PENDING_CMD="$1"
+  LOCK_WAITED=0
+  start_attempt
+  follow_orchestrator_command "$POLL_SECONDS"
 }
 
 resume_command() {
@@ -637,6 +660,9 @@ while true; do
     exit 0
   fi
 
+  if [[ -n "$PENDING_TOKEN" ]]; then
+    follow_orchestrator_command 0
+  fi
   pane_out="$(capture_target)"
   log_hits="$(recent_limit_log_hits)"
   if handle_completed_provider_limit_blocked_run; then

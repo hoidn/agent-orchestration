@@ -1217,34 +1217,39 @@ class CallExecutor:
                 if isinstance(item, str)
             ],
         )
-        child_executor = WorkflowExecutor(
-            workflow=imported_target,
-            workspace=self.executor.workspace,
-            state_manager=child_state_manager,
-            debug=self.executor.debug,
-            stream_output=self.executor.stream_output,
-            max_retries=self.executor.max_retries,
-            retry_delay_ms=self.executor.retry_delay_ms,
-            observability=self.executor.observability,
-            step_heartbeat_interval_sec=self.executor.step_heartbeat_interval_sec,
-            provider_observation_enabled=(
-                getattr(
-                    self.executor,
-                    "provider_observation_enabled",
-                    False,
-                )
-            ),
-            provider_observation_manager=(
-                getattr(
-                    self.executor,
-                    "provider_observation_manager",
-                    None,
-                )
-            ),
-            workspace_fd=self.executor._workspace_fd,
-            caller_frontend_index=self.executor._contract_origin_index,
-        )
-        child_state = child_executor.execute(resume=child_resume)
+        aggregate_run_files = self.executor._aggregate_run_workspace_files()
+        try:
+            child_executor = WorkflowExecutor(
+                workflow=imported_target,
+                workspace=self.executor.workspace,
+                state_manager=child_state_manager,
+                debug=self.executor.debug,
+                stream_output=self.executor.stream_output,
+                max_retries=self.executor.max_retries,
+                retry_delay_ms=self.executor.retry_delay_ms,
+                observability=self.executor.observability,
+                step_heartbeat_interval_sec=self.executor.step_heartbeat_interval_sec,
+                provider_observation_enabled=(
+                    getattr(
+                        self.executor,
+                        "provider_observation_enabled",
+                        False,
+                    )
+                ),
+                provider_observation_manager=(
+                    getattr(
+                        self.executor,
+                        "provider_observation_manager",
+                        None,
+                    )
+                ),
+                workspace_files=self.executor.workspace_files,
+                aggregate_run_files=aggregate_run_files,
+                caller_frontend_index=self.executor._contract_origin_index,
+            )
+            child_state = child_executor.execute(resume=child_resume)
+        finally:
+            aggregate_run_files.close()
         call_frames[frame_id] = deepcopy(child_state_manager._snapshot())
 
         if (

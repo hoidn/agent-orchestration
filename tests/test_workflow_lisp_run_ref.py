@@ -20,6 +20,7 @@ from orchestrator.workflow import runtime_plan as runtime_plan_module
 from orchestrator.workflow import semantic_ir as semantic_ir_module
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.resume_planner import ResumeStateIntegrityError
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
@@ -4916,6 +4917,7 @@ def test_run_ref_runtime_refusal_persists_closed_machine_authority() -> None:
 def test_run_ref_executor_commits_state_before_ledger_and_checkpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> None:
     workspace = (tmp_path / "workspace").resolve()
     parent_run_root = (tmp_path / "parent-run").resolve()
@@ -4995,6 +4997,8 @@ def test_run_ref_executor_commits_state_before_ledger_and_checkpoint(
 
     executor = object.__new__(WorkflowExecutor)
     executor.workspace = workspace
+    executor.workspace_files = WorkspaceFiles(workspace)
+    request.addfinalizer(executor.workspace_files.close)
     executor.state_manager = FakeStateManager()
     executor.loaded_bundle = SimpleNamespace(
         provenance=SimpleNamespace(frontend_build_root=build_root),

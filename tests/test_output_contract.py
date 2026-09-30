@@ -92,6 +92,20 @@ def test_validate_contract_value_accepts_native_json_scalars_and_relpaths(tmp_pa
     ) == "docs/tasks/task-a.md"
 
 
+def test_validate_contract_value_allows_workspace_root_as_under_root(tmp_path: Path):
+    (tmp_path / "README.md").write_text("# project\n", encoding="utf-8")
+
+    assert output_contract_module.validate_contract_value(
+        "README.md",
+        {
+            "type": "relpath",
+            "under": ".",
+            "must_exist_target": True,
+        },
+        workspace=tmp_path,
+    ) == "README.md"
+
+
 def test_validate_contract_value_accepts_json_string_list_contracts(tmp_path: Path):
     """Structured joins may carry collection values through JSON string payloads."""
     (tmp_path / "docs" / "design").mkdir(parents=True)

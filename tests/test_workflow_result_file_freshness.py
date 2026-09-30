@@ -33,11 +33,13 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.workflow import executor as executor_module
+from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
 from tests.test_workflow_lisp_generic_unions_runtime import _log, _public_run_files, _write_sources
 from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
+from tests.workflow_fixture_loader import WorkflowLoader
 
 
 SOURCE = """(workflow-lisp
@@ -310,54 +312,71 @@ def test_a_bundle_parent_replaced_by_a_link_after_validation_does_not_lead_the_r
     effect = _install(workspace, _Commands, body="call")
     effect.writes("every_call")
     monkeypatch.chdir(workspace)
-    clear = executor_module._clear_workspace_leaf
+    clear = WorkspaceFiles.clear
     victims: list[Path] = []
 
-    def switch_parent_then_clear(root_fd, relative):
+    def switch_parent_then_clear(files, path):
         if not victims:
-            parent = workspace / relative.parent
+            relative = files.relative(path)
+            parent = files.workspace / relative.parent
             parent.mkdir(parents=True, exist_ok=True)
             victims.append(outside / relative.name)
             victims[0].write_text("outside", encoding="utf-8")
             parent.rename(parent.with_name(parent.name + ".validated"))
             parent.symlink_to(outside, target_is_directory=True)
-        return clear(root_fd, relative)
+        return clear(files, path)
 
-    with patch.object(executor_module, "_clear_workspace_leaf", switch_parent_then_clear):
+    with patch.object(WorkspaceFiles, "clear", switch_parent_then_clear):
         _run_id, state = _run(effect)
 
     assert (victims[0].read_text(encoding="utf-8"), state["status"], effect.calls) == ("outside", "failed", 0)
 
 
-def _bare_executor(workspace: Path) -> WorkflowExecutor:
-    """Path preparation that succeeds, or is rejected as an escape, reads nothing but the workspace."""
-
-    executor = object.__new__(WorkflowExecutor)
-    executor.workspace = workspace
-    executor._pin_workspace_root(None)
-    return executor
-
-
 def test_a_bundle_path_with_dot_dot_is_rejected_and_nothing_outside_is_removed(tmp_path: Path) -> None:
-    """A path through a link is refused with its code at the step source (`test_workflow_result_path_confinement`)."""
+    """A path through a link is refused with its code at the step source (`test_workflow_result_path_confinement`).
+
+    A Workflow Lisp result path is generated beneath the workspace, so the path
+    comes from a substituted context value of a fixture workflow."""
 
     workspace, outside = tmp_path / "workspace", tmp_path / "outside"
     workspace.mkdir()
     outside.mkdir()
     victim = outside / "result.json"
     victim.write_text("outside", encoding="utf-8")
+    workflow = {
+        "version": "2.7",
+        "name": "dot-dot-result-path",
+        "steps": [
+            {
+                "name": "Emit",
+                "id": "emit",
+                "command": ["python", "-c", "pass"],
+                "output_bundle": {
+                    "path": "${context.result_dir}/result.json",
+                    "fields": [{"name": "n", "json_pointer": "/n", "type": "integer"}],
+                },
+            }
+        ],
+    }
+    (workspace / "workflow.yaml").write_text(json.dumps(workflow), encoding="utf-8")
+    manager = StateManager(workspace=workspace, run_id="dot-dot")
+    manager.initialize("workflow.yaml", context={"result_dir": "../outside"})
 
-    error = _bare_executor(workspace)._prepare_absent_runtime_output_bundle({}, {"path": "../outside/result.json"})
+    state = WorkflowExecutor(WorkflowLoader(workspace).load(workspace / "workflow.yaml"), workspace, manager).execute()
+    step = state["steps"]["Emit"]
 
-    assert (error["error"]["type"], victim.read_text(encoding="utf-8")) == ("contract_violation", "outside")
+    assert (step["error"]["type"], victim.read_text(encoding="utf-8")) == ("contract_violation", "outside")
 
 
 def test_a_stale_file_on_an_ordinary_nested_bundle_path_is_removed(tmp_path: Path) -> None:
     stale = tmp_path / "a" / "b" / "result.json"
     stale.parent.mkdir(parents=True)
     stale.write_text("stale", encoding="utf-8")
-
-    error = _bare_executor(tmp_path)._prepare_absent_runtime_output_bundle({}, {"path": "a/b/result.json"})
+    files = WorkspaceFiles(tmp_path)
+    try:
+        error = files.clear("a/b/result.json")
+    finally:
+        files.close()
 
     assert (error, stale.exists()) == (None, False)
 
@@ -368,8 +387,11 @@ def test_a_bundle_path_whose_last_component_is_a_link_removes_the_link_and_not_i
     link = tmp_path / "a" / "result.json"
     link.parent.mkdir()
     link.symlink_to(target)
-
-    error = _bare_executor(tmp_path)._prepare_absent_runtime_output_bundle({}, {"path": "a/result.json"})
+    files = WorkspaceFiles(tmp_path)
+    try:
+        error = files.clear("a/result.json")
+    finally:
+        files.close()
 
     assert (error, link.is_symlink(), target.read_text(encoding="utf-8")) == (None, False, "kept")
 

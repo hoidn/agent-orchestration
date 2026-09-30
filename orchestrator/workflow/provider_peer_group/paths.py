@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import quote
 
 from ..._common.canonical import compact_ascii_json_dumps as _canonical_json
@@ -801,6 +801,8 @@ def _preflight_provider_peer_group_visit_root(
 
 def preflight_provider_peer_group_paths(
     paths: RealizedPeerGroupPaths,
+    *,
+    result_exists: Callable[[Path], bool],
 ) -> None:
     """Validate a no-write preimage for one complete group visit."""
 
@@ -814,7 +816,12 @@ def preflight_provider_peer_group_paths(
         run_root=resolved_run_root,
         visit_root=paths.visit_root,
     )
+    result_paths = {
+        member.provisional_bundle_path for member in paths.members
+    }
     for leaf in paths.leaf_paths():
+        if leaf in result_paths:
+            continue
         try:
             resolved_leaf = leaf.resolve(strict=False)
         except (OSError, RuntimeError) as exc:
@@ -826,6 +833,11 @@ def preflight_provider_peer_group_paths(
             raise ValueError("provider peer leaf escapes run root")
         if leaf.exists() or leaf.is_symlink():
             raise FileExistsError(f"provider peer leaf exists: {leaf}")
+    for result_path in result_paths:
+        if result_exists(result_path):
+            raise FileExistsError(
+                f"provider peer result bundle exists: {result_path}"
+            )
 
 
 __all__ = [

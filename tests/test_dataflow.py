@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from orchestrator.contracts.output_contract import validate_contract_value
 from orchestrator.workflow.dataflow import DataflowManager
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 
 def _contract_violation(message: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -95,6 +97,82 @@ def test_record_published_artifacts_routes_private_collection_publication_to_pri
         "step_index": 2,
         "catalog_ref": "context_docs",
     }]
+
+
+def test_publish_revalidates_relpath_through_pinned_workspace_after_root_replacement(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "docs" / "design").mkdir(parents=True)
+    workspace_files = WorkspaceFiles(workspace)
+    try:
+        value = validate_contract_value(
+            ["state-layout.md"],
+            {
+                "type": "list",
+                "items": {
+                    "type": "relpath",
+                    "under": "docs/design",
+                    "must_exist_target": False,
+                },
+            },
+            workspace,
+            workspace_files=workspace_files,
+        )
+        detached_workspace = tmp_path / "detached-workspace"
+        workspace.rename(detached_workspace)
+        (workspace / "docs" / "design").mkdir(parents=True)
+        (workspace / "docs" / "design" / "state-layout.md").write_text(
+            "replacement root\n",
+            encoding="utf-8",
+        )
+        manager = DataflowManager(
+            workspace=workspace,
+            artifact_registry={},
+            private_artifact_registry={
+                "context_docs": {
+                    "kind": "collection",
+                    "type": "list",
+                    "items": {
+                        "type": "relpath",
+                        "under": "docs/design",
+                        "must_exist_target": True,
+                    },
+                },
+            },
+            workflow_version="2.14",
+            uses_qualified_identities=lambda: True,
+            workflow_version_at_least=lambda version: version <= "2.14",
+            step_id_resolver=lambda step: str(step.get("id") or step.get("name")),
+            contract_violation_result=_contract_violation,
+            persist_state=lambda state: None,
+            substitute_path_template=lambda path, *_args, **_kwargs: (path, None),
+            resolve_workspace_path=lambda path: workspace / path,
+            current_step_index=lambda: 0,
+        )
+        result = {"exit_code": 0, "artifacts": {"context_docs": value}}
+        state: dict[str, Any] = {}
+
+        error = manager.record_published_artifacts(
+            {
+                "name": "CollectContext",
+                "publishes": [{"artifact": "context_docs", "from": "context_docs"}],
+            },
+            "CollectContext",
+            result,
+            state,
+            workspace_files=workspace_files,
+        )
+
+        assert workspace_files.exists("docs/design/state-layout.md") is False
+        assert error is not None
+        assert state.get("private_artifact_versions", {}) == {}
+        assert any(
+            violation.get("type") == "missing_target"
+            for violation in error["error"]["context"].get("violations", [])
+        )
+    finally:
+        workspace_files.close()
 
 
 def test_enforce_consumes_contract_resolves_private_collection_artifacts_from_private_lane(

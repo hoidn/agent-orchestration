@@ -50,7 +50,10 @@ from orchestrator.workflow_lisp.wcc.route import (
     workflow_lisp_context_with_lowering_schema,
 )
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
-from orchestrator.cli.commands.run import render_replay_index_rejection
+from orchestrator.cli.commands.run import (
+    _state_root_symlink_error,
+    render_replay_index_rejection,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -715,6 +718,11 @@ def resume_workflow(
     """Hold the selected run's writer lock for the complete resume command."""
 
     workspace_dir = Path.cwd()
+    if state_dir is None:
+        state_root_error = _state_root_symlink_error(workspace_dir)
+        if state_root_error is not None:
+            logger.error(state_root_error)
+            return 1
     state_dir_override = (
         Path(state_dir).expanduser().resolve()
         if state_dir
@@ -766,4 +774,4 @@ def resume_workflow(
     except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as exc:
         logger.error(str(exc))
         print(f"Error: {exc}", file=sys.stderr)
-        return 2 if isinstance(exc, WorkspaceAlreadyActiveError) else 1
+        return 2

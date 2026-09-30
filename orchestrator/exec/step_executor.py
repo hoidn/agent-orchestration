@@ -67,6 +67,7 @@ class StepExecutor:
         output_capture: CaptureMode = CaptureMode.TEXT,
         output_file: Optional[Path] = None,
         allow_parse_error: bool = False,
+        workspace_files: Any | None = None,
     ) -> ExecutionResult:
         """
         Execute a command step with output capture.
@@ -191,6 +192,7 @@ class StepExecutor:
                 (env or {}).get("OMP_AUTH_BROKER_TOKEN")
                 or os.environ.get("OMP_AUTH_BROKER_TOKEN")
             ),
+            workspace_files=workspace_files,
         )
 
         # Mask secrets in captured output (AT-42)

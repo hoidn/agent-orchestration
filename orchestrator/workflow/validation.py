@@ -3563,30 +3563,7 @@ class _WorkflowMappingValidator:
             or "${" in provider_name
         ):
             return
-        template = self._provider_registry.get(provider_name)
-        if template is None:
-            return
-
-        # ProviderTemplate.validate already checks each direct target placeholder
-        # in every command variant; argv fragments are optional by contract.
-        required = {
-            binding.target_param
-            for binding in template.call_policy_bindings.values()
-            if binding.argv_fragment is None
-        }
-        if not required:
-            return
-
-        params = dict(raw_params) if isinstance(raw_params, Mapping) else {}
-        supplied = set(self._provider_registry.merge_params(provider_name, params))
-        if isinstance(policy, Mapping):
-            supplied.update(
-                binding.target_param
-                for option, binding in template.call_policy_bindings.items()
-                if binding.argv_fragment is None and option in policy
-            )
-
-        missing = sorted(required - supplied)
+        missing = self._missing_provider_params(provider_name, raw_params, policy)
         if missing:
             invocation = f" {context}" if context else ""
             self._add_error(
@@ -3595,6 +3572,32 @@ class _WorkflowMappingValidator:
                 f"required parameter(s): {', '.join(missing)}",
                 subject_refs=subject_refs,
             )
+
+    def _missing_provider_params(
+        self, provider_name: str, raw_params: Any, policy: Any
+    ) -> list[str]:
+        """Sorted direct call-policy targets that neither params, defaults nor policy supply."""
+        template = self._provider_registry.get(provider_name)
+        if template is None:
+            return []
+
+        # ProviderTemplate.validate already checks each direct target placeholder
+        # in every command variant; argv fragments are optional by contract.
+        direct_targets = {
+            option: binding.target_param
+            for option, binding in template.call_policy_bindings.items()
+            if binding.argv_fragment is None
+        }
+        if not direct_targets:
+            return []
+
+        params = dict(raw_params) if isinstance(raw_params, Mapping) else {}
+        supplied = set(self._provider_registry.merge_params(provider_name, params))
+        if isinstance(policy, Mapping):
+            supplied.update(
+                target for option, target in direct_targets.items() if option in policy
+            )
+        return sorted(set(direct_targets.values()) - supplied)
 
     def _validate_prompt_attempt_carriage(
         self,

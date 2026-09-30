@@ -8,6 +8,16 @@
 
 - Output handling
   - `output_file`: STDOUT is tee'd to this file and to the orchestrator capture pipeline.
+  - Runtime result-file operations use a workspace directory descriptor pinned
+    before effects. It covers `output_file` tee writes, `expected_outputs`
+    values and required targets, `output_bundle` and variant bundles, and
+    result payloads while staging, backing up, promoting, rolling back, or
+    discarding them. When run-owned result bundles live outside the workspace,
+    the executor pins one aggregate run-root owner before effects; call-frame
+    and per-attempt roots are short independent descendant leases, and
+    promotion opens a fresh descendant from that same owner. Borrowed helpers
+    never return the cached owner itself. Ordinary state metadata, logs, and
+    external adapter inputs remain outside this result-file boundary.
   - Stderr is captured separately and written to logs when non-empty.
   - v2.10 session-enabled provider steps normalize structured provider transport before ordinary output capture:
     - normalized assistant text becomes the step-visible stdout used by `output_capture` and `output_file`

@@ -17,6 +17,7 @@ class StepRuntime(Protocol):
     supports the executor decomposition plan.
     """
 
+    workspace_files: Any
     workspace: Path
     workflow_artifacts: Dict[str, Any]
     state_manager: Any
@@ -28,8 +29,7 @@ class StepRuntime(Protocol):
         namespace: str,
     ) -> Path: ...
 
-    @staticmethod
-    def _capture_existing_file_bytes(path: Path) -> bytes | None: ...
+    def _capture_existing_file_bytes(self, path: Path) -> bytes | None: ...
 
     def _contract_violation_result(
         self,
@@ -122,8 +122,7 @@ class StepRuntime(Protocol):
         transition_result: Mapping[str, Any],
     ) -> Dict[str, Any]: ...
 
-    @staticmethod
-    def _restore_file_bytes(path: Path, previous_bytes: bytes | None) -> None: ...
+    def _restore_file_bytes(self, path: Path, previous_bytes: bytes | None) -> None: ...
 
     def _reuse_materialized_view(
         self,

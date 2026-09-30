@@ -44,10 +44,26 @@ from orchestrator.workflow.provider_peer_group.models import (
 )
 from orchestrator.workflow.provider_peer_group.paths import (
     PeerGroupPathPlan,
+    RealizedPeerGroupPaths,
     derive_provider_peer_group_paths,
     preflight_provider_peer_group_paths,
     realize_provider_peer_group_paths,
 )
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+
+def _preflight_peer_paths(paths: RealizedPeerGroupPaths) -> None:
+    owner = WorkspaceFiles(paths.visit_root.parents[3])
+    try:
+        def result_exists(path: Path) -> bool:
+            return owner.exists(path.relative_to(owner.workspace))
+
+        preflight_provider_peer_group_paths(
+            paths,
+            result_exists=result_exists,
+        )
+    finally:
+        owner.close()
 
 
 def test_peer_interactive_adapter_deadline_contract_is_explicit() -> None:
@@ -575,7 +591,7 @@ def test_peer_path_plan_preserves_authored_order_and_is_distinct(
         for path in realized.leaf_paths()
     )
     assert "%2F" in plan.visit_root_relpath
-    preflight_provider_peer_group_paths(realized)
+    _preflight_peer_paths(realized)
 
 
 @pytest.mark.parametrize(
@@ -663,13 +679,44 @@ def test_peer_path_preflight_rejects_existing_leaf_or_nonempty_visit(
     leaf.parent.mkdir(parents=True)
     leaf.write_text("", encoding="utf-8")
     with pytest.raises(FileExistsError):
-        preflight_provider_peer_group_paths(realized)
+        _preflight_peer_paths(realized)
 
     leaf.unlink()
     unexpected = realized.visit_root / "unexpected.txt"
     unexpected.write_text("occupied", encoding="utf-8")
     with pytest.raises(FileExistsError):
-        preflight_provider_peer_group_paths(realized)
+        _preflight_peer_paths(realized)
+
+
+def test_peer_path_preflight_uses_result_owner_for_bundle_occupancy(
+    tmp_path: Path,
+) -> None:
+    plan = derive_provider_peer_group_paths(
+        node_id="node",
+        member_ids=("writer", "reviewer"),
+    )
+    realized = realize_provider_peer_group_paths(
+        run_root=tmp_path,
+        plan=plan,
+        visit_count=1,
+        attempt_ordinals={"writer": 1, "reviewer": 2},
+    )
+    checked: list[Path] = []
+
+    def result_exists(path: Path) -> bool:
+        checked.append(path)
+        return len(checked) == 2
+
+    with pytest.raises(FileExistsError, match="result bundle exists"):
+        preflight_provider_peer_group_paths(
+            realized,
+            result_exists=result_exists,
+        )
+
+    assert len(checked) == 2
+    assert set(checked) == {
+        member.provisional_bundle_path for member in realized.members
+    }
 
 
 def test_ledger_exclusive_creates_and_fsyncs_canonical_header(

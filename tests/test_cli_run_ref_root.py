@@ -10,7 +10,9 @@ import pytest
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.cli.main import create_parser
+from orchestrator.run_lock import run_writer_lock
 from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 
 
 def _write_workflow(workspace: Path) -> Path:
@@ -307,3 +309,32 @@ def test_force_restart_binds_selected_root_on_the_new_run(
         (run_roots[new_run_id] / "state.json").read_text(encoding="utf-8")
     )
     assert new_state["run_ref_root"] == selected.as_posix()
+
+
+def test_run_closes_state_and_writer_lock_when_executor_close_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _write_workflow(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    original_executor_close = WorkflowExecutor.close
+
+    def close_then_raise(executor: WorkflowExecutor) -> None:
+        original_executor_close(executor)
+        raise OSError("executor close failed")
+
+    closed_managers: list[StateManager] = []
+    original_manager_close = StateManager.close
+
+    def record_manager_close(manager: StateManager) -> None:
+        closed_managers.append(manager)
+        original_manager_close(manager)
+
+    monkeypatch.setattr(WorkflowExecutor, "close", close_then_raise)
+    monkeypatch.setattr(StateManager, "close", record_manager_close)
+
+    result = run_workflow(_run_args(workflow))
+
+    assert (result.exit_code, len(closed_managers)) == (1, 1)
+    with run_writer_lock(closed_managers[0].run_root):
+        pass

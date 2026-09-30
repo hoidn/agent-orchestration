@@ -10,6 +10,7 @@ from orchestrator.contracts.output_contract import OutputContractError, validate
 from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 
 from .executor_runtime import RuntimeStepInput
+from .workspace_files import WorkspaceFiles
 
 
 class DataflowManager:
@@ -89,6 +90,7 @@ class DataflowManager:
         runtime_step_id: Optional[str] = None,
         additional_publishes: Optional[list[Dict[str, str]]] = None,
         persist: bool = True,
+        workspace_files: WorkspaceFiles | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Record artifact publications for successful steps."""
         publishes = step.get("publishes")
@@ -153,7 +155,11 @@ class DataflowManager:
                 if isinstance(artifact_spec, dict):
                     try:
                         value = validate_contract_value(
-                            value, artifact_spec, self.workspace, finite_floats=self.finite_floats
+                            value,
+                            artifact_spec,
+                            self.workspace,
+                            workspace_files=workspace_files,
+                            finite_floats=self.finite_floats,
                         )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
@@ -170,7 +176,11 @@ class DataflowManager:
                 if isinstance(artifact_spec, dict):
                     try:
                         value = validate_contract_value(
-                            value, artifact_spec, self.workspace, finite_floats=self.finite_floats
+                            value,
+                            artifact_spec,
+                            self.workspace,
+                            workspace_files=workspace_files,
+                            finite_floats=self.finite_floats,
                         )
                     except OutputContractError as exc:
                         return self.contract_violation_result(

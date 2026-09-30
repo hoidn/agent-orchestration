@@ -503,6 +503,22 @@ class WorkflowProviderSupervisionBindings:
             ProviderAttemptScope,
         ] | None = None
         self._resume_binding_derived = False
+        self._io_run_root = Path(executor.state_manager.io_run_root)
+        self._run_files_lease: Any | None = None
+
+    @property
+    def _run_files(self) -> Any:
+        """The current frame's run root, leased on first use and held until `close`."""
+        if self._run_files_lease is None:
+            self._run_files_lease = self.executor._run_root_workspace_files()
+        return self._run_files_lease
+
+    def close(self) -> None:
+        if self._run_files_lease is not None:
+            self._run_files_lease.close()
+
+    def _bundle_relative(self, path: Path) -> Path:
+        return Path(path).relative_to(self._io_run_root)
 
     def assert_current_step(
         self,
@@ -561,7 +577,9 @@ class WorkflowProviderSupervisionBindings:
                 path_spec.provisional_bundle_relpath,
                 visit_count,
             )
-            if evidence_path.exists() or bundle_path.exists():
+            if evidence_path.exists() or self._run_files.exists(
+                self._bundle_relative(bundle_path)
+            ):
                 raise ValueError(
                     "provider supervision provisional path preimage exists"
                 )
@@ -581,12 +599,12 @@ class WorkflowProviderSupervisionBindings:
             )
             self._scopes[role] = scope
             evidence_path, bundle_path = realized_paths[role]
-            for path in (evidence_path, bundle_path):
-                if path.exists():
-                    raise ValueError(
-                        "provider supervision provisional path preimage exists"
-                    )
-                path.parent.mkdir(parents=True, exist_ok=True)
+            bundle_relative = self._bundle_relative(bundle_path)
+            if evidence_path.exists() or self._run_files.exists(bundle_relative):
+                raise ValueError(
+                    "provider supervision provisional path preimage exists"
+                )
+            self._run_files.ensure_parent(bundle_relative)
             turns[role] = ProviderSupervisionTurnBinding(
                 member_id=path_spec.member_id,
                 turn_role=role,
@@ -616,12 +634,12 @@ class WorkflowProviderSupervisionBindings:
                 "provider supervision resume path was not preflighted"
             )
         _, evidence_path, bundle_path, base_scope = preflight
-        if evidence_path.exists() or bundle_path.exists():
+        bundle_relative = self._bundle_relative(bundle_path)
+        if evidence_path.exists() or self._run_files.exists(bundle_relative):
             raise ValueError(
                 "provider supervision provisional path preimage exists"
             )
-        for path in (evidence_path, bundle_path):
-            path.parent.mkdir(parents=True, exist_ok=True)
+        self._run_files.ensure_parent(bundle_relative)
         path_spec = config.paths.worker_resume
         scope = derive_provider_attempt_member_turn_scope(
             base_scope,
@@ -1182,44 +1200,39 @@ class WorkflowProviderSupervisionBindings:
             raise ValueError("provider supervision member contract is missing")
         contract_kind, prompt_contract, descriptor = contract
         validation_contract = dict(prompt_contract)
-        validation_contract["path"] = (
-            request.turn.provisional_bundle_path.relative_to(
-                resolve_path_preserving_fd(
-                    self.executor.state_manager.io_run_root)
-            ).as_posix()
-        )
-        run_root = Path(self.executor.state_manager.io_run_root)
+        bundle_path = request.turn.provisional_bundle_path
         try:
             finite_floats = self.executor._refuses_non_finite_floats()
+            relative_path = self._bundle_relative(bundle_path)
+            validation_contract["path"] = relative_path.as_posix()
+            payload = self._run_files.read(relative_path)
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(
                     validation_contract,
-                    workspace=run_root,
+                    workspace=self._run_files.workspace,
+                    workspace_files=self._run_files,
+                    document_bytes=payload,
                     finite_floats=finite_floats,
                 )
             else:
                 artifacts = validate_output_bundle(
                     validation_contract,
-                    workspace=run_root,
+                    workspace=self._run_files.workspace,
+                    workspace_files=self._run_files,
+                    document_bytes=payload,
                     finite_floats=finite_floats,
                 )
                 if descriptor.get("kind") not in {"record", "union"}:
                     return artifacts["__result__"]
-        except OutputContractError as exc:
+            return json.loads(payload.decode("utf-8"))
+        except (OutputContractError, ValueError) as exc:
             raise ValueError(
                 "provider supervision member bundle is invalid"
             ) from exc
-        try:
-            return json.loads(
-                request.turn.provisional_bundle_path.read_text(
-                    encoding="utf-8"
-                )
-            )
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError(
                 "provider supervision validated bundle could not be read"
             ) from exc
-
     def evaluate_settlement(
         self,
         *,

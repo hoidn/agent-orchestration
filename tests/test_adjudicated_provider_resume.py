@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-import orchestrator.workflow.adjudication_resume as adjudication_resume_module
 import orchestrator.workflow.executor as executor_module
 from orchestrator.workflow.adjudication import (
     adjudication_cleanup_guard_path,
@@ -20,6 +19,7 @@ from orchestrator.workflow.adjudication import (
     candidate_visit_root,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_adjudicated_provider_runtime import (
     _resume,
     _run,
@@ -179,24 +179,24 @@ def test_kill_during_exact_cleanup_fails_closed_without_new_authority(
         encoding="utf-8",
     )
 
-    original_rmtree = adjudication_resume_module.shutil.rmtree
+    original_remove_tree = WorkspaceFiles.remove_tree
 
-    def interrupt_after_candidate_cleanup(path: object, *args: object, **kwargs: object) -> None:
-        original_rmtree(path, *args, **kwargs)
-        if Path(path) == discarded_candidate_root:
+    def interrupt_after_candidate_cleanup(files: WorkspaceFiles, path: object) -> None:
+        original_remove_tree(files, path)
+        if files.workspace / Path(path) == discarded_candidate_root:
             raise SystemExit("interrupted during exact adjudication cleanup")
 
     monkeypatch.setattr(
-        adjudication_resume_module.shutil,
-        "rmtree",
+        WorkspaceFiles,
+        "remove_tree",
         interrupt_after_candidate_cleanup,
     )
     with pytest.raises(SystemExit):
         _resume(tmp_path, workflow)
     monkeypatch.setattr(
-        adjudication_resume_module.shutil,
-        "rmtree",
-        original_rmtree,
+        WorkspaceFiles,
+        "remove_tree",
+        original_remove_tree,
     )
     cleanup_guard = adjudication_cleanup_guard_path(
         run_root,

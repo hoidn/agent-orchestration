@@ -17,22 +17,35 @@ from __future__ import annotations
 
 import errno
 import logging
+import json
 import os
 import sys
 from pathlib import Path
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
 
 from orchestrator.cli.commands.run import run_workflow
+from orchestrator.cli.commands.resume import resume_workflow
+from orchestrator.providers.registry import ProviderRegistry
+from orchestrator.providers.types import ProviderSessionMetadataMode
+from orchestrator.exec.output_capture import OutputCapture
+from orchestrator.exec.step_executor import StepExecutor
+from orchestrator.state import StateManager
 from orchestrator.workflow import executor as executor_module
 from orchestrator.workflow.call_frame_state import _CallFrameStateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.test_workflow_result_file_freshness import (
     _Commands,
+    _Interrupted,
     _failed_violations,
     _install,
     _run,
+    _runs,
+    _violations,
+    _Providers,
     effect_kind,  # noqa: F401 - pytest fixture
 )
 from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
@@ -96,6 +109,245 @@ def test_a_workspace_root_replaced_by_a_link_after_the_run_started_does_not_lead
         "completed",
         3,
     )
+
+
+def test_a_workspace_root_replaced_during_a_call_cannot_supply_its_result_by_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace, outside = _workspace_and_outside(tmp_path)
+    effect = _install(workspace, _Providers, body="call")
+    effect.writes("nothing")
+    monkeypatch.chdir(workspace)
+    moved = workspace.with_name(workspace.name + ".started")
+    victims: list[Path] = []
+    clear = WorkflowExecutor._prepare_absent_runtime_output_bundle
+    apply_contract = WorkflowExecutor._apply_expected_outputs_contract
+    execute_provider = effect.execute
+
+    def clear_then_plant(executor, step, bundle):
+        error = clear(executor, step, bundle)
+        if not victims:
+            relative = Path(bundle["path"])
+            if relative.is_absolute():
+                relative = relative.relative_to(workspace)
+            victim = outside / relative
+            victim.parent.mkdir(parents=True, exist_ok=True)
+            victim.write_text('{"n":1,"stop":true}', encoding="utf-8")
+            victims.append(victim)
+        return error
+
+    def execute_and_swap_root(_provider_executor, invocation, **kwargs):
+        result = execute_provider(invocation, **kwargs)
+        if effect.calls == 1:
+            workspace.rename(moved)
+            workspace.symlink_to(outside, target_is_directory=True)
+        return result
+
+    def validate_and_restore(executor, *args, **kwargs):
+        try:
+            return apply_contract(executor, *args, **kwargs)
+        finally:
+            if workspace.is_symlink():
+                workspace.unlink()
+                moved.rename(workspace)
+
+    effect.execute = execute_and_swap_root
+    with (
+        patch.object(WorkflowExecutor, "_prepare_absent_runtime_output_bundle", clear_then_plant),
+        patch.object(WorkflowExecutor, "_apply_expected_outputs_contract", validate_and_restore),
+    ):
+        _run_id, state = _run(effect)
+
+    assert (state["status"], _violations(state), effect.calls, victims[0].read_text(encoding="utf-8")) == (
+        "failed",
+        ["missing_bundle_file"],
+        1,
+        '{"n":1,"stop":true}',
+    )
+
+
+def test_omp_bundle_creation_stays_in_the_workspace_after_an_ancestor_becomes_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ancestor = tmp_path / "ancestor"
+    workspace = ancestor / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir(parents=True)
+    outside_workspace = outside / "workspace"
+    outside_workspace.mkdir(parents=True)
+    effect = _install(workspace, _Providers, body="call")
+    effect.writes("nothing")
+    execute_provider = effect.execute
+
+    def execute_with_omp_json(_provider_executor, invocation, **kwargs):
+        result = execute_provider(invocation, **kwargs)
+        result.stdout = b'{"n":1,"stop":true}'
+        return result
+
+    effect.execute = execute_with_omp_json
+    moved = ancestor.with_name(ancestor.name + ".started")
+    created_outside: list[Path] = []
+    materialize = WorkflowExecutor._materialize_omp_output_bundle
+    registry_get = ProviderRegistry.get
+
+    def get_omp_template(registry, name):
+        template = registry_get(registry, name)
+        if name == "codex" and template is not None:
+            return replace(
+                template,
+                command_metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
+            )
+        return template
+
+    def swap_ancestor_then_materialize(executor, bundle, payload):
+        ancestor.rename(moved)
+        ancestor.symlink_to(outside, target_is_directory=True)
+        try:
+            result = materialize(executor, bundle, payload)
+            relative = Path(bundle["path"])
+            if relative.is_absolute():
+                relative = relative.relative_to(workspace)
+            created_outside.append(outside_workspace / relative)
+            return result
+        finally:
+            ancestor.unlink()
+            moved.rename(ancestor)
+
+    monkeypatch.chdir(workspace)
+    with (
+        effect.active(),
+        patch.object(ProviderRegistry, "get", get_omp_template),
+        patch.object(
+            WorkflowExecutor,
+            "_materialize_omp_output_bundle",
+            swap_ancestor_then_materialize,
+        ),
+        patch.object(sys, "argv", [*_run_argv(effect.files), "--command-boundaries-file", str(effect.files["commands"])]),
+    ):
+        result = run_workflow(_run_args(effect.files))
+
+    state = json.loads(next((workspace / ".orchestrate" / "runs").iterdir()).joinpath("state.json").read_text(encoding="utf-8"))
+    assert (result.exit_code, state["status"], effect.calls, created_outside[0].exists()) == (
+        0,
+        "completed",
+        1,
+        False,
+    )
+
+
+def test_resume_refuses_a_linked_state_root_before_changing_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    effect = _install(tmp_path, _Commands, body="call")
+    effect.writes("every_call")
+    effect.interrupt_first_call = True
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(_Interrupted):
+        _run(effect)
+    (run_dir,) = _runs(tmp_path)
+    effect.interrupt_first_call = False
+    state_path = run_dir / "state.json"
+    before = state_path.read_bytes()
+    state_root = tmp_path / ".orchestrate"
+    moved = tmp_path / ".orchestrate.started"
+    state_root.rename(moved)
+    state_root.symlink_to(moved, target_is_directory=True)
+    try:
+        with caplog.at_level(logging.ERROR), effect.active():
+            result = resume_workflow(run_id=run_dir.name, retry_delay_ms=0)
+    finally:
+        state_root.unlink()
+        moved.rename(state_root)
+
+    errors = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+    assert (result, errors[0].split(":")[0], state_path.read_bytes(), effect.calls) == (
+        1,
+        "state_root_symlink",
+        before,
+        1,
+    )
+
+
+def test_phased_delivery_refusal_in_a_call_frame_keeps_the_authored_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _PhasedProviders(_Providers):
+        call = (
+            '(provider-result providers.tick :prompt (tick-prompt :subject "tick") '
+            ":delivery :phased :materialization-attempts 1)"
+        )
+
+    effect = _install(tmp_path, _PhasedProviders, body="procedure")
+    effect.writes("nothing")
+    source = effect.files["source"]
+    source_text = source.read_text(encoding="utf-8")
+    prompt = '''  (defprompt tick-prompt
+    (:fills (subject :text))
+    -> Count
+    "Advance {subject}")
+'''
+    source.write_text(source_text.replace("  (defproc tick", prompt + "  (defproc tick"), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    original_partition = executor_module.partition_provider_call_policy
+
+    def reject_runtime_policy(policy):
+        if isinstance(policy, dict) and policy.get("delivery") == "phased":
+            raise ValueError("injected malformed runtime policy")
+        return original_partition(policy)
+
+    with (
+        effect.active(),
+        patch.object(executor_module, "partition_provider_call_policy", reject_runtime_policy),
+        patch.object(
+            WorkflowExecutor,
+            "_phased_policy_refusal",
+            staticmethod(lambda _policy: ("delivery_type_invalid", None)),
+        ),
+    ):
+        _run_id, state = _run(effect)
+
+    frame_states = [frame["state"] for frame in state.get("call_frames", {}).values()]
+    errors = [
+        step["error"]
+        for frame_state in frame_states
+        for step in frame_state.get("steps", {}).values()
+        if isinstance(step, dict) and isinstance(step.get("error"), dict)
+    ]
+    error = next(item for item in errors if item.get("type") == "provider_phased_delivery_policy_invalid")
+    diagnostic = error["context"]["diagnostic"]
+    authored_sources = [
+        source
+        for source in [diagnostic["primary_source"], *diagnostic["related_sources"]]
+        if source["kind"] == "authored_span"
+    ]
+    expected_line = next(
+        index
+        for index, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1)
+        if ":delivery :phased" in line
+    )
+    assert any(
+        source["path"] == "grt/entry.orc"
+        and source["span"]["start_line"] == expected_line
+        for source in authored_sources
+    )
+
+
+def test_three_hundred_result_calls_close_the_workspace_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effect = _install(tmp_path, _Providers, body="call")
+    effect.writes("every_call")
+    source = effect.files["source"]
+    source.write_text(source.read_text(encoding="utf-8").replace(":max 3", ":max 300"), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    before = len(os.listdir("/proc/self/fd"))
+
+    _run_id, state = _run(effect)
+
+    after = len(os.listdir("/proc/self/fd"))
+    assert (state["status"], effect.calls, after - before) == ("completed", 300, 0)
 
 
 def test_a_call_frame_executor_created_while_the_workspace_root_is_a_link_clears_inside_the_run_workspace(
@@ -249,13 +501,15 @@ def test_a_failed_close_while_walking_the_result_path_leaves_no_descriptor_open(
             raise OSError(errno.EIO, "injected close failure")
 
     before = len(os.listdir("/proc/self/fd"))
+    files = WorkspaceFiles(tmp_path, root_fd=root_fd)
     try:
         with monkeypatch.context() as patched:
             patched.setattr(os, "close", close_then_fail_once)
             with pytest.raises(OSError, match="injected"):
-                executor_module._clear_workspace_leaf(root_fd, Path("a/b/leaf.json"))
+                files.clear(Path("a/b/leaf.json"))
         after = len(os.listdir("/proc/self/fd"))
     finally:
+        files.close()
         os.close(root_fd)
 
     assert (failed != [], after - before) == (True, 0)
@@ -266,10 +520,141 @@ def test_the_result_path_walk_creates_missing_parents_and_removes_a_stale_file(t
     stale.parent.mkdir(parents=True)
     stale.write_text("stale", encoding="utf-8")
     root_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    files = WorkspaceFiles(tmp_path, root_fd=root_fd)
     try:
-        executor_module._clear_workspace_leaf(root_fd, Path("a/b/result.json"))
-        executor_module._clear_workspace_leaf(root_fd, Path("c/d/result.json"))
+        files.clear(Path("a/b/result.json"))
+        files.clear(Path("c/d/result.json"))
     finally:
+        files.close()
         os.close(root_fd)
 
     assert (stale.exists(), (tmp_path / "c" / "d").is_dir()) == (False, True)
+
+
+def test_output_file_tee_stays_under_the_workspace_descriptor_during_root_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, outside = _workspace_and_outside(tmp_path)
+    output_file = workspace / "state" / "stdout.txt"
+    owner = WorkspaceFiles(workspace)
+    capture = OutputCapture.capture
+
+    def capture_while_root_is_linked(capturer, *args, **kwargs):
+        with _RootSwap(workspace, outside):
+            return capture(capturer, *args, **kwargs)
+
+    monkeypatch.setattr(OutputCapture, "capture", capture_while_root_is_linked)
+    try:
+        result = StepExecutor(workspace).execute_command(
+            step_name="capture",
+            command=["python", "-c", "print('captured')"],
+            output_file=output_file,
+            workspace_files=owner,
+        )
+        assert result.exit_code == 0
+        assert owner.read("state/stdout.txt") == b"captured\n"
+        assert not (outside / "state" / "stdout.txt").exists()
+    finally:
+        owner.close()
+
+
+def test_external_call_frame_result_owner_derives_from_parent_run_descriptor(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    run_root = tmp_path / "external-state" / "run"
+    call_root = run_root / "call_frames" / "frame-1"
+    workspace.mkdir()
+    call_root.mkdir(parents=True)
+    parent_fd = os.open(run_root, os.O_RDONLY | os.O_DIRECTORY)
+    workspace_files = WorkspaceFiles(workspace)
+    parent_manager = type(
+        "ParentManager",
+        (),
+        {"logical_run_root": run_root, "_run_root_fd": parent_fd},
+    )()
+    frame_manager = type(
+        "FrameManager",
+        (),
+        {
+            "logical_run_root": call_root,
+            "io_run_root": Path(
+                f"/proc/self/fd/{parent_fd}/call_frames/frame-1"
+            ),
+            "parent_manager": parent_manager,
+        },
+    )()
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workspace_files = workspace_files
+    executor.state_manager = frame_manager
+    (call_root / "result.json").write_text('{"ok":true}\n', encoding="utf-8")
+
+    call_files = executor._run_root_workspace_files()
+    try:
+        assert call_files.workspace == call_root
+        assert call_files.read("result.json") == b'{"ok":true}\n'
+    finally:
+        call_files.close()
+        aggregate_owner = getattr(executor, "_aggregate_run_files_owner", None)
+        if isinstance(aggregate_owner, WorkspaceFiles):
+            aggregate_owner.close()
+        workspace_files.close()
+        os.close(parent_fd)
+
+
+def test_external_run_root_lease_is_inherited_after_path_replacement(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workflow = workspace / "workflow.orc"
+    workspace.mkdir()
+    workflow.write_text("; external run-root fixture\n", encoding="utf-8")
+    manager = StateManager(
+        workspace,
+        state_dir=tmp_path / "external-state",
+        run_id="external-run-root-lease",
+    )
+    manager.initialize("workflow.orc")
+    run_root = manager.run_root
+    frame_root = run_root / "call_frames" / "frame-1"
+    frame_root.mkdir(parents=True)
+    (frame_root / "result.json").write_text("original\n", encoding="utf-8")
+
+    workspace_files = WorkspaceFiles(workspace)
+    parent = WorkflowExecutor.__new__(WorkflowExecutor)
+    parent.workspace_files = workspace_files
+    parent._owns_workspace_files = False
+    parent.state_manager = manager
+    parent._aggregate_run_files_owner = None
+    inherited_run_files = parent._aggregate_run_workspace_files()
+    detached_run_root = run_root.with_name("detached-run-root")
+    run_root.rename(detached_run_root)
+    replacement_frame = run_root / "call_frames" / "frame-1"
+    replacement_frame.mkdir(parents=True)
+    (replacement_frame / "result.json").write_text(
+        "replacement\n",
+        encoding="utf-8",
+    )
+
+    child = WorkflowExecutor.__new__(WorkflowExecutor)
+    child.workspace_files = workspace_files
+    child._owns_workspace_files = False
+    child.state_manager = type(
+        "CallFrameManager",
+        (),
+        {
+            "logical_run_root": replacement_frame,
+            "parent_manager": manager,
+        },
+    )()
+    child._aggregate_run_files_owner = inherited_run_files
+    frame_files = child._run_root_workspace_files()
+    try:
+        assert frame_files.read("result.json") == b"original\n"
+    finally:
+        frame_files.close()
+        child.close()
+        parent.close()
+        workspace_files.close()
+        manager.close()

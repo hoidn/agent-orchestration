@@ -167,6 +167,27 @@ def _run(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> 
     return executor.execute()
 
 
+def _run_with_external_state_root(workspace: Path, workflow: dict) -> dict:
+    (workspace / "prompt.md").write_text("Draft the best possible artifact.", encoding="utf-8")
+    (workspace / "evaluator.md").write_text("Return strict JSON.", encoding="utf-8")
+    workflow_file = _write_yaml(workspace / "workflow.yaml", workflow)
+    loaded = WorkflowLoader(workspace).load(workflow_file)
+    state_manager = StateManager(
+        workspace=workspace,
+        run_id="run-external-state",
+        state_dir=workspace.parent / f"{workspace.name}-state",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, workspace, state_manager, retry_delay_ms=0)
+    try:
+        return executor.execute()
+    finally:
+        try:
+            executor.close()
+        finally:
+            state_manager.close()
+
+
 def _resume(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> dict:
     workflow_file = _write_yaml(workspace / "workflow.yaml", workflow)
     loaded = WorkflowLoader(workspace).load(workflow_file)
@@ -198,6 +219,17 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert [row["candidate_id"] for row in rows] == ["a", "b"]
     assert [row["selected"] for row in rows] == [False, True]
     assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
+
+
+def test_adjudicated_provider_uses_external_state_owner_for_candidate_results(
+    tmp_path: Path,
+) -> None:
+    state = _run_with_external_state_root(tmp_path, _workflow())
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed", result["adjudication"]["candidates"]
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    assert (tmp_path / "docs/plans/b.md").read_text(encoding="utf-8") == "better"
 
 
 def test_optional_depends_on_paths_are_recorded_in_baseline_null_comparison(tmp_path: Path) -> None:
@@ -1140,8 +1172,8 @@ def test_deadline_expiring_during_parent_validation_fails_before_completion(
     ]
     original_validate = executor_module.validate_expected_outputs
 
-    def slow_parent_validation(expected_outputs, *, workspace):
-        result = original_validate(expected_outputs, workspace=workspace)
+    def slow_parent_validation(expected_outputs, *, workspace, **kwargs):
+        result = original_validate(expected_outputs, workspace=workspace, **kwargs)
         if Path(workspace).resolve() == tmp_path.resolve():
             fake_clock.advance(2.0)
         return result
@@ -1153,6 +1185,26 @@ def test_deadline_expiring_during_parent_validation_fails_before_completion(
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["error"]["type"] == "timeout"
+
+
+def test_an_error_raised_while_validating_a_candidate_keeps_its_provider_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    def failing_validation(expected_outputs, *, workspace, **kwargs):
+        raise RuntimeError("validation broke")
+
+    monkeypatch.setattr(executor_module, "validate_expected_outputs", failing_validation)
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    assert (candidate["candidate_status"], candidate["attempt_count"]) == ("prompt_failed", 1)
 
 
 def test_candidate_and_evaluator_stdout_stderr_are_sidecars_only(tmp_path: Path) -> None:

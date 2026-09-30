@@ -448,7 +448,9 @@ class ProviderPeerGroupCoordinator:
                     f"prompt snapshot changed for {member.runtime.attempt.member_id}",
                 )
             if (
-                member.realized_paths.provisional_bundle_path.exists()
+                self._bindings.result_bundle_exists(
+                    member.realized_paths.provisional_bundle_path
+                )
                 or member.realized_paths.evidence_path.exists()
                 or member.realized_paths.injected_messages_path.exists()
             ):
