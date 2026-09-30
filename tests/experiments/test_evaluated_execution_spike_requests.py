@@ -6,11 +6,12 @@ records every argument of every call with its defaults filled in, so a keyword t
 one route omits shows as a difference. The real workflows and their scripted answers
 come from `test_evaluated_execution_spike_programs.py`.
 
-Iteration 3, item F: nothing is normalized. Each field in which the routes differ has a
-rule, in `EXPECTED_DIFFERENCES`, that gives the value each route must send; a field not
-listed must be equal, so a new difference fails. A structured argument is now rendered as
-the flat route renders it (`json.dumps` defaults), so that difference is gone. Iteration 4:
-the interpreter is pinned for the run and launched by its path (`command.command`).
+Iteration 3, item F: each field in which the routes differ has a rule, in
+`EXPECTED_DIFFERENCES`, that gives the value each route must send; a field not listed must
+be equal, so a new difference fails. `WorkspaceFiles` is recorded by its pinned root
+identity, not its Python object address. A structured argument is now rendered as the flat
+route renders it (`json.dumps` defaults), so that difference is gone. Iteration 4: the
+interpreter is pinned for the run and launched by its path (`command.command`).
 """
 
 from __future__ import annotations
@@ -22,15 +23,28 @@ import json
 import os
 import re
 import shutil
+import stat
 from pathlib import Path
 
 import pytest
 
 from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.experiments.test_evaluated_execution_spike_programs import REAL, ScriptedProviders, _flat_real, _spike_real
 
 def _plain(value):
+    if isinstance(value, WorkspaceFiles):
+        pinned_root = os.fstat(value.root_fd)
+        return {
+            "owner": type(value).__name__,
+            "workspace": str(value.workspace),
+            "pinned_root": {
+                "device": pinned_root.st_dev,
+                "inode": pinned_root.st_ino,
+                "is_directory": stat.S_ISDIR(pinned_root.st_mode),
+            },
+        }
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return _plain(dataclasses.asdict(value))
     if isinstance(value, dict):
@@ -164,6 +178,22 @@ def _command(flat: dict, spike: dict, where: Where) -> None:
     assert flat["command"][1:] == spike["command"][1:]
 
 
+def _workspace_files(flat: dict, spike: dict, where: Where) -> None:
+    """Rule: the flat executor passes its pinned workspace owner; the spike does not use that API."""
+
+    owner = flat["workspace_files"]
+    workspace = (where.workspace.parent / "flat").resolve()
+    pinned = workspace.stat()
+    assert owner["owner"] == "WorkspaceFiles"
+    assert owner["workspace"] == str(workspace)
+    assert owner["pinned_root"] == {
+        "device": pinned.st_dev,
+        "inode": pinned.st_ino,
+        "is_directory": True,
+    }
+    assert spike["workspace_files"] is None
+
+
 EXPECTED_DIFFERENCES = {
     "provider.context": _context,
     "provider.env": _env,
@@ -172,6 +202,7 @@ EXPECTED_DIFFERENCES = {
     "provider.cwd": _cwd,
     "command.env": _env,
     "command.command": _command,
+    "command.workspace_files": _workspace_files,
 }
 
 
@@ -214,7 +245,7 @@ def test_every_effect_receives_the_request_of_the_flat_route_apart_from_the_fiel
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
     """Prompt content, policy, timeout, environment, argv and every keyword of every provider and command
-    call, as sent: nothing is normalized."""
+    call; only the fields listed in EXPECTED_DIFFERENCES may vary."""
 
     observed = requests_on_both_routes(tmp_path, name, monkeypatch)
 
