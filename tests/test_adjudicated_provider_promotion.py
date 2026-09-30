@@ -1,7 +1,9 @@
 import json
+import os
 import shutil
 from hashlib import sha256
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -72,6 +74,32 @@ def test_promotes_relpath_pointer_and_required_target_transactionally(tmp_path: 
     }
     manifest_doc = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
     assert manifest_doc["status"] == "committed"
+
+
+def test_promotion_preserves_selected_file_mode_and_mtime(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    parent.mkdir()
+    candidate.mkdir()
+    source = candidate / "artifact.txt"
+    source.write_text("selected\n", encoding="utf-8")
+    os.chmod(source, 0o640)
+    source_mtime_ns = 1_700_000_123_456_789_000
+    os.utime(source, ns=(source_mtime_ns, source_mtime_ns))
+    visit, manifest = _baseline(tmp_path, parent)
+
+    promote_candidate_outputs(
+        expected_outputs=[{"name": "result", "path": "artifact.txt", "type": "string"}],
+        output_bundle=None,
+        candidate_workspace=candidate,
+        parent_workspace=parent,
+        baseline_manifest=manifest,
+        promotion_manifest_path=visit.promotion_manifest_path,
+    )
+
+    promoted = (parent / "artifact.txt").stat()
+    assert stat.S_IMODE(promoted.st_mode) == 0o640
+    assert promoted.st_mtime_ns == source_mtime_ns
 
 
 def test_promotes_relpath_bare_basename_normalized_under_root(tmp_path: Path) -> None:
@@ -347,8 +375,8 @@ def test_promotion_detects_parent_change_between_staging_and_commit(
     (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
     visit, manifest = _baseline(tmp_path, parent)
 
-    def mutate_parent_after_staging(expected_outputs, output_bundle, workspace):
-        del expected_outputs, output_bundle, workspace
+    def mutate_parent_after_staging(expected_outputs, output_bundle, workspace, workspace_files):
+        del expected_outputs, output_bundle, workspace, workspace_files
         (parent / "state").mkdir(parents=True, exist_ok=True)
         (parent / "state/result.txt").write_text("concurrent\n", encoding="utf-8")
 
@@ -382,7 +410,7 @@ def test_promotion_rollback_removes_only_manifest_created_empty_directories(
     (candidate / "state/nested/result.txt").write_text("selected\n", encoding="utf-8")
     visit, manifest = _baseline(tmp_path, parent)
 
-    def fail_parent_validation(expected_outputs, output_bundle, workspace):
+    def fail_parent_validation(expected_outputs, output_bundle, workspace, *_owners):
         del expected_outputs, output_bundle, workspace
         raise OutputContractError(
             [
@@ -428,7 +456,7 @@ def test_promotion_rollback_conflict_preserves_concurrent_parent_change(
     (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
     visit, manifest = _baseline(tmp_path, parent)
 
-    def fail_after_concurrent_change(expected_outputs, output_bundle, workspace):
+    def fail_after_concurrent_change(expected_outputs, output_bundle, workspace, *_owners):
         del expected_outputs, output_bundle
         (workspace / "state/result.txt").write_text("concurrent\n", encoding="utf-8")
         raise OutputContractError(
@@ -1356,7 +1384,7 @@ def test_promotion_rolls_back_root_result_bundle_on_parent_validation_failure(
     (candidate / "state/bundle.json").write_text("true\n", encoding="utf-8")
     visit, manifest = _baseline(tmp_path, parent)
 
-    def fail_parent_validation(expected_outputs, output_bundle, workspace):
+    def fail_parent_validation(expected_outputs, output_bundle, workspace, *_owners):
         del expected_outputs, output_bundle, workspace
         raise OutputContractError(
             [

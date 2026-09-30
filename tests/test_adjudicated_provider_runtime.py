@@ -167,6 +167,27 @@ def _run(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> 
     return executor.execute()
 
 
+def _run_with_external_state_root(workspace: Path, workflow: dict) -> dict:
+    (workspace / "prompt.md").write_text("Draft the best possible artifact.", encoding="utf-8")
+    (workspace / "evaluator.md").write_text("Return strict JSON.", encoding="utf-8")
+    workflow_file = _write_yaml(workspace / "workflow.yaml", workflow)
+    loaded = WorkflowLoader(workspace).load(workflow_file)
+    state_manager = StateManager(
+        workspace=workspace,
+        run_id="run-external-state",
+        state_dir=workspace.parent / f"{workspace.name}-state",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, workspace, state_manager, retry_delay_ms=0)
+    try:
+        return executor.execute()
+    finally:
+        try:
+            executor.close()
+        finally:
+            state_manager.close()
+
+
 def _resume(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> dict:
     workflow_file = _write_yaml(workspace / "workflow.yaml", workflow)
     loaded = WorkflowLoader(workspace).load(workflow_file)
@@ -198,6 +219,17 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert [row["candidate_id"] for row in rows] == ["a", "b"]
     assert [row["selected"] for row in rows] == [False, True]
     assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
+
+
+def test_adjudicated_provider_uses_external_state_owner_for_candidate_results(
+    tmp_path: Path,
+) -> None:
+    state = _run_with_external_state_root(tmp_path, _workflow())
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed", result["adjudication"]["candidates"]
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    assert (tmp_path / "docs/plans/b.md").read_text(encoding="utf-8") == "better"
 
 
 def test_optional_depends_on_paths_are_recorded_in_baseline_null_comparison(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, replace
 import json
+import os
 from pathlib import Path
 import threading
 import time
@@ -43,6 +44,24 @@ from orchestrator.workflow.provider_supervision.coordinator import (
 )
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+
+_TEST_RESULT_OWNERS: list[WorkspaceFiles] = []
+_TEST_BINDINGS: list[WorkflowProviderSupervisionBindings] = []
+
+
+@pytest.fixture(autouse=True)
+def _close_test_result_owners():
+    start = len(_TEST_RESULT_OWNERS)
+    binding_start = len(_TEST_BINDINGS)
+    yield
+    for bindings in reversed(_TEST_BINDINGS[binding_start:]):
+        bindings.close()
+    del _TEST_BINDINGS[binding_start:]
+    for owner in reversed(_TEST_RESULT_OWNERS[start:]):
+        owner.close()
+    del _TEST_RESULT_OWNERS[start:]
 
 
 class _Observation:
@@ -166,6 +185,8 @@ class _RealBindingExecutor:
         manager: StateManager,
     ) -> None:
         self.workspace = workspace
+        self.workspace_files = WorkspaceFiles(workspace)
+        _TEST_RESULT_OWNERS.append(self.workspace_files)
         self.state_manager = manager
         self.provider_observation_manager = (
             _RealBindingObservationManager()
@@ -181,6 +202,26 @@ class _RealBindingExecutor:
         self.debug = False
         self.stream_output = False
         self.finalize_calls = 0
+
+    def _run_root_workspace_files(self) -> WorkspaceFiles:
+        owner = WorkflowExecutor._run_root_workspace_files(
+            self,  # type: ignore[arg-type]
+        )
+        aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
+        if isinstance(aggregate_owner, WorkspaceFiles):
+            _TEST_RESULT_OWNERS.append(aggregate_owner)
+        _TEST_RESULT_OWNERS.append(owner)
+        return owner
+
+    def _aggregate_run_workspace_files(self) -> WorkspaceFiles:
+        owner = WorkflowExecutor._aggregate_run_workspace_files(
+            self,  # type: ignore[arg-type]
+        )
+        _TEST_RESULT_OWNERS.append(owner)
+        aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
+        if isinstance(aggregate_owner, WorkspaceFiles):
+            _TEST_RESULT_OWNERS.append(aggregate_owner)
+        return owner
 
     def _provider_attempt_scope(self, **kwargs: Any) -> Any:
         return WorkflowExecutor._provider_attempt_scope(self, **kwargs)
@@ -871,6 +912,8 @@ def _config_with_worker_bundle_contract(
 def _real_member_binding(
     tmp_path: Path,
     config: Any,
+    *,
+    retain_run_root_fd: bool = False,
 ) -> tuple[
     StateManager,
     _RealBindingExecutor,
@@ -884,6 +927,15 @@ def _real_member_binding(
         run_id="provider-supervision-guided-binding",
     )
     manager.initialize("workflow.orc")
+    if retain_run_root_fd:
+        run_root_fd = os.open(
+            manager.run_root,
+            os.O_RDONLY | os.O_DIRECTORY,
+        )
+        try:
+            manager._retain_run_root_fd(run_root_fd)
+        finally:
+            os.close(run_root_fd)
     manager.update_control_flow_counters(0, {"Live": 1})
     manager.start_step(
         "Live",
@@ -901,11 +953,49 @@ def _real_member_binding(
         step_name="Live",
         runtime_step_id="root.live",
     )
+    _TEST_BINDINGS.append(bindings)
     turns = bindings.derive_turn_bindings(
         config=config,
         visit_count=1,
     )
     return manager, executor, bindings, turns["worker_fresh"]
+
+
+def test_real_binding_preflights_bundles_through_retained_run_root(
+    tmp_path: Path,
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    manager, executor, bindings, turn = _real_member_binding(
+        tmp_path,
+        _provider_supervision_config(),
+        retain_run_root_fd=True,
+    )
+    try:
+        assert turn.provisional_bundle_path == (
+            Path(manager.io_run_root)
+            / "provider-supervision"
+            / "root.live"
+            / "visits"
+            / "1"
+            / "members"
+            / "worker"
+            / "turns"
+            / "fresh"
+            / "provisional-result.json"
+        )
+        run_files = executor._run_root_workspace_files()
+        try:
+            assert not run_files.exists(
+                turn.provisional_bundle_path.relative_to(manager.io_run_root)
+            )
+        finally:
+            run_files.close()
+        assert bindings._run_files is not None
+    finally:
+        manager.close()
 
 
 def _assert_guided_worker_contract_is_rebased_once(
@@ -2121,6 +2211,7 @@ def test_continue_real_binding_allocates_durable_attempts_and_validates_bundles(
         step_name="Live",
         runtime_step_id="root.live",
     )
+    _TEST_BINDINGS.append(bindings)
 
     result = ProviderSupervisionCoordinator(bindings).run_continue(
         config,
@@ -2224,6 +2315,46 @@ def test_continue_real_binding_allocates_durable_attempts_and_validates_bundles(
     }
 
 
+def test_member_path_contract_is_relative_to_the_pinned_run_root(
+    tmp_path: Path,
+) -> None:
+    from tests.test_provider_supervision_ir import (
+        _provider_supervision_config,
+    )
+
+    manager, _executor, bindings, turn = _real_member_binding(
+        tmp_path,
+        _provider_supervision_config(),
+    )
+    bundle_path = turn.provisional_bundle_path
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bundle_path.write_text('{"file":"artifact.txt"}\n', encoding="utf-8")
+    (manager.logical_run_root / "artifact.txt").write_text(
+        "member artifact\n",
+        encoding="utf-8",
+    )
+    bindings._contracts["worker_fresh"] = (
+        "output_bundle",
+        {
+            "path": "ignored-by-runtime",
+            "fields": [
+                {
+                    "name": "file",
+                    "json_pointer": "/file",
+                    "type": "relpath",
+                    "under": ".",
+                    "must_exist_target": True,
+                }
+            ],
+        },
+        {"kind": "record"},
+    )
+
+    assert bindings.validate_member_bundle(
+        SimpleNamespace(turn=turn)
+    ) == {"file": "artifact.txt"}
+
+
 def test_continue_real_binding_rejects_missing_compiler_prompt_snapshot_owner(
     tmp_path: Path,
 ) -> None:
@@ -2267,6 +2398,7 @@ def test_continue_real_binding_rejects_missing_compiler_prompt_snapshot_owner(
         step_name="Live",
         runtime_step_id="root.live",
     )
+    _TEST_BINDINGS.append(bindings)
 
     result = ProviderSupervisionCoordinator(bindings).run_continue(
         config,
@@ -2344,6 +2476,7 @@ def test_continue_real_binding_rejects_unusable_fresh_bundle_without_artifacts(
         step_name="Live",
         runtime_step_id="root.live",
     )
+    _TEST_BINDINGS.append(bindings)
 
     result = ProviderSupervisionCoordinator(bindings).run_continue(
         config,

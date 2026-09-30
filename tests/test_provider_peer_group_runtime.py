@@ -69,10 +69,21 @@ from orchestrator.workflow.provider_peer_group.protocol import (
     PeerProtocolEvent,
     PeerProtocolListener,
 )
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 
 _WAIT_SECONDS = 2.0
 _CLOSED = object()
+_TEST_RESULT_OWNERS: list[WorkspaceFiles] = []
+
+
+@pytest.fixture(autouse=True)
+def _close_test_result_owners():
+    start = len(_TEST_RESULT_OWNERS)
+    yield
+    for owner in reversed(_TEST_RESULT_OWNERS[start:]):
+        owner.close()
+    del _TEST_RESULT_OWNERS[start:]
 
 
 def _wait_until(predicate: Callable[[], bool]) -> None:
@@ -425,6 +436,13 @@ class _FakeBindings:
 
     def reportable_group_identity(self) -> None:
         return None
+
+    def result_bundle_exists(self, path: Path) -> bool:
+        owner = WorkspaceFiles(self.allocation.realized_paths.visit_root.parents[3])
+        try:
+            return owner.exists(path.relative_to(owner.workspace))
+        finally:
+            owner.close()
 
     def create_adapter(
         self,
@@ -1991,6 +2009,8 @@ def _workflow_peer_bindings(
     class _Executor:
         def __init__(self) -> None:
             self.workspace = tmp_path
+            self.workspace_files = WorkspaceFiles(tmp_path)
+            _TEST_RESULT_OWNERS.append(self.workspace_files)
             self.state_manager = manager
             self.provider_executor = ProviderExecutor(tmp_path, registry)
             self.dependency_injector = DependencyInjector(str(tmp_path))
@@ -2001,6 +2021,26 @@ def _workflow_peer_bindings(
                 asset_resolver=None,
             )
             self.finalized: list[dict[str, Any]] = []
+
+        def _run_root_workspace_files(self) -> WorkspaceFiles:
+            owner = WorkflowExecutor._run_root_workspace_files(
+                self,  # type: ignore[arg-type]
+            )
+            aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
+            if isinstance(aggregate_owner, WorkspaceFiles):
+                _TEST_RESULT_OWNERS.append(aggregate_owner)
+            _TEST_RESULT_OWNERS.append(owner)
+            return owner
+
+        def _aggregate_run_workspace_files(self) -> WorkspaceFiles:
+            owner = WorkflowExecutor._aggregate_run_workspace_files(
+                self,  # type: ignore[arg-type]
+            )
+            _TEST_RESULT_OWNERS.append(owner)
+            aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
+            if isinstance(aggregate_owner, WorkspaceFiles):
+                _TEST_RESULT_OWNERS.append(aggregate_owner)
+            return owner
 
         def _provider_attempt_scope(self, **kwargs: Any) -> Any:
             return WorkflowExecutor._provider_attempt_scope(

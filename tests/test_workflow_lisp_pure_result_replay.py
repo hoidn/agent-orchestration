@@ -25,6 +25,7 @@ from orchestrator.workflow.executable_ir import (
     workflow_executable_ir_to_json,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.predicates import ArtifactBoolPredicateNode
 from orchestrator.workflow.pure_expr import pure_expr_payload_digest
@@ -920,14 +921,19 @@ def _audit_replay_profile_checkpoints(
     manager: StateManager,
 ) -> None:
     assert manager.state is not None
-    pure_result_replay.PureReplayRuntime(
-        bundle=bundle,
-        scope_path=ResumeScopePath.root(manager.state.workflow_file),
-    ).audit_persisted_surfaces(
-        state=manager.state.to_dict(),
-        state_manager=manager,
-        resolve_bundle_path=lambda _node_id: None,
-    )
+    workspace_files = WorkspaceFiles(manager.workspace)
+    try:
+        pure_result_replay.PureReplayRuntime(
+            bundle=bundle,
+            scope_path=ResumeScopePath.root(manager.state.workflow_file),
+        ).audit_persisted_surfaces(
+            state=manager.state.to_dict(),
+            state_manager=manager,
+            workspace_files=workspace_files,
+            resolve_bundle_path=lambda _node_id: None,
+        )
+    finally:
+        workspace_files.close()
 
 
 def test_pure_result_replay_fixture_compiles_real_effect_barrier_spine(

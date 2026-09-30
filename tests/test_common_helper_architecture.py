@@ -346,9 +346,8 @@ ADMITTED_HELPER_MANIFEST = {
                 "ast:executor_atomic_write_text@"
                 "WorkflowExecutor._project_snapshot_record:"
                 "sidecar_path|payload:count=1",
-                "ast:executor_atomic_write_text@"
-                "WorkflowExecutor._execute_materialize_artifacts:"
-                "resolved_pointer|f\"{pointer_value}\\n\":count=1",
+                "ast:executor_workspace_files_atomic_write@"
+                "WorkflowExecutor._execute_materialize_artifacts:count=1",
             ),
         ),
         AdmittedHelperSurface(
@@ -377,9 +376,7 @@ ADMITTED_HELPER_MANIFEST = {
         AdmittedHelperSurface(
             "orchestrator/workflow/steps/materialize_view.py",
             patterns=(
-                "ast:runtime_atomic_write_bytes@execute_materialize_view:"
-                "target_path|rendered;"
-                "evidence_path|evidence_bytes:count=2",
+                "ast:workspace_files_atomic_write@execute_materialize_view:count=2",
             ),
         ),
         AdmittedHelperSurface(
@@ -981,10 +978,7 @@ def _method_call_count(
         and candidate.func.attr == method_name
         and (
             receiver_name is None
-            or (
-                isinstance(candidate.func.value, ast.Name)
-                and candidate.func.value.id == receiver_name
-            )
+            or _dotted_name(candidate.func.value) == receiver_name
         )
         for candidate in _walk_function_scope(node)
     )
@@ -1008,6 +1002,8 @@ def _atomic_pattern(
         "path_replace",
         "runtime_atomic_write_bytes",
         "runtime_atomic_write_text",
+        "workspace_files_atomic_write",
+        "executor_workspace_files_atomic_write",
     }:
         return None
     target = target_and_arguments.split(":", 1)[0]
@@ -1849,19 +1845,37 @@ def test_atomic_writers_use_the_exact_common_owner() -> None:
                     f"{surface.path}:{target} retains local atomic mechanics "
                     f"(temporary={temporary_count}, replace={replace_count})"
                 )
-            common_symbol = _atomic_common_symbol(kind)
-            owner_count = _imported_symbol_call_count(
-                surface.path,
-                node,
-                module_name=COMMON_IO_ATOMIC_MODULE,
-                symbol=common_symbol,
-            )
+            if kind in {
+                "workspace_files_atomic_write",
+                "executor_workspace_files_atomic_write",
+            }:
+                owner_count = _method_call_count(
+                    node,
+                    "write_atomic",
+                    receiver_name=(
+                        "self.workspace_files"
+                        if kind == "executor_workspace_files_atomic_write"
+                        else "runtime.workspace_files"
+                    ),
+                )
+                common_symbol = "WorkspaceFiles.write_atomic"
+            else:
+                common_symbol = _atomic_common_symbol(kind)
+                owner_count = _imported_symbol_call_count(
+                    surface.path,
+                    node,
+                    module_name=COMMON_IO_ATOMIC_MODULE,
+                    symbol=common_symbol,
+                )
             if owner_count != expected_count:
                 findings.append(
                     f"{surface.path}:{target} must call {common_symbol} "
                     f"exactly {expected_count} time(s); found {owner_count}"
                 )
-            if kind.startswith(("executor_atomic_", "runtime_atomic_")):
+            if kind.startswith(("executor_atomic_", "runtime_atomic_")) or kind in {
+                "workspace_files_atomic_write",
+                "executor_workspace_files_atomic_write",
+            }:
                 observed_direct_scopes.add((surface.path, target))
 
     if observed_direct_scopes != ATOMIC_DIRECT_CONSUMER_SCOPES:

@@ -15,6 +15,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle, lower_surface_workflow
 from orchestrator.workflow.references import MaterializeViewBindingReference
 from orchestrator.workflow.runtime_step import RuntimeStep
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.state_layout import (
     GeneratedPathAllocationRequest,
     GeneratedPathPrivacy,
@@ -637,10 +638,16 @@ def test_materialize_view_runtime_preserves_atomic_commit_when_target_write_fail
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text("old\n", encoding="utf-8")
 
-    def _boom(_path: Path, _content: bytes) -> None:
-        raise OSError("target write failed")
+    original_write_atomic = WorkspaceFiles.write_atomic
 
-    monkeypatch.setattr(materialize_view_module, "atomic_write_bytes", _boom)
+    def _boom(owner: WorkspaceFiles, path: Path, content: bytes, **kwargs) -> None:
+        if owner.relative(path) == Path(
+            "artifacts/work/materialized-summary.json"
+        ):
+            raise OSError("target write failed")
+        original_write_atomic(owner, path, content, **kwargs)
+
+    monkeypatch.setattr(WorkspaceFiles, "write_atomic", _boom)
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     runtime_step = executor._runtime_step_by_name("MaterializeView")
     assert runtime_step is not None
@@ -671,18 +678,21 @@ def test_materialize_view_runtime_preserves_atomic_commit_when_evidence_write_fa
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text("old\n", encoding="utf-8")
     evidence_path = tmp_path / "artifacts/work/.materialized-summary.json.materialize-view-evidence.json"
-    original_atomic_write_bytes = materialize_view_module.atomic_write_bytes
+    original_write_atomic = WorkspaceFiles.write_atomic
 
-    def _fail_evidence_write(path: Path, content: bytes) -> None:
-        if path == evidence_path:
+    def _fail_evidence_write(
+        owner: WorkspaceFiles,
+        path: Path,
+        content: bytes,
+        **kwargs,
+    ) -> None:
+        if owner.relative(path) == Path(
+            "artifacts/work/.materialized-summary.json.materialize-view-evidence.json"
+        ):
             raise OSError("evidence write failed")
-        original_atomic_write_bytes(path, content)
+        original_write_atomic(owner, path, content, **kwargs)
 
-    monkeypatch.setattr(
-        materialize_view_module,
-        "atomic_write_bytes",
-        _fail_evidence_write,
-    )
+    monkeypatch.setattr(WorkspaceFiles, "write_atomic", _fail_evidence_write)
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     runtime_step = executor._runtime_step_by_name("MaterializeView")
     assert runtime_step is not None
