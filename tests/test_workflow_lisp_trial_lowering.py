@@ -1133,3 +1133,108 @@ def test_trial_persisted_carriage_is_rejected_from_frozen_older_schemas(
         decode_persisted_workflow_surface_graph(
             canonical_persisted_surface_bytes(payload)
         )
+
+
+@pytest.mark.parametrize(
+    ("case", "replacement", "expected_code", "expected_values"),
+    (
+        ("reps_max", (":reps 2", ":reps 65"), "trial_reps_invalid", ("repetitions=65", "maximum_repetitions=64")),
+        ("reps_min", (":reps 2", ":reps 0"), "trial_reps_invalid", ("value=0", "minimum=1")),
+        (
+            "budget_relation",
+            (":max-evaluator-attempts 4", ":max-evaluator-attempts 1"),
+            "trial_budget_invalid",
+            ("max_evaluator_concurrency=2", "max_evaluator_attempts=1"),
+        ),
+        (
+            "packet_relation",
+            (":max-packet-bytes 8192", ":max-packet-bytes 2048"),
+            "trial_packet_limit_invalid",
+            ("max_packet_bytes=2048", "max_item_bytes=4096"),
+        ),
+        (
+            "concurrency",
+            (":max-concurrency 2", ":max-concurrency 33"),
+            "trial_concurrency_invalid",
+            ("concurrency=33", "maximum_concurrency=4", "cells=4"),
+        ),
+        (
+            "concurrency_32",
+            ("", ""),
+            "trial_concurrency_invalid",
+            ("concurrency=33", "maximum_concurrency=32", "cells=40"),
+        ),
+        (
+            "arm_min",
+            ("", ""),
+            "trial_arms_invalid",
+            ("arm count=0", "minimum_arms=2", "maximum_arms=16"),
+        ),
+        (
+            "cells",
+            ("", ""),
+            "trial_reps_invalid",
+            ("repetitions=64", "cells=320", "maximum_cells=256"),
+        ),
+        (
+            "negative_improvement_threshold",
+            (":min-abs-improvement 0.10", ":min-abs-improvement -1"),
+            "trial_evaluation_contract_invalid",
+            ("value=-1", "minimum=0"),
+        ),
+        (
+            "zero_cost_ratio_threshold",
+            (":max-cost-ratio 1.5", ":max-cost-ratio 0"),
+            "trial_evaluation_contract_invalid",
+            ("value=0", "minimum=greater than 0"),
+        ),
+    ),
+)
+def test_public_trial_compiler_bounds_print_actuals_and_limits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    case: str,
+    replacement: tuple[str, str],
+    expected_code: str,
+    expected_values: tuple[str, ...],
+) -> None:
+    from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_files
+
+    template = _write_trial_module(tmp_path).read_text(encoding="utf-8")
+    source = template.replace("trial_lowering", "grt/entry")
+    source = source.replace("(export compare first second)", "(export run first second)")
+    source = source.replace("(defworkflow compare () -> Value", "(defworkflow run () -> Value")
+    if case == "arm_min":
+        start = source.index("      :arms ")
+        end = source.index("      :reps", start)
+        source = source[:start] + "      :arms ()\n" + source[end:]
+    elif case == "cells":
+        start = source.index("      :arms ")
+        end = source.index("      :reps", start)
+        arms = " ".join(
+            f'(:id "arm{index}" :run-ref (run-ref :source '
+            f'(:repo "file:///workspace" :commit "{COMMIT_A}") '
+            ":program (:bundle first) :inputs () :policy (:setup ())))"
+            for index in range(5)
+        )
+        source = source[:start] + f"      :arms ({arms})\n" + source[end:]
+        source = source.replace(":reps 2", ":reps 64")
+    elif case == "concurrency_32":
+        source = source.replace(":reps 2", ":reps 20")
+        source = source.replace(":max-concurrency 2", ":max-concurrency 33")
+    else:
+        source = source.replace(*replacement)
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    files = _public_run_files(tmp_path, {})
+    files["providers"].write_text(json.dumps({"scorer": "test-provider"}), encoding="utf-8")
+    files["prompts"].write_text(json.dumps({"trial-rubric": "rubrics/trial.md"}), encoding="utf-8")
+
+    result = _public_run(files)
+
+    assert result.exit_code == 2
+    assert expected_code in caplog.text
+    assert all(value in caplog.text for value in expected_values)

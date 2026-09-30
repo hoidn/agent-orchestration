@@ -86,7 +86,7 @@ def _require_exact_mapping(
 
 def _require_positive_int(value: object, *, context: str) -> int:
     if type(value) is not int or value <= 0:
-        raise ValueError(f"{context} must be a positive integer")
+        raise ValueError(f"{context} value={value!r}; minimum=1")
     return value
 
 
@@ -168,7 +168,11 @@ def _validate_evaluation(value: object) -> dict[str, Any]:
         row["max_packet_bytes"], context="trial max packet bytes"
     )
     if max_packet_bytes < max_item_bytes:
-        raise ValueError("trial packet bytes must cover one item")
+        raise ValueError(
+            "trial packet byte cap must cover one item; "
+            f"max_packet_bytes={max_packet_bytes}, "
+            f"minimum_max_packet_bytes={max_item_bytes}"
+        )
     includes = row["observation_include"]
     if not isinstance(includes, (list, tuple)) or any(
         not isinstance(item, str) or item not in _OBSERVATION_INCLUDES
@@ -228,7 +232,11 @@ def _validate_budget(value: object) -> dict[str, int]:
         for name, raw in row.items()
     }
     if normalized["max_evaluator_concurrency"] > normalized["max_evaluator_attempts"]:
-        raise ValueError("trial evaluator concurrency exceeds attempts")
+        raise ValueError(
+            "trial evaluator concurrency exceeds its attempt limit; "
+            f"max_evaluator_concurrency={normalized['max_evaluator_concurrency']}, "
+            f"max_evaluator_attempts={normalized['max_evaluator_attempts']}"
+        )
     return normalized
 
 
@@ -326,20 +334,34 @@ def build_trial_static_config(
     if not isinstance(arms, tuple) or not 2 <= len(arms) <= 16 or any(
         not isinstance(arm, TrialArmStaticConfig) for arm in arms
     ):
-        raise ValueError("trial requires 2-16 typed static arms")
+        arm_count = len(arms) if isinstance(arms, tuple) else "invalid"
+        raise ValueError(
+            "trial arm count is outside its supported bounds; "
+            f"arm_count={arm_count}, minimum_arms=2, maximum_arms=16"
+        )
     arm_ids = tuple(arm.arm_id for arm in arms)
     if len(set(arm_ids)) != len(arm_ids):
         raise ValueError("trial arm ids must be unique")
     if any(arm.run_ref.target_dsl_version != target_dsl_version for arm in arms):
         raise ValueError("trial arm run-ref targets must match the trial target")
     if type(reps) is not int or not 1 <= reps <= 64 or len(arms) * reps > 256:
-        raise ValueError("trial repetition count is invalid")
+        raise ValueError(
+            "trial repetition count is outside its bounds; "
+            f"repetitions={reps!r}, minimum_repetitions=1, maximum_repetitions=64; "
+            f"cells={len(arms) * reps if type(reps) is int else 'invalid'}, "
+            "maximum_cells=256"
+        )
     if (
         type(max_concurrency) is not int
         or not 1 <= max_concurrency <= 32
         or max_concurrency > len(arms) * reps
     ):
-        raise ValueError("trial concurrency is invalid")
+        cells = len(arms) * reps if type(reps) is int else 0
+        raise ValueError(
+            "trial concurrency is outside its bounds; "
+            f"concurrency={max_concurrency!r}, minimum_concurrency=1, "
+            f"maximum_concurrency={min(32, cells)}, cells={cells}"
+        )
     normalized_evaluation = _validate_evaluation(evaluation)
     normalized_budget = _validate_budget(budget)
     descriptor_row = _require_exact_mapping(

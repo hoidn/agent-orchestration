@@ -328,6 +328,7 @@ def validate_pure_expr_payload(
     payload: Mapping[str, Any],
     *,
     max_nodes: int = DEFAULT_PURE_EXPR_MAX_NODES,
+    diagnostic_sources: Mapping[int, tuple[str, str, int, int]] | None = None,
 ) -> Mapping[str, Any]:
     """Validate one pure-expression payload and raise on structural violations."""
 
@@ -363,17 +364,46 @@ def validate_pure_expr_payload(
             _coerce_value(spec["value"], spec["type"], context=f"bindings.{name}.value")
 
     expr = payload.get("expr")
+    subtree_counts: dict[int, int] = {}
     node_count = _validate_expr_node(
         expr,
         bindings=bindings,
         schema_version=schema_version,
         local_bindings={},
+        diagnostic_sources=diagnostic_sources,
+        subtree_counts=subtree_counts,
     )
     if node_count > max_nodes:
+        contributors = _largest_pure_expr_contributors(
+            diagnostic_sources or {}, subtree_counts
+        )
+        contributor_text = ""
+        if contributors:
+            contributor_text = "; largest subexpressions: " + "; ".join(
+                f"{kind} at {path}:{line}:{column} nodes={count}"
+                for kind, path, line, column, count in contributors
+            )
         _raise(
             "pure_expr_payload_too_large",
-            "pure-expression payload exceeds the maximum node count",
-            metadata={"node_count": node_count, "max_nodes": max_nodes},
+            (
+                "pure-expression payload exceeds its node limit: "
+                f"node_count={node_count}, max_nodes={max_nodes}"
+                f"{contributor_text}"
+            ),
+            metadata={
+                "node_count": node_count,
+                "max_nodes": max_nodes,
+                "contributors": [
+                    {
+                        "expression": kind,
+                        "path": path,
+                        "line": line,
+                        "column": column,
+                        "node_count": count,
+                    }
+                    for kind, path, line, column, count in contributors
+                ],
+            },
         )
     derived_result_type = _derive_static_expr_type(
         expr,
@@ -602,12 +632,60 @@ def _validate_field_descriptor_list(fields: Any, *, context: str) -> None:
         _validate_type_descriptor(field.get("type"), context=f"{context}[{index}].type")
 
 
+def _largest_pure_expr_contributors(
+    diagnostic_sources: Mapping[int, tuple[str, str, int, int]],
+    subtree_counts: Mapping[int, int],
+) -> list[tuple[str, str, int, int, int]]:
+    """Return the largest source-backed payload subtrees in stable order."""
+
+    by_location: dict[tuple[str, str, int, int], int] = {}
+    for node_id, (kind, path, line, column) in diagnostic_sources.items():
+        count = subtree_counts.get(node_id)
+        if count is None:
+            continue
+        key = (kind, path, line, column)
+        by_location[key] = max(count, by_location.get(key, 0))
+    ranked = sorted(
+        (
+            (kind, path, line, column, count)
+            for (kind, path, line, column), count in by_location.items()
+        ),
+        key=lambda item: (-item[4], item[1], item[2], item[3], item[0]),
+    )
+    return ranked[:3]
+
+
 def _validate_expr_node(
     node: Any,
     *,
     bindings: Mapping[str, Any],
     schema_version: int,
     local_bindings: Mapping[str, Mapping[str, Any]],
+    diagnostic_sources: Mapping[int, tuple[str, str, int, int]] | None = None,
+    subtree_counts: dict[int, int] | None = None,
+) -> int:
+    count = _validate_expr_node_impl(
+        node,
+        bindings=bindings,
+        schema_version=schema_version,
+        local_bindings=local_bindings,
+        diagnostic_sources=diagnostic_sources,
+        subtree_counts=subtree_counts,
+    )
+    if diagnostic_sources is not None and subtree_counts is not None:
+        if id(node) in diagnostic_sources:
+            subtree_counts[id(node)] = count
+    return count
+
+
+def _validate_expr_node_impl(
+    node: Any,
+    *,
+    bindings: Mapping[str, Any],
+    schema_version: int,
+    local_bindings: Mapping[str, Mapping[str, Any]],
+    diagnostic_sources: Mapping[int, tuple[str, str, int, int]] | None,
+    subtree_counts: dict[int, int] | None,
 ) -> int:
     if not isinstance(node, Mapping):
         _raise("pure_expr_payload_invalid", "pure-expression nodes must be mappings")
@@ -636,6 +714,8 @@ def _validate_expr_node(
             bindings=bindings,
             schema_version=schema_version,
             local_bindings=child_locals,
+            diagnostic_sources=diagnostic_sources,
+            subtree_counts=subtree_counts,
         )
 
     if kind == "literal":
@@ -2119,7 +2199,10 @@ def _checked_int(value: int) -> int:
     if value < INT64_MIN or value > INT64_MAX:
         _raise(
             "pure_expr_overflow",
-            "pure-expression integer arithmetic overflowed 64-bit bounds",
+            (
+                "pure-expression integer arithmetic exceeded signed 64-bit bounds: "
+                f"value={value}, minimum={INT64_MIN}, maximum={INT64_MAX}"
+            ),
             metadata={"min": INT64_MIN, "max": INT64_MAX, "value": value},
         )
     return value

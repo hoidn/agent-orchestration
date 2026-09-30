@@ -425,8 +425,9 @@ def _validated_live_provider_peer_bindings(
     if not 2 <= len(expr.bindings) <= MAX_STATIC_LIVE_PROVIDER_PEERS:
         raise_error(
             (
-                "`with-live-provider-peers` requires between two and "
-                f"{MAX_STATIC_LIVE_PROVIDER_PEERS} bindings"
+                "`with-live-provider-peers` binding count must be within its bounds; "
+                f"value={len(expr.bindings)}, minimum=2, "
+                f"maximum={MAX_STATIC_LIVE_PROVIDER_PEERS}"
             ),
             code="with_live_provider_peers_bindings_invalid",
             span=expr.span,
@@ -828,7 +829,15 @@ def typecheck_provider_result_expr(
                     else None
                 )
             raise_error(
-                "`provider-result :materialization-attempts` requires an integer literal in 1..3",
+                (
+                    "`provider-result :materialization-attempts` requires an integer "
+                    "literal in 1..3; "
+                    + (
+                        f"value={attempts.value}, minimum=1, maximum=3"
+                        if reason == "attempts_out_of_range"
+                        else "minimum=1, maximum=3"
+                    )
+                ),
                 code="provider_phased_delivery_policy_invalid",
                 span=attempts.span,
                 form_path=attempts.form_path,
@@ -1060,7 +1069,10 @@ def typecheck_provider_result_expr(
             )
         if expr.timeout_sec.value <= 0:
             raise_error(
-                "`provider-result :timeout-sec` must be greater than zero",
+                (
+                    "`provider-result :timeout-sec` must be positive; "
+                    f"value={expr.timeout_sec.value}, minimum=1"
+                ),
                 code="provider_result_timeout_nonpositive",
                 span=expr.timeout_sec.span,
                 form_path=expr.timeout_sec.form_path,

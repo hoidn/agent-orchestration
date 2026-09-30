@@ -750,7 +750,12 @@ def build_trial_evaluation_packet(
                 "max_item_bytes": max_item_bytes,
                 "max_packet_bytes": max_packet_bytes,
             },
-            "trial packet byte limits are invalid",
+            (
+                "trial packet byte limits are outside their bounds; "
+                f"max_item_bytes={max_item_bytes!r}, minimum=1; "
+                f"max_packet_bytes={max_packet_bytes!r}, "
+                f"minimum_max_packet_bytes={max_item_bytes!r}"
+            ),
         )
 
     items: list[dict[str, Any]] = []
@@ -773,11 +778,15 @@ def build_trial_evaluation_packet(
             sealed_identity_values=sealed_identity_values,
         )
         item = {"id": name, "kind": name, "value": value}
-        if len(_canonical_bytes(item)) > max_item_bytes:
+        item_bytes = len(_canonical_bytes(item))
+        if item_bytes > max_item_bytes:
             _fail(
                 "trial_packet_limit_invalid",
                 name,
-                f"trial packet item {name!r} exceeds max_item_bytes",
+                (
+                    f"trial packet item {name!r} exceeds its byte limit; "
+                    f"item_bytes={item_bytes}, max_item_bytes={max_item_bytes}"
+                ),
             )
         items.append(item)
     if not items:
@@ -793,11 +802,15 @@ def build_trial_evaluation_packet(
         "citable_item_ids": [item["id"] for item in items],
     }
     packet_bytes = _canonical_bytes(packet)
-    if len(packet_bytes) > max_packet_bytes:
+    packet_size = len(packet_bytes)
+    if packet_size > max_packet_bytes:
         _fail(
             "trial_packet_limit_invalid",
-            len(packet_bytes),
-            "trial evaluation packet exceeds max_packet_bytes",
+            packet_size,
+            (
+                "trial evaluation packet exceeds its byte limit; "
+                f"packet_bytes={packet_size}, max_packet_bytes={max_packet_bytes}"
+            ),
         )
     return packet
 
@@ -1058,27 +1071,45 @@ def validate_trial_cell_evaluation_packet(
             if _canonical_bytes(bounded) != _canonical_bytes(
                 value["normalized_diff"]
             ):
+                diff_text_bytes = sum(
+                    len(entry["text"].encode("utf-8"))
+                    for entry in value["normalized_diff"]["entries"]
+                )
                 _fail(
                     "trial_packet_limit_invalid",
                     "workspace_delta.normalized_diff",
-                    "trial packet normalized diff exceeds its configured cap",
+                    (
+                        "trial packet normalized diff exceeds its configured cap; "
+                        f"diff_text_bytes={diff_text_bytes}, "
+                        f"diff_cap_bytes={evaluation['diff_cap_bytes']}"
+                    ),
                 )
         _validate_nonexempt_blinding(
             name=name,
             value=value,
             sealed_identity_values=sealed,
         )
-        if len(_canonical_bytes(item)) > evaluation["max_item_bytes"]:
+        item_bytes = len(_canonical_bytes(item))
+        if item_bytes > evaluation["max_item_bytes"]:
             _fail(
                 "trial_packet_limit_invalid",
                 name,
-                f"trial packet item {name!r} exceeds max_item_bytes",
+                (
+                    f"trial packet item {name!r} exceeds its byte limit; "
+                    f"item_bytes={item_bytes}, "
+                    f"max_item_bytes={evaluation['max_item_bytes']}"
+                ),
             )
-    if len(_canonical_bytes(normalized)) > evaluation["max_packet_bytes"]:
+    packet_bytes = len(_canonical_bytes(normalized))
+    if packet_bytes > evaluation["max_packet_bytes"]:
         _fail(
             "trial_packet_limit_invalid",
-            len(_canonical_bytes(normalized)),
-            "trial evaluation packet exceeds max_packet_bytes",
+            packet_bytes,
+            (
+                "trial evaluation packet exceeds its byte limit; "
+                f"packet_bytes={packet_bytes}, "
+                f"max_packet_bytes={evaluation['max_packet_bytes']}"
+            ),
         )
     return normalized
 

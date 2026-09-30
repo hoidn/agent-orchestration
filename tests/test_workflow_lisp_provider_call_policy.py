@@ -657,6 +657,40 @@ def test_timeout_provider_call_policy_enforces_literal_type_and_positive_domain(
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == expected_code
     assert diagnostic.span.start.offset == source.index(operand)
+    if operand in {"0", "-1"}:
+        assert f"value={operand}" in diagnostic.message
+        assert "minimum=1" in diagnostic.message
+
+
+def test_public_run_displays_provider_timeout_value_and_minimum(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_files
+
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text(
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.15\") "
+        "(defmodule grt/entry) (export run) "
+        "(defworkflow run () -> Bool "
+        "(provider-result providers.execute :prompt prompts.execute :inputs () "
+        ":timeout-sec 0 :returns Bool)))",
+        encoding="utf-8",
+    )
+    (tmp_path / "prompt.md").write_text("prompt", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    files = _public_run_files(tmp_path, {})
+    files["providers"].write_text('{"providers.execute":"test-provider"}', encoding="utf-8")
+    files["prompts"].write_text('{"prompts.execute":"prompt.md"}', encoding="utf-8")
+
+    result = _public_run(files)
+
+    assert result.exit_code == 2
+    assert "provider_result_timeout_nonpositive" in caplog.text
+    assert "value=0" in caplog.text
+    assert "minimum=1" in caplog.text
 
 
 def test_traversal_provider_call_policy_visits_model_and_effort_but_not_literal_timeout() -> None:

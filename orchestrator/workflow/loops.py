@@ -1385,7 +1385,12 @@ class LoopExecutor:
 
                 exhaustion_error = {
                     "type": "repeat_until_iterations_exhausted",
-                    "message": "repeat_until exhausted max_iterations before condition became true",
+                    "message": (
+                        "repeat_until exhausted before its condition became true: "
+                        f"last_iteration={current_iteration}, "
+                        f"completed_iterations={current_iteration + 1}, "
+                        f"max_iterations={max_iterations}"
+                    ),
                     "context": {
                         "max_iterations": max_iterations,
                         "last_iteration": current_iteration,

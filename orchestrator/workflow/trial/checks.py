@@ -105,7 +105,9 @@ def _normalized_checks(
         if type(check["required"]) is not bool:
             raise TrialCheckError("trial check required flag must be boolean")
         if type(check["timeout_ms"]) is not int or check["timeout_ms"] < 1:
-            raise TrialCheckError("trial check timeout must be positive")
+            raise TrialCheckError(
+                f"trial check timeout value={check['timeout_ms']!r}; minimum=1"
+            )
         check["command"] = list(command)
         seen.add(check_id)
         normalized.append((index, check))
