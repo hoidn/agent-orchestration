@@ -170,9 +170,9 @@ def validate(tree: dict[str, Any]) -> None:
     """Names are bound where used, jumps and continues have a target, every effect has one unique site
     (within its definition, in the table form)."""
 
-    _Validator().body(tree["body"], frozenset(name for name, _ in tree["params"]), frozenset(), False)
+    _Validator().body(tree["body"], frozenset(name for name, _ in tree["params"]), frozenset(), None)
     for definition in tree.get("definitions", {}).values():
-        _Validator().body(definition["body"], frozenset(definition["params"]), frozenset(), False)
+        _Validator().body(definition["body"], frozenset(definition["params"]), frozenset(), None)
 
 
 def _value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -210,7 +210,7 @@ class _Validator:
                     inner = inner | {let["name"]}
                 self.value(arm["value"], inner)
         elif kind == "block":
-            self.body(node["body"], names, frozenset(), False)
+            self.body(node["body"], names, frozenset(), None)
         for child in _value_children(node):
             self.value(child, names)
 
@@ -226,11 +226,11 @@ class _Validator:
             for item in node["args"]:
                 self.value(item, names)
             if "body" in node:
-                self.body(node["body"], frozenset(node["params"]), frozenset(), False)
+                self.body(node["body"], frozenset(node["params"]), frozenset(), None)
         else:
             self.value(node, names)
 
-    def body(self, node: dict[str, Any], names: frozenset[str], joins: frozenset[str], in_loop: bool) -> None:
+    def body(self, node: dict[str, Any], names: frozenset[str], joins: frozenset[str], loop: str | None) -> None:
         while node["k"] == "let":
             self.bound(node["value"], names)
             names = names | {node["name"]}
@@ -238,38 +238,38 @@ class _Validator:
         tail = getattr(self, "tail_" + node["k"], None)
         if tail is None:
             raise CheckedFormError(f"unknown node kind `{node['k']}`")
-        tail(node, names, joins, in_loop)
+        tail(node, names, joins, loop)
 
-    def tail_halt(self, node, names, joins, in_loop) -> None:
+    def tail_halt(self, node, names, joins, loop) -> None:
         self.value(node["value"], names)
 
     tail_done = tail_halt
 
-    def tail_jump(self, node, names, joins, in_loop) -> None:
-        if (node["k"] == "jump" and node["join"] not in joins) or (node["k"] == "continue" and not in_loop):
-            raise CheckedFormError(f"`{node['k']}` without an enclosing target")
+    def tail_jump(self, node, names, joins, loop) -> None:
+        if (node["k"] == "jump" and node["join"] not in joins) or (node["k"] == "continue" and node["loop"] != loop):
+            raise CheckedFormError(f"`{node['k']}` does not name its enclosing target")
         for item in node["args"]:
             self.value(item, names)
 
     tail_continue = tail_jump
 
-    def tail_if(self, node, names, joins, in_loop) -> None:
+    def tail_if(self, node, names, joins, loop) -> None:
         self.value(node["cond"], names)
-        self.body(node["then"], names, joins, in_loop)
-        self.body(node["else"], names, joins, in_loop)
+        self.body(node["then"], names, joins, loop)
+        self.body(node["else"], names, joins, loop)
 
-    def tail_case(self, node, names, joins, in_loop) -> None:
+    def tail_case(self, node, names, joins, loop) -> None:
         self.value(node["subject"], names)
         for arm in node["arms"]:
-            self.body(arm["body"], names | {arm["bind"]}, joins, in_loop)
+            self.body(arm["body"], names | {arm["bind"]}, joins, loop)
 
-    def tail_join(self, node, names, joins, in_loop) -> None:
-        self.body(node["body"], names, joins | {node["name"]}, in_loop)
-        self.body(node["cont"], names | set(node["params"]), joins, in_loop)
+    def tail_join(self, node, names, joins, loop) -> None:
+        self.body(node["body"], names, joins | {node["name"]}, loop)
+        self.body(node["cont"], names | set(node["params"]), joins, loop)
 
-    def tail_loop(self, node, names, joins, in_loop) -> None:
+    def tail_loop(self, node, names, joins, loop) -> None:
         self.value(node["budget"], names)
         self.value(node["init"], names)
-        self.body(node["body"], names | {node["param"]}, frozenset(), True)
+        self.body(node["body"], names | {node["param"]}, frozenset(), node["name"])
         if node["exhausted"] is not None:
-            self.body(node["exhausted"], names | {node["param"]}, frozenset(), False)
+            self.body(node["exhausted"], names | {node["param"]}, frozenset(), None)

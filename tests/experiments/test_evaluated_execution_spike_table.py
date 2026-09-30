@@ -167,3 +167,28 @@ def test_an_effectful_call_as_the_argument_of_an_effectful_call_typechecks_and_i
 
     with pytest.raises(TypeError, match="unsupported WCC elaboration node: ProcedureCallExpr"):
         build(tmp_path, {"spk/identity_base.orc": nested})
+
+
+def test_the_checked_form_refuses_a_continue_that_names_another_loop(tmp_path: Path) -> None:
+    """P5: a `continue` must name the loop it is in (review finding 5)."""
+
+    from experiments.evaluated_execution_spike.sites import CheckedFormError, validate
+
+    closed = build(tmp_path, {"spk/loop_in_loop.orc": (FIXTURES / "loop_in_loop.orc").read_text(encoding="utf-8")})
+    loops, continues = [], []
+
+    def walk(node):
+        if isinstance(node, dict):
+            (loops if node.get("k") == "loop" else continues if node.get("k") == "continue" else []).append(node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(closed.tree)
+    inner_continue = next(c for c in continues if c["loop"] == loops[1]["name"])
+    inner_continue["loop"] = loops[0]["name"]
+
+    with pytest.raises(CheckedFormError, match="does not name its enclosing target"):
+        validate(closed.tree)
