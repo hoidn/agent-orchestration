@@ -638,7 +638,7 @@ runtime evaluator.
 | Ordering | `<`, `<=`, `>`, `>=` | `Int` with `Int`; `Float` with `Float` | iteration and attempt bounds |
 | Boolean | `and`, `or`, `not` | `Bool` operands | compound routing conditions |
 | Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` operands, `Int` result | iteration/item counting |
-| Arithmetic, target 2.34 | the above, `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log` | all `Int` or all `Float` operands, same-type result; `/` and `float/` operators `Float` only | selection score of the search controller ([numeric surface](workflow_lisp_numeric_surface.md) §4) |
+| Arithmetic, target 2.34 | `+`, `-`, `*`, `min`, `max`; `/`, `float/abs`, `float/sqrt`, `float/log`; `int/div`, `int/mod` | `+ - * min max`: all `Int` or all `Float` operands, same-type result; `/` and the `float/` operators: `Float` only; `int/div` and `int/mod`: `Int` only | selection score of the search controller ([numeric surface](workflow_lisp_numeric_surface.md) §4) |
 | Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | explicit `Int`/`Float` conversion | same fixture |
 | String | `string/concat`, `string/empty?`, `symbol/name` | strings/symbols only | reason/summary construction |
 | Option | `some?`, `or-else` | `Optional[T]`; fallback type `T` | optional defaults |
