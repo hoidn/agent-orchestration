@@ -24,6 +24,7 @@ from orchestrator.workflow.run_ref.config import (
     encode_run_ref_static_config,
 )
 from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
+from orchestrator.workflow.trial.config import TrialArmStaticConfig, build_trial_static_config, encode_trial_static_config
 from orchestrator.workflow.view_renderer import resolve_default_view_renderer
 from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.wcc import model as w
@@ -44,6 +45,8 @@ def translate_perform(builder: Any, perform: w.WccPerform, d: Any, env: dict[str
         return {**node, "class": "request_input", "question": builder.value(perform.positional_args[0], d, env)}
     if kind == "run_ref":
         return {**node, **_run_ref(builder, perform, d, env)}
+    if kind == "trial":
+        return {**node, **_trial(builder, perform, d, env)}
     raise ClosedProgramGap("P3", f"effect class `{kind}` has no performer in the spike")
 
 
@@ -61,16 +64,41 @@ def _run_ref(builder: Any, perform: w.WccPerform, d: Any, env: dict[str, Any]) -
     payload = perform.operation_payload
     if not isinstance(payload.program, PathProgram):
         raise ClosedProgramGap("P3", "a bundle-mode run-ref needs the build's capsule, which the spike does not build")
+    config = _run_ref_config(builder, payload)
+    values = dict(perform.keyword_args)
+    return {"class": "run_ref", "config": base64.b64encode(encode_run_ref_static_config(config)).decode("ascii"),
+            "inputs": [[name, builder.value(values[name], d, env)] for name, _ in payload.input_type_descriptors],
+            "repeat": "rerun"}
+
+
+def _run_ref_config(builder: Any, payload: Any) -> Any:
     rows = tuple(RunRefInput(name=name, type_descriptor=descriptor, binding=ReferenceBinding(f"inputs.{name}"))
                  for name, descriptor in payload.input_type_descriptors)
-    config = build_run_ref_static_config(
+    return build_run_ref_static_config(
         compiler_runtime_identity_digest=_compiler_runtime_identity(), site_digest=payload.site_digest,
         source=payload.source, program=payload.program, inputs=rows, result_descriptor=payload.result_descriptor,
         result_digest=payload.result_digest, target_dsl_version=builder.typed.target,
     )
+
+
+def _trial(builder: Any, perform: w.WccPerform, d: Any, env: dict[str, Any]) -> dict[str, Any]:
+    """A trial: the runtime's static configuration, built as lowering builds it, each arm a run reference whose
+    inputs are `inputs.<name>`; its dynamic inputs by keyword. The arms' capsule is the coordinator's."""
+
+    payload = perform.operation_payload
+    arms = tuple(TrialArmStaticConfig(arm_id=arm.arm_id, run_ref=_run_ref_config(builder, arm.run_ref))
+                 for arm in payload.arms)
+    config = build_trial_static_config(
+        compiler_runtime_identity_digest=_compiler_runtime_identity(), site_digest=payload.site_digest, arms=arms,
+        reps=payload.reps, max_concurrency=payload.max_concurrency, evaluation=payload.evaluation,
+        budget=payload.budget, result_descriptor=payload.result_descriptor, result_digest=payload.result_digest,
+        target_dsl_version=builder.typed.target,
+    )
     values = dict(perform.keyword_args)
-    return {"class": "run_ref", "config": base64.b64encode(encode_run_ref_static_config(config)).decode("ascii"),
-            "inputs": [[name, builder.value(values[name], d, env)] for name, _ in payload.input_type_descriptors],
+    keywords = [(arm.arm_id, name, keyword) for arm in payload.arms for name, keyword in arm.input_keywords]
+    return {"class": "trial", "config": base64.b64encode(encode_trial_static_config(config)).decode("ascii"),
+            "arm_inputs": [list(row) for row in keywords],
+            "inputs": [[keyword, builder.value(values[keyword], d, env)] for _, _, keyword in keywords],
             "repeat": "rerun"}
 
 

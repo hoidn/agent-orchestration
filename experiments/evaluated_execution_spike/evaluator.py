@@ -394,7 +394,7 @@ class _Evaluator:
             return self.resolve_provider(node, env)
         if node["class"] == "request_input":
             return {"class": node["class"], "question": self.value(node["question"], env)}
-        if node["class"] == "run_ref":
+        if node["class"] in ("run_ref", "trial"):
             return {"class": node["class"], "inputs": {name: self.value(v, env) for name, v in node.get("inputs", [])}}
         return {"class": node["class"], "inputs": [self.value(v, env) for v in node.get("inputs", [])]}
 
