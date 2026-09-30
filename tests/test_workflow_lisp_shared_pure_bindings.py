@@ -231,7 +231,19 @@ def test_mlevolve_search_controller_runs_through_the_public_entrypoint(
 
     assert result.exit_code == 2
     assert "workflow_boundary_type_invalid" in caplog.text
-    assert "mlevolve_pair/search.orc:91:25:" in caplog.text
-    assert "mlevolve_pair/search.orc:38:3" in caplog.text
+    # The locations are read from the controller's source, so that an edit of it does not move them.
+    lines = source.read_text(encoding="utf-8").splitlines()
+    refused = next(
+        (number, line.index("(result state") + 1)
+        for number, line in enumerate(lines, 1)
+        if ":on-exhausted (result state" in line
+    )
+    helper = next(
+        (number, line.index("(defun result") + 1)
+        for number, line in enumerate(lines, 1)
+        if "(defun result" in line
+    )
+    assert f"mlevolve_pair/search.orc:{refused[0]}:{refused[1]}:" in caplog.text
+    assert f"mlevolve_pair/search.orc:{helper[0]}:{helper[1]}" in caplog.text
     assert "pure_expr_payload_too_large" not in caplog.text
     assert node_counts and max(node_counts) <= 256
