@@ -2,7 +2,10 @@
 
 ## Metadata
 
-- **Status:** proposed target; not implemented and not current syntax
+- **Status:** implemented at target 2.34 (`specs/versioning.md`, v2.34
+  additions), except that a refusal at run time points at the generated
+  step's pure region, not at the failing application (N4). Targets through
+  2.33 keep the behaviour of section 2
 - **Kind:** pure expression surface and boundary contract
 - **Owner:** Workflow Lisp frontend; pure expression catalog
 - **Created:** 2026-09-29
@@ -32,6 +35,9 @@ This design adds a closed decimal arithmetic. It has four parts.
 | Finite values | A `Float` is always finite. An operation or a boundary that would produce another value refuses |
 
 ## 2. What Exists
+
+The facts when the design was written. At targets through 2.33 the rows on
+behaviour still hold; the type rules now live once, in the catalog (N8).
 
 | Fact | Source |
 | --- | --- |
