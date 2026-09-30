@@ -33,7 +33,9 @@ N8), [execution facts](../reports/2026-09-29-workflow-lisp-execution-facts.md),
 
 ## Status, Authorities, And Scope
 
-Status: Phases 0 and 1 selected. The owner approved on 2026-09-29 the spike
+Status: Phases 0 and 1 are complete; the report for gate G1 is
+[the spike report](../reports/2026-09-29-evaluated-execution-spike.md).
+Phases 0 and 1 were selected as follows. The owner approved on 2026-09-29 the spike
 of Phase 1, the repairs of the
 [shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
 and decisions 1 to 4 below. Phases 2 to 7 wait for gate G1.
@@ -108,7 +110,7 @@ policy that schedules work as each result arrives.
 
 ### Task 0: Target 2.34 Exists
 
-- [ ] Complete
+- [x] Complete
 
 Decision 1. Tasks 3, 4 and 6 start from this task's commit.
 
@@ -131,7 +133,7 @@ targets), `orchestrator/workflow/validation.py`,
 
 ### Task 1: A Refusal Prints What It Refused
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow/pure_expr.py`
 (`validate_pure_expr_payload`), `orchestrator/workflow_lisp/lowering/pure_projection.py`
@@ -151,7 +153,7 @@ targets), `orchestrator/workflow/validation.py`,
 
 ### Task 2: A Bound Value Is Shared In A Pure Payload
 
-- [ ] Complete
+- [x] Complete
 
 Interim repair of the flat route. Decision 2.
 
@@ -176,7 +178,7 @@ Interim repair of the flat route. Decision 2.
 
 ### Task 3: Decimal Literals In Expressions
 
-- [ ] Complete
+- [x] Complete
 
 Numeric surface, rule N1.
 
@@ -194,7 +196,7 @@ a decimal literal only as a parameter default).
 
 ### Task 4: Finite Values At Every Boundary
 
-- [ ] Complete
+- [x] Complete
 
 Numeric surface, rules N6 and N7.
 
@@ -212,7 +214,7 @@ fields, expected outputs), `orchestrator/workflow/signatures.py`,
 
 ### Task 5: What `.orc` Runs Today
 
-- [ ] Complete
+- [x] Complete
 
 Runs with Task 10 of the shared defect repairs plan, which edits the same
 three documents, after Tasks 2, 3 and 6 of this plan.
@@ -237,7 +239,7 @@ D and E; `docs/orc_workflow_design_lessons.md`.
 
 ### Task 6: Numeric Operators
 
-- [ ] Complete
+- [x] Complete
 
 Numeric surface, rules N2 to N5 and N8. Decision 3.
 
@@ -262,7 +264,7 @@ type rules, about line 4180).
 
 ### Task 7: The Search Controller As A Fixture
 
-- [ ] Complete
+- [x] Complete
 
 **Read:** the paired comparison under `experiments/mlevolve_pair/`, its
 report and its report of limits, once their author commits them.
@@ -282,7 +284,7 @@ Throwaway code under the directory of decision 4. Not wired to
 
 ### Task 8: The Closed Program, For The Spike's Programs
 
-- [ ] Complete
+- [x] Complete
 
 **Read/trace:** `orchestrator/workflow_lisp/wcc/model.py`,
 `wcc/elaborate.py`, `wcc/anf.py`, the execution facts, section A.
@@ -299,7 +301,7 @@ Throwaway code under the directory of decision 4. Not wired to
 
 ### Task 9: Evaluator, Memo And Resume
 
-- [ ] Complete
+- [x] Complete
 
 **Create:** spike code and tests in the module of Task 8.
 
@@ -314,9 +316,9 @@ Throwaway code under the directory of decision 4. Not wired to
 
 ### Task 10: Run The Fixtures And Report
 
-- [ ] Complete
+- [x] Complete
 
-**Create:** `docs/reports/<date>-evaluated-execution-spike.md`.
+**Create:** `docs/reports/2026-09-29-evaluated-execution-spike.md`.
 
 Fixtures: the known-defect cells of the totality matrix; the six programs of
 the decision brief; the `std/improve` example; the two workflows of the
