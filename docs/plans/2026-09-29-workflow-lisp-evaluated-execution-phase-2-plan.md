@@ -355,15 +355,23 @@ skips the builds.
 
 ### Task 1: The New Target Exists And Refuses To Run
 
+**Completed 2026-09-30:** implementation `184f9b6b`; specification and quality
+reviews passed after correcting both observed execution bypasses. Fresh narrow
+checks passed (318 tests plus the final smoke); all 88 artifact pairs matched
+`PHASE2_BASE` byte for byte. The source-consistency and child-admission
+corrections below are part of this completed task.
+
 **Files:**
 - Modify: `orchestrator/workflow_lisp/syntax.py` (`SUPPORTED_TARGET_DSL_VERSIONS`, the gate constants near line 51 to 70, the predicates)
 - Modify: `orchestrator/workflow/validation.py` (`DEFAULT_SUPPORTED_VERSIONS`, `DEFAULT_VERSION_ORDER`)
 - Modify: `orchestrator/workflow/run_ref/config.py`, `orchestrator/workflow/run_ref/bundle_transport.py` (`_SUPPORTED_TARGET_DSL_VERSIONS`)
 - Create: `orchestrator/workflow_lisp/closed/__init__.py` (empty docstring module), `orchestrator/workflow_lisp/closed/target.py`
 - Modify: `orchestrator/cli/commands/run.py` (`run_workflow`, before `build_frontend_bundle` at line 629), `orchestrator/cli/commands/resume.py` (before `build_frontend_bundle` at line 233)
+- Modify: `orchestrator/workflow_lisp/build.py` (shared runnable-bundle admission, using the compiled source snapshot; execution correction below)
+- Modify: `orchestrator/workflow/run_ref/child.py`, `orchestrator/workflow/run_ref/runtime.py` (reject precompiled evaluated-target capsules and retain the structured diagnostic through the parent)
 - Modify: `specs/versioning.md` (a `v2.35 additions` block after the `v2.34` block at line 736, a roadmap line after line 816, a table row after line 967), `specs/dsl.md` line 23 (admitted revisions extend through `"2.35"`), `specs/index.md` line 1 (the title's range)
 - Modify: `tests/test_workflow_lisp_target_234.py` (the gate dictionaries)
-- Test: `tests/test_workflow_lisp_target_evaluated_execution.py`
+- Test: `tests/test_workflow_lisp_target_evaluated_execution.py`, `tests/test_workflow_lisp_compiler_session_state.py`, `tests/test_workflow_run_ref_child.py`, `tests/test_workflow_run_ref_runtime.py`
 
 **Read first:** `tests/test_workflow_lisp_target_234.py` in full; the Phase 0
 Task 0 report's list of every place a version is compared (every gate is
@@ -375,14 +383,46 @@ edit); design §13.
   (the owner-selected target; later tasks consume this constant) and `syntax.target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool`
   (tuple comparison `>=`, like `target_dsl_supports_numeric_surface`).
 - Produces: `closed.target.entry_target_dsl_version(path: Path) -> str`
-  (reads the module with `compiler.compile_stage1_module` and returns
-  `syntax_module.target_dsl_version`) and
+  (reads the entry header through the existing reader and syntax parser,
+  without resolving imports, and returns `syntax_module.target_dsl_version`) and
   `closed.target.refuse_run_at_evaluated_execution_target(path: Path) -> None`,
   which raises `LispFrontendCompileError` with one diagnostic
   `code="evaluated_execution_unavailable"`, `phase="lowering"`, at the span
   of the module's `:target-dsl` form (the span `target_dsl_unsupported` uses
   today), when the target uses evaluated execution.
 - Consumed by: every later task (the predicate); Task 9 (`entry_target_dsl_version`).
+
+**Execution correction (2026-09-30):** the original stage-1 lookup resolves
+imports without the caller's `--source-root` settings. A target-2.34 entry
+whose import lives in an additional root reproduces `module_not_found` through
+`compile_stage1_module(entry)` while its configured frontend build succeeds.
+Both public helpers therefore share entry-only parsing, retaining the parsed
+header value's span. This preserves configured import resolution for the
+subsequent build and also applies to Task 9's target selection. Cover the
+helper and the older-target public run with this regression case.
+
+**Execution correction (source consistency):** quality review reproduced a
+target-2.34 entry changing to 2.35 after the early guard and before the build:
+the original guard then allowed both commands to execute. Availability must
+also be established for the source actually compiled, before either `run`
+or `resume` dispatches. Reuse the existing compiled source snapshot or source
+read consistency owner; a second read of the live file is insufficient. Pin
+the interleaving through the public entries with a located refusal, exit 2
+and no command dispatch, including a source changed back after compilation
+if the fix checks the compiled result.
+
+The same review also executed a static 2.35 child through path-mode `run-ref`,
+which bypasses the CLI guards. Enforce availability in the shared legacy
+bundle-building owner so run, resume, child compilation and imported bundles
+cannot obtain a runnable flat bundle for this target. Extend the regression
+to the public child path, preserving its existing structured refusal contract.
+Precompiled capsules also require admission at the common child execution
+entry using the compiled bundle target. Carry the refused target, minimum
+target and source location through the closed child diagnostic and its parent
+consumer; locating a source span must not change the admission decision.
+The legacy builder may refuse 2.35 in `compile`/`explain` until Task 9 supplies
+the separate closed-program build route. This restriction does not belong in
+the typechecking entry that Task 2 introduces.
 
 - [x] **Step 0: Record the owner-selected target and implementation base.**
 
@@ -391,7 +431,7 @@ The reviewed plan was presented and the owner selected **2.35** on
 fixtures. `PHASE2_BASE=2e4c7a653d74c06e24c15c284662e5914abd5576` records the
 clean integrated source before Task 1 for compatibility comparisons.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_workflow_lisp_target_evaluated_execution.py`, importing
 `_write_program`, `_public_run`, `_log`, `GATE_PREDICATES` and `GATES_FROM_234`
@@ -436,14 +476,14 @@ the diagnostic's rendered location, which `render_diagnostic` prints as
 program: exit 2, same code). Add an unregistered next-version refusal derived from the selected target
 (`target_dsl_unsupported`, as `test_target_235_is_refused_as_unsupported`).
 
-- [ ] **Step 2: Run them; expected failures**
+- [x] **Step 2: Run them; expected failures**
 
 `pytest -q tests/test_workflow_lisp_target_evaluated_execution.py`: the
 registry tests fail with `'2.35' not in ...`, the gate test with
 `AttributeError`, the run test with exit 0 and a command in the log (the
 program lowers on the flat route because every gate is `>=`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add `"2.35"` to the four registries and to the end of `DEFAULT_VERSION_ORDER`.
 Add the constant and predicate to `syntax.py`. Write `closed/target.py`.
@@ -455,7 +495,7 @@ In `run_workflow` and in `resume`, inside the `try` that catches
 and include it in `test_every_min_target_gate_has_a_predicate_here`; leave
 the 2.34 assertions as they are (2.34 must not pass the new gate).
 
-- [ ] **Step 4: Run the tests; expected pass**
+- [x] **Step 4: Run the tests; expected pass**
 
 The new module, then `tests/test_workflow_lisp_target_234.py` (its
 `test_every_min_target_gate_has_a_predicate_here` fails until the dictionary
@@ -463,7 +503,7 @@ is added) and `tests/test_workflow_shared_validation.py` (its version-catalog
 test expects the order to end at 2.34: update that expectation as the 2.34
 commit did), `tests/test_workflow_lisp_target_233.py`.
 
-- [ ] **Step 5: Documents**
+- [x] **Step 5: Documents**
 
 `specs/versioning.md`: a block `v2.35 additions (in progress)` stating that
 the target exists, that a program at it is compiled to a closed program and
@@ -474,20 +514,23 @@ tasks of this plan add the closed program; a roadmap line; a table row.
 `specs/index.md` line 1: the range (two tests compare it with the highest
 supported version).
 
-- [ ] **Step 6: Compatibility evidence**
+- [x] **Step 6: Compatibility evidence**
 
 Build the four programs of the table at the base and at the head. Expected:
 every artifact byte-identical (the registries add a member; no gate changes).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
-`git add -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py`
+`git add -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py orchestrator/workflow_lisp/build.py orchestrator/workflow/run_ref/child.py orchestrator/workflow/run_ref/runtime.py tests/test_workflow_lisp_compiler_session_state.py tests/test_workflow_run_ref_child.py tests/test_workflow_run_ref_runtime.py`
 
-`git commit -m "feat: register the evaluated execution target and refuse to run it before the evaluator exists" -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py`
+`git commit -m "feat: register the evaluated execution target and refuse to run it before the evaluator exists" -- orchestrator/workflow_lisp/syntax.py orchestrator/workflow/validation.py orchestrator/workflow/run_ref/config.py orchestrator/workflow/run_ref/bundle_transport.py orchestrator/workflow_lisp/closed orchestrator/cli/commands/run.py orchestrator/cli/commands/resume.py specs tests/test_workflow_lisp_target_234.py tests/test_workflow_lisp_target_evaluated_execution.py tests/test_workflow_shared_validation.py orchestrator/workflow_lisp/build.py orchestrator/workflow/run_ref/child.py orchestrator/workflow/run_ref/runtime.py tests/test_workflow_lisp_compiler_session_state.py tests/test_workflow_run_ref_child.py tests/test_workflow_run_ref_runtime.py`
 
 **What this makes harder later:** Phase 3 must remove the guard in `run` and
 `resume` and route the new target to the evaluator; the test that pins the
-refusal changes then. Nothing else.
+refusal changes then. Task 9's closed build must remain separate from legacy
+runnable-bundle admission. Phase 3 must route new-target children to the
+evaluator before replacing their refusal; it must not enable flat bundles
+at the evaluated target.
 
 ---
 
