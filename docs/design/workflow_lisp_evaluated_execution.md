@@ -235,7 +235,11 @@ An explicit compiled import at target 2.35 supplies the selected producer's
 complete `TypedProgram`: native bodies/signatures, transitive definitions,
 type environments, externs, configuration, logical asset base and digests of
 the exact source bytes its producer consumed. Source-produced old-target
-bundles retain that snapshot in a compile-only `LoadedWorkflowBundle` field.
+bundles retain that snapshot in a compile-only `LoadedWorkflowBundle` field
+when all compiled dependencies supply their original snapshots. An old-target
+producer with an opaque compiled dependency still compiles under its existing
+contract, but leaves its complete snapshot absent; importing that result at
+2.35 fails the missing-snapshot precondition below.
 Its state is omitted from legacy pickle/capsule serialization; targets through
 2.34 retain their existing bundle admission and execution behavior.
 

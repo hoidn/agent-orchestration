@@ -708,8 +708,12 @@ def compile_typed_program(
   evaluated execution, and the typechecker's own diagnostics unchanged when
   the program does not typecheck.
 - Produces: `Stage3CompileResult.typed_program: object | None = None`;
-  source producers at both old and evaluated targets populate it. Public
-  selection happens after the complete graph; snapshot presence never selects
+  source producers at both old and evaluated targets populate it when their
+  complete typed closure is available. An old producer importing an opaque
+  bundle keeps its existing compilation behavior and leaves `typed_program`
+  as `None`; a later evaluated import refuses that incomplete input rather
+  than inventing its missing dependency. Public selection happens after the
+  complete graph; snapshot presence never selects
   the lowering route. Direct `compile_stage3_entrypoint` and
   `compile_stage3_module` create `SourceReadTrace()` if none was supplied,
   before `_effective_source_roots`/graph-attempt reads or
@@ -854,6 +858,8 @@ source deletion/mutation after final reads but before attachment. Pin exact
 consumed digests and old-profile lowering/shared-validation calls. Cover
 selected exports, private/transitive bodies, missing decoded snapshots,
 explicit restoration and structurally wrong pairing; preserve old bundle `is`.
+An old source producer importing an opaque bundle still compiles, leaves its
+complete snapshot absent, and is refused when supplied to an evaluated entry.
 Change/delete producer source and change caller configuration: the accepted
 snapshot must retain its original body/configuration/digests. Cover equal and
 conflicting source/snapshot overlaps and nominal caller-view signatures.
