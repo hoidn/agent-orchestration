@@ -4545,8 +4545,9 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
         return False
     if not program.source_file_digests:
         return False
-    if any(
-        not isinstance(child, TypedProgram)
+    seen = _seen.union((id(program),))
+    if not all(
+        _is_complete_typed_program(child, _seen=seen)
         for child in program.imported_programs.values()
     ):
         return False
@@ -4643,11 +4644,7 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
                 or node.callee_name in proc_ref_params
             ):
                 return False
-    seen = _seen.union((id(program),))
-    return all(
-        _is_complete_typed_program(child, _seen=seen)
-        for child in program.imported_programs.values()
-    )
+    return True
 
 
 def _reject_duplicate_imported_program_bindings(

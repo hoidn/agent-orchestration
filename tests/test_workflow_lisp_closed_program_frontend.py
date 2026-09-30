@@ -762,8 +762,10 @@ def test_partial_non_entry_workflow_prevents_snapshot_admission(
     assert path == producer_path
 
 
+@pytest.mark.parametrize("depth", (1, 2, 3))
 def test_incomplete_transitive_program_snapshot_is_locally_refused(
     tmp_path: Path,
+    depth: int,
 ) -> None:
     producer_path = tmp_path / "producer.orc"
     producer_path.write_text(
@@ -783,6 +785,8 @@ def test_incomplete_transitive_program_snapshot_is_locally_refused(
         command_boundaries={},
     )
     incomplete = replace(producer, imported_programs={"missing": None})
+    for _ in range(depth - 1):
+        incomplete = replace(producer, imported_programs={"nested": incomplete})
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
         f'''(workflow-lisp
