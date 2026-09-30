@@ -1015,13 +1015,15 @@ def test_shared_validation_target_dsl_has_the_current_closed_catalog() -> None:
     assert "2.32" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.33" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "2.34" in validation.DEFAULT_SUPPORTED_VERSIONS
+    assert "2.35" in validation.DEFAULT_SUPPORTED_VERSIONS
     assert "99.0" not in validation.DEFAULT_SUPPORTED_VERSIONS
-    assert validation.DEFAULT_VERSION_ORDER[-5:] == (
+    assert validation.DEFAULT_VERSION_ORDER[-6:] == (
         "2.30",
         "2.31",
         "2.32",
         "2.33",
         "2.34",
+        "2.35",
     )
 
 

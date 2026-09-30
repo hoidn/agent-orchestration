@@ -782,6 +782,17 @@
     as the same double, as the serialisers already write it; `-0.0` and `0.0`
     have different digests.
 
+- v2.35 additions (in progress)
+  - Target 2.35 is the selected evaluated-execution target. Phase 2 is adding
+    closed-program compilation; that compiler is not complete. Until Phase 3
+    dispatches the evaluator, `run` and `resume` refuse this target with
+    `evaluated_execution_unavailable` at the `:target-dsl` header. Existing
+    targets retain their current route and artifacts.
+  - The first release is intended to admit commands, composed portable
+    providers, procedure/workflow calls and captures, and path run references.
+    Trials, phased delivery, and other excluded forms remain outside this
+    target's first release.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -824,6 +835,7 @@
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
   - `v2.34`: decimal literals in expressions, numeric operators and finite boundary values; the repetition reduction rules pending
+  - `v2.35`: evaluated-execution closed-program compilation (in progress); run and resume remain unavailable until Phase 3
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -975,5 +987,6 @@ Planned acceptance:
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | 2.34 | Workflow Lisp numeric surface (in progress) | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. The repetition reduction rules are not implemented. State schema remains 2.1. |
+| 2.35 | Workflow Lisp evaluated execution (in progress) | Registers the selected evaluated-execution target. Closed-program compilation is in progress; run and resume refuse with `evaluated_execution_unavailable` until Phase 3 dispatches the evaluator. The intended first release admits commands, composed portable providers, procedure/workflow calls and captures, and path run references; trials, phased delivery, and other excluded forms remain outside it. Existing targets retain their current route and artifacts. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
