@@ -123,6 +123,36 @@ def _replay_rejection(file: str, line: int, column: int) -> dict[str, object]:
     }
 
 
+def _replay_location(file: str, line: int, column: int) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in _replay_rejection(file, line, column).items()
+        if key != "reason"
+    }
+
+
+def _diagnostic_location(text: str) -> dict[str, object]:
+    head = _DIAGNOSTIC_HEAD.match(text)
+    assert head is not None, text
+    return {
+        "file": Path(head["path"]).name,
+        "line": int(head["line"]),
+        "column": int(head["column"]),
+        "code": head["code"],
+    }
+
+
+def _replay_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "[pure_result_replay_unavailable]" in record.getMessage()
+    ]
+    caplog.clear()
+    return warnings
+
+
 def _program(root: Path, *, subject: str, tail: str, target: str = "2.33") -> dict[str, Path]:
     """Write one `grt/entry::run` over the `probe_check` command; return its public run files."""
 
@@ -218,6 +248,9 @@ CHILD = """  (defworkflow child () -> Summary
         ((OK ok) (record Summary :outcome "ok" :title ok.value.title))
         ((ERROR err) (record Summary :outcome "error" :title err.error)))))
 """
+SAFE_CHILD = """  (defworkflow safe () -> Summary
+    (record Summary :outcome "safe" :title "skipped"))
+"""
 CALLERS = {
     "called": "  (defworkflow run () -> Summary\n    (call child)))\n",
     "chain": "  (defworkflow mid () -> Summary\n    (call child))\n  (defworkflow run () -> Summary\n    (call mid)))\n",
@@ -232,6 +265,48 @@ CALLERS = {
       (fn (state)
         (let* ((summary (call child)))
           (done summary))))))
+""",
+    "match-arm": """  (defworkflow run () -> Summary
+    (let* ((result (check "approve-a")))
+        (match result
+        ((OK ok) (call child))
+        ((ERROR err) (call safe))))))
+""",
+    "false-if": """  (defworkflow run () -> Summary
+    (if false
+      (call child)
+      (record Summary :outcome "safe" :title "skipped"))))
+""",
+    "inner-conditional-chain": """  (defworkflow mid () -> Summary
+    (if false
+      (call child)
+      (record Summary :outcome "safe" :title "skipped")))
+  (defworkflow run () -> Summary
+    (call mid)))
+""",
+    "outer-conditional-chain": """  (defworkflow mid () -> Summary
+    (call child))
+  (defworkflow run () -> Summary
+    (if false
+      (call mid)
+      (record Summary :outcome "safe" :title "skipped"))))
+""",
+    "loop-descendant": """  (defworkflow mid () -> Summary
+    (call child))
+  (defworkflow run () -> Summary
+    (loop/recur :max 1
+      :state (loop-state (n Int 0))
+      :on-exhausted (record Summary :outcome "exhausted" :title "none")
+      (fn (state)
+        (let* ((summary (call mid)))
+          (done summary))))))
+""",
+    "shared-conditional-and-unconditional": """  (defworkflow run () -> Summary
+    (let* ((maybe (if false
+                   (call child)
+                   (record Summary :outcome "safe" :title "skipped")))
+           (always (call child)))
+      always)))
 """,
 }
 IMPORTING_ENTRY = """(workflow-lisp
@@ -250,11 +325,17 @@ def _caller_program(root: Path, caller: str) -> dict[str, Path]:
     """`grt/entry::run` reaching `child`, whose tail `match` (entry.orc:19:7) is rejected."""
 
     probe = _write_probe(root, "probe_check", OUTCOME_PROBE)
-    if caller == "imported":
+    if caller in {"imported", "imported-conditional"}:
         library = PROLOGUE.replace("(defmodule grt/entry)\n  (export run)", "(defmodule grt/lib)\n  (export Summary child)")
-        sources = {"grt/lib.orc": library + CHILD.rstrip() + ")\n", "grt/entry.orc": IMPORTING_ENTRY}
+        entry = IMPORTING_ENTRY
+        if caller == "imported-conditional":
+            entry = entry.replace(
+                "(call child)",
+                '(if false (call child) (record Summary :outcome "ok" :title "skipped"))',
+            )
+        sources = {"grt/lib.orc": library + CHILD.rstrip() + ")\n", "grt/entry.orc": entry}
     else:
-        sources = {"grt/entry.orc": PROLOGUE + CHILD + CALLERS[caller]}
+        sources = {"grt/entry.orc": PROLOGUE + CHILD + SAFE_CHILD + CALLERS[caller]}
     _write_sources(
         root, {path: text.replace("TARGET", "2.33").replace("PROBE_CHECK", probe.as_posix()) for path, text in sources.items()}
     )
@@ -265,20 +346,35 @@ def _call_sites(caplog: pytest.LogCaptureFixture) -> list[tuple[str, int, int]]:
     """The call-site notes of the one logged ERROR, innermost first; the ERROR stays for `_rejection`."""
 
     [text] = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+    return _call_sites_in(text)
+
+
+def _call_sites_in(text: str) -> list[tuple[str, int, int]]:
     return [(Path(note["path"]).name, int(note["line"]), int(note["column"])) for note in _CALL_SITE_NOTE.finditer(text)]
 
 
+def _source_location(source: Path, form: str, occurrence: int = 1) -> tuple[str, int, int]:
+    matches = []
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
+        offset = 0
+        while (index := line.find(form, offset)) >= 0:
+            matches.append((line_number, index + 1))
+            offset = index + len(form)
+    line, column = matches[occurrence - 1]
+    return source.name, line, column
+
+
 @pytest.mark.parametrize(
-    ("caller", "rejected_in", "call_sites"),
+    ("caller", "rejected_in"),
     [
-        ("called", "entry.orc", [("entry.orc", 23, 5)]),
-        ("imported", "lib.orc", [("entry.orc", 8, 5)]),
-        ("chain", "entry.orc", [("entry.orc", 23, 5), ("entry.orc", 25, 5)]),
-        ("two-call-sites", "entry.orc", [("entry.orc", 23, 19)]),
+        ("called", "entry.orc"),
+        ("imported", "lib.orc"),
+        ("chain", "entry.orc"),
+        ("two-call-sites", "entry.orc"),
     ],
 )
 def test_dry_run_rejects_a_called_workflow_as_the_run_does(
-    workspace: Path, caplog: pytest.LogCaptureFixture, caller: str, rejected_in: str, call_sites: list
+    workspace: Path, caplog: pytest.LogCaptureFixture, caller: str, rejected_in: str
 ) -> None:
     files = _caller_program(workspace, caller)
 
@@ -289,8 +385,19 @@ def test_dry_run_rejects_a_called_workflow_as_the_run_does(
     run_rejection = _rejection(caplog)
 
     expected = _replay_rejection(rejected_in, 19, 7)
+    if caller in {"called", "imported"}:
+        expected_call_sites = [_source_location(files["source"], "(call child)")]
+    elif caller == "chain":
+        expected_call_sites = [
+            _source_location(files["source"], "(call child)"),
+            _source_location(files["source"], "(call mid)"),
+        ]
+    else:
+        expected_call_sites = [
+            _source_location(files["source"], "(call child)")
+        ]
     assert ((dry.exit_code, dry_rejection, dry_call_sites), (run.exit_code, run_rejection)) == (
-        (2, expected, call_sites),
+        (2, expected, expected_call_sites),
         (2, expected),
     )
 
@@ -304,6 +411,112 @@ def test_a_rejected_workflow_called_only_inside_a_loop_passes_dry_run_as_it_runs
     run = _public_run(files)
 
     assert (dry.exit_code, run.exit_code) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "caller",
+    ["match-arm", "false-if", "inner-conditional-chain", "outer-conditional-chain", "imported-conditional"],
+    ids=["match-arm", "false-if", "inner-conditional-chain", "outer-conditional-chain", "imported-conditional"],
+)
+def test_dry_run_warns_for_a_callee_that_control_flow_may_skip(
+    workspace: Path, caplog: pytest.LogCaptureFixture, caller: str
+) -> None:
+    files = _caller_program(workspace, caller)
+
+    dry = _dry_run(files)
+    [warning] = _replay_warnings(caplog)
+    warning_call_sites = _call_sites_in(warning)
+    run = _public_run(files)
+
+    if caller == "inner-conditional-chain":
+        expected_sites = [
+            _source_location(files["source"], "(call child"),
+            _source_location(files["source"], "(call mid)"),
+        ]
+    elif caller == "outer-conditional-chain":
+        expected_sites = [
+            _source_location(files["source"], "(call child)"),
+            _source_location(files["source"], "(call mid)"),
+        ]
+    elif caller == "false-if":
+        expected_sites = [_source_location(files["source"], "(call child)")]
+    elif caller == "imported-conditional":
+        expected_sites = [_source_location(files["source"], "(call child)")]
+    else:
+        expected_sites = [_source_location(files["source"], "(call child)")]
+    rejected_location = (
+        _replay_location("lib.orc", 19, 7)
+        if caller == "imported-conditional"
+        else _replay_location("entry.orc", 19, 7)
+    )
+    assert (
+        dry.exit_code,
+        _diagnostic_location(warning),
+        warning_call_sites,
+        run.exit_code,
+        _errors(caplog),
+    ) == (
+        0,
+        rejected_location,
+        expected_sites,
+        0,
+        [],
+    )
+
+
+def test_dry_run_warns_for_rejected_descendant_reached_through_a_loop(
+    workspace: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    files = _caller_program(workspace, "loop-descendant")
+
+    dry = _dry_run(files)
+    [warning] = _replay_warnings(caplog)
+    warning_call_sites = _call_sites_in(warning)
+    run = _public_run(files)
+    run_rejection = _rejection(caplog)
+
+    assert (
+        dry.exit_code,
+        _diagnostic_location(warning),
+        warning_call_sites,
+        run.exit_code,
+        run_rejection,
+    ) == (
+        0,
+        _replay_location("entry.orc", 19, 7),
+        [
+            _source_location(files["source"], "(call child)"),
+            _source_location(files["source"], "(call mid)"),
+        ],
+        2,
+        _replay_rejection("entry.orc", 19, 7),
+    )
+
+
+def test_unconditional_call_path_wins_when_a_callee_is_also_conditional(
+    workspace: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    files = _caller_program(workspace, "shared-conditional-and-unconditional")
+
+    dry = _dry_run(files)
+    dry_call_sites = _call_sites(caplog)
+    dry_rejection = _rejection(caplog)
+    run = _public_run(files)
+    run_rejection = _rejection(caplog)
+
+    assert (
+        dry.exit_code,
+        dry_rejection,
+        dry_call_sites,
+        run.exit_code,
+        run_rejection,
+    ) == (
+        2,
+        _replay_rejection("entry.orc", 19, 7),
+        [_source_location(files["source"], "(call child)", occurrence=2)],
+        2,
+        _replay_rejection("entry.orc", 19, 7),
+    )
 
 
 # The source location is an improvement on the rejection, never a replacement:
