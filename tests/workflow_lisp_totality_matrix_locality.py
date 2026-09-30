@@ -43,7 +43,7 @@ DEFECT_DETAILS = {
                         "a list if bound in an inline procedure is not lowered"),
     "nested-loop": ("structured repeat_until is only supported on top-level steps",
                     "a loop inside an if branch fails shared validation"),
-    "scalar-private-workflow": ("compiler_defect",
+    "scalar-private-workflow": ("AssertionError",
                                 "a scalar-returning procedure in loop state hits a lowering assertion reported as a compiler defect"),
 }
 
