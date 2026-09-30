@@ -256,8 +256,11 @@ workflow's canonical name (§9.2, "a call is evaluation").
 
 Ordinary source/procedure calls keep strict positional argument/native
 parameter matching. An explicit compiled import retains the catalog's
-caller-view signature and its snapshot's native signature. When closing
-that boundary, use this optional `call.boundary`:
+caller-view signature and its snapshot's native signature. Closing that
+boundary, or a converted internal call injecting its captured context into
+a different compatible native nominal, uses this optional `call.boundary`.
+The latter is the only additional internal annotation case; it does not
+relax ordinary source-call admission:
 
 ```text
 {
@@ -292,7 +295,15 @@ values are evaluated once and take precedence over X1/X2/default generation;
 they are never discarded. Retained semantic private binding/projection facts
 identify the boundary, while rewritten diagnostic provenance is not a callee
 identity. Include these converted parameters in the checked relation and
-canonical capture schema.
+canonical capture schema. Keep the caller's canonical context descriptor
+in that capture. Resolve recipients from actual retained calls, native omitted
+formals, typed field paths and semantic private groups/context family/phase.
+An explicit native binding or authored default owns its argument. Forward to
+every matching admitted omission, through only the wrappers that reach it;
+never use diagnostic provenance, flattened-name splitting or an entry's direct
+omission allowlist as a transitive index. Contract defaults identify omission
+generation, not constraints on an explicitly supplied runtime value.
+
 Call slots are ordered: runtime captures in native capture-prefix order;
 retained caller-signature formals in declaration order, followed by otherwise
 unlisted private compatibility formals sorted by name; then native-only
@@ -301,7 +312,13 @@ no slot. Fill each formal from its explicit binding, otherwise normalized
 default (`lit`), otherwise the existing permitted hidden/context binding.
 Missing/competing bindings are defects. A generated value already represented
 in caller formals is not appended again; flat storage inputs are not extra
-unchecked arguments.
+unchecked arguments. Promote a caller-only private formal to its capture
+slot once and omit it from the later caller-formal section. Intermediate
+forwarding calls with exact capture and residual types may remain strict
+positional calls. At an annotated internal context-injection call, include
+complete projection rows for all ordinary residual inputs and both native
+output views, even for identical scalar types; those residuals do not become
+`direct` slots merely because their types match.
 
 `direct` is only for captures/generated/context values with ordinary strict
 compatible descriptors. Its non-Boolean integer pairs are in range, sorted
@@ -649,6 +666,13 @@ at the evaluated target.
 
 ### Task 2: The Public Compile Entry That Stops After Typecheck
 
+**Completed:** `ad70260b567d854708a9b30ef63a8e0b0e712d33`, with separate spec
+and quality review passes. Verification: 44 frontend tests, 16 independent
+admission/transport probes, nine public compile fixtures, and fresh
+compatibility against `PHASE2_BASE`: 88 raw pairs equal; 67 capsule pairs
+equal at fixed identity, with the 12 expected real-pin run-ref differences
+reported separately.
+
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/frontend.py`
 - Modify: `orchestrator/workflow_lisp/compiler.py` (`_compile_stage3_graph`, the call of `_lower_workflows_for_route` at line 3083 and the `Stage3CompileResult` construction at line 3130)
@@ -833,7 +857,7 @@ def compile_typed_program(
   snapshot does not replace the bundle's existing caller contract.
 - Consumed by: Tasks 3 to 10.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Fixtures: create `tests/fixtures/workflow_lisp/closed_program/` and copy
 `loop_in_branch.orc`, `three_call_sites.orc`, `arms_in_loop.orc`,
@@ -900,14 +924,14 @@ snapshot must retain its original body/configuration/digests. Cover equal and
 conflicting source/snapshot overlaps and nominal caller-view signatures.
 Boundary artifact generation belongs to Task 4, not these frontend tests.
 
-- [ ] **Step 2: Run; expected failures**
+- [x] **Step 2: Run; expected failures**
 
 `ImportError` on `closed.frontend`; then, once the module exists but the
 graph still lowers, the observed `loop_in_branch` flat-route refusal is
 `workflow_signature_mismatch` at line 17, column 28. Preserve that actual
 legacy diagnostic rather than the earlier predicted boundary-type code.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `_compile_stage3_graph`, derive `closed_entry` from the entry target
 **before the module loop** and check target-direction edges. When
@@ -949,13 +973,13 @@ lowered workflows: `_filter_profile_checked_linked_diagnostics`,
 `_dedicated_runtime_proof_boundary_diagnostics` must accept an empty tuple;
 read each and add the empty-case guard only where one is missing.
 
-- [ ] **Step 4: Run; expected pass**
+- [x] **Step 4: Run; expected pass**
 
 The new module; `tests/test_workflow_lisp_target_234.py`;
 `tests/test_workflow_lisp_generic_unions_runtime.py` (a caller of
 `compile_stage3_entrypoint`); `tests/test_workflow_lisp_improve_stdlib.py`.
 
-- [ ] **Step 5: Compatibility evidence**
+- [x] **Step 5: Compatibility evidence**
 
 The four programs of the table follow Global Constraints. Also compare
 plain, explicit imported-manifest and nested bundle-run-ref artifacts under
@@ -963,7 +987,7 @@ real pins and at fixed identity inputs, separately. A transient snapshot must
 not alter old serialization. Exercise direct producer paths through both
 Stage 3 doors; old lowering/validation still runs despite non-`None` snapshots.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 `git add -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow/loaded_bundle.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
 
@@ -1212,8 +1236,11 @@ schema above; no compiler import.
   schemas preserve their existing nominal facts. Independently derive legacy
   union structural paths and inactive-variant path relaxation. Reject forged
   activity, dropped/redirected rows and altered direct pairs as `call_boundary`.
-  Ordinary calls retain strict nominal/positional matching. Resolve every
-  definition configuration scope and verify its digest and effect bindings;
+  Apply the same checks to converted internal context-injection calls,
+  including their capture schema, ordinary residual rows and both output
+  views. Ordinary unannotated calls retain strict nominal/positional matching.
+  Resolve every definition configuration scope and verify its digest and
+  effect bindings;
   missing or mismatched scopes fail `configuration_scope`.
 - Run-reference read-back checks use Task 8's exact configuration/type digest
   recipe and fixed runtime record identities. The neutral decoder establishes
@@ -1272,7 +1299,11 @@ same wire name, dropped rows, incorrect capture prefix, mismatched path
 constraints, and an unannotated nominal mismatch. A union fixture must derive
 activity and relaxed inactive paths from its nominal descriptor, then refuse
 forged activity after the artifact digest is recomputed. These are read-back
-proofs, not assertions on compiler-generated text. Test missing/incorrect
+proofs, not assertions on compiler-generated text. Include a caller-only
+context capture forwarded through one and two wrappers, projected into a
+native nominal context, with complete ordinary residual/output rows. Refuse
+dropped capture slots, redirected recipient paths, altered capture types,
+wrong direct pairs and missing residual/output coverage. Test missing/incorrect
 configuration scope and effects matched against the wrong owner's binding.
 
 - [ ] **Step 2: Run; expected failure** `ImportError`.
@@ -1354,7 +1385,13 @@ execution facts A.5; design §4.2 and P6.
     canonical workflow keys and resolved extern rebinding. Alpha-normalize
     bound value expressions, retaining tagged primitive kinds. Runtime capture
     facts identify owning formal/argument routes and types, not caller names
-    or runtime values. Sort binding maps by formal, preserve ordered fields.
+    or runtime values. Caller-only private context captures use this same schema:
+    canonical recipient/formal routes and the caller's canonical captured type,
+    excluding import aliases, generated wire prefixes, paths and spans. Two
+    values of that type/routes share a body; distinct nominal capture types
+    may require distinct converted keys. Memoize by the complete converted
+    key; context conversion uses the existing specialized-name rule.
+    Sort binding maps by formal, preserve ordered fields.
   - `canonical_callee_name(definition, *, key) -> str`: use `module::name`
     only for an unspecialized top-level definition; append full SHA-256 of
     canonical JSON key otherwise. Store `key` beside the body and refuse
@@ -1778,6 +1815,19 @@ class Builder:
     the artifact. Two captures of the same body share a definition; differing
     substitutions/reference targets/rebindings do not. The plain converted
     facts feed Task 6; no extra closure framework/module is needed.
+  - For an admitted bundle exposing a private formal absent from its native
+    entry, perform the shared context-capture conversion before computing
+    keys. Match exact omitted recipients through the owner's resolved typed/
+    WCC calls, native requirements and retained semantic wire/typed-path groups;
+    resolve aliases and specializations in that owner. Preserve explicit
+    bindings/defaults. Append only required captures to each affected wrapper's
+    capture prefix, with the caller's descriptor, and forward the already
+    evaluated names. The source-native signatures/bodies remain unchanged.
+    At the terminal nominal crossing emit the shared checked internal boundary
+    relation, including all ordinary residual and output rows. Use every
+    matching recipient originally fed by the group, not the first compatible
+    type; unrelated edges gain no capture. An unaccounted admitted group is a
+    translation defect to repair, not a new release exclusion.
   - P2: every `WccOpaqueFrontendValue` is translated in `values.py`:
     `UnionVariantTagExpr` → `lit`; `LoopStateSeedExpr` → `record` (type: the
     carrier descriptor); `LoopStateUpdateExpr` → `op` with a `record_update`
@@ -1807,8 +1857,16 @@ class Builder:
     the record `{run: <run>, phase-name: lit phase_name, state-root: lit f"state/{phase_name}", artifact-root: lit f"artifacts/{phase_name}"}`.
     `run` is the caller's context value: the caller's parameter typed
     `RunCtx` as a `name`, or the `run` field of its parameter typed
-    `PhaseCtx` (`field`), else `run_context_value()`. Its equality with the
-    present route's value is the open item of this plan (design §19, 4).
+    `PhaseCtx` (`field`). For an admitted derived-child omission, reuse
+    `phase.derived_private_child_context_eligibility(...).carried_input_sources`:
+    project the exact `ItemCtx.run` paths and use
+    `_runtime_context_default_value` for the child phase constants. Do not
+    replace that carried run with X1. Resolve the source once; an explicit
+    native context wins. Only an omission with no carried caller context uses
+    `run_context_value()`. This preserves the existing compiled caller refusal
+    `workflow_call_signature_erased` for the derived-prefix specimen; it does
+    not broaden admission. Runtime equality with the present route remains
+    the open item of this plan (design §19, 4).
   - X4: `result_path` carries the declared path descriptor. At the new
     target `typecheck_provider_bundle_path_expr` additionally requires the
     `:as` type's `under` to be `.orchestrate/runs` (the parent of every run
@@ -1905,6 +1963,15 @@ def test_a_certified_adapter_receives_one_document_in_signature_order(tmp_path) 
 def test_a_form_outside_the_release_is_a_gap_naming_it(tmp_path) -> None:
     # one program with (materialize-view ...): code closed_program_gap, notes ("form=materialize-view",), at its line
 ```
+
+Build and read back real direct and transitive compiled-import private-context
+specimens through the public API. Supply nondefault contexts; verify one
+capture slot, exact native recipients, complete outer/internal boundary rows,
+unchanged original signatures and reuse for two values of the same type/routes.
+Verify distinct canonical capture types produce consistent distinct keys,
+explicit bindings win, every matching omission receives the capture, and
+unrelated calls stay unchanged. Phase 3 adds an execution assertion with a
+once-counted source expression; a Phase 2 structural proof is not that test.
 
 `tests/test_workflow_lisp_closed_program_context.py`:
 
@@ -2491,8 +2558,6 @@ appropriate owner before closeout; never claim a failing selector passed.
 
 ## What Stays Open
 
-- The number of the new target (parent plan, decision 6; design §19, 1):
-  the owner sets it; Task 1 writes it once.
 - Whether the compiler's `PhaseCtx` (X2) and `phase-target` (X3) values
   equal the present route's (design §19, 4): one program per form, run on
   both routes, once Phase 3 runs programs. Until then `context.py` follows

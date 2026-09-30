@@ -302,7 +302,9 @@ rows, and `direct` argument/native-parameter index pairs for strict transfers.
 The exact shared schema is in the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md). `args[i]` is checked against
 `boundary.params[i]`; native parameters are bound through the declared
 relation, not an assumed equal-length positional list. Captures precede
-caller formals; native-only generated contexts follow in native order.
+caller formals; a caller-only private formal promoted to a capture appears
+once, omitted from the later caller-formal section. Native-only generated
+contexts follow in native order.
 Defaults, captures and X1/X2 values are resolved from existing binding facts.
 Source/ANF evaluation order is retained in preceding `let`s, before any
 argument permutation. Direct and projected slots form disjoint exhaustive
@@ -316,6 +318,22 @@ including through intermediate calls. Preserve the native source signature;
 the converted definition carries the extra parameter. An explicitly supplied
 context is evaluated once and wins over generated X1/X2/default values. No
 caller slot may be dropped or left outside the checked boundary relation.
+The capture retains the caller's canonical descriptor. Its existing capture
+schema records canonical recipient/formal routes and that type, excluding
+runtime values, aliases, generated wire prefixes and source positions. Values
+with the same type/routes share a converted body; different nominal capture
+types may require distinct keys. Preserve explicit native bindings/defaults;
+resolve every admitted omitted recipient from the actual retained calls,
+semantic private groups and typed field paths. Diagnostic provenance and
+flattened-name splitting cannot establish recipients. Defaults specify
+omission generation and do not constrain supplied runtime values.
+
+A converted internal call injecting such a capture into a different compatible
+native nominal may use the same `boundary` annotation. This narrow case
+retains complete ordinary residual input and both output projections, even
+when those residual types are identical; `direct` remains restricted to
+strict-compatible captures/generated/context values. Intermediate calls with
+exact types may stay positional. No other source-call admission is widened.
 
 P5 independently validates every descriptor against canonical nominal facts,
 every projection path and complete field/active-variant coverage, matching
@@ -389,7 +407,7 @@ the closed program, supplied by the evaluator, the same on every resume.
 | Rule | Form | Value |
 | --- | --- | --- |
 | X1 | A call that leaves out a compiler-supplied `RunCtx` parameter | The record `{run-id, state-root: "state/run", artifact-root: "artifacts/run"}`, the present route's constants. `run-id` is the run's id, which is the run root's name (`specs/state.md`: `RUN_ROOT` is `.orchestrate/runs/<run_id>`). It is a `context` value; the run's identity reaches a program only this way (R1) |
-| X2 | A call that leaves out a compiler-supplied `PhaseCtx` parameter | The record `{run: <the caller's RunCtx>, phase-name, state-root: state/<phase>, artifact-root: artifacts/<phase>}`, built at the call site from the caller's context value and the phase name, with the phase-scoped roots the [state layout](workflow_lisp_state_layout.md) derives. The closed program holds it as an ordinary record; no hidden parameter exists at run time. Its equality with the present route's value is an open evidence item (§19) |
+| X2 | A call that leaves out a compiler-supplied `PhaseCtx` parameter | The record `{run: <the caller's RunCtx>, phase-name, state-root: state/<phase>, artifact-root: artifacts/<phase>}`, built at the call site from the caller's context value and the phase name, with the phase-scoped roots the [state layout](workflow_lisp_state_layout.md) derives. The closed program holds it as an ordinary record; no hidden parameter exists at run time. For admitted derived-child omissions, retain the existing `carried_input_sources` relation, including `ItemCtx.run`, and the child phase constants; an explicit context wins and a carried run is never replaced by a fresh X1 value. Its equality with the present route's value is an open evidence item (§19) |
 | X3 | `phase-target` | The named target's field of the phase context in scope, or the path join `<artifact-root>/<phase>/<target>.md` for a generic `PhaseCtx`, elaborated at the `with-phase` site (§4.3) |
 | X4 | `provider-bundle-path` | The committed attempt's result file, relative to the workspace (§8.2): a `result_path` value read from the memo, so it is the same on every resume. At the new target the form is typed as a path under the run root, so the value meets its root; both routes today type it under `state` and refuse their own value (`outside_under_root`) |
 
