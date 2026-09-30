@@ -713,12 +713,12 @@
     operands before the value and the bounds (``operator `+` with operands
     [9223372036854775807, 1]: ...``), and its metadata gains `operator` and
     `operands` beside `min`, `max` and `value`.
-
   - A provider call that lacks a parameter which its provider's command
     requires is refused when the workflow is validated, with
     `provider_parameters_missing` at the call. Before, validation accepted
     the workflow and the run failed when it reached the call. A workflow
     whose call is never reached ran before and is refused now.
+
 - Amendment of targets 2.30 to 2.33 (pure payloads)
   - A `let*` value that is used more than once is emitted once in a pure
     payload and referred to, in payload schema 3. A value used once is
