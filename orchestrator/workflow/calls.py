@@ -1244,10 +1244,7 @@ class CallExecutor:
         except BaseException:
             aggregate_run_files.close()
             raise
-        try:
-            child_state = child_executor.execute(resume=child_resume)
-        finally:
-            child_executor.close()
+        child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = deepcopy(child_state_manager._snapshot())
 
         if (
