@@ -136,8 +136,9 @@ that owns the code.
    4 tests the table form gives one definition for the callee.
 2. A program moved to another path, and the orchestrator package moved to
    another path, must give the same sites and the same program digest; the
-   artifact's provenance may differ. Task 7 tests both moves with a
-   subprocess, on a program with a specialized imported callee
+   artifact's provenance may differ. Task 7 tests provenance and digest on
+   hand-written trees; Task 9 tests both moves through public compilation,
+   including package relocation in a subprocess, on a specialized imported callee
    (`if_in_hook.orc`), whose names digest `repr(TypeRef)` today.
 3. A manifest without `closure` must be refused at the new target with
    `command_boundary_closure_missing` naming the boundary and the manifest
@@ -322,7 +323,7 @@ stripped tree (P6, P7).
 | 6 | Names that hold no path | C | `closed/names.py`, `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
 | 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` |
-| 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py` |
+| 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py`, `closed/build.py` (run-ref finalization call) |
 | 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `cli/commands/compile.py` |
 | 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` |
 | 11 | Documents | F | `specs/versioning.md`, `specs/io.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_lisp_evaluated_execution.md` (status lines), `docs/lisp_workflow_drafting_guide.md`, `docs/index.md`, `docs/design/README.md`, `docs/capability_status_matrix.md` |
@@ -1342,9 +1343,9 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
   each callee once by canonical name into `definitions` (memoized; a callee
   reached twice with two different bodies is a defect: raise `ValueError`,
   reported as `compiler_defect`), add canonical `types` and complete
-  `configuration`, then `assign_sites`, finalize generated run-ref types/config
-  (Task 8), `validate`,
-  `program_digest`. The whole build runs under
+  `configuration`, then `assign_sites`, `validate`, and `program_digest`.
+  Task 8 later inserts generated run-ref finalization between site assignment
+  and validation when it adds run-ref translation. The whole build runs under
   `compiler_defect_boundary(entry path)` so that an internal error is a
   `compiler_defect` located at the innermost node
   (`records_defect_provenance("closed-program")` on the body and value
@@ -1566,7 +1567,10 @@ def test_the_entry_binds_its_own_hidden_run_context_first(tmp_path) -> None:
 
 def test_a_provider_bundle_path_is_a_result_path_typed_under_the_run_root(tmp_path) -> None:
     # (provider-bundle-path r :as ResultBundle) with (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
+    # Test typechecking and value translation with a typed provider-result binding;
+    # Task 4 does not yet translate the provider effect that produces it.
     # -> {"k": "result_path", "n": "r", "type": {...}}; with :under "state" -> provider_bundle_path_target_invalid at the form
+    # Task 8 owns the complete provider-producing program build.
 ```
 
 - [ ] **Step 2: Run; expected failures** `ImportError`, then gaps and
@@ -1577,8 +1581,7 @@ for `let`/`halt`/`if`/`case`/`join`/`jump`/`loop`/`continue`/`done`;
 `values.py` for atoms, ops, select, then each opaque kind; `effects.py`
 (`require_command_closures`, the command node, the gaps); `call` and
 `workflow_call` with the memoized table; `context.py`; the X4 typecheck
-line; canonical type/config facts, sites, generated-identity finalization,
-validate and digest at the end. Keep the existing responsibilities small;
+line; canonical type/config facts, sites, validation and digest at the end. Keep the existing responsibilities small;
 add no modules solely to meet a line estimate.
 
 - [ ] **Step 4: Run; expected pass.** Then Tasks 5, 6, 7 modules (they are
@@ -1606,7 +1609,7 @@ small context translation, not hidden as a new exclusion.
 ### Task 8: Effect Nodes: Providers, Run References, And The Gaps
 
 **Files:**
-- Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps)
+- Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (call run-ref finalization after site assignment and before validation)
 - Test: `tests/test_workflow_lisp_closed_program_effects.py`
 
 **Read first:** the spike's `closed_effects.py` in full; design P3, §1.1
@@ -1694,6 +1697,10 @@ def test_path_run_ref_and_let_proc_ignore_formatting_and_location(tmp_path) -> N
     # keys, generated names, decoded config/site_digest, sites and program digest equal.
     # Changing the actual input/result signature or bound source changes semantic identity.
 
+def test_a_provider_bundle_path_builds_with_its_producing_provider(tmp_path) -> None:
+    # Public build of the complete X4 program: provider effect plus result_path
+    # with its declared .orchestrate/runs path descriptor, extending Task 4's value-only case.
+
 def test_a_path_mode_run_ref_carries_the_static_config_with_reference_bindings(tmp_path) -> None:
     config = decode_run_ref_static_config(base64.b64decode(node["config"]))
     assert [(i.name, i.binding.reference) for i in config.inputs] == [("seed", "inputs.seed")]
@@ -1714,7 +1721,9 @@ gap tests pass already (Task 4 raised them) and stay as the record.
 - [ ] **Step 3: Implement** the existing effect dispatch, with helpers
 `_provider`, `_prompt`, `_inputs`, `_dependencies`, `_run_ref` as needed.
 Task 8 owns finalization of run-ref config/descriptors after Task 5 assigns
-sites; keep this helper in `effects.py`.
+sites; keep this helper in `effects.py` and insert its call in
+`build_closed_program` after `assign_sites` and before `validate` and
+`program_digest`. Add the complete provider-producing X4 build check here.
 
 - [ ] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
 behaviour for commands).
@@ -1723,9 +1732,9 @@ behaviour for commands).
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/effects.py tests/test_workflow_lisp_closed_program_effects.py`
+`git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py tests/test_workflow_lisp_closed_program_effects.py`
 
-`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py tests/test_workflow_lisp_closed_program_effects.py`
+`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py tests/test_workflow_lisp_closed_program_effects.py`
 
 **What this makes harder later:** each later class replaces a gap branch.
 Phase 3 still proves assembled prompt parity and run-ref caller integration;
