@@ -684,8 +684,9 @@ composition-first design, section 11:
 - from 2.30, a `let-proc` capture of an effect result evaluates the effect
   again where the procedure is applied;
 - the check of required provider parameters refuses at validation, at every
-  target, a call that a run refused only when it reached it. The owner has
-  not yet confirmed this as an exception to the rule for older targets;
+  target, a call that a run refused only when it reached it. The owner
+  accepted this on 2026-09-29 as a second exception to the rule for older
+  targets; `specs/versioning.md` states it;
 - resume refuses an interrupted effect in a second call of one workflow and
   after a provider group;
 - the replay index refuses pure bindings in a branch over the result of a
