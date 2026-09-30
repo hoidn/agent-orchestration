@@ -134,7 +134,7 @@ def test_bundle_fallback_write_failure_removes_owned_partial(
     tmp_path, monkeypatch, fake_runtime
 ):
     """A mid-write failure removes only the owned partial leaf (created with O_EXCL by this process), never leaves debris or a planted entry."""
-    import orchestrator.workflow.executor as executor_module
+    import orchestrator.workflow.workspace_files as workspace_files_module
 
     fake_runtime.skip_bundle_write = True
 
@@ -142,7 +142,7 @@ def test_bundle_fallback_write_failure_removes_owned_partial(
         os.write(descriptor, payload[:3])
         raise OSError("simulated partial write failure")
 
-    monkeypatch.setattr(executor_module, "_write_bundle_fd", fail_after_partial)
+    monkeypatch.setattr(workspace_files_module, "_write_bytes", fail_after_partial)
     code = _exit(
         ["prompt", "run", "--prompt", TASK_TEXT, "--provider", "omp_no_tools"],
         tmp_path,
