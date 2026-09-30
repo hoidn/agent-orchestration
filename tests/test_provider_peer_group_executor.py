@@ -78,8 +78,29 @@ def test_peer_group_call_frame_fails_before_runtime_activity() -> None:
 
 def _atomic_executor(
     manager: StateManager,
-) -> WorkflowExecutor:
+) -> tuple[WorkflowExecutor, list[tuple[str, bool, str, str]]]:
     executor = object.__new__(WorkflowExecutor)
+    checkpoint_observations: list[tuple[str, bool, str, str]] = []
+
+    def observe_checkpoint(
+        _state: dict[str, Any],
+        step_name: str,
+        _step: Any,
+        finalized: dict[str, Any],
+    ) -> None:
+        persisted = manager.load()
+        checkpoint_observations.append(
+            (
+                step_name,
+                persisted.current_step is None,
+                persisted.steps[step_name]["status"],
+                finalized["status"],
+            )
+        )
+
+    executor._emit_lexical_checkpoint_shadow_after_step_commit = (  # type: ignore[method-assign]
+        observe_checkpoint
+    )
     executor.state_manager = manager
     executor._record_published_artifacts = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: None
@@ -109,7 +130,7 @@ def _atomic_executor(
     executor._emit_step_summary = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: None
     )
-    return executor
+    return executor, checkpoint_observations
 
 
 def _running_manager(tmp_path: Path) -> StateManager:
@@ -134,7 +155,7 @@ def test_peer_group_finalizer_commits_state_and_result_once(
 ) -> None:
     manager = _running_manager(tmp_path)
     state = manager.load().to_dict()
-    executor = _atomic_executor(manager)
+    executor, checkpoint_observations = _atomic_executor(manager)
     metadata_updates: list[dict[str, Any]] = []
     executor._update_provider_peer_group_visit_metadata = (  # type: ignore[method-assign]
         lambda _step, **kwargs: metadata_updates.append(kwargs)
@@ -177,6 +198,9 @@ def test_peer_group_finalizer_commits_state_and_result_once(
             "publication_state": "committed_terminal_result",
         }
     ]
+    assert checkpoint_observations == [
+        ("Peers", True, "completed", "completed")
+    ]
 
 
 def test_peer_group_finalizer_rejects_current_step_drift_without_a_write(
@@ -193,7 +217,7 @@ def test_peer_group_finalizer_rejects_current_step_drift_without_a_write(
         step_id="root.other",
         visit_count=1,
     )
-    executor = _atomic_executor(manager)
+    executor, _ = _atomic_executor(manager)
     prevalidation_calls: list[str] = []
     executor._record_published_artifacts = (  # type: ignore[method-assign]
         lambda *_args, **_kwargs: prevalidation_calls.append("publish")

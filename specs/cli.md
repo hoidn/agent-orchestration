@@ -35,7 +35,9 @@ failure or suspension) or the process dies. Retained lock metadata is not
 authority: a dead process's lock file does not prevent a later run. Lock files
 are not removed on release. `--dry-run` neither acquires nor requires this
 lock. Existing per-run writer locks still coordinate mutation of a run;
-read-only reporting remains available. Concurrent execution requires separate
+read-only reporting remains available. When another process holds a run's
+writer lock, `run` and `resume` refuse with `run_already_active` and exit 2, as
+for `workspace_run_already_active`. Concurrent execution requires separate
 workspaces. Result bundle paths and persisted result identities are unchanged.
 
 A `run`, `resume`, or `trial` started from inside an active run (by one of its

@@ -908,7 +908,7 @@ def run_workflow(
     except RunAlreadyActiveError as e:
         logger.error(str(e))
         return _run_result(
-            1, state_manager=state_manager, session_id=session_id,
+            2, state_manager=state_manager, session_id=session_id,
             session_status="failed" if session_id is not None else None)
     except ReservedRunRootError as e:
         logger.error(str(e))

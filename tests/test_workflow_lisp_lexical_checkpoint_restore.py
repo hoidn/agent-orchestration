@@ -4094,3 +4094,92 @@ def test_restore_selector_rejects_checkpoint_index_entry_identity_mismatch(
     assert decision.diagnostics == (
         "lexical_restore_checkpoint_record_reference_invalid",
     )
+
+
+def test_restore_selector_does_not_treat_corrupt_active_frame_record_as_absent(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-active-frame-corrupt-record",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    entry = index_payload["records"][-1]
+    entry["frame_identity"] = {
+        **entry["frame_identity"],
+        "call_frame_id": "active-frame",
+    }
+    state_manager.frame_id = "active-frame"
+    state_manager.write_runtime_sidecar_json(index_path, index_payload)
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics == (
+        "lexical_restore_checkpoint_record_reference_invalid",
+    )
+
+
+def test_restore_selector_rejects_noncanonical_reference_before_skipping_foreign_frame(
+    tmp_path: Path,
+) -> None:
+    restore = _restore_module()
+    checkpoints = _checkpoints_module()
+    bundle, state_manager, _ = _materialize_restore_sidecars(
+        tmp_path,
+        run_id="restore-foreign-frame-noncanonical-reference",
+    )
+    point = next(
+        candidate
+        for candidate in bundle.runtime_plan.lexical_checkpoint_points
+        if candidate.details.get("restore", {}).get("eligibility")
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    for entry in index_payload["records"]:
+        entry["frame_identity"] = {
+            **entry["frame_identity"],
+            "call_frame_id": "older-frame",
+        }
+    index_payload["records"][-1]["record_path"] = "../not-a-canonical-record.json"
+    state_manager.frame_id = "active-frame"
+    state_manager.write_runtime_sidecar_json(index_path, index_payload)
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.selection_observation == "record_present_unusable"
+    assert decision.diagnostics == (
+        "lexical_restore_checkpoint_record_reference_invalid",
+    )
