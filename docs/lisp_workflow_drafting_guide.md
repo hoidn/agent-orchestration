@@ -555,7 +555,7 @@ The commands are `probe.py`: `bump n` returns `{n: n+1}`, `fetch n` returns
 | 9 | Arithmetic over decimals | 2.33: exit 2, `pure_expr_operator_unsupported`. 2.34: runs | Rule | target 2.34 |
 | 10 | A decimal literal in an expression | 2.33: exit 2, `frontend_parse_error`. 2.34: runs | Rule | at 2.33, a parameter default |
 | 11 | Commands in parallel | no form for it; `list/map-effect` runs its commands one after another | Rule | - |
-| 12 | A `list/map-effect` body that calls a procedure | exit 2, `list_map_effect_body_unsupported` | Defect | `command-result` in the body |
+| 12 | A `list/map-effect` body that calls a procedure | exit 2, `list_map_effect_body_unsupported` | Defect | `command-result` in the body, or a `call` of a `defworkflow` |
 | 13 | A helper shared by two branches inside a loop | exit 2, `compiler_defect_loop_control_value` or `workflow_signature_mismatch` | Defect | one call; the helper chooses the branch |
 | 14 | A `let*` binding whose value is an `if` over two lists, in a procedure called in a loop | exit 2, `workflow_return_not_exportable` | Defect | write the `if` inside the record that the state update appends |
 | 15 | A `let*` binding whose value is an `if` over two records, in a procedure called in a loop | compiles; exit 1, `pure_expr_payload_invalid` | Defect | bind the choice through a `defun` |
@@ -753,7 +753,19 @@ holds the command, `(fetch item)`, is refused with
 not match its specialized WCC source") at the `list/map-effect`
 (`map_effect_procedure_body.orc`, line 12, column 5). The
 [list traversal design](design/workflow_lisp_pure_list_traversal.md) admits a
-procedure call as the body, so this is a defect. The forms that run effects
+procedure call as the body, so this is a defect. Write the `command-result` in
+the body, or move it into a `defworkflow` and `call` that:
+
+```lisp
+;; tests/fixtures/workflow_lisp/guide_shapes/map_effect_workflow_body.orc
+  (defworkflow fetch-one ((n Int)) -> Box
+    (command-result fetch :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "fetch" n) :returns Box))
+  (defworkflow run ((items List[Int])) -> List[Box]
+    (list/map-effect ((item items)) :max 4
+      (call fetch-one :n item))))
+```
+
+It returns the same list after the same three commands. The forms that run effects
 at once are providers under `with-live-providers` (section 8A), provider peer
 groups (section 8B) and the arms of a `trial`
 ([execution facts, F](reports/2026-09-29-workflow-lisp-execution-facts.md#f-concurrency-that-exists)).

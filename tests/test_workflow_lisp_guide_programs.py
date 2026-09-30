@@ -133,6 +133,10 @@ CASES = {
         "map_effect_procedure_body", {"items": [3, 1, 2]},
         _both(Refused("list_map_effect_body_unsupported", 12, 5)),
     ),
+    "map_effect_workflow_body": (
+        "map_effect_workflow_body", {"items": [3, 1, 2]},
+        _both(Runs({"__result__": [{"n": 3}, {"n": 1}, {"n": 2}]}, ("fetch 3", "fetch 1", "fetch 2"))),
+    ),
     "helper_bound_in_loop": (
         "helper_bound_in_loop", {}, _both(Refused("compiler_defect_loop_control_value", 20, 22)),
     ),
