@@ -4698,7 +4698,7 @@ def test_load_canonical_phase_result_keeps_bundle_bytes_after_path_replacement(
         return content
 
     def track_external_bundle_read(path: Path) -> None:
-        if path == bundle_path and path.is_symlink():
+        if path.absolute() == bundle_path and path.is_symlink():
             external_bundle_reads.append(path)
 
     def tracked_path_read_bytes(path: Path) -> bytes:
