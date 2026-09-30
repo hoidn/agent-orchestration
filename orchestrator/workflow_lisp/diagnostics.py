@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+import traceback
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -340,6 +341,13 @@ def _authored_location(node: object) -> tuple[SourceSpan, tuple[str, ...]] | Non
     return None
 
 
+def _raised_by_the_orchestrator(error: BaseException) -> bool:
+    """Whether the innermost frame of `error`'s traceback is code of the orchestrator package."""
+
+    *_, (frame, _line) = traceback.walk_tb(error.__traceback__)
+    return frame.f_globals.get("__name__", "").startswith("orchestrator.")
+
+
 @contextmanager
 def compiler_defect_boundary(module_path: Path) -> Iterator[None]:
     """Report an internal exception raised after typecheck as one `compiler_defect` diagnostic.
@@ -347,15 +355,18 @@ def compiler_defect_boundary(module_path: Path) -> Iterator[None]:
     Core calculus section 13.3: an elaboration, normalization, defunctionalization or
     lowering failure on a typechecked program is a compiler defect. The diagnostic is at
     the innermost node tagged by `records_defect_provenance`, else at the start of the
-    module, and keeps the exception as its `cause`. Diagnostics, assertion failures and
-    `MemoryError` pass unchanged; a `BaseException` that is not an `Exception` is never caught.
+    module, and keeps the exception as its `cause`. Diagnostics, `MemoryError` and an assertion
+    failure raised outside the orchestrator package (a test's stand-in for a stage) pass
+    unchanged; a `BaseException` that is not an `Exception` is never caught.
     """
 
     try:
         yield
-    except (LispFrontendCompileError, AssertionError, MemoryError):
+    except (LispFrontendCompileError, MemoryError):
         raise
     except Exception as error:
+        if isinstance(error, AssertionError) and not _raised_by_the_orchestrator(error):
+            raise
         module_start = SourcePosition(path=str(module_path), line=1, column=1, offset=0)
         stage, span, form_path = getattr(
             error,
