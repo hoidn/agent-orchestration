@@ -13,12 +13,16 @@ repair of that same candidate and branch before switching branches. A repair
 that is still invalid is not retried. An accepted improvement resets that
 branch's stall count. When both counts reach two, the controller asks the
 shared proposal fixture to fuse the current A and B incumbents and evaluates
-that candidate. Search stops at score `0.0` or the evaluation budget; seeds,
-repairs, and fusion all count. The default budget is 12, valid budgets are
+that candidate. Search stops when its best evaluation is valid and at or below
+the target score, or when the evaluation budget is exhausted; seeds, repairs,
+and fusion all count. The default budget is 12, valid budgets are
 integers from 2 through 16, and the ORC loop has a fixed safety bound of 16.
 Fusion is attempted at most once; if it does not solve the task, both stall
 counts reset and alternation continues until the score or budget stop. Budgets
 outside `[2, 16]` return `invalid_budget` with zero evaluations.
+
+At startup, a valid seed outranks an invalid seed; if both are invalid, A is
+kept as a fallback.
 
 The proposal fixture is deterministic: its first A improvement is deliberately
 out of bounds, repair yields `(2, 0)`, later A improvements plateau at `(2, 0)`,

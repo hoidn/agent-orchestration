@@ -85,9 +85,11 @@
              (seed-b-evaluation (command-result evaluate-seed-b
                                   :adapter evaluate_candidate
                                   :inputs ((a seed-b.a) (b seed-b.b)) :returns Evaluation))
-             (best-seed (if (< seed-b-evaluation.score seed-a-evaluation.score) seed-b seed-a))
-             (best-evaluation (if (< seed-b-evaluation.score seed-a-evaluation.score)
-                                seed-b-evaluation seed-a-evaluation))
+             (seed-b-is-best (and seed-b-evaluation.valid
+                               (or (not seed-a-evaluation.valid)
+                                   (< seed-b-evaluation.score seed-a-evaluation.score))))
+             (best-seed (if seed-b-is-best seed-b seed-a))
+             (best-evaluation (if seed-b-is-best seed-b-evaluation seed-a-evaluation))
              (seed-a-trial (record Trial :action "seed" :branch "A" :parents (list)
                                 :candidate seed-a :evaluation seed-a-evaluation :accepted true))
              (seed-b-trial (record Trial :action "seed" :branch "B" :parents (list)
@@ -104,7 +106,8 @@
           :state initial
           :on-exhausted (result state "loop_bound_exhausted")
           (fn (state)
-            (if (<= state.best_evaluation.score target_score)
+            (if (and state.best_evaluation.valid
+                     (<= state.best_evaluation.score target_score))
               (done (result state "solved"))
               (if (>= state.evaluations max_evaluations)
                 (done (result state "budget_exhausted"))
