@@ -2421,8 +2421,8 @@ Its review hook returns `Decision[ReviewNotes ReviewBlocker]` straight from
 with an adapter instead.
 
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-is evidence for the target-2.33 surface (route-readiness
-`migration_evidence_only`), not a template. Dry-run it from the repository
+is the recent example for a `std/improve` review loop at target 2.33
+(route-readiness `preferred_current_guidance`). Dry-run it from the repository
 root:
 
 ```bash

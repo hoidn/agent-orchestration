@@ -772,7 +772,8 @@ def test_design_delta_parent_drain_historical_promotion_matches_registry() -> No
     assert report["route_identity"]["lowering_route"] == "wcc_m4"
     assert entry.readiness_label == "promotion_eligible"
     assert entry.route_label == "wcc_default"
-    assert entry.copy_safety == "preferred_current_guidance"
+    # The route stays promoted; the family is deprecated as a model for new authoring.
+    assert entry.copy_safety == "legacy_compatibility_only"
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:
