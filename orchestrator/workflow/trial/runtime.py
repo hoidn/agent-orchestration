@@ -57,6 +57,7 @@ from .contracts import (
 )
 from .ledger import (
     TrialLedgerError,
+    _active_rows_for_cell,
     append_trial_cell_failure,
     append_trial_cell_settlement,
     append_trial_e1_allocation_start,
@@ -240,11 +241,7 @@ def _head(path: Path) -> str:
 
 
 def _cell_rows(path: Path, cell: TrialCellKey):
-    return tuple(
-        row
-        for row in load_trial_event_ledger(path).rows[1:]
-        if row.payload["cell"] == cell.record
-    )
+    return tuple(_active_rows_for_cell(load_trial_event_ledger(path), cell))
 
 
 def _prepared_binding(path: Path, cell: TrialCellKey) -> SettledRunRefResultBinding:

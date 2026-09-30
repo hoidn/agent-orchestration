@@ -27,6 +27,7 @@ from .evaluation import (
 from .ledger import (
     TrialEventLedger,
     TrialLedgerRow,
+    _active_rows_for_cell,
     append_trial_aggregation_freeze,
     append_trial_packets_freeze,
     append_trial_verdict_publication,
@@ -164,7 +165,7 @@ def _validate_execution(
             "trial runtime outcomes disagree with the exact cell domain"
         )
     for outcome in execution.outcomes:
-        rows = _rows_for_cell(ledger, outcome.cell)
+        rows = _active_rows_for_cell(ledger, outcome.cell)
         if outcome.status == "completed":
             prepared = tuple(row for row in rows if row.kind == "cell_prepared")
             settled = tuple(row for row in rows if row.kind == "cell_settled")
