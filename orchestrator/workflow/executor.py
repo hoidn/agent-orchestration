@@ -290,9 +290,9 @@ class WorkflowExecutor:
             stream_output: Stream provider stdout/stderr live without enabling debug mode
             workspace_files: The run's result-file owner (a call frame shares
                 its caller's owner). When omitted, this executor owns one.
-            aggregate_run_files: An owned lease transferred to this executor,
-                inherited by a call frame from its caller's pinned aggregate
-                run root and closed with this executor.
+            aggregate_run_files: A lease on the caller's pinned aggregate run
+                root, inherited by a call frame. The caller opened it and
+                closes it; this executor never does.
             caller_frontend_index: The caller's compiled-frontend index (a
                 call frame's executor gets its caller's). Output-contract
                 failures of this workflow's steps resolve their source through
@@ -541,6 +541,7 @@ class WorkflowExecutor:
         self.workspace_files = workspace_files or WorkspaceFiles(workspace)
         self._owns_workspace_files = workspace_files is None
         self._aggregate_run_files_owner = aggregate_run_files
+        self._owns_aggregate_run_files = aggregate_run_files is None
         initialized_root_manager = (
             isinstance(self.state_manager, StateManager)
             and self.state_manager.state is not None
@@ -4721,6 +4722,8 @@ class WorkflowExecutor:
             Final execution state
         """
         try:
+            if self._owns_workspace_files and self.workspace_files.closed:
+                self._reopen_owned_result_files()
             # Override retry config if provided
             if max_retries is not None:
                 self.max_retries = max_retries
@@ -4887,16 +4890,25 @@ class WorkflowExecutor:
                 self.close()
 
     def close(self) -> None:
-        """Close resources owned by this executor, without closing borrowed roots."""
+        """Close the roots this executor opened; a caller's owner or lease stays open."""
         from contextlib import ExitStack
 
         owners = ExitStack()
         aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
-        if aggregate_owner is not None:
+        if aggregate_owner is not None and getattr(
+            self, "_owns_aggregate_run_files", True
+        ):
             owners.callback(aggregate_owner.close)
         if getattr(self, "_owns_workspace_files", False):
             owners.callback(self.workspace_files.close)
         owners.close()
+
+    def _reopen_owned_result_files(self) -> None:
+        """Pin this executor's own roots again when it runs after an earlier run closed them."""
+        self.workspace_files = WorkspaceFiles(self.workspace)
+        if self._owns_aggregate_run_files:
+            self._aggregate_run_files_owner = None
+            self._aggregate_run_workspace_files().close()
 
     def _wait_for_provider_observation_dependents(self) -> None:
         """Settle async provider users before their shared manager closes."""

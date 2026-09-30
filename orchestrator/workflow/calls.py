@@ -1241,10 +1241,9 @@ class CallExecutor:
                 aggregate_run_files=aggregate_run_files,
                 caller_frontend_index=self.executor._contract_origin_index,
             )
-        except BaseException:
+            child_state = child_executor.execute(resume=child_resume)
+        finally:
             aggregate_run_files.close()
-            raise
-        child_state = child_executor.execute(resume=child_resume)
         call_frames[frame_id] = deepcopy(child_state_manager._snapshot())
 
         if (

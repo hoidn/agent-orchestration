@@ -8,6 +8,7 @@ import os
 import secrets
 import shutil
 import stat
+import weakref
 from pathlib import Path
 
 from .._common.safe_tree import open_directory, remove_tree_contents
@@ -44,6 +45,10 @@ class WorkspaceFiles:
             else root_fd
         )
         self._closed = False
+        # An owner nobody closed releases its root when it is collected.
+        self._release_root = (
+            weakref.finalize(self, os.close, self._root_fd) if self._owns_root else None
+        )
 
     def subroot(self, workspace: str | Path) -> "WorkspaceFiles":
         """Open one descendant workspace without resolving its path again."""
@@ -84,12 +89,16 @@ class WorkspaceFiles:
             raise OSError("workspace file owner is closed")
         return self._root_fd
 
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        if self._owns_root:
-            os.close(self._root_fd)
+        if self._release_root is not None:
+            self._release_root()
 
     def relative(self, path: str | Path) -> Path:
         candidate = Path(path)
