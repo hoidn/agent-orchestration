@@ -25,7 +25,7 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "watch_workflow_usage_limit.sh"
 POLL_SECONDS = 2
 
-STAND_IN_ORCHESTRATOR = f"""import subprocess, sys, time
+STAND_IN_ORCHESTRATOR = f"""import json, subprocess, sys, time
 from pathlib import Path
 here = Path(__file__).parent
 calls = here / "calls"
@@ -40,6 +40,13 @@ if outcome == "late":
 if outcome == "noisy":
     subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.2); [print('noise') for _ in range(400)]"])
     outcome = "refuse"
+if outcome == "run_limit":
+    run_root = Path.cwd() / ".orchestrate" / "runs" / "fresh-run"
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(json.dumps({{
+        "run_id": "fresh-run", "status": "running", "workflow_file": sys.argv[2],
+    }}), encoding="utf-8")
+    print("usage limit reached")
 if outcome == "refuse":
     print("Error: workspace_run_already_active: run other-run is active in /workspace", file=sys.stderr)
     sys.exit(2)
@@ -92,6 +99,7 @@ def watcher(tmp_path: Path):
         return process
 
     start.calls = lambda: (orchestrator / "calls").read_text(encoding="utf-8").splitlines() if (orchestrator / "calls").exists() else []
+    start.workspace = tmp_path / "workspace"
     # The pane shows these lines above every prompt, so they are there again after the script clears it.
     start.prompt = lambda *lines: tmux("send-keys", "-t", "target:0.0", "PS1='" + "\\n".join([*lines, "$ "]) + "'", "Enter")
     yield start
@@ -169,3 +177,39 @@ def test_an_exit_line_pushed_out_of_the_usual_capture_is_still_found(watcher) ->
     time.sleep(3 * POLL_SECONDS)
 
     assert (watcher.calls(), process.poll()) == (["resume target-run --stream-output"] * 2, None)
+
+
+@pytest.mark.xfail(
+    reason="a late refusal followed by an admitted fresh run leaves the watchdog on the completed run",
+    strict=True,
+    raises=AssertionError,
+)
+def test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id(watcher) -> None:
+    workspace = watcher.workspace
+    source_run = workspace / ".orchestrate" / "runs" / "target-run"
+    source_run.mkdir(parents=True)
+    manifest = workspace / "tranche-manifest.json"
+    manifest.write_text(
+        '{"tranches":[{"tranche_id":"t-1","status":"blocked",'
+        '"last_item_outcome":"SKIPPED_AFTER_IMPLEMENTATION",'
+        '"last_execution_report_path":"failed.md"}]}',
+        encoding="utf-8",
+    )
+    (workspace / "failed.md").write_text("failed before producing a report", encoding="utf-8")
+    (source_run / "state.json").write_text(
+        '{"run_id":"target-run","status":"completed","workflow_file":"workflow.orc",'
+        '"workflow_outputs":{"drain_status":"BLOCKED",'
+        '"tranche_manifest_path":"tranche-manifest.json",'
+        '"message":"provider usage limit reached"}}',
+        encoding="utf-8",
+    )
+
+    process = watcher("late run_limit run")
+    _wait_for_calls(watcher, 3)
+
+    assert watcher.calls() == [
+        "run workflow.orc --stream-output",
+        "run workflow.orc --stream-output",
+        "resume fresh-run --stream-output",
+    ]
+    assert process.poll() is None
