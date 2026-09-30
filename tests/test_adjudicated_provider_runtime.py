@@ -1172,8 +1172,8 @@ def test_deadline_expiring_during_parent_validation_fails_before_completion(
     ]
     original_validate = executor_module.validate_expected_outputs
 
-    def slow_parent_validation(expected_outputs, *, workspace):
-        result = original_validate(expected_outputs, workspace=workspace)
+    def slow_parent_validation(expected_outputs, *, workspace, **kwargs):
+        result = original_validate(expected_outputs, workspace=workspace, **kwargs)
         if Path(workspace).resolve() == tmp_path.resolve():
             fake_clock.advance(2.0)
         return result
@@ -1185,6 +1185,26 @@ def test_deadline_expiring_during_parent_validation_fails_before_completion(
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["error"]["type"] == "timeout"
+
+
+def test_an_error_raised_while_validating_a_candidate_keeps_its_provider_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    def failing_validation(expected_outputs, *, workspace, **kwargs):
+        raise RuntimeError("validation broke")
+
+    monkeypatch.setattr(executor_module, "validate_expected_outputs", failing_validation)
+
+    state = _run(tmp_path, workflow)
+
+    candidate = state["steps"]["Draft"]["adjudication"]["candidates"]["a"]
+    assert (candidate["candidate_status"], candidate["attempt_count"]) == ("prompt_failed", 1)
 
 
 def test_candidate_and_evaluator_stdout_stderr_are_sidecars_only(tmp_path: Path) -> None:

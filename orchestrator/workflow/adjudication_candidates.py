@@ -167,16 +167,9 @@ class AdjudicationCandidatePhaseMixin:
                         stderr_log=paths.stderr_log,
                         output_bundle=resolved_output_bundle,
                         expected_outputs=resolved_expected_outputs or [],
+                        candidate_record=candidate_record,
+                        attempt=attempt,
                     )
-                )
-                candidate_record["provider_exit_code"] = exec_result.exit_code
-                candidate_record["attempt_count"] = attempt + 1
-                candidate_record["provider_attempts"].append(
-                    {
-                        "attempt": attempt + 1,
-                        "exit_code": exec_result.exit_code,
-                        "duration_ms": exec_result.duration_ms,
-                    }
                 )
                 if exec_result.exit_code != 0:
                     if retry_policy.should_retry(exec_result.exit_code, attempt):
@@ -280,8 +273,14 @@ class AdjudicationCandidatePhaseMixin:
         stderr_log: Any,
         output_bundle: Dict[str, Any] | None,
         expected_outputs: list[Dict[str, Any]],
+        candidate_record: Dict[str, Any],
+        attempt: int,
     ) -> tuple[Any, Dict[str, Any], OutputContractError | None]:
-        """Pin candidate results before the provider and reuse that owner to validate them."""
+        """Pin candidate results before the provider and reuse that owner to validate them.
+
+        The provider attempt is recorded in `candidate_record` before
+        validation, so an error raised while validating keeps the attempt.
+        """
         candidate_files = self._bindings.candidate_result_files(
             workspace,
             run_root,
@@ -290,6 +289,15 @@ class AdjudicationCandidatePhaseMixin:
             result = self._execute_provider_invocation(invocation, cwd=workspace)
             stdout_log.write_bytes(result.stdout)
             stderr_log.write_bytes(result.stderr)
+            candidate_record["provider_exit_code"] = result.exit_code
+            candidate_record["attempt_count"] = attempt + 1
+            candidate_record["provider_attempts"].append(
+                {
+                    "attempt": attempt + 1,
+                    "exit_code": result.exit_code,
+                    "duration_ms": result.duration_ms,
+                }
+            )
             if result.exit_code != 0:
                 return result, {}, None
             try:
