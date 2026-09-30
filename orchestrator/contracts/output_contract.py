@@ -80,20 +80,11 @@ def validate_contract_value(
     *,
     workspace_files: Any | None = None,
 ) -> Any:
-    """Validate one in-memory typed value against an output-style contract."""
-    if workspace_files is None and _descriptor_contains_relpath(spec):
-        from orchestrator.workflow.workspace_files import WorkspaceFiles
+    """Validate one in-memory typed value against an output-style contract.
 
-        owner = WorkspaceFiles(workspace)
-        try:
-            return validate_contract_value(
-                raw_value,
-                spec,
-                workspace,
-                workspace_files=owner,
-            )
-        finally:
-            owner.close()
+    Relpath values are checked beneath `workspace_files` when a caller holds
+    that owner, and by path otherwise.
+    """
     resolved_workspace = (
         workspace_files.workspace if workspace_files is not None else workspace.resolve()
     )
@@ -1547,17 +1538,6 @@ def _descriptor_contains_value(descriptor: Any) -> bool:
     return False
 
 
-def _descriptor_contains_relpath(descriptor: Any) -> bool:
-    if isinstance(descriptor, Mapping):
-        return descriptor.get("type") == "relpath" or any(
-            _descriptor_contains_relpath(value)
-            for value in descriptor.values()
-        )
-    if isinstance(descriptor, (list, tuple)):
-        return any(_descriptor_contains_relpath(value) for value in descriptor)
-    return False
-
-
 def _descriptor_contains_direct_structure(descriptor: Any) -> bool:
     if not isinstance(descriptor, Mapping):
         return False
@@ -1642,6 +1622,8 @@ def _validate_relpath_value(
     *,
     workspace_files: Any,
 ) -> tuple[Any, ContractViolation | None]:
+    if workspace_files is None:
+        return _validate_relpath_value_by_path(raw_value, spec, workspace)
     if not raw_value:
         return None, ContractViolation(
             type="empty_relpath",
@@ -1748,6 +1730,99 @@ def _normalize_relative_under_root(
     except (OSError, ValueError):
         return None
     if must_exist_target and not exists:
+        return None
+    return candidate
+
+
+def _validate_relpath_value_by_path(
+    raw_value: str,
+    spec: Dict[str, Any],
+    workspace: Path,
+) -> tuple[Any, ContractViolation | None]:
+    if not raw_value:
+        return None, ContractViolation(
+            type="empty_relpath",
+            message="relpath output value cannot be empty",
+            context={},
+        )
+
+    value_path = Path(raw_value)
+    if value_path.is_absolute() or ".." in value_path.parts:
+        return None, ContractViolation(
+            type="path_escape",
+            message="relpath output escapes workspace",
+            context={"value": raw_value},
+        )
+
+    target = _resolve_workspace_path(workspace, raw_value)
+    if target is None:
+        return None, ContractViolation(
+            type="path_escape",
+            message="relpath output escapes workspace",
+            context={"value": raw_value},
+        )
+
+    under = spec.get("under")
+    if under:
+        under_root = _resolve_workspace_path(workspace, str(under))
+        if under_root is None:
+            return None, ContractViolation(
+                type="invalid_under_root",
+                message="under root escapes workspace",
+                context={"under": under},
+            )
+        if not _is_within(target, under_root):
+            normalized_target = _normalize_relative_under_root_by_path(
+                raw_value=raw_value,
+                workspace=workspace,
+                under_root=under_root,
+                must_exist_target=bool(spec.get("must_exist_target")),
+            )
+            if normalized_target is not None:
+                target = normalized_target
+            else:
+                return None, ContractViolation(
+                    type="outside_under_root",
+                    message="relpath output points outside the declared under root",
+                    context={"value": raw_value, "under": under},
+                )
+        if not _is_within(target, under_root):
+            return None, ContractViolation(
+                type="outside_under_root",
+                message="relpath output points outside the declared under root",
+                context={"value": raw_value, "under": under},
+            )
+
+    if spec.get("must_exist_target") and not target.exists():
+        return None, ContractViolation(
+            type="missing_target",
+            message="relpath target does not exist",
+            context={"value": raw_value},
+        )
+
+    return target.relative_to(workspace).as_posix(), None
+
+
+def _normalize_relative_under_root_by_path(
+    raw_value: str,
+    workspace: Path,
+    under_root: Path,
+    must_exist_target: bool,
+) -> Path | None:
+    """Refine safe under-root-relative values to workspace-relative contract paths."""
+    value_path = Path(raw_value)
+    if any(part in {"", ".", ".."} for part in value_path.parts):
+        return None
+
+    if len(value_path.parts) > 1 and not must_exist_target:
+        return None
+
+    candidate = (under_root / value_path).resolve()
+    if not _is_within(candidate, workspace):
+        return None
+    if not _is_within(candidate, under_root):
+        return None
+    if must_exist_target and not candidate.exists():
         return None
     return candidate
 
