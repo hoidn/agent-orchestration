@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import time
 from copy import deepcopy
 from hashlib import sha256
@@ -866,7 +867,13 @@ class _WorkflowPhasedProviderAttemptBindings:
                     binding.workspace_relative_path
                 )
                 presence = "regular"
-        except OSError:
+        except ValueError:
+            presence, payload = "invalid", None
+        except OSError as exc:
+            # A link or a non-regular file is an invalid candidate; any other
+            # error fails the snapshot.
+            if exc.errno not in (errno.ELOOP, errno.ENOTDIR, errno.EINVAL):
+                raise
             presence, payload = "invalid", None
         return CandidateDigestRow(
             contract_ordinal=binding.contract_ordinal,

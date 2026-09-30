@@ -9213,11 +9213,16 @@ class WorkflowExecutor:
                 if isinstance(step, RuntimeStep)
                 else step.get("node_id")
             )
-            origin = self._contract_origin_index.origin_for_step(
-                str(step_name),
-                resolved_step_id,
-                node_id=node_id if isinstance(node_id, str) else None,
+            origin_key = (str(step_name), resolved_step_id)
+            origin_node_id = node_id if isinstance(node_id, str) else None
+            origin = self._compiled_frontend_origin_for_step(
+                *origin_key, node_id=origin_node_id
             )
+            if origin is None:
+                # A call frame's bundle carries no source trace; its caller's index does.
+                origin = self._contract_origin_index.origin_for_step(
+                    *origin_key, node_id=origin_node_id
+                )
             if not isinstance(origin, Mapping):
                 raise ValueError(
                     "phased-delivery refusal requires retained frontend origin"

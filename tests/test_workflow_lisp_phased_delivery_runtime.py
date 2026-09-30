@@ -25,6 +25,7 @@ from orchestrator.workflow.call_frame_state import (
     _path_safe_frame_scope_token,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.provider_phased_delivery.runtime_bindings import (
     _WorkflowPhasedProviderAttemptBindings,
 )
@@ -2127,6 +2128,7 @@ def test_physical_publication_boundaries_translate_to_closed_failure(
 ) -> None:
     executor = _executor()
     executor.workspace = tmp_path
+    executor.workspace_files = WorkspaceFiles(tmp_path)
     executor._resolve_workspace_path = MethodType(
         lambda self, path: None,
         executor,
@@ -2266,6 +2268,7 @@ def test_physical_state_write_failure_rolls_back_live_success_and_dataflow(
 def _q2_validation_binding(tmp_path):
     executor = _executor()
     executor.workspace = tmp_path
+    executor.workspace_files = WorkspaceFiles(tmp_path)
     executor._resolve_workspace_path = MethodType(
         lambda self, path: self.workspace / path,
         executor,
@@ -2443,21 +2446,21 @@ def test_snapshot_candidates_closes_candidate_read_failure(
 ) -> None:
     binding = _q2_validation_binding(tmp_path)
     _write_complete_candidate_set(tmp_path)
-    original_read_bytes = Path.read_bytes
-    original_is_symlink = Path.is_symlink
+    original_read = WorkspaceFiles.read
+    original_exists = WorkspaceFiles.exists
 
-    def fail_report_read(path: Path) -> bytes:
-        if operation == "read" and path.name == "report.txt":
+    def fail_report_read(files: WorkspaceFiles, path: str | Path) -> bytes:
+        if operation == "read" and Path(path).name == "report.txt":
             raise OSError("private snapshot detail")
-        return original_read_bytes(path)
+        return original_read(files, path)
 
-    def fail_report_stat(path: Path) -> bool:
-        if operation == "stat" and path.name == "report.txt":
+    def fail_report_stat(files: WorkspaceFiles, path: str | Path) -> bool:
+        if operation == "stat" and Path(path).name == "report.txt":
             raise OSError("private snapshot detail")
-        return original_is_symlink(path)
+        return original_exists(files, path)
 
-    monkeypatch.setattr(Path, "read_bytes", fail_report_read)
-    monkeypatch.setattr(Path, "is_symlink", fail_report_stat)
+    monkeypatch.setattr(WorkspaceFiles, "read", fail_report_read)
+    monkeypatch.setattr(WorkspaceFiles, "exists", fail_report_stat)
 
     with pytest.raises(PhasedOperationFailure) as raised:
         binding.snapshot_candidates(binding.preflight, submission_ordinal=1)
@@ -2505,14 +2508,14 @@ def test_freeze_candidate_closes_candidate_read_failure(
         binding.preflight,
         submission_ordinal=1,
     )
-    original_read_bytes = Path.read_bytes
+    original_read = WorkspaceFiles.read
 
-    def fail_report_read(path: Path) -> bytes:
-        if path.name == "report.txt":
+    def fail_report_read(files: WorkspaceFiles, path: str | Path) -> bytes:
+        if Path(path).name == "report.txt":
             raise OSError("private freeze detail")
-        return original_read_bytes(path)
+        return original_read(files, path)
 
-    monkeypatch.setattr(Path, "read_bytes", fail_report_read)
+    monkeypatch.setattr(WorkspaceFiles, "read", fail_report_read)
 
     with pytest.raises(PhasedOperationFailure) as raised:
         binding.freeze_candidate(
