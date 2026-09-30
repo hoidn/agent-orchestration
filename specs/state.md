@@ -297,6 +297,17 @@ creates or asks a replacement question.
 
 - State integrity
   - Atomic writes: write temp file then rename.
+  - Call result files are read, created, checked, and cleared beneath a
+    descriptor-rooted workspace owner pinned before effects; run-owned bundles
+    outside that workspace use one aggregate run-root owner pinned by the
+    executor. Parent components are opened descriptor-relative as no-follow
+    directories; result-file reads use no-follow, nonblocking opens and require
+    a regular file by `fstat`, so symlinks and FIFOs fail closed. Call-frame
+    and per-attempt roots are independent descendant leases, closed after their
+    scoped work; promotion opens a fresh descendant from the cached run owner.
+    The owning executor closes each cached owner at its lifecycle boundary.
+    This authority covers expected outputs and result bundles, not state
+    metadata or logs.
   - Include workflow checksum to detect modifications.
   - On corruption: `resume --repair` attempts recovery from latest valid backup; `resume --force-restart` creates a new run.
   - Provider attempts are at-least-once. After all ordinary source, checksum,

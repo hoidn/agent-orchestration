@@ -1283,6 +1283,7 @@ class PureReplayRuntime:
         *,
         state: Mapping[str, Any],
         state_manager: Any,
+        workspace_files: Any,
         resolve_bundle_path: Callable[[str], Path | None],
     ) -> None:
         forbidden_checkpoint_node_ids: set[str] = set()
@@ -1304,6 +1305,7 @@ class PureReplayRuntime:
                 forbidden_checkpoint_node_ids.add(node_id)
             self._audit_bundle_surface(
                 node_id=node_id,
+                workspace_files=workspace_files,
                 resolve_bundle_path=resolve_bundle_path,
             )
 
@@ -1319,6 +1321,7 @@ class PureReplayRuntime:
         self,
         *,
         node_id: str,
+        workspace_files: Any,
         resolve_bundle_path: Callable[[str], Path | None],
     ) -> None:
         node = self.bundle.ir.nodes.get(node_id)
@@ -1334,7 +1337,12 @@ class PureReplayRuntime:
             return
         if not isinstance(path, Path) or not path.is_absolute():
             self._raise_profile_conflict(node_id, "pure_bundle")
-        if path.exists():
+        try:
+            relative_path = workspace_files.relative(path)
+            exists = workspace_files.exists(relative_path)
+        except (OSError, ValueError):
+            self._raise_profile_conflict(node_id, "pure_bundle")
+        if exists:
             self._raise_profile_conflict(node_id, "pure_bundle")
 
     def _audit_private_lineage(self, state: Mapping[str, Any]) -> None:

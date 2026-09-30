@@ -223,6 +223,7 @@ class AdjudicationFinalizationPhaseMixin:
                 baseline_manifest=baseline_manifest,
                 promotion_manifest_path=visit_paths.promotion_manifest_path,
                 selected_candidate_id=str(selection.selected_candidate_id),
+                run_root=run_root,
             )
         except TimeoutError as exc:
             return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
@@ -287,11 +288,16 @@ class AdjudicationFinalizationPhaseMixin:
             return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         try:
             if resolved_output_bundle is not None:
-                artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
+                artifacts = validate_output_bundle(
+                    resolved_output_bundle,
+                    workspace=self.workspace,
+                    workspace_files=self._bindings.workspace_files(),
+                )
             else:
                 artifacts = self._bindings.validate_expected_outputs(
                     resolved_expected_outputs or [],
                     workspace=self.workspace,
+                    workspace_files=self._bindings.workspace_files(),
                 )
             deadline.require_time_remaining("parent output validation completion")
         except OutputContractError as exc:

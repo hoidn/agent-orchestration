@@ -20,6 +20,7 @@ from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
 from .state_projection import WorkflowStateProjection
 from .surface_ast import PrivateExecContextBinding
+from .workspace_files import WorkspaceFiles
 
 
 RuntimeStepInput = Dict[str, Any] | RuntimeStep
@@ -309,6 +310,11 @@ class CallRuntime(Protocol):
 
     @property
     def workspace(self) -> Path: ...
+
+    @property
+    def workspace_files(self) -> WorkspaceFiles: ...
+
+    def _aggregate_run_workspace_files(self) -> WorkspaceFiles: ...
 
     @property
     def _workspace_fd(self) -> int:

@@ -49,7 +49,10 @@ from orchestrator.workflow_lisp.wcc.route import (
     workflow_lisp_context_with_lowering_schema,
 )
 from orchestrator.cli.run_ref_root import resolve_run_ref_root
-from orchestrator.cli.commands.run import render_replay_index_rejection
+from orchestrator.cli.commands.run import (
+    _state_root_symlink_error,
+    render_replay_index_rejection,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -599,6 +602,7 @@ def _resume_workflow_with_writer_lock_held(
 
     session_id: str | None = None
     session_status = "failed"
+    executor: WorkflowExecutor | None = None
     try:
         with state_manager.state_transaction() as transaction_state:
             session_id = open_executor_session(
@@ -675,15 +679,19 @@ def _resume_workflow_with_writer_lock_held(
         state_manager.update_status('failed')
         return 1
     finally:
-        if session_id is not None and state_manager.state is not None:
-            with state_manager.state_transaction() as transaction_state:
-                close_executor_session(
-                    transaction_state,
-                    session_id=session_id,
-                    status=session_status,
-                )
-            state = state_manager.state
-            assert state is not None
+        try:
+            if session_id is not None and state_manager.state is not None:
+                with state_manager.state_transaction() as transaction_state:
+                    close_executor_session(
+                        transaction_state,
+                        session_id=session_id,
+                        status=session_status,
+                    )
+                state = state_manager.state
+                assert state is not None
+        finally:
+            if executor is not None:
+                executor.close()
 
 
 def resume_workflow(
@@ -713,6 +721,11 @@ def resume_workflow(
     """Hold the selected run's writer lock for the complete resume command."""
 
     workspace_dir = Path.cwd()
+    if state_dir is None:
+        state_root_error = _state_root_symlink_error(workspace_dir)
+        if state_root_error is not None:
+            logger.error(state_root_error)
+            return 1
     state_dir_override = (
         Path(state_dir).expanduser().resolve()
         if state_dir

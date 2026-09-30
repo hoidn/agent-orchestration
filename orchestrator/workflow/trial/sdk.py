@@ -510,6 +510,7 @@ def run_trial_entry(
 
         session_id: str | None = None
         session_status = "failed"
+        executor: WorkflowExecutor | None = None
         try:
             with state_manager.state_transaction() as transaction_state:
                 session_id = open_executor_session(
@@ -560,13 +561,17 @@ def run_trial_entry(
             session_status = summary.terminal_status
             return summary
         finally:
-            if session_id is not None and state_manager.state is not None:
-                with state_manager.state_transaction() as transaction_state:
-                    close_executor_session(
-                        transaction_state,
-                        session_id=session_id,
-                        status=session_status,
-                    )
+            try:
+                if session_id is not None and state_manager.state is not None:
+                    with state_manager.state_transaction() as transaction_state:
+                        close_executor_session(
+                            transaction_state,
+                            session_id=session_id,
+                            status=session_status,
+                        )
+            finally:
+                if executor is not None:
+                    executor.close()
     finally:
         lock_stack.close()
 

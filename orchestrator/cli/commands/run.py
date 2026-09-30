@@ -574,6 +574,7 @@ def run_workflow(
     writer_lock_stack = ExitStack()
     session_id: str | None = None
     session_status: str | None = None
+    executor: WorkflowExecutor | None = None
     reserved_fd: int | None = None
 
     try:
@@ -914,6 +915,12 @@ def run_workflow(
             1, state_manager=state_manager, session_id=session_id,
             session_status="failed" if session_id is not None else None)
     finally:
-        if state_manager is not None:
-            state_manager.close()
-        writer_lock_stack.close()
+        try:
+            if executor is not None:
+                executor.close()
+        finally:
+            try:
+                if state_manager is not None:
+                    state_manager.close()
+            finally:
+                writer_lock_stack.close()

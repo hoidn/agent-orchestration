@@ -3,15 +3,14 @@ Workflow executor with for-each loop support.
 Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 """
 
-import errno
 import json
 import logging
 import os
 import re
+import stat
 import threading
 import time
 import traceback
-import weakref
 from copy import copy, deepcopy
 from contextlib import contextmanager, suppress
 from hashlib import sha256
@@ -21,6 +20,7 @@ from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 from .._common.io_atomic import atomic_write_text, durable_atomic_write
 from .._common.status import is_step_settled
 from .._common.safe_tree import resolve_path_preserving_fd
+from .._common.safe_tree import SafeTreeRejectionError
 
 from ..state import RunState, StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -59,6 +59,7 @@ from .view_renderer import (
     render_view,
     view_bytes_digest,
 )
+from .workspace_files import WorkspaceFiles
 from .type_descriptor import validate_transport_value
 from .conditions import ConditionEvaluator
 from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode
@@ -234,58 +235,6 @@ _RESTORE_REF_MISSING = object()
 _PURE_PROJECTION_MISSING = object()
 
 
-def _write_bundle_fd(descriptor: int, payload: bytes) -> None:
-    """Write all bundle bytes to one owned descriptor (partial-write safe)."""
-    remaining = memoryview(payload)
-    while remaining:
-        written = os.write(descriptor, remaining)
-        if written <= 0:
-            raise OSError("bundle materialization made no progress")
-        remaining = remaining[written:]
-
-
-def _clear_workspace_leaf(root_fd: int, relative: Path) -> None:
-    """Create the parents of a workspace-relative path and remove its last component.
-
-    The walk starts at `root_fd`, the workspace root an executor holds open
-    from its creation, never at a path looked up again. Each parent is created
-    when missing and opened without following a symbolic link, relative to the
-    one before it; the leaf is unlinked relative to the last one, and a missing
-    leaf is fine. A root or parent replaced by a link after the run started
-    therefore cannot lead the walk outside the workspace, and a link leaf is
-    removed, never its target. Every descriptor the walk opens is closed on
-    every path; a descriptor whose close reports an error counts as released.
-
-    Raises OSError when a parent is a symbolic link or not a directory, or the
-    leaf cannot be removed (for example because it is a directory).
-    """
-    directory_fd = os.dup(root_fd)
-    try:
-        for component in relative.parent.parts:
-            with suppress(FileExistsError):
-                os.mkdir(component, dir_fd=directory_fd)
-            try:
-                child_fd = os.open(
-                    component,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                    dir_fd=directory_fd,
-                )
-            except OSError as exc:
-                if exc.errno not in (errno.ELOOP, errno.ENOTDIR):
-                    raise
-                raise OSError(
-                    exc.errno,
-                    f"result path component {component!r} is a symbolic link "
-                    "or not a directory; make it a real directory",
-                ) from exc
-            parent_fd, directory_fd = directory_fd, child_fd
-            os.close(parent_fd)
-        with suppress(FileNotFoundError):
-            os.unlink(relative.name, dir_fd=directory_fd)
-    finally:
-        os.close(directory_fd)
-
-
 def _is_structurally_root_state_manager(state_manager: Any) -> bool:
     """Return whether resume must apply the root checksum/projection guard."""
     return (
@@ -325,7 +274,8 @@ class WorkflowExecutor:
         no_tools_conf_identity: tuple[int, int] | None = None,
         no_tools_conf_manifest_sha256: str | None = None,
         profile_conf_fd: int | None = None,
-        workspace_fd: int | None = None,
+        workspace_files: WorkspaceFiles | None = None,
+        aggregate_run_files: WorkspaceFiles | None = None,
         caller_frontend_index: CompiledFrontendIndex | None = None,
     ):
         """
@@ -338,10 +288,11 @@ class WorkflowExecutor:
             logs_dir: Directory for logs
             debug: Enable debug mode
             stream_output: Stream provider stdout/stderr live without enabling debug mode
-            workspace_fd: The caller's open descriptor of `workspace` (a call
-                frame's executor gets its caller's); it stays owned by the
-                caller. When omitted, `workspace` is opened here and held
-                until this executor is collected.
+            workspace_files: The run's result-file owner (a call frame shares
+                its caller's owner). When omitted, this executor owns one.
+            aggregate_run_files: An owned lease transferred to this executor,
+                inherited by a call frame from its caller's pinned aggregate
+                run root and closed with this executor.
             caller_frontend_index: The caller's compiled-frontend index (a
                 call frame's executor gets its caller's). Output-contract
                 failures of this workflow's steps resolve their source through
@@ -389,7 +340,6 @@ class WorkflowExecutor:
         strict_flow = self.loaded_bundle.surface.strict_flow
         self.strict_flow = strict_flow if isinstance(strict_flow, bool) else True
         self.workspace = workspace
-        self._pin_workspace_root(workspace_fd)
         self.state_manager = state_manager
         self.debug = debug
         self.stream_output = stream_output
@@ -518,6 +468,9 @@ class WorkflowExecutor:
         self._adjudication_runner = AdjudicationRunner(
             AdjudicationBindings(
                 workspace=lambda: self.workspace,
+                workspace_files=lambda: self.workspace_files,
+                aggregate_run_files=self._aggregate_run_workspace_files,
+                candidate_result_files=self._candidate_result_workspace_files,
                 state_manager=lambda: self.state_manager,
                 workflow_version=lambda: self.workflow_version,
                 provider_registry=lambda: self.provider_registry,
@@ -577,14 +530,42 @@ class WorkflowExecutor:
                 materialize_score_ledger_mirror=lambda *args, **kwargs: (
                     materialize_score_ledger_mirror(*args, **kwargs)
                 ),
-                promote_candidate_outputs=lambda *args, **kwargs: (
-                    promote_candidate_outputs(*args, **kwargs)
+                promote_candidate_outputs=(
+                    self._promote_candidate_outputs_with_run_owner
                 ),
                 validate_expected_outputs=lambda *args, **kwargs: (
                     validate_expected_outputs(*args, **kwargs)
                 ),
             )
         )
+        self.workspace_files = workspace_files or WorkspaceFiles(workspace)
+        self._owns_workspace_files = workspace_files is None
+        self._aggregate_run_files_owner = aggregate_run_files
+        initialized_root_manager = (
+            isinstance(self.state_manager, StateManager)
+            and self.state_manager.state is not None
+        )
+        try:
+            run_files = self._aggregate_run_workspace_files()
+        except FileNotFoundError:
+            if initialized_root_manager:
+                self.close()
+                raise
+        except SafeTreeRejectionError as exc:
+            if initialized_root_manager or not isinstance(
+                exc.__cause__, FileNotFoundError
+            ):
+                self.close()
+                raise
+        except BaseException:
+            self.close()
+            raise
+        else:
+            try:
+                run_files.close()
+            except BaseException:
+                self.close()
+                raise
     def _initialize_provider_observation_manager(self) -> None:
         """Acquire the owned run manager after fallible executor initialization."""
         if (
@@ -1216,6 +1197,7 @@ class WorkflowExecutor:
         runtime.audit_persisted_surfaces(
             state=run_state.to_dict(),
             state_manager=self.state_manager,
+            workspace_files=self.workspace_files,
             resolve_bundle_path=lambda node_id: (
                 self._pure_replay_bundle_path_for_audit(
                     node_id,
@@ -1277,8 +1259,21 @@ class WorkflowExecutor:
                     "surface": "pure_bundle",
                 },
             )
+        try:
+            bundle_path = self.workspace_files.relative(raw_path)
+        except ValueError as exc:
+            from .pure_result_replay import (
+                PROFILE_CONFLICT,
+                PureResultReplayIndexError,
+            )
+
+            raise PureResultReplayIndexError(
+                PROFILE_CONFLICT,
+                "replay-profile pure bundle path is invalid",
+                context={"node_id": node_id, "surface": "pure_bundle"},
+            ) from exc
         return self._bounded_private_runtime_bundle_path(
-            (self.workspace / raw_path).resolve(),
+            self.workspace / bundle_path,
             namespace="pure_projection",
         )
 
@@ -1317,6 +1312,7 @@ class WorkflowExecutor:
         runtime.audit_persisted_surfaces(
             state=child_state,
             state_manager=self.state_manager,
+            workspace_files=self.workspace_files,
             resolve_bundle_path=lambda node_id: (
                 self._pure_replay_detached_bundle_path_for_audit(
                     bundle,
@@ -1380,8 +1376,16 @@ class WorkflowExecutor:
                     "surface": "pure_bundle",
                 },
             )
+        try:
+            bundle_path = self.workspace_files.relative(resolved_path)
+        except ValueError as exc:
+            raise PureResultReplayIndexError(
+                PROFILE_CONFLICT,
+                "replay-profile call-frame bundle path is invalid",
+                context={"node_id": node_id, "surface": "pure_bundle"},
+            ) from exc
         return self._bounded_private_runtime_bundle_path(
-            (self.workspace / resolved_path).resolve(),
+            self.workspace / bundle_path,
             namespace="pure_projection",
         )
 
@@ -4876,8 +4880,23 @@ class WorkflowExecutor:
             return self.state_manager.load().to_dict()
         finally:
             self._active_human_input_resume = None
-            self._wait_for_provider_observation_dependents()
-            self._close_owned_provider_observation_manager()
+            try:
+                self._wait_for_provider_observation_dependents()
+                self._close_owned_provider_observation_manager()
+            finally:
+                self.close()
+
+    def close(self) -> None:
+        """Close resources owned by this executor, without closing borrowed roots."""
+        from contextlib import ExitStack
+
+        owners = ExitStack()
+        aggregate_owner = getattr(self, "_aggregate_run_files_owner", None)
+        if aggregate_owner is not None:
+            owners.callback(aggregate_owner.close)
+        if getattr(self, "_owns_workspace_files", False):
+            owners.callback(self.workspace_files.close)
+        owners.close()
 
     def _wait_for_provider_observation_dependents(self) -> None:
         """Settle async provider users before their shared manager closes."""
@@ -5802,6 +5821,7 @@ class WorkflowExecutor:
                     state,
                     workspace=self.workspace,
                     resolve_source=self._resolve_runtime_value,
+                    workspace_files=self.workspace_files,
                 )
             except WorkflowSignatureError as exc:
                 terminal_status = 'failed'
@@ -6517,11 +6537,14 @@ class WorkflowExecutor:
             if isinstance(output_bundle, Mapping)
             else None
         )
-        bundle_path = (
-            self._resolve_workspace_path(bundle_path_value)
-            if isinstance(bundle_path_value, str)
-            else None
-        )
+        try:
+            bundle_path = (
+                self.workspace_files.relative(bundle_path_value)
+                if isinstance(bundle_path_value, str)
+                else None
+            )
+        except ValueError:
+            bundle_path = None
         if path_error is not None or bundle_path is None:
             raise RunRefRuntimeError(
                 "run_ref_evidence_invalid",
@@ -6529,28 +6552,34 @@ class WorkflowExecutor:
             )
         return bundle_path
 
-    @staticmethod
     def _run_ref_parent_bundle_preimage(
+        self,
         bundle_path: Path,
     ) -> ParentBundleOrphanPreimage | None:
         """Capture exact existing bundle bytes before authorized recovery."""
-
-        if not os.path.lexists(bundle_path):
+        try:
+            info = self.workspace_files.stat(bundle_path)
+        except FileNotFoundError:
             return None
-        if bundle_path.is_symlink() or not bundle_path.is_file():
+        except (OSError, ValueError) as exc:
+            raise RunRefRuntimeError(
+                "run_ref_evidence_invalid",
+                "parent_output_bundle_preimage_not_regular",
+            ) from exc
+        if not stat.S_ISREG(info.st_mode):
             raise RunRefRuntimeError(
                 "run_ref_evidence_invalid",
                 "parent_output_bundle_preimage_not_regular",
             )
         try:
-            payload = bundle_path.read_bytes()
+            payload = self.workspace_files.read(bundle_path)
         except OSError as exc:
             raise RunRefRuntimeError(
                 "run_ref_evidence_invalid",
                 "parent_output_bundle_preimage_unreadable",
             ) from exc
         return ParentBundleOrphanPreimage(
-            path=bundle_path,
+            path=self.workspace / bundle_path,
             sha256=f"sha256:{sha256(payload).hexdigest()}",
             byte_size=len(payload),
         )
@@ -6855,7 +6884,7 @@ class WorkflowExecutor:
         )
 
         bundle_path = self._run_ref_parent_output_bundle_path(step, state)
-        durable_atomic_write(
+        self.workspace_files.write_atomic(
             bundle_path,
             canonical_json_bytes(envelope) + b"\n",
         )
@@ -7021,7 +7050,7 @@ class WorkflowExecutor:
             dependencies=dependencies,
         )
 
-        durable_atomic_write(
+        self.workspace_files.write_atomic(
             bundle_path,
             canonical_json_bytes(dict(prepared.envelope)) + b"\n",
         )
@@ -7342,6 +7371,7 @@ class WorkflowExecutor:
             runtime_step_id=runtime_step_id,
             additional_publishes=additional_publishes,
             persist=persist,
+            workspace_files=self.workspace_files,
         )
 
     def _enforce_consumes_contract(
@@ -7412,7 +7442,7 @@ class WorkflowExecutor:
         return substituted, None
 
     def _resolve_workspace_path(self, relative_path: str) -> Optional[Path]:
-        """Resolve a workspace path and reject escapes outside the workspace root."""
+        """Resolve general resource paths; result-file callers use the owner directly."""
         path = Path(relative_path)
         if ".." in path.parts:
             return None
@@ -7442,12 +7472,13 @@ class WorkflowExecutor:
         return candidate
 
     def _prepare_output_file_path(self, output_file_value: str) -> Optional[Path]:
-        """Resolve a workspace-relative output file path and ensure its parent exists."""
-        output_file = self._resolve_workspace_path(output_file_value)
-        if output_file is None:
+        """Validate an output file lexically and prepare its parent through the owner."""
+        try:
+            relative = self.workspace_files.relative(output_file_value)
+            self.workspace_files.ensure_parent(relative)
+        except (OSError, ValueError):
             return None
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        return output_file
+        return self.workspace / relative
 
     def _prepare_runtime_output_bundle_parent(
         self,
@@ -7462,16 +7493,17 @@ class WorkflowExecutor:
         if not isinstance(bundle_path_value, str):
             return None
 
-        bundle_path = self._resolve_workspace_path(bundle_path_value)
-        if bundle_path is None:
+        try:
+            bundle_path = self.workspace_files.relative(bundle_path_value)
+        except ValueError:
             return self._contract_violation_result(
                 "Structured output bundle path escapes the workspace",
                 {"path": bundle_path_value},
             )
 
         try:
-            bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
+            self.workspace_files.ensure_parent(bundle_path)
+        except (OSError, ValueError) as exc:
             return self._contract_violation_result(
                 "Failed to prepare structured output bundle parent",
                 {
@@ -7482,20 +7514,89 @@ class WorkflowExecutor:
 
         return None
 
-    def _pin_workspace_root(self, workspace_fd: int | None) -> None:
-        """Hold the workspace root open for this executor's result-path operations.
+    @property
+    def _workspace_fd(self) -> int:
+        """Compatibility view of the descriptor owned by `workspace_files`."""
+        return self.workspace_files.root_fd
 
-        `workspace_fd` is a caller's descriptor of the same root and stays the
-        caller's; without one, `self.workspace` is opened now and closed when
-        this executor is collected. A root replaced by a link after this point
-        cannot move where `_prepare_absent_runtime_output_bundle` acts.
-        """
-        if workspace_fd is None:
-            workspace_fd = os.open(
-                self.workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+    def _run_root_workspace_files(self) -> WorkspaceFiles:
+        """Borrow the current frame root beneath the pinned aggregate run root."""
+        aggregate_files = self._aggregate_run_workspace_files()
+        try:
+            logical_root = Path(self.state_manager.logical_run_root)
+            relative_root = logical_root.relative_to(aggregate_files.workspace)
+            return (
+                aggregate_files.duplicate()
+                if relative_root == Path(".")
+                else aggregate_files.subroot(relative_root)
             )
-            weakref.finalize(self, os.close, workspace_fd)
-        self._workspace_fd = workspace_fd
+        except ValueError as exc:
+            raise OSError("run root has no pinned descriptor authority") from exc
+        finally:
+            aggregate_files.close()
+
+    def _aggregate_run_workspace_files(self) -> WorkspaceFiles:
+        """Borrow the one cached aggregate run root, pinning it on first use."""
+        owner = getattr(self, "_aggregate_run_files_owner", None)
+        if owner is None:
+            manager = self.state_manager
+            while manager is not None and not isinstance(manager, StateManager):
+                if isinstance(getattr(manager, "_run_root_fd", None), int):
+                    break
+                manager = getattr(manager, "parent_manager", None)
+            if manager is None or (
+                not isinstance(manager, StateManager)
+                and not isinstance(getattr(manager, "_run_root_fd", None), int)
+            ):
+                raise OSError("aggregate run root has no pinned descriptor authority")
+            logical_run_root = Path(manager.logical_run_root)
+            try:
+                owner = self.workspace_files.subroot(logical_run_root)
+            except ValueError:
+                run_root_fd = getattr(manager, "_run_root_fd", None)
+                if isinstance(run_root_fd, int):
+                    root_fd = os.dup(run_root_fd)
+                    try:
+                        owner = WorkspaceFiles(
+                            logical_run_root,
+                            root_fd=root_fd,
+                            owns_root=True,
+                        )
+                    except BaseException:
+                        os.close(root_fd)
+                        raise
+                else:
+                    # External state roots are pinned once, before their first effect.
+                    owner = WorkspaceFiles(logical_run_root)
+            self._aggregate_run_files_owner = owner
+        return owner.duplicate()
+
+    def _candidate_result_workspace_files(
+        self,
+        candidate_workspace: Path,
+        run_root: Path,
+    ) -> WorkspaceFiles:
+        """Open a fresh candidate lease after each baseline copy."""
+        aggregate_files = self._aggregate_run_workspace_files()
+        try:
+            candidate_relative = Path(candidate_workspace).relative_to(
+                Path(run_root)
+            )
+            return aggregate_files.subroot(candidate_relative)
+        finally:
+            aggregate_files.close()
+
+    def _promote_candidate_outputs_with_run_owner(self, *args, **kwargs):
+        run_files = self._aggregate_run_workspace_files()
+        try:
+            return promote_candidate_outputs(
+                *args,
+                workspace_files=self.workspace_files,
+                run_workspace_files=run_files,
+                **kwargs,
+            )
+        finally:
+            run_files.close()
 
     def _select_contract_origin_index(
         self,
@@ -7525,7 +7626,7 @@ class WorkflowExecutor:
         A file left by an earlier iteration, run, or interrupted call must never
         satisfy this call's result contract (specs/io.md). The parents are
         created and the file removed from the workspace root this executor
-        holds open, never through a symbolic link (`_clear_workspace_leaf`).
+        holds open, never through a symbolic link.
         When the path cannot be cleared, `step` fails before launch with the
         output-contract violation `stale_bundle_removal_failed` and the step's
         source origin. Supervision, peer-group and phased-delivery calls own
@@ -7547,8 +7648,8 @@ class WorkflowExecutor:
                 {"path": bundle_path_value},
             )
         try:
-            _clear_workspace_leaf(self._workspace_fd, relative)
-        except OSError as exc:
+            self.workspace_files.clear(relative)
+        except (OSError, ValueError) as exc:
             violation = ContractViolation(
                 type="stale_bundle_removal_failed",
                 message="The result path could not be cleared before the call",
@@ -8748,7 +8849,8 @@ class WorkflowExecutor:
                 timeout_sec=step.get('timeout_sec'),
                 output_capture=capture_mode,
                 output_file=output_file,
-                allow_parse_error=step.get('allow_parse_error', False)
+                allow_parse_error=step.get('allow_parse_error', False),
+                workspace_files=self.workspace_files,
             )
 
             # Check if should retry
@@ -9064,7 +9166,7 @@ class WorkflowExecutor:
                 if isinstance(step, RuntimeStep)
                 else step.get("node_id")
             )
-            origin = self._compiled_frontend_origin_for_step(
+            origin = self._contract_origin_index.origin_for_step(
                 str(step_name),
                 resolved_step_id,
                 node_id=node_id if isinstance(node_id, str) else None,
@@ -11010,7 +11112,8 @@ class WorkflowExecutor:
                 mode=mode,
                 output_file=output_file,
                 allow_parse_error=allow_parse_error,
-                exit_code=exec_result.exit_code
+                exit_code=exec_result.exit_code,
+                workspace_files=self.workspace_files,
             )
 
             # Build result dict
@@ -12081,19 +12184,7 @@ class WorkflowExecutor:
         resolved_output_bundle: Dict[str, Any],
         payload: str,
     ) -> Optional[Dict[str, Any]]:
-        """Materialize the compiled OMP bundle leaf without following links.
-
-        The provider has already run, so the compiler-owned parent chain is
-        reopened component-by-component with no-follow descriptors: any
-        symlink or special parent, and any existing, symlink, or special
-        leaf (OMP JSON-transport children never receive the bundle path, so
-        a leaf can only be provider-planted), fails closed instead of
-        redirecting the write or being consumed as provider output. The
-        absent leaf is created descriptor-relative with
-        ``O_CREAT|O_EXCL|O_NOFOLLOW``; a write failure removes only the
-        owned partial. The ordinary output-contract validator below parses
-        the exact file created here.
-        """
+        """Materialize the OMP bundle through the pinned result-file owner."""
         bundle_path_value = resolved_output_bundle.get('path')
         if not isinstance(bundle_path_value, str) or not bundle_path_value:
             return self._bundle_materialization_error(
@@ -12106,86 +12197,20 @@ class WorkflowExecutor:
                 "bundle path is not a workspace-relative path",
             )
         try:
-            workspace_fd = os.open(
-                self.workspace,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-            )
-        except OSError as exc:
-            return self._bundle_materialization_error(
-                bundle_path_value, f"workspace cannot be opened: {exc}"
-            )
-        parent_fd = workspace_fd
-        owned: list[int] = []
-        try:
-            for component in relative.parts[:-1]:
-                try:
-                    child = os.open(
-                        component,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-                        | os.O_CLOEXEC,
-                        dir_fd=parent_fd,
-                    )
-                except OSError as exc:
-                    return self._bundle_materialization_error(
-                        bundle_path_value,
-                        f"bundle parent {component!r} is not a real "
-                        f"directory: {exc}",
-                    )
-                owned.append(child)
-                parent_fd = child
-            leaf = relative.parts[-1]
-            try:
-                os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                return self._bundle_materialization_error(
-                    bundle_path_value,
-                    f"bundle leaf cannot be inspected: {exc}",
-                )
-            else:
-                # The leaf is provider-planted (OMP JSON-transport children
-                # never receive the bundle path). It is left untouched: only
-                # a leaf this process created with O_EXCL is ever removed
-                # (on a write failure, below).
+            if self.workspace_files.exists(relative):
                 return self._bundle_materialization_error(
                     bundle_path_value,
                     "bundle leaf already exists (provider-planted)",
                 )
-            try:
-                descriptor = os.open(
-                    leaf,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-                    | os.O_CLOEXEC,
-                    0o600,
-                    dir_fd=parent_fd,
-                )
-            except OSError as exc:
-                return self._bundle_materialization_error(
-                    bundle_path_value,
-                    f"bundle leaf cannot be created exclusively: {exc}",
-                )
-            try:
-                try:
-                    _write_bundle_fd(descriptor, payload.encode("utf-8"))
-                    os.fsync(descriptor)
-                except BaseException:
-                    # Remove only the owned partial leaf created above.
-                    try:
-                        os.unlink(leaf, dir_fd=parent_fd)
-                    except OSError:
-                        pass
-                    raise
-            finally:
-                os.close(descriptor)
-        except OSError as exc:
+            self.workspace_files.create(
+                relative,
+                payload.encode("utf-8"),
+                exclusive=True,
+            )
+        except (OSError, ValueError) as exc:
             return self._bundle_materialization_error(
                 bundle_path_value, str(exc)
             )
-        finally:
-            for fd in reversed(owned):
-                os.close(fd)
-            os.close(workspace_fd)
         return None
 
     @staticmethod
@@ -12300,17 +12325,20 @@ class WorkflowExecutor:
                     )
                     or [],
                     workspace=self.workspace,
+                    workspace_files=self.workspace_files,
                 )
             structured_artifacts: Dict[str, Any] = {}
             if isinstance(variant_output, dict):
                 structured_artifacts = validate_variant_output_bundle(
                     resolved_output_bundle or {},
                     workspace=self.workspace,
+                    workspace_files=self.workspace_files,
                 )
             elif resolved_output_bundle:
                 structured_artifacts = validate_output_bundle(
                     resolved_output_bundle,
                     workspace=self.workspace,
+                    workspace_files=self.workspace_files,
                 )
             overlapping_names = sorted(
                 set(expected_artifacts) & set(structured_artifacts)
@@ -12934,7 +12962,12 @@ class WorkflowExecutor:
         contract: Dict[str, Any],
     ) -> tuple[Any, Optional[Dict[str, Any]]]:
         try:
-            return validate_contract_value(raw_value, contract, workspace=self.workspace), None
+            return validate_contract_value(
+                raw_value,
+                contract,
+                workspace=self.workspace,
+                workspace_files=self.workspace_files,
+            ), None
         except OutputContractError as exc:
             violation = exc.violations[0] if exc.violations else {}
             violation_type = violation.get("type")
@@ -12956,20 +12989,17 @@ class WorkflowExecutor:
         *,
         max_bytes_per_candidate: int,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        candidate = self._resolve_workspace_path(relpath)
-        if candidate is None:
+        try:
+            candidate = self.workspace_files.relative(relpath)
+        except ValueError:
             return None, self._v214_failure_result(
                 "snapshot_candidate_unsafe_path",
                 "Snapshot candidate path is unsafe",
                 context={"path": relpath},
             )
-        if candidate.exists() and candidate.is_dir():
-            return None, self._v214_failure_result(
-                "snapshot_candidate_is_directory",
-                "Snapshot candidate must be a file",
-                context={"path": relpath},
-            )
-        if not candidate.exists():
+        try:
+            stat_result = self.workspace_files.stat(candidate)
+        except FileNotFoundError:
             return {
                 "path": relpath,
                 "exists": False,
@@ -12977,8 +13007,24 @@ class WorkflowExecutor:
                 "sha256": None,
                 "mtime_ns": None,
             }, None
-
-        stat_result = candidate.stat()
+        except (OSError, ValueError):
+            return None, self._v214_failure_result(
+                "snapshot_candidate_unsafe_path",
+                "Snapshot candidate path is unsafe",
+                context={"path": relpath},
+            )
+        if stat.S_ISDIR(stat_result.st_mode):
+            return None, self._v214_failure_result(
+                "snapshot_candidate_is_directory",
+                "Snapshot candidate must be a file",
+                context={"path": relpath},
+            )
+        if not stat.S_ISREG(stat_result.st_mode):
+            return None, self._v214_failure_result(
+                "snapshot_candidate_unsafe_path",
+                "Snapshot candidate must be a regular file",
+                context={"path": relpath},
+            )
         if stat_result.st_size > max_bytes_per_candidate:
             return None, self._v214_failure_result(
                 "snapshot_candidate_oversize",
@@ -12991,9 +13037,27 @@ class WorkflowExecutor:
             )
 
         digest = sha256()
-        with candidate.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+        try:
+            with self.workspace_files.open_read(candidate) as handle:
+                stat_result = os.fstat(handle.fileno())
+                if stat_result.st_size > max_bytes_per_candidate:
+                    return None, self._v214_failure_result(
+                        "snapshot_candidate_oversize",
+                        "Snapshot candidate exceeds the allowed size limit",
+                        context={
+                            "path": relpath,
+                            "size": stat_result.st_size,
+                            "max_bytes_per_candidate": max_bytes_per_candidate,
+                        },
+                    )
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except (OSError, ValueError):
+            return None, self._v214_failure_result(
+                "snapshot_candidate_unsafe_path",
+                "Snapshot candidate path is unsafe",
+                context={"path": relpath},
+            )
         return {
             "path": relpath,
             "exists": True,
@@ -13419,9 +13483,14 @@ class WorkflowExecutor:
                 return validation_error
 
             if entry.get("ensure_parent") and contract.get("type") == "relpath" and isinstance(value, str):
-                target = self._resolve_workspace_path(value)
-                if target is not None:
-                    target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    self.workspace_files.ensure_parent(value)
+                except (OSError, ValueError) as exc:
+                    return self._v214_failure_result(
+                        "unsafe_path",
+                        "Materialized target parent is unsafe",
+                        context={"name": name, "path": value, "error": str(exc)},
+                    )
 
             pointer = entry.get("pointer")
             if pointer:
@@ -13444,8 +13513,11 @@ class WorkflowExecutor:
                         "Pointer path substitution failed",
                         context={"name": name, "path": pointer_path},
                     )
-                resolved_pointer = self._resolve_workspace_path(substituted_pointer_path)
-                if resolved_pointer is None:
+                try:
+                    resolved_pointer = self.workspace_files.relative(
+                        substituted_pointer_path
+                    )
+                except ValueError:
                     return self._v214_failure_result(
                         "unsafe_path",
                         "Pointer path escapes the workspace",
@@ -13453,15 +13525,19 @@ class WorkflowExecutor:
                     )
                 try:
                     pointer_value = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
-                    resolved_pointer.parent.mkdir(parents=True, exist_ok=True)
-                    atomic_write_text(resolved_pointer, f"{pointer_value}\n")
-                except OSError as exc:
+                    self.workspace_files.ensure_parent(resolved_pointer)
+                    self.workspace_files.write_atomic(
+                        resolved_pointer,
+                        f"{pointer_value}\n".encode("utf-8"),
+                        mode=None,
+                    )
+                except (OSError, ValueError) as exc:
                     return self._v214_failure_result(
                         "atomic_commit_failed",
                         "Failed to write materialized pointer",
                         context={"name": name, "path": substituted_pointer_path, "error": str(exc)},
                     )
-                pointer_map[name] = resolved_pointer.relative_to(self.workspace).as_posix()
+                pointer_map[name] = resolved_pointer.as_posix()
 
             artifacts[name] = value
 
@@ -13631,8 +13707,8 @@ class WorkflowExecutor:
                 prefix = extract_config.get("line_prefix")
                 strip_chars = extract_config.get("strip", [])
                 try:
-                    text = (self.workspace / candidate_path).read_text(encoding="utf-8")
-                except OSError as exc:
+                    text = self.workspace_files.read(candidate_path).decode("utf-8")
+                except (OSError, ValueError, UnicodeDecodeError) as exc:
                     return self._v214_failure_result(
                         "variant_extractor_failed",
                         "Failed to read candidate file for extraction",
@@ -13673,24 +13749,42 @@ class WorkflowExecutor:
                 "select_variant_output bundle path substitution failed",
                 context={"path": bundle_path_raw},
             )
-        bundle_path = self._resolve_workspace_path(substituted_bundle_path)
-        if bundle_path is None:
+        try:
+            bundle_relative = self.workspace_files.relative(substituted_bundle_path)
+            self.workspace_files.ensure_parent(bundle_relative)
+        except (OSError, ValueError):
             return self._v214_failure_result(
                 "unsafe_path",
                 "select_variant_output bundle path escapes the workspace",
                 context={"path": substituted_bundle_path},
             )
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = bundle_path.parent / f".{bundle_path.name}.tmp-{os.getpid()}-{time.time_ns()}"
+        temporary_relative = bundle_relative.parent / (
+            f".{bundle_relative.name}.tmp-{os.getpid()}-{time.time_ns()}"
+        )
         payload = json.dumps(bundle_payload, sort_keys=True, ensure_ascii=True) + "\n"
-        temp_path.write_text(payload, encoding="utf-8")
+        try:
+            self.workspace_files.create(
+                temporary_relative,
+                payload.encode("utf-8"),
+                exclusive=True,
+            )
+        except (OSError, ValueError) as exc:
+            return self._v214_failure_result(
+                "atomic_commit_failed",
+                "Failed to prepare the selected variant bundle",
+                context={"path": substituted_bundle_path, "error": str(exc)},
+            )
 
         validation_contract = deepcopy(config)
-        validation_contract["path"] = temp_path.relative_to(self.workspace).as_posix()
+        validation_contract["path"] = temporary_relative.as_posix()
         try:
-            artifacts = validate_variant_output_bundle(validation_contract, workspace=self.workspace)
+            artifacts = validate_variant_output_bundle(
+                validation_contract,
+                workspace=self.workspace,
+                workspace_files=self.workspace_files,
+            )
         except OutputContractError as exc:
-            temp_path.unlink(missing_ok=True)
+            self.workspace_files.unlink(temporary_relative)
             return self._v214_failure_result(
                 "bundle_commit_aborted_invalid_candidate",
                 "Selected variant bundle failed validation",
@@ -13698,9 +13792,12 @@ class WorkflowExecutor:
             )
 
         try:
-            os.replace(temp_path, bundle_path)
-        except OSError as exc:
-            temp_path.unlink(missing_ok=True)
+            self.workspace_files.replace(temporary_relative, bundle_relative)
+        except (OSError, ValueError) as exc:
+            try:
+                self.workspace_files.unlink(temporary_relative)
+            except OSError:
+                pass
             return self._v214_failure_result(
                 "atomic_commit_failed",
                 "Failed to atomically commit the selected variant bundle",
@@ -14071,7 +14168,12 @@ class WorkflowExecutor:
         try:
             for name, contract in human_reply_artifact_contracts().items():
                 if name in artifacts:
-                    validate_contract_value(artifacts[name], contract, workspace=self.workspace)
+                    validate_contract_value(
+                        artifacts[name],
+                        contract,
+                        workspace=self.workspace,
+                        workspace_files=self.workspace_files,
+                    )
             result = StepResult(
                 status="completed",
                 name=step_name,
@@ -14265,7 +14367,12 @@ class WorkflowExecutor:
                 raise OutputContractError(
                     [{"message": "resource transition output json_pointer did not resolve", "json_pointer": json_pointer}]
                 )
-            artifacts[artifact_name] = validate_contract_value(candidate, spec, workspace=self.workspace)
+            artifacts[artifact_name] = validate_contract_value(
+                candidate,
+                spec,
+                workspace=self.workspace,
+                workspace_files=self.workspace_files,
+            )
         return artifacts
 
     @staticmethod
@@ -14620,21 +14727,24 @@ class WorkflowExecutor:
     def _materialize_view_evidence_path(self, target_path: Path) -> Path:
         return target_path.parent / f".{target_path.name}.materialize-view-evidence.json"
 
-    @staticmethod
-    def _capture_existing_file_bytes(path: Path) -> bytes | None:
-        if not path.exists():
+    def _capture_existing_file_bytes(self, path: Path) -> bytes | None:
+        relative = self.workspace_files.relative(path)
+        if not self.workspace_files.exists(relative):
             return None
-        return path.read_bytes()
+        return self.workspace_files.read(relative)
 
-    @staticmethod
-    def _restore_file_bytes(path: Path, previous_bytes: bytes | None) -> None:
+    def _restore_file_bytes(
+        self,
+        path: Path,
+        previous_bytes: bytes | None,
+    ) -> None:
         try:
+            relative = self.workspace_files.relative(path)
             if previous_bytes is None:
-                path.unlink(missing_ok=True)
+                self.workspace_files.clear(relative)
                 return
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(previous_bytes)
-        except OSError:
+            self.workspace_files.write_atomic(relative, previous_bytes, mode=None)
+        except (OSError, ValueError):
             pass
 
     def _reuse_materialized_view(
@@ -14648,10 +14758,22 @@ class WorkflowExecutor:
         evidence_key: str,
         rendered_digest: str,
     ) -> tuple[Dict[str, Any] | None, Optional[Dict[str, Any]]]:
-        if not evidence_path.exists():
-            return None, None
         try:
-            evidence_record = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence_relative = self.workspace_files.relative(evidence_path)
+            if not self.workspace_files.exists(evidence_relative):
+                return None, None
+            evidence_payload = self.workspace_files.read(evidence_relative)
+        except (OSError, ValueError) as exc:
+            return None, self._v214_failure_result(
+                "materialize_view_resume_schema_mismatch",
+                "Materialize view evidence could not be loaded during resume",
+                context={
+                    "path": self._workspace_relative_path(evidence_path),
+                    "error": str(exc),
+                },
+            )
+        try:
+            evidence_record = json.loads(evidence_payload.decode("utf-8"))
         except Exception as exc:
             return None, self._v214_failure_result(
                 "materialize_view_resume_schema_mismatch",
@@ -14676,9 +14798,18 @@ class WorkflowExecutor:
             )
         if evidence_record.get("evidence_key") != evidence_key:
             return None, None
-        if not target_path.exists():
-            return None, None
-        actual_digest = view_bytes_digest(target_path.read_bytes())
+        try:
+            target_relative = self.workspace_files.relative(target_path)
+            if not self.workspace_files.exists(target_relative):
+                return None, None
+            target_payload = self.workspace_files.read(target_relative)
+        except (OSError, ValueError) as exc:
+            return None, self._v214_failure_result(
+                "materialize_view_resume_schema_mismatch",
+                "Materialized view target is not a safe regular file during resume",
+                context={"path": self._workspace_relative_path(target_path), "error": str(exc)},
+            )
+        actual_digest = view_bytes_digest(target_payload)
         if actual_digest != evidence_record.get("view_digest") or actual_digest != rendered_digest:
             return None, self._v214_failure_result(
                 "materialize_view_nondeterministic_render",
@@ -14719,18 +14850,20 @@ class WorkflowExecutor:
             if not isinstance(output_name, str) or not isinstance(contract, dict):
                 continue
             candidate = target_path
-            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+            artifacts[output_name] = validate_contract_value(
+                candidate,
+                contract,
+                workspace=self.workspace,
+                workspace_files=self.workspace_files,
+            )
         return artifacts
 
     def _workspace_relative_path(self, path: Path) -> str:
-        return path.resolve().relative_to(self.workspace.resolve()).as_posix()
+        return self.workspace_files.relative(path).as_posix()
 
     def _bounded_private_runtime_bundle_path(self, bundle_path: Path, *, namespace: str) -> Path:
         """Return a private sidecar path when generated bundle segments exceed filename limits."""
-        try:
-            relative_path = bundle_path.resolve().relative_to(self.workspace.resolve())
-        except ValueError:
-            relative_path = Path(str(bundle_path))
+        relative_path = self.workspace_files.relative(bundle_path)
         if all(len(part.encode("utf-8")) <= 240 for part in relative_path.parts):
             return bundle_path
         digest = sha256(relative_path.as_posix().encode("utf-8")).hexdigest()
@@ -14751,10 +14884,13 @@ class WorkflowExecutor:
         payload_digest: str,
         bindings_digest: str,
     ) -> tuple[Any | None, Optional[Dict[str, Any]]]:
-        if not bundle_path.exists():
+        relative_bundle_path = self.workspace_files.relative(bundle_path)
+        if not self.workspace_files.exists(relative_bundle_path):
             return None, None
         try:
-            bundle_record = json.loads(bundle_path.read_text(encoding="utf-8"))
+            bundle_record = json.loads(
+                self.workspace_files.read(relative_bundle_path).decode("utf-8")
+            )
         except Exception as exc:
             return None, self._v214_failure_result(
                 "pure_projection_resume_invalid",
@@ -14827,7 +14963,12 @@ class WorkflowExecutor:
             )
             if candidate is _PURE_PROJECTION_MISSING:
                 candidate = None
-            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+            artifacts[output_name] = validate_contract_value(
+                candidate,
+                contract,
+                workspace=self.workspace,
+                workspace_files=self.workspace_files,
+            )
         return artifacts
 
     def _pure_projection_union_activity(
@@ -14870,6 +15011,7 @@ class WorkflowExecutor:
                 candidate,
                 contract,
                 workspace=self.workspace,
+                workspace_files=self.workspace_files,
             )
         return active_variants
 
@@ -15098,6 +15240,7 @@ class WorkflowExecutor:
                     raw_value,
                     validation_spec,
                     workspace=self.workspace,
+                    workspace_files=self.workspace_files,
                 )
             except OutputContractError as exc:
                 return {}, self._contract_violation_result(
@@ -15154,6 +15297,7 @@ class WorkflowExecutor:
                     raw_value,
                     validation_spec,
                     workspace=self.workspace,
+                    workspace_files=self.workspace_files,
                 )
             except (OutputContractError, PredicateEvaluationError, ReferenceResolutionError):
                 continue
@@ -15768,16 +15912,19 @@ class WorkflowExecutor:
             step_name=step_name,
             runtime_step_id=runtime_step_id or config.node_id,
         )
-        self._emit_pending_interrupted_provider_rerun(
-            family="supervision",
-            step_id=runtime_step_id or config.node_id,
-            visit_count=visit_count,
-        )
-        return ProviderSupervisionCoordinator(bindings).run(
-            config,
-            step_name=step_name,
-            visit_count=visit_count,
-        )
+        try:
+            self._emit_pending_interrupted_provider_rerun(
+                family="supervision",
+                step_id=runtime_step_id or config.node_id,
+                visit_count=visit_count,
+            )
+            return ProviderSupervisionCoordinator(bindings).run(
+                config,
+                step_name=step_name,
+                visit_count=visit_count,
+            )
+        finally:
+            bindings.close()
 
     def _execute_provider_peer_group(
         self,

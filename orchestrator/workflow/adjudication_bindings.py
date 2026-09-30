@@ -22,6 +22,7 @@ from .adjudication import (
 )
 from .executor_runtime import RuntimeStepInput
 from .prompting import PromptComposer
+from .workspace_files import WorkspaceFiles
 
 
 class AdjudicationStateManager(Protocol):
@@ -201,6 +202,8 @@ class ValidateExpectedOutputsCallback(Protocol):
         self,
         expected_outputs: List[Dict[str, Any]],
         workspace: Path,
+        *,
+        workspace_files: WorkspaceFiles,
     ) -> Dict[str, Any]: ...
 
 
@@ -265,6 +268,9 @@ class AdjudicationBindings:
     """
 
     workspace: Callable[[], Path]
+    workspace_files: Callable[[], WorkspaceFiles]
+    aggregate_run_files: Callable[[], WorkspaceFiles]
+    candidate_result_files: Callable[[Path, Path], WorkspaceFiles]
     state_manager: Callable[[], AdjudicationStateManager]
     workflow_version: Callable[[], str]
     provider_registry: Callable[[], ProviderRegistry]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from ..._common.io_atomic import atomic_write_bytes
 from ...contracts.output_contract import OutputContractError
 from ..executor_runtime import RuntimeStepInput
 from ..pure_expr import canonical_json_for_pure_value
@@ -88,12 +87,14 @@ def execute_materialize_view(
             "Materialize view execution failed",
             {"reason": "materialize_view_target_path_invalid", "path": resolved_target_value},
         )
-    target_path = runtime._resolve_workspace_path(resolved_target_value)
-    if target_path is None:
+    try:
+        target_relative = runtime.workspace_files.relative(resolved_target_value)
+    except ValueError:
         return runtime._contract_violation_result(
             "Materialize view execution failed",
             {"reason": "materialize_view_target_path_invalid", "path": resolved_target_value},
         )
+    target_path = runtime.workspace / target_relative
     resolved_value, binding_error = runtime._resolve_materialize_view_value(
         value_document,
         state,
@@ -156,10 +157,16 @@ def execute_materialize_view(
     previous_target_bytes = runtime._capture_existing_file_bytes(target_path)
     previous_evidence_bytes = runtime._capture_existing_file_bytes(evidence_path)
     try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(target_path, rendered)
-        evidence_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(evidence_path, evidence_bytes)
+        runtime.workspace_files.write_atomic(
+            target_relative,
+            rendered,
+            mode=None,
+        )
+        runtime.workspace_files.write_atomic(
+            evidence_path,
+            evidence_bytes,
+            mode=None,
+        )
         artifacts = runtime._materialize_view_artifacts(
             runtime._workspace_relative_path(target_path),
             output_contracts=output_contracts,

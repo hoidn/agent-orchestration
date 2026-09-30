@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Literal, Mapping, Optional
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 
 from .executor_runtime import RuntimeStepInput
+from .workspace_files import WorkspaceFiles
 
 
 class DataflowManager:
@@ -87,6 +88,7 @@ class DataflowManager:
         runtime_step_id: Optional[str] = None,
         additional_publishes: Optional[list[Dict[str, str]]] = None,
         persist: bool = True,
+        workspace_files: WorkspaceFiles | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Record artifact publications for successful steps."""
         publishes = step.get("publishes")
@@ -150,7 +152,12 @@ class DataflowManager:
             if lane == "private":
                 if isinstance(artifact_spec, dict):
                     try:
-                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                        value = validate_contract_value(
+                            value,
+                            artifact_spec,
+                            self.workspace,
+                            workspace_files=workspace_files,
+                        )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
                             "Publish contract failed",
@@ -165,7 +172,12 @@ class DataflowManager:
             elif artifact_kind == "value":
                 if isinstance(artifact_spec, dict):
                     try:
-                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                        value = validate_contract_value(
+                            value,
+                            artifact_spec,
+                            self.workspace,
+                            workspace_files=workspace_files,
+                        )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
                             "Publish contract failed",

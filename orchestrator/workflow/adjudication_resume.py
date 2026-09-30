@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import shutil
+import stat
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Literal, Mapping, Optional
@@ -176,17 +176,22 @@ class AdjudicationResumeMixin:
             candidate_root,
             promotion_root,
         )
+        run_files = None
         try:
+            run_files = self._bindings.aggregate_run_files()
             for owned_root in owned_roots:
                 _require_canonical_child(owned_root, scope.run_root)
-                if owned_root.exists() and not owned_root.is_dir():
+                owned_rel = Path(owned_root).relative_to(scope.run_root)
+                if run_files.exists(owned_rel) and not stat.S_ISDIR(
+                    run_files.stat(owned_rel).st_mode
+                ):
                     raise ValueError("owned adjudication visit root is not a directory")
 
             expected_rollback: Mapping[str, Any] = {
                 "selected_candidate_id": None,
                 "files": [],
             }
-            if promotion_root.exists():
+            if run_files.exists(Path(promotion_root).relative_to(scope.run_root)):
                 baseline_manifest = self._validated_cleanup_baseline(
                     execution,
                     scope,
@@ -209,21 +214,31 @@ class AdjudicationResumeMixin:
                     parent_workspace=self.workspace,
                     baseline_manifest=baseline_manifest,
                     selected_candidate_id=selected_candidate_id,
+                    workspace_files=self._bindings.workspace_files(),
+                    run_root=scope.run_root,
+                    run_workspace_files=run_files,
                 )
 
             discard_partial_promotion_visit(
                 parent_workspace=self.workspace,
                 promotion_manifest_path=expected_paths.promotion_manifest_path,
                 expected_rollback=expected_rollback,
+                workspace_files=self._bindings.workspace_files(),
+                run_root=scope.run_root,
+                run_workspace_files=run_files,
             )
             for owned_root in (
                 candidate_root,
                 expected_paths.adjudication_root,
             ):
-                if owned_root.exists():
-                    shutil.rmtree(owned_root)
+                owned_rel = Path(owned_root).relative_to(scope.run_root)
+                if run_files.exists(owned_rel):
+                    run_files.remove_tree(owned_rel)
         except (OSError, PromotionConflictError, RuntimeError, TypeError, ValueError):
             return "adjudication cleanup failed before a fresh provider attempt"
+        finally:
+            if run_files is not None:
+                run_files.close()
         return None
 
     def _validated_cleanup_baseline(

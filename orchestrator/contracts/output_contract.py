@@ -73,9 +73,30 @@ class OutputContractError(Exception):
         super().__init__("; ".join(messages))
 
 
-def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Path) -> Any:
+def validate_contract_value(
+    raw_value: Any,
+    spec: Dict[str, Any],
+    workspace: Path,
+    *,
+    workspace_files: Any | None = None,
+) -> Any:
     """Validate one in-memory typed value against an output-style contract."""
-    resolved_workspace = workspace.resolve()
+    if workspace_files is None and _descriptor_contains_relpath(spec):
+        from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+        owner = WorkspaceFiles(workspace)
+        try:
+            return validate_contract_value(
+                raw_value,
+                spec,
+                workspace,
+                workspace_files=owner,
+            )
+        finally:
+            owner.close()
+    resolved_workspace = (
+        workspace_files.workspace if workspace_files is not None else workspace.resolve()
+    )
     value_type = spec.get("type")
 
     if isinstance(raw_value, str) and (
@@ -92,6 +113,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
     elif isinstance(raw_value, str) and not _descriptor_contains_value(spec):
         normalized_value = raw_value if value_type == "string" else raw_value.strip()
@@ -100,6 +122,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
     else:
         parsed_value, violation = _parse_output_bundle_value(
@@ -107,6 +130,7 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
 
     if violation is not None:
@@ -115,16 +139,31 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
     return parsed_value
 
 
-def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace: Path) -> Dict[str, Any]:
+def validate_expected_outputs(
+    expected_outputs: List[Dict[str, Any]],
+    workspace: Path,
+    *,
+    workspace_files: Any | None = None,
+) -> Dict[str, Any]:
     """Validate expected output artifacts and return typed artifact values."""
-    resolved_workspace = workspace.resolve()
+    if workspace_files is None:
+        from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+        owner = WorkspaceFiles(workspace)
+        try:
+            return validate_expected_outputs(
+                expected_outputs, workspace, workspace_files=owner
+            )
+        finally:
+            owner.close()
+    resolved_workspace = workspace_files.workspace
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
     seen_names: set[str] = set()
 
     for spec in expected_outputs:
         spec_path = str(spec.get("path", ""))
-        output_file = _resolve_workspace_path(resolved_workspace, spec_path)
+        output_file = _owner_contract_path(workspace_files, spec_path)
         artifact_name = str(spec.get("name", "")).strip()
         required = spec.get("required", True)
 
@@ -153,7 +192,17 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
             ))
             continue
 
-        if not output_file.exists():
+        try:
+            output_exists = workspace_files.exists(output_file)
+        except OSError as exc:
+            violations.append(ContractViolation(
+                type="invalid_output_file",
+                message="Expected output path is not a readable regular-file path",
+                context={"path": spec_path, "error": str(exc)},
+                subject_refs=_field_subject_refs(spec),
+            ))
+            continue
+        if not output_exists:
             if required:
                 violations.append(ContractViolation(
                     type="missing_output_file",
@@ -163,7 +212,16 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
                 ))
             continue
 
-        raw_value = output_file.read_text(encoding="utf-8")
+        try:
+            raw_value = workspace_files.read(output_file).decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            violations.append(ContractViolation(
+                type="invalid_output_file",
+                message="Expected output file is not a readable UTF-8 regular file",
+                context={"path": spec_path, "error": str(exc)},
+                subject_refs=_field_subject_refs(spec),
+            ))
+            continue
         if spec.get("type") != "string":
             raw_value = raw_value.strip()
         value_type = spec.get("type")
@@ -172,6 +230,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
         if violation is not None:
             violation.context["path"] = spec_path
@@ -532,15 +591,34 @@ def _resolve_union_output_projection_activity(
     return activity, violations
 
 
-def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
+def validate_output_bundle(
+    output_bundle: Dict[str, Any],
+    workspace: Path,
+    *,
+    workspace_files: Any | None = None,
+    document_bytes: bytes | None = None,
+) -> Dict[str, Any]:
     """Validate output_bundle JSON contract and return typed artifact values."""
-    resolved_workspace = workspace.resolve()
+    if workspace_files is None:
+        from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+        owner = WorkspaceFiles(workspace)
+        try:
+            return validate_output_bundle(
+                output_bundle,
+                workspace,
+                workspace_files=owner,
+                document_bytes=document_bytes,
+            )
+        finally:
+            owner.close()
+    resolved_workspace = workspace_files.workspace
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
     seen_names: set[str] = set()
 
     bundle_path = str(output_bundle.get("path", ""))
-    bundle_file = _resolve_workspace_path(resolved_workspace, bundle_path)
+    bundle_file = _owner_contract_path(workspace_files, bundle_path)
     if bundle_file is None:
         raise OutputContractError([
             ContractViolation(
@@ -550,7 +628,20 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
             )
         ])
 
-    if not bundle_file.exists():
+    try:
+        if document_bytes is None:
+            bundle_exists = workspace_files.exists(bundle_file)
+        else:
+            bundle_exists = True
+    except OSError as exc:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_bundle_file",
+                message="Output bundle path is not a regular-file path",
+                context={"path": bundle_path, "error": str(exc)},
+            )
+        ]) from exc
+    if not bundle_exists:
         raise OutputContractError([
             ContractViolation(
                 type="missing_bundle_file",
@@ -561,10 +652,14 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
 
     try:
         document = _load_bundle_json(
-            bundle_file.read_text(encoding="utf-8"),
+            (
+                document_bytes.decode("utf-8")
+                if document_bytes is not None
+                else workspace_files.read(bundle_file).decode("utf-8")
+            ),
             reject_nonstandard_constants=_contract_contains_value(output_bundle),
         )
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError, OSError, UnicodeDecodeError) as exc:
         raise OutputContractError([
             ContractViolation(
                 type="invalid_json_document",
@@ -657,6 +752,7 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
         if violation is not None:
             violation.context["path"] = bundle_path
@@ -673,13 +769,32 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
     return artifacts
 
 
-def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
+def validate_variant_output_bundle(
+    variant_output: Dict[str, Any],
+    workspace: Path,
+    *,
+    workspace_files: Any | None = None,
+    document_bytes: bytes | None = None,
+) -> Dict[str, Any]:
     """Validate a tagged-union JSON bundle and expose only the selected variant artifacts."""
-    resolved_workspace = workspace.resolve()
+    if workspace_files is None:
+        from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+        owner = WorkspaceFiles(workspace)
+        try:
+            return validate_variant_output_bundle(
+                variant_output,
+                workspace,
+                workspace_files=owner,
+                document_bytes=document_bytes,
+            )
+        finally:
+            owner.close()
+    resolved_workspace = workspace_files.workspace
     violations: List[ContractViolation] = []
 
     bundle_path = str(variant_output.get("path", ""))
-    bundle_file = _resolve_workspace_path(resolved_workspace, bundle_path)
+    bundle_file = _owner_contract_path(workspace_files, bundle_path)
     if bundle_file is None:
         raise OutputContractError([
             ContractViolation(
@@ -688,7 +803,21 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
                 context={"path": bundle_path},
             )
         ])
-    if not bundle_file.exists():
+    try:
+        bundle_exists = (
+            True
+            if document_bytes is not None
+            else workspace_files.exists(bundle_file)
+        )
+    except OSError as exc:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_bundle_file",
+                message="Variant output bundle path is not a regular-file path",
+                context={"path": bundle_path, "error": str(exc)},
+            )
+        ]) from exc
+    if not bundle_exists:
         raise OutputContractError([
             ContractViolation(
                 type="missing_bundle_file",
@@ -699,10 +828,14 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
 
     try:
         document = _load_bundle_json(
-            bundle_file.read_text(encoding="utf-8"),
+            (
+                document_bytes.decode("utf-8")
+                if document_bytes is not None
+                else workspace_files.read(bundle_file).decode("utf-8")
+            ),
             reject_nonstandard_constants=_contract_contains_value(variant_output),
         )
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError, OSError, UnicodeDecodeError) as exc:
         raise OutputContractError([
             ContractViolation(
                 type="invalid_json_document",
@@ -755,6 +888,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
         value_type=str(discriminant.get("type", "enum")),
         spec=discriminant,
         workspace=resolved_workspace,
+        workspace_files=workspace_files,
     )
     if discriminant_violation is not None:
         discriminant_violation.type = "variant_discriminant_invalid"
@@ -854,6 +988,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             value_type=spec.get("type"),
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
         if violation is not None:
             violation.type = "variant_field_type_invalid"
@@ -934,6 +1069,7 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
             value_type=spec.get("type"),
             spec=spec,
             workspace=resolved_workspace,
+            workspace_files=workspace_files,
         )
         if violation is not None:
             violation.type = "variant_field_type_invalid"
@@ -994,6 +1130,7 @@ def _parse_output_value(
     value_type: str,
     spec: Dict[str, Any],
     workspace: Path,
+    workspace_files: Any | None = None,
 ) -> tuple[Any, ContractViolation | None]:
     if value_type == "string":
         return raw_value, None
@@ -1041,7 +1178,9 @@ def _parse_output_value(
         )
 
     if value_type == "relpath":
-        return _validate_relpath_value(raw_value, spec, workspace)
+        return _validate_relpath_value(
+            raw_value, spec, workspace, workspace_files=workspace_files
+        )
 
     return None, ContractViolation(
         type="unsupported_type",
@@ -1056,6 +1195,7 @@ def _parse_output_bundle_value(
     spec: Dict[str, Any],
     workspace: Path,
     value_path: str = "",
+    workspace_files: Any | None = None,
 ) -> tuple[Any, ContractViolation | None]:
     if _descriptor_contains_direct_structure(spec):
         from orchestrator.workflow.type_descriptor import (
@@ -1075,6 +1215,7 @@ def _parse_output_bundle_value(
                             value,
                             path_descriptor,
                             workspace,
+                            workspace_files=workspace_files,
                         )
                     ),
                 ),
@@ -1112,6 +1253,7 @@ def _parse_output_bundle_value(
             spec=item_spec,
             workspace=workspace,
             value_path=value_path,
+            workspace_files=workspace_files,
         )
 
     if value_type == "list":
@@ -1136,6 +1278,7 @@ def _parse_output_bundle_value(
                 spec=item_spec,
                 workspace=workspace,
                 value_path=_append_value_path(value_path, str(index)),
+                workspace_files=workspace_files,
             )
             if violation is not None:
                 violation.context["index"] = index
@@ -1171,6 +1314,7 @@ def _parse_output_bundle_value(
                 spec=value_spec,
                 workspace=workspace,
                 value_path=_append_value_path(value_path, key),
+                workspace_files=workspace_files,
             )
             if violation is not None:
                 violation.context["key"] = key
@@ -1247,7 +1391,9 @@ def _parse_output_bundle_value(
                 message="Output value is not a valid relative path string",
                 context={"value": raw_value},
             )
-        return _validate_relpath_value(raw_value, spec, workspace)
+        return _validate_relpath_value(
+            raw_value, spec, workspace, workspace_files=workspace_files
+        )
 
     return None, ContractViolation(
         type="unsupported_type",
@@ -1260,6 +1406,8 @@ def _require_nested_transport_path(
     value: str,
     descriptor: Mapping[str, Any],
     workspace: Path,
+    *,
+    workspace_files: Any,
 ) -> str:
     parsed, violation = _validate_relpath_value(
         value,
@@ -1269,6 +1417,7 @@ def _require_nested_transport_path(
             "must_exist_target": descriptor["must_exist_target"],
         },
         workspace,
+        workspace_files=workspace_files,
     )
     if violation is not None:
         raise ValueError(f"{violation.type}: {violation.message}")
@@ -1398,6 +1547,17 @@ def _descriptor_contains_value(descriptor: Any) -> bool:
     return False
 
 
+def _descriptor_contains_relpath(descriptor: Any) -> bool:
+    if isinstance(descriptor, Mapping):
+        return descriptor.get("type") == "relpath" or any(
+            _descriptor_contains_relpath(value)
+            for value in descriptor.values()
+        )
+    if isinstance(descriptor, (list, tuple)):
+        return any(_descriptor_contains_relpath(value) for value in descriptor)
+    return False
+
+
 def _descriptor_contains_direct_structure(descriptor: Any) -> bool:
     if not isinstance(descriptor, Mapping):
         return False
@@ -1479,6 +1639,8 @@ def _validate_relpath_value(
     raw_value: str,
     spec: Dict[str, Any],
     workspace: Path,
+    *,
+    workspace_files: Any,
 ) -> tuple[Any, ContractViolation | None]:
     if not raw_value:
         return None, ContractViolation(
@@ -1495,7 +1657,8 @@ def _validate_relpath_value(
             context={"value": raw_value},
         )
 
-    target = _resolve_workspace_path(workspace, raw_value)
+    target_relative = _owner_contract_path(workspace_files, raw_value)
+    target = workspace / target_relative if target_relative is not None else None
     if target is None:
         return None, ContractViolation(
             type="path_escape",
@@ -1505,7 +1668,8 @@ def _validate_relpath_value(
 
     under = spec.get("under")
     if under:
-        under_root = _resolve_workspace_path(workspace, str(under))
+        under_relative = _owner_contract_path(workspace_files, str(under))
+        under_root = workspace / under_relative if under_relative is not None else None
         if under_root is None:
             return None, ContractViolation(
                 type="invalid_under_root",
@@ -1518,9 +1682,12 @@ def _validate_relpath_value(
                 workspace=workspace,
                 under_root=under_root,
                 must_exist_target=bool(spec.get("must_exist_target")),
+                workspace_files=workspace_files,
             )
             if normalized_target is not None:
                 target = normalized_target
+                if workspace_files is not None:
+                    target_relative = target.relative_to(workspace)
             else:
                 return None, ContractViolation(
                     type="outside_under_root",
@@ -1534,7 +1701,15 @@ def _validate_relpath_value(
                 context={"value": raw_value, "under": under},
             )
 
-    if spec.get("must_exist_target") and not target.exists():
+    try:
+        target_exists = workspace_files.exists(target_relative)
+    except OSError:
+        return None, ContractViolation(
+            type="path_escape",
+            message="relpath output passes through a symbolic link or unsafe directory",
+            context={"value": raw_value},
+        )
+    if spec.get("must_exist_target") and not target_exists:
         return None, ContractViolation(
             type="missing_target",
             message="relpath target does not exist",
@@ -1549,6 +1724,8 @@ def _normalize_relative_under_root(
     workspace: Path,
     under_root: Path,
     must_exist_target: bool,
+    *,
+    workspace_files: Any,
 ) -> Path | None:
     """Refine safe under-root-relative values to workspace-relative contract paths."""
     value_path = Path(raw_value)
@@ -1558,14 +1735,33 @@ def _normalize_relative_under_root(
     if len(value_path.parts) > 1 and not must_exist_target:
         return None
 
-    candidate = (under_root / value_path).resolve()
+    try:
+        candidate = workspace / workspace_files.relative(under_root / value_path)
+    except ValueError:
+        return None
     if not _is_within(candidate, workspace):
         return None
     if not _is_within(candidate, under_root):
         return None
-    if must_exist_target and not candidate.exists():
+    try:
+        exists = workspace_files.exists(candidate.relative_to(workspace))
+    except (OSError, ValueError):
+        return None
+    if must_exist_target and not exists:
         return None
     return candidate
+
+
+def _owner_contract_path(workspace_files: Any, relative_path: str) -> Path | None:
+    """Validate a contract-relative path without resolving it through the filesystem."""
+    if relative_path == ".":
+        return Path(".")
+    if not relative_path or Path(relative_path).is_absolute():
+        return None
+    try:
+        return workspace_files.relative(relative_path)
+    except ValueError:
+        return None
 
 
 def _resolve_workspace_path(workspace: Path, relative_path: str) -> Path | None:

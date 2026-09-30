@@ -881,6 +881,7 @@ def _resolve_authoritative_transition_resource(
 ) -> Mapping[str, Any] | None:
     if loaded_workflow is None:
         return None
+    executor = None
     try:
         from orchestrator.workflow.executor import WorkflowExecutor
         from orchestrator.workflow_lisp import lexical_checkpoints as checkpoints
@@ -905,6 +906,9 @@ def _resolve_authoritative_transition_resource(
         return normalized_resource
     except Exception:
         return None
+    finally:
+        if executor is not None:
+            executor.close()
 
 
 def _loop_frame_matches_repeat_until_progress(

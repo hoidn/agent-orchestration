@@ -158,9 +158,17 @@ class AdjudicationCandidatePhaseMixin:
                         }
                     )
                     break
-                exec_result = self._execute_provider_invocation(invocation, cwd=paths.workspace)
-                paths.stdout_log.write_bytes(exec_result.stdout)
-                paths.stderr_log.write_bytes(exec_result.stderr)
+                exec_result, artifacts, output_error = (
+                    self._execute_candidate_provider_and_validate(
+                        invocation=invocation,
+                        workspace=paths.workspace,
+                        run_root=run_root,
+                        stdout_log=paths.stdout_log,
+                        stderr_log=paths.stderr_log,
+                        output_bundle=resolved_output_bundle,
+                        expected_outputs=resolved_expected_outputs or [],
+                    )
+                )
                 candidate_record["provider_exit_code"] = exec_result.exit_code
                 candidate_record["attempt_count"] = attempt + 1
                 candidate_record["provider_attempts"].append(
@@ -199,21 +207,13 @@ class AdjudicationCandidatePhaseMixin:
                             visit_paths=visit_paths,
                         )
                     break
-                try:
-                    if resolved_output_bundle is not None:
-                        artifacts = validate_output_bundle(resolved_output_bundle, workspace=paths.workspace)
-                    else:
-                        artifacts = self._bindings.validate_expected_outputs(
-                            resolved_expected_outputs or [],
-                            workspace=paths.workspace,
-                        )
-                except OutputContractError as exc:
+                if output_error is not None:
                     candidate_record.update(
                         {
                             "candidate_status": "contract_failed",
                             "score_status": "not_evaluated",
                             "failure_type": "contract_failed",
-                            "failure_message": str(exc),
+                            "failure_message": str(output_error),
                         }
                     )
                     break
@@ -269,3 +269,44 @@ class AdjudicationCandidatePhaseMixin:
             candidates=[candidate_record],
         )
         return None
+
+    def _execute_candidate_provider_and_validate(
+        self: AdjudicationRuntime,
+        *,
+        invocation: Any,
+        workspace: Any,
+        run_root: Path,
+        stdout_log: Any,
+        stderr_log: Any,
+        output_bundle: Dict[str, Any] | None,
+        expected_outputs: list[Dict[str, Any]],
+    ) -> tuple[Any, Dict[str, Any], OutputContractError | None]:
+        """Pin candidate results before the provider and reuse that owner to validate them."""
+        candidate_files = self._bindings.candidate_result_files(
+            workspace,
+            run_root,
+        )
+        try:
+            result = self._execute_provider_invocation(invocation, cwd=workspace)
+            stdout_log.write_bytes(result.stdout)
+            stderr_log.write_bytes(result.stderr)
+            if result.exit_code != 0:
+                return result, {}, None
+            try:
+                if output_bundle is not None:
+                    artifacts = validate_output_bundle(
+                        output_bundle,
+                        workspace=candidate_files.workspace,
+                        workspace_files=candidate_files,
+                    )
+                else:
+                    artifacts = self._bindings.validate_expected_outputs(
+                        expected_outputs,
+                        workspace=candidate_files.workspace,
+                        workspace_files=candidate_files,
+                    )
+            except OutputContractError as exc:
+                return result, {}, exc
+            return result, artifacts, None
+        finally:
+            candidate_files.close()

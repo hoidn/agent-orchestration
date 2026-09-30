@@ -856,21 +856,18 @@ class _WorkflowPhasedProviderAttemptBindings:
     def _snapshot_row(self, binding):
         from .models import CandidateDigestRow
 
-        path = self.executor._resolve_workspace_path(
-            binding.workspace_relative_path
-        )
-        if path is None or path.is_symlink():
-            presence = "invalid"
-            payload = None
-        elif not path.exists():
-            presence = "missing"
-            payload = None
-        elif not path.is_file():
-            presence = "invalid"
-            payload = None
-        else:
-            presence = "regular"
-            payload = path.read_bytes()
+        try:
+            if not self.executor.workspace_files.exists(
+                binding.workspace_relative_path
+            ):
+                presence, payload = "missing", None
+            else:
+                payload = self.executor.workspace_files.read(
+                    binding.workspace_relative_path
+                )
+                presence = "regular"
+        except OSError:
+            presence, payload = "invalid", None
         return CandidateDigestRow(
             contract_ordinal=binding.contract_ordinal,
             role=binding.role,
@@ -937,6 +934,7 @@ class _WorkflowPhasedProviderAttemptBindings:
                 )
                 or [],
                 workspace=self.executor.workspace,
+                workspace_files=self.executor.workspace_files,
             )
         except OutputContractError as exc:
             return OutputPositionValidation(
@@ -996,22 +994,23 @@ class _WorkflowPhasedProviderAttemptBindings:
             )
         try:
             resolved_output_bundle = self.resolved_output_bundle or {}
+            payload = self.executor.workspace_files.read(
+                resolved_output_bundle["path"]
+            )
             if isinstance(self.step.get("variant_output"), dict):
                 artifacts = validate_variant_output_bundle(
                     resolved_output_bundle,
                     workspace=self.executor.workspace,
+                    workspace_files=self.executor.workspace_files,
+                    document_bytes=payload,
                 )
             else:
                 artifacts = validate_output_bundle(
                     resolved_output_bundle,
                     workspace=self.executor.workspace,
+                    workspace_files=self.executor.workspace_files,
+                    document_bytes=payload,
                 )
-            bundle_path = self.executor._resolve_workspace_path(
-                resolved_output_bundle["path"]
-            )
-            if bundle_path is None:
-                raise ValueError("structured result path escaped workspace")
-            payload = bundle_path.read_bytes()
         except OutputContractError as exc:
             return StructuredResultValidation(
                 snapshot_sha256=snapshot.snapshot_sha256,
@@ -1157,14 +1156,14 @@ class _WorkflowPhasedProviderAttemptBindings:
             snapshot.rows,
             strict=True,
         ):
-            path = self.executor._resolve_workspace_path(
-                binding.workspace_relative_path
-            )
-            if path is None or not path.is_file() or path.is_symlink():
+            try:
+                content = self.executor.workspace_files.read(
+                    binding.workspace_relative_path
+                )
+            except (OSError, ValueError) as exc:
                 raise PhasedOperationFailure(
                     self._diagnostic("candidate_freeze_failed")
-                )
-            content = path.read_bytes()
+                ) from exc
             if (
                 row.presence != "regular"
                 or row.byte_length != len(content)
@@ -1331,15 +1330,13 @@ class _WorkflowPhasedProviderAttemptBindings:
         )
 
         for item in frozen.files:
-            path = self.executor._resolve_workspace_path(
-                item.binding.workspace_relative_path
-            )
-            if (
-                path is None
-                or not path.is_file()
-                or path.is_symlink()
-                or path.read_bytes() != item.content
-            ):
+            try:
+                content = self.executor.workspace_files.read(
+                    item.binding.workspace_relative_path
+                )
+            except (OSError, ValueError) as exc:
+                raise ValueError("restored frozen candidate changed") from exc
+            if content != item.content:
                 raise ValueError("restored frozen candidate changed")
         return FrozenCandidateVerification(
             frozen_sha256=frozen.frozen_sha256,

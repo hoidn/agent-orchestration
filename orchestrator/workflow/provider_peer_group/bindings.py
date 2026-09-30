@@ -408,6 +408,8 @@ class ProviderPeerGroupCoordinatorBindings(Protocol):
         self, member: PeerMemberAllocation
     ) -> FrozenPeerMemberResult: ...
 
+    def result_bundle_exists(self, path: Path) -> bool: ...
+
     def evaluate_settlement(
         self, *, resolved_bindings: Mapping[str, Any]
     ) -> Any: ...
@@ -704,7 +706,10 @@ class WorkflowProviderPeerGroupBindings:
                 for attempt in attempts
             },
         )
-        preflight_provider_peer_group_paths(realized)
+        preflight_provider_peer_group_paths(
+            realized,
+            result_exists=self.result_bundle_exists,
+        )
         endpoint = PeerEndpointIdentity(
             group_visit=visit,
             endpoint_instance_id=uuid4().hex,
@@ -1066,35 +1071,32 @@ class WorkflowProviderPeerGroupBindings:
             raise ValueError("provider peer member contract is missing")
         contract_kind, prompt_contract, descriptor = contract
         path = member.realized_paths.provisional_bundle_path
+        run_files = self.executor._run_root_workspace_files()
         try:
-            exact_bytes = path.read_bytes()
+            run_root = Path(self.executor.state_manager.io_run_root)
+            relative_path = path.relative_to(run_root)
+            exact_bytes = run_files.read(relative_path)
             document = json.loads(exact_bytes.decode("utf-8"))
             validation_contract = dict(prompt_contract)
-            validation_contract["path"] = path.relative_to(
-                resolve_path_preserving_fd(
-                    self.executor.state_manager.io_run_root)
-            ).as_posix()
+            validation_contract["path"] = relative_path.as_posix()
             if contract_kind == "variant_output":
                 validate_variant_output_bundle(
                     validation_contract,
-                    workspace=Path(
-                        self.executor.state_manager.io_run_root
-                    ),
+                    workspace=run_files.workspace,
+                    workspace_files=run_files,
+                    document_bytes=exact_bytes,
                 )
             else:
                 validate_output_bundle(
                     validation_contract,
-                    workspace=Path(
-                        self.executor.state_manager.io_run_root
-                    ),
-                )
-            if path.read_bytes() != exact_bytes:
-                raise ValueError(
-                    "provider peer member bundle changed during validation"
+                    workspace=run_files.workspace,
+                    workspace_files=run_files,
+                    document_bytes=exact_bytes,
                 )
             value = _typed_contract_value(descriptor, document)
         except (
             OSError,
+            ValueError,
             UnicodeDecodeError,
             json.JSONDecodeError,
             OutputContractError,
@@ -1102,11 +1104,22 @@ class WorkflowProviderPeerGroupBindings:
             raise ValueError(
                 "provider peer member bundle is invalid"
             ) from exc
+        finally:
+            run_files.close()
         return FrozenPeerMemberResult.create(
             attempt=member.runtime.attempt,
             exact_bundle_bytes=exact_bytes,
             value=value,
         )
+
+    def result_bundle_exists(self, path: Path) -> bool:
+        run_root = Path(self.executor.state_manager.io_run_root)
+        relative_path = Path(path).relative_to(run_root)
+        run_files = self.executor._run_root_workspace_files()
+        try:
+            return run_files.exists(relative_path)
+        finally:
+            run_files.close()
 
     def evaluate_settlement(
         self,

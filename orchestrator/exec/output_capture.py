@@ -112,6 +112,7 @@ class OutputCapture:
         allow_parse_error: bool = False,
         exit_code: int = 0,
         redact_token: Optional[str] = None,
+        workspace_files: Any | None = None,
     ) -> CaptureResult:
         """
         Process captured output according to mode and limits.
@@ -141,8 +142,13 @@ class OutputCapture:
 
         # Tee full stdout to output_file if specified (AT-52)
         if output_file:
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_bytes(stdout)
+            if workspace_files is None:
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                output_file.write_bytes(stdout)
+            else:
+                workspace_files.create(
+                    workspace_files.relative(output_file), stdout, mode=0o666
+                )
 
         # Decode stdout for processing
         try:

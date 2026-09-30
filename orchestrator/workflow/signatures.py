@@ -9,6 +9,7 @@ from orchestrator.contracts.output_contract import OutputContractError, validate
 
 from .executable_ir import ExecutableContract
 from .references import ReferenceResolutionError, ReferenceResolver
+from .workspace_files import WorkspaceFiles
 
 
 WORKFLOW_SIGNATURE_VERSION = "2.1"
@@ -96,6 +97,7 @@ def resolve_workflow_outputs(
     workspace: Path,
     *,
     resolve_source: Callable[[Any, Dict[str, Any]], Any] | None = None,
+    workspace_files: WorkspaceFiles | None = None,
 ) -> Dict[str, Any]:
     """Resolve and validate declared workflow outputs from run state."""
     specs = dict(output_specs or {})
@@ -110,6 +112,7 @@ def resolve_workflow_outputs(
         workspace,
         resolver=resolver,
         resolve_source=resolve_source,
+        workspace_files=workspace_files,
     )
     for name, spec in specs.items():
         validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
@@ -153,6 +156,7 @@ def resolve_workflow_outputs(
                 raw_value,
                 _workflow_output_validation_spec(validation_spec),
                 workspace=workspace,
+                workspace_files=workspace_files,
             )
         except OutputContractError as exc:
             raise WorkflowSignatureError(
@@ -207,6 +211,7 @@ def _resolve_workflow_output_discriminants(
     *,
     resolver: ReferenceResolver,
     resolve_source: Callable[[Any, Dict[str, Any]], Any] | None,
+    workspace_files: WorkspaceFiles | None,
 ) -> Dict[str, Any]:
     """Resolve flattened union discriminants before variant field exports."""
 
@@ -252,6 +257,7 @@ def _resolve_workflow_output_discriminants(
                 raw_value,
                 dict(validation_spec),
                 workspace=workspace,
+                workspace_files=workspace_files,
             )
         except ReferenceResolutionError as exc:
             raise WorkflowSignatureError(
