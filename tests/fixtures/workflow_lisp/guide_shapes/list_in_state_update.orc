@@ -5,12 +5,12 @@
   (export run)
   (defrecord Box (n Int))
   (defrecord Pair (a Box) (b Box))
-  (defrecord Trial (parents List[Box]) (n Int))
-  (defrecord Walk (pair Pair) (history List[Trial]) (turn Int))
   (defproc fetch ((n Int)) -> Box
     :effects ((uses-command fetch))
     :lowering inline
     (command-result fetch :argv ("python" "tests/fixtures/workflow_lisp/guide_shapes/probe.py" "fetch" n) :returns Box))
+  (defrecord Out (n Int) (parents List[Box]))
+  (defrecord Walk (pair Pair) (out Out))
   (defun choose ((pair Pair) (branch String)) -> Box
     (if (= branch "A") pair.a pair.b))
   (defproc pick ((walk Walk) (branch String)) -> Walk
@@ -19,13 +19,12 @@
     (let* ((current (choose walk.pair branch))
            (got (fetch current.n)))
       (record-update walk
-        :turn (+ walk.turn 1)
-        :history (list/append walk.history
-                   (record Trial :parents (if (= branch "C") (list walk.pair.a) (list current)) :n got.n)))))
-  (defworkflow run ((branch String)) -> Walk
-    (loop/recur :max 3
-      :state (record Walk :pair (record Pair :a (record Box :n 1) :b (record Box :n 2)) :history (list) :turn 0)
-      :on-exhausted state
+        :out (record Out :n got.n :parents (if (= branch "C") (list walk.pair.b) (list current))))))
+  (defworkflow run ((branch String)) -> Out
+    (loop/recur :max 2
+      :state (record Walk :pair (record Pair :a (record Box :n 1) :b (record Box :n 2))
+               :out (record Out :n 0 :parents (list)))
+      :on-exhausted state.out
       (fn (state)
         (let* ((next (pick state branch)))
-          (if (< next.turn 2) (continue next) (done next)))))))
+          (done next.out))))))
