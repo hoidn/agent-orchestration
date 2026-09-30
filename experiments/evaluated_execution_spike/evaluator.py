@@ -90,8 +90,9 @@ def evaluate(
     coordinators: Mapping[str, Any] | None = None,
 ) -> RunResult:
     """Run, or resume, the program in `run_root`. `coordinators` maps an effect class to a coordinator
-    with its own ledger: `prepare` (its pending commit), `settle` (its final commit, after the memo's
-    `committed`) and `reconcile` (on resume, when the memo holds the commit)."""
+    with its own ledger: `prepare(node, resolved, identity, attempt)` (its pending commit), `settle(node,
+    identity, proof)` (its final commit, after the memo's `committed`) and `reconcile(node, resolved,
+    identity, proof)` (on resume, when the memo holds the commit)."""
 
     run_root.mkdir(parents=True, exist_ok=True)
     bound = bind_inputs(program, inputs)
@@ -375,6 +376,8 @@ class _Evaluator:
             return self.resolve_provider(node, env)
         if node["class"] == "request_input":
             return {"class": node["class"], "question": self.value(node["question"], env)}
+        if node["class"] == "run_ref":
+            return {"class": node["class"], "inputs": {name: self.value(v, env) for name, v in node.get("inputs", [])}}
         return {"class": node["class"], "inputs": [self.value(v, env) for v in node.get("inputs", [])]}
 
     def resolve_command(self, node: dict[str, Any], env: dict[str, Any]) -> dict[str, Any]:
@@ -414,7 +417,7 @@ class _Evaluator:
             self.result_file = self.performers.relative(self.run_root / entry.committed.get("result_path", "."))
             if entry.committed["input_digest"] == digest:
                 if node["class"] in self.coordinators:
-                    self.coordinators[node["class"]].reconcile(node, identity, entry.committed.get("proof"))
+                    self.coordinators[node["class"]].reconcile(node, resolved, identity, entry.committed.get("proof"))
                     if not entry.settled:
                         self.memo.append({"record": "settled", "identity": identity,
                                           "attempt": entry.committed["attempt"], "by": "reconcile"})

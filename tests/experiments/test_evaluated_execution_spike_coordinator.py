@@ -99,7 +99,7 @@ class RunRefCoordinator:
         if load_attempt_ledger(request.ledger_path).rows[-1].stage != "committed":
             finalize_run_ref_parent_commit(request, prepared, persisted_settled_result=proof["settled_result"])
 
-    def reconcile(self, node, identity, proof):
+    def reconcile(self, node, resolved, identity, proof):
         if self.reconcile_on_hit:
             validate_completed_run_ref_authority(self.request(identity), settled_result=proof["settled_result"],
                                                  artifacts=proof["artifacts"], reconcile_pending=True)

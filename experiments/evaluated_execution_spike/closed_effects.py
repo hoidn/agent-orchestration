@@ -5,14 +5,25 @@ evaluator binds into the resolved input), its argv tail or its adapter document,
 its contract and its repeat rule. A provider carries its provider id, its prompt
 (an asset path, or a `defprompt` template with its fills), its typed prompt
 inputs with the names and renderers lowering gives them, its prompt
-dependencies, its policy and its contract.
+dependencies, its policy and its contract. A run reference carries the runtime's static
+configuration and its named inputs.
 """
 
 from __future__ import annotations
 
+import base64
+import functools
 import posixpath
 from typing import Any
 
+from orchestrator.workflow.run_ref.config import (
+    PathProgram,
+    ReferenceBinding,
+    RunRefInput,
+    build_run_ref_static_config,
+    encode_run_ref_static_config,
+)
+from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
 from orchestrator.workflow.view_renderer import resolve_default_view_renderer
 from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.wcc import model as w
@@ -31,7 +42,36 @@ def translate_perform(builder: Any, perform: w.WccPerform, d: Any, env: dict[str
         return {**node, **_provider(builder, perform, d, env)}
     if kind == "request_input":
         return {**node, "class": "request_input", "question": builder.value(perform.positional_args[0], d, env)}
+    if kind == "run_ref":
+        return {**node, **_run_ref(builder, perform, d, env)}
     raise ClosedProgramGap("P3", f"effect class `{kind}` has no performer in the spike")
+
+
+@functools.cache
+def _compiler_runtime_identity() -> str:
+    return compute_compiler_runtime_identity().digest
+
+
+def _run_ref(builder: Any, perform: w.WccPerform, d: Any, env: dict[str, Any]) -> dict[str, Any]:
+    """A run reference: the runtime's static configuration, built here as lowering builds it except that
+    each input is the reference `inputs.<name>`, which the coordinator resolves against the input values."""
+
+    from .closed import ClosedProgramGap
+
+    payload = perform.operation_payload
+    if not isinstance(payload.program, PathProgram):
+        raise ClosedProgramGap("P3", "a bundle-mode run-ref needs the build's capsule, which the spike does not build")
+    rows = tuple(RunRefInput(name=name, type_descriptor=descriptor, binding=ReferenceBinding(f"inputs.{name}"))
+                 for name, descriptor in payload.input_type_descriptors)
+    config = build_run_ref_static_config(
+        compiler_runtime_identity_digest=_compiler_runtime_identity(), site_digest=payload.site_digest,
+        source=payload.source, program=payload.program, inputs=rows, result_descriptor=payload.result_descriptor,
+        result_digest=payload.result_digest, target_dsl_version=builder.typed.target,
+    )
+    values = dict(perform.keyword_args)
+    return {"class": "run_ref", "config": base64.b64encode(encode_run_ref_static_config(config)).decode("ascii"),
+            "inputs": [[name, builder.value(values[name], d, env)] for name, _ in payload.input_type_descriptors],
+            "repeat": "rerun"}
 
 
 def _contract(result_type: Any, d: Any, return_spec: Any) -> dict[str, Any]:
