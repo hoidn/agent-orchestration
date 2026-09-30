@@ -784,7 +784,8 @@
 
 - v2.35 additions (in progress)
   - Target 2.35 is the selected evaluated-execution target. Phase 2 is adding
-    closed-program compilation; that compiler is not complete. Until Phase 3
+    compilation to a closed program rather than flat steps; that compiler is
+    not complete. Until Phase 3
     dispatches the evaluator, `run` and `resume` refuse this target with
     `evaluated_execution_unavailable` at the `:target-dsl` header. Existing
     targets retain their current route and artifacts.
