@@ -714,6 +714,20 @@
     [9223372036854775807, 1]: ...``), and its metadata gains `operator` and
     `operands` beside `min`, `max` and `value`.
 
+- Amendment of targets 2.30 to 2.33 (pure payloads)
+  - A `let*` value that is used more than once is emitted once in a pure
+    payload and referred to, in payload schema 3. A value used once is
+    emitted as before. Evaluation order and laziness are kept: a value used
+    only inside an `if` branch, a short-circuit operand or a list-map body is
+    not moved out of it. Programs whose bound values are each used once build
+    the artifacts they built before. A program that changes builds different
+    checkpoint identities, so a run of it that started before the change is
+    refused on resume.
+  - A refusal that compares a value with a limit prints both. A payload over
+    the size bound is refused with its node count, the bound, and the three
+    subexpressions that contribute most, each with its source location.
+    Diagnostic codes and exit codes are unchanged.
+
 - v2.34 additions (in progress)
   - Target 2.34 exists. Apart from the surface listed below, it accepts and
     lowers exactly what 2.33 accepts; only the version recorded in each build
@@ -739,11 +753,10 @@
     - The type rules and the evaluation of these operators live once, in the
       pure-expression catalog. Below 2.34 none of this surface is admitted and
       each refusal is the one of 2.33.
-  - Later tasks of the
-    [evaluated execution plan](../docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
-    add finite values at every boundary, and the
+  - The
     [repetition reduction plan](../docs/plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md)
-    adds its rules at this target. State schema remains `2.1`.
+    adds its rules at this target; they are not implemented. State schema
+    remains `2.1`.
   - Finite values at boundaries (numeric surface rule N6): at 2.34 a
     non-finite `Float` in a workflow input, a command or provider result field
     or an expected output file is refused with `float_not_finite`, which names
@@ -795,7 +808,7 @@
   - `v2.31`: portable ordinary provider-context capture and fresh binding
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
-  - `v2.34`: decimal literals in expressions and numeric operators; finite boundary values and the repetition reduction rules pending
+  - `v2.34`: decimal literals in expressions, numeric operators and finite boundary values; the repetition reduction rules pending
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -946,6 +959,6 @@ Planned acceptance:
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
-| 2.34 | Workflow Lisp numeric surface (in progress) | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. Otherwise accepts and lowers exactly what 2.33 does. Finite values at boundaries (evaluated execution plan) and the repetition reduction rules are added by later tasks. State schema remains 2.1. |
+| 2.34 | Workflow Lisp numeric surface (in progress) | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. The repetition reduction rules are not implemented. State schema remains 2.1. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

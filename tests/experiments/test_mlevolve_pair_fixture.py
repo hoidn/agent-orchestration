@@ -280,7 +280,7 @@ def test_branch_expanded_controller_reports_its_current_diagnostic_code(
     assert _public_run_diagnostic("search.orc", tmp_path, caplog) == (
         2,
         # Bound values are shared in the payload, so the state update passes the size bound.
-        # The form meets the next rule: a loop inside a branch.
+        # The form meets the next defect: a loop inside a branch, reported at its `:on-exhausted` value.
         [("workflow_boundary_type_invalid", "workflow-lisp > defworkflow > run")],
     )
 

@@ -34,8 +34,10 @@ inject the invalid candidate once; it never chooses the operation or branch.
 The two seed candidates are fixed and valid by fixture construction.
 
 `search.orc` records the authored ORC policy, but this specimen does not claim
-that the policy executed: the current compiler rejects the controller at a
-256-node pure-expression limit. `compare.py` runs the Python controller with
+that the policy executed: the current compiler rejects the controller. It
+first met the 256-node limit of a pure expression; since bound values are
+shared in a payload it meets a loop inside a branch
+(`workflow_boundary_type_invalid`). `compare.py` runs the Python controller with
 direct and subprocess leaves, then attempts the ORC compile and public run.
 From the repository root, reproduce the comparison and write its evidence with:
 

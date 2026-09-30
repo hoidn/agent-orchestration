@@ -48,7 +48,7 @@ states the consequences. Measurements since then:
 | Evidence | Result |
 | --- | --- |
 | Totality matrix, 120 combinations of value form and position, after the shared defect repairs | 34 combinations typecheck and then fail. Every one needs a repair in code that serves only the flat step route |
-| A search controller with a 14-field state, written five ways | Does not compile. The state update is 361 nodes against a bound of 256. With the bound raised, a loop inside an `if` branch is rejected |
+| A search controller with a 14-field state, written five ways | Does not compile. The state update was 361 nodes against a bound of 256; since bound values are shared in a payload it is 95. The program then meets the next refusal: a loop inside an `if` branch. A compact form of it meets a third: a `let*` binding whose value is an `if` over two lists |
 | Rewrite of a review workflow with a library helper | A pure `match` over the helper's result is rejected; a nested `if` in a hook is rejected |
 | Identity | Step ids, checkpoint ids and schema digests change when two blank lines are added or the file is moved |
 
