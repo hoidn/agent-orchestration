@@ -398,6 +398,12 @@ Rules of elaboration into this form:
   order and short-circuiting. Its arm prefixes and body remain admitted;
   they are not silently restricted to pure bindings. This makes §6's site
   walk total without adding aggregate-field positions to effect identities.
+- A loop's budget and initial state evaluate in expanded structural keyword
+  order. Retain this parser fact through typed conversion, including imported
+  older bodies; macro argument source spans do not establish that order.
+  Compiler-generated loops retain their construction order. This transient
+  fact does not enter legacy AST serialization, repr, or callable identity;
+  only the closed route changes evaluation behavior.
 
 ### 4.4 Values the run supplies
 

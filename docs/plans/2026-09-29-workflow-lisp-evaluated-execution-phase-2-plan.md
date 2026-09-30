@@ -1004,6 +1004,7 @@ When Phase 7 retires the flat route, the two build functions merge.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/wcc/model.py` (`WccIdentityFactory`, line 73)
+- Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), and `orchestrator/workflow_lisp/build_manifest_io.py` (transient-field omission).
 - Inspect, modify only if necessary: `orchestrator/workflow_lisp/wcc/anf.py` (the gated normalization path)
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`: `elaborate_typed_workflow_body` (line 219), the `DoneExpr` branch of `_elaborate_expr_to_body` (line 1662), `_retarget_loop_continue` (line 2529) and its call at line 2465, the `PhaseTargetExpr` branch of `_elaborate_expr_to_value` (line 2736), `_prebind_effect_argument_matches` (line 4077)
 - Test: `tests/test_workflow_lisp_closed_program_elaboration.py`
@@ -1066,6 +1067,17 @@ report iteration 3, D1 and D2.
   source order, preserving short-circuiting. Extend the gated elaborator
   prebinding seam first; change `wcc/anf.py` only if normalization loses a
   binding. No hidden effectful child survives outside walked bindings.
+  Preserve `loop/recur`'s expanded structural `:max`/`:state` keyword order
+  on every parsed loop, including older imported typed bodies. Macro operand
+  spans can retain call-site order and cannot establish evaluation order.
+  Use one transient `LoopRecurExpr.operand_evaluation_order` tuple, retained
+  by existing replacements/traversals and excluded from repr, equality,
+  hash and serialized artifacts. The existing compiler-generated list loop
+  records its construction order (`:max`, then `:state`); hand-built nodes
+  without retained order use that deterministic default. Only closed
+  elaboration consumes this fact; legacy execution and artifact bytes stay
+  unchanged. Extend the existing serializer's field metadata handling to
+  omit this populated transient field; do not create a second serializer.
   Enable the existing `_PRESERVE_BOUND_PROC_CAPTURES` mechanism when
   `closed_program=True`, so ordinary `bind-proc` calls retain lexical capture
   aliases and owner/argument capture rows for Task 4. Its existing live-provider
@@ -1125,6 +1137,12 @@ the shadow, and the call's capture row reads that alias. Compare the flag-off
 WCC with the existing behavior. Task 4 still owns conversion to closed capture
 parameters/keys and full artifact verification.
 
+Cover both authored loop keyword orders and a macro whose expanded keyword
+order disagrees with the operands' source spans. Check that loop operand
+effects occur once in that order, and that the transient field changes
+neither legacy AST repr/JSON nor the flag-off route. Include an older
+imported loop and the compiler-generated loop's retained order.
+
 - [ ] **Step 2: Run; expected failures**
 
 `TypeError: unsupported WCC elaboration node: ProcedureCallExpr` for the
@@ -1151,11 +1169,19 @@ The four programs of the table: byte-identical. `improve_experiment_proposal`
 is the one with a `continue` under a join and a specialized callee: its step
 ids must not move.
 
+Because the loop-order fact touches a shared expression carrier, also run
+the existing 67-artifact capsule comparison against the fixed Phase 2
+baseline. Preserve truthful package pins in the real comparison and report
+expected pin-only differences separately from the controlled fixed-identity
+comparison; the latter does not establish raw equality of real packages.
+
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py tests/test_workflow_lisp_closed_program_elaboration.py tests/fixtures/workflow_lisp/closed_program`
+Stage and commit only the changed paths listed above (including `wcc/anf.py`
+only if a demonstrated normalization defect requires it), plus any fixtures
+actually added under `tests/fixtures/workflow_lisp/closed_program`.
 
-`git commit -m "feat: elaborate effectful arguments, done values, continue targets and phase-target for the closed program" -- orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py tests/test_workflow_lisp_closed_program_elaboration.py tests/fixtures/workflow_lisp/closed_program`
+Commit message: `feat: elaborate effectful arguments, done values, continue targets and phase-target for the closed program`.
 
 **What this makes harder later:** `path/join` is an operator the catalog does
 not know; if Phase 3 wants to evaluate it through the catalog, the catalog
