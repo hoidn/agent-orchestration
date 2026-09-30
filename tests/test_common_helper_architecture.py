@@ -393,9 +393,9 @@ ADMITTED_HELPER_MANIFEST = {
         AdmittedHelperSurface(
             "orchestrator/workflow/provider_phased_delivery/runtime_bindings.py",
             patterns=(
-                "ast:durable_atomic_write@"
+                "ast:executor_binding_workspace_files_atomic_write@"
                 "_WorkflowPhasedProviderAttemptBindings."
-                "_restore_frozen_candidate:path|item.content:count=1",
+                "_restore_frozen_candidate:count=1",
             ),
         ),
         AdmittedHelperSurface(
@@ -515,6 +515,10 @@ ATOMIC_DIRECT_CONSUMER_SCOPES = {
     (
         "orchestrator/workflow/steps/pure_projection.py",
         "execute_pure_projection",
+    ),
+    (
+        "orchestrator/workflow/provider_phased_delivery/runtime_bindings.py",
+        "_WorkflowPhasedProviderAttemptBindings._restore_frozen_candidate",
     ),
 }
 
@@ -1004,6 +1008,7 @@ def _atomic_pattern(
         "runtime_atomic_write_text",
         "workspace_files_atomic_write",
         "executor_workspace_files_atomic_write",
+        "executor_binding_workspace_files_atomic_write",
     }:
         return None
     target = target_and_arguments.split(":", 1)[0]
@@ -1848,15 +1853,18 @@ def test_atomic_writers_use_the_exact_common_owner() -> None:
             if kind in {
                 "workspace_files_atomic_write",
                 "executor_workspace_files_atomic_write",
+                "executor_binding_workspace_files_atomic_write",
             }:
                 owner_count = _method_call_count(
                     node,
                     "write_atomic",
-                    receiver_name=(
-                        "self.workspace_files"
-                        if kind == "executor_workspace_files_atomic_write"
-                        else "runtime.workspace_files"
-                    ),
+                    receiver_name={
+                        "workspace_files_atomic_write": "runtime.workspace_files",
+                        "executor_workspace_files_atomic_write": "self.workspace_files",
+                        "executor_binding_workspace_files_atomic_write": (
+                            "self.executor.workspace_files"
+                        ),
+                    }[kind],
                 )
                 common_symbol = "WorkspaceFiles.write_atomic"
             else:
@@ -1875,13 +1883,14 @@ def test_atomic_writers_use_the_exact_common_owner() -> None:
             if kind.startswith(("executor_atomic_", "runtime_atomic_")) or kind in {
                 "workspace_files_atomic_write",
                 "executor_workspace_files_atomic_write",
+                "executor_binding_workspace_files_atomic_write",
             }:
                 observed_direct_scopes.add((surface.path, target))
 
     if observed_direct_scopes != ATOMIC_DIRECT_CONSUMER_SCOPES:
         findings.append(
-            "direct executor-method consumer scopes differ from the exact "
-            f"six-scope census: observed={sorted(observed_direct_scopes)!r}"
+            "direct owner-writer scopes differ from the exact census: "
+            f"observed={sorted(observed_direct_scopes)!r}"
         )
 
     excluded_local_replacement_controls = (

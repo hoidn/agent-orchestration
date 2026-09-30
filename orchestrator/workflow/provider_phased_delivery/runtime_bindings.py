@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import errno
+import stat
 import time
 from copy import deepcopy
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, cast
 
-from ..._common.io_atomic import durable_atomic_write
 from ..._common.validation import is_finite_positive_number
 from ...contracts.output_contract import (
     OutputContractError,
@@ -723,15 +723,20 @@ class _WorkflowPhasedProviderAttemptBindings:
                 self._discard_interrupted_candidates(preflight)
             except PhasedOperationFailure:
                 raise
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 raise PhasedOperationFailure(
                     self._diagnostic("candidate_reset_failed")
                 ) from exc
         for binding in preflight.bindings:
-            path = self.executor._resolve_workspace_path(
-                binding.workspace_relative_path
-            )
-            if path is None or path.exists() or path.is_symlink():
+            try:
+                exists = self.executor.workspace_files.exists(
+                    binding.workspace_relative_path
+                )
+            except (OSError, ValueError) as exc:
+                raise PhasedOperationFailure(
+                    self._diagnostic("candidate_path_preexisting")
+                ) from exc
+            if exists:
                 raise PhasedOperationFailure(
                     self._diagnostic("candidate_path_preexisting")
                 )
@@ -774,24 +779,24 @@ class _WorkflowPhasedProviderAttemptBindings:
     def _discard_interrupted_candidates(self, preflight) -> None:
         from .bindings import PhasedOperationFailure
 
-        paths: list[Path] = []
+        files = self.executor.workspace_files
+        paths: list[str] = []
         for binding in preflight.bindings:
-            path = self.executor._resolve_workspace_path(
-                binding.workspace_relative_path
-            )
-            if (
-                path is None
-                or path.is_symlink()
-                or (path.exists() and not path.is_file())
-            ):
+            path = binding.workspace_relative_path
+            try:
+                info = files.stat(path)
+            except FileNotFoundError:
+                paths.append(path)
+                continue
+            if not stat.S_ISREG(info.st_mode):
                 raise PhasedOperationFailure(
                     self._diagnostic("candidate_reset_failed")
                 )
             paths.append(path)
         for path in paths:
-            if path.exists():
-                path.unlink()
-        if any(path.exists() or path.is_symlink() for path in paths):
+            if files.exists(path):
+                files.unlink(path)
+        if any(files.exists(path) for path in paths):
             raise PhasedOperationFailure(
                 self._diagnostic("candidate_reset_failed")
             )
@@ -1080,7 +1085,7 @@ class _WorkflowPhasedProviderAttemptBindings:
             return self._reset_candidates(snapshot)
         except PhasedOperationFailure:
             raise
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             raise PhasedOperationFailure(
                 self._diagnostic("candidate_reset_failed")
             ) from exc
@@ -1092,13 +1097,6 @@ class _WorkflowPhasedProviderAttemptBindings:
         )
 
         for row in snapshot.rows:
-            path = self.executor._resolve_workspace_path(
-                row.workspace_relative_path
-            )
-            if path is None:
-                raise PhasedOperationFailure(
-                    self._diagnostic("candidate_reset_failed")
-                )
             if row.presence == "regular":
                 current = self._snapshot_row(
                     self.preflight.bindings[row.contract_ordinal]
@@ -1107,19 +1105,16 @@ class _WorkflowPhasedProviderAttemptBindings:
                     raise PhasedOperationFailure(
                         self._diagnostic("candidate_reset_failed")
                     )
-                path.unlink()
+                self.executor.workspace_files.unlink(
+                    row.workspace_relative_path
+                )
             elif row.presence != "missing":
                 raise PhasedOperationFailure(
                     self._diagnostic("candidate_reset_failed")
                 )
         if any(
-            (
-                (path := self.executor._resolve_workspace_path(
-                    binding.workspace_relative_path
-                ))
-                is None
-                or path.exists()
-                or path.is_symlink()
+            self.executor.workspace_files.exists(
+                binding.workspace_relative_path
             )
             for binding in self.preflight.bindings
         ):
@@ -1307,12 +1302,10 @@ class _WorkflowPhasedProviderAttemptBindings:
 
         restored = 0
         for item in frozen.files:
-            path = self.executor._resolve_workspace_path(
-                item.binding.workspace_relative_path
+            self.executor.workspace_files.write_atomic(
+                item.binding.workspace_relative_path,
+                item.content,
             )
-            if path is None:
-                raise ValueError("frozen path escaped workspace")
-            durable_atomic_write(path, item.content)
             restored += 1
         return FrozenCandidateRestoration(
             frozen_sha256=frozen.frozen_sha256,

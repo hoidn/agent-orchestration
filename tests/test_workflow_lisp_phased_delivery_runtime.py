@@ -14,9 +14,6 @@ from typing import Any, cast
 import pytest
 
 import orchestrator.workflow.executor as executor_module
-from orchestrator.workflow.provider_phased_delivery import (
-    runtime_bindings as runtime_bindings_module,
-)
 from orchestrator.providers.interactive_terminal import InteractiveTerminalError
 from orchestrator.providers.types import InteractiveSessionSupport
 from orchestrator.state import RunState, StateManager, StepResult
@@ -26,6 +23,7 @@ from orchestrator.workflow.call_frame_state import (
 )
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.workspace_files import WorkspaceFiles
+from tests.test_workflow_result_path_confinement import _RootSwap
 from orchestrator.workflow.provider_phased_delivery.runtime_bindings import (
     _WorkflowPhasedProviderAttemptBindings,
 )
@@ -2074,41 +2072,67 @@ def test_phased_failure_runtime_result_uses_closed_diagnostic_summary() -> None:
     assert result["error"]["message"] == diagnostic.rejected_value.summary
 
 
-def test_frozen_candidate_restoration_uses_common_durable_atomic_write(
+@pytest.mark.parametrize("swap_level", ("root", "ancestor"))
+def test_frozen_candidate_restoration_uses_atomic_workspace_owner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    swap_level: str,
 ) -> None:
-    destination = tmp_path / "artifacts" / "result.json"
-    executor = _executor()
-    executor._resolve_workspace_path = MethodType(
-        lambda self, _path: destination,
-        executor,
+    parent = tmp_path / "parent"
+    workspace = parent / "workspace"
+    parent.mkdir()
+    workspace.mkdir()
+    outside_parent = tmp_path / "outside"
+    outside_parent.mkdir()
+    outside = (
+        outside_parent / "workspace"
+        if swap_level == "ancestor"
+        else outside_parent
     )
-    binding = object.__new__(_WorkflowPhasedProviderAttemptBindings)
-    binding.executor = executor
-    calls: list[tuple[Path, bytes]] = []
+    outside.mkdir(exist_ok=True)
+    swap_path = parent if swap_level == "ancestor" else workspace
+    binding = _q2_validation_binding(workspace)
+    del binding.executor._resolve_workspace_path
+    relative = Path("artifacts/result.json")
+    destination = workspace / relative
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"old")
+    outside_destination = outside / relative
+    outside_destination.parent.mkdir(parents=True)
+    outside_destination.write_bytes(b"outside")
+    calls: list[tuple[Path, Path, bytes]] = []
+    original_write_atomic = WorkspaceFiles.write_atomic
 
-    monkeypatch.setattr(
-        runtime_bindings_module,
-        "durable_atomic_write",
-        lambda path, payload: calls.append((path, payload)),
-    )
+    def record_atomic_write(
+        owner: WorkspaceFiles,
+        path: str | Path,
+        content: bytes,
+        **kwargs,
+    ) -> None:
+        calls.append((owner.workspace, owner.relative(path), content))
+        original_write_atomic(owner, path, content, **kwargs)
 
-    restoration = binding._restore_frozen_candidate(
-        SimpleNamespace(
-            frozen_sha256="sha256:" + "a" * 64,
-            files=(
-                SimpleNamespace(
-                    binding=SimpleNamespace(
-                        workspace_relative_path="artifacts/result.json",
-                    ),
-                    content=b"candidate",
-                ),
+    monkeypatch.setattr(WorkspaceFiles, "write_atomic", record_atomic_write)
+    frozen = SimpleNamespace(
+        frozen_sha256="sha256:" + "a" * 64,
+        files=(
+            SimpleNamespace(
+                binding=SimpleNamespace(workspace_relative_path=str(relative)),
+                content=b"candidate",
             ),
-        )
+        ),
     )
 
-    assert calls == [(destination, b"candidate")]
+    try:
+        with _RootSwap(swap_path, outside_parent):
+            restoration = binding._restore_frozen_candidate(frozen)
+    finally:
+        binding.executor.workspace_files.close()
+
+    assert calls == [(workspace, relative, b"candidate")]
+    assert destination.read_bytes() == b"candidate"
+    assert outside_destination.read_bytes() == b"outside"
+    assert not list(destination.parent.glob(".result.json.*.tmp"))
     assert restoration.restored_paths == 1
 
 
@@ -2123,16 +2147,13 @@ def test_frozen_candidate_restoration_uses_common_durable_atomic_write(
 )
 def test_physical_publication_boundaries_translate_to_closed_failure(
     tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
     operation: str,
     expected_reason: str,
 ) -> None:
     executor = _executor()
     executor.workspace = tmp_path
     executor.workspace_files = WorkspaceFiles(tmp_path)
-    executor._resolve_workspace_path = MethodType(
-        lambda self, path: None,
-        executor,
-    )
     executor._record_published_artifacts = MethodType(
         lambda self, *args, **kwargs: {
             "status": "failed",
@@ -2160,6 +2181,15 @@ def test_physical_publication_boundaries_translate_to_closed_failure(
         ),
         manifest=SimpleNamespace(submission_ordinal=1),
     )
+    if operation == "restoration":
+        def fail_restoration(*_args, **_kwargs) -> None:
+            raise OSError("private restoration detail")
+
+        monkeypatch.setattr(
+            WorkspaceFiles,
+            "write_atomic",
+            fail_restoration,
+        )
 
     with pytest.raises(PhasedOperationFailure) as raised:
         if operation == "evidence":
@@ -2469,9 +2499,11 @@ def test_snapshot_candidates_closes_candidate_read_failure(
     assert "private snapshot detail" not in str(raised.value)
 
 
+@pytest.mark.parametrize("failure_type", (OSError, ValueError))
 def test_reset_candidates_closes_candidate_unlink_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    failure_type: type[Exception],
 ) -> None:
     binding = _q2_validation_binding(tmp_path)
     _write_complete_candidate_set(tmp_path)
@@ -2479,23 +2511,86 @@ def test_reset_candidates_closes_candidate_unlink_failure(
         binding.preflight,
         submission_ordinal=1,
     )
-    original_unlink = Path.unlink
+    original_unlink = WorkspaceFiles.unlink
 
     def fail_report_unlink(
-        path: Path,
-        missing_ok: bool = False,
+        owner: WorkspaceFiles,
+        path: str | Path,
     ) -> None:
-        if path.name == "report.txt":
-            raise OSError("private reset detail")
-        original_unlink(path, missing_ok=missing_ok)
+        if Path(path).name == "report.txt":
+            raise failure_type("private reset detail")
+        original_unlink(owner, path)
 
-    monkeypatch.setattr(Path, "unlink", fail_report_unlink)
+    monkeypatch.setattr(WorkspaceFiles, "unlink", fail_report_unlink)
 
     with pytest.raises(PhasedOperationFailure) as raised:
         binding.reset_candidates(snapshot)
 
     _assert_exact_operation_failure(raised, "candidate_reset_failed")
     assert "private reset detail" not in str(raised.value)
+
+
+@pytest.mark.parametrize("operation", ("discard", "reset"))
+@pytest.mark.parametrize("swap_level", ("root", "ancestor"))
+def test_phased_candidate_cleanup_stays_under_pinned_workspace_after_root_swap(
+    tmp_path: Path,
+    operation: str,
+    swap_level: str,
+) -> None:
+    parent = tmp_path / "parent"
+    workspace = parent / "workspace"
+    parent.mkdir()
+    workspace.mkdir()
+    outside_parent = tmp_path / "outside"
+    outside_parent.mkdir()
+    outside = (
+        outside_parent / "workspace"
+        if swap_level == "ancestor"
+        else outside_parent
+    )
+    outside.mkdir(exist_ok=True)
+    swap_path = parent if swap_level == "ancestor" else workspace
+    binding = _q2_validation_binding(workspace)
+    del binding.executor._resolve_workspace_path
+    _write_complete_candidate_set(workspace)
+    snapshot = binding.snapshot_candidates(
+        binding.preflight,
+        submission_ordinal=1,
+    )
+    outside_files = []
+    for item in binding.preflight.bindings:
+        victim = outside / item.workspace_relative_path
+        victim.parent.mkdir(parents=True, exist_ok=True)
+        victim.write_text("outside sentinel", encoding="utf-8")
+        outside_files.append(victim)
+
+    try:
+        with _RootSwap(swap_path, outside_parent):
+            if operation == "discard":
+                binding._interrupted_rerun = {
+                    "diagnostic": "provider_attempt_interrupted_rerun",
+                    "family": "phased",
+                    "step_id": "root.review",
+                    "discarded_visit": 1,
+                    "next_visit": 2,
+                }
+                binding.runtime_step_id = "root.review"
+                binding.step_name = "Review"
+                binding.state = {"step_visits": {"Review": 2}}
+                binding.preflight_candidates(SimpleNamespace())
+            else:
+                binding.reset_candidates(snapshot)
+    finally:
+        binding.executor.workspace_files.close()
+
+    assert [path.read_text(encoding="utf-8") for path in outside_files] == [
+        "outside sentinel",
+        "outside sentinel",
+    ]
+    assert all(
+        not (workspace / item.workspace_relative_path).exists()
+        for item in binding.preflight.bindings
+    )
 
 
 def test_freeze_candidate_closes_candidate_read_failure(
