@@ -356,12 +356,28 @@ def assert_value_differences(flat: dict, spike: dict, workspaces: dict[str, Path
             assert re.fullmatch(DIGEST, a) and re.fullmatch(DIGEST, b), path
         elif field.endswith("elapsed_ms"):  # an accounting's or the verdict's budget accounting's
             assert type(a) is int and type(b) is int, path
+        elif re.fullmatch(r"\.return__outcomes\[\d+\]\.evidence\.check_results\[\d+\]\.duration_ms", path):
+            assert all(type(value) is int and value >= 0 for value in (a, b)), path
         elif field == "return__verdict_artifact":
             assert all(re.fullmatch(r"artifacts/trials/[0-9a-f]{64}/verdict\.json", v) and (workspaces[r] / v).is_file()
                        for r, v in (("flat", a), ("spike", b))), path
         else:
             raise AssertionError(f"undeclared difference at {path}: {a!r} against {b!r}")
     return found
+
+
+def test_trial_value_comparison_allows_only_check_clock_variance() -> None:
+    def result(field, value):
+        return {"return__outcomes": [{"evidence": {"check_results": [{field: value}]}}]}
+
+    assert assert_value_differences(result("duration_ms", 0), result("duration_ms", 1), {}) == {
+        ".return__outcomes[*].evidence.check_results[*].duration_ms"
+    }
+    for field, value in (("duration_ms", -1), ("duration_ms", "1"), ("duration_ms", True), ("score", 1)):
+        with pytest.raises(AssertionError):
+            assert_value_differences(result(field, 0), result(field, value), {})
+    with pytest.raises(AssertionError):
+        assert_value_differences({"duration_ms": 0}, {"duration_ms": 1}, {})
 
 
 LAUNCH_DIFFERENCES = {"child_run_id", "request.child_run_id", "workspace", "request.clone_root",
