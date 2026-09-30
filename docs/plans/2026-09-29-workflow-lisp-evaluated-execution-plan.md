@@ -49,14 +49,14 @@ Decided on 2026-09-29:
 | 3 | Whether the numeric operators are adopted now or when a maintained workflow needs them | Now, with the fixture of the numeric surface design, section 4 |
 | 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time |
 | - | When Phase 0 starts and from which base | Now, from the integration branch of the repairs plan. It enters `main` after the repairs |
+| 5 | Gate G1: the choice of architecture | Evaluated execution, built in stages at a new target. Beside Phase 2, one more experiment: a shipped workflow with a coordinator that is not a run reference, through both routes |
+| 7 | The effect classes of the first release | Commands, composed providers, calls of workflows, run references. Each other class enters later, with its own adapter and its own evidence through the public run and resume entries |
 
 Decisions needed:
 
 | # | Decision | Recommendation | Needed before |
 | --- | --- | --- | --- |
-| 5 | The choice between repairing the flat route, values as expressions, and evaluated execution | Decided at gate G1, on the spike's report | Phase 2 |
 | 6 | The number of the evaluated execution target | A new major number | Phase 2 |
-| 7 | The effect classes of the first release | Commands, composed providers, calls, transitions, views, requests for input | Phase 3 |
 | 8 | When older targets are retired | After the maintained workflows run at the new target | Phase 7 |
 
 Base: the integration branch of the shared defect repairs plan, with `main`
@@ -341,6 +341,12 @@ is reported, and the criterion is not changed.
 | 9 | What could not be built | A list of every property of the closed program that needed a change to the elaborator, with its size |
 
 ### Gate G1
+
+Decided by the owner on 2026-09-29: evaluated execution. The conditions that
+the [spike report](../reports/2026-09-29-evaluated-execution-spike.md),
+section 6, gives bind the first release. The design is revised with the
+decisions that the spike had to guess before the plan of Phase 2 is written.
+
 
 The owner chooses among repairing the flat route, values as expressions, and
 evaluated execution, on the report of Task 10. Phases 2 to 7 follow only the
