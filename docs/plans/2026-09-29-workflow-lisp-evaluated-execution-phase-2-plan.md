@@ -1007,6 +1007,11 @@ report iteration 3, D1 and D2.
   source order, preserving short-circuiting. Extend the gated elaborator
   prebinding seam first; change `wcc/anf.py` only if normalization loses a
   binding. No hidden effectful child survives outside walked bindings.
+  Enable the existing `_PRESERVE_BOUND_PROC_CAPTURES` mechanism when
+  `closed_program=True`, so ordinary `bind-proc` calls retain lexical capture
+  aliases and owner/argument capture rows for Task 4. Its existing live-provider
+  activation and all behavior with the new flag off remain unchanged; do not
+  add a second capture mechanism.
 - Consumed by: Task 4 (`closed_program=True`), Task 8.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1055,7 +1060,11 @@ body/continuation, record/list fields, operator operands, conditions and each
 terminal/loop operand. Assert order and branch-local binding, with an unchosen
 arm still under that arm. Also a `continue` whose state field holds an effect still binds it (the
 2.33 rule is unchanged); the `#`-ordinal-relevant shape of Review Focus 1 is
-not this task's.
+not this task's. Add an ordinary command-backed `bind-proc` case with a
+captured name shadowed between binding and call: the alias is bound before
+the shadow, and the call's capture row reads that alias. Compare the flag-off
+WCC with the existing behavior. Task 4 still owns conversion to closed capture
+parameters/keys and full artifact verification.
 
 - [ ] **Step 2: Run; expected failures**
 
