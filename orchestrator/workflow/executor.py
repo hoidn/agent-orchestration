@@ -45,6 +45,7 @@ from ..deps.content_snapshot import (
 from ..contracts.output_contract import (
     ContractViolation,
     OutputContractError,
+    non_finite_number,
     validate_contract_value,
     validate_expected_outputs,
     validate_output_bundle,
@@ -4978,6 +4979,21 @@ class WorkflowExecutor:
         except ResumeProjectionIntegrityError as exc:
             self.state_manager.record_resume_projection_integrity_failure(exc.error)
             return self.state_manager.load().to_dict()
+        # Numeric surface N6: saved state is a place where values enter the run.
+        if self._refuses_non_finite_floats():
+            violation = non_finite_number(run_state.to_dict())
+            if violation is not None:
+                self.state_manager.record_resume_projection_integrity_failure(
+                    {
+                        "type": "float_not_finite",
+                        "message": (
+                            f"Saved state holds {violation.context['value']} at "
+                            f"{violation.context['value_path']}, not a finite Float"
+                        ),
+                        "context": {"violations": [violation.to_dict()]},
+                    }
+                )
+                return self.state_manager.load().to_dict()
         return None
 
     def _provider_recovery_family(
@@ -5808,6 +5824,7 @@ class WorkflowExecutor:
                     state,
                     workspace=self.workspace,
                     resolve_source=self._resolve_runtime_value,
+                    finite_floats=self._refuses_non_finite_floats(),
                 )
             except WorkflowSignatureError as exc:
                 terminal_status = 'failed'
@@ -12944,7 +12961,12 @@ class WorkflowExecutor:
         contract: Dict[str, Any],
     ) -> tuple[Any, Optional[Dict[str, Any]]]:
         try:
-            return validate_contract_value(raw_value, contract, workspace=self.workspace), None
+            return validate_contract_value(
+                raw_value,
+                contract,
+                workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
+            ), None
         except OutputContractError as exc:
             violation = exc.violations[0] if exc.violations else {}
             violation_type = violation.get("type")
@@ -13698,7 +13720,11 @@ class WorkflowExecutor:
         validation_contract = deepcopy(config)
         validation_contract["path"] = temp_path.relative_to(self.workspace).as_posix()
         try:
-            artifacts = validate_variant_output_bundle(validation_contract, workspace=self.workspace)
+            artifacts = validate_variant_output_bundle(
+                validation_contract,
+                workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
+            )
         except OutputContractError as exc:
             temp_path.unlink(missing_ok=True)
             return self._v214_failure_result(
@@ -14275,7 +14301,12 @@ class WorkflowExecutor:
                 raise OutputContractError(
                     [{"message": "resource transition output json_pointer did not resolve", "json_pointer": json_pointer}]
                 )
-            artifacts[artifact_name] = validate_contract_value(candidate, spec, workspace=self.workspace)
+            artifacts[artifact_name] = validate_contract_value(
+                candidate,
+                spec,
+                workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
+            )
         return artifacts
 
     @staticmethod
@@ -14729,7 +14760,12 @@ class WorkflowExecutor:
             if not isinstance(output_name, str) or not isinstance(contract, dict):
                 continue
             candidate = target_path
-            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+            artifacts[output_name] = validate_contract_value(
+                candidate,
+                contract,
+                workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
+            )
         return artifacts
 
     def _workspace_relative_path(self, path: Path) -> str:
@@ -14837,7 +14873,12 @@ class WorkflowExecutor:
             )
             if candidate is _PURE_PROJECTION_MISSING:
                 candidate = None
-            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+            artifacts[output_name] = validate_contract_value(
+                candidate,
+                contract,
+                workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
+            )
         return artifacts
 
     def _pure_projection_union_activity(
@@ -14880,6 +14921,7 @@ class WorkflowExecutor:
                 candidate,
                 contract,
                 workspace=self.workspace,
+                finite_floats=self._refuses_non_finite_floats(),
             )
         return active_variants
 
@@ -15108,6 +15150,7 @@ class WorkflowExecutor:
                     raw_value,
                     validation_spec,
                     workspace=self.workspace,
+                    finite_floats=self._refuses_non_finite_floats(),
                 )
             except OutputContractError as exc:
                 return {}, self._contract_violation_result(
@@ -15164,6 +15207,7 @@ class WorkflowExecutor:
                     raw_value,
                     validation_spec,
                     workspace=self.workspace,
+                    finite_floats=self._refuses_non_finite_floats(),
                 )
             except (OutputContractError, PredicateEvaluationError, ReferenceResolutionError):
                 continue

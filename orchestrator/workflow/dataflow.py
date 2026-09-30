@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Mapping, Optional
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
+from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 
 from .executor_runtime import RuntimeStepInput
 
@@ -34,6 +35,7 @@ class DataflowManager:
         self.artifact_registry = artifact_registry
         self.private_artifact_registry = private_artifact_registry
         self.workflow_version = workflow_version
+        self.finite_floats = target_dsl_refuses_non_finite_floats(workflow_version)
         self.uses_qualified_identities = uses_qualified_identities
         self.workflow_version_at_least = workflow_version_at_least
         self.step_id_resolver = step_id_resolver
@@ -150,7 +152,9 @@ class DataflowManager:
             if lane == "private":
                 if isinstance(artifact_spec, dict):
                     try:
-                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                        value = validate_contract_value(
+                            value, artifact_spec, self.workspace, finite_floats=self.finite_floats
+                        )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
                             "Publish contract failed",
@@ -165,7 +169,9 @@ class DataflowManager:
             elif artifact_kind == "value":
                 if isinstance(artifact_spec, dict):
                     try:
-                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                        value = validate_contract_value(
+                            value, artifact_spec, self.workspace, finite_floats=self.finite_floats
+                        )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
                             "Publish contract failed",
@@ -512,7 +518,9 @@ class DataflowManager:
             elif artifact_kind in {"collection", "value"}:
                 if isinstance(artifact_spec, dict):
                     try:
-                        selected_value = validate_contract_value(selected_value, artifact_spec, self.workspace)
+                        selected_value = validate_contract_value(
+                            selected_value, artifact_spec, self.workspace, finite_floats=self.finite_floats
+                        )
                     except OutputContractError as exc:
                         return self.contract_violation_result(
                             "Consume contract failed",

@@ -1106,7 +1106,7 @@ def _parse_output_bundle_value(
     if finite_floats and (
         value_type == "value" or _descriptor_contains_direct_structure(spec)
     ):
-        violation = _non_finite_number(raw_value, value_path)
+        violation = non_finite_number(raw_value, value_path)
         if violation is not None:
             return None, violation
 
@@ -1336,8 +1336,12 @@ def _read_float(
     return value, None
 
 
-def _non_finite_number(raw_value: Any, value_path: str) -> ContractViolation | None:
-    """Refuse the first non-finite number inside a decoded JSON value, if any."""
+def non_finite_number(raw_value: Any, value_path: str = "") -> ContractViolation | None:
+    """Refuse the first non-finite number inside a decoded JSON value, if any.
+
+    The `float_not_finite` scan of numeric surface rule N6, shared by the
+    result boundaries and by resume, which reads values back from saved state.
+    """
 
     pending = [(value_path, raw_value)]
     seen_container_ids: set[int] = set()

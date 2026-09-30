@@ -53,6 +53,13 @@
       structural field is refused with the same code. A string in a nested
       `Float` position remains a type error (`invalid_transportable_value`).
       The target is the one of the workflow whose step or input is validated.
+      Resume is such a boundary: resuming a 2.34 run whose saved state holds a
+      non-finite number is refused with `float_not_finite`, naming its JSON
+      pointer in `state.json`, before any effect runs. The rule refuses
+      non-finite values only; a finite value edited into saved state is still
+      trusted. The rule covers the values the orchestrator serialises and
+      commits (state, checkpoints, records); a result file written by a command
+      or provider is that effect's file and stays, as evidence, when refused.
     - Targets 2.33 and older keep their behaviour. They accept non-finite
       values in workflow inputs, plain `float` bundle fields, variant fields
       and expected output files, and write them to `state.json` as the tokens

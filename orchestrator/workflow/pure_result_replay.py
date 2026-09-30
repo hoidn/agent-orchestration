@@ -14,6 +14,7 @@ from orchestrator.contracts.output_contract import (
     OutputContractError,
     validate_contract_value,
 )
+from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 
 from .executable_ir import (
     CallBoundaryNode,
@@ -1040,6 +1041,9 @@ class PureReplayRuntime:
         if not isinstance(steps, Mapping):
             steps = {}
         input_contracts = workflow_runtime_input_contracts(self.bundle)
+        finite_floats = target_dsl_refuses_non_finite_floats(
+            self.bundle.surface.version
+        )
         for binding in replay_node.bindings:
             address = binding.address
             if isinstance(address, WorkflowInputAddress):
@@ -1063,6 +1067,7 @@ class PureReplayRuntime:
                         bound_inputs[address.input_name],
                         dict(input_contract),
                         workspace=self.bundle.provenance.source_root,
+                        finite_floats=finite_floats,
                     )
                 except OutputContractError:
                     self._raise_replay_result_failure(
@@ -1130,6 +1135,7 @@ class PureReplayRuntime:
                     durable_value,
                     dict(contract),
                     workspace=self.bundle.provenance.source_root,
+                    finite_floats=finite_floats,
                 )
             except OutputContractError:
                 self._raise_replay_result_failure(

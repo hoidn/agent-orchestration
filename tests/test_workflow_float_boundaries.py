@@ -171,13 +171,27 @@ def _refusal(state: dict) -> tuple[str, str, dict]:
     return state["status"], violation["type"], violation["context"]
 
 
-def _files_with_non_finite_tokens(root: Path) -> list[str]:
+def _orchestrator_files_with_non_finite_tokens(root: Path) -> list[str]:
+    """Files the orchestrator serialises under the runs directory: state, checkpoints, records.
+
+    `logs/` is left out: it holds what a command printed, verbatim.
+    """
+
     runs = root / ".orchestrate" / "runs"
     return sorted(
         path.relative_to(runs).as_posix()
         for path in runs.rglob("*")
-        if path.is_file() and re.search(rb"NaN|Infinity", path.read_bytes())
+        if path.is_file()
+        and "logs" not in path.relative_to(runs).parts[1:2]
+        and re.search(rb"NaN|Infinity", path.read_bytes())
     )
+
+
+def _result_files(root: Path) -> list[str]:
+    """The result files commands and providers wrote. A refused one stays, as evidence."""
+
+    results = sorted((root / ".orchestrate" / "workflow_lisp").rglob("*result_bundle.json"))
+    return [path.read_text(encoding="utf-8") for path in results]
 
 
 def _bits(value: float) -> bytes:
@@ -230,7 +244,8 @@ def test_234_refuses_a_non_finite_command_result_field(root: Path, row: str) -> 
     assert (result.exit_code, status, code, context["json_pointer"], context["value"]) == (
         1, "failed", "float_not_finite", "/value", ROWS[row]
     )  # fmt: skip
-    assert (commands, _files_with_non_finite_tokens(root)) == (["first 1.0"], [])
+    assert (commands, _orchestrator_files_with_non_finite_tokens(root)) == (["first 1.0"], [])
+    assert _result_files(root) == [_command_answer(row)]
 
 
 @pytest.mark.parametrize("row", ROWS)
@@ -242,7 +257,8 @@ def test_234_refuses_a_non_finite_provider_result_field(root: Path, row: str) ->
     assert (result.exit_code, status, code, context["json_pointer"], context["value"]) == (
         1, "failed", "float_not_finite", "/value", ROWS[row]
     )  # fmt: skip
-    assert (asked, commands, _files_with_non_finite_tokens(root)) == (["stand-in"], [], [])
+    assert (asked, commands, _orchestrator_files_with_non_finite_tokens(root)) == (["stand-in"], [], [])
+    assert _result_files(root) == [_command_answer(row)]
 
 
 @pytest.mark.parametrize("row", ["NaN", "Infinity", "-Infinity", "1e400"])
@@ -254,7 +270,8 @@ def test_234_refuses_a_non_finite_float_in_a_nested_position(root: Path, row: st
     assert (status, code, context["json_pointer"], context["value_path"], context["value"]) == (
         "failed", "float_not_finite", "/outcomes", "/1/item/value", ROWS[row]
     )  # fmt: skip
-    assert (commands, _files_with_non_finite_tokens(root)) == (["r"], [])
+    assert (commands, _orchestrator_files_with_non_finite_tokens(root)) == (["r"], [])
+    assert _result_files(root) == [_nested_answer(row)]
 
 
 @pytest.mark.parametrize("row", ROWS)
@@ -263,7 +280,8 @@ def test_234_refuses_a_non_finite_union_variant_field(root: Path, row: str) -> N
 
     status, code, context = _refusal(_state(result)[0])
     assert (status, code, context["json_pointer"], context["value"]) == ("failed", "float_not_finite", "/value", ROWS[row])
-    assert (commands, _files_with_non_finite_tokens(root)) == (["u"], [])
+    assert (commands, _orchestrator_files_with_non_finite_tokens(root)) == (["u"], [])
+    assert _result_files(root) == [_union_answer(row)]
 
 
 @pytest.mark.parametrize(

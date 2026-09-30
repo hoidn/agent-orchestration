@@ -112,8 +112,12 @@ def resolve_workflow_outputs(
     workspace: Path,
     *,
     resolve_source: Callable[[Any, Dict[str, Any]], Any] | None = None,
+    finite_floats: bool = False,
 ) -> Dict[str, Any]:
-    """Resolve and validate declared workflow outputs from run state."""
+    """Resolve and validate declared workflow outputs from run state.
+
+    `finite_floats` is as for `bind_workflow_inputs`.
+    """
     specs = dict(output_specs or {})
     if not specs:
         return {}
@@ -126,6 +130,7 @@ def resolve_workflow_outputs(
         workspace,
         resolver=resolver,
         resolve_source=resolve_source,
+        finite_floats=finite_floats,
     )
     for name, spec in specs.items():
         validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
@@ -169,6 +174,7 @@ def resolve_workflow_outputs(
                 raw_value,
                 _workflow_output_validation_spec(validation_spec),
                 workspace=workspace,
+                finite_floats=finite_floats,
             )
         except OutputContractError as exc:
             raise WorkflowSignatureError(
@@ -223,6 +229,7 @@ def _resolve_workflow_output_discriminants(
     *,
     resolver: ReferenceResolver,
     resolve_source: Callable[[Any, Dict[str, Any]], Any] | None,
+    finite_floats: bool,
 ) -> Dict[str, Any]:
     """Resolve flattened union discriminants before variant field exports."""
 
@@ -268,6 +275,7 @@ def _resolve_workflow_output_discriminants(
                 raw_value,
                 dict(validation_spec),
                 workspace=workspace,
+                finite_floats=finite_floats,
             )
         except ReferenceResolutionError as exc:
             raise WorkflowSignatureError(
