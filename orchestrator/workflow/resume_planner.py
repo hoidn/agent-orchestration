@@ -201,6 +201,7 @@ class ResumePlanner:
         state_manager: Any,
         executable_workflow: Any | None = None,
         loaded_workflow: Any | None = None,
+        frontend_index: Any | None = None,
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Dict[str, Any]:
         """Return one R6 default-resume decision for the current resume point."""
@@ -217,6 +218,7 @@ class ResumePlanner:
             restart_node_id=restart_node_id,
             state_manager=state_manager,
             loaded_workflow=loaded_workflow,
+            frontend_index=frontend_index,
             executable_workflow=executable_workflow,
         )
         entry = (
