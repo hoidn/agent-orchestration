@@ -86,7 +86,7 @@ def build(workspace: Path):
 class StandIns:
     """The cells' and the evaluation's stand-ins; each call is logged to a file under `log_dir` (child processes
     count across a kill) and kept in `calls` (requests compared across routes). `hold` names a call to block on
-    when the file `hold` exists: ("child", arm) or ("judge", ordinal)."""
+    when the file `hold` exists: ("child", arm), ("judge", ordinal), or ("runtime", boundary)."""
 
     def __init__(self, case: str, log_dir: Path, hold: tuple | None = None) -> None:
         self.case, self.log_dir, self.hold = case, log_dir, hold
@@ -140,8 +140,10 @@ class StandIns:
         from orchestrator.workflow.trial.runtime import TrialRuntimeDependencies
         from tests.experiments.test_es_qa_placement_workflows import _materialize_trial_source
 
-        return TrialRuntimeDependencies(run_ref_dependencies=lambda cell, request: RunRefRuntimeDependencies(
-            materialize_source=_materialize_trial_source, launch_child=self.launch))
+        return TrialRuntimeDependencies(
+            run_ref_dependencies=lambda cell, request: RunRefRuntimeDependencies(
+                materialize_source=_materialize_trial_source, launch_child=self.launch),
+            crash_hook=lambda event: self.block(("runtime", event)))
 
     def evaluation_dependencies(self):
         from orchestrator.workflow.trial.adjudication import TrialEvaluationDependencies
@@ -471,12 +473,13 @@ EXPECTED_DECISIONS = {
 
 # 2. Kills of the spike from outside, and the present route interrupted -----------------------------------
 
-# Window: how the child stops; what a resume gives with the runtime as it is; the memo's attempts after it.
+# Window: how the child stops; the memo's attempts after resume.
 # `hold`: a stand-in blocks inside the trial's `prepare` (a cell's child launch, the second judge call).
 KILLS = {
     "resolved": ({"window": "resolved"}, [1]),
     "during a child run": ({"hold": ["child", "DESIGN_QA"]}, [1, 2]),
     "after cell preparation before settlement": ({"pause_after_prepared": True}, [1, 2]),
+    "after cell settlement before commit": ({"hold": ["runtime", "after_trial_cell_settlement"]}, [1, 2]),
     "during the judge": ({"hold": ["judge", 2]}, [1, 2]),
     "after the trial's pending commit": ({"window": "finished"}, [1, 2]),
     "after the memo's commit": ({"window": "committed"}, [1]),
@@ -484,8 +487,10 @@ KILLS = {
 }
 
 
-def terminal_cells(rows: list[dict]) -> set[str]:
-    return {row["payload"]["cell"]["arm_id"] for row in rows if row["kind"] in ("cell_e1_committed", "cell_failed")}
+def recoverable_cells(rows: list[dict]) -> set[str]:
+    # A settled E1 result is recoverable before its parent commit.
+    return {row["payload"]["cell"]["arm_id"] for row in rows
+            if row["kind"] in ("cell_settled", "cell_e1_committed", "cell_failed")}
 
 
 def unsettled_judged(rows: list[dict]) -> set[str]:
@@ -500,7 +505,7 @@ def unsettled_judged(rows: list[dict]) -> set[str]:
 
 @pytest.mark.parametrize("case", list(CASES))
 def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case: str) -> None:
-    """A child is launched again only for a cell with no terminal record at the kill; no judge call repeats;
+    """A child is launched again only for a cell with no recoverable record at the kill; no judge call repeats;
     the trial's visit is prepared and committed once. A kill during the judge spends each judge attempt in
     flight: the trial's evaluator budget (4 attempts, 4 packets) has none left."""
 
@@ -526,6 +531,9 @@ def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case:
         if name == "after cell preparation before settlement":
             assert any(row["kind"] == "cell_prepared" for row in at_kill)
             assert not any(row["kind"] == "cell_settled" for row in at_kill)
+        if name == "after cell settlement before commit":
+            assert any(row["kind"] == "cell_settled" for row in at_kill)
+            assert not any(row["kind"] == "cell_e1_committed" for row in at_kill)
         launched_at_kill = Counter(c["arm"] for c in lines(workspace / "child.log"))
         judged_at_kill = len(lines(workspace / "judge.log"))
         resumed = run_child({k: v for k, v in stopped.items() if k not in stop}, tmp_path)
@@ -541,7 +549,7 @@ def test_every_kill_of_the_spike_and_what_its_resume_gives(tmp_path: Path, case:
             assert resumed["value"]["outcomes"] == expected["outcomes"], name
         else:
             assert resumed == {"value": once}, name
-        relaunched = {arm for arm in launched_at_kill if arm not in terminal_cells(at_kill)}
+        relaunched = {arm for arm in launched_at_kill if arm not in recoverable_cells(at_kill)}
         kinds = Counter(row["kind"] for row in ledger_rows(workspace))
         assert children == Counter({arm: 1 + (arm in relaunched) for arm in ARMS}), name
         assert (len(lines(workspace / "judge.log")), started) == (4, attempts), name
