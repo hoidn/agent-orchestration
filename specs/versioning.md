@@ -680,8 +680,10 @@
     or an expected output file is refused with `float_not_finite`, which names
     the field (`specs/io.md`, deterministic artifact contracts). Compilation
     and build artifacts are unchanged; 2.33 and older accept such values as
-    before. Digests of `Float` values are not yet rounded to 15 significant
-    digits (rule N7, third bullet).
+    before. Resuming a 2.34 run refuses saved state that holds a non-finite
+    number. A `Float` enters a digest as the shortest decimal that reads back
+    as the same double, as the serialisers already write it; `-0.0` and `0.0`
+    have different digests.
 
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
