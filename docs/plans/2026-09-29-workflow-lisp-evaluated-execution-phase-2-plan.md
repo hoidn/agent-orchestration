@@ -448,7 +448,9 @@ configuration entries still affect the program digest as already required.
 projection and no `@`. Every lexical binder/reference **inside that key
 expression** is alpha-normalized by binding traversal, including authored
 local names; this is separate from the body's rule that preserves authored
-names. Literals keep their type tag (`Bool`, `Int`, `Float`, refinements).
+names. Omit their optional [binding-label overrides](#binding-labels) from
+this key projection too; runtime-body labels remain intact. Literals keep
+their type tag (`Bool`, `Int`, `Float`, refinements).
 An expression with a runtime free value is closure-converted first: it
 cannot be serialized with a caller's free name. A runtime bind-site
 computation is evaluated once into a capture, not copied into the key's
@@ -644,13 +646,13 @@ changes the keys; relocation, aliases and generated wire prefixes do not.
 
 | `k` | Keys | Rule |
 | --- | --- | --- |
-| `let` | `name`, `value` (a bound value), `body` | sequencing |
+| `let` | `name`, `value` (a bound value), `body`, optional `label` | sequencing; [binding-label rule](#binding-labels) |
 | `halt` | `value` | result of the definition, or of a `block` |
 | `if` | `cond` (value), `then`, `else` (bodies) | strict `Bool` |
 | `case` | `subject` (value), `arms`: `[{variant, bind, body}]` | variant elimination |
-| `join` | `name`, `params` (`[[name, descriptor]]`), `result` (descriptor), `body`, `cont` | second-class continuation; a `halt` reached in `body` is the join's value (§4.3) |
+| `join` | `name`, `params` (`[[name, descriptor]]`), `result` (descriptor), `body`, `cont`, optional `label` | second-class continuation with exactly one result parameter; a `halt` reached in `body` is the join's value (§4.3); [binding-label rule](#binding-labels) |
 | `jump` | `join`, `args` (values) | |
-| `loop` | `name`, `param`, `state_type`, `result` (descriptors), `budget` (value), `init` (value), `body`, `exhausted` (body or `null`), `code` | bounded iteration; `code` is the exhaustion diagnostic code |
+| `loop` | `name`, `param`, `state_type`, `result` (descriptors), `budget` (value), `init` (value), `body`, `exhausted` (body or `null`), `code`, optional `label` | bounded iteration; `code` is the exhaustion diagnostic code; [binding-label rule](#binding-labels) |
 | `continue` | `loop`, `args` (values) | names the loop it is in |
 | `done` | `value` | |
 
@@ -789,7 +791,7 @@ jointly type-valid alteration of arguments and relation is another program.
 | `record` | `type` (descriptor), `fields` (`[[name, value]]`) | |
 | `inject` | `type` (descriptor), `variant`, `fields` | |
 | `op` | `payload` (a pure catalog payload, `pure_expr_schema_version` 2, bindings `a0..an`), `args` (values) | one catalog operator; `record_update`, `list_nonempty_head` and `path_join_under` are catalog node kinds |
-| `select` | `cond`, `then`, `else`, each arm `{prefix: [{name, value}], value}` | conditional value |
+| `select` | `cond`, `then`, `else`, each arm `{prefix: [{name, value, label?}], value}` | conditional value; each prefix row accepts the optional [binding label](#binding-labels) |
 | `list` | `items` (values), `type` (descriptor) | |
 | `list_map` | `binder`, `source` (value), `body` (value), `type` (descriptor of the result list) | `list/map` with a pure body; the body reads `binder` as a name |
 | `path_join` | `base` (value), `child` (`lit`), `type` (path descriptor) | X3 for a generic `PhaseCtx`: the base path joined with a literal child, under the descriptor's root |
@@ -828,11 +830,52 @@ The path is the one the reader recorded, as the source map records it today.
 `strip_provenance` removes every `@` key; the digest is taken over the
 stripped tree (P6, P7).
 
+### Binding labels
+
+Lexical names resolve values; authored labels identify sites, call frames,
+and bound control segments. An optional `label` is allowed only on `let`,
+`select` prefix rows, `join`, and `loop`. When present it must be a nonempty
+string, never null. It labels the `let`/prefix row's `name`, the join's sole
+`params[0][0]`, or the loop's `param`; it never labels a generated join/loop
+target. Case-arm and `list_map` binders need no closed `label` field.
+
+| Closed binding | Effective identity label |
+| --- | --- |
+| `label` present | Its authored string |
+| `label` absent, lexical spelling begins `%` | Anonymous; use design §6's I4 ordinal |
+| `label` absent, otherwise | The lexical spelling as an authored label |
+
+The builder emits an override when the retained authored label differs from
+the lexical spelling or itself begins `%`; otherwise the field is omitted.
+Compiler-created bindings become `%n` without a label. Thus lexical `%2`
+with `label: "x"` preserves a hygienically renamed authored `x`, while an
+authored `%1` explicitly retains `label: "%1"`. This is the closed encoding,
+not a rule for guessing frontend origin from a name.
+
+Apply I4 and presentation escaping to the effective label, not its lexical
+name. Pure bindings advance neither anonymous-effect nor repeated-label
+counters. Escape authored `% / = # [ ]` before presenting identity segments;
+an authored suffix is never an assigned ordinal. The `label` field is
+semantic data outside `@`, retained in the program digest. Validation checks
+its shape, rejects it on other node kinds, and recomputes site/frame
+correspondence from it. A consistently changed label/site/digest describes
+another program; read-back adds no source-authenticity claim. Pure code
+edits may change the program digest without changing sites or frames.
+
+The compiler retains the one authored-label-or-generated fact through
+existing binders; [Task 4](#binding-origin-retention-and-conversion) owns
+its complete frontend/WCC carriage. No hash suffix, source position,
+binding registry, or new surface admission rule is involved.
+
 ### Names
 
-- Generated binders (`__wcc_*`, `__spike_*`-style names from the elaborator)
-  are renamed `%<n>` per definition, in order of binding. Authored names are
-  kept.
+- Binding origin is explicit: preserve unchanged authored lexical names;
+  rename compiler-created and hygienically renamed authored binders `%<n>`
+  per definition in binding order, reserving all authored lexical names and
+  parameters before allocation. Resolve references in lexical scopes.
+  Authored effect labels survive through the [binding-label rule](#binding-labels),
+  including admitted names beginning `__` or `%`; prefixes do not establish
+  origin. [Task 6](#task-6-names-that-hold-no-path) owns the Renamer.
 - Callable keys and names follow [Canonical definition keys](#canonical-definition-keys):
   the base is unconditionally `procedure:module::name` or
   `workflow:module::name`, including the entry. Unspecialized top-level
@@ -873,7 +916,7 @@ stripped tree (P6, P7).
 | 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `closed/names.py` (pure key-to-name helper only), `workflow/type_descriptor.py` (boundary projection checking) |
 | 6 | Names that hold no path | C2 (after 5) | `closed/names.py` (extend with typed construction), `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
-| 4 | The builder: bodies, values, the table, X1 to X4, command nodes | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `tests/workflow_lisp_closed_program_helpers.py` |
+| 4 | The builder: bodies, values, the table, X1 to X4, command nodes; binding-origin carriage | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `expressions.py`, `typecheck_dispatch.py`, `conditionals.py`, `functions.py`, `typecheck_structural_values.py`, `procedure_typecheck.py`, `wcc/model.py`, `wcc/elaborate.py`, `wcc/anf.py` (origin retention after Task 3), `tests/workflow_lisp_closed_program_helpers.py` |
 | 8 | Effect nodes: providers, run references, the gaps | E | `closed/effects.py`, `closed/build.py` (run-ref finalization call) |
 | 9 | `orchestrator compile` at the new target: the build key and the artifact on disk | E | `closed/artifact.py`, `build.py` (manifest validation), `cli/commands/compile.py` |
 | 10 | The corpus check | F | `tests/workflow_lisp_closed_program_corpus.py`, `tests/test_workflow_lisp_closed_program_corpus.py` |
@@ -1624,7 +1667,8 @@ Phase 7 removes the flag with the flat route.
 **Read first:** `experiments/evaluated_execution_spike/sites.py` (`_Scope`,
 `_SiteWalker`, `_Validator`) and `table.py` (`to_table`, `_local_sites`);
 design §6 (I1 to I4), P4, P5, and the complete
-[canonical key schema](#canonical-definition-keys). These modules/helper
+[canonical key schema](#canonical-definition-keys) and
+[binding-label schema](#binding-labels). These modules/helper
 are pure functions over the shared schema; no compiler/frontend import.
 
 **Interfaces:**
@@ -1643,8 +1687,9 @@ are pure functions over the shared schema; no compiler/frontend import.
   walking the entry body then each definition body on its own; returns the
   site table in program order, appending **only `perform`** rows. A `call`'s effectfulness is read from
   `tree["definitions"][callee]` (memoized with a visiting guard that reports
-  `call_cycle` rather than recursing forever on malformed input). An unnamed binder is one that
-  starts with `%`.
+  `call_cycle` rather than recursing forever on malformed input). Use the
+  shared effective binding label, including optional overrides; a lexical
+  `%` prefix alone does not make a labelled binding anonymous.
 - Produces: `check.CheckedFormError(ValueError)` with attributes `rule: str`
   and `location: str | None` (the `@.span` of the offending node when it has
   one); `check.validate(tree: dict) -> None` checking, over the entry and
@@ -1662,6 +1707,15 @@ are pure functions over the shared schema; no compiler/frontend import.
   exhaustion. Independently enumerate all performs/calls rather than
   trusting the site walk: enforce a site-table bijection, exactly one frame
   per effectful call and no call row in `sites`.
+- Validate the exact [binding-label schema](#binding-labels), including
+  select prefix rows, before using its labels to recompute persisted
+  sites/frames. Reject null, empty or non-string labels and labels on other
+  node kinds. Require exactly one `join.params` entry, whether or not a
+  label exists; reject other cardinalities as `join_arity` before indexing
+  `params[0]`. Join labels belong to that result parameter, not the control
+  target; jump argument arity/types remain independently checked. Lexical
+  lookup always uses names, never labels. Key `ClosedValue` projections
+  must omit label overrides as well as alpha-normalize lexical names.
 - `validate` also infers/checks every value against the persisted `types`
   table and typed environments. Require exact nominal definitions, primitive
   literal kinds (Bool is not Int), list elements, field projections,
@@ -1734,6 +1788,14 @@ def test_three_arms_in_a_loop_give_three_sites_with_the_frame_and_the_loop_segme
 def test_a_pure_binding_takes_no_ordinal_and_a_repeated_name_takes_a_counter() -> None:
     # lets: %1 = op, %2 = perform, x = perform, x = perform  ->  sites ["#1", "x", "x#2"]
 
+def test_hygienic_names_keep_authored_labels_and_pure_names_take_no_counter() -> None:
+    # x = lit, %1(label="x") = perform, %2(label="x") = perform -> ["x", "x#2"]
+    # Renaming/inserting the pure binding leaves sites unchanged; refs use %1/%2.
+
+def test_an_authored_percent_name_is_not_an_anonymous_ordinal() -> None:
+    # %1(label="%1") = perform, %2 = perform -> ["%251", "#1"]
+    # Include __authored and / = # [ ] punctuation; escape labels, not lexical names.
+
 def test_a_join_whose_body_performs_an_effect_is_a_segment_and_a_pure_join_is_not() -> None:
 
 def test_a_call_of_a_pure_definition_gets_no_frame_and_no_site() -> None:
@@ -1746,9 +1808,16 @@ nested block, join body and continuation with the same authored binder, and
 loop exhaustion. Assert independent node/site bijection and call-frame
 counts. Tamper an unvisited effect, insert a call into `sites`, remove a
 frame, and use authored punctuation to test collision-free presentation.
+Include label overrides in select prefixes, join result `params[0]`, and
+loop state `param`; the generated control target must not enter those
+segments. Tamper a label without updating its persisted site/frame and
+require rejection. Reject empty/non-string/null labels and labels on
+case/list-map nodes. Reject zero/two join parameters with `join_arity`,
+separately from wrong jump arguments. A consistent label/site/digest edit is
+another program, not evidence of source authenticity.
 
 For `check.validate`, one test per rule, each tampering one node of a valid
-tree and asserting `CheckedFormError.rule`: `unbound_name`, `jump_target`,
+tree and asserting `CheckedFormError.rule`: `unbound_name`, `jump_target`, `join_arity`,
 `continue_target` (a `continue` naming an outer loop from an inner loop),
 `site_missing`, `site_duplicate`, `callee_unknown`, `call_cycle`,
 `budget_missing`, `payload_invalid`, `record_fields`, `node_kind` plus the
@@ -1899,10 +1968,21 @@ execution facts A.5; design §4.2 and P6; the
     into `site_digest`, and the existing neutral name rule derives the final
     nominal name from its first 16 hexadecimal characters. This is a two-pass
     finalization in Task 8, not a self-referential hash.
-  - `Renamer`: `bind(name) -> str` returns the name unchanged unless it
-    starts with `__`, in which case it returns and records `%<n>`, `n`
-    counting from 1 per definition; `ref(name) -> str` returns the recorded
-    rename or the name.
+  - `Renamer(reserved_names=...)`: reserve all authored lexical names and
+    parameters in the definition before allocating the first `%<n>`.
+    `bind(name, *, authored_label: str | None, env: MutableMapping[str, str]) -> str`
+    preserves an unchanged authored name; a generated name or a hygienically
+    renamed authored name gets the next available `%<n>` in binding order,
+    counting from 1 per definition and skipping reserved names. Record the
+    lexical result in `env[name]`; the authored label remains a separate
+    fact for the builder's [wire projection](#binding-labels).
+    `ref(name, *, env: Mapping[str, str]) -> str` resolves that lexical map.
+    The builder copies the map at binding/scope edges: an initializer uses
+    the parent environment, and the introduced binder scopes only over its
+    continuation/body. Sibling arms restore the parent environment. The
+    allocator is per definition; the reference map is not a global
+    last-writer table. Every binder supplies explicit origin, including
+    case/list-map binders; no prefix, suffix, span or scope hash decides it.
 - Consumed by: Task 4.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1930,8 +2010,16 @@ def test_no_identity_holds_a_path_a_position_or_a_type_repr(tmp_path) -> None:
 def test_moving_the_program_keeps_every_canonical_name(tmp_path) -> None:
     assert names(tmp_path / "here") == names(tmp_path / "elsewhere" / "deeper")
 
-def test_generated_names_are_renumbered_per_definition() -> None:
-    r = Renamer(); assert [r.bind("__wcc_anf_ab12"), r.bind("x"), r.bind("__wcc_effect_cd34"), r.ref("__wcc_anf_ab12")] == ["%1", "x", "%2", "%1"]
+def test_binding_origin_and_scope_control_lexical_names() -> None:
+    r = Renamer(reserved_names={"x", "%1", "__authored"})
+    outer = {}
+    assert r.bind("x", authored_label="x", env=outer) == "x"
+    inner = dict(outer)
+    assert r.bind("x_hygiene_digest", authored_label="x", env=inner) == "%2"
+    assert r.ref("x_hygiene_digest", env=inner) == "%2"
+    assert r.ref("x", env=outer) == "x"
+    assert r.bind("__authored", authored_label="__authored", env=outer) == "__authored"
+    assert r.bind("temporary", authored_label=None, env=inner) == "%3"
 ```
 
 Add key tests for same base/types with different value substitutions,
@@ -1943,6 +2031,13 @@ Use existing bound-reference forwarding and let-proc fixtures; Task 4 adds
 public-builder checks once conversion exists. No placeholder capture helper
 is a production dependency of this task: key unit cases use explicit plain
 binding facts; public integration follows in Task 4.
+Test shadowed initializer lookup, restored sibling scopes, sequential select
+prefixes, and reserved names encountered later in a definition. Give case,
+list-map, loop and generated control binders explicit origin facts; use the
+same Renamer, without a frontend service in these unit cases. In key-value
+tests, changing local authored names and their label overrides leaves the
+alpha-normalized key unchanged. Task 4 verifies parser-to-WCC carriage and
+public builds.
 Include one source-admitted same-name procedure/workflow pair, both reached
 by the entry, and require distinct kind-qualified names. Exercise local
 compile-time and runtime capture selectors, nested bound-reference index
@@ -2192,6 +2287,8 @@ carry `representation` (§8.4): Phase 3 reads it from the artifact.
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/build.py` (bodies, bound values, calls, the table), `orchestrator/workflow_lisp/closed/values.py` (values, operators, surface objects), `orchestrator/workflow_lisp/closed/context.py` (X1, X2, X4), `orchestrator/workflow_lisp/closed/effects.py` (`require_command_closures`, `translate_perform` for `command_result`; every other kind raises `ClosedProgramGap` naming its form until Task 8 translates providers and run references)
 - Modify: `orchestrator/workflow_lisp/typecheck_effects.py` (`typecheck_provider_bundle_path_expr`, line 1188: one gated condition, X4)
+- Modify: `orchestrator/workflow_lisp/expressions.py` (transient binding-origin fields and parser capture), `orchestrator/workflow_lisp/typecheck_dispatch.py`, `orchestrator/workflow_lisp/conditionals.py`, `orchestrator/workflow_lisp/functions.py` (preserve origin through reconstructed bindings/arms and cloning), `orchestrator/workflow_lisp/typecheck_structural_values.py` (authored list item versus synthetic loop binders), `orchestrator/workflow_lisp/procedure_typecheck.py` (omit transient origin from legacy semantic identity).
+- Modify after Task 3: `orchestrator/workflow_lisp/wcc/model.py` (binding origin on existing metadata/case arms), `orchestrator/workflow_lisp/wcc/elaborate.py` (origin carriage), `orchestrator/workflow_lisp/wcc/anf.py` (preserve case-arm origin; generated lets remain anonymous). Reuse Task 3's `build_manifest_io.py` transient omission support; do not change its normalization contract or hygiene spelling algorithm.
 - Create: `tests/workflow_lisp_closed_program_helpers.py` (shared by Tasks 4, 8, 9, 10: `install`, `fixture`, `build`, `with_blank_lines`, `BOUNDARIES` with `closure=("probe.py",)` on every binding, `PROVIDERS`, `PROMPTS`, modelled on the spike's test helpers, importing none of the spike)
 - Test: `tests/test_workflow_lisp_closed_program_build.py`, `tests/test_workflow_lisp_closed_program_context.py`
 
@@ -2205,7 +2302,8 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
 `context_kind`, `phase_name`); `lowering/workflow_calls._runtime_context_default_value`
 (line 181: the present route's constants `state/run`, `artifacts/run`,
 `state/<phase>`, `artifacts/<phase>`); `typecheck_effects.typecheck_provider_bundle_path_expr`
-(line 1188).
+(line 1188); `SyntaxIdentifier`'s origin fields and the
+[binding-origin carriage below](#binding-origin-retention-and-conversion).
 
 **Interfaces:**
 - Consumes: `TypedProgram` (Task 2); `elaborate_typed_workflow_body(..., closed_program=True)`
@@ -2280,7 +2378,8 @@ class Definition:
     source_program: TypedProgram  # body/environment/configuration/asset owner
     type_env: FrontendTypeEnvironment
     externs: Mapping[str, ProviderExtern | PromptExtern]  # declaring module plus resolved specialization rebinding
-    renamer: Renamer
+    renamer: Renamer          # one lexical-name allocator per definition
+    names: dict[str, str]     # scoped source/WCC spelling -> closed spelling
     loops: list[str]          # innermost last
 
 class Builder:
@@ -2300,6 +2399,12 @@ class Builder:
   configuration row for each imported owner and select it on its definitions.
   Keep workflow and procedure declaration kinds distinct in this index;
   same source `module::name` does not imply one closed callable identity.
+- Copy the `names` mapping in the translation context at lexical binding
+  edges while sharing the definition's Renamer allocator. Call `bind`/`ref`
+  with that map; keep the type environment separate. Translate initializers,
+  map sources, loop seeds and budgets before entering their binder's scope;
+  restore parent mappings for sibling arms. Emit only the optional overrides
+  specified by the [binding-label schema](#binding-labels).
 - Rules this task implements, each cited:
   - P1: `call` → `{"k": "call", "callee": canonical, "args": [...]}`; the
     callee's body elaborated once with `elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name, type_env=d.source_program.procedure_type_env(procedure), value_env=_procedure_signature_local_type_bindings(procedure), workflow_return_types=<every workflow's return type>, procedure_return_types=<every procedure's, generic templates excluded (case e)>, route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)`,
@@ -2406,6 +2511,49 @@ class Builder:
     guarantees it; a mismatch is a `ValueError`).
 - Consumed by: Tasks 8, 9, 10.
 
+#### Binding-origin retention and conversion
+
+Task 4 retains one transient fact through existing binder records:
+`binding_label: str | None`, the authored label or no authored label for a
+compiler-created binding. A source `SyntaxIdentifier` with no
+`introduced_by_expansion_id` contributes its `display_name`; an introduced
+compiler identifier contributes `None`. Caller-authored macro arguments
+keep their origin. Never reconstruct this fact from a resolved spelling,
+hash suffix, span, or `form_path`; cloning may give many nodes the same
+source location. Existing admission rules are unchanged.
+
+| Binder | Exact retained route into the builder |
+| --- | --- |
+| `let*` | Binding identifier → parallel immutable `LetStarExpr.binding_labels` entries → `WccLet.metadata.binding_label`; a control binding instead carries that entry on `WccJoin.metadata.binding_label` for its sole result parameter. Slice/reorder labels together with their bindings. |
+| `match` arm | Pattern identifier → `MatchArm.binding_label` → `WccCaseArm.binding_label` via `_elaborate_case_arm`. The builder supplies that origin to the arm's scoped `Renamer.bind`; no closed case-arm `label` is emitted. |
+| Pure `list/map` | Binder identifier → `ListMapExpr.binding_label`, retained with the expression inside `WccOpaqueFrontendValue` → `values.py`'s `list_map` conversion. Rename with explicit origin under the body scope; no closed `list_map.label` is emitted. |
+| Source loop state | State identifier → `LoopBodyFnExpr.binding_label` in `_elaborate_loop_body_fn` → `LoopRecurExpr.binding_label` in `_elaborate_loop_recur` → `WccRecJoin.metadata.binding_label` for `params[0]`. |
+| Effectful list item (`list/map-effect`) | Binder identifier → `ListMapEffectExpr.binding_label` → its item-binding entry in `typecheck_structural_values`' synthetic `LetStarExpr` → `WccLet.metadata.binding_label`. Preserve the authored item; synthetic result/tail/state bindings and the generated `LoopRecurExpr` state have no authored label. Retain Task 3's terminal-state and operand-order behavior. |
+| Generated ANF/capture/context/temporary/control target | Its existing constructor or conversion owner supplies `None`; generated join/loop targets are separate from result/state labels. Native definition parameters use their retained declaration facts. |
+
+Use default absent origin on compiler-generated constructors, and require
+every `Renamer.bind` call to pass the appropriate fact, including case and
+list-map binders. Preserve unchanged authored lexical names. This is data
+carriage, not another registry or binder framework.
+
+Use `repr=False`, `compare=False`, `hash=False`, and Task 3's existing
+`json_omit_always` field metadata for these transient fields. Exclude them
+also from `procedure_typecheck._semantic_identity`, which walks dataclass
+fields independently of repr/equality flags; legacy callable names and
+serialized outputs must remain unchanged. Do not add these facts to type
+definition dataclasses. Only their explicit closed-schema projection is
+semantic artifact data.
+
+Audit manual reconstruction and binding-list slicing/concatenation in the
+listed files. In particular, `typecheck_dispatch` and `conditionals` rebuild
+authored lets, `functions._clone_function_expr` rebuilds match arms, and
+`wcc/anf.py:_normalize_body` rebuilds `WccCaseArm`; preserve their origin,
+using `replace` where sufficient. Hygiene's `replace` of lexical names must
+keep the original metadata label across repeated renames. Fresh ANF lets
+must not inherit a source binding's label merely because they copy its
+diagnostic metadata. The existing capture-safe spelling algorithm and
+flag-off behavior stay intact.
+
 - [ ] **Step 1: Write the failing tests**
 
 Through `build(root, sources)` of the helpers module (`install`,
@@ -2465,6 +2613,24 @@ def test_a_loop_in_a_branch_and_a_loop_in_a_loop_build(tmp_path) -> None:
 
 def test_a_list_map_body_is_a_value_over_its_binder(tmp_path) -> None:
     # (list/map ((x xs)) (+ x 1)) -> {"k": "list_map", "binder": "x", "source": {...}, "body": {"k": "op", ...}}
+
+def test_hygienic_effect_labels_survive_unrelated_pure_refactoring(tmp_path) -> None:
+    # Outer x=false; (and (let* ((x (check 1))) x) x): inner/outer refs remain distinct.
+    # Insert a pure binding, then rename outer x so hoisting needs no rename:
+    # same authored inner label, sites, frames and callee keys; once-only call prefix.
+    # A changed pure body may change the program digest.
+
+def test_origin_survives_case_maps_and_loop_conversion(tmp_path) -> None:
+    # Authored and introduced macro case/list-map binders retain explicit origin;
+    # authored names stay, generated names become %n, no closed label on these nodes.
+    # LoopBodyFn -> LoopRecur -> WccRecJoin carries source state origin.
+    # ListMapEffect item -> synthetic let keeps its label; synthetic state is anonymous.
+    # Include admitted let names __authored, %1 and a hex-suffix name.
+
+def test_relocation_preserves_closed_binding_names_labels_and_identity(tmp_path) -> None:
+    # Blank lines, source/package relocation and different PYTHONHASHSEED:
+    # equal stripped digests, lexical names, labels, sites/frames and callee keys.
+    # Cover a specialized callee and introduced case/list-map binders.
 
 def test_a_recursive_call_is_a_gap_at_the_call(tmp_path) -> None:
     # closed_program_gap, notes ("form=call",), at the recursive call's line;
@@ -2527,7 +2693,8 @@ def test_a_provider_bundle_path_is_a_result_path_typed_under_the_run_root(tmp_pa
 - [ ] **Step 2: Run; expected failures** `ImportError`, then gaps and
 `ValueError`s as each translation is missing.
 
-- [ ] **Step 3: Implement** in this order: `Definition` and `Builder.body`
+- [ ] **Step 3: Implement** in this order: the
+[origin carriage](#binding-origin-retention-and-conversion) above, then `Definition` and `Builder.body`
 for `let`/`halt`/`if`/`case`/`join`/`jump`/`loop`/`continue`/`done`;
 `values.py` for atoms, ops, select, then each opaque kind; `effects.py`
 (`require_command_closures`, the command node, the gaps); `call` and
@@ -2540,20 +2707,27 @@ unchanged but their consumers are new).
 
 - [ ] **Step 5: Compatibility evidence**
 
-`typecheck_effects.py` changed (gated): build the four programs of the table;
-byte-identical.
+Build the four programs of the table; require byte-identical output after
+both the gated `typecheck_effects.py` change and transient origin retention.
+Run the relevant existing hygiene/normalization selectors and verify old
+local/specialization identities and repr/serialization exclude the new
+fields. The new public builds must pass artifact read-back, lexical scope
+checks and perform/site bijection. These compile checks do not establish
+Phase 3 runtime execution/resume behavior.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
+`git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
 
-`git commit -m "feat: build the closed program as a table of definitions with the run's context values" -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
+`git commit -m "feat: build the closed program as a table of definitions with the run's context values" -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
 
 **What this makes harder later:** both target routes retain their own
 elaboration consumers until flat-route retirement. Imported source modules
 are never flat-lowered during an evaluated-entry build. Context-value runtime
 parity remains Phase 3 evidence; any discrepancy must be repaired in the
-small context translation, not hidden as a new exclusion.
+small context translation, not hidden as a new exclusion. Reconstructed
+binders must preserve one origin fact, and artifact readers must distinguish
+lexical names from authored identity labels.
 
 ---
 

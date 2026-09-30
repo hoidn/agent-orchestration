@@ -478,9 +478,9 @@ activation path = frames from the entry to the definition
 | Rule | Statement |
 | --- | --- |
 | I1 | The site is the definition that contains the `perform` node and the path from the definition's body to it. Two call sites of one definition are two frames over one site |
-| I2 | A frame is a call site, written `<binder>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state param>[<i>]`, or, in a later release, a parallel map item `[<index>]` |
-| I3 | Local paths follow the traversal table below. Each effect ends in its own binder, and each effectful call has a frame at its binding. The separator in the presentation is ` / ` |
-| I4 | An unnamed binder (a generated name) takes `#<k>`, its ordinal among the unnamed binders of its scope whose value performs an effect. Pure bindings take no ordinal, so a pure refactoring moves no identity. A repeated name takes `<name>#<k>` |
+| I2 | A frame is a call site, written `<label>=<callee>` with the callee's canonical name (§4.2), a loop iteration `loop:<state label>[<i>]`, or, in a later release, a parallel map item `[<index>]` |
+| I3 | Local paths follow the traversal table below. Each effect ends in its binding's I4 label, and each effectful call has a frame at its binding. The separator in the presentation is ` / ` |
+| I4 | A binding without an authored label takes `#<k>`, its ordinal among the anonymous bindings of its scope whose value performs an effect. A named binding uses its retained authored label even if hygiene changes its lexical name. Pure bindings advance neither anonymous nor repeated-label counters, so a pure refactoring moves no identity. A repeated authored label takes `<name>#<k>` |
 | I5 | An attempt is an ordinal under an identity. Attempts never change the identity |
 | I6 | The canonical text of an identity is its presentation key: the entry, then each segment, with each `[*]` replaced by the iteration reached. Example: `workflow:search::run-search / loop:state[3] / repair=workflow:search::repair-one / propose` |
 | I7 | The canonical text never names a file. A path derived from an identity uses a digest of the text (§8.2) |
@@ -488,15 +488,27 @@ activation path = frames from the entry to the definition
 Nothing else enters: no source span, no file path, no text of a type, no
 position among steps, no visit count.
 
+Lexical names resolve values; authored labels identify effects and control
+segments. The compiler retains binding origin before hygiene and never
+infers it from `__`, `%`, a hash suffix, or a source location. For example,
+a hoisted inner `x` may need a fresh lexical name to avoid capturing an
+outer `x`, while its effect label remains `x`. The closed representation's
+optional overrides and validation rules are defined once in the Phase 2
+plan's [binding-label schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#binding-labels).
+Labels are semantic data outside diagnostic provenance and participate in
+the program digest. Read-back checks internal consistency, not source
+authenticity. An unrelated pure edit can change the program digest while
+leaving sites and call frames unchanged.
+
 | Construct/edge | Local path and scope |
 | --- | --- |
 | Definition body | Start at its canonical name; fresh binder scope |
-| `let` value / continuation | `perform` ends at the I4 binder; `call` records `<binder>=<callee>` as its frame, not a site-table row. A bound control value descends under that binder. The continuation keeps the enclosing prefix and binder scope |
+| `let` value / continuation | `perform` ends at the I4 label; `call` records `<label>=<callee>` as its frame, not a site-table row. A bound control value descends under that label. The continuation keeps the enclosing prefix and binder scope; lexical lookup uses the binding's name |
 | `if` arms / `case` arms | Append `then` or `else` / the variant; each arm starts a binder scope |
-| Bound `select` | Under its binder append `then` or `else`; walk that arm's prefix as sequential `let`s in one scope, then its value. Nested effect-containing values are bound in that arm by §4.3 |
-| Bound `block` | Under its binder append `block`; walk its body in a new scope |
-| `join` body / continuation | Walk the body under its bound-result binder and `body`, in a new scope; the continuation keeps the enclosing prefix and scope. Thus a body effect cannot collide with a continuation effect. Jumps add no site or frame |
-| `loop` body / exhaustion | Append `loop:<state param>[*]` / `loop:<state param> / exhausted`, each with a new scope; unnamed state parameters use the loop's I4 label. Seeds, budgets and `continue`/`done` operands obey §4.3 |
+| Bound `select` | Under its I4 label append `then` or `else`; walk that arm's prefix with the same binding-label rule as sequential `let`s in one scope, then its value. Nested effect-containing values are bound in that arm by §4.3 |
+| Bound `block` | Under its I4 label append `block`; walk its body in a new scope |
+| `join` body / continuation | The first release has exactly one bound-result parameter. Walk the body under that parameter's I4 label and `body`, in a new scope; the continuation keeps the enclosing prefix and scope. The generated continuation target is not the label. Thus a body effect cannot collide with a continuation effect. Jumps add no site or frame |
+| `loop` body / exhaustion | Append `loop:<state label>[*]` / `loop:<state label> / exhausted`, each with a new scope; anonymous state parameters use the loop's I4 ordinal. The generated loop target is not the state label. Seeds, budgets and `continue`/`done` operands obey §4.3 |
 | Later `par-map` body | Append `par-map:<binder>[*]`; the activation substitutes the input-list index, never completion order. Its input and workspace expressions are evaluated before the body as their contracts require |
 | Effect-free value children, `halt`, `jump`, `continue`, `done` | No site; recursively validate their values and targets. No hidden `perform` or effectful `call` may remain outside the walked bindings |
 
@@ -513,7 +525,7 @@ validation and evaluation must agree on every child edge in this table.
 | Blank lines, comments, reformatting | Unchanged |
 | The repository or the package moves | Unchanged |
 | A pure binding is added, removed or renamed | Unchanged |
-| A binder of an effect is renamed, or an effect moves to another branch | Changes |
+| An authored effect label is renamed, or an effect moves to another branch | Changes |
 | An unnamed effect is added before another in the same scope | The second changes. Naming the binding keeps it stable |
 | A pure callee gains an effect | The caller's next unnamed effect changes; named effects do not |
 
