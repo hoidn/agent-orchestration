@@ -238,18 +238,13 @@ def test_decisive_experiment_reviewer_both_routes_every_memo_window_then_a_chang
 
     For each policy of the stand-in reviewer (approve at once, revise twice then approve,
     blocked, exhausted): (1) both routes give the same value, and every effect receives
-    the same complete request apart from the listed design differences; (2) the spike's
+    the same complete request apart from the fields whose values item F's rules set; (2) the spike's
     run, killed by SIGKILL at each memo window of each effect and resumed, gives the
     uninterrupted result with no committed effect launched twice; (3) after the launcher,
     a declared command file, changes, a resume is refused before any effect is launched.
     """
 
-    from tests.experiments.test_evaluated_execution_spike_requests import (
-        DESIGN_DIFFERENCES,
-        differing_fields,
-        normalized,
-        requests_on_both_routes,
-    )
+    from tests.experiments.test_evaluated_execution_spike_requests import assert_request_differences, requests_on_both_routes
 
     template = prepare(tmp_path)
     for policy in POLICIES:
@@ -257,8 +252,7 @@ def test_decisive_experiment_reviewer_both_routes_every_memo_window_then_a_chang
                                          respond=lambda invocation, policy=policy: answer(policy, invocation.prompt))
         (flat_value, flat), (spike_value, spiked) = routes["flat"], routes["spike"]
         assert spike_value == flat_value, policy
-        assert [normalized(r) for r in spiked] == [normalized(r) for r in flat], policy
-        assert differing_fields(flat, spiked) <= set(DESIGN_DIFFERENCES), policy
+        assert_request_differences(flat, spiked, routes["where"])
 
         once = uninterrupted(tmp_path, template, policy)
         assert len(once["committed"]) == len(spiked), policy

@@ -102,7 +102,7 @@ def spike(root: Path, sources: dict[str, str], *, inputs=None, run_id="run", hoo
     try:
         return closed, evaluate(closed, inputs=inputs or {}, workspace=root, run_root=run_root(root, run_id), hook=hook)
     finally:
-        for record in read_records(run_root(root, run_id)):
+        for record in (r for r in read_records(run_root(root, run_id)) if "identity" in r):
             assert re.sub(r"\[\d+\]", "[*]", record["identity"]) in closed.sites
 
 
@@ -135,8 +135,22 @@ def flat(root: Path, sources: dict[str, str], monkeypatch: pytest.MonkeyPatch, *
 def stand_in_provider(monkeypatch: pytest.MonkeyPatch, payload: dict) -> _Provider:
     provider = _Provider(payload)
     monkeypatch.setattr(ProviderExecutor, "prepare_invocation", provider.prepare_invocation)
-    monkeypatch.setattr(ProviderExecutor, "execute", provider.execute)
+    monkeypatch.setattr(ProviderExecutor, "execute", in_cwd(provider.execute))
     return provider
+
+
+def in_cwd(execute):
+    """A stand-in provider's `execute` that writes where a real provider process would: a relative result path
+    is relative to the `cwd` the caller names (the spike names the workspace; the flat route names none)."""
+
+    def run(*args, **kwargs):  # `(invocation)`, or `(executor, invocation)` once installed on the executor class
+        invocation = args[-1]
+        bundle = invocation.env.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        if kwargs.get("cwd") is not None and bundle:
+            invocation.env = {**invocation.env, "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(Path(kwargs["cwd"]) / bundle)}
+        return execute(invocation, **kwargs)
+
+    return run
 
 
 def with_blank_lines(text: str) -> str:

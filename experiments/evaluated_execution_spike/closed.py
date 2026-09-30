@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from orchestrator.workflow.pure_expr import validate_pure_expr_payload
+from orchestrator.workflow_lisp.context_classification import _is_run_context_shape
 from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
 from orchestrator.workflow_lisp.expressions import (
     CompilerListNonemptyHeadExpr,
@@ -40,6 +41,7 @@ from orchestrator.workflow_lisp.expressions import (
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     NameExpr,
+    ProviderBundlePathExpr,
     UnionVariantTagExpr,
 )
 from orchestrator.workflow_lisp.lowering.values import _procedure_signature_local_type_bindings
@@ -56,6 +58,11 @@ from .sites import ClosedProgram, assign_sites, canonical_digest, strip_provenan
 
 SCHEMA = "evaluated-execution-spike/closed-program/1"
 ROUTE = w.WCC_M4_ROUTE_SCHEMA_VERSION
+# The compiler-supplied `run` context (a `RunCtx`-shaped record) at a call that leaves it out: the run's
+# identity, which the evaluator supplies, and the two roots the flat route binds (`_runtime_context_default_value`).
+RUN_CONTEXT = {"k": "record", "fields": [["run-id", {"k": "context", "field": "run-id"}],
+                                         ["state-root", {"k": "lit", "v": "state/run"}],
+                                         ["artifact-root", {"k": "lit", "v": "artifacts/run"}]]}
 
 
 class ClosedProgramGap(Exception):
@@ -66,10 +73,31 @@ class ClosedProgramGap(Exception):
         self.prop = prop
 
 
-def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = frozenset()) -> ClosedProgram:
-    """`no_repeat` names command boundaries whose effect must not run again without a commit (section 8)."""
+CLOSURE_OPTIONS = ("declared", "strict", "trusting")
 
+
+def build_closed_program(
+    typed: TypedProgram,
+    *,
+    no_repeat: frozenset[str] = frozenset(),
+    closure: str = "declared",
+    closures: Mapping[str, list[str]] | None = None,
+) -> ClosedProgram:
+    """`no_repeat` names command boundaries whose effect must not run again without a commit (section 8).
+
+    `closure` is what a committed command's resolved input binds of what the command runs:
+    - `declared`: the stable command's workspace paths (files, or directories as their sorted files with
+      digests), the program resolved on PATH when it is a bare name, and the implementation closure the
+      boundary declares in `closures` (files and directories); a symbolic link also by the path it resolves
+      to. Anything else, modification times included, is outside the promise.
+    - `strict`: as `declared`; a command boundary without a declared closure is refused here.
+    - `trusting`: nothing (the present route).
+    """
+
+    if closure not in CLOSURE_OPTIONS:
+        raise ValueError(f"closure option `{closure}` is not one of {CLOSURE_OPTIONS}")
     builder = _Builder(typed, no_repeat)
+    builder.closure, builder.closures = closure, dict(closures or {})
     entry = typed.entry
     name = entry.definition.name
     d = _Def(name, name, typed.workflow_type_env(name))
@@ -79,6 +107,7 @@ def build_closed_program(typed: TypedProgram, *, no_repeat: frozenset[str] = fro
     defaults = {d.ref(n): default.normalized_value for n, default in entry.signature.param_defaults.items()}
     tree = {
         "schema": SCHEMA,
+        "closure": closure,
         "entry": name,
         "params": params,
         "defaults": defaults,
@@ -263,16 +292,19 @@ class _Builder:
             raise ClosedProgramGap("P1", f"workflow `{perform.target_name}` is not in the typechecked program")
         name = workflow.definition.name
         callee_def = _Def(name, name, self.typed.workflow_type_env(name))
-        by_name = dict(perform.keyword_args)
+        by_name = {p: self.value(v, d, env) for p, v in perform.keyword_args}
         params = [p for p, _ in workflow.signature.params]
         wcc = self.elaborate_workflow(workflow, callee_def.type_env)
         defaults = workflow.signature.param_defaults
-        missing = [p for p in params if p not in by_name and p not in defaults]
+        for param, type_ref in workflow.signature.params:  # a parameter the call leaves out takes its default
+            if param not in by_name and param in defaults:
+                by_name[param] = {"k": "lit", "v": defaults[param].normalized_value}
+            elif param not in by_name and _is_run_context_shape(type_ref):
+                by_name[param] = RUN_CONTEXT
+        missing = [p for p in params if p not in by_name]
         if missing:
             raise ClosedProgramGap("P1", f"workflow call of `{name}` binds no value to {missing}")
-        # A parameter the call leaves out takes its declared default.
-        args = [self.value(by_name[p], d, env) if p in by_name else {"k": "lit", "v": defaults[p].normalized_value}
-                for p in params]
+        args = [by_name[p] for p in params]
         return self.attach(name, callee_def, params, args, wcc, dict(workflow.signature.params), d, env)
 
     def elaborate_workflow(self, workflow: Any, type_env: Any) -> Any:
@@ -342,6 +374,11 @@ class _Builder:
                     "then": self.arm(value.then_arm, d, env), "else": self.arm(value.else_arm, d, env)}
         if kind is w.WccOpaqueFrontendValue:
             return self.opaque(value, d, env)
+        if kind is w.WccPhaseTargetAtom:
+            # Its value is the phase context's target field (`execution_report_target`), or
+            # `<ctx.artifact-root>/<phase>/<target>.md` for a generic `PhaseCtx`; but the atom keeps only the
+            # target's name, and normal form lifts it out of the effect whose metadata holds the phase scope.
+            raise ClosedProgramGap("P2", f"`phase-target {value.target_name}` has lost its `with-phase` scope")
         raise ClosedProgramGap("P2", f"value {kind.__name__} has no closed form")
 
     def arm(self, arm: w.WccSelectArm, d: _Def, env: dict[str, Any]) -> dict[str, Any]:
@@ -404,6 +441,8 @@ class _Builder:
             return self.frontend(expr, d, env)
         if isinstance(expr, GeneratedRelpathSeedExpr):  # a compiler-private path seed: its literal path (unverified)
             return {"k": "lit", "v": expr.literal_path}
+        if isinstance(expr, ProviderBundlePathExpr) and isinstance(expr.source_expr, NameExpr):
+            return {"k": "result_path", "n": d.ref(expr.source_expr.name)}
         raise ClosedProgramGap("P2", f"surface value {type(expr).__name__} has no closed form")
 
     def loop_state_update(self, expr: LoopStateUpdateExpr, carrier: Any, d: _Def, env: dict[str, Any]) -> dict[str, Any]:

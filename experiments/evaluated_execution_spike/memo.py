@@ -1,8 +1,13 @@
 """The effect memo (design section 7): an append-only journal under the run root, with one writer.
 
 Each record is one JSON line, flushed and synchronized to disk before `append`
-returns. Records: `started`, `committed`, `failed`, `suspended`. A result exists
-only as a `committed` record.
+returns. Records of an effect: `started`, `committed`, `failed`, `suspended`,
+`settled` (a coordinator's final commit, or its reconciliation, is done) and
+`invalidated` (its commit no longer counts; the next resume runs it again). A
+result exists only as a `committed` record that no later `invalidated` record
+cancels. The run's own record, `terminal`, has no identity: written last, after
+every settlement, it says the run completed or failed; any record after it
+means the run went on.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ class Entry:
     committed: dict[str, Any] | None = None
     suspended: dict[str, Any] | None = None
     failed: dict[str, Any] | None = None
+    settled: bool = False
+    invalidated: bool = False  # the last attempt was committed, then invalidated: a rerun was asked for
 
 
 def read_records(run_root: Path) -> list[dict[str, Any]]:
@@ -78,16 +85,23 @@ class Memo:
         self._index(record)
 
     def _index(self, record: dict[str, Any]) -> None:
+        if "identity" not in record:  # the run's `terminal` record
+            return
         entry = self.entries.setdefault(record["identity"], Entry())
         kind = record["record"]
         if kind == "started":
             entry.attempts.append(record["attempt"])
+            entry.invalidated = False
         elif kind == "committed":
-            entry.committed = record
+            entry.committed, entry.settled = record, False
         elif kind == "suspended":
             entry.suspended = record
         elif kind == "failed":
             entry.failed = record
+        elif kind == "settled":
+            entry.settled = True
+        elif kind == "invalidated":
+            entry.committed, entry.suspended, entry.settled, entry.invalidated = None, None, False, True
 
 
 class MemoSnapshot(Memo):
@@ -122,4 +136,5 @@ def answer(run_root: Path, identity: str, text: str) -> None:
             raise ValueError(f"no pending request at `{identity}`")
         value = {"variant": "ANSWERED", "text": text}
         memo.append({"record": "committed", "identity": identity, "attempt": entry.suspended["attempt"],
-                     "input_digest": entry.suspended["input_digest"], "value": value})
+                     "input_digest": entry.suspended["input_digest"], "value": value,
+                     "depends_on": entry.suspended.get("depends_on", [])})

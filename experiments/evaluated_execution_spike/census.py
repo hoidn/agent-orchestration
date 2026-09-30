@@ -5,8 +5,10 @@ Run from the repository root:
 
 The workflows are copied to the scratch directory. Externs come from the checked-in
 manifests (`*providers*.json`, `*prompts*.json`, `*commands*.json`) where one names
-them; otherwise a provider is `codex`, a prompt an empty file created in the copy, and
-a plain command the leading literal words of its `:argv`. A certified adapter with no
+them; otherwise a provider is `codex` (a name the provider registry accepts), a prompt
+an empty file created in the copy, and a plain command the leading literal words of its
+`:argv`. The names are taken from every module under the entry's source roots, since
+one extern environment serves the whole import graph. A certified adapter with no
 manifest entry cannot be synthesized; the workflow is reported as not built.
 """
 
@@ -56,8 +58,12 @@ def _manifests(repo: Path) -> dict[str, dict[str, Any]]:
 
 
 def _externs(text: str, entry: Path, manifests: dict[str, dict[str, Any]]) -> tuple[dict, dict, dict]:
-    providers = {n: manifests["providers"].get(n, "codex") for n in re.findall(r"\bproviders\.[\w.-]+", text)}
-    prompts = {}
+    names = [*re.findall(r"\bproviders\.[\w.-]+", text), *re.findall(r':provider\s+"([^"]+)"', text)]  # a trial's scorer
+    providers = {n: manifests["providers"].get(n, "codex") for n in names}
+    prompts = {f"rubric:{path}": path for path in re.findall(r':rubric-asset\s+"([^"]+)"', text)}  # a trial's rubric
+    for path in prompts.values():
+        (entry.parent / path).parent.mkdir(parents=True, exist_ok=True)
+        (entry.parent / path).touch()
     for name in re.findall(r"\bprompts\.[\w.-]+", text):
         path = manifests["prompts"].get(name) or f"synthesized/{name}.md"
         path = path if isinstance(path, str) else next(iter(path.values()))
@@ -81,11 +87,13 @@ def _externs(text: str, entry: Path, manifests: dict[str, dict[str, Any]]) -> tu
 
 
 def measure(entry: Path, root: Path, workflow: str, manifests: dict) -> dict[str, Any]:
-    text = entry.read_text(encoding="utf-8")
-    providers, prompts, commands = _externs(text, entry, manifests)
-    started = time.monotonic()
     library = [p for p in (root / "workflows" / "library", *[a / "workflows" / "library" for a in root.parents])
                if p.is_dir()][:1]
+    # Externs are one environment for the whole import graph: take the names every module under the roots uses.
+    modules = sorted({entry, *root.rglob("*.orc"), *(p for lib in library for p in lib.rglob("*.orc"))})
+    text = "\n".join(module.read_text(encoding="utf-8") for module in modules)
+    providers, prompts, commands = _externs(text, entry, manifests)
+    started = time.monotonic()
     typed = typecheck_program(entry, entry_workflow=workflow, source_roots=(root, *library),
                               command_boundaries=commands, provider_externs=providers, prompt_externs=prompts)
     closed = build_closed_program(typed)

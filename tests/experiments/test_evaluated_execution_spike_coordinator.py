@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -56,6 +57,13 @@ TREE = {
 PROGRAM = ClosedProgram(tree=TREE, sites=(SITE,), digest=canonical_digest(TREE))
 
 
+_MKDIR = Path.mkdir
+
+
+def _mkdir_existing(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+    _MKDIR(path, mode, parents, True)
+
+
 class RunRefCoordinator:
     """The run-ref runtime behind the evaluator's coordinator calls.
 
@@ -64,8 +72,9 @@ class RunRefCoordinator:
     """
 
     def __init__(self, root: Path, *, settle_first: bool = False, reconcile_on_hit: bool = True) -> None:
-        root.mkdir(parents=True)
-        self.base = _runtime_request(root)
+        root.mkdir(parents=True, exist_ok=True)
+        with patch.object(Path, "mkdir", _mkdir_existing):  # a new process builds the same request again
+            self.base = _runtime_request(root)
         self.harness = _RuntimeHarness()
         self.settle_first, self.reconcile_on_hit = settle_first, reconcile_on_hit
         self.prepared = {}
@@ -90,7 +99,7 @@ class RunRefCoordinator:
         if load_attempt_ledger(request.ledger_path).rows[-1].stage != "committed":
             finalize_run_ref_parent_commit(request, prepared, persisted_settled_result=proof["settled_result"])
 
-    def reconcile(self, node, identity, proof):
+    def reconcile(self, node, resolved, identity, proof):
         if self.reconcile_on_hit:
             validate_completed_run_ref_authority(self.request(identity), settled_result=proof["settled_result"],
                                                  artifacts=proof["artifacts"], reconcile_pending=True)
@@ -107,7 +116,7 @@ def run(root: Path, coordinator: RunRefCoordinator, *, hook=None):
 
 
 def memo(root: Path) -> list[tuple[str, int]]:
-    return [(r["record"], r["attempt"]) for r in read_records(root / "run")]
+    return [(r["record"], r.get("attempt")) for r in read_records(root / "run")]
 
 
 def test_uninterrupted_the_memo_commit_sits_between_the_coordinators_two_commits(tmp_path: Path) -> None:
@@ -117,7 +126,7 @@ def test_uninterrupted_the_memo_commit_sits_between_the_coordinators_two_commits
 
     assert (result.value, len(coordinator.harness.launches)) == ("artifacts/work/result.txt", 1)
     assert coordinator.ledger(SITE) == [(1, "launched"), (1, "completed_pending_parent_commit"), (1, "committed")]
-    assert memo(tmp_path) == [("started", 1), ("committed", 1)]
+    assert memo(tmp_path) == [("started", 1), ("committed", 1), ("settled", 1), ("terminal", None)]
 
 
 def test_stopped_after_the_coordinators_pending_commit_the_child_runs_again_and_both_sides_agree(tmp_path: Path) -> None:
@@ -136,7 +145,7 @@ def test_stopped_after_the_coordinators_pending_commit_the_child_runs_again_and_
     ]
     assert [row for row in coordinator.ledger(SITE) if row[1] not in ("launched", "completed_pending_parent_commit",
                                                                        "committed")] == []
-    assert memo(tmp_path) == [("started", 1), ("started", 2), ("committed", 2)]
+    assert memo(tmp_path) == [("started", 1), ("started", 2), ("committed", 2), ("settled", 2), ("terminal", None)]
 
 
 @pytest.mark.parametrize("reconcile", [True, False], ids=["reconciled", "not-reconciled"])

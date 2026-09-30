@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,8 @@ from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.providers.types import ProviderParams
 from orchestrator.workflow.view_renderer import render_view
 
+from .sites import canonical_digest
+
 BUNDLE_ENV = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
 
 
@@ -39,11 +43,13 @@ def result_path(run_root: Path, identity: str, attempt: int) -> Path:
 
 
 def render_argument(value: Any) -> str:
+    """A value in a command's argv, rendered as the present route's variable substitution renders it."""
+
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (str, int)):
+    if isinstance(value, (str, int, float)):
         return str(value)
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return json.dumps(value)
 
 
 def project(value: Any, desc: dict[str, Any]) -> Any:
@@ -62,8 +68,19 @@ def project(value: Any, desc: dict[str, Any]) -> Any:
     return value
 
 
+_DIGESTS: dict[tuple, str] = {}
+
+
 def file_digest(path: Path) -> str | None:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if not path.is_file():
+        return None
+    # ponytail: per-process cache keyed by inode, size and change time (a write always moves ctime, and utime
+    # cannot set it); the interpreter behind `python` is 35 MB. Drop it if a filesystem without ctime matters.
+    stat = path.stat()
+    key = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    if key not in _DIGESTS:
+        _DIGESTS[key] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    return _DIGESTS[key]
 
 
 def _join(text: str, block: str) -> str:
@@ -106,16 +123,44 @@ class Performers:
     def __init__(self, workspace: Path) -> None:
         self.workspace = workspace.resolve()
 
-    def declared_files(self, tokens: list[str]) -> dict[str, str | None]:
-        """The files a command boundary names in its stable command, with their digests (None: missing).
-        A bare program name resolved on PATH (`python`) is not a declared file."""
+    def relative(self, path: Path) -> str:
+        """A result path as the present route gives it to a provider or a command: relative to the workspace."""
+
+        return os.path.relpath(path, self.workspace)
+
+    def declared_files(self, tokens: list[str], closure: list[str] | None) -> dict[str, Any]:
+        """What a command runs, bound by the `declared` rule: each token of the stable command that names a
+        workspace path, the program (the first token) resolved on PATH now when it is a bare name, and each
+        entry of the boundary's implementation closure. Modification times are not bound."""
 
         files = {}
-        for token in tokens:
+        for index, token in enumerate(tokens):
             path = Path(token) if Path(token).is_absolute() else self.workspace / token
-            if "/" in token or path.is_file():
-                files[token] = file_digest(path)
+            if "/" in token or path.exists():
+                files[token] = self.path_digest(path)
+            elif index == 0:
+                found = shutil.which(token)
+                files[token] = {"path": found, "file": self.path_digest(Path(found))} if found else None
+        for entry in closure or ():
+            files[entry] = self.path_digest(self.workspace / entry)
         return files
+
+    def path_digest(self, path: Path) -> Any:
+        """A file: its content digest. A directory: the digest of its files' relative paths and digests, sorted.
+        A path through a symbolic link: also the path it resolves to. Missing: None."""
+
+        if not path.exists():
+            return None
+        if path.is_dir():
+            digest = canonical_digest(sorted([item.relative_to(path).as_posix(), self.path_digest(item)]
+                                             for item in path.rglob("*") if item.is_file()))
+        else:
+            digest = file_digest(path)
+        target = path.resolve()
+        if target == path.absolute():
+            return digest
+        where = target.relative_to(self.workspace).as_posix() if target.is_relative_to(self.workspace) else str(target)
+        return {"digest": digest, "target": where}
 
     def provider_files(self, prompt: str | dict[str, Any], dependencies: dict[str, Any] | None) -> dict[str, str | None]:
         """The prompt asset and the prompt dependencies of a provider effect, with their digests."""
@@ -137,7 +182,7 @@ class Performers:
 
     def command(self, resolved: dict[str, Any], path: Path) -> dict | None:
         executor = StepExecutor(self.workspace, logs_dir=path.parent)
-        result = executor.execute_command("command", resolved["command"], env={BUNDLE_ENV: str(path)})
+        result = executor.execute_command("command", resolved["command"], env={BUNDLE_ENV: self.relative(path)})
         (path.parent / "stdout.txt").write_text(result.capture_result.output or "", encoding="utf-8")  # evidence
         if result.exit_code != 0:
             return {"code": "command_failed", "exit_code": result.exit_code, "error": result.error}
@@ -150,7 +195,7 @@ class Performers:
         executor = ProviderExecutor(self.workspace, ProviderRegistry())
         invocation, error = executor.prepare_invocation(
             provider_name=resolved["provider"], params=ProviderParams(params={}), context={}, prompt_content=prompt,
-            session_request=None, env={BUNDLE_ENV: str(path)}, secrets=None, timeout_sec=policy.get("timeout_sec"),
+            session_request=None, env={BUNDLE_ENV: self.relative(path)}, secrets=None, timeout_sec=policy.get("timeout_sec"),
             provider_call_policy={key: policy[key] for key in ("model", "effort") if key in policy},
             provider_session_dir=None, provider_session_identity=None,
         )

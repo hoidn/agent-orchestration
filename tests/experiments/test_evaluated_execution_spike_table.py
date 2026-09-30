@@ -158,15 +158,18 @@ def test_what_moves_when_a_body_changes_is_the_same_in_both_forms_and_depends_on
         assert {c: (_short(a), _short(b)) for c, (a, b) in found.items()} == expected, (edit, count_pure)
 
 
-def test_an_effectful_call_as_the_argument_of_an_effectful_call_typechecks_and_is_not_elaborated(tmp_path: Path) -> None:
-    """Found while writing the edits above; outside the totality matrix. A criterion-9 item of iteration 2."""
+def test_an_effectful_call_as_the_argument_of_an_effectful_call_is_bound_first(tmp_path: Path) -> None:
+    """Found while writing the edits above, outside the totality matrix: iteration 2 refused it with
+    `unsupported WCC elaboration node: ProcedureCallExpr`. Iteration 3, item D1: the argument is bound with
+    `let*` before the call, in source order."""
 
     bump = ("  (defproc bump ((n Int)) -> Int :effects ((uses-command fetch)) :lowering inline\n"
             "    (let* ((q (fetch 99))) (+ n 1)))\n  (defproc step")
     nested = BASE.replace("  (defproc step", bump, 1).replace("(keep (touch x) (fetch (+ y.n 5)))", "(fetch (bump 26))")
 
-    with pytest.raises(TypeError, match="unsupported WCC elaboration node: ProcedureCallExpr"):
-        build(tmp_path, {"spk/identity_base.orc": nested})
+    _, result = spike(tmp_path, {"spk/identity_base.orc": nested})
+
+    assert (result.value, calls(tmp_path)[-2:]) == ({"n": 27}, ["fetch 99", "fetch 27"])
 
 
 def test_the_checked_form_refuses_a_continue_that_names_another_loop(tmp_path: Path) -> None:

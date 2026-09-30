@@ -25,7 +25,7 @@ from experiments.mlevolve_pair.search import run_search
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.workflow_lisp.build_manifest_io import _parse_command_boundaries_manifest
-from tests.experiments.test_evaluated_execution_spike import outputs, records, spike
+from tests.experiments.test_evaluated_execution_spike import in_cwd, outputs, records, spike
 from tests.test_workflow_lisp_generic_union_provider_results import _Provider
 from tests.test_workflow_lisp_generic_unions_runtime import _log
 from tests.test_workflow_lisp_rich_loop_values_e2e import _run_args, _run_argv
@@ -96,7 +96,7 @@ class ScriptedProviders:
             report = Path(kwargs.get("cwd") or Path.cwd()) / payload["report"]
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text("report\n", encoding="utf-8")
-        return _Provider(payload).execute(invocation)
+        return in_cwd(_Provider(payload).execute)(invocation, **kwargs)
 
 
 LAUNCHER = """import json, os, sys
@@ -218,12 +218,9 @@ def test_a_real_program_agrees_with_the_flat_route_on_value_providers_and_comman
     assert (spiked[0], spiked[1], _parsed(spiked[2])) == (flat[0], flat[1], _parsed(flat[2]))
 
 
-def test_a_list_in_argv_is_json_on_both_routes_with_other_separators(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A difference between the routes, reported and not reconciled: the flat route writes `json.dumps`
-    defaults, the spike the compact canonical form of its input digests. Both parse to the same list."""
+def test_a_list_in_argv_is_sent_as_the_flat_route_sends_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item F's rule for a structured argument: rendered as the flat route's substitution renders it."""
 
     observed = _observe(tmp_path, "improve-example", monkeypatch)
 
-    assert (observed["flat"][2][0][-1], observed["spike"][2][0][-1]) == (
-        '[{"name": "seed", "value": 1}]', '[{"name":"seed","value":1}]'
-    )
+    assert (observed["flat"][2][0][-1], observed["spike"][2][0][-1]) == ('[{"name": "seed", "value": 1}]',) * 2
