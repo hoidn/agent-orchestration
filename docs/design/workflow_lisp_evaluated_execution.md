@@ -431,6 +431,15 @@ Rules of elaboration into this form:
   Compiler-generated loops retain their construction order. This transient
   fact does not enter legacy AST serialization, repr, or callable identity;
   only the closed route changes evaluation behavior.
+  When condition normalization factors the operands into binding prefixes,
+  retain a permutation of the owning `let*`'s own rows. Compose complete
+  child-prefix orders with row offsets while keeping legacy storage order;
+  preserve the owner's permutation when normalization replaces its row
+  values again. Both the ordinary loop normalizer and the loop-body
+  composite normalizer carry this fact. Closed elaboration consumes it at
+  the lexical owner before emitting effects. It is transient like the loop
+  keyword order, including for independently compiled older typed bodies;
+  no source reopening, name matching, or descendant search recovers it.
 
 ### 4.4 Values the run supplies
 

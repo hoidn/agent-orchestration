@@ -912,7 +912,7 @@ binding registry, or new surface admission rule is involved.
 | --- | --- | --- | --- |
 | 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` |
 | 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (source producers and graph), `workflows.py` (result and signatures), `workflow/loaded_bundle.py`, `build_artifacts.py` (source digests), `build.py` (export selector) |
-| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py`, `expressions.py`, `typecheck_structural_values.py`, `build_manifest_io.py` (transient loop operand order) |
+| 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py`, `expressions.py`, `conditionals.py`, `typecheck_proofs.py`, `typecheck_dispatch.py`, `typecheck_structural_values.py`, `build_manifest_io.py`, `procedure_typecheck.py` (transient loop and binding-prefix order) |
 | 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `closed/names.py` (pure key-to-name helper only), `workflow/type_descriptor.py` (boundary projection checking) |
 | 6 | Names that hold no path | C2 (after 5) | `closed/names.py` (extend with typed construction), `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
@@ -1471,7 +1471,9 @@ When Phase 7 retires the flat route, the two build functions merge.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/wcc/model.py` (`WccIdentityFactory`, line 73)
-- Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), and `orchestrator/workflow_lisp/build_manifest_io.py` (transient-field omission).
+- Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser; `LetStarExpr`'s local binding order), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), `orchestrator/workflow_lisp/build_manifest_io.py` and `orchestrator/workflow_lisp/procedure_typecheck.py` (transient-field omission from JSON and legacy semantic identity).
+- Modify: `orchestrator/workflow_lisp/conditionals.py` (binding-prefix order composition and both loop factoring owners), `orchestrator/workflow_lisp/typecheck_proofs.py` (if/cond wrapper transport), `orchestrator/workflow_lisp/typecheck_dispatch.py` (preserve order on reconstructed lets).
+- Inspect, modify only if an actual row-changing seam requires it: `orchestrator/workflow_lisp/functions.py`, `orchestrator/workflow_lisp/expression_traversal.py`, `orchestrator/workflow_lisp/wcc/use_site_scope.py` (cloning and renaming preserve owner-local row indexes).
 - Inspect, modify only if necessary: `orchestrator/workflow_lisp/wcc/anf.py` (the gated normalization path)
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`: `elaborate_typed_workflow_body` (line 219), the `DoneExpr` branch of `_elaborate_expr_to_body` (line 1662), `_retarget_loop_continue` (line 2529) and its call at line 2465, the `PhaseTargetExpr` branch of `_elaborate_expr_to_value` (line 2736), `_prebind_effect_argument_matches` (line 4077)
 - Test: `tests/test_workflow_lisp_closed_program_elaboration.py`
@@ -1544,7 +1546,44 @@ report iteration 3, D1 and D2.
   without retained order use that deterministic default. Only closed
   elaboration consumes this fact; legacy execution and artifact bytes stay
   unchanged. Extend the existing serializer's field metadata handling to
-  omit this populated transient field; do not create a second serializer.
+  omit populated transient fields, and exclude them from the existing
+  `procedure_typecheck._semantic_identity` traversal; do not create a second
+  serializer or hash algorithm.
+  Condition normalization may already have factored these operands before
+  WCC sees the loop. Retain `LetStarExpr.binding_evaluation_order` as a
+  transient tuple of local binding-row indexes: empty means stored order;
+  otherwise it must be a complete permutation. Within `conditionals.py`,
+  pass each prefix as its stored rows and explicit complete order (identity
+  included). One private composition helper concatenates rows unchanged
+  and offsets each child permutation by the preceding stored row counts.
+  Ordinary composition uses component order unchanged; only max/state
+  group composition uses the parser-retained keyword order. Do not sort
+  bindings by names or spans or scan descendants to recover their owner.
+  `_normalize_loop_recur` and the `LoopRecurExpr` case of
+  `_normalize_loop_body_composite` both compose the complete head groups;
+  body/exhaustion wrappers remain local. `_wrap_bindings` writes a
+  nonidentity permutation on its actual `LetStarExpr` owner. Transport the
+  prefix order through all existing normalization helpers,
+  `NormalizedCondition`, `CondClauseRewrite`, the if/ordinary-cond wrappers
+  and the effectful exhaustive terminal-cond forced-test fold. Existing
+  `_normalize_let_value`, `_normalize_loop_body_let`, and
+  `typecheck_dispatch` reconstructions keep the owner's permutation while
+  replacing each row's value at the same position; newly generated child
+  prefixes are wrapped locally. Existing count-preserving `replace`
+  cloning/renaming needs no extra protocol. A row-changing transformation
+  must explicitly remap its local permutation.
+  `_elaborate_let_star` consumes only its own row permutation, before WCC
+  emission and only when `scope.closed_program`; flag-off consumes stored
+  rows verbatim. Keep global child traversal/storage order unchanged. Each
+  loop head operand was checked in the same outer scope, so no generated
+  private binding in one operand is visible to the other. Preserve each
+  operand's internal dependencies; append the loop-result row after both.
+  Populate these transient facts at every target that already normalizes
+  conditions, so original independently compiled old typed snapshots retain
+  them without reopening source. Mark both fields `repr=False`,
+  `compare=False`, `hash=False`, with unconditional JSON and legacy semantic
+  identity omission. An invalid internal permutation is a compiler
+  invariant failure, never a new source admission rule or release gap.
   Enable the existing `_PRESERVE_BOUND_PROC_CAPTURES` mechanism when
   `closed_program=True`, so ordinary `bind-proc` calls retain lexical capture
   aliases and owner/argument capture rows for Task 4. Its existing live-provider
@@ -1609,6 +1648,14 @@ order disagrees with the operands' source spans. Check that loop operand
 effects occur once in that order, and that the transient field changes
 neither legacy AST repr/JSON nor the flag-off route. Include an older
 imported loop and the compiler-generated loop's retained order.
+Cover both orders in `if` and `cond`, repeated normalization in nested
+conditions, the exhaustive effectful terminal-cond fold, and a loop inside
+another condition loop's `done` value (the second factoring owner). A nested
+head prefix checks offset composition; an unchosen arm and shadowed helper
+clone check locality and scope. Import an independently compiled older
+producer's retained typed snapshot after deleting its source. Verify
+populated metadata leaves legacy repr, JSON and local semantic identity
+unchanged; these facts must not depend on the consuming entry's target.
 
 - [ ] **Step 2: Run; expected failures**
 
@@ -1653,7 +1700,9 @@ Commit message: `feat: elaborate effectful arguments, done values, continue targ
 **What this makes harder later:** `path/join` is an operator the catalog does
 not know; if Phase 3 wants to evaluate it through the catalog, the catalog
 gains a node kind then. Two elaboration behaviours now live behind one flag;
-Phase 7 removes the flag with the flat route.
+Phase 7 removes the flag with the flat route. Condition prefix composition
+must retain both legacy storage order and closed evaluation order until
+that retirement.
 
 ---
 
