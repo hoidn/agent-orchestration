@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 import shutil
 
+from orchestrator.workflow.pure_expr import _validate_expr_node
 from orchestrator.workflow_lisp.lowering import pure_projection as pure_projection_lowering
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from tests.test_workflow_lisp_generic_unions_runtime import (
+    _log,
     _public_run,
     _public_run_files,
+    _write_probe,
 )
 
 def _source(uses: int) -> str:
@@ -45,22 +48,13 @@ def _compiled_payload(root: Path, uses: int) -> Mapping[str, object]:
     )
 
 
-def _node_count(value: object) -> int:
-    if isinstance(value, Mapping):
-        if not isinstance(value.get("kind"), str):
-            return sum(
-                _node_count(item)
-                for key, item in value.items()
-                if key not in {"type", "element_type", "result_element_type", "result_type", "binder"}
-            )
-        return 1 + sum(
-            _node_count(item)
-            for key, item in value.items()
-            if key not in {"type", "element_type", "result_element_type", "result_type", "binder"}
-        )
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return sum(_node_count(item) for item in value)
-    return 0
+def _node_count(payload: Mapping[str, object]) -> int:
+    return _validate_expr_node(
+        payload["expr"],
+        bindings=payload["bindings"],
+        schema_version=payload["pure_expr_schema_version"],
+        local_bindings={},
+    )
 
 
 def test_repeated_binding_is_shared_and_adds_one_node_per_use(tmp_path: Path) -> None:
@@ -75,7 +69,7 @@ def test_repeated_binding_is_shared_and_adds_one_node_per_use(tmp_path: Path) ->
         "increment",
         "forwarded",
     ]
-    assert _node_count(eleven_expr) - _node_count(ten_expr) == 1
+    assert _node_count(eleven) - _node_count(ten) == 1
 
 
 def test_hundred_uses_run_through_the_public_entrypoint(tmp_path: Path, monkeypatch) -> None:
@@ -148,6 +142,119 @@ def test_reused_value_in_unselected_if_arm_remains_lazy(tmp_path: Path, monkeypa
     assert (result.exit_code, dict(result.workflow_outputs)) == (0, {"__result__": 0})
 
 
+def test_shared_bindings_can_change_which_failing_operation_is_reported(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sources = (
+        "(let* ((q (/ 1.0 d)) (b (+ n 1))) "
+        "(+ (int/to-float b) (+ q q)))",
+        "(let* ((b (+ n 1)) (q (/ 1.0 d))) "
+        "(+ (+ q q) (int/to-float (+ b b))))",
+    )
+    observed = []
+    for index, body in enumerate(sources):
+        root = tmp_path / str(index)
+        source = root / "grt" / "entry.orc"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "\n".join(
+                (
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.34")',
+                    "  (defmodule grt/entry)",
+                    "  (export run)",
+                    f"  (defworkflow run ((n Int) (d Float)) -> Float {body}))",
+                )
+            ),
+            encoding="utf-8",
+        )
+        input_file = root / "inputs.json"
+        input_file.write_text(json.dumps({"n": 2**63 - 1, "d": 0.0}), encoding="utf-8")
+        monkeypatch.chdir(root)
+        result = _public_run(_public_run_files(root, {}), input_file=input_file)
+        state = json.loads(
+            next((root / ".orchestrate" / "runs").glob("*/state.json")).read_text(
+                encoding="utf-8"
+            )
+        )
+        error = next(
+            step["error"]
+            for step in state["steps"].values()
+            if isinstance(step, dict) and isinstance(step.get("error"), dict)
+        )
+        assert result.exit_code == 1
+        observed.append(error["type"])
+
+    assert observed == ["pure_expr_division_by_zero", "pure_expr_overflow"]
+
+
+def test_list_map_effect_state_binding_is_shared_without_changing_effects(
+    tmp_path: Path, monkeypatch
+) -> None:
+    probe = _write_probe(
+        tmp_path,
+        "tick",
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "value = int(sys.argv[1])\n"
+        "output = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
+        "output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "output.write_text(json.dumps(value), encoding='utf-8')\n"
+        "log = Path(__file__).with_suffix('.log')\n"
+        "with log.open('a', encoding='utf-8') as handle:\n"
+        "    handle.write(f'{value}\\n')\n",
+    )
+    source = tmp_path / "grt" / "entry.orc"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(
+        "\n".join(
+            (
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.33")',
+                "  (defmodule grt/entry)",
+                "  (export run)",
+                "  (defworkflow child ((value Int)) -> Int",
+                f'    (command-result tick :argv ("python" "{probe}" value) :returns Int))',
+                "  (defworkflow run ((values List[Int])) -> List[Int]",
+                "    (list/map-effect ((item values)) :max 3 (call child :value item)))",
+                ")",
+            )
+        ),
+        encoding="utf-8",
+    )
+    input_file = tmp_path / "inputs.json"
+    input_file.write_text(json.dumps({"values": [5, 6, 7]}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    validated_payloads: list[Mapping[str, object]] = []
+    validate = pure_projection_lowering.validate_pure_expr_payload
+
+    def capture_payload(payload, **kwargs):
+        validated_payloads.append(payload)
+        return validate(payload, **kwargs)
+
+    monkeypatch.setattr(
+        pure_projection_lowering, "validate_pure_expr_payload", capture_payload
+    )
+    result = _public_run(
+        _public_run_files(tmp_path, {"tick": probe}), input_file=input_file
+    )
+
+    assert (result.exit_code, dict(result.workflow_outputs)) == (
+        0,
+        {"__result__": (5, 6, 7)},
+    )
+    assert _log(probe) == ["5", "6", "7"]
+    assert any(
+        "__list_map_effect_state"
+        in [binding["name"] for binding in payload["expr"].get("bindings", [])]
+        and payload["pure_expr_schema_version"] == 3
+        for payload in validated_payloads
+        if isinstance(payload.get("expr"), Mapping)
+    )
+
+
 def test_record_mapping_with_fallible_field_remains_lazy_in_unselected_if_arm(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -201,7 +308,7 @@ def test_mlevolve_search_controller_runs_through_the_public_entrypoint(
     node_counts: list[int] = []
 
     def count_validated_payload(payload, **kwargs):
-        node_counts.append(_node_count(payload["expr"]))
+        node_counts.append(_node_count(payload))
         return validate(payload, **kwargs)
 
     monkeypatch.setattr(

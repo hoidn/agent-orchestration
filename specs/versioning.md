@@ -720,18 +720,27 @@
     whose call is never reached ran before and is refused now.
 
 - Amendment of targets 2.30 to 2.33 (pure payloads)
-  - A `let*` value that is used more than once is emitted once in a pure
-    payload and referred to, in payload schema 3. A value used once is
-    emitted as before. Evaluation order and laziness are kept: a value used
-    only inside an `if` branch, a short-circuit operand or a list-map body is
-    not moved out of it. Programs whose bound values are each used once build
-    the artifacts they built before. A program that changes builds different
-    checkpoint identities, so a run of it that started before the change is
-    refused on resume.
-  - A refusal that compares a value with a limit prints both. A payload over
-    the size bound is refused with its node count, the bound, and the three
-    subexpressions that contribute most, each with its source location.
-    Diagnostic codes and exit codes are unchanged.
+  - A local value that reaches a pure payload by name and is used more than
+    once is emitted once and referred to, in payload schema 3. This includes
+    repeated `let*` values, loop state, and compiler-generated values such as
+    `list/map-effect` state. A `let*` inside a `loop/recur` update can be
+    expanded before payload construction, so its value can still be copied
+    at each use and the update can exceed the 256-node payload limit. Shared
+    values used only inside an `if` branch, a short-circuit operand, or a
+    list-map body are not moved out of that region. If multiple operations
+    in one payload would be refused, sharing can change which refusal is
+    reported. Programs whose named and generated payload bindings are each
+    used once build the artifacts they built before. A program that changes
+    builds different checkpoint identities, so a run of it that started
+    before the change is refused on resume.
+  - A payload over the pure-expression size bound is refused with its node
+    count and the 256-node limit, plus up to three source-backed subexpression
+    sizes and locations. The reported subtrees can overlap, and repeated
+    copies at one source location are not aggregated. The added numeric
+    diagnostic guarantees for pure-expression and iteration/cap refusals do
+    not extend to older transport-value byte and depth refusals, which can
+    omit the measured size or depth and their limit. Diagnostic codes and
+    exit codes are unchanged.
 
 - v2.34 additions (in progress)
   - Target 2.34 exists. Apart from the surface listed below, it accepts and

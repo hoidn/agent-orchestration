@@ -201,8 +201,166 @@ def test_public_loop_recur_zero_max_prints_value_and_minimum(
     )
 
     assert exit_code == 2
+    assert "workflow_boundary_type_invalid" in message
+    loop_line = next(
+        (number, line.index("(loop/recur") + 1)
+        for number, line in enumerate(source.splitlines(), 1)
+        if "(loop/recur" in line
+    )
+    assert f"entry.orc:{loop_line[0]}:{loop_line[1]}:" in message
     assert "value=0" in message
     assert "minimum=1" in message
+
+
+def test_repeated_loop_update_binding_still_hits_the_payload_node_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    repeated = " ".join("next" for _ in range(100))
+    source = "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.33")',
+            "  (defmodule grt/entry)",
+            "  (export run)",
+            "  (defrecord LoopState (i Int) (acc Int))",
+            "  (defworkflow run () -> Int",
+            "    (loop/recur :max 2 :state (record LoopState :i 0 :acc 0)",
+            "      (fn (state)",
+            "        (if (< state.i 1)",
+            "          (let* ((next (+ state.i 1)))",
+            "            (continue (record-update state :i next :acc (+ state.acc "
+            + repeated
+            + ")))"
+            ")",
+            "          (done state.acc)))))",
+            ")",
+        )
+    )
+
+    exit_code, message = _public_compile_refusal(
+        tmp_path, source, monkeypatch, caplog
+    )
+
+    assert exit_code == 2
+    assert "pure_expr_payload_too_large" in message
+    assert "max_nodes=256" in message
+    node_count = re.search(r"node_count=(\d+)", message)
+    assert node_count is not None and int(node_count.group(1)) > 256
+    update_line = next(
+        (number, line.index("(record-update") + 1)
+        for number, line in enumerate(source.splitlines(), 1)
+        if "(record-update" in line
+    )
+    assert f"entry.orc:{update_line[0]}:{update_line[1]}:" in message
+
+
+@pytest.mark.xfail(strict=True, reason="F38: size diagnostics rank nested subtrees instead of copied totals")
+def test_overflow_contributors_aggregate_repeated_source_copies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    repeated_v = " ".join("n" for _ in range(19))
+    innermost = "(+ " + " ".join("n" for _ in range(30)) + ")"
+    middle = f"(+ {innermost} n n)"
+    nested_b = f"(+ {middle} n n)"
+    record_fields = " ".join(f":f{index} v" for index in range(1, 12))
+    definitions = " ".join(f"(f{index} Int)" for index in range(1, 12))
+    source = "\n".join(
+        (
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.29")',
+            "  (defmodule grt/entry)",
+            "  (export run)",
+            f"  (defrecord T {definitions} (g Int))",
+            "  (defworkflow run ((n Int)) -> T",
+            f"    (let* ((v (+ {repeated_v})) (b {nested_b}))",
+            f"      (record T {record_fields} :g b)))",
+            ")",
+        )
+    )
+
+    exit_code, message = _public_compile_refusal(
+        tmp_path, source, monkeypatch, caplog
+    )
+
+    assert exit_code == 2
+    assert "pure_expr_payload_too_large" in message
+    assert "node_count=258" in message
+    assert "max_nodes=256" in message
+    v_column = source.splitlines()[7].index("(+") + 1
+    assert f"entry.orc:8:{v_column} nodes=220" in message
+
+
+@pytest.mark.xfail(strict=True, reason="F39: public transport byte refusals omit measured size and cap")
+def test_public_transport_byte_refusal_prints_observed_size_and_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_workflow_lisp_generic_unions_runtime import _write_probe
+
+    probe = _write_probe(
+        tmp_path,
+        "large_value",
+        "import json, os\n"
+        "from pathlib import Path\n"
+        "output = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
+        "output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "value = {'items': [{'label': 'x' * 17_000_000}]}\n"
+        "output.write_text(json.dumps(value), encoding='utf-8')\n",
+    )
+    entry = tmp_path / "grt" / "entry.orc"
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    entry.write_text(
+        "\n".join(
+            (
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.33")',
+                "  (defmodule grt/entry)",
+                "  (export run)",
+                "  (defrecord Item (label String))",
+                "  (defrecord Big (items List[Item]))",
+                "  (defproc produce () -> Big",
+                "    :effects ((uses-command produce))",
+                "    :lowering inline",
+                f'    (command-result produce :argv ("python" "{probe}") :returns Big))',
+                "  (defworkflow run () -> Big (produce)))",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = _public_run(_public_run_files(tmp_path, {"produce": probe}))
+    state = _public_failure_state(tmp_path)
+    failure = next(
+        step["error"]
+        for step in state["steps"].values()
+        if isinstance(step, dict) and isinstance(step.get("error"), dict)
+    )
+    diagnostic = json.dumps(failure)
+    expected_bytes = len(
+        json.dumps(
+            {"items": [{"label": "x" * 17_000_000}]},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+    assert result.exit_code == 1
+    assert failure["type"] == "contract_violation"
+    assert "invalid_transportable_value" in diagnostic
+    violation = failure["context"]["violations"][0]
+    origin = violation["source_origins"][0]
+    assert origin["path"] == str(entry)
+    assert (origin["line"], origin["column"]) == (11, 5)
+    assert f"bytes={expected_bytes}" in diagnostic
+    assert "maximum=16777216" in diagnostic
 
 
 def test_trial_packet_builder_reports_actual_item_and_packet_byte_sizes() -> None:
