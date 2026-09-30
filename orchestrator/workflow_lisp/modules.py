@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .definitions import WorkflowLispModule
@@ -14,6 +14,7 @@ from .spans import SourceSpan
 from .syntax import (
     PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
     ImportDirective,
+    ModuleDirective,
     WorkflowLispSyntaxModule,
     build_syntax_module,
     target_dsl_supports_provider_supervision,
@@ -301,6 +302,7 @@ def resolve_module_graph(
     *,
     source_roots: tuple[Path, ...] | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    standalone_entry_namespace: str | None = None,
 ) -> LinkedModuleGraph:
     """Discover, parse, and topologically order modules reachable from `path`.
 
@@ -314,21 +316,34 @@ def resolve_module_graph(
     visiting: list[str] = []
     topological: list[str] = []
 
-    def load_module(module_path: Path) -> ResolvedModuleSource:
+    def load_module(module_path: Path, *, is_entry: bool = False) -> ResolvedModuleSource:
         syntax_module = build_syntax_module(
             read_sexpr_file(module_path, source_read_trace=source_read_trace)
         )
+        standalone_entry = False
         if syntax_module.module_name is None:
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="module_declaration_missing",
-                        message="linked module compilation requires one `defmodule` directive",
+            if is_entry and standalone_entry_namespace is not None:
+                syntax_module = replace(
+                    syntax_module,
+                    module_directive=ModuleDirective(
+                        name=standalone_entry_namespace,
                         span=syntax_module.span,
-                        form_path=("workflow-lisp",),
+                        name_span=syntax_module.span,
+                        form_path=("workflow-lisp", "defmodule"),
                     ),
                 )
-            )
+                standalone_entry = True
+            else:
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="module_declaration_missing",
+                            message="linked module compilation requires one `defmodule` directive",
+                            span=syntax_module.span,
+                            form_path=("workflow-lisp",),
+                        ),
+                    )
+                )
         source_root = _resolve_source_root(module_path, source_roots=resolved_roots)
         expected_path = source_root / Path(*syntax_module.module_name.split("/"))
         expected_path = expected_path.with_suffix(".orc")
@@ -337,7 +352,7 @@ def resolve_module_graph(
             and expected_path.stem == module_path.stem
             and module_path.suffix.lower() == ".orc"
         )
-        if not module_path_matches:
+        if not standalone_entry and not module_path_matches:
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
@@ -359,8 +374,8 @@ def resolve_module_graph(
             imports=tuple(import_directive.module_name for import_directive in syntax_module.imports),
         )
 
-    def visit_module_path(module_path: Path) -> None:
-        resolved = load_module(module_path)
+    def visit_module_path(module_path: Path, *, is_entry: bool = False) -> None:
+        resolved = load_module(module_path, is_entry=is_entry)
         if resolved.module_name in visiting:
             cycle_start = visiting.index(resolved.module_name)
             cycle = visiting[cycle_start:] + [resolved.module_name]
@@ -396,7 +411,7 @@ def resolve_module_graph(
         visiting.pop()
         topological.append(resolved.module_name)
 
-    visit_module_path(path)
+    visit_module_path(path, is_entry=True)
     export_surfaces = {
         module_name: derive_export_surface(
             module_source.syntax_module,
@@ -405,7 +420,7 @@ def resolve_module_graph(
         for module_name, module_source in modules_by_name.items()
     }
     return LinkedModuleGraph(
-        entry_module_name=load_module(path).module_name,
+        entry_module_name=load_module(path, is_entry=True).module_name,
         modules_by_name=modules_by_name,
         topological_order=tuple(topological),
         export_surfaces_by_name=export_surfaces,

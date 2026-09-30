@@ -162,6 +162,7 @@ from .syntax import (
     target_dsl_is_2_33_or_newer,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_pure_call_composition,
+    target_dsl_uses_evaluated_execution,
 )
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
@@ -666,6 +667,7 @@ def compile_stage3_entrypoint(
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
     compiler_session: CompilerSession | None = None,
+    _standalone_entry_namespace: str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -713,6 +715,7 @@ def compile_stage3_entrypoint(
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
         source_read_trace=source_read_trace,
+        standalone_entry_namespace=_standalone_entry_namespace,
         _module_graph_read_attempt_id=module_graph_read_attempt_id,
         compiler_session=compiler_session,
     )
@@ -1354,6 +1357,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    standalone_entry_namespace: str | None = None,
     _module_graph_read_attempt_id: int | None = None,
     compiler_session: CompilerSession | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
@@ -1373,6 +1377,7 @@ def _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=source_roots,
         source_read_trace=source_read_trace,
+        standalone_entry_namespace=standalone_entry_namespace,
     )
     if source_read_trace is not None:
         if _module_graph_read_attempt_id is None:
@@ -1440,12 +1445,15 @@ def _run_stage3_entrypoint_validation_pipeline(
         if not _shared_validation_enabled(normalized_validation_profile):
             return state
         assert compile_result is not None
-        validated_bundles = validate_lowered_workflows(
-            compile_result.entry_result.lowered_workflows,
-            workspace_root=workspace_root,
-            imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
-            validation_profile=normalized_validation_profile,
-        )
+        if compile_result.entry_result.typed_program is not None:
+            validated_bundles = {}
+        else:
+            validated_bundles = validate_lowered_workflows(
+                compile_result.entry_result.lowered_workflows,
+                workspace_root=workspace_root,
+                imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
+                validation_profile=normalized_validation_profile,
+            )
         compile_result = replace(
             compile_result,
             entry_result=replace(
@@ -1564,6 +1572,36 @@ def _resolve_stage3_procedure_lowering(
             for procedure in state.typed_procedures
         ),
     )
+
+
+def _reject_legacy_to_evaluated_imports(graph: LinkedModuleGraph) -> None:
+    for source_name, source in graph.modules_by_name.items():
+        source_target = source.syntax_module.target_dsl_version
+        if target_dsl_uses_evaluated_execution(source_target):
+            continue
+        for directive in source.syntax_module.imports:
+            imported = graph.modules_by_name.get(directive.module_name)
+            if imported is None:
+                continue
+            imported_target = imported.syntax_module.target_dsl_version
+            if not target_dsl_uses_evaluated_execution(imported_target):
+                continue
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="evaluated_execution_target_direction_invalid",
+                        message=(
+                            f"legacy module `{source_name}` at target {source_target} "
+                            f"cannot import evaluated module `{directive.module_name}` "
+                            f"at target {imported_target}; legacy-to-evaluated edges "
+                            "are outside the evaluated-entry source graph"
+                        ),
+                        span=directive.span,
+                        form_path=directive.form_path,
+                        phase="typecheck",
+                    ),
+                )
+            )
 
 
 def _lower_workflows_for_route(
@@ -2515,6 +2553,10 @@ def _compile_stage3_graph(
             boundary_admission_profile
         )
     )
+    closed_entry = target_dsl_uses_evaluated_execution(
+        graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version
+    )
+    _reject_legacy_to_evaluated_imports(graph)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -2535,6 +2577,11 @@ def _compile_stage3_graph(
     workflow_effects_by_name: dict[str, EffectSummary] = {}
     exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
     compiled_results_by_name: dict[str, Stage3CompileResult] = {}
+    module_type_envs: dict[str, FrontendTypeEnvironment] = {}
+    module_externs: dict[str, Mapping[str, object]] = {}
+    module_command_boundaries: dict[str, Mapping[str, object]] = {}
+    local_definition_keys: dict[str, object] = {}
+    typed_program_snapshot = None
     explicit_imported_bundles = dict(imported_workflow_bundles or {})
     aggregate_diagnostics: list[LispFrontendDiagnostic] = []
     # Certified stdlib adapter bindings (builtin command adapters and
@@ -2623,6 +2670,7 @@ def _compile_stage3_graph(
             imported_transition_defs=imported_transition_defs,
             session_state=compiler_session.typecheck,
         )
+        module_type_envs[module_name] = type_env
         imported_prompt_defs = _imported_prompt_definitions(
             import_scope,
             exported_prompt_defs_by_module,
@@ -2717,6 +2765,7 @@ def _compile_stage3_graph(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
         )
+        module_externs[module_name] = dict(extern_environment.bindings_by_name)
         command_boundary_environment = build_command_boundary_environment(command_boundaries)
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
@@ -2743,6 +2792,9 @@ def _compile_stage3_graph(
         command_boundary_environment = _augment_resume_command_boundaries(
             command_boundary_environment,
             expressions=tuple(graph_adapter_expressions),
+        )
+        module_command_boundaries[module_name] = dict(
+            command_boundary_environment.bindings_by_name
         )
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=definition_module,
@@ -3080,31 +3132,36 @@ def _compile_stage3_graph(
             typed_procedures=typed_procedures,
             workflow_catalog=workflow_catalog,
         )
-        lowered_workflows = _lower_workflows_for_route(
-            compiler_session=compiler_session,
-            lowering_route=normalized_lowering_route,
-            typed_workflows=typed_workflows,
-            typed_procedures=resolved_combined_procedures,
-            available_workflows_by_name=typed_workflows_by_name,
-            procedure_type_envs=combined_procedure_type_envs,
-            workflow_type_envs=workflow_type_envs_by_name,
-            procedure_catalog=procedure_catalog,
-            workflow_path=module_source.path,
-            workflow_catalog=lowering_workflow_catalog,
-            imported_workflow_bundles=effective_imported_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=module_source.syntax_module.target_dsl_version,
-            source_read_trace=source_read_trace,
-        )
+        if closed_entry:
+            lowered_workflows = ()
+        else:
+            lowered_workflows = _lower_workflows_for_route(
+                compiler_session=compiler_session,
+                lowering_route=normalized_lowering_route,
+                typed_workflows=typed_workflows,
+                typed_procedures=resolved_combined_procedures,
+                available_workflows_by_name=typed_workflows_by_name,
+                procedure_type_envs=combined_procedure_type_envs,
+                workflow_type_envs=workflow_type_envs_by_name,
+                procedure_catalog=procedure_catalog,
+                workflow_path=module_source.path,
+                workflow_catalog=lowering_workflow_catalog,
+                imported_workflow_bundles=effective_imported_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=module_source.syntax_module.target_dsl_version,
+                source_read_trace=source_read_trace,
+            )
         requires_internal_bundle_validation = (
             normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
             and module_name != graph.entry_module_name
             and bool(export_surfaces[module_name].workflows_by_name)
         )
         validated_exports: Mapping[str, LoadedWorkflowBundle]
-        if (
+        if closed_entry:
+            validated_exports = {}
+        elif (
             normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
             or requires_internal_bundle_validation
         ):
@@ -3127,6 +3184,49 @@ def _compile_stage3_graph(
                 if resource.backing_kind == "bridge" and resource.backing_path_input
             ),
         )
+        if closed_entry:
+            from .closed.frontend import (
+                local_definition_keys_for_module,
+                typed_program_from_graph,
+            )
+
+            local_definition_keys.update(
+                local_definition_keys_for_module(
+                    module_name,
+                    expanded_syntax,
+                    tuple(typed_procedures),
+                )
+            )
+            if module_name == graph.entry_module_name:
+                typed_program_snapshot = typed_program_from_graph(
+                    target=module_source.syntax_module.target_dsl_version,
+                    entry_module=module_name,
+                    entry_dir=str(module_source.path.parent),
+                    type_env=type_env,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    typed_workflows=typed_workflows,
+                    resolved_combined_procedures=resolved_combined_procedures,
+                    typed_workflows_by_name=typed_workflows_by_name,
+                    combined_procedure_type_envs=combined_procedure_type_envs,
+                    workflow_type_envs_by_name=workflow_type_envs_by_name,
+                    module_type_envs=module_type_envs,
+                    module_externs=module_externs,
+                    local_definition_keys=local_definition_keys,
+                    configuration_bindings={
+                        "command_boundaries": dict(command_boundaries or {}),
+                        "provider_externs": dict(provider_externs or {}),
+                        "prompt_externs": dict(prompt_externs or {}),
+                        "used_command_boundaries": {
+                            name: dict(bindings)
+                            for name, bindings in module_command_boundaries.items()
+                        },
+                        "resolved_externs": {
+                            name: dict(bindings)
+                            for name, bindings in module_externs.items()
+                        },
+                    },
+                )
         result = Stage3CompileResult(
             module=definition_module,
             workflow_catalog=workflow_catalog,
@@ -3146,6 +3246,7 @@ def _compile_stage3_graph(
             validation_profile=normalized_validation_profile,
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
+            typed_program=typed_program_snapshot if module_name == graph.entry_module_name else None,
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)
@@ -3192,6 +3293,13 @@ def _compile_stage3_graph(
             for binding in export_surfaces[module_name].workflows_by_name.values():
                 exported_validated_bundles_by_name[binding.canonical_name] = validated_exports[binding.canonical_name]
 
+    if closed_entry:
+        if typed_program_snapshot is None:
+            raise RuntimeError("evaluated-entry graph did not assemble its typed program")
+        compiled_results_by_name = {
+            module_name: replace(result, typed_program=typed_program_snapshot)
+            for module_name, result in compiled_results_by_name.items()
+        }
     return LinkedStage3CompileResult(
         graph=LinkedModuleGraph(
             entry_module_name=graph.entry_module_name,
