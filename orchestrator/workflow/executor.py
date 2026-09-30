@@ -2445,6 +2445,7 @@ class WorkflowExecutor:
             state_manager=self.state_manager,
             executable_workflow=self.executable_ir,
             loaded_workflow=self.loaded_bundle,
+            frontend_index=self._contract_origin_index,
             projection=self.projection,
         )
 
@@ -16006,6 +16007,12 @@ class WorkflowExecutor:
                     ),
                     exc,
                 )
+        self._emit_lexical_checkpoint_shadow_after_step_commit(
+            state,
+            step_name,
+            step,
+            finalized,
+        )
         self._emit_step_summary(step_name, step, finalized)
         return finalized
 
@@ -16122,6 +16129,12 @@ class WorkflowExecutor:
                     ),
                     exc,
                 )
+        self._emit_lexical_checkpoint_shadow_after_step_commit(
+            state,
+            step_name,
+            step,
+            finalized,
+        )
         self._emit_step_summary(step_name, step, finalized)
         return finalized
 

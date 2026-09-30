@@ -88,7 +88,8 @@ def _current_effect_attempt(state: Mapping[str, Any], point: Any) -> tuple[str, 
     from orchestrator.workflow_lisp.lexical_checkpoints import _point_payload
 
     point_payload = _point_payload(point)
-    if not _mapping(point_payload.get("effect_boundary")):
+    effect_kind = _mapping(point_payload.get("effect_boundary")).get("effect_kind")
+    if not effect_kind:
         return None
     step_name = point_payload.get("presentation_key")
     step_id = point_payload.get("step_id")
@@ -101,6 +102,16 @@ def _current_effect_attempt(state: Mapping[str, Any], point: Any) -> tuple[str, 
     current = _interrupted_effect_cursor(state, step_id)
     if current == (step_name, visit):
         return "interrupted", visit
+    failed_cursor = _mapping(state.get("current_step"))
+    if (
+        effect_kind == "run_ref"
+        and failed_cursor.get("name") == step_name
+        and failed_cursor.get("step_id") == step_id
+        and failed_cursor.get("visit_count") == visit
+        and failed_cursor.get("type") == "run_ref"
+        and failed_cursor.get("status") == "failed"
+    ):
+        return "failed", visit
     result = _mapping(_mapping(state.get("steps")).get(step_name))
     if (
         result.get("step_id") == step_id
@@ -111,18 +122,28 @@ def _current_effect_attempt(state: Mapping[str, Any], point: Any) -> tuple[str, 
     return None
 
 
-def _point_source_location(*, point: Any, loaded_workflow: Any) -> dict[str, Any] | None:
+def _point_source_location(
+    *,
+    point: Any,
+    loaded_workflow: Any,
+    frontend_index: CompiledFrontendIndex | None = None,
+) -> dict[str, Any] | None:
     origin_key = getattr(point, "origin_key", None)
     if not isinstance(origin_key, str) or loaded_workflow is None:
         return None
     provenance = workflow_provenance(loaded_workflow)
-    origin = CompiledFrontendIndex(provenance).origins_by_key.get(origin_key)
+    origin_index = CompiledFrontendIndex(provenance)
+    origin = origin_index.origins_by_key.get(origin_key)
+    if origin is None and frontend_index is not None:
+        origin_index = frontend_index
+        origin = origin_index.origins_by_key.get(origin_key)
     if not isinstance(origin, Mapping) or origin.get("origin_key") != origin_key:
         return None
     path, line, column = origin.get("path"), origin.get("line"), origin.get("column")
     if not isinstance(path, str) or type(line) is not int or type(column) is not int:
         return None
-    source_root = getattr(provenance, "source_root", None)
+    source_provenance = getattr(origin_index, "_provenance", None)
+    source_root = getattr(source_provenance, "source_root", None)
     if isinstance(source_root, Path):
         try:
             path = Path(path).resolve().relative_to(source_root.resolve()).as_posix()
@@ -137,7 +158,11 @@ def _point_source_location(*, point: Any, loaded_workflow: Any) -> dict[str, Any
 
 
 def _effect_rerun_event(
-    *, point: Any, attempt: tuple[str, int], loaded_workflow: Any
+    *,
+    point: Any,
+    attempt: tuple[str, int],
+    loaded_workflow: Any,
+    frontend_index: CompiledFrontendIndex | None = None,
 ) -> dict[str, Any]:
     from orchestrator.workflow_lisp.lexical_checkpoints import _point_payload
 
@@ -153,6 +178,7 @@ def _effect_rerun_event(
         "source_location": _point_source_location(
             point=point,
             loaded_workflow=loaded_workflow,
+            frontend_index=frontend_index,
         ),
         "attempt_status": status,
     }
@@ -603,6 +629,7 @@ def determine_runtime_default_resume_decision(
     state_manager: Any | None = None,
     restore_selector: Any | None = None,
     loaded_workflow: Any | None = None,
+    frontend_index: CompiledFrontendIndex | None = None,
     executable_workflow: Any | None = None,
     is_workflow_lisp: bool | None = None,
 ) -> dict[str, Any]:
@@ -782,6 +809,7 @@ def determine_runtime_default_resume_decision(
                         point=current_point,
                         attempt=attempt,
                         loaded_workflow=loaded_workflow,
+                        frontend_index=frontend_index,
                     )
         payload["mode"] = MODE_LEXICAL_CHECKPOINT_DEFAULT
         payload["diagnostics"].extend(decision_diagnostics)
@@ -816,6 +844,7 @@ def determine_runtime_default_resume_decision(
                 payload["source_location"] = _point_source_location(
                     point=current_point,
                     loaded_workflow=loaded_workflow,
+                    frontend_index=frontend_index,
                 )
                 return payload
             if (
@@ -826,6 +855,7 @@ def determine_runtime_default_resume_decision(
                     point=current_point,
                     attempt=attempt,
                     loaded_workflow=loaded_workflow,
+                    frontend_index=frontend_index,
                 )
         if required_effect_point is not None:
             payload["mode"] = MODE_FAIL_CLOSED
@@ -833,6 +863,12 @@ def determine_runtime_default_resume_decision(
                 "lexical_default_resume_prior_boundary_not_restorable",
                 *decision_diagnostics,
             ]
+            if current_effect_attempt is not None:
+                payload["source_location"] = _point_source_location(
+                    point=current_effect_attempt[0],
+                    loaded_workflow=loaded_workflow,
+                    frontend_index=frontend_index,
+                )
             return payload
         if relevant_points or restart_point_checkpoint_is_excluded:
             if (
@@ -962,6 +998,12 @@ def determine_runtime_default_resume_decision(
                         "lexical_default_resume_prior_boundary_not_restorable",
                         *prior_diagnostics,
                     ]
+                    if current_effect_attempt is not None:
+                        payload["source_location"] = _point_source_location(
+                            point=current_effect_attempt[0],
+                            loaded_workflow=loaded_workflow,
+                            frontend_index=frontend_index,
+                        )
                 return payload
             payload["mode"] = MODE_FAIL_CLOSED
             payload["diagnostics"] = [

@@ -1323,6 +1323,7 @@ def select_restore_candidate(
         workflow_path=_workflow_path_from_state(state_manager, state),
         executable_ir=executable_workflow,
     )
+    active_frame_id = getattr(state_manager, "frame_id", None)
     all_points = tuple(getattr(runtime_plan, "lexical_checkpoint_points", ()))
 
     def _r3_policy_decision(record: Mapping[str, Any], point: Any) -> tuple[str | None, tuple[str, ...], Mapping[str, Any] | None]:
@@ -1527,8 +1528,6 @@ def select_restore_candidate(
                         DIAGNOSTIC_CODES.checkpoint_index_identity_mismatch,
                     ),
                 )
-            if records:
-                saw_record = True
             for entry in reversed(records):
                 if not isinstance(entry, Mapping):
                     return RestoreDecision(
@@ -1552,26 +1551,18 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,),
                     )
-                if required_frame_identity is not None:
-                    entry_frame = _mapping(
-                        entry_map.get("frame_identity")
-                    )
-                    frame_matches = tuple(
-                        entry_frame.get(field) == expected
-                        for field, expected
-                        in required_frame_identity.items()
-                    )
-                    if any(frame_matches) and not all(frame_matches):
+                entry_frame = _mapping(entry_map.get("frame_identity"))
+                belongs_to_active_frame = True
+                if isinstance(active_frame_id, str) and active_frame_id:
+                    entry_frame_id = entry_frame.get("call_frame_id")
+                    if not isinstance(entry_frame_id, str) or not entry_frame_id:
                         return RestoreDecision(
                             kind=RESTORE_DECISION_INVALID,
                             checkpoint_id=point.checkpoint_id,
                             record_id=str(entry_map.get("record_id")),
-                            diagnostics=(
-                                checkpoints.DIAGNOSTIC_CODES.completed_effect_invalid,
-                            ),
+                            diagnostics=(DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,),
                         )
-                    if frame_matches and not any(frame_matches):
-                        continue
+                    belongs_to_active_frame = entry_frame_id == active_frame_id
                 storage_scope = _mapping(point_payload.get("storage")).get(
                     "resume_scope"
                 )
@@ -1633,6 +1624,26 @@ def select_restore_candidate(
                             DIAGNOSTIC_CODES.checkpoint_record_reference_invalid,
                         ),
                     )
+                if not belongs_to_active_frame:
+                    continue
+                saw_record = True
+                if required_frame_identity is not None:
+                    frame_matches = tuple(
+                        entry_frame.get(field) == expected
+                        for field, expected
+                        in required_frame_identity.items()
+                    )
+                    if any(frame_matches) and not all(frame_matches):
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_INVALID,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=str(entry_map.get("record_id")),
+                            diagnostics=(
+                                checkpoints.DIAGNOSTIC_CODES.completed_effect_invalid,
+                            ),
+                        )
+                    if frame_matches and not any(frame_matches):
+                        continue
                 try:
                     record = _read_workspace_beneath_json(
                         workspace=state_manager.workspace,
