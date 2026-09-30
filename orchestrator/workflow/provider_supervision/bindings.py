@@ -504,10 +504,18 @@ class WorkflowProviderSupervisionBindings:
         ] | None = None
         self._resume_binding_derived = False
         self._io_run_root = Path(executor.state_manager.io_run_root)
-        self._run_files = executor._run_root_workspace_files()
+        self._run_files_lease: Any | None = None
+
+    @property
+    def _run_files(self) -> Any:
+        """The current frame's run root, leased on first use and held until `close`."""
+        if self._run_files_lease is None:
+            self._run_files_lease = self.executor._run_root_workspace_files()
+        return self._run_files_lease
 
     def close(self) -> None:
-        self._run_files.close()
+        if self._run_files_lease is not None:
+            self._run_files_lease.close()
 
     def _bundle_relative(self, path: Path) -> Path:
         return Path(path).relative_to(self._io_run_root)

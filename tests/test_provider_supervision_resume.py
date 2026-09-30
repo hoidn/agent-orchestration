@@ -3656,6 +3656,9 @@ def test_interrupted_supervision_visit_reruns_fresh_members(
             self.step_name = step_name
             self.visit_count: int | None = None
 
+        def close(self) -> None:
+            """The executor closes the bindings it built; this stand-in holds nothing open."""
+
         def derive_turn_bindings(
             self,
             *,
