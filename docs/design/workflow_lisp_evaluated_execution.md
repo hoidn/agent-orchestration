@@ -8,8 +8,8 @@
   under `orchestrator/` runs this model.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
-- **Created:** 2026-09-29. **Revised:** 2026-09-29, after gate G1 and
-  independent design and Phase 2 contract review.
+- **Created:** 2026-09-29. **Revised:** 2026-09-30, after gate G1, independent design/Phase 2
+  contract review, and the supplied compiled-import contract amendment.
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -72,7 +72,10 @@ the form and its source location. This target-aware admission check is part
 of accepting a typed program at the new target; a defect closing an admitted
 form is a compiler defect, not permission to shrink this release's scope.
 Calls include the existing compile-time `WorkflowRef`, `ProcRef`, `bind-proc`
-and bounded `let-proc` forms. Portable composed providers include both prompt
+and bounded `let-proc` forms. Explicit supplied compiled imports require the
+matching producer-owned typed snapshot (§4.2.1); ordinary source calls remain
+admitted. This input precondition does not authorize a new call-form gap.
+Portable composed providers include both prompt
 extern source kinds and the admitted `defprompt` slot kinds (§9.4).
 
 The conditions of the gate report, section 6, bind the first release. Each
@@ -117,7 +120,8 @@ Goals:
 - Resume never runs an effect that committed a result.
 - Effect sites and their contracts are known before a run starts.
 - Identity survives formatting edits and moving the repository.
-- Older targets keep their behaviour, byte for byte.
+- Older targets keep their behavior and exact serialized bytes for identical
+  identity inputs; truthful compiler-package pins remain binding (§13).
 
 Non-goals:
 
@@ -224,6 +228,88 @@ The tree form grows with call nesting; the table form stores each distinct
 specialized body once. It need not be linear in unspecialized source when
 specializations multiply. On all 123 test programs the two forms name the same effects in the
 same order. The table form is the one representation of the first release.
+
+### 4.2.1 Supplied compiled imports and source ownership
+
+An explicit compiled import at target 2.35 supplies the selected producer's
+complete `TypedProgram`: native bodies/signatures, transitive definitions,
+type environments, externs, configuration, logical asset base and digests of
+the exact source bytes its producer consumed. Source-produced old-target
+bundles retain that snapshot in a compile-only `LoadedWorkflowBundle` field.
+Its state is omitted from legacy pickle/capsule serialization; targets through
+2.34 retain their existing bundle admission and execution behavior.
+
+An older decoded bundle can be paired explicitly with its matching original
+snapshot. Missing/incomplete or structurally mismatched pairing is refused
+before call admission with `compiled_workflow_source_required`, naming the
+binding, workflow and source/manifest location. The caller must supply the
+matching original snapshot: selected workflow and boundary checks prove
+structural consistency, not historical body authenticity, because old bundles
+contain no typed-body digest. Explicit recompilation from supplied source and
+configuration creates a replacement import; never silently reopen the live
+source path of an accepted bundle or reconstruct a body from flat steps.
+Once admitted, a missing body is a compiler defect.
+
+Keep one `TypedProgram` type. Its `imported_programs` maps explicit bindings
+to selected complete snapshots, while `module_workflow_signatures` retains
+each declaring module's caller-visible catalog signatures. The body keeps
+its native signature. An alias resolves to the selected producer's canonical
+entry when closing the call; source imports still use the existing import
+scope. Every reachable definition uses its source owner's environments,
+configuration and asset base, not those of the consuming entry.
+
+Before interning a canonical module/callee, compare retained source revision
+and captured semantic context, including bindings and logical asset base.
+Equal source/context may share a definition; unequal snapshots of that same
+canonical definition, including overlap with a source import, are refused as
+`compiled_workflow_snapshot_conflict`, naming both origins. No last-write-wins
+or simultaneous versioned identities are introduced. Different caller nominal
+views with compatible boundary contracts are not this conflict (§4.2.2).
+
+Direct source producers create a `SourceReadTrace` before their first read if
+none was supplied, forward one supplied trace unchanged, and derive snapshot
+digests from its records after their final reads, before attaching snapshots.
+No attachment-time source reread is permitted. Independently compiled imports
+retain their own evidence; those bytes are not claimed as reads of the caller.
+A non-`None` typed snapshot on an old producer never selects the new route:
+the actual entry target selects all lowering/validation gates (§13).
+
+### 4.2.2 Compiled call boundary views
+
+The existing compiled-bundle catalog reconstructs types from boundary
+contracts in the caller's environment. It admits distinct nominal records
+and dynamic paths with compatible contracts. It can also expose one caller
+record argument for multiple native parameters (`a: Pair(x, y)` for
+`a__x: Int, a__y: Int`). Retaining a native body does not remove this contract.
+
+An explicit compiled call carries an optional `boundary` annotation: its
+caller-view parameter descriptors, caller/native input and output projection
+rows, and `direct` argument/native-parameter index pairs for strict transfers.
+The exact shared schema is in the [Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md). `args[i]` is checked against
+`boundary.params[i]`; native parameters are bound through the declared
+relation, not an assumed equal-length positional list. Captures precede
+caller formals; native-only generated contexts follow in native order.
+Defaults, captures and X1/X2 values are resolved from existing binding facts.
+Source/ANF evaluation order is retained in preceding `let`s, before any
+argument permutation. Direct and projected slots form disjoint exhaustive
+partitions on both sides; projection may map one argument to several native
+parameters. Ordinary unannotated calls keep their strict positional rule.
+
+P5 independently validates every descriptor against canonical nominal facts,
+every projection path and complete field/active-variant coverage, matching
+wire contracts, exact path/enum constraints and direct/capture alignment.
+Neither matching copied labels nor whole-record nominal erasure is a proof.
+Reuse the existing boundary projections and neutral transport descriptors;
+no general cast or global relaxation of nominal compatibility is added.
+A malformed relation fails checked read-back with `call_boundary`.
+
+Phase 3 evaluates each argument once, applies the checked projection/direct
+relation to cached values, evaluates the native body, and projects its result
+back to the caller view. Dynamic paths retain their string value and checked
+constraints. This is an in-memory call, not another effect, site or journal
+entry. Phase 2 persists and checks the relation; it does not implement its
+evaluator. Union activity, legacy structural paths and inactive-path relaxation
+require independent artifact read-back proof, not only compiler generation.
 
 ### 4.3 Constructs
 
@@ -481,7 +567,15 @@ by the program, beside the resolved extern bindings. Package declarations
 contribute logical base/path rows, never their installation prefixes.
 Thus changing an unused boundary changes the program digest (C7), not only a
 build-cache key; JSON whitespace or key order alone does not. The same
-canonical type/configuration rules apply to in-memory bindings. Source-read
+canonical type/configuration rules apply to in-memory bindings. Independent
+compiled producers retain those same canonical configuration maps under
+`configuration.imports`, keyed by their semantic configuration digest. Each
+imported definition selects its scope; an unscoped definition uses the root
+configuration. The checked form verifies scope resolution and each effect's
+binding against that scope. Identical configurations may share a row; caller
+bindings never overwrite producer bindings, and unused producer bindings
+still enter the program digest. No incidental source/install path or old bundle
+fingerprint is added by this scoping rule; authored semantic paths remain. Source-read
 and module identity facts must come from the compile that built the program,
 not a later reread that can race a source edit. Raw source-byte fingerprints
 belong to the build cache; they do not enter the semantic program digest and
@@ -944,6 +1038,8 @@ Codes this design introduces or keeps, and where each is raised:
 | Code | Raised |
 | --- | --- |
 | `closed_program_gap` | At target-aware admission: a form or effect class explicitly outside this release (§1.1); not a fallback for a missing implementation of an admitted form |
+| `compiled_workflow_source_required` | Before admitting an explicit compiled import at 2.35: the matching complete original typed snapshot is missing or structurally mismatched (§4.2.1); not a historical-authenticity check |
+| `compiled_workflow_snapshot_conflict` | At closure admission: different source/context under one canonical definition, naming both origins (§4.2.1) |
 | `command_boundary_closure_missing` | At build: a boundary without a `closure` field (C1) |
 | `command_boundary_manifest_invalid` | At build: a malformed closure declaration, including `null` (C1) |
 | `command_closure_unreadable` | Before a first attempt: a missing, unreadable or unsupported declared path, with path/reason (C2); when comparing a prior start/commit use `effect_input_diverged` |
@@ -965,8 +1061,13 @@ Codes this design introduces or keeps, and where each is raised:
 - Evaluated execution applies from target **2.35**, selected by the owner
   on 2026-09-30 (plan decision 6). A program at that target runs on the
   evaluator only.
-- Programs at targets that exist today compile and run as they do, with
-  byte-identical build artifacts.
+- Programs at targets that exist today compile and run as they do. Require
+  raw byte-identical artifacts for identical identity inputs. The existing
+  compiler/runtime identity hashes the installed package bytes; changes to
+  those bytes truthfully change its pin and dependent run-ref artifacts,
+  including at older targets. Preserve that pin. Report real-pin differences
+  separately from a fixed-identity serialization comparison; do not normalize
+  artifacts or describe the controlled comparison as real-pin byte equality.
 - A run started under one profile is resumed under it; a run started under
   one representation of the closed program is resumed under it (§8.4).
 - A module at the new target may import a module at an older target when the
@@ -977,7 +1078,16 @@ Codes this design introduces or keeps, and where each is raised:
   and workflow-catalog path. It must not require those bodies to lower
   successfully to flat steps first or fabricate a validated bundle; no new
   signature abstraction is required.
-  An older-target entry still takes its unchanged build/lowering route.
+  An older-target entry still takes its existing build/lowering route and
+  validation profile, even when its source producer retains a typed snapshot.
+  Gate on the actual entry target, never snapshot presence.
+- Explicit supplied compiled imports follow §4.2.1. The `kind=compiled`
+  manifest remains `.orc`-only: an old-target producer supplies its runnable
+  bundle and snapshot; a 2.35 producer supplies its selected typed snapshot
+  without manufacturing a runnable bundle. The evaluated build selects this
+  loader before the legacy initializer eagerly compiles imports. Both use
+  the existing manifest validation, export selection and configuration owners;
+  the build key includes producer source/configuration contributions.
 - A module at an older target may not call a module at the new target. The
   two run on different runtimes.
 - The command boundary manifest gains the field `closure` (C1). At older
@@ -1083,9 +1193,9 @@ Each claim is an open prerequisite until its fixture passes.
 | A typed input document can carry records, unions and lists | One command that receives a list of records of unions and returns it unchanged | Open: Phase 3 of the plan |
 | The checked form refuses a tampered type | Tamper a non-operator value, nested nominal descriptor, effect result, entry result and call argument/result in the stored artifact; structural/type validation refuses each, not merely a digest mismatch | Open; the artifact must retain the type facts needed for these checks |
 | Complete canonical specialization | Same base/types with different proc targets, value bindings, bound proc arguments and workflow references coexist; captured values retain lexical once-only binding through forwarding and local procedures. Public builds after formatting and relocation have identical keys/digests | Open; spike explicitly refuses several of these admitted forms |
-| Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical; an old entry calling a new-target module is refused | Open; the spike and Phase 2 draft still flat-lower imports |
+| Imported admitted control avoids flat lowering | A new-target entry imports an older-target helper with a typechecked loop in a branch that the flat route refuses; public closed compilation succeeds from typed interfaces/bodies, without first making a flat validated bundle. The old entry route remains byte-identical at identical identity inputs (§13); an old entry calling a new-target module is refused | Open; the spike and Phase 2 draft still flat-lower imports |
 | Position-free generated identities | Public path-mode run-ref and `let-proc` builds after blank lines/source relocation; imported private same-named types remain distinct recursively in keys and entry/effect/nested descriptors | Open; current generated names/configuration contain source positions |
-| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged inputs and ignore closure in binding payloads when supplied | Open; current parser/models discard `closure` |
+| Common command configuration | Both binding kinds: absent versus empty, malformed/null, normalized duplicates, directory/symlink changes, unreadable entries and output overlap. An unused manifest-entry change changes the program digest. Targets ≤2.34 remain byte-identical for unchanged identity inputs (§13) and ignore closure in binding payloads when supplied | Open; current parser/models discard `closure` |
 | Builtin adapter closure | Public compilation automatically injecting `validate_review_findings_v1` carries its checked-in package declaration; removing it refuses, never substitutes `[]`. A moved byte-identical package keeps logical/input digests, changed adapter/shared-helper bytes refuse reuse/retry, and workspace/PYTHONPATH shadowing refuses before dispatch. Check package caches remain outside the closure and old-target artifacts stay unchanged | Open; declaration/injection/package-location seams exist, but their evaluated-route closure carriage and launch-origin check do not |
 
 ## 19. Decisions Still Open

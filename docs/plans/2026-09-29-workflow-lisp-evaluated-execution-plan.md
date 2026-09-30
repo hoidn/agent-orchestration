@@ -71,8 +71,13 @@ policy that schedules work as each result arrives.
 
 - Targets that exist today accept and lower exactly what they do at the
   commit each phase starts from. Evidence is byte identity of every build
-  artifact, with the program and the orchestrator package each at one fixed
-  path and `PYTHONHASHSEED=0`.
+  artifact for identical identity inputs, with the program and the
+  orchestrator package each at one fixed path and `PYTHONHASHSEED=0`.
+  Preserve the compiler/runtime identity's truthful package-file pin: changed
+  package bytes may change that pin and dependent run-ref artifacts at old
+  targets. Report real-pin differences separately from raw serialization
+  equality with a fixed identity input; never normalize the comparison or
+  weaken the pin (design §13 and the Phase 2 plan's Global Constraints).
 - No identity introduced by this plan contains a file path, a source
   position or the text of a type.
 - Every refusal has a code and a source location, and prints the value it

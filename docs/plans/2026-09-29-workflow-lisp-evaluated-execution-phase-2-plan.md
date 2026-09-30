@@ -23,8 +23,9 @@ only), and translates the result into a table of plain JSON definitions. The
 elaborator is changed where a property of the closed program cannot be
 obtained after it (callee bodies, effectful arguments, `done` values,
 `continue` targets, `phase-target`); everything else is translation. The
-flat route and every target that exists today are untouched: byte-identical
-build artifacts are the evidence.
+flat route retains existing admission/lowering behavior. Raw byte equality
+with identical identity inputs, and separately explained truthful package-pin
+changes, are the compatibility evidence (Global Constraints).
 
 **Tech Stack:** Python, the Workflow Lisp typechecker, the WCC elaborator
 (`wcc/elaborate.py`) and normal form (`wcc/anf.py`), the pure expression
@@ -86,7 +87,18 @@ Every task's requirements include these lines.
   artifact byte by byte (the method of Task 0 of Phase 0: `git archive` of
   the base into a scratch directory, `python -m orchestrator compile` with
   every `--emit-*` flag, `diff -r` on the emitted files and on
-  `.orchestrate/build/<key>/`).
+  `.orchestrate/build/<key>/`). Raw equality is required for identical identity
+  inputs. `compute_compiler_runtime_identity` hashes package files: a changed
+  compiler revision legitimately changes the real pin and dependent run-ref
+  artifacts. Preserve that pin and report those differences explicitly;
+  separately compare raw serialization with the existing identity-provider
+  seam fixed to the same input. Never normalize differences or call the
+  controlled result a real-pin byte-equality pass. All task-level byte-equality
+  instructions below use this rule. Evidence at integration `0c82e494` versus
+  `PHASE2_BASE`: 12 of 67 pairs differ with real pins (all run-ref-dependent),
+  while all 67 raw pairs match with fixed identity; plain/imported-manifest
+  specimens match under real pins. This does not replace the task's fresh
+  compatibility run after its changes.
 - No generated identity introduced by this plan contains a source-file path,
   source position or `repr` of a type. Authored semantic paths (prompt
   bindings, run-ref sources, closure declarations and type roots) remain
@@ -176,7 +188,7 @@ tasks; a task that needs another key adds it here first.
   "result": {"kind": "record", "name": "grt/entry::Box", "fields": [...]},
   "body": <body>,
   "types": {"grt/entry::Box": <canonical nominal descriptor>},
-  "configuration": {"commands": <all canonical command bindings>, "providers": <all resolved provider bindings>, "prompts": <all resolved prompt bindings>},
+  "configuration": {"commands": <all canonical command bindings>, "providers": <all resolved provider bindings>, "prompts": <all resolved prompt bindings>, "imports": {"<configuration digest>": {"commands": <producer commands>, "providers": <producer providers>, "prompts": <producer prompts>}}},
   "definitions": {"<canonical callee name>": {"key": <canonical definition tuple>, "params": [["n", <descriptor>]], "result": <descriptor>, "body": <body>}},
   "sites": [["grt/entry::fetch", "#1"]]
 }
@@ -191,7 +203,15 @@ tasks; a task that needs another key adds it here first.
   reachable nominal, including private and generated result types; all uses
   must match it. No source path is included.
 - `definitions` holds one entry per canonical callee name (§4.2), procedures
-  and called workflows alike. A body is stored once.
+  and called workflows alike. A body is stored once. An imported definition
+  has `configuration: <configuration digest>` selecting a row in
+  `configuration.imports`; absence selects root configuration. The digest is
+  Task 7's canonical digest of the producer's normalized three-map
+  configuration, with no nested `imports` member in that row. Nested imported
+  owners select their own rows. Equal configurations share a row; every scope
+  key resolves and every effect is checked in its definition's scope. Unequal
+  source/captured context for one canonical callee is
+  `compiled_workflow_snapshot_conflict` before interning, not a second identity.
 - `sites` is the site table (P4): one `[definition, local path]` per
   `perform`, entry first then definitions in first-call order. Call frames
   stay on call nodes. `configuration` contains every parsed manifest binding
@@ -218,7 +238,7 @@ tasks; a task that needs another key adds it here first.
 | `k` | Keys | Rule |
 | --- | --- | --- |
 | `perform` | `class`, `result` (descriptor), `repeat` (`"rerun"` or `"never"`), `site` (set by the site walker), and the class's keys below | one effect |
-| `call` | `callee` (canonical name), `args` (values), `type` (result descriptor), `frame` (set by the site walker when the callee performs an effect) | evaluation of a definition's body (§9.2) |
+| `call` | `callee` (canonical name), `args` (values), `type` (caller result descriptor), optional `boundary` (below), `frame` (set by the site walker when the callee performs an effect) | evaluation of a definition's body (§9.2) |
 | a value | | |
 
 Effect classes of the first release (§1.1, §9.2):
@@ -231,6 +251,86 @@ Effect classes of the first release (§1.1, §9.2):
 
 A workflow `call` is not a `perform`: it is a `call` node whose callee is the
 workflow's canonical name (§9.2, "a call is evaluation").
+
+### Compiled-call boundary relation
+
+Ordinary source/procedure calls keep strict positional argument/native
+parameter matching. An explicit compiled import retains the catalog's
+caller-view signature and its snapshot's native signature. When closing
+that boundary, use this optional `call.boundary`:
+
+```text
+{
+  "params": [[call_slot_name, caller_descriptor], ...],
+  "direct": [[argument_index, native_parameter_index], ...],
+  "inputs": {"caller": [row, ...], "callee": [row, ...]},
+  "outputs": {"caller": [row, ...], "callee": [row, ...]}
+}
+row = {"name": wire_name, "path": [structural_segment, ...], "contract": contract}
+```
+
+`call.args[i]` belongs to `boundary.params[i]`, whose unique names label
+caller input roots. Callee input roots label `definition.params`; outputs
+use `return`. `call.type` is the caller result, `definition.result` the native
+result. Every descriptor retains exact canonical nominal facts. Serialize
+existing `FlattenedContractField.generated_name/source_path` plus its
+`SurfaceContract.definition`, including union `projection` metadata. Use
+structural paths from retained typed descriptors/contract pointers for old
+union source segments; never split flattened names to invent field paths.
+
+Task 4 establishes bindings before renaming from `BoundProcArg.name`,
+`ResolvedProcRefValue.signature_params/residual_params`,
+`GeneratedLocalProcedure.capture_names`,
+`WccSpecializationCapture.owner_kind/argument_index/source_name`, and the
+retained workflow signature's defaults/hidden-context/compatibility facts.
+The native list remains its converted capture prefix plus residual parameters.
+Call slots are ordered: runtime captures in native capture-prefix order;
+retained caller-signature formals in declaration order, followed by otherwise
+unlisted private compatibility formals sorted by name; then native-only
+X1/X2/context parameters in native order. Erased compile-time parameters have
+no slot. Fill each formal from its explicit binding, otherwise normalized
+default (`lit`), otherwise the existing permitted hidden/context binding.
+Missing/competing bindings are defects. A generated value already represented
+in caller formals is not appended again; flat storage inputs are not extra
+unchecked arguments.
+
+`direct` is only for captures/generated/context values with ordinary strict
+compatible descriptors. Its non-Boolean integer pairs are in range, sorted
+by native index and unique in both columns. Capture pairs agree with the
+persisted definition key's capture prefix/schema. These are the only extra
+indices needed: direct slots have no wire projection and compiler binding
+names may be renamed differently at each end. A context needing boundary
+transport uses projection rows instead. Row roots already identify projected
+slots by unique-name lookup; wire names match caller/native fields. Direct
+slots and projected roots form disjoint exhaustive partitions of both caller
+slots and native parameter slots, with complete field/active-variant coverage.
+One caller record may supply multiple native parameters: `a: Pair(x, y)`
+projects to `a__x: Int, a__y: Int`. Do not require equal caller/native arity.
+
+Preserve authored/ANF evaluation order before permuting slots. Keep workflow
+keyword prefixes from `CallExpr.bindings`/`WccPerform.keyword_args` and
+`_normalize_perform`, and procedure/capture prefixes from `_normalize_call`.
+Captured computations remain at their lexical bind sites. Bind any remaining
+non-atomic computation once using existing `let`/name nodes before permutation;
+forward resulting values, fill literal defaults and bind generated contexts
+once. Phase 3 evaluates final `args` once left-to-right into a cached vector,
+then transfers/projects it and binds native parameters in native order.
+Projection reads that vector, never re-evaluates expressions, including 1:N.
+It projects the native result back to the caller view, with no new effect/site.
+Phase 2 specifies and checks this relation; the evaluator remains Phase 3.
+
+Task 5 checks each argument against its `boundary.params` descriptor and
+independently derives row meaning from canonical descriptors: valid structural
+paths, exact coverage, matching wire contracts, path roots/existence, enum and
+primitive constraints, union discriminants/activity and inactive-path
+relaxation. Reuse the descriptor/contract owners; never compare only copied
+labels or erase whole-record nominal names. Root collection schemas keep
+nominal requirements they already contain. Reject missing/duplicate formals,
+invalid/direct-order/capture indices, uncovered/overlapping slots, changed
+paths under the same wire name, dropped rows and forged union activity with
+`call_boundary`. The ordinary strict rule applies without `boundary`.
+This checks internal consistency, not historical source authenticity; a
+jointly type-valid alteration of arguments and relation is another program.
 
 ### Values
 
@@ -539,7 +639,9 @@ at the evaluated target.
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/frontend.py`
 - Modify: `orchestrator/workflow_lisp/compiler.py` (`_compile_stage3_graph`, the call of `_lower_workflows_for_route` at line 3083 and the `Stage3CompileResult` construction at line 3130)
-- Modify: `orchestrator/workflow_lisp/workflows.py` (`Stage3CompileResult`, line 420)
+- Modify: `orchestrator/workflow_lisp/workflows.py` (`Stage3CompileResult`, signature reconstruction/catalog owners)
+- Modify: `orchestrator/workflow/loaded_bundle.py` (transient `typed_program` field and pickle state)
+- Modify: `orchestrator/workflow_lisp/build_artifacts.py` (reuse traced digest validation for standalone producers), `orchestrator/workflow_lisp/build.py` (shared export selector over available names; preserve legacy loader/return contract)
 - Test: `tests/test_workflow_lisp_closed_program_frontend.py`
 
 **Read first:** `experiments/evaluated_execution_spike/frontend.py` (what the
@@ -566,6 +668,8 @@ class TypedProgram:
     command_boundary_origins: Mapping[str, str]  # trusted workspace/package origin; Task 7 adds injection carriage
     externs: Mapping[str, ProviderExtern | PromptExtern]     # entry resolved environment
     module_externs: Mapping[str, Mapping[str, ProviderExtern | PromptExtern]]  # existing environments, no alias flattening
+    imported_programs: Mapping[str, TypedProgram]  # explicit binding -> selected producer snapshot
+    module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]  # declaring module -> caller-view catalog signatures
     configuration_bindings: Mapping[str, object]  # all caller/manifest bindings plus used injected bindings
     target: str
     entry_module: str
@@ -585,6 +689,8 @@ def compile_typed_program(
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
     workspace_root: Path | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    imported_programs: Mapping[str, TypedProgram] | None = None,
 ) -> TypedProgram
 ```
 
@@ -601,9 +707,30 @@ def compile_typed_program(
   at the `:target-dsl` span when the entry module's target does not use
   evaluated execution, and the typechecker's own diagnostics unchanged when
   the program does not typecheck.
-- Produces: `Stage3CompileResult.typed_program: object | None = None`
-  (a `TypedProgram` snapshot for source modules in an evaluated-entry graph,
-  else `None`; public selection happens after the complete graph returns).
+- Produces: `Stage3CompileResult.typed_program: object | None = None`;
+  source producers at both old and evaluated targets populate it. Public
+  selection happens after the complete graph; snapshot presence never selects
+  the lowering route. Direct `compile_stage3_entrypoint` and
+  `compile_stage3_module` create `SourceReadTrace()` if none was supplied,
+  before `_effective_source_roots`/graph-attempt reads or
+  `_syntax_module_uses_module_graph`, respectively. Delegation forwards the
+  same trace. Freeze its records/revision vector after final producer reads,
+  then derive digests before snapshot attachment, without another path read.
+  Extract `_source_file_digests_for_modules(module_paths: Mapping[str, Path],
+  *, source_read_records, source_revision_vector) -> dict[str, str]` from the
+  existing linked helper: linked and standalone use the same revision checks,
+  selecting actual compiled module paths. The evaluated standalone entry
+  keeps the checkpoint's fixed `entry` namespace; old-target producers retain
+  their existing identity/canonicalization (including path-stem identity where
+  applicable). Snapshot creation must not rename legacy definitions. No fake
+  graph/result or hash from current live files.
+- Produces: `LoadedWorkflowBundle.typed_program` with default `None`,
+  `compare=False`, `repr=False` (type-only import). Its `__getstate__` returns
+  existing instance state minus only `typed_program`; old pickles obtain the
+  default on decode. Attach selected snapshots to each final source-produced
+  export after shared validation's replacements. Cover the standalone producer
+  too. Preserve incoming bundle identity and existing freeze/replace paths;
+  do not attach the consumer's snapshot to an imported bundle.
 - Rule of `_compile_stage3_graph` (§13): compute `closed_entry` once from
   `graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version`.
   When true, skip `_lower_workflows_for_route` and bundle validation/production
@@ -612,19 +739,59 @@ def compile_typed_program(
   workflow effects, catalogs, environments and typed bodies published in the
   same topological order. `_workflow_name_resolver` already resolves graph
   imports through `import_scope`; do not fabricate `validated_bundles` just to
-  populate `external_workflow_names`. Explicit externally supplied compiled
-  bundles remain distinct: a reachable target lacking source/typed body is a
-  missing-body integration prerequisite: inventory its existing producer and
-  preserve the accepted call contract by supplying its typed source body. Do
-  not quietly add external calls to release exclusions or fabricate a body
-  from flat steps; an admitted call missing its body is a compiler defect.
-  The first release's source calls remain admitted.
+  populate `external_workflow_names`. Explicit supplied compiled imports use
+  the admission and ownership rules below. No body is fabricated from flat
+  steps; once admitted, a missing body is a compiler defect. Source calls
+  remain admitted. Apply `closed_entry` to source-map/shared/executable
+  pipeline passes that require flat artifacts too; old entries retain their
+  existing validation profile even with a populated snapshot. Standalone
+  routing derives the same predicate once from parsed entry syntax.
 - For an older-target entry, preserve the existing lowering path. Detect an
   older-to-evaluated call/import edge before lowering the new module, and
   emit `evaluated_execution_target_direction_invalid` at its import/call
   source location, naming both modules/targets. Also check call edges inside
   an evaluated-entry graph: an imported older module cannot call back into a
   module declared at the new target. New-entry-to-old-import remains allowed.
+- Compiled-import admission (design §4.2.1): forward the new
+  `imported_programs` keyword through Stage 3 and graph compilation alongside
+  its existing bundle map. A binding occurs in only one map. For a bundle,
+  obtain its snapshot from `bundle.typed_program`; for a typed product, require
+  a selected `entry`. Require the matching complete transitive producer
+  snapshot before admitting the import; absent/incomplete or structurally
+  mismatched pairing raises `compiled_workflow_source_required` at the
+  binding/source/manifest location, naming the selected workflow. This is an
+  input precondition, never `closed_program_gap`. Through 2.34, existing
+  supplied-bundle admission is unchanged, including opaque decoded bundles.
+  Restoration is explicit `dataclasses.replace(decoded, typed_program=original)`;
+  check selected workflow/boundary contracts including private inputs, but
+  claim structural consistency only, not historical body authenticity. Never
+  reread `provenance.workflow_path`; recompiling changed source is replacement.
+- The snapshot freezes retained maps and preserves each producer's source
+  digests, bodies, native signatures, externs, command origins/configuration
+  and logical asset base. `imported_programs` retains nested owners; do not
+  merge producer trace evidence into the caller's trace. Before interning a
+  canonical module/callee, equal source/context may deduplicate; unequal
+  revisions, bindings or logical asset context (including source/snapshot
+  overlap) raise `compiled_workflow_snapshot_conflict` naming both origins.
+  No multi-version canonical-key extension or last-write-wins is introduced.
+- Preserve the existing bundle caller-view signature owner. Extract
+  `_signature_from_imported_contracts(alias, *, input_contract_groups,
+  output_contracts, type_env, span, form_path) -> WorkflowSignature` from
+  `workflows._signature_from_imported_bundle`, reusing its contract matching
+  and default reconstruction. `input_contract_groups` is an ordered tuple
+  of `(formal_name, contracts_by_wire_name)` pairs, not a new carrier. The
+  bundle wrapper keeps current public/private classification, including
+  `private_runtime_context_bindings.source_param_name`, and hidden/compatibility
+  facts; never regroup those inputs by flattened-name splitting. A typed-product
+  wrapper uses
+  `derive_workflow_signature_contracts` and retains the native signature's
+  hidden/compatibility facts without deriving them from flat fields. No fake
+  bundle is needed. Keep explicit aliases as catalog/typecheck lookup names;
+  retain per-module caller views in `module_workflow_signatures`. Task 4
+  resolves the alias to `imported_programs[alias].entry.definition.name` for
+  the closed call and uses that snapshot's native body. Do not overwrite the
+  native signature with a reconstructed caller view. This task carries facts;
+  Tasks 4/5/7 own boundary translation/checking and scoped configuration.
 - Consumed by: Tasks 3 to 10.
 
 - [ ] **Step 1: Write the failing tests**
@@ -659,7 +826,8 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(tmp_path
     ...
 
 def test_the_same_old_entry_keeps_its_existing_flat_route_refusal(tmp_path) -> None:
-    # Compile the old module itself through compile_stage3_entrypoint and pin its current code/location.
+    # Compile the old module itself through compile_stage3_entrypoint.
+    # Observed loop_in_branch refusal: workflow_signature_mismatch at line 17, column 28.
     ...
 
 def test_an_old_to_new_edge_has_a_located_target_direction_refusal(tmp_path) -> None:
@@ -680,18 +848,30 @@ def test_an_entry_at_2_34_is_refused_by_the_typed_entry(tmp_path) -> None:
     ...
 ```
 
+Add direct producer tests for implicit and supplied traces, trace identity
+through module-wrapper delegation, conflicting repeated source reads, and
+source deletion/mutation after final reads but before attachment. Pin exact
+consumed digests and old-profile lowering/shared-validation calls. Cover
+selected exports, private/transitive bodies, missing decoded snapshots,
+explicit restoration and structurally wrong pairing; preserve old bundle `is`.
+Change/delete producer source and change caller configuration: the accepted
+snapshot must retain its original body/configuration/digests. Cover equal and
+conflicting source/snapshot overlaps and nominal caller-view signatures.
+Boundary artifact generation belongs to Task 4, not these frontend tests.
+
 - [ ] **Step 2: Run; expected failures**
 
 `ImportError` on `closed.frontend`; then, once the module exists but the
-graph still lowers, `loop_in_branch` fails with
-`workflow_boundary_type_invalid` from the flat route.
+graph still lowers, the observed `loop_in_branch` flat-route refusal is
+`workflow_signature_mismatch` at line 17, column 28. Preserve that actual
+legacy diagnostic rather than the earlier predicted boundary-type code.
 
 - [ ] **Step 3: Implement**
 
 In `_compile_stage3_graph`, derive `closed_entry` from the entry target
 **before the module loop** and check target-direction edges. When
-`closed_entry`, do not lower; build the `TypedProgram` from the same
-arguments the lowering call receives (`typed_workflows`,
+`closed_entry`, do not lower. Build a source `TypedProgram` for both routes
+from the same arguments the lowering call receives (`typed_workflows`,
 `resolved_combined_procedures`, `typed_workflows_by_name`,
 `combined_procedure_type_envs`, `workflow_type_envs_by_name`,
 `extern_environment`, `command_boundary_environment`, `type_env`), retaining
@@ -712,11 +892,15 @@ stays entry-agnostic:
 `compile_typed_program` resolves it after the compile: the export surface
 of the entry module (`result.graph.export_surfaces_by_name[entry module].workflows_by_name`)
 maps `entry_workflow` to its canonical name (also preserve the existing
-standalone-entry selection using a fixed namespace), which must be in
+evaluated standalone-entry selection using fixed namespace `entry`), which must be in
 `typed.workflows`; otherwise raise `entry_workflow_unknown` at the source
-path, the code and location `build._select_entry_workflow` gives today
-(that function cannot be reused: it requires a validated bundle). Return
-`replace(typed, entry=typed.workflows[canonical])`.
+path, the code and location `build._select_entry_workflow` gives today.
+Extract its export selection over an available-name set so old bundle and
+new typed producers share the rule without requiring a bundle. Omitted
+manifest selection requires one export; a requested raw export resolves to
+its canonical target under the existing rule. Return
+`replace(typed, entry=typed.workflows[canonical])`; each produced bundle gets
+that same complete snapshot selected for its own export.
 
 Check `compile_stage3_entrypoint`'s post-processing on a result with no
 lowered workflows: `_filter_profile_checked_linked_diagnostics`,
@@ -732,14 +916,17 @@ The new module; `tests/test_workflow_lisp_target_234.py`;
 
 - [ ] **Step 5: Compatibility evidence**
 
-The four programs of the table: byte-identical (the branch is dead below
-the new target).
+The four programs of the table follow Global Constraints. Also compare
+plain, explicit imported-manifest and nested bundle-run-ref artifacts under
+real pins and at fixed identity inputs, separately. A transient snapshot must
+not alter old serialization. Exercise direct producer paths through both
+Stage 3 doors; old lowering/validation still runs despite non-`None` snapshots.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
+`git add -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow/loaded_bundle.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
 
-`git commit -m "feat: a public compile entry that stops after typecheck at the evaluated execution target" -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
+`git commit -m "feat: a public compile entry that stops after typecheck at the evaluated execution target" -- orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/compiler.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow/loaded_bundle.py orchestrator/workflow_lisp/build_artifacts.py orchestrator/workflow_lisp/build.py tests/fixtures/workflow_lisp/closed_program tests/test_workflow_lisp_closed_program_frontend.py`
 
 **What this makes harder later:** `build_frontend_bundle` still expects a
 validated bundle; Task 9 gives the closed route its own build function
@@ -907,6 +1094,7 @@ Phase 7 removes the flag with the flat route.
 
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/sites.py`, `orchestrator/workflow_lisp/closed/check.py`
+- Modify: `orchestrator/workflow/type_descriptor.py` (source-independent compiled-boundary projection validation)
 - Test: `tests/test_workflow_lisp_closed_program_sites.py`, `tests/test_workflow_lisp_closed_program_check.py`
 
 **Read first:** `experiments/evaluated_execution_spike/sites.py` (`_Scope`,
@@ -950,7 +1138,8 @@ schema above; no compiler import.
   types, join jump/result types, loop seed/state/budget/continue/done/
   exhaustion results, provider result-path origins and every perform's
   result against its command/provider contract or decoded run-ref result.
-  Effects must also match their canonical configuration entry. Reuse pure
+  Effects must also match their canonical configuration entry in the
+  definition's resolved scope (`configuration.imports` or root). Reuse pure
   catalog descriptor validation/coercion and assignability semantics; do not
   invoke frontend typecheck or accept equality of two unvalidated copied
   labels as proof. Unknown/missing type facts and mismatches fail read-back
@@ -962,6 +1151,20 @@ schema above; no compiler import.
   malformed/duplicate JSON keys and nonfinite numbers before typed checking,
   and reject duplicate definition/type/parameter identities rather than
   silently overwriting them.
+- Validate the shared `call.boundary` schema independently. Each argument is
+  checked once against its aligned caller slot; `direct` pairs and projected
+  roots partition both caller and native parameters exactly. Check capture
+  prefix/key agreement, indices/order, structural paths, wire contracts and
+  complete active-variant coverage from canonical descriptors, not copied
+  contract labels. Use the existing neutral transport-descriptor owner and
+  boundary-contract normalization semantics without importing the frontend.
+  Path roots/existence, enums and primitive kinds stay exact; root collection
+  schemas preserve their existing nominal facts. Independently derive legacy
+  union structural paths and inactive-variant path relaxation. Reject forged
+  activity, dropped/redirected rows and altered direct pairs as `call_boundary`.
+  Ordinary calls retain strict nominal/positional matching. Resolve every
+  definition configuration scope and verify its digest and effect bindings;
+  missing or mismatched scopes fail `configuration_scope`.
 - Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 7
   (`validate` when an artifact is read back).
 
@@ -1006,6 +1209,18 @@ argument, loop state and private nominal name. Each must fail even after the
 attacker recomputes the outer digest. Add valid typed trees covering all
 value forms so the validator does not reject supported forms indiscriminately.
 
+Add hand-written annotated-call trees for distinct nominal records, dynamic
+paths and 1:N arguments (`Pair(x,y)` to native `a__x,a__y`), including a direct
+capture, omitted default and X1/X2 context slots. Round-trip each through
+Task 7 when available. Tamper both direct indices/partition and projection
+roots; reject Boolean/out-of-range/duplicate indices, changed paths under the
+same wire name, dropped rows, incorrect capture prefix, mismatched path
+constraints, and an unannotated nominal mismatch. A union fixture must derive
+activity and relaxed inactive paths from its nominal descriptor, then refuse
+forged activity after the artifact digest is recomputed. These are read-back
+proofs, not assertions on compiler-generated text. Test missing/incorrect
+configuration scope and effects matched against the wrong owner's binding.
+
 - [ ] **Step 2: Run; expected failure** `ImportError`.
 
 - [ ] **Step 3: Implement** `sites.py` and `check.py` over the shared schema.
@@ -1020,9 +1235,9 @@ so.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
+`git add -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
 
-`git commit -m "feat: effect sites and the checked form of the closed program" -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
+`git commit -m "feat: effect sites and the checked form of the closed program" -- orchestrator/workflow_lisp/closed/sites.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow/type_descriptor.py tests/test_workflow_lisp_closed_program_sites.py tests/test_workflow_lisp_closed_program_check.py`
 
 **What this makes harder later:** `par-map` (Phase 5) adds an item segment
 `[<index>]` (I2) to the walker and a node kind to the validator; both are
@@ -1235,6 +1450,16 @@ unless added there; do not add it).
   `configuration.commands` includes all supplied entries and every injected
   binding used by the closed program. No user field selects package origin,
   and no absolute installation prefix enters program identity.
+- Use the same semantic configuration projection for root and retained
+  producer snapshots. `configuration.imports[canonical_digest(producer_config)]`
+  stores each producer's normalized `{commands, providers, prompts}`, including
+  unused supplied entries and used injected bindings. Nested owners contribute
+  separate rows; equal configurations deduplicate. Imported definitions select
+  their row by `configuration`, while an absent selector means root. Neither
+  source digests, provenance/install prefixes nor old bundle fingerprints
+  enter these rows. Artifact validation checks scope digests/references and
+  effects under their owning scope. All rows and `call.boundary` participate
+  in semantic identity and read-back; no special unvalidated side file.
 - Keep `closure` out of old-target binding serialization/fingerprints even
   when explicitly supplied: inspect `_json_data` and every boundary payload
   producer, and omit it in the old route's projection, not globally in the
@@ -1321,6 +1546,13 @@ def test_at_2_34_a_manifest_with_closure_builds_the_artifacts_of_one_without(tmp
 
 - [ ] **Step 2: Run; expected failures** `ImportError`; `AttributeError: closure`.
 
+Add artifact round-trips of the Task 5 boundary fixtures and two producer
+scopes with same-named, unequal command/provider/prompt bindings. Changing an
+unused producer binding changes program identity; scope/key changes that
+mismatch the selected effect fail checked read-back. Equal configurations
+share one row, and relocation/provenance changes add no incidental paths.
+These checks exercise the semantic projection, not raw bundle fingerprints.
+
 - [ ] **Step 3: Implement** the artifact, canonical configuration and
 closure carriage/old-route omission in their existing owners.
 
@@ -1374,13 +1606,16 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
   and `canonical_type_descriptor`, `canonical_definition_key` (Task 6); `program.ClosedProgram`, `program_digest`, `SCHEMA`,
   `REPRESENTATION`, the bindings' `closure` field (Task 7).
 - Produces: `build.build_closed_program(typed: TypedProgram) -> ClosedProgram`.
-  Steps inside: `require_command_closures(typed.command_boundaries, manifest_path=None)`
-  (C1, before any elaboration), build the entry definition
-  (`Definition(canonical, owner, type_env, renamer)`), bind hidden context
+  Steps inside: `require_command_closures` for the root and every retained
+  producer's command bindings (C1, before elaboration), build the owner index
+  with Task 2's snapshot-conflict check, then the entry definition using its
+  `source_program`, type environment, externs and renamer. Bind hidden context
   parameters of the entry as leading `let`s (X1), translate the body, attach
   each callee once by canonical name into `definitions` (memoized; a callee
-  reached twice with two different bodies is a defect: raise `ValueError`,
-  reported as `compiler_defect`), add canonical `types` and complete
+  reached twice with contradictory internal bodies after input admission is
+  a defect: raise `ValueError`, reported as `compiler_defect`; incompatible
+  supplied snapshots were already refused as `compiled_workflow_snapshot_conflict`).
+  Add canonical `types` and complete
   `configuration`, then `assign_sites`, `validate`, and `program_digest`.
   Task 8 later inserts generated run-ref finalization between site assignment
   and validation when it adds run-ref translation. The whole build runs under
@@ -1403,7 +1638,7 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
   - `translate_perform(builder: Builder, perform: WccPerform, d: Definition, env) -> dict`,
     for `perform_kind == "command_result"`: `boundary` = `payload["adapter_name"] or perform.target_name`;
     `command` = the binding's `stable_command`; `closure` = its canonical
-    normalized declaration from `configuration.commands`;
+    normalized declaration from the owning definition's configuration scope;
     `contract` = `derive_prompt_guided_structured_result_contract(result type, workflow_name=d.canonical, step_id="effect", type_env=d.type_env, guidance=return_spec.guidance)`
     as `{kind, payload without "path" or source_map_subject}`; move the
     latter diagnostic subject under `@` rather than into program identity; `repeat` = `"never"` when
@@ -1434,6 +1669,7 @@ as the value env and `procedure_type_env_for`); `context_classification._is_run_
 class Definition:
     canonical: str            # the canonical callee name, or the entry's name
     owner: str                # the elaborator's owner name (definition.name)
+    source_program: TypedProgram  # body/environment/configuration/asset owner
     type_env: FrontendTypeEnvironment
     externs: Mapping[str, ProviderExtern | PromptExtern]  # declaring module plus resolved specialization rebinding
     renamer: Renamer
@@ -1447,9 +1683,16 @@ class Builder:
     def binding(self, value: WccBindingValue, d: Definition, env) -> dict: ...   # perform -> effects.translate_perform(self, ...), call -> self.call, workflow_call -> self.workflow_call
 ```
 
+- Build the definition-owner index by visiting `typed.imported_programs`
+  recursively and local graph definitions. `Builder.typed` remains the root;
+  body/type/extern/command/prompt/asset lookups use `d.source_program`. Preserve
+  native callee signatures and the declaring module's separate caller-view
+  signatures. Resolve an explicit alias through that owner's selected import
+  entry before emitting its canonical callee. Register Task 7's canonical
+  configuration row for each imported owner and select it on its definitions.
 - Rules this task implements, each cited:
   - P1: `call` → `{"k": "call", "callee": canonical, "args": [...]}`; the
-    callee's body elaborated once with `elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name, type_env=typed.procedure_type_env(procedure), value_env=_procedure_signature_local_type_bindings(procedure), workflow_return_types=<every workflow's return type>, procedure_return_types=<every procedure's, generic templates excluded (case e)>, route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)`,
+    callee's body elaborated once with `elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name, type_env=d.source_program.procedure_type_env(procedure), value_env=_procedure_signature_local_type_bindings(procedure), workflow_return_types=<every workflow's return type>, procedure_return_types=<every procedure's, generic templates excluded (case e)>, route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)`,
     normalized with `normalize_wcc_body_to_anf`, stored under
     `definitions[canonical] = {"key": key, "params": [[renamed param, descriptor]], "result": descriptor, "body": ...}`. A
     recursive call (the callee is on the active stack) is a `ClosedProgramGap`
@@ -1458,7 +1701,14 @@ class Builder:
     a parameter the call leaves out taking its declared default (`lit`) or,
     when the signature has a hidden context requirement for it, the X1/X2
     value; a parameter with neither is a defect of the typechecker
-    (`ValueError`).
+    (`ValueError`). For an explicit compiled import, match against its
+    retained caller view, then emit the shared `boundary` relation to the
+    native body. Use existing `derive_workflow_signature_contracts` projections
+    and private classification; do not replace native types with caller types.
+    Follow the shared slot/default/capture/context order and 1:N rules,
+    preserving evaluation in ANF prefixes before permutation. `direct` handles
+    strict generated/capture transfers; projections handle the boundary view.
+    Neither case adds a site or reconstructs a body from flat steps.
   - Before P1 names are computed, convert existing `BoundProcArg`, value/
     workflow/reference specialization facts and generated local capture facts
     into closed bindings. Substituted compile-time expressions enter the full
@@ -1548,6 +1798,14 @@ def test_all_reference_bindings_and_runtime_captures_close(tmp_path) -> None:
 
 def test_imported_old_target_loop_in_branch_builds_without_flat_lowering(tmp_path) -> None:
     # Task 2's imported fixture now reaches ClosedProgram and passes from_artifact.
+
+def test_compiled_imports_keep_native_bodies_and_caller_boundary_views(tmp_path) -> None:
+    # Public old-bundle and typed-product imports: distinct nominal records,
+    # dynamic paths, and one Pair argument feeding native a__x/a__y params.
+    # Add defaults/capture/context slots; assert complete aligned relation and
+    # once-only authored/lexical ANF prefixes, then artifact read-back.
+    # Producer source deletion and conflicting caller configuration preserve
+    # producer body/bindings/asset base; no live-source reread or flat lowering.
 
 def test_private_nominals_remain_distinct_in_entry_effect_and_nested_descriptors(tmp_path) -> None:
     # Two imported private Note types are recursively module-qualified everywhere.
@@ -1785,6 +2043,7 @@ runtime evidence does not authorize dropping document slots or dependencies.
 
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/artifact.py`
+- Modify: `orchestrator/workflow_lisp/build.py` (share compiled-import manifest entry validation; keep legacy loader/initializer behavior)
 - Modify: `orchestrator/cli/commands/compile.py` (`compile_workflow`, before `normalize_frontend_artifact_exports` at line 63)
 - Test: `tests/test_workflow_lisp_closed_program_compile_cli.py`
 
@@ -1811,13 +2070,19 @@ class ClosedProgramBuildResult:
 def build_closed_program_bundle(request: FrontendBuildRequest) -> ClosedProgramBuildResult
 def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: Mapping[str, str],
                      provider_externs: Mapping[str, str], prompt_externs: Mapping[str, object],
-                     command_boundary_manifest: Mapping[str, object]) -> str
+                     command_boundary_manifest: Mapping[str, object],
+                     imported_programs: Mapping[str, object]) -> str
 ```
 
   `build_closed_program_bundle` resolves the request as `build.py` does,
-  loads the three manifests with the same loaders, calls
-  `require_command_closures(parsed, manifest_path=request.command_boundaries_path)`,
-  then `compile_typed_program` with a fresh `SourceReadTrace`, then `build_closed_program`, writes
+  loads provider, prompt, command and imported-workflow manifests using the
+  existing validation/configuration owners. Select the evaluated route before
+  `load_frontend_initialization_configuration`, whose old initializer eagerly
+  compiles imports into runnable bundles. Keep that initializer unchanged for
+  old targets. Call `require_command_closures` on each captured producer/root
+  configuration at its manifest location. Load compiled imports as described
+  below, then call `compile_typed_program` with both import maps and one fresh
+  consumer `SourceReadTrace`, then `build_closed_program`. Write
   `closed_program.json` (`program.artifact()`) and `manifest.json`
   (`{"schema_version": "closed-program-build/1", "build_key", "program_digest", "representation", "target", "entry_workflow", "source_path", "source_roots", "sites": <count>, "artifact_paths": {"closed_program": "build/<key>/closed_program.json"}}`,
   written with `indent=2, sort_keys=True`). `closed_build_key` is
@@ -1829,6 +2094,26 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   workspace's build root. Within one workspace, atomically replace cache
   artifacts only after a successful validated build; provenance can differ.
   A build cache is not the durable run authority of Phase 3.
+- Extract the old compiled-import entry validation into a shared iterator of
+  `(binding_name, resolved_source_path, requested_entry)` tuples. The closed
+  loader returns the plain pair `(bundles_by_binding, programs_by_binding)`.
+  `kind=compiled` remains `.orc`-only and each producer still disables recursive
+  imported manifests. Create its trace before target inspection and preserve
+  it through the selected producer path. An old-target producer uses the
+  existing in-memory compilation, retaining its selected bundle/snapshot; an
+  evaluated producer calls the typed Stage 3 path and selects its export
+  without `_require_runnable_in_memory_build` or a fake bundle. Task 2's shared
+  export selector handles raw/canonical requested names and unique exports
+  when omitted. The legacy loader's return type remains unchanged.
+- `closed_build_key.imported_programs` contains canonical JSON contributions
+  by supplied binding: selected canonical entry, producer target, original
+  `source_file_digests`, canonical three-map configuration, and recursively
+  retained import contributions. Reuse Task 7's projection; no old bundle
+  fingerprint, incidental source/install path or raw manifest formatting enters this
+  semantic contribution. Independently compiled producer bytes remain in
+  producer trace evidence; never inject hashes into the consumer's trace or
+  reread source to compute the key. Raw source digests affect build identity,
+  not semantic `program_digest`.
 - `compile_workflow`: after the `.orc` check, `target = entry_target_dsl_version(workflow_path)`;
   when `target_dsl_uses_evaluated_execution(target)`: any `--emit-*` flag
   is refused with `workflow_lisp_cli_input_unsupported` naming the flag
@@ -1879,6 +2164,16 @@ def test_an_unused_manifest_entry_changes_program_digest(tmp_path) -> None:
 def test_build_key_uses_the_same_compile_source_snapshot(tmp_path) -> None:
     # Mutate an import after its traced read; key uses consumed bytes, next build uses new bytes.
 
+def test_compiled_import_manifest_selects_old_and_evaluated_producers(tmp_path) -> None:
+    # CLI fourth manifest with one old runnable producer and one typed 2.35
+    # producer; requested/unique export selection, no eager old initializer
+    # for the new producer, both native bodies in the checked artifact.
+
+def test_imported_snapshot_configuration_and_source_contribute_to_build_identity(tmp_path) -> None:
+    # Original producer digests, transitive bodies and scopes survive; unused
+    # producer binding changes semantic identity, relocation does not.
+    # Selected entry/source-byte changes alter key; caller trace is separate.
+
 def test_an_emit_flag_is_refused_at_the_new_target(tmp_path) -> None:    # exit 2, workflow_lisp_cli_input_unsupported
 
 def test_a_manifest_without_closure_is_refused_at_the_manifest_path(tmp_path) -> None:   # Review focus 3
@@ -1892,8 +2187,10 @@ at the new target (Task 2 made lowering skip, so `build_frontend_bundle`
 fails on the missing bundle: a `RuntimeError` or `KeyError`, exit 2 with no
 code); record it.
 
-- [ ] **Step 3: Implement** `artifact.py` (about 130 lines) and the CLI
-branch (about 30 lines).
+- [ ] **Step 3: Implement** `artifact.py`, the CLI branch and shared manifest
+entry validation, following the existing configuration and selection owners.
+Do not duplicate the old initializer or route a typed producer through a
+runnable-bundle requirement.
 
 - [ ] **Step 4: Run; expected pass.** Then `tests/test_workflow_lisp_target_234.py`
 and the compile command's existing tests (`rg -l compile_workflow tests`).
@@ -1906,9 +2203,9 @@ directory.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
 
-`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
 
 **What this makes harder later:** two build functions and two manifest
 schemas until Phase 7; Phase 3's `run` reads `closed_program.json` from the
@@ -1938,7 +2235,9 @@ design §18 first row; Phase 2 milestones P1, P2, P3.
   (imported modules keep theirs, §13), synthesizes the externs: providers
   from a checked-in manifest beside the workflow (`*providers*.json`) else
   `codex` for every provider name found in every module under the source
-  root; prompts from a manifest else an empty file per prompt name; commands
+  root; preserve any checked-in imported-workflow manifest and compile its
+  `.orc` producers through Task 9's shared routing with their own snapshots;
+  prompts from a manifest else an empty file per prompt name; commands
   from a manifest else `["python", "<the leading literal words of :argv>"]`,
   and an explicit audited closure declaration for every fixture command.
   Do not synthesize an unknown `closure: []`: use checked-in known manifest
@@ -2017,8 +2316,14 @@ and certified-adapter commands; both prompt source kinds; document/rendered/
 output slots; plain/generic/value/workflow/ref-bound/captured/local calls;
 path run-ref; all nested control edges in design §6. Include direct,
 same-module-helper and imported-old-helper shapes for the formerly failing
-positions. Every admitted matrix entry builds and round-trips; an internal
-compiler failure is repaired, never added to `EXPECTED` as a new gap.
+positions. Add complete source-produced old bundles and typed 2.35 products,
+explicit restoration, nominal record/path boundary views, 1:N arguments,
+defaults/capture/context alignment and distinct producer configuration scopes.
+Exercise both direct APIs and the fourth-manifest CLI route. Missing snapshots
+and conflicting canonical contexts are explicit invalid-input tests under
+Task 2's admission rules, not new `gap(form)` outcomes. Every admitted matrix
+entry builds and round-trips; an internal compiler failure is repaired,
+never added to `EXPECTED` as a new gap.
 
 - [ ] **Step 6: Commit**
 
@@ -2121,7 +2426,13 @@ not these future tests against nonexistent implementation modules.
 
 Phase 3 consumes the checked `effect_class`, result contracts, full call/
 capture/type facts, source-kind-preserving prompts, canonical configuration,
-site/frame separation and position-free run-ref config. Its plan must retain
+site/frame separation and position-free run-ref config. It must implement
+checked `call.boundary` direct/projection transport over once-evaluated cached
+arguments, native-order binding and result projection, preserving 1:N,
+nominal path/record/union constraints and the definition's configuration scope.
+Required runtime evidence includes argument/capture once-only behavior and
+matching boundary values; Phase 2's old-route probes are not evaluator proof.
+Its plan must retain
 fresh compile versus header comparison before memo reads, stored-artifact
 validation, preflight in journal order, durable `started` before allocation,
 durable atomic header/program publication before `started`, closure evidence
@@ -2134,8 +2445,11 @@ retry, terminal, trial-SDK or reader implementation enters this plan.
 
 ## Closeout
 
-- [ ] Byte identity for the four programs of the table at the phase's head
-  against the recorded `PHASE2_BASE`.
+- [ ] Raw compatibility comparison for the four programs and compiled-import/
+  nested run-ref specimens against `PHASE2_BASE`: equal bytes at identical
+  identity inputs, separate fixed-identity serialization proof, and explicit
+  explanation of real compiler-pin-dependent differences without weakening
+  the pin or normalizing artifacts (Global Constraints).
 - [ ] Full suite in tmux, alone: `pytest -q -n 16 --dist=worksteal`,
   after narrow selectors pass. Record and resolve failures; do not weaken
   verification or accept a new failure by updating expectations.
