@@ -576,6 +576,7 @@ def _normalize_match_value(
                 span=arm.span,
                 form_path=arm.form_path,
                 expansion_stack=arm.expansion_stack,
+                binding_label=arm.binding_label,
             )
         )
     nested_match = MatchExpr(
@@ -772,6 +773,7 @@ def _normalize_loop_body_match(
                 span=arm.span,
                 form_path=arm.form_path,
                 expansion_stack=arm.expansion_stack,
+                binding_label=arm.binding_label,
             )
         )
     rebuilt = MatchExpr(
@@ -1169,6 +1171,7 @@ def _wrap_bindings(
         span=source_expr.span,
         form_path=source_expr.form_path,
         expansion_stack=source_expr.expansion_stack,
+        binding_labels=(None,) * len(prefix),
     )
 
 
@@ -1218,6 +1221,14 @@ def _select_closed_condition_inputs(expr: ExprNode) -> ExprNode:
                 span=semantic_input.span,
                 form_path=semantic_input.form_path,
                 expansion_stack=semantic_input.expansion_stack,
+                binding_labels=(
+                    (None,) * len(prefix)
+                    + (
+                        semantic_input.binding_labels[0]
+                        if len(semantic_input.binding_labels) == 1
+                        else None,
+                    )
+                ),
             )
         raise AssertionError(
             f"unsupported retained condition input {type(semantic_input).__name__}"
@@ -1331,6 +1342,7 @@ def rewrite_cond_clauses(
                 span=clause.span,
                 form_path=clause.form_path,
                 expansion_stack=clause.expansion_stack,
+                binding_labels=(None,) * len(clause.condition_bindings),
                 condition_normalization_input=dataclasses.replace(
                     nested_if,
                     condition_expr=clause.condition_input,

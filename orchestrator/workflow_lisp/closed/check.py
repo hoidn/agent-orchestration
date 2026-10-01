@@ -460,10 +460,16 @@ class _Checker:
             self.fail("call_signature", "call arguments must be an array", node if node is not None else value)
         if "@" in value:
             provenance = value["@"]
-            if not isinstance(provenance, Mapping) or set(provenance) != {"span", "form"}:
-                self.fail("provenance", "node provenance must contain span and form", value)
+            if (
+                not isinstance(provenance, Mapping)
+                or not {"span", "form"}.issubset(provenance)
+                or set(provenance) - {"span", "form", "source_map_subject"}
+            ):
+                self.fail("provenance", "node provenance must contain span/form and optional source-map subjects", value)
             if not isinstance(provenance["span"], str) or not isinstance(provenance["form"], list):
                 self.fail("provenance", "node provenance span/form have invalid types", value)
+            if "source_map_subject" in provenance and not isinstance(provenance["source_map_subject"], list):
+                self.fail("provenance", "source-map subjects must be a list", value)
 
     def _binding_name(self, value: Any, node: Any = None) -> str:
         if not isinstance(value, str) or not value:
@@ -2314,7 +2320,7 @@ class _Checker:
             if isinstance(terminal, list) and len(terminal) == 2:
                 if terminal[0] == "parameter" and isinstance(terminal[1], str) and terminal[1]:
                     return
-                if terminal[0] == "local" and self._is_local_selector(terminal[1]):
+                if terminal[0] == "local" and type(terminal[1]) is int and terminal[1] >= 0:
                     return
         if tag == "context" and len(route) == 4:
             hops, native_formal, fields = route[1:]
@@ -3280,7 +3286,7 @@ class _Checker:
         if kind == "context":
             if node.get("field") != "run-id":
                 self.fail("node_kind", "context supports only run-id", node)
-            return {"kind": "primitive", "name": "String"}
+            return {"kind": "primitive", "name": "RunId"}
         if kind == "result_path":
             name = node.get("n")
             if not isinstance(name, str) or name not in provider_origins:
@@ -3416,15 +3422,45 @@ class _Checker:
         return {"kind": "output_bundle", "payload": {"fields": [root]}}
 
     def _result_contract_view(self, value: Any) -> Any:
-        if isinstance(value, Mapping):
-            return {
-                key: self._result_contract_view(item)
-                for key, item in value.items()
-                if key not in _RESULT_CONTRACT_METADATA_KEYS
-            }
-        if isinstance(value, list):
-            return [self._result_contract_view(item) for item in value]
-        return value
+        """Project only contract-owned provenance before structural comparison.
+
+        Contract maps include user-authored variant names and guidance objects;
+        recursively treating every matching dictionary key as metadata can
+        erase real variants such as ``source_map_subject``.  Provenance keys
+        are owned only by the payload root and its field rows.
+        """
+
+        if not isinstance(value, Mapping):
+            return deepcopy(value)
+        result = deepcopy(dict(value))
+        for key in _RESULT_CONTRACT_METADATA_KEYS:
+            result.pop(key, None)
+
+        def project_field_rows(rows: Any) -> Any:
+            if not isinstance(rows, list):
+                return deepcopy(rows)
+            projected = []
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    projected.append(deepcopy(row))
+                    continue
+                clean = deepcopy(dict(row))
+                for key in _RESULT_CONTRACT_METADATA_KEYS:
+                    clean.pop(key, None)
+                projected.append(clean)
+            return projected
+
+        for field_key in ("fields", "shared_fields"):
+            if field_key in result:
+                result[field_key] = project_field_rows(result[field_key])
+        variants = result.get("variants")
+        if isinstance(variants, Mapping):
+            projected_variants = deepcopy(dict(variants))
+            for variant in projected_variants.values():
+                if isinstance(variant, Mapping) and "fields" in variant:
+                    variant["fields"] = project_field_rows(variant["fields"])
+            result["variants"] = projected_variants
+        return result
 
     def _check_effect_result_contract(self, node: Mapping[str, Any]) -> None:
         contract = node.get("contract")

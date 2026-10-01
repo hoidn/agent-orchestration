@@ -1300,7 +1300,8 @@ empty lists, numeric kinds, enums and refined paths cannot always be inferred
 from JSON alone; `name` and `field` derive it from the typed environment.
 Record/inject/path nodes already carry descriptors; `op` uses its catalog
 result descriptor; `select`/`block` derive a common branch/body result;
-`context.run-id` is `String`; `result_path` must reference a provider result
+`context.run-id` has the fixed `RunId` descriptor declared by `std/context`;
+the closed checker does not coerce it to `String`. `result_path` must reference a provider result
 binding and its declared path type. Definition/entry, join and loop results,
 all parameter types and effect result/contract types are persisted. Case
 bind types derive from the subject union's selected variant. The validator
@@ -2936,10 +2937,11 @@ Consume the retained [loop-carrier families](#generated-loop-state-carrier-ident
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/build.py` (bodies, bound values, calls, the table), `orchestrator/workflow_lisp/closed/values.py` (values, operators, surface objects), `orchestrator/workflow_lisp/closed/context.py` (X1, X2, X4), `orchestrator/workflow_lisp/closed/effects.py` (`require_command_closures`, `translate_perform` for `command_result`; every other kind raises `ClosedProgramGap` naming its form until Task 8 translates providers and run references)
 - Modify: `orchestrator/workflow_lisp/typecheck_effects.py` (`typecheck_provider_bundle_path_expr`, line 1188: one gated condition, X4)
-- Modify: `orchestrator/workflow_lisp/expressions.py` (transient binding-origin fields and parser capture), `orchestrator/workflow_lisp/typecheck_dispatch.py`, `orchestrator/workflow_lisp/conditionals.py`, `orchestrator/workflow_lisp/functions.py` (preserve origin through reconstructed bindings/arms and cloning), `orchestrator/workflow_lisp/typecheck_structural_values.py` (authored list item versus synthetic loop binders), `orchestrator/workflow_lisp/procedure_typecheck.py` (omit transient origin from legacy semantic identity).
+- Modify: `orchestrator/workflow_lisp/expressions.py` (transient binding-origin fields and parser capture), `orchestrator/workflow_lisp/typecheck_dispatch.py`, `orchestrator/workflow_lisp/conditionals.py`, `orchestrator/workflow_lisp/functions.py` (preserve origin through reconstructed bindings/arms and cloning), `orchestrator/workflow_lisp/typecheck_structural_values.py` (authored list item versus synthetic loop binders), `orchestrator/workflow_lisp/workflows.py` (`WorkflowParam.binding_label` from the declaration identifier), `orchestrator/workflow_lisp/procedures.py` (`ProcedureParam.binding_label` from defproc declaration identifiers), `orchestrator/workflow_lisp/procedure_specialization.py` (preserve the parameter origin while projecting residual parameters), `orchestrator/workflow_lisp/procedure_refs.py` (retain the source binding identity for closed local capture routing), `orchestrator/workflow_lisp/procedure_typecheck.py` (generated capture parameters remain anonymous; `_semantic_identity` omits transient fields), `orchestrator/workflow_lisp/typecheck_context.py` (retain the actual entry binding environment transiently), `orchestrator/workflow_lisp/typecheck_loop_recur.py` and `typecheck_proofs.py` (retain exact loop and arm binder identities), `orchestrator/workflow_lisp/expression_traversal.py` (preserve checked TypeRefs when rebuilding expressions), and `orchestrator/workflow_lisp/closed/names.py` (canonical discriminant descriptor).
 - Modify after Task 3: `orchestrator/workflow_lisp/wcc/model.py` (binding origin on existing metadata/case arms), `orchestrator/workflow_lisp/wcc/elaborate.py` (origin carriage), `orchestrator/workflow_lisp/wcc/anf.py` (preserve case-arm origin; generated lets remain anonymous). Reuse Task 3's `build_manifest_io.py` transient omission support; do not change its normalization contract or hygiene spelling algorithm.
+- Modify shared Task 5 checker: `orchestrator/workflow_lisp/closed/check.py` validates local capture routes using exact non-Boolean indices and projects result-contract provenance only from schema-owned field rows.
 - Create: `tests/workflow_lisp_closed_program_helpers.py` (shared by Tasks 4, 8, 9, 10: `install`, `fixture`, `build`, `with_blank_lines`, `BOUNDARIES` with `closure=("probe.py",)` on every binding, `PROVIDERS`, `PROMPTS`, modelled on the spike's test helpers, importing none of the spike)
-- Test: `tests/test_workflow_lisp_closed_program_build.py`, `tests/test_workflow_lisp_closed_program_context.py`
+- Test: `tests/test_workflow_lisp_closed_program_build.py`, `tests/test_workflow_lisp_closed_program_context.py`, `tests/test_workflow_lisp_closed_program_check.py`
 
 **Read first:** the spike's `closed.py` in full (its docstring says what it
 supplied for each property), `table.py`; design §4.1 to §4.4, §9.2 (a call
@@ -3183,6 +3185,19 @@ source location. Existing admission rules are unchanged.
 | Source loop state | State identifier → `LoopBodyFnExpr.binding_label` in `_elaborate_loop_body_fn` → `LoopRecurExpr.binding_label` in `_elaborate_loop_recur` → `WccRecJoin.metadata.binding_label` for `params[0]`. |
 | Effectful list item (`list/map-effect`) | Binder identifier → `ListMapEffectExpr.binding_label` → its item-binding entry in `typecheck_structural_values`' synthetic `LetStarExpr` → `WccLet.metadata.binding_label`. Preserve the authored item; synthetic result/tail/state bindings and the generated `LoopRecurExpr` state have no authored label. Retain Task 3's terminal-state and operand-order behavior. |
 | Generated ANF/capture/context/temporary/control target | Its existing constructor or conversion owner supplies `None`; generated join/loop targets are separate from result/state labels. Native definition parameters use their retained declaration facts. |
+| Native workflow/procedure parameters | Declaration `SyntaxIdentifier` → transient `WorkflowParam.binding_label` / `ProcedureParam.binding_label`; caller-authored macro arguments retain their label, while introduced and unused template parameters remain `None`. The builder uses the declaration records directly; typed signature tuples do not carry this fact. Generic procedure specialization preserves the origin on each residual parameter. |
+
+Runtime closure captures also retain the existing `BindingIdentity` for the
+actual lexical binder through transient typed and existing WCC binder/call
+metadata. Closed elaboration freezes a demanded runtime value at its lexical
+owner with an anonymous binding, then forwards that binding through local
+procedures, joins, loops, and imported wrappers. The alias map is copied at
+lexical edges; identities are never reconstructed from a spelling or used as
+a global registry. These facts are omitted from repr, equality, semantic
+identity and legacy serialization. A source-deleted imported build uses the
+retained typed producer snapshot; any decoded bundle must reattach that
+in-memory snapshot before closed construction. No new field is added to the
+legacy bundle or artifact formats.
 
 Use default absent origin on compiler-generated constructors, and require
 every `Renamer.bind` call to pass the appropriate fact, including case and
@@ -3194,8 +3209,10 @@ Use `repr=False`, `compare=False`, `hash=False`, and Task 3's existing
 also from `procedure_typecheck._semantic_identity`, which walks dataclass
 fields independently of repr/equality flags; legacy callable names and
 serialized outputs must remain unchanged. Do not add these facts to type
-definition dataclasses. Only their explicit closed-schema projection is
-semantic artifact data.
+definition dataclasses. `WorkflowParam` and `ProcedureParam` are retained
+declaration records; their new facts stay transient and are read only by the
+closed builder. Only the explicit closed-schema projection is semantic
+artifact data.
 
 Audit manual reconstruction and binding-list slicing/concatenation in the
 listed files. In particular, `typecheck_dispatch` and `conditionals` rebuild
@@ -3375,9 +3392,9 @@ Phase 3 runtime execution/resume behavior.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
+`git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow_lisp/procedures.py orchestrator/workflow_lisp/procedure_specialization.py orchestrator/workflow_lisp/procedure_refs.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/typecheck_context.py orchestrator/workflow_lisp/typecheck_loop_recur.py orchestrator/workflow_lisp/typecheck_proofs.py orchestrator/workflow_lisp/expression_traversal.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/test_workflow_lisp_closed_program_check.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
-`git commit -m "feat: build the closed program as a table of definitions with the run's context values" -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/fixtures/workflow_lisp/closed_program`
+`git commit -m "feat: build the closed program as a table of definitions with the run's context values" -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow_lisp/procedures.py orchestrator/workflow_lisp/procedure_specialization.py orchestrator/workflow_lisp/procedure_refs.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/typecheck_context.py orchestrator/workflow_lisp/typecheck_loop_recur.py orchestrator/workflow_lisp/typecheck_proofs.py orchestrator/workflow_lisp/expression_traversal.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/test_workflow_lisp_closed_program_check.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
 **What this makes harder later:** both target routes retain their own
 elaboration consumers until flat-route retirement. Imported source modules

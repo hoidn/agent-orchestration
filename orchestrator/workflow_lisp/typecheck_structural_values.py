@@ -45,6 +45,7 @@ from .typecheck_context import (
     raise_error,
     raise_run_ref_placement_invalid,
 )
+from .typecheck_proofs import _allocate_binding_identity
 
 
 def _is_transportable_result_type(
@@ -240,7 +241,19 @@ def typecheck_structural_value_expr(
             **value_env,
             expr.binder_name: typed_source.type_ref.item_type_ref,
         }
-        typed_body = recurse(expr.body_expr, value_env=body_env)
+        binding_identity = expr.binding_identity or _allocate_binding_identity(
+            context.binding_env,
+            form_path=expr.form_path,
+            kind="list-map",
+            name=expr.binder_name,
+        )
+        body_binding_env = dict(context.binding_env)
+        body_binding_env[expr.binder_name] = binding_identity
+        typed_body = recurse(
+            expr.body_expr,
+            value_env=body_env,
+            binding_env=body_binding_env,
+        )
         if not _is_pure_or_provisional_procedure_call(
             typed_body.effect_summary, context=context
         ):
@@ -287,6 +300,7 @@ def typecheck_structural_value_expr(
                 body_expr=typed_body.expr,
                 source_item_type_ref=typed_source.type_ref.item_type_ref,
                 result_item_type_ref=typed_body.type_ref,
+                binding_identity=binding_identity,
             ),
             type_ref=result_type,
             effect=EMPTY_EFFECT_SUMMARY,
@@ -397,7 +411,19 @@ def typecheck_structural_value_expr(
             **value_env,
             expr.binder_name: typed_source.type_ref.item_type_ref,
         }
-        typed_body = recurse(expr.body_expr, value_env=body_env)
+        binding_identity = expr.binding_identity or _allocate_binding_identity(
+            context.binding_env,
+            form_path=expr.form_path,
+            kind="map-effect",
+            name=expr.binder_name,
+        )
+        body_binding_env = dict(context.binding_env)
+        body_binding_env[expr.binder_name] = binding_identity
+        typed_body = recurse(
+            expr.body_expr,
+            value_env=body_env,
+            binding_env=body_binding_env,
+        )
         if effect_summary_contains_runs_ref(typed_body.effect_summary):
             raise_run_ref_placement_invalid(
                 typed_body.expr,
@@ -598,6 +624,8 @@ def typecheck_structural_value_expr(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+            binding_labels=(expr.binding_label, None, None, None, None),
+            binding_identities=(binding_identity, None, None, None, None),
         )
         loop_body = IfExpr(
             condition_expr=PureOpExpr(

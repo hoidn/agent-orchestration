@@ -1265,6 +1265,9 @@ def normalize_resolved_inline_procedure_calls(
                     span=expr.span,
                     form_path=expr.form_path,
                     expansion_stack=helper_stack,
+                    binding_labels=(
+                        None,
+                    ) * (len(static_call_bindings.bindings) + len(call_bindings.bindings)),
                 )
                 return expanded
             finally:
@@ -1754,6 +1757,7 @@ def _clone_function_expr(
                     span=span,
                     form_path=form_path,
                     expansion_stack=expansion_stack,
+                    binding_label=arm.binding_label,
                 )
                 for arm in expr.arms
             ),

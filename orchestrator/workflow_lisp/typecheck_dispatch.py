@@ -227,6 +227,7 @@ def typecheck_expression(
                 typed.expr,
                 let_proc_rewrite_results=session_state.let_proc_rewrite_results,
             ),
+            binding_environment=dict(active_binding_env),
         )
         merged_session_state = merge_successful_session_outputs(
             previous_session_state,
@@ -875,7 +876,8 @@ def _typecheck(
         seen_names: set[str] = set()
         binding_summaries: list[EffectSummary] = []
         rewritten_bindings: list[tuple[str, ExprNode]] = []
-        for name, binding_expr in expr.bindings:
+        binding_identities = []
+        for index, (name, binding_expr) in enumerate(expr.bindings):
             if name in seen_names:
                 _raise_error(
                     f"duplicate let* binding `{name}`",
@@ -894,12 +896,19 @@ def _typecheck(
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
-            local_binding_env[name] = _allocate_binding_identity(
-                local_binding_env,
-                form_path=binding_expr.form_path,
-                kind="let",
-                name=name,
+            binding_identity = (
+                expr.binding_identities[index]
+                if index < len(expr.binding_identities)
+                and expr.binding_identities[index] is not None
+                else _allocate_binding_identity(
+                    local_binding_env,
+                    form_path=binding_expr.form_path,
+                    kind="let",
+                    name=name,
+                )
             )
+            local_binding_env[name] = binding_identity
+            binding_identities.append(binding_identity)
             local_value_expr_env[name] = typed_binding.expr
             rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
@@ -925,6 +934,8 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+            binding_labels=expr.binding_labels,
+            binding_identities=tuple(binding_identities),
             condition_normalization_input=expr.condition_normalization_input,
         )
         return _typed(

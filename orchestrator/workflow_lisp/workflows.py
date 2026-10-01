@@ -300,6 +300,13 @@ class WorkflowParam:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     default_value: "WorkflowParamDefault | None" = None
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -3204,6 +3211,11 @@ def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowP
         form_path=form_path,
         expansion_stack=raw_param.expansion_stack,
         default_value=default_value,
+        binding_label=(
+            name_identifier.display_name
+            if name_identifier.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 

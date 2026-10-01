@@ -896,7 +896,11 @@ def canonical_type_descriptor(
                 "fields": field_rows(ref.definition.fields, ref.field_types or {}),
             }
         if isinstance(ref, DiscriminantTypeRef):
-            raise CanonicalNameError(ref.union_name)
+            return {
+                "kind": "enum",
+                "name": identity(ref),
+                "allowed": list(ref.variant_names),
+            }
         raise CanonicalNameError(getattr(ref, "name", type(ref).__name__))
 
     descriptor = build(type_ref)

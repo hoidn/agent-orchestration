@@ -431,12 +431,13 @@ def typecheck_match_expr(
         arm_env = dict(context.value_env)
         arm_env[arm.binding_name] = variant_type
         arm_binding_env = dict(context.binding_env)
-        arm_binding_env[arm.binding_name] = _allocate_binding_identity(
+        binding_identity = _allocate_binding_identity(
             arm_binding_env,
             form_path=arm.form_path,
             kind="arm",
             name=arm.binding_name,
         )
+        arm_binding_env[arm.binding_name] = binding_identity
         arm_facts = dict(context.proof_scope.facts)
         if subject_identity is not None:
             arm_facts[subject_identity] = PossibleVariants(
@@ -451,7 +452,13 @@ def typecheck_match_expr(
             expected_type=expected_type,
         )
         arm_summaries.append(typed_body.effect_summary)
-        rewritten_arms.append(replace(arm, body=typed_body.expr))
+        rewritten_arms.append(
+            replace(
+                arm,
+                body=typed_body.expr,
+                binding_identity=binding_identity,
+            )
+        )
         if arm_result_type is None:
             arm_result_type = typed_body.type_ref
             continue

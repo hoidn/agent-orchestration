@@ -258,6 +258,13 @@ def _rebuild_with_replacements(
             return tuple(_map_value(item) for item in value)
         if isinstance(value, list):
             return [_map_value(item) for item in value]
+        # Type references are checked owner facts, not expression children.
+        # Rebuilding their nested declaration dataclasses loses the identity
+        # keys used by FrontendTypeEnvironment for nominal ownership.
+        from .type_env import TypeRef
+
+        if isinstance(value, TypeRef):
+            return value
         if is_dataclass(value) and not isinstance(value, type):
             return _map_node(value)
         return value

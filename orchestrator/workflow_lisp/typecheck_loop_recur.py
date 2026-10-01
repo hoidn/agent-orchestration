@@ -21,7 +21,7 @@ from .typecheck_context import (
     raise_error,
     raise_run_ref_placement_invalid,
 )
-from .typecheck_proofs import ProofScope
+from .typecheck_proofs import ProofScope, _allocate_binding_identity
 
 
 def typecheck_loop_recur_expr(
@@ -75,6 +75,14 @@ def typecheck_loop_recur_expr(
         form_path=expr.initial_state_expr.form_path,
         type_env=type_env,
     )
+    binding_identity = expr.binding_identity or _allocate_binding_identity(
+        context.binding_env,
+        form_path=expr.form_path,
+        kind="loop",
+        name=expr.binding_name,
+    )
+    loop_binding_env = dict(context.binding_env)
+    loop_binding_env[expr.binding_name] = binding_identity
     session_state.loop_context.append(
         LoopTypecheckContext(state_type_ref=typed_state.type_ref)
     )
@@ -82,6 +90,7 @@ def typecheck_loop_recur_expr(
         typed_body = recurse(
             expr.body_expr,
             value_env={**value_env, expr.binding_name: typed_state.type_ref},
+            binding_env=loop_binding_env,
             proof_scope=ProofScope(facts={}),
         )
     finally:
@@ -120,6 +129,7 @@ def typecheck_loop_recur_expr(
             expr.on_exhausted_result_expr,
             type_env=type_env,
             value_env={**value_env, expr.binding_name: typed_state.type_ref},
+            binding_env=loop_binding_env,
             proof_scope=ProofScope(facts={}),
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
@@ -161,6 +171,7 @@ def typecheck_loop_recur_expr(
             initial_state_expr=typed_state.expr,
             body_expr=typed_body.expr,
             on_exhausted_result_expr=typed_exhausted_expr,
+            binding_identity=binding_identity,
         ),
         type_ref=typed_body.type_ref.result_type_ref,
         effect=merge_effect_summaries(

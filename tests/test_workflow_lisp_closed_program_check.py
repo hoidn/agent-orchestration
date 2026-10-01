@@ -34,6 +34,7 @@ from orchestrator.workflow.run_ref.result_contract import (
 
 INT = {"kind": "primitive", "name": "Int"}
 BOOL = {"kind": "primitive", "name": "Bool"}
+RUN_ID = {"kind": "primitive", "name": "RunId"}
 
 
 def _lit(value, descriptor=INT):
@@ -778,7 +779,9 @@ def test_join_jump_can_continue_to_a_typed_loop_done():
 
 def test_valid_value_and_control_forms_preserve_their_typed_scopes():
     string = {"kind": "primitive", "name": "String"}
-    validate(_tree(_halt({"k": "context", "field": "run-id"}), result=string))
+    run_id = _tree(_halt({"k": "context", "field": "run-id"}), result=RUN_ID)
+    validate(run_id)
+    _rule(_tree(_halt({"k": "context", "field": "run-id"}), result=string), "entry_result")
 
     selected = {
         "k": "select",
@@ -1192,6 +1195,54 @@ def test_pref_bound_rows_match_target_substitutions_and_route_mapped_capture_pre
         owner_capture_type={"kind": "primitive", "name": "String"}
     )
     _rule(wrong_capture_type, "definition_key")
+
+
+def _local_captured_reference_tree(local_index=0):
+    target_key = [
+        "sample", "procedure", "target", [], [], [], [],
+        [{"type": deepcopy(INT), "routes": [["local", local_index]]}],
+        {"params": [], "result": deepcopy(INT)},
+    ]
+    reference = {
+        "target": target_key,
+        "residual": deepcopy(target_key[8]),
+        "bound": [[ ["local", local_index], deepcopy(INT), {"capture": 0} ]],
+    }
+    owner_key = [
+        "sample", "workflow", "owner", [], [["fetch", reference]], [], [],
+        [{
+            "type": deepcopy(INT),
+            "routes": [["reference", ["fetch"], ["local", local_index]]],
+        }],
+        {"params": [], "result": deepcopy(INT)},
+    ]
+    target_name = canonical_callee_name_from_key(target_key)
+    owner_name = canonical_callee_name_from_key(owner_key)
+    tree = _tree()
+    tree["definitions"] = {
+        target_name: {
+            "key": target_key,
+            "params": [["capture0", deepcopy(INT)]],
+            "result": deepcopy(INT),
+            "body": _halt(),
+        },
+        owner_name: {
+            "key": owner_key,
+            "params": [["capture0", deepcopy(INT)]],
+            "result": deepcopy(INT),
+            "body": _halt(),
+        },
+    }
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+    return tree, target_key, owner_key
+
+
+def test_pref_local_capture_route_accepts_exact_index_and_rejects_boolean():
+    tree, _, _ = _local_captured_reference_tree()
+    validate(tree)
+
+    tree, target_key, owner_key = _local_captured_reference_tree(True)
+    _rule(tree, "definition_key")
 
 
 def _tree_with_key_reference(target_key, reference):
@@ -2644,6 +2695,54 @@ def test_provider_effect_result_contract_orders_shared_and_variant_union_fields(
         {"name": "shared", "json_pointer": "/shared", "type": "string"}
     )
     _rule(_structured_provider_result_tree(result, reordered), "effect_result")
+
+
+def test_provider_union_contract_projection_preserves_metadata_named_variants():
+    string = {"kind": "primitive", "name": "String"}
+    variant_names = ["source_map_subject", "source_map_subjects_by_variant"]
+    result = {
+        "kind": "union",
+        "name": "sample::MetadataNamedVariants",
+        "variants": [
+            {"name": variant_names[0], "fields": [{"name": "subject", "type": string}]},
+            {"name": variant_names[1], "fields": [{"name": "subjects", "type": string}]},
+        ],
+    }
+    contract = {
+        "kind": "variant_output",
+        "payload": {
+            "discriminant": {
+                "name": "variant",
+                "json_pointer": "/variant",
+                "type": "enum",
+                "allowed": variant_names,
+            },
+            "shared_fields": [],
+            "variants": {
+                variant_names[0]: {
+                    "fields": [{
+                        "name": "subject",
+                        "json_pointer": "/subject",
+                        "type": "string",
+                        "source_map_subject": "diagnostic-only",
+                    }],
+                },
+                variant_names[1]: {
+                    "fields": [{
+                        "name": "subjects",
+                        "json_pointer": "/subjects",
+                        "type": "string",
+                        "source_map_subjects_by_variant": {"x": "diagnostic-only"},
+                    }],
+                },
+            },
+        },
+    }
+    validate(_structured_provider_result_tree(result, contract))
+
+    malformed = deepcopy(contract)
+    malformed["payload"]["variants"][variant_names[0]]["fields"][0]["json_pointer"] = "/wrong"
+    _rule(_structured_provider_result_tree(result, malformed), "effect_result")
 
 
 def _command_result_tree():

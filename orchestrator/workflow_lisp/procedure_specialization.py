@@ -1071,6 +1071,7 @@ def specialize_typed_procedure(
                     span=param.span,
                     form_path=param.form_path,
                     expansion_stack=param.expansion_stack,
+                    binding_label=param.binding_label,
                 )
                 for param in request.procedure.definition.params
                 if param.name not in bound_names

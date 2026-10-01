@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
@@ -50,6 +50,13 @@ class TypedExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
+    binding_environment: Mapping[str, object] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 ValueEnvironment = Mapping[str, TypeRef]

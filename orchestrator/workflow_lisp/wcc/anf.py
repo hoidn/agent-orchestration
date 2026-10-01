@@ -142,6 +142,8 @@ def _normalize_body(body: WccBody) -> WccBody:
                 binding_name=arm.binding_name,
                 binding_type_ref=arm.binding_type_ref,
                 body=_normalize_body(arm.body),
+                binding_label=arm.binding_label,
+                binding_identity=arm.binding_identity,
             )
             for arm in body.arms
         )

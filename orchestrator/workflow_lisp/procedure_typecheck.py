@@ -1074,7 +1074,11 @@ def typecheck_generated_procedure(
 def _typecheck_owner(*args, **kwargs):
     from .typecheck_dispatch import _typecheck
 
-    return _typecheck(*args, **kwargs)
+    typed = _typecheck(*args, **kwargs)
+    return replace(
+        typed,
+        binding_environment=dict(kwargs.get("binding_env", {})),
+    )
 
 
 def _temporary_procedure_catalog(
@@ -1100,6 +1104,7 @@ class LocalProcRewriteBinding:
 
     generated_name: str
     capture_bindings: tuple[tuple[str, ExprNode], ...]
+    capture_binding_identities: tuple[object | None, ...]
     allow_reference: bool
 
 
@@ -1175,6 +1180,7 @@ def _typecheck_let_proc_expr_impl(
     capture_signature_params: list[tuple[str, TypeRef]] = []
     bound_capture_args: list[BoundProcArg] = []
     capture_bindings: list[tuple[str, ExprNode]] = []
+    capture_binding_identities: list[object | None] = []
     local_proc_ref_env: dict[str, ResolvedProcRefValue] = {}
     seen_capture_names: set[str] = set()
     for capture_name in expr.binding.capture_names:
@@ -1226,16 +1232,20 @@ def _typecheck_let_proc_expr_impl(
                 form_path=expr.binding.form_path,
                 expansion_stack=expr.binding.expansion_stack,
             )
-        capture_bindings.append((capture_name, capture_value_expr))
+        bound_capture_value = capture_value_expr
+        capture_identity = binding_env.get(capture_name)
+        capture_bindings.append((capture_name, bound_capture_value))
+        capture_binding_identities.append(capture_identity)
         bound_capture_args.append(
             BoundProcArg(
                 name=capture_name,
-                value_expr=capture_value_expr,
+                value_expr=bound_capture_value,
                 type_ref=capture_type,
                 source_identity=_expr_source_identity(capture_value_expr),
                 keyword_span=expr.binding.span,
                 keyword_form_path=expr.binding.form_path,
                 keyword_expansion_stack=expr.binding.expansion_stack,
+                source_binding_identity=capture_identity,
             )
         )
 
@@ -1245,6 +1255,7 @@ def _typecheck_let_proc_expr_impl(
             expr.binding.local_name: LocalProcRewriteBinding(
                 generated_name="",
                 capture_bindings=tuple(capture_bindings),
+                capture_binding_identities=tuple(capture_binding_identities),
                 allow_reference=False,
             ),
         },
@@ -1320,6 +1331,7 @@ def _typecheck_let_proc_expr_impl(
     rewrite_binding = LocalProcRewriteBinding(
         generated_name=generated_name,
         capture_bindings=tuple(capture_bindings),
+        capture_binding_identities=tuple(capture_binding_identities),
         allow_reference=True,
     )
     local_body_expr = _rewrite_local_proc_references(
@@ -1463,6 +1475,11 @@ def _rewrite_local_proc_references(
     *,
     local_bindings: Mapping[str, LocalProcRewriteBinding],
 ):
+    # Type references are resolved declaration owners, not expression trees.
+    # Rebuilding their nested definition records loses the defining module
+    # needed by canonical naming after source deletion.
+    if isinstance(node, TypeRef):
+        return node
     if isinstance(node, ProcRefLiteralExpr):
         binding = local_bindings.get(node.authored_name)
         if binding is None:
@@ -1517,8 +1534,13 @@ def _bind_local_proc_reference(
                 keyword_span=expr.span,
                 keyword_form_path=expr.form_path,
                 keyword_expansion_stack=expr.expansion_stack,
+                source_binding_identity=binding_identity,
             )
-            for capture_name, capture_expr in binding.capture_bindings
+            for (capture_name, capture_expr), binding_identity in zip(
+                binding.capture_bindings,
+                binding.capture_binding_identities,
+                strict=True,
+            )
         ),
         span=expr.span,
         form_path=expr.form_path,
@@ -2015,6 +2037,10 @@ def _replace_eliminated_let_procs(
             replacement,
             let_proc_rewrite_results=rewrite_results,
         )
+    # Checked TypeRefs carry the original nominal owner object.  Preserve that
+    # identity while rewriting expression nodes around it.
+    if isinstance(node, TypeRef):
+        return node
     if isinstance(node, tuple):
         return tuple(
             _replace_eliminated_let_procs(

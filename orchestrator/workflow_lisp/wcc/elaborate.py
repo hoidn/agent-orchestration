@@ -191,6 +191,7 @@ class _WccBoundProcedureBinding:
     """A compile-time procedure value plus bind-site runtime captures."""
 
     capture_values: tuple[tuple[str, WccValue], ...]
+    source_binding: object | None = None
 
 
 @dataclass(frozen=True)
@@ -2093,6 +2094,16 @@ def _elaborate_let_star(
             )
 
         binding_name, binding_expr = expr.bindings[index]
+        binding_label = (
+            expr.binding_labels[index]
+            if index < len(expr.binding_labels)
+            else None
+        )
+        binding_identity = (
+            expr.binding_identities[index]
+            if index < len(expr.binding_identities)
+            else None
+        )
         binding_expr, expansion_owned = expansion_owned_binding_source(binding_expr)
         binding_type = _infer_expr_type(
             binding_expr,
@@ -2161,6 +2172,7 @@ def _elaborate_let_star(
                             for capture in capture_rows
                         ),
                     ),
+                    source_binding=binding_expr,
                 )
             )
             tail = build(
@@ -2246,6 +2258,8 @@ def _elaborate_let_star(
                 binding_name=binding_name,
                 binding_type=binding_type,
                 binding_expr=binding_expr,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
                 continuation=tail,
                 let_result_type=result_type,
                 scope=local_scope,
@@ -2270,6 +2284,8 @@ def _elaborate_let_star(
                 binding_name=binding_name,
                 binding_type=binding_type,
                 match_expr=binding_expr,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
                 continuation=tail,
                 scope=local_scope.child_scope("match", authored_binding_name=binding_name),
                 type_env=type_env,
@@ -2311,6 +2327,8 @@ def _elaborate_let_star(
                 scope=binding_scope,
                 effect_summary=effect_summary,
                 active_phase_scope=active_phase_scope,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             )
 
         if (
@@ -2331,6 +2349,8 @@ def _elaborate_let_star(
                     source_span=binding_expr.span,
                     form_path=binding_expr.form_path,
                     expansion_stack=binding_expr.expansion_stack,
+                    binding_label=binding_label,
+                    binding_identity=binding_identity,
                 ),
                 bound_name=binding_name,
                 bound_type_ref=binding_type,
@@ -2376,6 +2396,8 @@ def _elaborate_let_star(
                 scope=binding_scope,
                 effect_summary=effect_summary,
                 active_phase_scope=active_phase_scope,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             )
 
         prefix, value = _body_to_prefix_and_value(binding_body)
@@ -2383,7 +2405,15 @@ def _elaborate_let_star(
         prefix, value = hoist_without_capture(
             prefix,
             value,
-            over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
+            over=((
+                replace(
+                    expr,
+                    bindings=expr.bindings[index + 1 :],
+                    binding_labels=expr.binding_labels[index + 1 :],
+                    binding_identities=expr.binding_identities[index + 1 :],
+                ),
+                frozenset({binding_name}),
+            ),),
             scope=binding_scope,
             value_env=local_env,
             compile_time_bindings=local_compile_time_bindings,
@@ -2395,6 +2425,8 @@ def _elaborate_let_star(
                 source_span=binding_expr.span,
                 form_path=binding_expr.form_path,
                 expansion_stack=binding_expr.expansion_stack,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             ),
             bound_name=binding_name,
             bound_type_ref=binding_type,
@@ -2784,6 +2816,8 @@ def _elaborate_loop_recur_to_body(
             expansion_stack=expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=expr.binding_label,
+            binding_identity=expr.binding_identity,
         ),
         loop_name=loop_name,
         params=(WccJoinParam(name=expr.binding_name, type_ref=state_type),),
@@ -2832,6 +2866,8 @@ def _retarget_loop_continue(
                         loop_name=loop_name,
                         through_joins=through_joins,
                     ),
+                    binding_label=arm.binding_label,
+                    binding_identity=arm.binding_identity,
                 )
                 for arm in body.arms
             ),
@@ -2884,6 +2920,8 @@ def _elaborate_control_binding_to_body(
     scope: WccIdentityFactory,
     effect_summary: EffectSummary,
     active_phase_scope: WccPhaseScope | None = None,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
 ) -> WccBody:
     join_name = _generated_join_name(scope, binding_name=binding_name)
     return WccJoin(
@@ -2895,6 +2933,8 @@ def _elaborate_control_binding_to_body(
             expansion_stack=binding_expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         join_name=join_name,
         params=(WccJoinParam(name=binding_name, type_ref=binding_type),),
@@ -4259,6 +4299,8 @@ def _elaborate_case_arm(
         variant_name=arm.variant_name,
         binding_name=arm.binding_name,
         binding_type_ref=binding_type_ref,
+        binding_label=arm.binding_label,
+        binding_identity=arm.binding_identity,
         body=_elaborate_expr_to_body(
             arm.body,
             scope=scope,
@@ -4279,6 +4321,8 @@ def _elaborate_non_tail_match_binding(
     binding_name: str,
     binding_type: TypeRef,
     match_expr: MatchExpr,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
     continuation: WccBody,
     scope: WccIdentityFactory,
     type_env: FrontendTypeEnvironment,
@@ -4312,6 +4356,8 @@ def _elaborate_non_tail_match_binding(
             expansion_stack=match_expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         join_name=join_name,
         params=(WccJoinParam(name=binding_name, type_ref=binding_type),),
@@ -4476,6 +4522,8 @@ def _elaborate_effect_binding_to_body(
     binding_name: str,
     binding_type: TypeRef,
     binding_expr,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
     continuation: WccBody,
     let_result_type: TypeRef,
     scope: WccIdentityFactory,
@@ -4535,6 +4583,8 @@ def _elaborate_effect_binding_to_body(
             source_span=binding_expr.span,
             form_path=binding_expr.form_path,
             expansion_stack=binding_expr.expansion_stack,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         bound_name=binding_name,
         bound_type_ref=binding_type,
@@ -4696,6 +4746,7 @@ def _prebind_direct_bind_proc_arguments(
                             for capture in capture_aliases
                         ),
                     ),
+                    source_binding=arg_expr,
                 ),
                 capture_aliases=capture_aliases,
             )
@@ -5990,6 +6041,11 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             specialization_captures=tuple(
                 specialization_captures
+            ),
+            bound_proc_source=(
+                compile_time_callee.source_binding
+                if isinstance(compile_time_callee, _WccBoundProcedureBinding)
+                else None
             ),
             proc_ref_callee_source=(
                 callee_source_name

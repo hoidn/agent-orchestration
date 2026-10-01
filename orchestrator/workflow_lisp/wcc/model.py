@@ -56,6 +56,20 @@ class WccNodeMetadata:
     proof_context: tuple[object, ...] = ()
     allocation_requests: tuple[object, ...] = ()
     phase_scope: "WccPhaseScope | None" = None
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -116,6 +130,8 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_label: str | None = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         digest = _stable_identity_digest(
             {
@@ -137,6 +153,8 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         )
 
     def atom_metadata(
@@ -203,6 +221,8 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_label: str | None = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="body",
@@ -215,6 +235,8 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         )
 
 
@@ -612,6 +634,13 @@ class WccCall:
         tuple[int, str, bool],
         ...,
     ] = ()
+    bound_proc_source: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -693,6 +722,20 @@ class WccCaseArm:
     binding_name: str
     binding_type_ref: TypeRef
     body: "WccBody"
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
