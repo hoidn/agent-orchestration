@@ -1130,40 +1130,116 @@ paths under the same wire name, dropped rows and forged union activity with
 This checks internal consistency, not historical source authenticity; a
 jointly type-valid alteration of arguments and relation is another program.
 
-For an ordinary converted call whose native representative differs solely
-in generated nominal identities, require exact `key_type_descriptor` equality
-of the whole ordered caller/native signature: all capture-prefix slots,
-all residual slots and the result. At least one concrete generated identity
-must differ; otherwise use the existing strict call. Keep capture count,
-order and routes aligned with the key. This case adds no permutation or
-1:N cast. Every concrete endpoint descriptor must independently pass its
-nominal table and producer checks.
+#### Generated boundary construction and read-back
 
-Derive complete input and output rows independently from each endpoint's
-exact descriptor, including fixed workspace/accounting fields and unchanged
-scalar residuals/results. The existing builtin `RunId` projects to scalar
-string; no unknown-primitive fallback is permitted. Changed nominal captures
-use projection rows; `direct` retains strict compatibility. Keep each exact
-endpoint contract, structural path, transfer role, topology, union activity,
-inactive-path rule and exhaustive disjoint coverage.
+The constructor and reader have distinct obligations, ratified 2026-09-30.
+The final four-member annotation does not record whether a call originated
+as an ordinary generated view or an admitted compiled/context composition.
+P5 proves its final relation, not that missing source history. This explicitly
+replaces the earlier undifferentiated whole-signature reader requirement;
+it does not change S, the nine-member key, codec or site-digest recipe.
 
-Paired wire contracts normally match exactly. Only within the established
-generated view may differing contracts match when their aligned endpoint
-descriptors have equal checked D projections. Both serialized contracts must
-still equal their independently derived endpoint contracts. This permits
-root `List[A]`/`List[B]` with two unequal exact nested schemas; it does not
-erase their nominal names. Scalar envelopes additionally require the whole
-root signature proof, since flattening alone also erases ordinary record
-identity. Phantom applications require the template/argument identity proof.
+**Constructor (Tasks 4/6).** For an ordinary converted call whose native
+representative differs solely in generated nominal identities, require exact
+`key_type_descriptor` equality of the whole ordered caller/native signature:
+all capture-prefix slots, residual slots and result. At least one concrete
+generated identity differs. Keep capture count/order/routes aligned with the
+key. This case adds no permutation or 1:N cast. A changed ordinary nominal
+wrapper fails this constructor predicate. Every concrete endpoint separately
+passes its nominal-table and producer checks. Without a generated change,
+use the ordinary strict call.
 
-For an already-admitted import/context boundary, compose a generated change
-of its native representative with the existing relation in the same
-annotation. Preserve original caller slots, existing 1:N mapping, all native/
-projected coverage and once-only evaluation; rederive final endpoint rows.
-Only aligned D-equal descriptor pairs justify generated contract differences.
-Existing ordinary nominal crossing rules do not expand. No boundary mode
-field, extra effect/site, second transfer or global assignability rule is
-introduced. Unannotated nominal matching remains strict.
+For an already-admitted import/context boundary, preserve its frontend-proven
+relation and compose a generated representative change in the same annotation.
+Retain caller slots, existing permutation/1:N mapping, native/projected coverage
+and once-only argument evaluation; rederive final endpoint rows. Do not infer
+a constructor's source admission from the fact that its final annotation would
+pass P5. No boundary mode, extra effect/site or global assignability rule is
+introduced; an unannotated call remains strict.
+
+**Reader (Task 5).** Check complete generated units in the final relation
+before accepting even equal flattened wire contracts. For example, caller
+`[B, consumer::Payload{x:Int}]` and native
+`[A, producer::Payload{x:Int}]`, with equal S for A/B, can be a valid final
+composition. The reader accepts this internally consistent relation although
+a purported generated-only constructor must reject the changed ordinary
+Payload nominal. The final artifact cannot distinguish those histories.
+Configuration scope and capture routes do not supply that absent fact.
+
+Preserve the independent argument/type-table/producer/key/capture checks.
+Derive complete input/output rows separately from each exact endpoint,
+including fixed workspace/accounting fields and unchanged scalar slots.
+`RunId` projects to scalar string; no unknown-primitive fallback is permitted.
+`direct` remains strictly compatible, ordered and unique; a native capture
+pair is `[j,j]`. Both endpoint capture slot j must project to its persisted
+capture type, with routes unchanged. Changed generated captures use projection
+rows. Check exact serialized endpoint rows, exhaustive disjoint partitions,
+structural paths, constraints, union activity and inactive-path rules first.
+Then apply this source-free predicate separately to inputs and outputs:
+
+1. Walk each projected endpoint's actual descriptor and derived row paths.
+   Protect a complete subtree at the first applicable point: a generated
+   envelope; a descriptor whose own projected `name` or `union_name` contains
+   a generated marker in an applied identity/discriminant; or a descriptor
+   where an actual row terminates and any generated dependency occurs.
+   The last case includes atomic List/Optional/Map transport. Its complete
+   checked D protects descendants, so do not emit redundant nested units.
+   Ordinary flattened records/unions outside a unit remain traversable.
+   Use `key_type_descriptor` and existing identity/dependency helpers; a
+   missing, ambiguous, cyclic or invalid origin fails, never skips a guard.
+2. For every protected occurrence derive its nonempty complete **footprint**:
+   sorted pairs `(actual wire name, relative structural path)` for exactly
+   the rows descending through that occurrence. Relative paths start at the
+   unit, excluding the enclosing caller/native root. Include a row only if
+   its remaining path exists in that descriptor occurrence; another union
+   arm cannot contribute a foreign leaf. Never split wire names for paths.
+3. Preserve **activation** when crossing ordinary unions outside a unit:
+   conjunctions of actual derived discriminator-wire/variant conditions.
+   Each discriminator domain is the exact declared variant list and must
+   match both endpoint enum contracts. Paired wire names identify the same
+   selector, including a union flattened to a native enum formal. Shared
+   paths in different branches retain conditional occurrences. A protected
+   union's own complete D already protects its internal variants.
+4. For each relevant discriminator assignment, compare multisets of active
+   `(footprint, D)` units on both sides. They must agree exactly; multiplicity
+   matters. Visit only branches affecting one footprint group rather than
+   taking a global cross-product of unrelated unions. No persisted predicate
+   language, identity hash or S-to-name inversion is needed. A generated
+   unit may move intact from a nested ordinary field to one native formal;
+   splitting away its identity into unmarked leaves fails. A shared generated
+   union field may become unconditional only if every branch carries the
+   same D. A correct input or unrelated unit cannot authorize a bad output,
+   another root, missing branch or different S.
+5. Only after those guards may paired equal wire contracts pass directly.
+   Keep both exact contracts, transfer roles, structural paths, topology,
+   activity and inactive-path behavior. Unequal contracts require equal
+   full D at the **terminal transport descriptor of that same paired row**,
+   with an actual generated dependency. Resolve conditional terminals using
+   the same branch correspondence; no unrelated equal pair or unqualified
+   set of descriptors grants permission. A matched ancestor unit does not
+   replace this terminal proof (for example List[A]/List[B] inside an envelope).
+
+This protects scalar S even when all flattened leaf contracts match, nested
+and phantom S, applied template heads and ordered ordinary arguments. Root
+collections retain their complete nominal schemas; an ordinary nominal inside
+a generated-bearing applied unit cannot be erased. Outside protected units,
+existing ordinary nominal and 1:N crossings remain valid. These are explicit
+restrictions: generated units cannot disappear through flattening, and no
+admitted source requiring that erasure has been demonstrated. If one is found,
+repair the contract with that evidence rather than silently refusing admitted
+source or guessing correspondence. Runtime endpoint names/configs/full site
+hashes and once-only transfer remain unchanged.
+
+Task 5 implementation evidence must cover the original changed-input-S case
+before the equal-contract shortcut, scalar/List/phantom input and output views,
+context-shaped 1:N around an intact generated child, captures/direct partition,
+ordinary wrapper composition, nested S, template/argument/order changes,
+branch swaps with the same global S multiset, shared versus conditional union
+fields, missing origins and dropped/redirected rows. These go through actual
+P5; a reduced boundary-only proof is not the implementation gate. Tasks 4/6
+separately test the whole-signature constructor rejection, and Tasks 4/8 keep
+the source-admitted scalar/List/phantom/capture/context and integration gates.
+No typed fixture alone proves new source admission.
 
 ### Values
 
@@ -2250,7 +2326,10 @@ are pure functions over the shared schema; no compiler/frontend import.
   including their capture schema, ordinary residual rows and both output
   views. Also implement the shared generated nominal view and structured
   applied-identity inventory, including phantom dependencies and staged S/view
-  checking. Ordinary unannotated calls retain strict nominal/positional matching.
+  checking. Follow [generated boundary read-back](#generated-boundary-construction-and-read-back):
+  complete protected D/footprint/branch guards precede wire equality; the reader
+  checks the final relation, while the constructor owns generated-only whole-D.
+  Ordinary unannotated calls retain strict nominal/positional matching.
   Resolve every definition configuration scope and verify its digest and
   effect bindings;
   missing or mismatched scopes fail `configuration_scope`.
@@ -2462,7 +2541,11 @@ execution facts A.5; design §4.2 and P6; the
     may require distinct converted keys. Generated-only nominal differences
     use the shared structured S projection and may share a key; retain the
     first semantic candidate as native representative and preserve later
-    caller views through the shared checked boundary. Memoize by the complete
+    caller views through the shared checked boundary. Before an ordinary
+    generated-only annotation, prove whole-ordered-signature D equality as
+    specified by the [constructor rule](#generated-boundary-construction-and-read-back);
+    reader acceptance of another valid composition does not replace it.
+    Memoize by the complete
     converted key; context conversion uses the existing specialized-name rule.
     Sort formal selectors as the shared schema specifies; preserve ordered
     fields. The historical `typed.local_definition_keys` six-tuple supplies
@@ -2947,6 +3030,10 @@ class Builder:
     preserving evaluation in ANF prefixes before permutation. `direct` handles
     strict generated/capture transfers; projections handle the boundary view.
     Neither case adds a site or reconstructs a body from flat steps.
+    For ordinary same-key generated-only views, enforce the shared complete
+    ordered-signature D predicate before annotating. Retain the independently
+    frontend-proven relation for admitted compiled/context composition; P5
+    checks the final relation and cannot authenticate that construction history.
   - Before P1 names are computed, convert existing `BoundProcArg`, value/
     workflow/reference specialization facts and generated local capture facts
     into closed bindings. Substituted compile-time expressions enter the full

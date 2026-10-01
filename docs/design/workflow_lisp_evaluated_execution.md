@@ -395,23 +395,46 @@ strict-compatible captures/generated/context values. Intermediate calls with
 exact types may stay positional. No source-call admission is widened.
 
 Same-key interning can also retain a native signature with different generated
-run-reference nominal identities. Its explicit `boundary` must prove equality
-of the whole ordered caller/native signature under the shared checked key
-projection, including captures, residuals, result and phantom arguments.
-Ordinary nominal heads/arguments, refinements and S remain exact. Independently
-derive all endpoint input/output rows, including unchanged scalar slots; a
-changed capture uses projection while `direct` remains strict. At least one
-generated identity differs, or the ordinary strict call suffices.
+run-reference nominal identities. **Construction** of an ordinary generated-only
+view must prove equality of the whole ordered caller/native signature under
+the shared checked D projection: captures, residuals, result and phantom
+arguments. Ordinary heads/arguments, refinements and S stay exact; capture
+count/order/routes align. At least one generated identity differs. This case
+adds no permutation or 1:N conversion. For admitted compiled/context calls,
+retain the independently established relation and compose the representative
+change in the same annotation, with original caller slots and once-only transfer.
 
-Preserve both exact endpoint wire contracts. Paired differences are allowed
-only for aligned descriptors certified equal under this generated projection;
-root List schemas can therefore retain their distinct nested generated names.
-Coverage, paths, topology and union activity remain independently checked.
-Compose this view with an already-admitted import/context relation in the same
-annotation, retaining caller slots, existing 1:N mapping and once-only argument
-evaluation. Do not introduce a boundary mode field or general nominal cast.
-P5 derives checked producer signatures before completing deferred view checks;
-it accepts only after all key/name/site and boundary checks succeed.
+**Read-back** checks the final annotated relation, which has no source-history
+mode. It cannot distinguish a valid ordinary nominal crossing composed with a
+generated view from an ordinary call purported to require only the latter.
+Consequently, a complete-signature ordinary nominal difference can be accepted
+by P5 as a valid composition while being rejected by the generated-only
+constructor. This is an explicit clarification of the earlier undifferentiated
+whole-signature reader requirement, not a source-authenticity claim.
+
+Before accepting equal wire contracts, independently compare complete protected
+units: generated envelopes, generated-bearing applied identities/discriminants
+(including phantom arguments), and atomic row-terminal descriptors containing
+generated dependencies. Each unit's complete D, exact footprint of wire names
+and relative structural paths, and enclosing union-branch activation must agree.
+Compare active multisets branch by branch, preserving multiplicity. Generated
+units can move intact through ordinary wrapper/1:N projections; they cannot be
+split into unmarked leaves, moved between branches, or lose ordinary nominal
+facts inside a protected applied/collection unit. Missing origins fail. The
+[Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#generated-boundary-construction-and-read-back)
+defines the exact predicate and implementation gates; no admitted source that
+requires protected-unit erasure has been demonstrated.
+
+Preserve both exact endpoint wire contracts, independently derived rows,
+coverage, paths, topology and union activity. Only after the complete-unit
+checks may equal contracts pass. Unequal contracts require equal full D for
+the same paired row's terminal descriptors using that branch correspondence,
+with an actual generated dependency. This permits exact distinct List[A]/List[B]
+schemas without granting permission from an unrelated matching descriptor.
+Changed captures use projection rows; `direct` stays strict. No boundary mode,
+extra effect/site or general nominal cast is introduced. P5 derives producer
+signatures before deferred view checks and accepts only after all key/name/site
+and boundary checks succeed. Unannotated calls remain strict.
 
 P5 independently validates every descriptor against canonical nominal facts,
 every projection path and complete field/active-variant coverage, matching
