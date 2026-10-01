@@ -3434,6 +3434,7 @@ Finalize [loop-carrier](#generated-loop-state-carrier-identities) applied argume
 - Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (producer associations and call run-ref finalization after site assignment and before validation), `orchestrator/workflow_lisp/closed/values.py` (preserve exact producer context across selected value-prefix bindings)
 - Modify: `orchestrator/workflow_lisp/closed/names.py` (generated RunRef results are structural, not ordinary nominal owners, during local ProcRef type unification)
 - Modify: `orchestrator/workflow_lisp/contracts.py` (allow the closed caller to project nested nominal descriptors from retained TypeRefs before shared-versus-variant contract placement; callers that omit the projector keep the legacy projection)
+- Modify: `orchestrator/workflow_lisp/closed/build.py` and `closed/effects.py` (retain and rederive generated-type-bearing command/provider result contracts after actual run-ref producer names finalize)
 - Modify: `orchestrator/workflow_lisp/expressions.py` and `functions.py` (retain the exact captured binder and checked type on generated pure-call static-argument rows), `typecheck_dispatch.py` (carry those transient rows through the typed `LetStarExpr` reconstruction), `wcc/elaborate.py` and `wcc/model.py` (consume them only on the closed route as identity-bearing name reads), `wcc/hygiene.py` (preserve that identity and type through spelling renames), and `closed/build.py` (pre-scan opaque retained rows, freeze their lexical owners and resolve values and producer context through the same scoped alias)
 - Modify if needed: `orchestrator/workflow_lisp/closed/check.py` (verify Task 5's complete read-back checks against finalized run-reference nodes)
 - Test: `tests/test_workflow_lisp_closed_program_effects.py`
@@ -3519,6 +3520,14 @@ execution facts A.2 and A.4.
     Preserve the scoped producer map when sequential captures or selected-value
     prefixes extend a definition's names; a copied binder origin may associate
     with different actual producers in different emitted bodies.
+    Command and provider result contracts can contain a transport-schema copy
+    of the same nested nominal descriptors. Retain the contract's exact effect
+    TypeRef and containing definition until producer names finalize, then run
+    the shared contract derivation again through the finalized canonical
+    descriptor projection before validation. This also recomputes
+    shared-versus-variant placement from actual producer names. Preserve the
+    existing guidance and source-subject projection; never patch transported
+    names by provisional spelling or weaken the checker.
     Recompute result descriptor digests, then call the unchanged
     `build_run_ref_static_config`/`encode_run_ref_static_config` with these
     canonical facts and `RunRefInput(..., ReferenceBinding(f"inputs.{name}"))`.
@@ -3604,6 +3613,16 @@ def test_same_signature_run_ref_producers_keep_occurrence_specific_types(tmp_pat
     # carrier, and a phantom applied argument. Every concrete name points to
     # its own containing definition/site while structural keys stay unchanged.
 
+@pytest.mark.parametrize("effect_kind", ["command", "provider"])
+def test_nested_run_ref_contract_uses_actual_producers_after_finalization(
+    tmp_path, effect_kind
+) -> None:
+    # A public Choice[A, B] result with LEFT.payload: List[A] and
+    # RIGHT.payload: List[B], instantiated from two distinct same-S run refs.
+    # For both effect kinds, source-deleted build/read-back keeps each variant's
+    # nested record name paired with its actual producer, retains guidance and
+    # provenance, and does not hoist provisional-equal fields as shared.
+
 def test_selected_workflow_reference_body_uses_its_retained_provider_rows(tmp_path) -> None:
     # Extend the admitted Task 4 WorkflowRef specimen through public build and
     # read-back. Give caller and imported producer conflicting provider/prompt
@@ -3650,7 +3669,9 @@ sites; keep this helper in `effects.py` and insert its call in
 rows for all admitted source targets, consume those rows only in closed WCC
 before copied initializers can emit effects, and resolve their exact aliases
 for both value translation and generated-type producer context. Add the
-complete provider-producing X4 build check here.
+complete provider-producing X4 build check here. Re-derive generated-type-
+bearing command/provider result contracts at this same finalization boundary
+from their retained TypeRef and producer context, before validation.
 
 - [ ] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
 behaviour for commands).
@@ -3665,11 +3686,13 @@ collection, serialized artifacts and the legacy WCC/flat route; only the closed
 consumer resolves them. The native 2.34 import test must use its retained
 typed snapshot after source deletion, with no source replay. The generated-type
 branch must affect only the new structural comparison and must not alter the
-legacy identity recipe. Closed prompt rows retain document fills in
-`prompt.fills` and any explicit dependency rows in the separate
-`dependencies` channel. The source frontend continues to reject fragment
-prompts that redeclare explicit prompt dependencies; this task does not widen
-source syntax.
+legacy identity recipe. Shared command/provider contract rederivation must
+preserve guidance, source-subject provenance and legacy default projection
+behavior while recomputing generated nominal placement. Closed prompt rows
+retain document fills in `prompt.fills` and any explicit dependency rows in
+the separate `dependencies` channel. The source frontend continues to reject
+fragment prompts that redeclare explicit prompt dependencies; this task does
+not widen source syntax.
 
 - [ ] **Step 6: Commit**
 
@@ -3686,6 +3709,9 @@ parallel transient fact aligned when they splice, slice or rename generated
 `let*` rows; generic name collectors must continue to ignore its owner facts.
 That row stays out of the wire schema, and the legacy consumer remains until
 its route retires.
+The closed builder also retains generated-type-bearing effect contract
+requests until producer names are final, so finalization must rederive their
+shared/variant placement before checked-tree validation.
 
 ---
 

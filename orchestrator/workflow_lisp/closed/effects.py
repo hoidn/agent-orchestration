@@ -17,10 +17,21 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, Lis
 from orchestrator.workflow_lisp.wcc.model import WccPerform
 
 
-def _result_contract(builder: Any, perform: WccPerform, d: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _result_contract(
+    builder: Any,
+    perform: WccPerform,
+    d: Any,
+    *,
+    descriptor_projector: Any | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Project the shared structured-result contract used by command/provider effects."""
 
     return_spec = (perform.operation_payload or {}).get("return_spec")
+
+    def default_descriptor_projector(nested_type: Any) -> Any:
+        return builder.desc(nested_type, d)
+
+    project_descriptor = descriptor_projector or default_descriptor_projector
     contract = derive_prompt_guided_structured_result_contract(
         perform.metadata.type_ref,
         workflow_name=d.canonical,
@@ -29,7 +40,7 @@ def _result_contract(builder: Any, perform: WccPerform, d: Any) -> tuple[dict[st
         form_path=perform.metadata.form_path,
         guidance=getattr(return_spec, "guidance", None),
         type_env=d.type_env,
-        descriptor_projector=lambda nested_type: builder.desc(nested_type, d),
+        descriptor_projector=project_descriptor,
     )
     payload = dict(contract.payload)
     payload.pop("path", None)
@@ -184,6 +195,7 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
         # The subject is diagnostic provenance and is removed by program_digest.
         provenance.setdefault("@", {})["source_map_subject"] = source_subjects
     effect.update(provenance)
+    builder.retain_generated_result_contract(effect, perform, d)
     return effect
 
 
@@ -314,6 +326,7 @@ def _translate_provider_result(
     if source_subjects:
         provenance.setdefault("@", {})["source_map_subject"] = source_subjects
     effect.update(provenance)
+    builder.retain_generated_result_contract(effect, perform, d)
     return effect
 
 

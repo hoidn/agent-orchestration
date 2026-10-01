@@ -301,6 +301,9 @@ class Builder:
         self.emitted_descriptors: list[
             tuple[dict[str, Any], TypeRef, Any, tuple[RunRefProducer, ...], RunRefProducer | None]
         ] = []
+        self.generated_result_contract_requests: list[
+            tuple[dict[str, Any], WccPerform, Definition, tuple[RunRefProducer, ...]]
+        ] = []
         self.boundary_requests: list[dict[str, Any]] = []
         self.compiler_runtime_identity: str | None = None
         self._workflow_wcc_cache: dict[tuple[int, str], Any] = {}
@@ -753,6 +756,23 @@ class Builder:
         self._register_types(descriptor)
         return descriptor
 
+    def retain_generated_result_contract(
+        self,
+        node: dict[str, Any],
+        perform: WccPerform,
+        d: Definition,
+    ) -> None:
+        if not self._contains_run_ref(perform.metadata.type_ref):
+            return
+        producer_context = tuple(
+            dict.fromkeys(
+                producer
+                for rows in (d.run_ref_names or {}).values()
+                for producer in rows
+            )
+        )
+        self.generated_result_contract_requests.append((node, perform, d, producer_context))
+
     def register_run_ref(
         self,
         perform: WccPerform,
@@ -1023,6 +1043,27 @@ class Builder:
         self.nominal_types.clear()
         for descriptor, _type_ref, _typed, _context, _hint in self.emitted_descriptors:
             self._register_types(descriptor)
+
+        from .effects import _result_contract
+
+        for node, perform, d, producer_context in self.generated_result_contract_requests:
+            contract, source_subjects = _result_contract(
+                self,
+                perform,
+                d,
+                descriptor_projector=lambda nested_type: self._canonical_descriptor(
+                    nested_type,
+                    d.source_program,
+                    producer_context,
+                ),
+            )
+            node["contract"] = contract
+            provenance = node.get("@")
+            if isinstance(provenance, dict):
+                if source_subjects:
+                    provenance["source_map_subject"] = source_subjects
+                else:
+                    provenance.pop("source_map_subject", None)
 
         for request in self.boundary_requests:
             node = request["node"]

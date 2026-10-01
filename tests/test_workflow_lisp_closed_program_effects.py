@@ -332,6 +332,132 @@ def test_imported_nominals_keep_variant_contract_placement_for_commands_and_prov
             }
 
 
+@pytest.mark.parametrize("effect_kind", ("command", "provider"))
+def test_nested_run_ref_contract_uses_actual_producers_after_finalization(
+    tmp_path: Path,
+    effect_kind: str,
+) -> None:
+    run_ref = '''(run-ref
+      :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
+      :program (:path "child.orc" :entry child) :inputs (:n 1) :returns Int
+      :policy (:environment :deterministic-effect-free :setup ()))'''
+    if effect_kind == "command":
+        effect_declaration = ":effects ((uses-command tool))"
+        effect_expression = '''(command-result tool
+          :argv ("python" "tool.py") :returns Choice[A B])'''
+    else:
+        effect_declaration = ":effects ((uses-provider provider))"
+        effect_expression = '''(provider-result provider :prompt prompt :inputs (a b)
+          :returns Choice[A B])'''
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+      (defmodule cp/generated_contract) (export run)
+      (defunion Choice :forall (A B)
+        (LEFT (payload List[A] :description "left result guidance"))
+        (RIGHT (payload List[B] :description "right result guidance")))
+      (defproc produce :forall (A B) ((a A) (b B)) -> Choice[A B]
+        {effect_declaration} :lowering inline
+        {effect_expression})
+      (defworkflow run () -> Int
+        (let* ((first {run_ref})
+               (second {run_ref})
+               (answer (produce first second)))
+          0)))'''
+    root = tmp_path / effect_kind
+    path = install(root, source)
+    if effect_kind == "command":
+        (root / "tool.py").write_text("raise RuntimeError('compile only')\n", encoding="utf-8")
+        boundaries = {
+            "tool": ExternalToolBinding(
+                name="tool",
+                stable_command=("python", "tool.py"),
+                closure=("tool.py",),
+            )
+        }
+        provider_externs = {}
+        prompt_externs = {}
+    else:
+        boundaries = {}
+        provider_externs = {"provider": "selected-provider"}
+        prompt_externs = {"prompt": {"input_file": "prompts/source.md"}}
+    typed = compile_typed_program(
+        path,
+        entry_workflow="run",
+        source_roots=(root,),
+        workspace_root=root,
+        command_boundaries=boundaries,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+    )
+    for authored in root.rglob("*.orc"):
+        authored.unlink()
+
+    closed = _build_source_free(typed)
+    bodies = [
+        closed.tree["body"],
+        *(row["body"] for row in closed.tree["definitions"].values()),
+    ]
+    effects = [
+        node
+        for body in bodies
+        for node in _ast_nodes(body)
+        if node.get("k") == "perform"
+    ]
+    (result_effect,) = [node for node in effects if node["class"] == effect_kind]
+    run_ref_effects = [node for node in effects if node["class"] == "run_ref"]
+    assert len(run_ref_effects) == 2
+    run_ref_names = {
+        node["result"]["name"] for node in run_ref_effects
+    }
+
+    result_names = {
+        variant["name"]: variant["fields"][0]["type"]["item"]["name"]
+        for variant in result_effect["result"]["variants"]
+    }
+    assert result_names == {
+        "LEFT": run_ref_effects[0]["result"]["name"],
+        "RIGHT": run_ref_effects[1]["result"]["name"],
+    }
+    contract = result_effect["contract"]
+    assert contract["kind"] == "variant_output"
+    payload = contract["payload"]
+    assert payload["shared_fields"] == []
+    contract_names = {}
+    for variant, description in (
+        ("LEFT", "left result guidance"),
+        ("RIGHT", "right result guidance"),
+    ):
+        (field,) = payload["variants"][variant]["fields"]
+        assert field["name"] == "payload"
+        assert field["description"] == description
+        assert field["type"] == "list"
+        assert field["items"]["type"] == "record"
+        contract_names[variant] = field["items"]["record_name"]
+        assert contract_names[variant] == result_names[variant]
+    assert len(set(contract_names.values())) == 2
+    assert set(contract_names.values()) == run_ref_names
+    subjects = result_effect.get("@", {}).get("source_map_subject", [])
+    subject_names = {
+        row["value"]["subject_name"]
+        for row in subjects
+        if row.get("field") == "source_map_subject"
+    }
+    assert len(subject_names) == 2
+    assert {
+        tuple(row["path"])
+        for row in subjects
+        if row.get("field") == "source_map_subject"
+    } == {
+        ("variants", "LEFT", "fields", "0"),
+        ("variants", "RIGHT", "fields", "0"),
+    }
+    assert {
+        variant
+        for variant in ("LEFT", "RIGHT")
+        if any(name.endswith(f"::{variant}::payload") for name in subject_names)
+    } == {"LEFT", "RIGHT"}
+    assert all(name.startswith("effect::Choice[") for name in subject_names)
+
+
 _RESULT_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
  (defmodule result_path_probe) (export entry)
  (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
