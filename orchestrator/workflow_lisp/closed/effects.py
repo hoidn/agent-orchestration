@@ -276,8 +276,8 @@ def _translate_provider_result(
     )
 
     input_rows = []
-    for index, value in enumerate(perform.positional_args):
-        name = _provider_input_name(value, index, d)
+    input_names = _unique_provider_input_names(perform.positional_args, d)
+    for value, name in zip(perform.positional_args, input_names, strict=True):
         type_ref = value.metadata.type_ref
         renderer_id = (
             "posix-path-line"
@@ -345,6 +345,30 @@ def _provider_input_name(value: Any, index: int, d: Any) -> str:
             value.target_name.replace("-", "_"),
         )
     return f"inputs__{index}"
+
+
+def _unique_provider_input_names(values: Any, d: Any) -> list[str]:
+    """Keep preferred input labels where possible and suffix only collisions."""
+
+    preferred = [_provider_input_name(value, index, d) for index, value in enumerate(values)]
+    reserved = set(preferred)
+    assigned: set[str] = set()
+    next_suffix: dict[str, int] = {}
+    names: list[str] = []
+    for name in preferred:
+        if name not in assigned:
+            assigned.add(name)
+            names.append(name)
+            continue
+        suffix = next_suffix.get(name, 2)
+        while f"{name}__{suffix}" in reserved:
+            suffix += 1
+        unique_name = f"{name}__{suffix}"
+        reserved.add(unique_name)
+        assigned.add(unique_name)
+        next_suffix[name] = suffix + 1
+        names.append(unique_name)
+    return names
 
 
 def _closed_prompt_dependencies(builder: Any, payload: Any, d: Any, env: Mapping[str, Any]):

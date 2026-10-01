@@ -1026,7 +1026,18 @@ records, unions, lists, optionals and paths, nested to any depth.
 | A certified adapter's inputs | One JSON object, fields in signature order, as the last argv token, as today. The document carries the declared inputs only, each projected to its declared type |
 | Any value bound in `:inputs` (Phase 3 of the plan) | One typed input document in JSON, written in the attempt's directory. The command receives the path. The document is validated against the declared types before launch |
 | A value that is large, or that a person should be able to read | A materialized view (a later release). The effect receives the path of the view |
-| A prompt fill | As the prompt calculus defines: the `defprompt` template with each fill rendered by its renderer, then the typed prompt inputs, each named by its last field and rendered by the default renderer |
+| A prompt fill | As the prompt calculus defines: the `defprompt` template with each fill rendered by its renderer, then the typed prompt inputs, each assigned a unique input label under the rule below and rendered by the default renderer |
+
+Provider input labels prefer the existing typed-input name (a field access's
+last field, or the retained canonical binding name for a name atom). Compute
+all preferred labels before allocation and reserve them. In input order, keep
+the first occurrence of each preferred label `p`; subsequent occurrences use
+`p__N`, with a per-`p` counter starting at 2 and increasing past every
+reserved label. Reserve each assigned label. Preserve every ordered input row,
+including repeated expressions, and its renderer/value. Generated bindings use
+their retained Renamer names before disambiguation; authored lookalikes are not
+reclassified. The allocation is local to the provider and independent of
+source location.
 
 Every document an effect receives is serialized deterministically. Its
 digest is part of the resolved input (§7.2). The document carries values;

@@ -28,6 +28,13 @@ def _provider_nodes(body: dict) -> list[dict]:
     return [node for node in _ast_nodes(body) if node.get("k") == "perform" and node.get("class") == "provider"]
 
 
+def _provider_input_value_path(value: dict) -> str:
+    if value["k"] == "name":
+        return value["n"]
+    assert value["k"] == "field"
+    return f"{_provider_input_value_path(value['base'])}.{'.'.join(value['path'])}"
+
+
 def _without_provenance(value):
     if isinstance(value, dict):
         return {key: _without_provenance(row) for key, row in value.items() if key != "@"}
@@ -575,6 +582,73 @@ def test_provider_input_names_do_not_expose_generated_anf_bindings(tmp_path: Pat
     closed = _build_source_free(typed)
     (provider,) = _provider_nodes(closed.tree["body"])
     assert provider["inputs"][0][0] == "__wcc_anf_0123456789"
+
+
+@pytest.mark.parametrize(
+    ("input_exprs", "expected_names"),
+    (
+        ("left.value right.value", ["value", "value__2"]),
+        ("left.value value", ["value", "value__2"]),
+        ("left.value left.value", ["value", "value__2"]),
+        (
+            "value value value__2 value value__3",
+            ["value", "value__4", "value__2", "value__5", "value__3"],
+        ),
+        ("left.value right", ["value", "right"]),
+    ),
+)
+def test_provider_input_name_collisions_keep_each_ordered_value(
+    tmp_path: Path,
+    input_exprs: str,
+    expected_names: list[str],
+) -> None:
+    results = []
+    for location, prefix in (
+        ("original", ""),
+        ("relocated/deeper", "\n; formatting-only relocation\n\n"),
+    ):
+        root = tmp_path / location
+        source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+          (defmodule cp/input_collision) (export run)
+          (defrecord Box (value Int))
+          (defworkflow run ((left Box) (right Box) (value Int) (value__2 Int) (value__3 Int))
+            -> Int
+            (provider-result provider :prompt prompt :inputs ({input_exprs}) :returns Int)))'''
+        path = install(root, prefix + source)
+        typed = compile_typed_program(
+            path,
+            entry_workflow="run",
+            source_roots=(root,),
+            workspace_root=root,
+            command_boundaries={},
+            provider_externs={"provider": "selected"},
+            prompt_externs={"prompt": {"input_file": "p.md"}},
+        )
+        path.unlink()
+
+        closed = _build_source_free(typed)
+        (provider,) = _provider_nodes(closed.tree["body"])
+        names = [row[0] for row in provider["inputs"]]
+        renderers = [row[1] for row in provider["inputs"]]
+        values = [_provider_input_value_path(row[2]) for row in provider["inputs"]]
+        assert names == expected_names
+        assert renderers == ["canonical-json"] * len(expected_names)
+        assert values == input_exprs.split()
+        assert len(names) == len(set(names)) == len(values)
+        if location == "original":
+            from copy import deepcopy
+
+            from orchestrator.workflow_lisp.closed.check import CheckedFormError, validate
+
+            tampered = deepcopy(closed.tree)
+            (tampered_provider,) = _provider_nodes(tampered["body"])
+            tampered_provider["inputs"][1][0] = tampered_provider["inputs"][0][0]
+            with pytest.raises(CheckedFormError) as error:
+                validate(tampered)
+            assert error.value.rule == "effect_shape"
+        results.append((closed.digest, closed.sites, names, values))
+
+    assert results[0] == results[1]
 
 
 def test_defprompt_doc_slots_keep_intrinsic_fill_semantics(tmp_path: Path) -> None:

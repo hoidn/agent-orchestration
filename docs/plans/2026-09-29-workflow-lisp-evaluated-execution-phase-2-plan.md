@@ -1018,7 +1018,7 @@ Effect classes of the first release (§1.1, §9.2):
 | `class` | Keys |
 | --- | --- |
 | `command` | `boundary`, `command` (stable tokens), `closure` (canonical `[{base, path}]` rows, C1; base is `workspace`, `absolute` or `package:orchestrator`), `contract` (`{kind, payload}` without a `path`), and either `argv` (values) or `document` (`[[transport_key, value]]` in signature order, for a certified adapter) |
-| `provider` | `provider` (provider id), `prompt` (`{"source_kind": "asset_file" or "input_file", "path": "<exact bound path>", "asset_base": "<logical entry directory>"}`; `asset_base` only for asset lookup, or `{"template": "<text>", "fills": <ordered typed slot rows>}`), `inputs` (`[[name, renderer_id, value]]`, named as lowering names typed prompt inputs), `dependencies` (`{required: [values], optional: [values], position, instruction}` or `null`), `policy` (`{model, effort, delivery, materialization_attempts, timeout_sec}`, each present only when declared, as values), `contract` |
+| `provider` | `provider` (provider id), `prompt` (`{"source_kind": "asset_file" or "input_file", "path": "<exact bound path>", "asset_base": "<logical entry directory>"}`; `asset_base` only for asset lookup, or `{"template": "<text>", "fills": <ordered typed slot rows>}`), `inputs` (`[[name, renderer_id, value]]`, with unique labels allocated from established preferred typed-input names by evaluated-execution design §9.1), `dependencies` (`{required: [values], optional: [values], position, instruction}` or `null`), `policy` (`{model, effort, delivery, materialization_attempts, timeout_sec}`, each present only when declared, as values), `contract` |
 | `run_ref` | `config` (base64 of `encode_run_ref_static_config`, path mode only, inputs bound as the references `inputs.<name>`, K7), `inputs` (`[[name, value]]`) |
 
 A workflow `call` is not a `perform`: it is a `call` node whose callee is the
@@ -3479,10 +3479,20 @@ execution facts A.2 and A.4.
     `_build_compiler_prompt_fragment_contract` in `lowering/phase_scope.py`
     and `_lower_prompt_fragment_dependencies` without constructing flat steps
     or copying their step-id-based identity. `inputs` retains the established
-    typed names, renderer selection and value expressions. Compiler-generated
-    ANF input labels use the retained `Renamer` binding for that exact input
-    occurrence, while authored labels (including lookalike spellings) remain
-    authored; do not classify by a generated-name prefix;
+    typed names as preferred labels, renderer selection and value expressions.
+    Before translation, reserve the entire preferred-name list. In input
+    order, the first occurrence keeps its preferred label; later occurrences
+    of the same label receive the smallest unreserved `preferred__N`, with a
+    per-label counter starting at 2. Reserve every assigned label. Preserve
+    all rows and their original order, renderer and value, including repeated
+    expressions; do not deduplicate inputs. This closed-only collision rule
+    follows evaluated-execution design §9.1 and leaves the legacy lowering
+    route unchanged. A colliding closed input's label can therefore differ
+    from its legacy label, while its value, renderer, and ordered row remain
+    unchanged. Compiler-generated ANF input labels use the retained
+    `Renamer` binding for that exact input occurrence, while authored labels
+    (including lookalike spellings) remain authored; do not classify by a
+    generated-name prefix;
     `dependencies` from `WccPromptDependencyPayload` rows by role, with
     `position` and `instruction`; `policy` = each of `model`, `effort`,
     `delivery`, `materialization_attempts`, `timeout_sec` present in the
@@ -3578,6 +3588,11 @@ execution facts A.2 and A.4.
 def test_a_provider_node_carries_prompt_inputs_policy_dependencies_and_contract(tmp_path) -> None:
     # provider_review.orc and prompt_dependency.orc: prompt source_kind/path/base; inputs [["draft", "<renderer>", {...}]];
     # policy {"model": lit, ...}; dependencies {"required": [...], "optional": [], "position": ..., "instruction": ...}
+
+def test_provider_input_label_collisions_keep_ordered_values_and_reject_duplicate_rows(tmp_path) -> None:
+    # Field/field, field/name, repeated-expression and reserved-suffix cases;
+    # source-deleted read-back preserves every value/renderer row and relocation
+    # identity, while the checker still rejects a tampered duplicate label.
 
 @pytest.mark.parametrize("source_kind", ["asset_file", "input_file"])
 def test_prompt_source_selection_matches_the_existing_lookup(tmp_path, source_kind) -> None:
