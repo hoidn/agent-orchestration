@@ -79,7 +79,8 @@ def _gather(
         children = (
             getattr(node, field.name)
             for field in dataclass_fields(node)
-            if include_condition_input or field.name != "condition_normalization_input"
+            if field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
+            and (include_condition_input or field.name != "condition_normalization_input")
         )
     else:
         return set()
@@ -154,7 +155,14 @@ def _free_names(node: object, bound: frozenset[str] = frozenset()) -> set[str]:
                     bound | _bound_by(node, field.name),
                 )
                 for field in dataclass_fields(node)
-                if field.name != "condition_normalization_input"
+                if field.name not in {
+                    "condition_normalization_input",
+                    "run_ref_metadata",
+                    "run_ref_origin",
+                    "carrier_family",
+                    "owner_union",
+                    "discriminant_owner",
+                }
             )
         )
     return set()
@@ -233,7 +241,7 @@ def _field_changes(node: object, rebuild: Callable[[str, object], object]) -> di
 
     changes = {}
     for field in dataclass_fields(node):
-        if field.init:
+        if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
             old = getattr(node, field.name)
             new = rebuild(field.name, old)
             if new is not old:

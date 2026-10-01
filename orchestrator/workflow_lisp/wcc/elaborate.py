@@ -1161,7 +1161,7 @@ def _rewrite_specialization_value_captures(
                     shadowed=shadowed,
                 )
                 for field in dataclass_fields(node)
-                if field.init
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
             }
             changed_updates = {
                 name: rewritten
@@ -1427,7 +1427,7 @@ def _substitute_wcc_payload(
                 substitutions,
             )
             for field in dataclass_fields(value)
-            if field.init
+            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
         }
         if any(
             updates[name] is not getattr(value, name)
@@ -2465,7 +2465,7 @@ def _bind_proc_runtime_capture_sites(
             return
         if is_dataclass(node):
             for field in dataclass_fields(node):
-                if field.init:
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
                     visit(
                         getattr(node, field.name),
                         shadowed=shadowed,
@@ -5206,13 +5206,21 @@ def _elaborate_effect_expr_to_binding_value(
     compile_time_bindings: Mapping[str, object],
     active_phase_scope: WccPhaseScope | None = None,
 ) -> WccBindingValue:
-    result_type = _infer_expr_type(
-        expr,
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-    )
+    if isinstance(expr, RunRefExpr):
+        result_type = resolve_unique_run_ref_site_metadata(
+            expr,
+            session_state=type_env.session_state,
+            prefer_retained=scope.closed_program,
+            source_module=type_env.module_name,
+        ).type_ref
+    else:
+        result_type = _infer_expr_type(
+            expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     metadata_kwargs = dict(
         type_ref=result_type,
         source_span=expr.span,
@@ -5228,6 +5236,8 @@ def _elaborate_effect_expr_to_binding_value(
         metadata = resolve_unique_run_ref_site_metadata(
             expr,
             session_state=type_env.session_state,
+            prefer_retained=scope.closed_program,
+            source_module=type_env.module_name,
         )
         result_contract = derive_run_ref_result_contract(
             metadata.type_ref,
@@ -5333,6 +5343,8 @@ def _elaborate_effect_expr_to_binding_value(
             metadata = resolve_unique_run_ref_site_metadata(
                 run_ref,
                 session_state=type_env.session_state,
+                prefer_retained=scope.closed_program,
+                source_module=type_env.module_name,
             )
             arm_contract = derive_run_ref_result_contract(
                 metadata.type_ref,
@@ -6171,6 +6183,17 @@ def _infer_expr_type(
         return DiscriminantTypeRef(
             union_name=expr.union_name,
             variant_names=expr.variant_names,
+            applied_union=(
+                expr.discriminant_owner
+                if isinstance(expr.discriminant_owner, UnionTypeRef)
+                and expr.discriminant_owner.type_args
+                else None
+            ),
+            owner_union=(
+                expr.discriminant_owner
+                if isinstance(expr.discriminant_owner, UnionTypeRef)
+                else None
+            ),
         )
     if isinstance(expr, LiteralExpr):
         return {
@@ -6274,6 +6297,7 @@ def _infer_expr_type(
                     union_name=current.name,
                     variant_names=tuple(variant.name for variant in current.definition.variants),
                     applied_union=current if current.type_args else None,
+                    owner_union=current,
                 )
                 continue
             if not isinstance(current, (RecordTypeRef, VariantCaseTypeRef)):

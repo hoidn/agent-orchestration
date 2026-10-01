@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from hashlib import sha1
+from dataclasses import dataclass, field, replace
+from hashlib import sha1, sha256
 import re
 
 from .compiler_session import TypecheckSessionState
@@ -13,6 +13,12 @@ from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from .expressions import LoopStateField, LoopStateSeedExpr, LoopStateUpdateExpr
 from .loops import ensure_loop_projectable_type
 from .spans import SourceSpan
+from .syntax import (
+    SyntaxIdentifier,
+    SyntaxKeyword,
+    SyntaxList,
+    syntax_node_datum,
+)
 from .type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -38,6 +44,13 @@ class LoopStateCarrierMetadata:
     field_types: tuple[tuple[str, TypeRef], ...]
     type_ref: RecordTypeRef
     source_kind: str
+    family: tuple[object, int] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True},
+    )
 
 
 def _type_name(type_ref: TypeRef) -> str:
@@ -78,18 +91,134 @@ def reset_loop_state_metadata(session_state: TypecheckSessionState) -> None:
 
     session_state.loop_carrier_metadata_by_name.clear()
     session_state.loop_carrier_metadata_by_expr_key.clear()
+    session_state.loop_carrier_families_by_expr_key.clear()
+
+
+def retain_loop_carrier_families(
+    module_name: str,
+    *,
+    procedures=(),
+    workflows=(),
+    session_state: TypecheckSessionState,
+) -> None:
+    """Associate expanded carrier introductions with declaration-only owners."""
+
+    local_ordinals: dict[tuple[str, str], int] = {}
+
+    def declaration_key(declaration: object) -> str:
+        from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+
+        return canonical_json_for_pure_value(declaration)
+
+    def visit(
+        datum,
+        *,
+        owner_did: list[object],
+        top_owner_did: list[object],
+        ordinal: list[int],
+    ) -> None:
+        if not isinstance(datum, SyntaxList) or not datum.items:
+            return
+        head = datum.items[0]
+        head_name = head.resolved_name if isinstance(head, SyntaxIdentifier) else None
+        if head_name == "let-proc" and len(datum.items) == 3:
+            binding = datum.items[1]
+            if isinstance(binding, SyntaxList) and len(binding.items) == 7:
+                name = binding.items[0]
+                if isinstance(name, SyntaxIdentifier):
+                    owner_key = declaration_key(top_owner_did)
+                    local_key = (owner_key, name.resolved_name)
+                    local_ordinal = local_ordinals.get(local_key, 0)
+                    local_ordinals[local_key] = local_ordinal + 1
+                    local_did: list[object] = [
+                        module_name,
+                        "procedure",
+                        {
+                            "owner": top_owner_did,
+                            "name": name.resolved_name,
+                            "ordinal": local_ordinal,
+                        },
+                    ]
+                    visit(
+                        binding.items[6],
+                        owner_did=local_did,
+                        top_owner_did=top_owner_did,
+                        ordinal=[0],
+                    )
+            # A local procedure body has its own declaration and ordinal
+            # namespace; only its continuation belongs to this owner.
+            visit(
+                datum.items[2],
+                owner_did=owner_did,
+                top_owner_did=top_owner_did,
+                ordinal=ordinal,
+            )
+            return
+
+        introduces_carrier = head_name == "list/map-effect"
+        if head_name == "loop-state":
+            introduces_carrier = not (
+                len(datum.items) > 1
+                and isinstance(datum.items[1], SyntaxKeyword)
+                and datum.items[1].value == ":like"
+            )
+        if introduces_carrier:
+            key = _syntax_metadata_key(datum)
+            family = (owner_did, ordinal[0])
+            ordinal[0] += 1
+            existing = session_state.loop_carrier_families_by_expr_key.get(key)
+            if existing is not None and existing != family:
+                raise RuntimeError(
+                    "expanded loop carrier origin was associated with two declarations"
+                )
+            session_state.loop_carrier_families_by_expr_key[key] = family
+
+        for item in datum.items:
+            visit(
+                item,
+                owner_did=owner_did,
+                top_owner_did=top_owner_did,
+                ordinal=ordinal,
+            )
+
+    for kind, definitions in (("procedure", procedures), ("workflow", workflows)):
+        for definition in definitions:
+            declaration: list[object] = [module_name, kind, definition.name]
+            visit(
+                syntax_node_datum(definition.body),
+                owner_did=declaration,
+                top_owner_did=declaration,
+                ordinal=[0],
+            )
+
+
+def _syntax_metadata_key(datum: SyntaxList) -> tuple[str, int, int, tuple[str, ...]]:
+    return (
+        datum.span.start.path,
+        datum.span.start.line,
+        datum.span.start.column,
+        datum.form_path,
+    )
 
 
 def carrier_metadata_for_type(
     type_ref: TypeRef,
     *,
     session_state: TypecheckSessionState,
+    field_types: tuple[tuple[str, TypeRef], ...] | None = None,
 ) -> LoopStateCarrierMetadata | None:
     """Return loop-state metadata for one generated carrier type, if present."""
 
     if not isinstance(type_ref, RecordTypeRef):
         return None
-    return session_state.loop_carrier_metadata_by_name.get(type_ref.name)
+    metadata = session_state.loop_carrier_metadata_by_name.get(type_ref.name)
+    if metadata is None:
+        return None
+    if field_types is not None and not _loop_state_metadata_matches_field_types(
+        metadata, field_types
+    ):
+        return None
+    return metadata
 
 
 def register_known_carrier_type(
@@ -138,22 +267,49 @@ def carrier_metadata_for_expr(
 ) -> LoopStateCarrierMetadata | None:
     """Return loop-state metadata for one authored seed expression, if present."""
 
-    metadata_by_signature = session_state.loop_carrier_metadata_by_expr_key.get(
-        _expr_metadata_key(expr)
+    source_key = _expr_metadata_key(expr)
+    family = expr.carrier_family or session_state.loop_carrier_families_by_expr_key.get(
+        source_key
     )
-    if not metadata_by_signature:
+    family_key = _carrier_metadata_expr_key(source_key, family) if family is not None else source_key
+    metadata_rows = [
+        metadata
+        for key, rows in session_state.loop_carrier_metadata_by_expr_key.items()
+        if key == family_key or key == source_key
+        for metadata in rows.values()
+    ]
+    if not metadata_rows and family is None:
+        # A typed carrier may have moved away from its source span during
+        # expansion. Its retained family selects among those rows.
+        metadata_rows = [
+            metadata
+            for key, rows in session_state.loop_carrier_metadata_by_expr_key.items()
+            if key[:4] == source_key
+            for metadata in rows.values()
+        ]
+    if family is not None:
+        metadata_rows = [metadata for metadata in metadata_rows if metadata.family == family]
+    if not metadata_rows:
         return None
     if field_signature is not None:
-        matched = metadata_by_signature.get(field_signature)
+        matched = next(
+            (
+                metadata
+                for metadata in metadata_rows
+                if tuple((name, type_ref.name) for name, type_ref in metadata.field_types)
+                == field_signature
+            ),
+            None,
+        )
         if matched is not None:
             return matched
     if field_types is not None:
-        for metadata in metadata_by_signature.values():
+        for metadata in metadata_rows:
             if _loop_state_metadata_matches_field_types(metadata, field_types):
                 return metadata
-    if len(metadata_by_signature) == 1:
-        return next(iter(metadata_by_signature.values()))
-    return next(reversed(metadata_by_signature.values()))
+    if len(metadata_rows) == 1:
+        return metadata_rows[0]
+    return metadata_rows[-1]
 
 
 def loop_state_field_origin(expr, field_path: tuple[str, ...]):
@@ -271,10 +427,23 @@ def _typecheck_loop_state_seed(
         resolved_fields.append((field.name, resolved_type))
 
     field_signature = tuple((name, field_type.name) for name, field_type in resolved_fields)
+    family = expr.carrier_family or context.session_state.loop_carrier_families_by_expr_key.get(
+        _expr_metadata_key(expr)
+    )
+    retained_family = context.session_state.loop_carrier_families_by_expr_key.get(
+        _expr_metadata_key(expr)
+    )
+    if family is not None and retained_family is not None and family != retained_family:
+        raise RuntimeError("loop-state carrier family disagrees with its retained source occurrence")
+    if family is None and context.compiler_session.closed_program:
+        raise RuntimeError(
+            "typed loop-state carrier has no retained expanded-declaration family"
+        )
     generated_name = _generated_loop_state_type_name(
         expr,
         context=context,
         field_signature=field_signature,
+        family=(family if context.compiler_session.closed_program else None),
     )
     _register_generated_record_type(
         context.type_env,
@@ -296,14 +465,24 @@ def _typecheck_loop_state_seed(
         field_types=tuple(resolved_fields),
         type_ref=record_type,
         source_kind="seed",
+        family=family,
+    )
+    typed_expr = replace(expr, carrier_family=family)
+    metadata_expr_key = (
+        _carrier_metadata_expr_key(_expr_metadata_key(expr), family)
+        if family is not None and context.compiler_session.closed_program
+        else _expr_metadata_key(expr)
     )
     context.session_state.loop_carrier_metadata_by_expr_key.setdefault(
-        _expr_metadata_key(expr), {}
+        metadata_expr_key, {}
     )[field_signature] = (
         context.session_state.loop_carrier_metadata_by_name[generated_name]
     )
     return typed_factory(
-        expr=replace(expr, fields=tuple(rewritten_fields)),
+        expr=replace(
+            typed_expr,
+            fields=tuple(rewritten_fields),
+        ),
         type_ref=record_type,
         effect=merge_effect_summaries(*field_effects) if field_effects else EMPTY_EFFECT_SUMMARY,
     )
@@ -374,23 +553,24 @@ def _generated_loop_state_type_name(
     *,
     context,
     field_signature: tuple[tuple[str, str], ...],
+    family: tuple[object, int] | None,
 ) -> str:
     owner = getattr(context.session_state.workflow_signature, "name", None)
     if owner is None:
         owner = expr.form_path[-1] if expr.form_path else "local"
     normalized_owner = re.sub(r"[^A-Za-z0-9_-]+", "_", owner).strip("_") or "local"
-    digest = sha1(
-        repr(
-            (
-                normalized_owner,
-                expr.span.start.path,
-                expr.span.start.line,
-                expr.span.start.column,
-                expr.form_path,
-                field_signature,
-            )
-        ).encode("utf-8")
-    ).hexdigest()[:12]
+    if family is None:
+        identity = (
+            normalized_owner,
+            expr.span.start.path,
+            expr.span.start.line,
+            expr.span.start.column,
+            expr.form_path,
+            field_signature,
+        )
+    else:
+        identity = (family, field_signature)
+    digest = sha1(repr(identity).encode("utf-8")).hexdigest()[:12]
     return f"%loop-state.{normalized_owner}_{digest}"
 
 
@@ -534,6 +714,16 @@ def _expr_metadata_key(expr) -> tuple[str, int, int, tuple[str, ...]]:
         expr.span.start.column,
         expr.form_path,
     )
+
+
+def _carrier_metadata_expr_key(
+    source_key: tuple[str, int, int, tuple[str, ...]],
+    family: tuple[object, int],
+) -> tuple[str, int, int, tuple[str, ...], str]:
+    from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+
+    token = sha256(canonical_json_for_pure_value(family).encode("utf-8")).hexdigest()
+    return (*source_key, token)
 
 
 def _loop_state_metadata_matches_field_types(

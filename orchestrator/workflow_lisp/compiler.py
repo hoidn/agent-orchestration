@@ -650,15 +650,26 @@ def _linked_module_type_environment(
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
     exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
+    retained_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
     rebuilt_by_name: dict[str, tuple[WorkflowLispModule, ModuleImportScope, FrontendTypeEnvironment]] = {}
 
     for current_module_name in compile_result.graph.topological_order:
         current_module = compiled_modules_by_name[current_module_name]
         import_scope = build_import_scope(current_module, export_surfaces_by_name=export_surfaces)
+        retained_enum_origins = _retained_enum_origins(
+            (facts[2] for facts in rebuilt_by_name.values())
+        )
+        imported_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
         type_env = FrontendTypeEnvironment.from_module(
             current_module,
             import_scope=import_scope,
-            imported_type_refs=_imported_type_refs(import_scope, exported_type_refs_by_module),
+            imported_type_refs=_imported_type_refs(
+                import_scope,
+                exported_type_refs_by_module,
+                enum_owner_facts=retained_enum_origins,
+                cloned_enum_origins=imported_enum_origins,
+            ),
+            imported_enum_origins_by_type_ref_id=imported_enum_origins,
             imported_resource_defs=_imported_resource_defs(import_scope, exported_resource_defs_by_module),
             imported_transition_defs=_imported_transition_defs(import_scope, exported_transition_defs_by_module),
         )
@@ -1100,7 +1111,11 @@ def compile_stage3_module(
         for program in effective_imported_programs.values()
     ):
         from .build_artifacts import _source_file_digests_for_modules
-        from .closed.frontend import local_definition_keys_for_module, typed_program_from_graph
+        from .closed.frontend import (
+            local_definition_keys_for_module,
+            local_definition_dids_for_module,
+            typed_program_from_graph,
+        )
 
         procedure_type_envs = {
             procedure.definition.name: procedure_type_env_for(
@@ -1130,6 +1145,11 @@ def compile_stage3_module(
                 module_name: state.extern_environment.bindings_by_name
             },
             local_definition_keys=local_definition_keys_for_module(
+                module_name,
+                state.expanded_syntax_module,
+                state.typed_procedures,
+            ),
+            local_definition_dids=local_definition_dids_for_module(
                 module_name,
                 state.expanded_syntax_module,
                 state.typed_procedures,
@@ -2179,6 +2199,14 @@ def _run_stage3_validation_pipeline(
         )
         function_defs = elaborate_function_definitions(state.expanded_syntax_module)
         procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
+        from .loop_state import retain_loop_carrier_families
+
+        retain_loop_carrier_families(
+            module.module_name or path.stem,
+            procedures=procedure_defs,
+            workflows=workflow_defs,
+            session_state=compiler_session.typecheck,
+        )
         _validate_local_callable_name_collisions(function_defs, procedure_defs)
         validate_module_result_guidance(
             module,
@@ -2954,6 +2982,7 @@ def _compile_stage3_graph(
     closed_entry = target_dsl_uses_evaluated_execution(
         graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version
     )
+    compiler_session.closed_program = closed_entry
     _reject_legacy_to_evaluated_imports(graph)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
@@ -2980,6 +3009,7 @@ def _compile_stage3_graph(
     module_command_boundaries: dict[str, Mapping[str, object]] = {}
     module_workflow_signatures: dict[str, Mapping[str, WorkflowSignature]] = {}
     local_definition_keys: dict[str, object] = {}
+    local_definition_dids: dict[str, tuple[str, str, object]] = {}
     typed_program_snapshot = None
     explicit_imported_bundles = dict(imported_workflow_bundles or {})
     explicit_imported_programs = dict(imported_programs or {})
@@ -3114,17 +3144,26 @@ def _compile_stage3_graph(
             import_scope=import_scope,
         )
 
-        imported_type_refs = _imported_type_refs(import_scope, exported_type_refs_by_module)
+        enum_owner_facts = _retained_enum_origins(module_type_envs.values())
+        imported_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
+        imported_type_refs = _imported_type_refs(
+            import_scope,
+            exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
+        )
         imported_resource_defs = _imported_resource_defs(import_scope, exported_resource_defs_by_module)
         imported_transition_defs = _imported_transition_defs(import_scope, exported_transition_defs_by_module)
         type_env = FrontendTypeEnvironment.from_module(
             definition_module,
             import_scope=import_scope,
             imported_type_refs=imported_type_refs,
+            imported_enum_origins_by_type_ref_id=imported_enum_origins,
             imported_resource_defs=imported_resource_defs,
             imported_transition_defs=imported_transition_defs,
             session_state=compiler_session.typecheck,
         )
+        enum_owner_facts.update(type_env.retained_enum_origins)
         module_type_envs[module_name] = type_env
         imported_prompt_defs = _imported_prompt_definitions(
             import_scope,
@@ -3145,6 +3184,14 @@ def _compile_stage3_graph(
             ].prompts_by_name.items()
         }
         raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
+        from .loop_state import retain_loop_carrier_families
+
+        retain_loop_carrier_families(
+            module_name,
+            procedures=raw_procedure_defs,
+            workflows=raw_workflow_defs,
+            session_state=compiler_session.typecheck,
+        )
         function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
         workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)
@@ -3167,6 +3214,8 @@ def _compile_stage3_graph(
             import_scope,
             exported_procedure_signatures_by_module,
             exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
         )
         imported_function_signatures = _imported_function_signatures(
             import_scope,
@@ -3176,7 +3225,10 @@ def _compile_stage3_graph(
             import_scope,
             exported_workflow_signatures_by_module,
             exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
         )
+        type_env.retain_enum_origins(imported_enum_origins)
         effective_imported_bundles = _effective_imported_workflow_bundles(
             import_scope,
             explicit_imported_bundles=explicit_imported_bundles,
@@ -3665,11 +3717,19 @@ def _compile_stage3_graph(
         )
         from .closed.frontend import (
             local_definition_keys_for_module,
+            local_definition_dids_for_module,
             typed_program_from_graph,
         )
 
         local_definition_keys.update(
             local_definition_keys_for_module(
+                module_name,
+                expanded_syntax,
+                tuple(typed_procedures),
+            )
+        )
+        local_definition_dids.update(
+            local_definition_dids_for_module(
                 module_name,
                 expanded_syntax,
                 tuple(typed_procedures),
@@ -3714,6 +3774,7 @@ def _compile_stage3_graph(
                 },
                 imported_programs=imported_programs,
                 module_workflow_signatures=module_workflow_signatures,
+                local_definition_dids=local_definition_dids,
             )
         result = Stage3CompileResult(
             module=definition_module,
@@ -3765,11 +3826,14 @@ def _compile_stage3_graph(
                 procedure,
                 module_name=module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=imported_enum_origins,
             )
             procedure_type_envs_by_name[procedure.definition.name] = combined_procedure_type_envs[
                 procedure.definition.name
             ]
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
+        type_env.retain_enum_origins(imported_enum_origins)
         for function in typed_functions:
             typed_functions_by_name[function.definition.name] = function
         for workflow in typed_workflows:
@@ -3887,6 +3951,9 @@ def _local_callable_lookup_aliases(
 def _imported_type_refs(
     import_scope: ModuleImportScope,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, TypeRef]:
     """Collect concrete type refs made visible by the import scope."""
 
@@ -3903,8 +3970,22 @@ def _imported_type_refs(
                 module_name=binding.module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
                 canonical_name=binding.canonical_name,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             )
     return imported
+
+
+def _retained_enum_origins(
+type_envs,
+) -> dict[int, tuple[PrimitiveTypeRef, str, str]]:
+    """Collect retained enum owner facts from existing typed environments."""
+
+    return {
+        ref_id: origin
+        for type_env in type_envs
+        for ref_id, origin in type_env.retained_enum_origins.items()
+    }
 
 
 def _canonical_export_type_name(module_name: str, type_name: str, exported_names: frozenset[str]) -> str:
@@ -3941,12 +4022,24 @@ def _canonicalize_nested_imported_type_ref(
     *,
     module_name: str,
     exported_names: frozenset[str],
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypeRef:
     if isinstance(type_ref, PrimitiveTypeRef):
         if not type_ref.allowed_values:
             return type_ref
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
-        return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
+        if canonical_name == type_ref.name:
+            return type_ref
+        clone = replace(type_ref, name=canonical_name)
+        origin = None if enum_owner_facts is None else enum_owner_facts.get(id(type_ref))
+        if (
+            origin is not None
+            and origin[0] is type_ref
+            and cloned_enum_origins is not None
+        ):
+            cloned_enum_origins[id(clone)] = (clone, origin[1], origin[2])
+        return clone
     if isinstance(type_ref, RecordTypeRef):
         from .context_types import contextual_type, is_contextual_type
 
@@ -3955,6 +4048,8 @@ def _canonicalize_nested_imported_type_ref(
                 field_type,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             )
             for field_name, field_type in type_ref.field_types.items()
         }
@@ -3969,7 +4064,13 @@ def _canonicalize_nested_imported_type_ref(
     if isinstance(type_ref, UnionTypeRef):
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
         type_args = tuple(
-            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            _canonicalize_nested_imported_type_ref(
+                arg,
+                module_name=module_name,
+                exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
+            )
             for arg in type_ref.type_args
         )
         if type_args:
@@ -3984,6 +4085,8 @@ def _canonicalize_nested_imported_type_ref(
                         field_type,
                         module_name=module_name,
                         exported_names=exported_names,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     )
                     for field_name, field_type in field_types.items()
                 }
@@ -3993,7 +4096,13 @@ def _canonicalize_nested_imported_type_ref(
     if isinstance(type_ref, VariantCaseTypeRef):
         canonical_union_name = _canonical_export_type_name(module_name, type_ref.union_name, exported_names)
         union_type_args = tuple(
-            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            _canonicalize_nested_imported_type_ref(
+                arg,
+                module_name=module_name,
+                exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
+            )
             for arg in type_ref.union_type_args
         )
         if union_type_args:
@@ -4010,6 +4119,8 @@ def _canonicalize_nested_imported_type_ref(
                         field_type,
                         module_name=module_name,
                         exported_names=exported_names,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     )
                     for field_name, field_type in type_ref.field_types.items()
                 }
@@ -4025,6 +4136,8 @@ def _canonicalize_nested_imported_type_ref(
                     param_type,
                     module_name=module_name,
                     exported_names=exported_names,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 )
                 for param_type in type_ref.param_type_refs
             ),
@@ -4032,6 +4145,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.return_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, ProcRefTypeRef):
@@ -4042,6 +4157,8 @@ def _canonicalize_nested_imported_type_ref(
                     param_type,
                     module_name=module_name,
                     exported_names=exported_names,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 )
                 for param_type in type_ref.param_type_refs
             ),
@@ -4049,6 +4166,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.return_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, OptionalTypeRef):
@@ -4058,6 +4177,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.item_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, ListTypeRef):
@@ -4067,6 +4188,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.item_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, MapTypeRef):
@@ -4076,11 +4199,15 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.key_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
             value_type_ref=_canonicalize_nested_imported_type_ref(
                 type_ref.value_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     return type_ref
@@ -4115,11 +4242,19 @@ def _inlined_constructor_types(
         defining_module = defining_type_env.module_name
         if exported_type_refs_by_module is None or defining_module in (None, type_env.module_name):
             return resolved
-        return _canonicalize_imported_type_ref(
+        enum_owner_facts = _retained_enum_origins(
+            (type_env, *(procedure_type_envs or {}).values(), defining_type_env)
+        )
+        cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
+        imported = _canonicalize_imported_type_ref(
             resolved,
             module_name=defining_module,
             exported_type_refs_by_module=exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=cloned_enum_origins,
         )
+        type_env.retain_enum_origins(cloned_enum_origins)
+        return imported
 
     return constructor_type
 
@@ -4130,12 +4265,16 @@ def _canonicalize_imported_type_ref(
     module_name: str,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
     canonical_name: str | None = None,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypeRef:
     exported_names = frozenset(exported_type_refs_by_module.get(module_name, {}))
     canonicalized = _canonicalize_nested_imported_type_ref(
         type_ref,
         module_name=module_name,
         exported_names=exported_names,
+        enum_owner_facts=enum_owner_facts,
+        cloned_enum_origins=cloned_enum_origins,
     )
     if canonical_name is None or getattr(canonicalized, "name", None) == canonical_name:
         return canonicalized
@@ -4268,6 +4407,9 @@ def _imported_procedure_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, ProcedureSignature]],
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, ProcedureSignature]:
     """Collect procedure signatures visible through imports."""
 
@@ -4284,6 +4426,8 @@ def _imported_procedure_signatures(
                             param_type,
                             module_name=binding.module_name,
                             exported_type_refs_by_module=exported_type_refs_by_module,
+                            enum_owner_facts=enum_owner_facts,
+                            cloned_enum_origins=cloned_enum_origins,
                         ),
                     )
                     for param_name, param_type in signature.params
@@ -4292,6 +4436,8 @@ def _imported_procedure_signatures(
                     signature.return_type_ref,
                     module_name=binding.module_name,
                     exported_type_refs_by_module=exported_type_refs_by_module,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 ),
             )
     return imported
@@ -4302,6 +4448,8 @@ def _canonicalize_exported_typed_procedure(
     *,
     module_name: str,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypedProcedureDef:
     """Expose one compiled procedure to importers with canonical exported types.
 
@@ -4321,6 +4469,8 @@ def _canonicalize_exported_typed_procedure(
                         param_type,
                         module_name=module_name,
                         exported_type_refs_by_module=exported_type_refs_by_module,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     ),
                 )
                 for param_name, param_type in procedure.signature.params
@@ -4329,6 +4479,8 @@ def _canonicalize_exported_typed_procedure(
                 procedure.signature.return_type_ref,
                 module_name=module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         ),
     )
@@ -4369,6 +4521,9 @@ def _imported_workflow_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, WorkflowSignature]:
     """Collect workflow signatures visible through imports."""
 
@@ -4385,6 +4540,8 @@ def _imported_workflow_signatures(
                             param_type,
                             module_name=binding.module_name,
                             exported_type_refs_by_module=exported_type_refs_by_module,
+                            enum_owner_facts=enum_owner_facts,
+                            cloned_enum_origins=cloned_enum_origins,
                         ),
                     )
                     for param_name, param_type in signature.params
@@ -4393,6 +4550,8 @@ def _imported_workflow_signatures(
                     signature.return_type_ref,
                     module_name=binding.module_name,
                     exported_type_refs_by_module=exported_type_refs_by_module,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 ),
             )
     return imported

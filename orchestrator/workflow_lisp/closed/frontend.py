@@ -52,6 +52,7 @@ class TypedProgram:
     entry_dir: str
     source_file_digests: Mapping[str, str]
     local_definition_keys: Mapping[str, object]
+    local_definition_dids: Mapping[str, tuple[str, str, object]]
     imported_programs: Mapping[str, "TypedProgram"]
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
     _compiled_bundle_boundaries: Mapping[
@@ -80,6 +81,7 @@ class TypedProgram:
             "configuration_bindings",
             "source_file_digests",
             "local_definition_keys",
+            "local_definition_dids",
             "imported_programs",
         ):
             value = getattr(self, name)
@@ -313,6 +315,114 @@ def local_definition_keys_for_module(
     return local_keys
 
 
+def local_definition_dids_for_module(
+    module_name: str,
+    expanded_syntax,
+    typed_procedures: tuple[TypedProcedureDef, ...],
+) -> dict[str, tuple[str, str, object]]:
+    """Retain each local procedure's full, kind-qualified declaration DId."""
+
+    def span_key(span: SourceSpan) -> tuple[str, int, int, int, int]:
+        return (
+            span.start.path,
+            span.start.line,
+            span.start.column,
+            span.end.line,
+            span.end.column,
+        )
+
+    declarations_by_origin: dict[
+        tuple[tuple[str, int, int, int, int], str, str],
+        list[tuple[str, str, object]],
+    ] = defaultdict(list)
+    declaration_ordinals: dict[tuple[str, str], int] = defaultdict(int)
+
+    def walk(datum, owner_did: tuple[str, str, object] | None = None) -> None:
+        if not isinstance(datum, SyntaxList) or not datum.items:
+            return
+        head = datum.items[0]
+        head_name = head.resolved_name if isinstance(head, SyntaxIdentifier) else None
+        if head_name in {"defworkflow", "defproc"} and len(datum.items) > 1:
+            name = datum.items[1]
+            if isinstance(name, SyntaxIdentifier):
+                owner_did = (
+                    module_name,
+                    "workflow" if head_name == "defworkflow" else "procedure",
+                    name.resolved_name,
+                )
+            for item in datum.items[1:]:
+                walk(item, owner_did)
+            return
+        if head_name == "let-proc" and len(datum.items) > 1:
+            binding = datum.items[1]
+            if isinstance(binding, SyntaxList) and binding.items:
+                name = binding.items[0]
+                if owner_did is not None and isinstance(name, SyntaxIdentifier):
+                    from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
+
+                    owner_key = canonical_json_for_pure_value(owner_did)
+                    ordinal_key = (owner_key, name.resolved_name)
+                    ordinal = declaration_ordinals[ordinal_key]
+                    declaration_ordinals[ordinal_key] = ordinal + 1
+                    local_did = (
+                        module_name,
+                        "procedure",
+                        {
+                            "owner": list(owner_did),
+                            "name": name.resolved_name,
+                            "ordinal": ordinal,
+                        },
+                    )
+                    declarations_by_origin[
+                        (span_key(binding.span), owner_did[2], name.resolved_name)
+                    ].append(local_did)
+            for item in datum.items[1:]:
+                walk(item, owner_did)
+            return
+        for item in datum.items:
+            walk(item, owner_did)
+
+    for form in expanded_syntax.forms:
+        walk(syntax_node_datum(form))
+
+    consumed: dict[tuple[tuple[str, int, int, int, int], str, str], int] = defaultdict(int)
+    base_dids: dict[str, tuple[str, str, object]] = {}
+    for procedure in typed_procedures:
+        metadata = procedure.definition.generated_local_procedure
+        if (
+            not isinstance(metadata, GeneratedLocalProcedure)
+            or procedure.specialization is not None
+        ):
+            continue
+        key = (
+            span_key(metadata.origin_span),
+            metadata.owner_callable_name,
+            metadata.authored_local_name,
+        )
+        candidates = declarations_by_origin.get(key, ())
+        index = consumed[key]
+        if index >= len(candidates):
+            raise RuntimeError("generated local procedure has no retained declaration DId")
+        consumed[key] = index + 1
+        base_dids[procedure.definition.name] = candidates[index]
+
+    local_dids: dict[str, tuple[str, str, object]] = {}
+    for procedure in typed_procedures:
+        metadata = procedure.definition.generated_local_procedure
+        if not isinstance(metadata, GeneratedLocalProcedure):
+            continue
+        base_name = (
+            procedure.specialization.base_name
+            if procedure.specialization is not None
+            else procedure.definition.name
+        )
+        local_did = base_dids.get(base_name)
+        if local_did is None:
+            raise RuntimeError("generated local procedure specialization has no base DId")
+        local_dids[procedure.definition.name] = local_did
+    return local_dids
+
+
 def typed_program_from_graph(
     *,
     target: str,
@@ -329,6 +439,7 @@ def typed_program_from_graph(
     module_type_envs: Mapping[str, FrontendTypeEnvironment],
     module_externs: Mapping[str, Mapping[str, object]],
     local_definition_keys: Mapping[str, object],
+    local_definition_dids: Mapping[str, tuple[str, str, object]] | None = None,
     command_boundary_origins: Mapping[str, str] | None = None,
     configuration_bindings: Mapping[str, object] | None = None,
     imported_programs: Mapping[str, TypedProgram] | None = None,
@@ -382,6 +493,7 @@ def typed_program_from_graph(
     module_type_envs = dict(module_type_envs)
     module_externs = {name: dict(bindings) for name, bindings in module_externs.items()}
     local_definition_keys = dict(local_definition_keys)
+    local_definition_dids = dict(local_definition_dids or {})
     module_workflow_signatures = {
         name: dict(signatures)
         for name, signatures in (module_workflow_signatures or {}).items()
@@ -395,6 +507,8 @@ def typed_program_from_graph(
             module_externs.setdefault(name, dict(owner_externs))
         for name, key in imported.local_definition_keys.items():
             local_definition_keys.setdefault(name, key)
+        for name, local_did in imported.local_definition_dids.items():
+            local_definition_dids.setdefault(name, local_did)
         for module_name, signatures in imported.module_workflow_signatures.items():
             module_workflow_signatures.setdefault(module_name, dict(signatures))
     command_boundaries = _freeze_command_boundaries(
@@ -431,6 +545,7 @@ def typed_program_from_graph(
         entry_dir=entry_dir,
         source_file_digests={},
         local_definition_keys=local_definition_keys,
+        local_definition_dids=local_definition_dids,
         imported_programs=direct_imported_programs,
         module_workflow_signatures=module_workflow_signatures,
     )

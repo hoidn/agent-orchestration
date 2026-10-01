@@ -197,6 +197,7 @@ def resolve_field_access(
             union_name=base_type.name,
             variant_names=tuple(variant.name for variant in base_type.definition.variants),
             applied_union=base_type if base_type.type_args else None,
+            owner_union=base_type,
         )
     if isinstance(base_type, RecordTypeRef):
         return type_env.record_field(base_type, field_name, span=span, form_path=form_path)

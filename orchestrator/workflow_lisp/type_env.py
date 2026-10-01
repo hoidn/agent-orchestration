@@ -202,6 +202,17 @@ class RecordTypeRef:
     name: str
     definition: RecordDef
     field_types: dict[str, "TypeRef"]
+    run_ref_origin: tuple[
+        object, tuple[tuple[str, "TypeRef"], ...]
+    ] | None = dataclass_field(
+        default=None,
+        repr=False,
+        compare=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -283,6 +294,19 @@ class DiscriminantTypeRef:
     # of `repr` and build JSON so existing identities are unchanged.
     applied_union: UnionTypeRef | None = dataclass_field(
         default=None, hash=False, metadata={"json_omit_if_none": True}
+    )
+    # Exact declaration owner for the unapplied case as well. Kept outside
+    # legacy repr/equality/build identities; spelling alone can be ambiguous
+    # across imported private unions.
+    owner_union: UnionTypeRef | None = dataclass_field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
     )
 
     def __repr__(self) -> str:
@@ -373,6 +397,9 @@ class FrontendTypeEnvironment:
         resource_defs: Mapping[str, ResourceDef] | None = None,
         transition_defs: Mapping[str, TransitionDef] | None = None,
         nominal_descriptor_names_by_definition_id: dict[int, str] | None = None,
+        declaring_modules_by_definition_id: dict[int, str] | None = None,
+        enum_origins_by_type_ref_id: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+        compiler_type_identities_by_definition_id: dict[int, str] | None = None,
         session_state: TypecheckSessionState | None = None,
     ):
         self._type_refs = dict(type_refs)
@@ -386,6 +413,13 @@ class FrontendTypeEnvironment:
         self.session_state = session_state
         self._nominal_descriptor_names_by_definition_id = dict(
             nominal_descriptor_names_by_definition_id or {}
+        )
+        self._declaring_modules_by_definition_id = dict(
+            declaring_modules_by_definition_id or {}
+        )
+        self._enum_origins_by_type_ref_id = dict(enum_origins_by_type_ref_id or {})
+        self._compiler_type_identities_by_definition_id = dict(
+            compiler_type_identities_by_definition_id or {}
         )
 
     @property
@@ -403,6 +437,9 @@ class FrontendTypeEnvironment:
         imported_type_refs: dict[str, TypeRef] | None = None,
         imported_resource_defs: Mapping[str, ResourceDef] | None = None,
         imported_transition_defs: Mapping[str, TransitionDef] | None = None,
+        imported_enum_origins_by_type_ref_id: Mapping[
+            int, tuple[PrimitiveTypeRef, str, str]
+        ] | None = None,
         session_state: TypecheckSessionState | None = None,
     ) -> "FrontendTypeEnvironment":
         reserved_target_prelude_type_names = (
@@ -420,6 +457,11 @@ class FrontendTypeEnvironment:
                     span=definition.span,
                     form_path=_local_type_definition_form_path(definition),
                 )
+        declaring_module = (
+            module.module_name
+            or (None if import_scope is None else import_scope.module_name)
+            or "entry"
+        )
         if imported_type_refs:
             for imported_name in imported_type_refs:
                 if imported_name in reserved_target_prelude_type_names:
@@ -471,6 +513,16 @@ class FrontendTypeEnvironment:
                     "CANCELLED": {},
                 },
             )
+        compiler_type_identities_by_definition_id = {
+            id(definition): type_ref.name
+            for type_ref in type_refs.values()
+            if (definition := getattr(type_ref, "definition", None)) is not None
+        }
+        enum_origins_by_type_ref_id: dict[
+            int, tuple[PrimitiveTypeRef, str, str]
+        ] = dict(
+            imported_enum_origins_by_type_ref_id or {}
+        )
         for definition in module.definitions:
             if isinstance(definition, EnumDef):
                 enum_ref = PrimitiveTypeRef(
@@ -478,6 +530,11 @@ class FrontendTypeEnvironment:
                     allowed_values=tuple(value.name for value in definition.values),
                 )
                 type_refs[definition.name] = enum_ref
+                enum_origins_by_type_ref_id[id(enum_ref)] = (
+                    enum_ref,
+                    declaring_module,
+                    definition.name,
+                )
                 if module.module_name:
                     type_refs[f"{module.module_name}/{definition.name}"] = enum_ref
                     type_refs[f"{module.module_name}::{definition.name}"] = enum_ref
@@ -613,6 +670,21 @@ class FrontendTypeEnvironment:
                 for definition in module.definitions
                 if isinstance(definition, (RecordDef, UnionDef))
             },
+            declaring_modules_by_definition_id={
+                id(definition): declaring_module
+                for definition in (
+                    *module.definitions,
+                    *module.schemas,
+                    *(
+                        variant
+                        for definition in module.definitions
+                        if isinstance(definition, UnionDef)
+                        for variant in definition.variants
+                    ),
+                )
+            },
+            enum_origins_by_type_ref_id=enum_origins_by_type_ref_id,
+            compiler_type_identities_by_definition_id=compiler_type_identities_by_definition_id,
             session_state=session_state,
         )
 
@@ -623,6 +695,54 @@ class FrontendTypeEnvironment:
         if definition is None:
             return None
         return self._nominal_descriptor_names_by_definition_id.get(id(definition))
+
+    def declaring_module(self, type_ref: TypeRef) -> str | None:
+        """Return the retained source module that owns one nominal reference."""
+
+        if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values:
+            origin = self._enum_origins_by_type_ref_id.get(id(type_ref))
+            return None if origin is None or origin[0] is not type_ref else origin[1]
+        definition = getattr(type_ref, "definition", None)
+        if definition is None:
+            return None
+        return self._declaring_modules_by_definition_id.get(id(definition))
+
+    def declaring_name(self, type_ref: TypeRef) -> str | None:
+        """Return the actual declared member name for one retained nominal ref."""
+
+        if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values:
+            origin = self._enum_origins_by_type_ref_id.get(id(type_ref))
+            return None if origin is None or origin[0] is not type_ref else origin[2]
+        definition = getattr(type_ref, "definition", None)
+        return None if definition is None else getattr(definition, "name", None)
+
+    def compiler_type_identity(self, type_ref: TypeRef) -> str | None:
+        """Return a fixed compiler-owned identity retained with its definition."""
+
+        definition = getattr(type_ref, "definition", None)
+        if definition is None:
+            return None
+        return self._compiler_type_identities_by_definition_id.get(id(definition))
+
+    def retained_type_ref(self, name: str) -> TypeRef | None:
+        """Find a reference by an exact retained environment key."""
+
+        return self._type_refs.get(name)
+
+    @property
+    def retained_enum_origins(
+        self,
+    ) -> dict[int, tuple[PrimitiveTypeRef, str, str]]:
+        """Return enum ownership facts keyed by the retained TypeRef object."""
+
+        return dict(self._enum_origins_by_type_ref_id)
+
+    def retain_enum_origins(
+        self, origins: Mapping[int, tuple[PrimitiveTypeRef, str, str]]
+    ) -> None:
+        """Keep enum owner facts for cloned imported TypeRefs used by this module."""
+
+        self._enum_origins_by_type_ref_id.update(origins)
 
     def resolve_type(
         self,
@@ -1699,6 +1819,17 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
             name=type_ref.name,
             definition=type_ref.definition,
             field_types=field_types,
+            run_ref_origin=(
+                None
+                if type_ref.run_ref_origin is None
+                else (
+                    type_ref.run_ref_origin[0],
+                    tuple(
+                        (name, substitute_type_params(input_ref, bindings))
+                        for name, input_ref in type_ref.run_ref_origin[1]
+                    ),
+                )
+            ),
         )
     if isinstance(type_ref, UnionTypeRef):
         if type_ref.type_args:
@@ -1716,9 +1847,19 @@ def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> T
                 for variant_name, field_types in type_ref.variant_field_types.items()
             },
         )
-    if isinstance(type_ref, DiscriminantTypeRef) and type_ref.applied_union is not None:
-        applied_union = substitute_type_params(type_ref.applied_union, bindings)
-        return replace(type_ref, union_name=applied_union.name, applied_union=applied_union)
+    if isinstance(type_ref, DiscriminantTypeRef):
+        if type_ref.applied_union is not None:
+            applied_union = substitute_type_params(type_ref.applied_union, bindings)
+            return replace(
+                type_ref,
+                union_name=applied_union.name,
+                applied_union=applied_union,
+                owner_union=applied_union,
+            )
+        if type_ref.owner_union is not None:
+            owner_union = substitute_type_params(type_ref.owner_union, bindings)
+            if owner_union is not type_ref.owner_union:
+                return replace(type_ref, owner_union=owner_union)
     return type_ref
 
 

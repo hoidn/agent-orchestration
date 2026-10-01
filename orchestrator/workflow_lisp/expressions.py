@@ -139,6 +139,16 @@ class UnionVariantTagExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    discriminant_owner: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 @dataclass(frozen=True)
 class FieldAccessExpr:
@@ -281,6 +291,18 @@ class LoopStateSeedExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Inline expansion can move the source span, while the carrier still
+    # belongs to its original expanded declaration and ordinal.
+    carrier_family: tuple[object, int] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -442,6 +464,15 @@ class RunRefExpr:
     returns_type_name: str | None = None
     environment: str | None = None
     expansion_stack: ExpansionStack = ()
+    run_ref_metadata: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
