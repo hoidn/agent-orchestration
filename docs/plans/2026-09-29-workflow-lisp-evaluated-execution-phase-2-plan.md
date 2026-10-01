@@ -295,13 +295,105 @@ additionally allows the key-only compile-time reference signatures:
 
 The first two encode static callable types when a bound argument itself is
 a reference; they are not runtime values/descriptors and are forbidden in
-the final runtime capture/residual signature. `S` is Task 8's already-owned
-canonical input/result structural signature, recursively projecting other
-generated run-reference types in the same way. It retains user nominal
-identities and fixed neutral runtime records. Its exact producer projection
-remains Task 8's owner; no span-derived or finalized `RunRefResult$...` name
-enters this key marker. P5 compares the key projection of the finalized
-runtime signature, not the marker directly to a runtime descriptor.
+the final runtime capture/residual signature. The exact finite structural
+signature `S` below projects generated run-reference envelopes. P5 compares
+the key projection of the finalized runtime signature, not the marker
+directly to a runtime descriptor.
+
+#### Run-reference structural signatures
+
+`S` has exactly this JSON shape; `D` is the runtime descriptor projection
+above, and the fixed records are complete recursive neutral descriptors:
+
+```text
+S = {"inputs": [[input_name, D], ...],
+     "result": {"schema": "run_ref_result_contract.v1",
+                "envelope": {"kind": "record", "fields": [
+                  {"name": "value", "type": D},
+                  {"name": "workspace_delta", "type": FixedWorkspaceDelta},
+                  {"name": "accounting", "type": FixedRunRefAccounting}
+                ]}}}
+```
+
+Objects have exactly the displayed keys. Input rows have exactly two
+members; names obey the existing `RunRefInput` rule, are unique and retain
+semantic input order (the array may be empty). Retain all seven fixed runtime
+record identities, field orders and definitions accepted by the unchanged
+neutral result validator. No compile-time reference descriptor belongs in
+`S`: its inputs and child value are runtime transport types.
+
+Validate the complete neutral result contract first, then omit **only its
+own outer envelope's `name`**. Do not project that whole root through `D`,
+which would request its own signature. Project each field and input type
+recursively; every nested generated envelope becomes the whole marker
+`{"kind":"run-ref-result","signature": S_of_its_producer}`. Its producer's
+ordered inputs are part of that nested S and cannot be recovered from the
+envelope alone. Preserve all other normalized-descriptor keys/scalars,
+user/private nominal identities, applied types, refinements and exact fixed
+records. The nameless root is a key projection, never a runtime descriptor
+accepted by a weakened neutral codec. There is no forward signature ref,
+self marker, generated-name escape or persisted signature/origin table.
+
+Task 5 adds these pure helpers to `closed/names.py`; Tasks 6 and 8 reuse them:
+
+```python
+key_type_descriptor(descriptor: dict, *, run_ref_signatures: Mapping[str, dict]) -> dict
+canonical_run_ref_signature(inputs: Sequence[tuple[str, dict]], result_descriptor: dict,
+                            *, run_ref_signatures: Mapping[str, dict]) -> dict
+```
+
+Both return fresh JSON values without changing their arguments, use existing
+neutral descriptor/result/input validators and raise `ValueError`/`TypeError`
+for invalid facts. The second may reuse `RunRefInput` with a transient
+`ReferenceBinding("inputs." + name)` and nested transport enabled; that
+binding never enters S. Result validation also enables target 2.35 nested
+transport. The map contains completed signatures by generated
+runtime identity in the caller's resolved origin scope. Callers establish
+ownership and exact producer/descriptor correspondence; a supplied map alone
+is not artifact authority. Construction uses compiler ownership metadata,
+not spelling; read-back reserves unqualified generated envelope identities. Missing generated identities fail. No direct
+frontend semantic dependency, parallel codec or duplicated fixed schema is
+introduced. Existing neutral-codec/package import side effects do not imply
+source re-typechecking or require an import refactor.
+
+P5 derives an origin index from every actual `perform/run_ref` occurrence,
+with its containing definition and independently checked local site. A
+concrete generated identity has exactly one lexical producer; reject missing
+or duplicate producers, even equal-shaped ones or a digest-prefix collision.
+Dynamic calls/iterations do not add lexical producers. Decode path-mode
+configs at target 2.35, check node inputs in their lexical typed environments,
+and require exact ordered input name/type rows and `inputs.<name>` reference
+bindings. Check node/config envelopes and all generated/fixed nominal uses
+against their complete `types` entries, including nested descriptors and
+config return refinements. Matching copied type labels are not inference.
+
+Compute each producer's S with a visiting guard and memoization over generated
+dependencies in its checked inputs and result fields (exclude only its own
+outer envelope). Missing/ambiguous origins or a visiting origin fail; input
+dependencies can form a cycle even with finite result descriptors. Derive
+this inventory before accepting key markers. A persisted marker must equal
+a derived S in canonical JSON bytes, and runtime/key agreement must equal
+`key_type_descriptor` of **that actual runtime descriptor**, selecting its
+concrete producer. Canonical JSON equality keeps `false` distinct from `0`.
+This reuses the derived grammar rather than adding a second S decoder.
+
+After canonical definition names and sites have been checked, recompute the
+unchanged full digest tuple specified in Task 8. Require all 64 characters,
+the generated name, node/config/result-digest/type-table agreement and exact
+input correspondence; neutral decoding alone does not prove lexical origin.
+No source, child repository or runtime execution is consulted.
+
+Two producers may share S but retain different concrete identities. Never
+invert S to select a generated name. Before finalization, copied bodies or
+specializations may share an old generated spelling: Task 6 resolves each
+use through retained `RunRefSiteMetadata`/WCC producing-definition, call and
+substitution context. A temporary producer handle is allowed in builder state.
+A context's old-name map may collapse signature entries only after proving
+complete S equality; concrete producer occurrences remain distinct for Task
+8's final naming/rewrite. No program-global string substitution is valid.
+Missing/ambiguous construction ownership is a compiler defect. This explicit
+expansion can enlarge keys for repeated nested contracts; a compact format
+would require an identity-format change.
 
 #### Reference and closed-binding rows
 
@@ -913,7 +1005,7 @@ binding registry, or new surface admission rule is involved.
 | 1 | The new target exists and refuses to run | A (alone, first) | `syntax.py`, `workflow/validation.py`, `run_ref/config.py`, `run_ref/bundle_transport.py`, `closed/__init__.py`, `closed/target.py`, `cli/commands/run.py`, `cli/commands/resume.py`, `specs/versioning.md`, `specs/dsl.md`, `specs/index.md` line 1, `tests/test_workflow_lisp_target_234.py` |
 | 2 | The public compile entry that stops after typecheck | B (alone) | `closed/frontend.py`, `compiler.py` (source producers and graph), `workflows.py` (result and signatures), `workflow/loaded_bundle.py`, `build_artifacts.py` (source digests), `build.py` (export selector) |
 | 3 | The elaborator at the new target | C | `wcc/model.py` (`WccIdentityFactory.closed_program`), `wcc/elaborate.py`, `expressions.py`, `conditionals.py`, `typecheck_proofs.py`, `typecheck_dispatch.py`, `typecheck_structural_values.py`, `build_manifest_io.py`, `procedure_typecheck.py` (transient loop and binding-prefix order) |
-| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `closed/names.py` (pure key-to-name helper only), `workflow/type_descriptor.py` (boundary projection checking) |
+| 5 | Sites and the checked form | C | `closed/sites.py`, `closed/check.py`, `closed/names.py` (pure key-to-name and run-reference projection helpers), `workflow/type_descriptor.py` (boundary projection checking) |
 | 6 | Names that hold no path | C2 (after 5) | `closed/names.py` (extend with typed construction), `type_env.py` (declaring module index) |
 | 7 | The program artifact, its digest, and the manifest field `closure` | C2 (after 5) | `closed/program.py`, `command_boundaries.py`, `build_manifest_io.py`, `stdlib_contracts.py`, `compiler.py` (injected binding origins), `closed/frontend.py` (carriage) |
 | 4 | The builder: bodies, values, the table, X1 to X4, command nodes; binding-origin carriage | D (alone) | `closed/build.py`, `closed/values.py`, `closed/context.py`, `closed/effects.py` (commands and the closure rule), `typecheck_effects.py` (one gated line), `expressions.py`, `typecheck_dispatch.py`, `conditionals.py`, `functions.py`, `typecheck_structural_values.py`, `procedure_typecheck.py`, `wcc/model.py`, `wcc/elaborate.py`, `wcc/anf.py` (origin retention after Task 3), `tests/workflow_lisp_closed_program_helpers.py` |
@@ -1755,7 +1847,7 @@ in its incoming scope while ordinary legacy traversal stays one-view.
 ### Task 5: Sites And The Checked Form
 
 **Files:**
-- Create: `orchestrator/workflow_lisp/closed/sites.py`, `orchestrator/workflow_lisp/closed/check.py`, `orchestrator/workflow_lisp/closed/names.py` (pure key-to-name helper only; Task 6 extends it)
+- Create: `orchestrator/workflow_lisp/closed/sites.py`, `orchestrator/workflow_lisp/closed/check.py`, `orchestrator/workflow_lisp/closed/names.py` (pure key-to-name and run-reference descriptor/signature helpers; Task 6 adds typed construction)
 - Modify: `orchestrator/workflow/type_descriptor.py` (source-independent compiled-boundary projection validation)
 - Test: `tests/test_workflow_lisp_closed_program_sites.py`, `tests/test_workflow_lisp_closed_program_check.py`
 
@@ -1775,6 +1867,10 @@ are pure functions over the shared schema; no compiler/frontend import.
   ordering, reference-binding bijection, resolved extern rows and capture/
   residual agreement before calling it. Hand-written fixtures use this
   actual helper, with no placeholder naming algorithm or deferred check.
+- Produces: `names.key_type_descriptor` and `names.canonical_run_ref_signature`
+  with the exact [shared signature contract](#run-reference-structural-signatures).
+  `check.py` owns the derived origin inventory and complete S/key/runtime checks
+  now; neither opaque S acceptance nor deferred Task 8 correspondence is valid.
 - Produces: `sites.SEPARATOR = " / "`;
   `sites.assign_sites(tree: dict) -> list[tuple[str, str]]`: writes
   `site` (the local path) on every `perform` and `frame` (the local prefix
@@ -1862,9 +1958,10 @@ are pure functions over the shared schema; no compiler/frontend import.
 - Run-reference read-back checks use Task 8's exact configuration/type digest
   recipe and fixed runtime record identities. The neutral decoder establishes
   the static config's internal consistency; this checker also establishes
-  correspondence with the containing definition/site, node and `types` table.
+  correspondence with the containing definition/site, node and `types` table,
+  using the exact shared origin/dependency/signature algorithm above.
 - Consumed by: Task 4 (`assign_sites` then `validate` at build), Task 6
-  (the existing pure name helper), Task 7 (`validate` on artifact read-back).
+  (the shared pure name/signature helpers), Task 7 (`validate` on artifact read-back).
 
 - [ ] **Step 1: Write the failing tests on hand-written trees**
 
@@ -1948,10 +2045,20 @@ binder renaming and a call to another declaration leave its occurrence
 unchanged. These key and row checks are complete in Task 5; only their
 production source/descriptor construction waits for the later tasks.
 
+Add valid one-level and nested run-reference fixtures using the unchanged
+neutral codec and the shared S helpers. Reject wrong input order/type/reference,
+missing/duplicate producers, finite-descriptor input-origin cycles, malformed
+key S, generated-name leakage, conflicting fixed `types` records and changes
+to the digest suffix after its first 16 characters. Test equal-S distinct
+sites and refuse an expression/config nominal substitution between them.
+Changing a nested producer's S must change the outer signature/key/site
+correspondence. These tests prove complete Task 5 read-back; later producer
+integration does not replace them.
+
 - [ ] **Step 2: Run; expected failure** `ImportError`.
 
-- [ ] **Step 3: Implement** `sites.py`, `check.py` and the pure helper in
-`names.py` over the shared schema.
+- [ ] **Step 3: Implement** `sites.py`, `check.py` and the pure helpers in
+`names.py` over the shared schema, including both run-reference projections.
 Use small node dispatchers as in the spike, with an independent validation
 walk. The spike's small validator is not a full type checker; do not preserve
 its omitted type checks to meet its historical line estimate.
@@ -1979,7 +2086,7 @@ one case each.
 ### Task 6: Names That Hold No Path
 
 **Files:**
-- Modify: `orchestrator/workflow_lisp/closed/names.py` (Task 5 created the pure key-to-name helper; extend it with typed construction)
+- Modify: `orchestrator/workflow_lisp/closed/names.py` (Task 5 created the pure key-to-name and run-reference projection helpers; extend them with typed construction)
 - Modify: `orchestrator/workflow_lisp/type_env.py` (`FrontendTypeEnvironment.from_module`, line 604: the map of nominal descriptor names; a sibling map and a method)
 - Test: `tests/test_workflow_lisp_closed_program_names.py`
 
@@ -1993,10 +2100,13 @@ execution facts A.5; design §4.2 and P6; the
 [canonical key schema](#canonical-definition-keys). Merge Task 5 first.
 
 **Interfaces:**
-- Consumes: Task 5's `canonical_callee_name_from_key`. Keep frontend imports
-  under `TYPE_CHECKING` or inside typed constructors so the checker can
-  import the pure helper without loading the frontend. Do not import
-  `closed.check` or `closed.program` into `names.py`.
+- Consumes: Task 5's `canonical_callee_name_from_key`, `key_type_descriptor`
+  and `canonical_run_ref_signature`. Keep frontend imports under
+  `TYPE_CHECKING` or inside typed constructors so the pure helpers have no
+  frontend semantic dependency. Existing neutral import side effects are
+  outside this claim. Do not import `closed.check` or `closed.program` into
+  `names.py`. Derive origin scopes from retained typed producer metadata,
+  using the shared signature contract; do not duplicate its projection.
 - Produces: `FrontendTypeEnvironment.declaring_module(type_ref: TypeRef) -> str | None`:
   the `defmodule` name of the module that declares the nominal type behind
   `type_ref` (`RecordDef`, `UnionDef`, `EnumDef`, `PathDef`, `SchemaDef`),
@@ -2062,7 +2172,10 @@ execution facts A.5; design §4.2 and P6; the
     containing canonical definition, local site and that signature together
     into `site_digest`, and the existing neutral name rule derives the final
     nominal name from its first 16 hexadecimal characters. This is a two-pass
-    finalization in Task 8, not a self-referential hash.
+    finalization in Task 8, not a self-referential hash. Test distinct producer
+    contexts sharing S (and any shared provisional spelling), keeping their
+    concrete origin links through calls/substitutions; no inversion of S or
+    global old-name rewrite may select an origin.
   - `Renamer(reserved_names=...)`: reserve all authored lexical names and
     parameters in the definition before allocating the first `%<n>`.
     `bind(name, *, authored_label: str | None, env: MutableMapping[str, str]) -> str`
@@ -2830,7 +2943,7 @@ lexical names from authored identity labels.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (call run-ref finalization after site assignment and before validation)
-- Modify if needed: `orchestrator/workflow_lisp/closed/check.py` (complete and verify the Task 5 read-back checks against finalized run-reference nodes)
+- Modify if needed: `orchestrator/workflow_lisp/closed/check.py` (verify Task 5's complete read-back checks against finalized run-reference nodes)
 - Test: `tests/test_workflow_lisp_closed_program_effects.py`
 
 **Read first:** the spike's `closed_effects.py` in full; design P3, §1.1
@@ -2877,9 +2990,10 @@ execution facts A.2 and A.4.
     naming the part: outside the portable subset, §1.1).
   - `run_ref`: path mode only. Translate inputs to closed typed values;
     retain source/program selection and supported static policy. First obtain
-    Task 6's canonical structural input/result signature `S`: ordered input
-    names and recursively canonical descriptors plus the structural result
-    contract, excluding generated run-reference nominal identities. Retain
+    the exact [shared structural signature `S`](#run-reference-structural-signatures)
+    through Task 6's typed adaptation of Task 5's pure helpers: ordered input
+    names/descriptors and the complete neutral result contract with only its
+    own envelope name omitted. Retain
     user/private nominal identities, refinements, field order and the exact
     fixed runtime result schemas. References to another generated run-reference
     type use its structural signature, never its provisional or finalized
@@ -2913,7 +3027,10 @@ execution facts A.2 and A.4.
     metadata, not spelling alone, to select this builtin treatment. A
     user/private nominal still uses `module::Name`. Register the generated
     envelope separately under its newly finalized `RunRefResult$<digest-prefix>`
-    name; never register its old span-derived name.
+    name; never register its old span-derived name. Rewrite each concrete use
+    through its retained producer context; copied bodies/specializations may
+    share an old spelling, and different sites may share S. Neither a global
+    name substitution nor inversion of S resolves those origins.
 
     On artifact read-back, decode the config, reconstruct `S` from independently
     checked descriptor/producer facts, and recompute the full digest using the
@@ -2969,6 +3086,8 @@ def test_a_path_mode_run_ref_carries_the_static_config_with_reference_bindings(t
     assert [(i.name, i.binding.reference) for i in config.inputs] == [("seed", "inputs.seed")]
     # Fixed runtime records and the generated envelope agree with `types`;
     # private user nominals remain qualified, including nested producer results.
+    # Include a generated type forwarded through a call, distinct same-S sites,
+    # and any admitted repeated specialization with shared provisional names.
 
 def test_run_ref_readback_checks_the_full_site_digest_and_reserved_types(tmp_path) -> None:
     # Change only the digest suffix after its first 16 characters, preserving

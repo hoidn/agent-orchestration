@@ -242,6 +242,18 @@ type's structural signature, avoiding a cycle between key and site. P5 checks
 the descriptors against their definitions and producers; recalculating a
 digest alone is not artifact validation.
 
+The [Phase 2 shared signature schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#run-reference-structural-signatures)
+defines that structural signature exactly: ordered input name/descriptor rows
+and the full neutral result contract with only its own outer envelope name
+omitted. Nested generated envelopes use their producer's recursively derived
+signature, preserving other nominal and fixed runtime identities. The checker
+derives a unique lexical-producer inventory, rejects missing/ambiguous/cyclic
+dependencies and checks all 64 digest characters against actual typed inputs,
+results and sites. Equal signatures do not identify equal producer sites;
+construction/finalization retains producer context through calls and copied
+specializations, never a global generated-name replacement. Task 5 owns the
+pure projection helpers shared by typed construction and finalization.
+
 Size evidence (gate report, §9.2; spike iteration 2, F, and iteration 3,
 D3; 52 shipped workflows, 38 built):
 
