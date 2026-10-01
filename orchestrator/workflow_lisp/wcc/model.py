@@ -616,6 +616,13 @@ class WccSpecializationCapture:
     argument_index: int | None
     source_name: str
     value: WccValue
+    source_binding: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

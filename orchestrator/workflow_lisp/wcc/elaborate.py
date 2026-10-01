@@ -190,7 +190,7 @@ class WccPromptDependencyPayload:
 class _WccBoundProcedureBinding:
     """A compile-time procedure value plus bind-site runtime captures."""
 
-    capture_values: tuple[tuple[str, WccValue], ...]
+    capture_values: tuple[tuple[str, WccValue, object | None], ...]
     source_binding: object | None = None
 
 
@@ -2155,19 +2155,19 @@ def _elaborate_let_star(
                 }
             )
             next_compile_time_bindings = dict(local_compile_time_bindings)
+            inherited_captures = _inherited_bind_proc_capture_values(
+                binding_expr,
+                compile_time_bindings=local_compile_time_bindings,
+            )
             next_compile_time_bindings[binding_name] = (
                 _WccBoundProcedureBinding(
                     capture_values=(
-                        *_inherited_bind_proc_capture_values(
-                            binding_expr,
-                            compile_time_bindings=(
-                                local_compile_time_bindings
-                            ),
-                        ),
+                        *inherited_captures,
                         *(
                             (
                                 capture.source_name,
                                 capture.alias_atom,
+                                binding_expr,
                             )
                             for capture in capture_rows
                         ),
@@ -2583,7 +2583,7 @@ def _inherited_bind_proc_capture_values(
     expr: BindProcExpr,
     *,
     compile_time_bindings: Mapping[str, object],
-) -> tuple[tuple[str, WccValue], ...]:
+) -> tuple[tuple[str, WccValue, object | None], ...]:
     if not isinstance(expr.base_expr, NameExpr):
         return ()
     base_binding, _ = _unwrap_compile_time_alias(
@@ -4734,14 +4734,13 @@ def _prebind_direct_bind_proc_arguments(
                     capture_values=(
                         *_inherited_bind_proc_capture_values(
                             arg_expr,
-                            compile_time_bindings=(
-                                compile_time_bindings
-                            ),
+                            compile_time_bindings=compile_time_bindings,
                         ),
                         *(
                             (
                                 capture.source_name,
                                 capture.alias_atom,
+                                arg_expr,
                             )
                             for capture in capture_aliases
                         ),
@@ -5971,8 +5970,9 @@ def _elaborate_effect_expr_to_binding_value(
                     argument_index=None,
                     source_name=name,
                     value=value,
+                    source_binding=source_binding,
                 )
-                for name, value in compile_time_callee.capture_values
+                for name, value, source_binding in compile_time_callee.capture_values
             )
         for index, item in enumerate(expr.args):
             if not isinstance(item, NameExpr):
@@ -6008,8 +6008,9 @@ def _elaborate_effect_expr_to_binding_value(
                         argument_index=index,
                         source_name=name,
                         value=value,
+                        source_binding=source_binding,
                     )
-                    for name, value in compile_time_arg.capture_values
+                    for name, value, source_binding in compile_time_arg.capture_values
                 )
         return WccCall(
             metadata=scope.value_metadata(role=f"call:{specialized_name}", **metadata_kwargs),

@@ -27,7 +27,11 @@ from orchestrator.workflow_lisp.expressions import (
 from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, build, fixture, install
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
-from orchestrator.workflow_lisp.wcc.model import WCC_M4_ROUTE_SCHEMA_VERSION, WccPureOp
+from orchestrator.workflow_lisp.wcc.model import (
+    WCC_M4_ROUTE_SCHEMA_VERSION,
+    WccPureOp,
+    WccSpecializationCapture,
+)
 
 
 def test_authored_let_binding_label_survives_typechecking_as_transient_origin(tmp_path: Path) -> None:
@@ -73,6 +77,26 @@ def _walk_dataclasses(node):
         for item in fields(node):
             if item.name != "metadata":
                 yield from _walk_dataclasses(getattr(node, item.name))
+
+
+def _resolve_closed_value(value, bindings, before=None):
+    """Follow names only through bindings already in lexical scope."""
+
+    before = len(bindings) if before is None else before
+    if value.get("k") == "name":
+        for index in range(before - 1, -1, -1):
+            name, bound = bindings[index]
+            if name == value["n"]:
+                return _resolve_closed_value(bound, bindings, index)
+    elif value.get("k") == "block":
+        nested = list(bindings[:before])
+        body = value["body"]
+        while body.get("k") == "let":
+            nested.append((body["name"], body["value"]))
+            body = body["body"]
+        assert body.get("k") == "halt"
+        return _resolve_closed_value(body["value"], nested)
+    return value, bindings, before
 
 
 def test_authored_match_and_loop_labels_reach_closed_control_nodes(tmp_path: Path) -> None:
@@ -457,6 +481,305 @@ def test_captured_entry_parameter_is_frozen_before_a_same_name_shadow(tmp_path: 
         and node.get("callee", "").startswith("procedure:cp/parameter_capture::forward[")
     )
     assert forwarding["args"][0] == {"k": "name", "n": captured_name}
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_ops", "expected_calls"),
+    (
+        (
+            "(let* ((z (+ x 1))) (invoke (bind-proc (proc-ref helper) :fixed z) x))",
+            1,
+            2,
+        ),
+        (
+            "(invoke (bind-proc (proc-ref helper) :fixed (+ x 1)) x)",
+            1,
+            2,
+        ),
+        (
+            "(let* ((hook (bind-proc (proc-ref helper) :fixed (+ x 1)))) "
+            "(let* ((x 100) (first (invoke hook 2)) (second (invoke hook 3))) "
+            "(+ first second)))",
+            2,
+            3,
+        ),
+    ),
+    ids=("hoisted-control", "direct-computed", "stored-after-shadow"),
+)
+def test_computed_proc_ref_argument_is_evaluated_at_its_binding_region(
+    tmp_path: Path,
+    body: str,
+    expected_ops: int,
+    expected_calls: int,
+) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/computed_ref_capture) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int BODY))'''
+    root = tmp_path / "computed_ref_capture"
+    path = install(root, source.replace("BODY", body))
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/computed_ref_capture::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    nodes = [
+        node
+        for node in _walk_dataclasses(program.tree)
+        if isinstance(node, dict) and "k" in node
+    ]
+    assert len([node for node in nodes if node["k"] == "op"]) == expected_ops
+    assert len([node for node in nodes if node["k"] == "perform"]) == 1
+    assert len([node for node in nodes if node["k"] == "call"]) == expected_calls
+    bindings = []
+    body = program.tree["body"]
+    checked_calls = 0
+    while body["k"] == "let":
+        value = body["value"]
+        if (
+            value["k"] == "call"
+            and program.tree["definitions"][value["callee"]]["key"][2] == "invoke"
+        ):
+            captured, scope, before = _resolve_closed_value(value["args"][0], bindings)
+            assert captured["k"] == "op"
+            assert captured["payload"]["expr"]["operator"] == "+"
+            left, _, _ = _resolve_closed_value(captured["args"][0], scope, before)
+            right, _, _ = _resolve_closed_value(captured["args"][1], scope, before)
+            assert left.get("k") == "name" and left.get("n") == "x"
+            assert right.get("k") == "lit" and right.get("v") == 1
+            checked_calls += 1
+        bindings.append((body["name"], value))
+        body = body["body"]
+    assert checked_calls == (2 if expected_calls == 3 else 1)
+    for definition in program.tree["definitions"].values():
+        if definition["key"][2] == "invoke":
+            nested_call = next(
+                node
+                for node in _walk_dataclasses(definition["body"])
+                if isinstance(node, dict) and node.get("k") == "call"
+            )
+            assert nested_call["args"][0].get("k") == "name"
+            assert nested_call["args"][0].get("n") == definition["params"][0][0]
+        elif definition["key"][2] == "helper":
+            effect = next(
+                node
+                for node in _walk_dataclasses(definition["body"])
+                if isinstance(node, dict) and node.get("k") == "perform"
+            )
+            assert effect["argv"][0].get("k") == "name"
+            assert effect["argv"][0].get("n") == definition["params"][0][0]
+
+
+def test_computed_closed_proc_ref_argument_stays_a_closed_value(tmp_path: Path) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/computed_closed_ref) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int
+        (invoke (bind-proc (proc-ref helper) :fixed (+ 2 3)) x)))'''
+    root = tmp_path / "computed_closed_ref"
+    path = install(root, source)
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/computed_closed_ref::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    helper = next(
+        definition
+        for definition in program.tree["definitions"].values()
+        if definition["key"][2] == "helper"
+    )
+    assert len(helper["params"]) == 1
+
+    bindings = []
+    body = helper["body"]
+    while body["k"] == "let":
+        bindings.append((body["name"], body["value"]))
+        body = body["body"]
+    effect = next(
+        node
+        for node in _walk_dataclasses(helper["body"])
+        if isinstance(node, dict) and node.get("k") == "perform"
+    )
+    fixed = effect["argv"][0]
+    if fixed["k"] == "name":
+        fixed = next(value for name, value in reversed(bindings) if name == fixed["n"])
+    assert fixed["k"] == "op"
+    assert fixed["payload"]["expr"]["operator"] == "+"
+    assert [(arg["k"], arg.get("v")) for arg in fixed["args"]] == [
+        ("lit", 2),
+        ("lit", 3),
+    ]
+
+
+def test_one_bound_effect_creation_is_shared_by_direct_and_reference_calls(
+    tmp_path: Path,
+) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/mixed_ref_creation) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int
+        (let* ((hook (bind-proc (proc-ref helper) :fixed
+                      (command-result fetch :argv ("python" "probe.py" x) :returns Int))))
+              (let* ((x 100) (direct (hook 2)) (through_ref (invoke hook 3)))
+                (+ direct through_ref)))))'''
+    root = tmp_path / "mixed_ref_creation"
+    path = install(root, source)
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/mixed_ref_creation::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    entry_effects = [
+        node for node in _walk_dataclasses(program.tree["body"])
+        if isinstance(node, dict) and node.get("k") == "perform"
+    ]
+    assert len(entry_effects) == 1
+
+    bindings = []
+    body = program.tree["body"]
+    checked_calls = 0
+    while body["k"] == "let":
+        value = body["value"]
+        if (
+            value["k"] == "call"
+            and program.tree["definitions"][value["callee"]]["key"][2]
+            in {"invoke", "helper"}
+        ):
+            capture, scope, before = _resolve_closed_value(value["args"][0], bindings)
+            assert capture["k"] == "perform"
+            assert capture["site"] == entry_effects[0]["site"]
+            original_input, _, _ = _resolve_closed_value(capture["argv"][0], scope, before)
+            assert original_input.get("k") == "name"
+            assert original_input.get("n") == "x"
+            checked_calls += 1
+        bindings.append((body["name"], value))
+        body = body["body"]
+    assert checked_calls == 2
+
+
+def test_inherited_name_captures_keep_their_distinct_creation_regions(tmp_path: Path) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/inherited_name_capture) (export run)
+      (defproc helper ((fixed Int) (offset Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed offset y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int
+        (let* ((inner (bind-proc (proc-ref helper) :fixed x)))
+          (let* ((x 100) (outer (bind-proc inner :offset x)))
+            (invoke outer 2)))))'''
+    root = tmp_path / "inherited_name_capture"
+    path = install(root, source)
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/inherited_name_capture::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    bindings = []
+    body = program.tree["body"]
+    while body["k"] == "let":
+        bindings.append((body["name"], body["value"]))
+        body = body["body"]
+    shadow = next(
+        index
+        for index, (name, value) in enumerate(bindings)
+        if name == "x" and value.get("k") == "lit" and value.get("v") == 100
+    )
+    original_alias = next(
+        binding_name
+        for index, (binding_name, value) in enumerate(bindings)
+        if index < shadow
+        and value.get("k") == "name"
+        and value.get("n") == "x"
+    )
+    shadow_alias = next(
+        binding_name
+        for index, (binding_name, value) in enumerate(bindings)
+        if index > shadow
+        and value.get("k") == "name"
+        and value.get("n") == "x"
+    )
+    invoke = next(
+        node
+        for node in _walk_dataclasses(program.tree["body"])
+        if isinstance(node, dict)
+        and node.get("k") == "call"
+        and node.get("callee", "").startswith("procedure:cp/inherited_name_capture::invoke[")
+    )
+    assert invoke["args"][:2] == [
+        {"k": "name", "n": original_alias},
+        {"k": "name", "n": shadow_alias},
+    ]
+
+
+def test_capture_origin_is_opaque_to_artifacts_and_wcc_identity() -> None:
+    field = next(
+        item for item in fields(WccSpecializationCapture) if item.name == "source_binding"
+    )
+    assert not field.repr and not field.compare and not field.hash
+    assert field.metadata["json_omit_always"] is True
+    assert field.metadata["semantic_identity_omit"] is True
+    left = WccSpecializationCapture("argument", 0, "x", None, source_binding=object())
+    right = WccSpecializationCapture("argument", 0, "x", None, source_binding=object())
+    assert left == right and hash(left) == hash(right)
+    assert "source_binding" not in repr(left)
 
 
 def test_generated_boundary_requires_whole_d_equal_signature_and_counts_capture_changes(monkeypatch) -> None:

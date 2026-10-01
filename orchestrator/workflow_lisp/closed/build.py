@@ -105,7 +105,7 @@ class ComputedCaptureValue:
 @dataclass(frozen=True)
 class ComputedCaptureRequest:
     source_identity: int
-    formal: str
+    formal: tuple[str, ...]
     expression: Any
     type_ref: TypeRef
     source_aliases: Mapping[str, str]
@@ -123,6 +123,29 @@ class CallableRequest:
     workflow_refs: Mapping[str, Any]
     workflow_ref_keys: Mapping[str, Any]
     procedure: Any | None = None
+
+
+def _capture_owner_groups(
+    rows: tuple[Any, ...],
+    *,
+    owner_kind: str,
+    argument_index: int | None = None,
+) -> tuple[tuple[Any, tuple[Any, ...]], ...]:
+    groups: list[tuple[Any, list[Any]]] = []
+    for capture in rows:
+        if capture.owner_kind != owner_kind:
+            continue
+        if owner_kind == "argument" and capture.argument_index != argument_index:
+            continue
+        owner = capture.source_binding
+        if owner is None:
+            continue
+        group = next((item for item in groups if item[0] is owner), None)
+        if group is None:
+            group = (owner, [])
+            groups.append(group)
+        group[1].append(capture)
+    return tuple((owner, tuple(group)) for owner, group in groups)
 
 
 @dataclass
@@ -176,8 +199,9 @@ class Definition:
     procedure_ref_keys: Mapping[str, Any] | None = None
     workflow_refs: Mapping[str, Any] | None = None
     workflow_ref_keys: Mapping[str, Any] | None = None
-    computed_capture_sources: Mapping[tuple[int, str], str] | None = None
+    computed_capture_sources: Mapping[tuple[int, Any], str] | None = None
     computed_capture_requests_by_alias: Mapping[str, tuple[ComputedCaptureRequest, ...]] | None = None
+    reference_capture_aliases: Mapping[tuple[int, str], str] | None = None
     context_call_occurrences: Mapping[int, tuple[list[Any], int]] | None = None
     binding_aliases: Mapping[object, str] | None = None
     capture_binding_identities: frozenset[object] = frozenset()
@@ -405,7 +429,7 @@ class Builder:
             if is_dataclass(node) and not isinstance(node, type):
                 seen.add(id(node))
                 for field in fields(node):
-                    if field.name in {"metadata", "type_ref", "source_span", "form_path", "expansion_stack", "bound_proc_source"}:
+                    if field.name in {"metadata", "type_ref", "source_span", "form_path", "expansion_stack", "bound_proc_source", "source_binding"}:
                         continue
                     walk(getattr(node, field.name))
 
@@ -1143,6 +1167,7 @@ class Builder:
         d: Definition,
         source_program: Any,
     ) -> dict[str, Any]:
+        from ..expression_traversal import free_expr_names
         from ..expressions import NameExpr
 
         selected = self._selected_ref_procedure(resolved, source_program)
@@ -1234,11 +1259,20 @@ class Builder:
                 facts[formal] = {"capture": index}
                 continue
             if isinstance(argument.value_expr, NameExpr):
-                actual = aliases.get(argument.value_expr.name)
+                bound_alias = (d.reference_capture_aliases or {}).get(
+                    (id(argument.value_expr), formal)
+                )
+                actual = (
+                    {"k": "name", "n": d.ref(bound_alias)}
+                    if bound_alias is not None
+                    else aliases.get(argument.value_expr.name)
+                )
                 alias_identity = None
                 if isinstance(actual, tuple) and len(actual) == 2:
                     argument_index, actual = actual
                     alias_identity = ("argument", argument_index, id(actual))
+                elif bound_alias is not None:
+                    alias_identity = ("bind-proc-expression", id(argument.value_expr), formal)
                 if actual is None:
                     # A retained lexical name can be used directly when the
                     # frontend did not need an alias let for this boundary.
@@ -1259,6 +1293,38 @@ class Builder:
                     identity=alias_identity,
                 )
                 facts[formal] = {"capture": index}
+                continue
+            names = free_expr_names(argument.value_expr)
+            if names:
+                source_name = (d.computed_capture_sources or {}).get(
+                    (id(argument.value_expr), formal)
+                )
+                if source_name is None:
+                    raise ValueError(
+                        f"computed bound procedure argument {formal!r} has no retained creation binding"
+                    )
+                route = ["reference", list(path), ["parameter", formal]]
+                actual = ComputedCaptureValue(source_name)
+                index = self._add_capture(
+                    captures,
+                    typed=source_program,
+                    type_ref=argument.type_ref,
+                    route=route,
+                    value=actual,
+                    source_name=source_name,
+                    identity=("bind-proc-expression", id(argument.value_expr), formal),
+                )
+                facts[formal] = {"capture": index}
+                continue
+            from ..conditionals import _contains_effect
+
+            if not _contains_effect(argument.value_expr):
+                from .values import frontend_value
+
+                closed = _strip_provenance(
+                    frontend_value(self, argument.value_expr, d, env={})
+                )
+                facts[formal] = {"value": closed}
                 continue
             raise ValueError(
                 f"bound procedure argument {formal!r} is neither a checked closed value nor a retained lexical capture"
@@ -1335,59 +1401,76 @@ class Builder:
         procedure_view = procedure
         closed_values: dict[str, Any] = {}
         runtime_formals: set[str] = set()
-        if isinstance(call.bound_proc_source, BindProcExpr) and specialization is not None:
-            bound_expressions = {
-                row.name: row.value_expr for row in call.bound_proc_source.bindings
-            }
-            aliases_by_name: dict[str, list[WccNameAtom]] = {}
-            for capture in call.specialization_captures:
-                if capture.owner_kind == "callee" and isinstance(capture.value, WccNameAtom):
-                    aliases_by_name.setdefault(capture.source_name, []).append(capture.value)
-            for formal, expression in bound_expressions.items():
-                if formal not in specialization.value_bindings:
-                    continue
-                type_ref = specialization.bound_param_types.get(formal)
-                if type_ref is None:
-                    raise ValueError(f"retained bind-proc value {formal!r} has no type fact")
-                if isinstance(expression, LiteralExpr):
-                    closed_values[formal] = self._closed_bound_value(
-                        expression, type_ref, d, typed=source_program
-                    )
-                    continue
-                free_names = free_expr_names(expression)
-                route = ["parameter", formal]
-                identity = ("bind-proc", id(call.bound_proc_source), formal)
-                if isinstance(expression, NameExpr):
-                    aliases = aliases_by_name.get(expression.name, ())
-                    if len(aliases) > 1:
-                        raise ValueError(f"bind-proc capture {expression.name!r} has ambiguous WCC aliases")
-                    actual: Any = aliases[0] if aliases else {"k": "name", "n": d.ref(expression.name)}
-                    source_name = actual.name if isinstance(actual, WccNameAtom) else expression.name
-                elif free_names:
-                    source_name = (d.computed_capture_sources or {}).get(
-                        (id(call.bound_proc_source), formal)
-                    )
-                    if source_name is None:
-                        raise ValueError(f"computed bind-proc capture {formal!r} has no lexical creation binding")
-                    actual = ComputedCaptureValue(source_name)
-                else:
-                    from .values import frontend_value
-
-                    actual = _strip_provenance(
-                        frontend_value(self, expression, d, env={})
-                    )
-                    closed_values[formal] = {"type": type_ref, "value": actual}
-                    continue
-                self._add_capture(
-                    captures,
-                    typed=source_program,
-                    type_ref=type_ref,
-                    route=route,
-                    value=actual,
-                    source_name=source_name,
-                    identity=identity,
+        if specialization is not None:
+            callee_owners: list[tuple[BindProcExpr, tuple[Any, ...]]] = []
+            if isinstance(call.bound_proc_source, BindProcExpr):
+                callee_owners.append((call.bound_proc_source, ()))
+            for owner, owner_rows in _capture_owner_groups(
+                call.specialization_captures,
+                owner_kind="callee",
+            ):
+                existing = next(
+                    (index for index, (candidate, _rows) in enumerate(callee_owners) if candidate is owner),
+                    None,
                 )
-                runtime_formals.add(formal)
+                if existing is None:
+                    callee_owners.append((owner, owner_rows))
+                else:
+                    callee_owners[existing] = (owner, owner_rows)
+            for bind_source, owner_rows in callee_owners:
+                aliases_by_name: dict[str, list[WccNameAtom]] = {}
+                for capture in owner_rows:
+                    if isinstance(capture.value, WccNameAtom):
+                        aliases_by_name.setdefault(capture.source_name, []).append(capture.value)
+                for binding in bind_source.bindings:
+                    formal = binding.name
+                    expression = binding.value_expr
+                    if formal not in specialization.value_bindings:
+                        continue
+                    type_ref = specialization.bound_param_types.get(formal)
+                    if type_ref is None:
+                        raise ValueError(f"retained bind-proc value {formal!r} has no type fact")
+                    if isinstance(type_ref, ProcRefTypeRef):
+                        continue
+                    if isinstance(expression, LiteralExpr):
+                        closed_values[formal] = self._closed_bound_value(
+                            expression, type_ref, d, typed=source_program
+                        )
+                        continue
+                    free_names = free_expr_names(expression)
+                    route = ["parameter", formal]
+                    identity = ("bind-proc", id(bind_source), formal)
+                    if isinstance(expression, NameExpr):
+                        aliases = aliases_by_name.get(expression.name, ())
+                        if len(aliases) > 1:
+                            raise ValueError(f"bind-proc capture {expression.name!r} has ambiguous WCC aliases")
+                        actual: Any = aliases[0] if aliases else {"k": "name", "n": d.ref(expression.name)}
+                        source_name = actual.name if isinstance(actual, WccNameAtom) else expression.name
+                    elif free_names:
+                        source_name = (d.computed_capture_sources or {}).get(
+                            (id(bind_source), (formal,))
+                        )
+                        if source_name is None:
+                            raise ValueError(f"computed bind-proc capture {formal!r} has no lexical creation binding")
+                        actual = ComputedCaptureValue(source_name)
+                    else:
+                        from .values import frontend_value
+
+                        actual = _strip_provenance(
+                            frontend_value(self, expression, d, env={})
+                        )
+                        closed_values[formal] = {"type": type_ref, "value": actual}
+                        continue
+                    self._add_capture(
+                        captures,
+                        typed=source_program,
+                        type_ref=type_ref,
+                        route=route,
+                        value=actual,
+                        source_name=source_name,
+                        identity=identity,
+                    )
+                    runtime_formals.add(formal)
             if runtime_formals:
                 retained_values = {
                     name: value
@@ -2291,8 +2374,9 @@ class Builder:
             alias: list(rows)
             for alias, rows in (d.computed_capture_requests_by_alias or {}).items()
         }
-        sources: dict[tuple[int, str], str] = dict(d.computed_capture_sources or {})
-        requests: dict[tuple[int, str], ComputedCaptureRequest] = {
+        sources: dict[tuple[int, Any], str] = dict(d.computed_capture_sources or {})
+        reference_aliases: dict[tuple[int, str], str] = dict(d.reference_capture_aliases or {})
+        requests: dict[tuple[int, tuple[str, ...]], ComputedCaptureRequest] = {
             (row.source_identity, row.formal): row
             for rows in by_alias.values()
             for row in rows
@@ -2318,61 +2402,173 @@ class Builder:
             for resolved in (getattr(specialization, "proc_ref_bindings", {}) or {}).values():
                 retain_reference_identities(resolved, set())
 
+        def register_request(
+            source_identity: int,
+            formal_path: tuple[str, ...],
+            expression: Any,
+            type_ref: Any,
+            aliases: Mapping[str, str],
+            *,
+            expression_lookup: tuple[int, str] | None = None,
+        ) -> None:
+            if isinstance(expression, (LiteralExpr, NameExpr)) or type_ref is None:
+                return
+            names = free_expr_names(expression)
+            if not names:
+                return
+            selected_aliases = {
+                name: alias for name, alias in aliases.items() if name in names
+            }
+            if set(selected_aliases) != names:
+                raise ValueError(
+                    f"computed bind-proc value {formal_path!r} lost a typed lexical source alias"
+                )
+            key = (source_identity, formal_path)
+            previous = requests.get(key)
+            if previous is not None:
+                if dict(previous.source_aliases) != selected_aliases:
+                    raise ValueError("one bind-proc creation has inconsistent WCC alias owners")
+                if expression_lookup is not None:
+                    previous_source = sources.get(expression_lookup)
+                    if previous_source is not None and previous_source != previous.source_name:
+                        raise ValueError(
+                            "one checked bound argument has competing creation regions"
+                        )
+                    sources[expression_lookup] = previous.source_name
+                return
+            source_name = f"\0computed-capture:{len(requests) + 1}"
+            request = ComputedCaptureRequest(
+                source_identity=source_identity,
+                formal=formal_path,
+                expression=expression,
+                type_ref=type_ref,
+                source_aliases=selected_aliases,
+                insertion_alias=tuple(selected_aliases.values())[-1],
+                source_name=source_name,
+            )
+            requests[key] = request
+            sources[key] = source_name
+            if expression_lookup is not None:
+                previous_source = sources.get(expression_lookup)
+                if previous_source is not None and previous_source != source_name:
+                    raise ValueError(
+                        "one checked bound argument has competing creation regions"
+                    )
+                sources[expression_lookup] = source_name
+            by_alias.setdefault(request.insertion_alias, []).append(request)
+
+        def aliases_for(rows: tuple[Any, ...], expression: Any) -> dict[str, str]:
+            names = free_expr_names(expression)
+            aliases: dict[str, str] = {}
+            for capture in rows:
+                if (
+                    capture.source_name in names
+                    and isinstance(capture.value, WccNameAtom)
+                ):
+                    if capture.source_name in aliases:
+                        raise ValueError(
+                            f"computed capture source {capture.source_name!r} has competing lexical aliases"
+                        )
+                    aliases[capture.source_name] = capture.value.name
+            return aliases
+
+        def visit_reference_owner(
+            resolved: Any,
+            owner: BindProcExpr,
+            rows: tuple[Any, ...],
+            seen: set[tuple[int, int, tuple[str, ...]]],
+            owner_path: tuple[str, ...] = (),
+        ) -> None:
+            marker = (id(resolved), id(owner), owner_path)
+            if marker in seen:
+                return
+            seen.add(marker)
+            selected = self._selected_ref_procedure(resolved, source_program)
+            selected_refs = dict(
+                getattr(getattr(selected, "specialization", None), "proc_ref_bindings", {}) or {}
+            )
+            bound_args = {argument.name: argument for argument in resolved.bound_args}
+            origin = rows[0].source_binding
+            for binding in owner.bindings:
+                argument = bound_args.get(binding.name)
+                if argument is None:
+                    continue
+                if isinstance(argument.type_ref, ProcRefTypeRef):
+                    nested = selected_refs.get(binding.name)
+                    if nested is None and hasattr(argument.value_expr, "bound_args"):
+                        nested = argument.value_expr
+                    if nested is not None and isinstance(binding.value_expr, BindProcExpr):
+                        visit_reference_owner(
+                            nested,
+                            binding.value_expr,
+                            rows,
+                            seen,
+                            (*owner_path, binding.name),
+                        )
+                    continue
+                if self._local_capture(resolved, source_program, binding.name) is not None:
+                    continue
+                if isinstance(argument.value_expr, NameExpr):
+                    lexical_aliases = aliases_for(rows, argument.value_expr)
+                    alias = lexical_aliases.get(argument.value_expr.name)
+                    if alias is not None:
+                        key = (id(argument.value_expr), binding.name)
+                        previous = reference_aliases.get(key)
+                        if previous is not None and previous != alias:
+                            raise ValueError(
+                                "one checked bound reference argument has competing lexical owners"
+                            )
+                        reference_aliases[key] = alias
+                    continue
+                register_request(
+                    id(origin),
+                    (*owner_path, binding.name),
+                    argument.value_expr,
+                    argument.type_ref,
+                    aliases_for(rows, argument.value_expr),
+                    expression_lookup=(id(argument.value_expr), binding.name),
+                )
+
         def consider(call: WccCall) -> None:
             retain_call_identities(call)
-            bind_source = call.bound_proc_source
-            if not isinstance(bind_source, BindProcExpr):
-                return
             selected_owner = self.procedure_owners.get(call.specialized_callee_name)
             selected = selected_owner[0] if selected_owner is not None else None
             specialization = getattr(selected, "specialization", None)
-            type_rows = getattr(specialization, "bound_param_types", {}) or {}
-            for binding in bind_source.bindings:
-                expression = binding.value_expr
-                if isinstance(expression, (LiteralExpr, NameExpr)):
-                    continue
-                names = free_expr_names(expression)
-                if not names:
-                    continue
-                aliases: dict[str, str] = {}
-                for capture in call.specialization_captures:
-                    if (
-                        capture.owner_kind == "callee"
-                        and capture.source_name in names
-                        and isinstance(capture.value, WccNameAtom)
-                    ):
-                        if capture.source_name in aliases:
-                            raise ValueError(
-                                f"computed capture source {capture.source_name!r} has competing lexical aliases"
-                            )
-                        aliases[capture.source_name] = capture.value.name
-                if set(aliases) != names:
-                    raise ValueError(
-                        f"computed bind-proc value {binding.name!r} lost a typed lexical source alias"
+            if specialization is None:
+                return
+
+            for owner, rows in _capture_owner_groups(
+                call.specialization_captures,
+                owner_kind="callee",
+            ):
+                type_rows = getattr(specialization, "bound_param_types", {}) or {}
+                for binding in owner.bindings:
+                    if isinstance(type_rows.get(binding.name), ProcRefTypeRef):
+                        continue
+                    register_request(
+                        id(owner),
+                        (binding.name,),
+                        binding.value_expr,
+                        type_rows.get(binding.name),
+                        aliases_for(rows, binding.value_expr),
                     )
-                type_ref = type_rows.get(binding.name)
-                if type_ref is None:
-                    raise ValueError(f"computed bind-proc value {binding.name!r} has no retained type")
-                source_identity = id(bind_source)
-                key = (source_identity, binding.name)
-                previous = requests.get(key)
-                if previous is not None:
-                    if dict(previous.source_aliases) != aliases:
-                        raise ValueError("one bind-proc creation has inconsistent WCC alias owners")
+
+            base_name = getattr(specialization, "base_name", None)
+            base_owner = self.procedure_owners.get(base_name) if base_name else None
+            base = base_owner[0] if base_owner is not None else selected
+            proc_refs = getattr(specialization, "proc_ref_bindings", {}) or {}
+            if base is None:
+                return
+            for argument_index, (formal, _type_ref) in enumerate(base.signature.params):
+                resolved = proc_refs.get(formal)
+                if resolved is None:
                     continue
-                source_name = f"\0computed-capture:{len(requests) + 1}"
-                request = ComputedCaptureRequest(
-                    source_identity=source_identity,
-                    formal=binding.name,
-                    expression=expression,
-                    type_ref=type_ref,
-                    source_aliases=aliases,
-                    insertion_alias=tuple(aliases.values())[-1],
-                    source_name=source_name,
-                )
-                requests[key] = request
-                sources[key] = source_name
-                by_alias.setdefault(request.insertion_alias, []).append(request)
+                for owner, rows in _capture_owner_groups(
+                    call.specialization_captures,
+                    owner_kind="argument",
+                    argument_index=argument_index,
+                ):
+                    visit_reference_owner(resolved, owner, rows, set())
 
         def visit_value(value: Any) -> None:
             if isinstance(value, WccCall):
@@ -2438,6 +2634,7 @@ class Builder:
         visit(body)
         d.capture_binding_identities = frozenset(capture_binding_identities)
         d.computed_capture_sources = sources
+        d.reference_capture_aliases = reference_aliases
         d.computed_capture_requests_by_alias = {
             alias: tuple(rows) for alias, rows in by_alias.items()
         }

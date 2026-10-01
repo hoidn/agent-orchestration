@@ -15,10 +15,10 @@ from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.model import WccOpaqueFrontendValue
 from orchestrator.workflow_lisp.workflows import PromptExtern
-from tests.workflow_lisp_closed_program_helpers import install
+from tests.workflow_lisp_closed_program_helpers import TARGET, install
 
 
-_PREAMBLE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+_PREAMBLE = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
   (defmodule context_probe)
   (import std/context :only (RunCtx PhaseCtx))
   (import std/phase :only (with-phase))
@@ -128,7 +128,7 @@ def test_omitted_phase_context_uses_the_default_or_existing_run_context(
 
 
 def test_evaluated_execution_rejects_provider_bundle_path_outside_runs(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule context_probe) (export entry)
       (defpath SelectionPath :kind relpath :under "state" :must-exist false)
       (defrecord Decision (value String))
@@ -150,7 +150,7 @@ def test_evaluated_execution_rejects_provider_bundle_path_outside_runs(tmp_path:
 
 
 def test_provider_bundle_path_translates_with_its_exact_runs_descriptor(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule result_path_probe) (export entry)
       (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
       (defrecord Result (text String))
@@ -222,8 +222,8 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
       (defworkflow run-phase ((phase__ctx PhaseCtx) (a__x String) (a__y String)) -> Result
         (with-phase phase__ctx plan-gate-wrapper
           (record Result :label a__x :phase_name phase__ctx.phase-name))))'''
-    consumer_source = '''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.35") (defmodule consumer) (export run)
+    consumer_source = f'''(workflow-lisp
+      (:language "0.1") (:target-dsl "{TARGET}") (defmodule consumer) (export run)
       (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))
       (defrecord PhaseCtx (run RunCtx) (phase-name Symbol) (state-root Path.state-root) (artifact-root Path.artifact-root))
       (defrecord Pair (x String) (y String))
