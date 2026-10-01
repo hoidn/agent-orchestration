@@ -3855,7 +3855,7 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   config and compares semantic program identity before memo access, then
   validates and executes the stored artifact).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Through `python -m orchestrator compile` in a subprocess with
 `PYTHONHASHSEED=0` (the `_build` helper of `tests/test_workflow_lisp_target_234.py`
@@ -3911,30 +3911,32 @@ def test_a_manifest_without_closure_is_refused_at_the_manifest_path(tmp_path) ->
 def test_the_same_manifest_builds_at_2_34_as_today(tmp_path) -> None:   # the other half of Review focus 3: `_build` of the 2.34 module passes
 ```
 
-- [ ] **Step 2: Run; expected failures** the CLI builds the flat artifacts
+- [x] **Step 2: Run; expected failures** the CLI builds the flat artifacts
 at the new target (Task 2 made lowering skip, so `build_frontend_bundle`
 fails on the missing bundle: a `RuntimeError` or `KeyError`, exit 2 with no
 code); record it.
 
-- [ ] **Step 3: Implement** `artifact.py`, the CLI branch and shared manifest
+- [x] **Step 3: Implement** `artifact.py`, the CLI branch and shared manifest
 entry validation, following the existing configuration and selection owners.
 Do not duplicate the old initializer or route a typed producer through a
 runnable-bundle requirement.
 
-- [ ] **Step 4: Run; expected pass.** Then `tests/test_workflow_lisp_target_234.py`
+- [x] **Step 4: Run; expected pass.** Then `tests/test_workflow_lisp_target_234.py`
 and the compile command's existing tests (`rg -l compile_workflow tests`).
 
-- [ ] **Step 5: Compatibility evidence**
+- [x] **Step 5: Compatibility evidence**
 
 `compile.py` changed: the four programs of the table through the CLI;
 byte-identical, and the printed summaries equal apart from the output
 directory.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git add -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py tests/test_workflow_lisp_cli.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
-`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py`
+`git commit -m "feat: compile a program at the evaluated execution target to its closed program artifact" -- orchestrator/workflow_lisp/closed/artifact.py orchestrator/workflow_lisp/closed/target.py orchestrator/workflow_lisp/closed/frontend.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/build.py orchestrator/cli/commands/compile.py tests/test_workflow_lisp_closed_program_compile_cli.py tests/test_workflow_lisp_cli.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
+
+**Completion evidence:** implemented through `f46b8661`, with ordered formal and quality reviews passing. The exact candidate passed 44 independent semantic/CLI groups and 88 raw legacy artifact pairs; all 67 capsule pairs matched with identical compiler identity inputs. With real compiler pins, 12 run-ref-derived pairs differ as required by the Global Constraints, and the complete object/state comparison confirms only pin-derived identity changes. The maintained module collects 39 cases; its original 37-case run and all later affected selectors passed. Runtime execution remains Phase 3.
 
 **What this makes harder later:** two build functions and two manifest
 schemas until Phase 7; Phase 3's `run` reads `closed_program.json` from the
