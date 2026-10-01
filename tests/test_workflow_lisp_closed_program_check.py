@@ -2238,6 +2238,76 @@ def test_provider_template_fills_retain_all_closed_slot_semantics():
     validate(tree)
 
 
+def _provider_value_select_fill_tree():
+    string = {"kind": "primitive", "name": "String"}
+    selected = {
+        "k": "select",
+        "cond": _lit(True, BOOL),
+        "then": {
+            "prefix": [{"name": "local", "value": _lit(1)}],
+            "value": _lit("selected", string),
+        },
+        "else": {"prefix": [], "value": _lit("fallback", string)},
+    }
+    fill = {
+        "name": "title",
+        "kind": "value",
+        "type": deepcopy(string),
+        "value": selected,
+        "renderer_id": "canonical-json",
+        "output_role": None,
+        "placeholder_ordinals": [0],
+    }
+    tree, _provider = _provider_prompt_tree("{title}", [fill])
+    return tree, selected
+
+
+def test_provider_value_fill_accepts_a_pure_select_prefix():
+    tree, _selected = _provider_value_select_fill_tree()
+
+    validate(tree)
+
+
+@pytest.mark.parametrize("with_site", [False, True])
+def test_provider_prompt_fill_effects_are_rejected_even_with_a_site_row(with_site):
+    tree, selected = _provider_value_select_fill_tree()
+    _command_tree, command = _command_result_tree()
+    tree["configuration"]["commands"]["fetch"] = _external_command_row()
+    command.pop("site", None)
+    selected["then"]["prefix"][0]["value"] = command
+    if with_site:
+        command["site"] = "answer / title / then / local"
+        tree["sites"].append([tree["entry"], command["site"]])
+
+    _rule(tree, "effect_in_value")
+
+
+def test_provider_prompt_fill_labels_are_validated_as_ast_edges():
+    tree, selected = _provider_value_select_fill_tree()
+    selected["then"]["prefix"][0]["label"] = None
+
+    _rule(tree, "binding_label")
+
+
+@pytest.mark.parametrize("malformed", ["entry", "body_tag", "call_args", "record_fields"])
+def test_malformed_json_node_shapes_raise_checked_form_errors(malformed):
+    tree = _tree()
+    if malformed == "entry":
+        tree["entry"] = []
+    elif malformed == "body_tag":
+        tree["body"]["k"] = []
+    elif malformed == "call_args":
+        tree["body"] = _halt(
+            {"k": "call", "callee": "procedure:sample::callee", "args": 7, "type": deepcopy(INT)}
+        )
+    else:
+        record = {"kind": "record", "name": "sample::Record", "fields": []}
+        tree = _tree(_halt({"k": "record", "type": record, "fields": 7}), result=record)
+
+    with pytest.raises(CheckedFormError):
+        validate(tree)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

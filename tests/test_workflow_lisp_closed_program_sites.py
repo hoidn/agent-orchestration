@@ -131,6 +131,35 @@ def test_effectful_select_prefixes_are_visited_at_a_bound_site():
     ]
 
 
+def test_provider_prompt_fill_values_are_walked_for_call_targets():
+    call = {"k": "call", "callee": "procedure:sample::missing", "args": []}
+    selected = {
+        "k": "select",
+        "cond": {"k": "lit", "v": True, "type": {"kind": "primitive", "name": "Bool"}},
+        "then": {
+            "prefix": [{"name": "hidden", "value": call}],
+            "value": {"k": "lit", "v": "yes", "type": {"kind": "primitive", "name": "String"}},
+        },
+        "else": {
+            "prefix": [],
+            "value": {"k": "lit", "v": "no", "type": {"kind": "primitive", "name": "String"}},
+        },
+    }
+    provider = {
+        "k": "perform",
+        "class": "provider",
+        "prompt": {
+            "template": "{value}",
+            "fills": [{"name": "value", "value": selected}],
+        },
+    }
+
+    with pytest.raises(SiteAssignmentError) as excinfo:
+        assign_sites(_tree(_let("answer", provider, _halt())))
+
+    assert excinfo.value.rule == "callee_unknown"
+
+
 def test_loop_state_override_labels_the_loop_without_exposing_its_target():
     loop = {
         "k": "loop",

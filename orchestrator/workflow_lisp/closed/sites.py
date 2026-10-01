@@ -255,9 +255,10 @@ def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
         return list(node.get("argv", []))
     if kind == "provider":
         children = [row[2] for row in node.get("inputs", [])]
-        template = node.get("prompt", {}).get("template")
-        if isinstance(template, dict):
-            children.extend(row.get("value") for row in template.get("fills", []))
+        prompt = node.get("prompt")
+        fills = prompt.get("fills", []) if isinstance(prompt, dict) else []
+        if isinstance(fills, list):
+            children.extend(row.get("value") for row in fills if isinstance(row, dict))
         dependencies = node.get("dependencies")
         if isinstance(dependencies, dict):
             children.extend(dependencies.get("required", []))

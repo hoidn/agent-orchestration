@@ -311,6 +311,8 @@ class _Checker:
                 "program_target",
                 f"closed program target must be {EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}",
             )
+        if not isinstance(self.tree.get("entry"), str) or not self.tree["entry"]:
+            self.fail("program_shape", "closed program entry must be a nonempty name")
         self.definitions = self._mapping(self.tree.get("definitions"), "definition_table")
         self.types = self._mapping(self.tree.get("types"), "type_table")
         self._validate_type_table()
@@ -352,6 +354,8 @@ class _Checker:
             if not isinstance(node, Mapping):
                 return
             kind = node.get("k")
+            if not isinstance(kind, str):
+                self.fail("node_kind", "value node kind must be a string", node)
             if kind == "select":
                 value(node.get("cond"))
                 for arm_name in ("then", "else"):
@@ -380,6 +384,8 @@ class _Checker:
             if not isinstance(node, Mapping):
                 return
             kind = node.get("k")
+            if not isinstance(kind, str):
+                self.fail("node_kind", "body node kind must be a string", node)
             if kind == "let":
                 label(node)
                 value(node.get("value"))
@@ -419,6 +425,8 @@ class _Checker:
         if not isinstance(value, Mapping):
             self.fail("node_shape", "node must be an object")
         kind = value.get("k")
+        if not isinstance(kind, str):
+            self.fail("node_kind", "node kind must be a string", node if node is not None else value)
         required: dict[str, set[str]] = {
             "let": {"k", "name", "value", "body"},
             "halt": {"k", "value"}, "done": {"k", "value"},
@@ -448,6 +456,8 @@ class _Checker:
             self.fail("budget_missing", "loop is missing its execution budget", node if node is not None else value)
         if req is None or not req.issubset(value) or set(value) - allowed:
             self.fail("node_shape", f"{kind!r} node has missing or extra fields", node if node is not None else value)
+        if kind == "call" and not isinstance(value.get("args"), list):
+            self.fail("call_signature", "call arguments must be an array", node if node is not None else value)
         if "@" in value:
             provenance = value["@"]
             if not isinstance(provenance, Mapping) or set(provenance) != {"span", "form"}:
@@ -511,12 +521,14 @@ class _Checker:
 
     def _value_children(self, node: Mapping[str, Any], *, strict: bool = True) -> list[Any]:
         kind = node.get("k")
+        if not isinstance(kind, str):
+            self.fail("node_kind", "value node kind must be a string", node)
         if kind == "field":
             return [node.get("base")]
         if kind in {"record", "inject"}:
-            fields = node.get("fields", [])
-            if isinstance(fields, Mapping):
-                return list(fields.values())
+            fields = node.get("fields")
+            if not isinstance(fields, list):
+                self.fail("record_fields", "aggregate fields must be an ordered array", node)
             return [row[1] for row in fields if isinstance(row, (list, tuple)) and len(row) == 2]
         if kind == "op":
             return list(node.get("args", [])) if isinstance(node.get("args", []), list) else []
@@ -552,8 +564,7 @@ class _Checker:
             if isinstance(policy, Mapping):
                 children.extend(policy.values())
             prompt = node.get("prompt")
-            template = prompt.get("template") if isinstance(prompt, Mapping) else None
-            fills = template.get("fills", []) if isinstance(template, Mapping) else []
+            fills = prompt.get("fills", []) if isinstance(prompt, Mapping) else []
             if isinstance(fills, list):
                 children.extend(fill.get("value") for fill in fills if isinstance(fill, Mapping))
             return children
@@ -581,6 +592,8 @@ class _Checker:
             if not isinstance(node, Mapping):
                 self.fail("node_kind", "value node must be an object")
             kind = node.get("k")
+            if not isinstance(kind, str):
+                self.fail("node_kind", "value node kind must be a string", node)
             allowed = _VALUE_KEYS.get(kind)
             if allowed is None:
                 self.fail("node_kind", f"unknown value node kind {kind!r}", node)
@@ -619,6 +632,8 @@ class _Checker:
             if not isinstance(node, Mapping):
                 self.fail("node_kind", "body node must be an object")
             kind = node.get("k")
+            if not isinstance(kind, str):
+                self.fail("node_kind", "body node kind must be a string", node)
             allowed = _BODY_KEYS.get(kind)
             if allowed is None:
                 self.fail("node_kind", f"unknown body node kind {kind!r}", node)
@@ -2893,6 +2908,8 @@ class _Checker:
         if not isinstance(node, Mapping):
             self.fail("node_kind", "body node must be an object")
         kind = node.get("k")
+        if not isinstance(kind, str):
+            self.fail("node_kind", "body node kind must be a string", node)
         fields = _BODY_KEYS.get(kind)
         if fields is None:
             self.fail("node_kind", f"unknown body node kind {kind!r}", node)
@@ -3106,6 +3123,8 @@ class _Checker:
         if not isinstance(node, Mapping):
             self.fail("node_kind", "value node must be an object")
         kind = node.get("k")
+        if not isinstance(kind, str):
+            self.fail("node_kind", "value node kind must be a string", node)
         allowed = _VALUE_KEYS.get(kind)
         if allowed is None:
             self.fail("node_kind", f"unknown value node kind {kind!r}", node)
