@@ -40,6 +40,7 @@ from .syntax import (
     target_dsl_supports_provider_supervision,
     target_dsl_supports_phased_contract_delivery,
     target_dsl_supports_provider_context_values,
+    target_dsl_uses_evaluated_execution,
 )
 from .phase import is_implementation_attempt_result_type
 from .prompts import (
@@ -1209,6 +1210,18 @@ def typecheck_provider_bundle_path_expr(
     if ".." in target_type.definition.under.split("/"):
         raise_error(
             "`provider-bundle-path :as` may not escape the workspace",
+            code="provider_bundle_path_target_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    target_dsl_version = getattr(context.type_env, "target_dsl_version", None)
+    if (
+        target_dsl_uses_evaluated_execution(target_dsl_version)
+        and target_type.definition.under != ".orchestrate/runs"
+    ):
+        raise_error(
+            "`provider-bundle-path :as` must be rooted under `.orchestrate/runs` for evaluated execution",
             code="provider_bundle_path_target_invalid",
             span=expr.span,
             form_path=expr.form_path,

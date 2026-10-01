@@ -39,12 +39,12 @@ Phases 0 and 1 were selected as follows. The owner approved on 2026-09-29 the sp
 of Phase 1, the repairs of the
 [shared defect repairs plan](2026-09-29-workflow-lisp-shared-defect-repairs-plan.md),
 and decisions 1 to 4 below. Gate G1 selected evaluated execution; Phase 2
-has its own selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
+execution is authorized at target 2.35 and has its own selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
 The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
 to 7 remain pending; this amendment records neither implementation nor
 completion of those phases.
 
-Decided on 2026-09-29:
+Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
 | # | Decision | Outcome |
 | --- | --- | --- |
@@ -76,10 +76,15 @@ policy that schedules work as each result arrives.
 ## Global Constraints
 
 - Until explicitly retired under decision 8, older targets accept and lower
-  exactly what they do at the commit each phase starts from. Evidence for
-  retained targets is byte identity of every build
-  artifact, with the program and the orchestrator package each at one fixed
-  path and `PYTHONHASHSEED=0`.
+  exactly what they do at the commit each phase starts from. Evidence is
+  byte identity of every build artifact for identical identity inputs, with
+  the program and the orchestrator package each at one fixed path and
+  `PYTHONHASHSEED=0`.
+  Preserve the compiler/runtime identity's truthful package-file pin: changed
+  package bytes may change that pin and dependent run-ref artifacts at old
+  targets. Report real-pin differences separately from raw serialization
+  equality with a fixed identity input; never normalize the comparison or
+  weaken the pin (design §13 and the Phase 2 plan's Global Constraints).
 - No identity introduced by this plan contains a file path, a source
   position or the text of a type.
 - Every refusal has a code and a source location, and prints the value it
@@ -399,6 +404,10 @@ Phases 2–3, nor automatically selected wholesale by this amendment. No
 general program-search or evolution framework is required for this delivery.
 
 ### Phase 2: The Closed Program
+
+Reviewed Tasks 1–7 are integrated from `d178ad7e` (2026-10-01). Tasks 8–11
+remain pending; public CLI compilation at 2.35 is not yet available, and
+execution/resume remain Phase 3 work. This checkpoint does not close Phase 2.
 
 Entry: gate G1. Execute the selected
 [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)

@@ -46,6 +46,13 @@ class BoundProcArg:
     keyword_span: object
     keyword_form_path: tuple[str, ...]
     keyword_expansion_stack: tuple[object, ...] = ()
+    source_binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -432,6 +439,7 @@ def resolve_proc_ref_value(
                 keyword_span=binding.keyword_span,
                 keyword_form_path=binding.keyword_form_path,
                 keyword_expansion_stack=binding.keyword_expansion_stack,
+                source_binding_identity=getattr(binding, "source_binding_identity", None),
             )
         ordered_bound_args = tuple(
             bound_args_by_name[param_name]

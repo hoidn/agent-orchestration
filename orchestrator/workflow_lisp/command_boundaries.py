@@ -93,6 +93,11 @@ class ExternalToolBinding:
         default=False,
         metadata={"json_omit_if_empty": True},
     )
+    closure: tuple[str, ...] | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_omit_if_none": True, "json_omit_legacy": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -160,6 +165,11 @@ class CertifiedAdapterBinding:
         default=False,
         metadata={"json_omit_if_empty": True},
     )
+    closure: tuple[str, ...] | None = field(
+        default=None,
+        repr=False,
+        metadata={"json_omit_if_none": True, "json_omit_legacy": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -167,6 +177,11 @@ class CommandBoundaryEnvironment:
     """Named commands available to `command-result` forms."""
 
     bindings_by_name: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]
+    origins_by_name: Mapping[str, str] = field(
+        default_factory=dict,
+        repr=False,
+        metadata={"json_omit_always": True},
+    )
 
 
 def certified_adapter_supports_promoted_calls(binding: CertifiedAdapterBinding) -> bool:
@@ -184,11 +199,27 @@ def certified_adapter_supports_promoted_calls(binding: CertifiedAdapterBinding) 
 
 def build_command_boundary_environment(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
+    *,
+    origins_by_name: Mapping[str, str] | None = None,
 ) -> CommandBoundaryEnvironment:
     """Validate named command bindings supplied by the build caller."""
 
     diagnostics: list[LispFrontendDiagnostic] = []
     bindings: dict[str, ExternalToolBinding | CertifiedAdapterBinding] = {}
+    origins = {name: "workspace" for name in (command_boundaries or {})}
+    for name, origin in (origins_by_name or {}).items():
+        if name in origins:
+            if origin not in {"workspace", "package:orchestrator"}:
+                diagnostics.append(
+                    LispFrontendDiagnostic(
+                        code="command_adapter_missing_contract",
+                        message=f"command boundary `{name}` has an unsupported trusted origin",
+                        span=_environment_span(),
+                        phase="typecheck",
+                    )
+                )
+                continue
+            origins[name] = origin
 
     for name, binding in (command_boundaries or {}).items():
         if not isinstance(name, str) or not name.strip():
@@ -325,7 +356,10 @@ def build_command_boundary_environment(
 
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
-    return CommandBoundaryEnvironment(bindings_by_name=bindings)
+    return CommandBoundaryEnvironment(
+        bindings_by_name=bindings,
+        origins_by_name={name: origins[name] for name in bindings},
+    )
 
 
 def _environment_span() -> SourceSpan:

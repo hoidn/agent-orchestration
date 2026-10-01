@@ -48,6 +48,7 @@ from orchestrator.runtime_observability import close_executor_session, open_exec
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow_lisp.closed.target import refuse_run_at_evaluated_execution_target
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
@@ -626,6 +627,7 @@ def run_workflow(
 
         frontend_build = None
         try:
+            refuse_run_at_evaluated_execution_target(workflow_path)
             frontend_build = build_frontend_bundle(
                 FrontendBuildRequest(
                     source_path=workflow_path,

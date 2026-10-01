@@ -258,6 +258,13 @@ def _rebuild_with_replacements(
             return tuple(_map_value(item) for item in value)
         if isinstance(value, list):
             return [_map_value(item) for item in value]
+        # Type references are checked owner facts, not expression children.
+        # Rebuilding their nested declaration dataclasses loses the identity
+        # keys used by FrontendTypeEnvironment for nominal ownership.
+        from .type_env import TypeRef
+
+        if isinstance(value, TypeRef):
+            return value
         if is_dataclass(value) and not isinstance(value, type):
             return _map_node(value)
         return value
@@ -266,7 +273,7 @@ def _rebuild_with_replacements(
         updates = {
             field.name: _map_value(getattr(node, field.name))
             for field in dataclass_fields(node)
-            if field.init
+            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
         }
         return replace(node, **updates)
 
@@ -321,6 +328,12 @@ def map_expr(
         # non-name substitution is handled.
         return expr
     if isinstance(expr, LetStarExpr):
+        retained_input = expr.condition_normalization_input
+        rewritten_retained_input = (
+            map_expr(retained_input, on_name, bound=bound)
+            if retained_input is not None
+            else None
+        )
         local_bound = set(bound)
         rewritten_bindings: list[tuple[str, ExprNode]] = []
         changed = False
@@ -339,12 +352,14 @@ def map_expr(
             bound=frozenset(local_bound),
         )
         changed = changed or rewritten_body is not expr.body
+        changed = changed or rewritten_retained_input is not retained_input
         if not changed:
             return expr
         return replace(
             expr,
             bindings=tuple(rewritten_bindings),
             body=rewritten_body,
+            condition_normalization_input=rewritten_retained_input,
         )
     if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
         rewritten_source = map_expr(expr.source_expr, on_name, bound=bound)
@@ -485,7 +500,7 @@ def map_expr(
     if is_dataclass(expr) and not isinstance(expr, type):
         changed_updates: dict[str, object] = {}
         for field in dataclass_fields(expr):
-            if not field.init:
+            if not field.init or field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                 continue
             current = getattr(expr, field.name)
             rewritten = map_expr(current, on_name, bound=bound)

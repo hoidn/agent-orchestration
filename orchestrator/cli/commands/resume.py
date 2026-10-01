@@ -42,6 +42,7 @@ from orchestrator.monitor.process import (
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow_lisp.closed.target import refuse_run_at_evaluated_execution_target
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.syntax import target_dsl_refuses_non_finite_floats
 from orchestrator.workflow_lisp.wcc.route import (
@@ -233,6 +234,7 @@ def _load_resume_workflow_bundle(
         if resolved is not None
     )
     entry_values = _argv_option_values(argv, "--entry-workflow")
+    refuse_run_at_evaluated_execution_target(workflow_path)
     frontend_build = build_frontend_bundle(
         FrontendBuildRequest(
             source_path=workflow_path,

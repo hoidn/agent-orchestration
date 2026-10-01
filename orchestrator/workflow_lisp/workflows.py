@@ -70,6 +70,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
     syntax_resolved_name,
+    target_dsl_uses_evaluated_execution,
     target_dsl_supports_rich_loop_values,
     target_dsl_supports_trial,
 )
@@ -299,6 +300,13 @@ class WorkflowParam:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
     default_value: "WorkflowParamDefault | None" = None
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -434,6 +442,7 @@ class Stage3CompileResult:
     validation_profile: object | None = None
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     lowering_schema_version: int = 1
+    typed_program: object | None = None
 
 
 @dataclass(frozen=True)
@@ -822,6 +831,7 @@ def build_workflow_catalog(
     imported_signatures: Mapping[str, WorkflowSignature] | None = None,
     lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
+    imported_programs: Mapping[str, object] | None = None,
     allow_hidden_context_callers: bool = False,
     selected_entry_workflow_name: str | None = None,
     allow_collection_input_boundaries: bool = False,
@@ -848,6 +858,22 @@ def build_workflow_catalog(
         )
     definitions_by_name: dict[str, WorkflowDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
+    for imported_name, program in (imported_programs or {}).items():
+        if imported_name in signatures_by_name or imported_name in imported_workflow_bundles:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="workflow_definition_duplicate",
+                    message=f"duplicate workflow definition `{imported_name}`",
+                    span=program.entry.definition.span,
+                    form_path=("workflow-lisp", imported_name),
+                )
+            )
+            continue
+        signatures_by_name[imported_name] = _signature_from_imported_typed_program(
+            imported_name,
+            program,
+            type_env=type_env,
+        )
     for workflow_def in workflow_defs:
         if workflow_def.name in definitions_by_name:
             diagnostics.append(
@@ -1721,8 +1747,6 @@ def _signature_from_imported_bundle(
 ) -> WorkflowSignature:
     """Reconstruct a frontend workflow signature from a validated bundle."""
 
-    from .contracts import is_transportable_result_type
-
     input_contracts = workflow_input_contracts(bundle)
     public_input_contracts = workflow_public_input_contracts(bundle)
     boundary_projection = workflow_boundary_projection(bundle)
@@ -1764,11 +1788,53 @@ def _signature_from_imported_bundle(
 
     span = _bundle_source_span(bundle)
     form_path = ("workflow-lisp", alias)
+    signature = _signature_from_imported_contracts(
+        alias,
+        input_contract_groups=tuple(
+            (name, grouped_inputs[name]) for name in param_order
+        ),
+        output_contracts=workflow_output_contracts(bundle),
+        type_env=type_env,
+        span=span,
+        form_path=form_path,
+    )
+    return replace(
+        signature,
+        hidden_context_requirements=_hidden_context_requirements_from_bundle(
+            bundle,
+            params=signature.params,
+        ),
+        private_compatibility_bridge_types=_compatibility_bridge_types_from_bundle(
+            bundle,
+            type_env=type_env,
+            span=span,
+            form_path=form_path,
+            existing_param_names=frozenset(name for name, _ in signature.params),
+        ),
+        allow_private_compatibility_bridge_omission=False,
+    )
+
+
+def _signature_from_imported_contracts(
+    alias: str,
+    *,
+    input_contract_groups: tuple[
+        tuple[str, Mapping[str, Mapping[str, object]]], ...
+    ],
+    output_contracts: Mapping[str, Mapping[str, object]],
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> WorkflowSignature:
+    """Resolve one caller-view signature from ordered boundary contract groups."""
+
+    from .contracts import is_transportable_result_type
+
     params_list: list[tuple[str, TypeRef]] = []
     param_defaults: dict[str, WorkflowParamDefault] = {}
-    for param_name in param_order:
+    for param_name, contracts in input_contract_groups:
         param_type = _match_boundary_type_from_contracts(
-            grouped_inputs[param_name],
+            contracts,
             type_env=type_env,
             generated_name=param_name,
             allow_union=False,
@@ -1777,7 +1843,7 @@ def _signature_from_imported_bundle(
         )
         params_list.append((param_name, param_type))
         imported_default = _workflow_param_default_from_imported_contracts(
-            contracts=grouped_inputs[param_name],
+            contracts=contracts,
             param_name=param_name,
             param_type=param_type,
             span=span,
@@ -1789,7 +1855,7 @@ def _signature_from_imported_bundle(
     return_type_ref = _match_boundary_type_from_contracts(
         {
             output_name: dict(output_spec)
-            for output_name, output_spec in workflow_output_contracts(bundle).items()
+            for output_name, output_spec in output_contracts.items()
             if isinstance(output_name, str) and isinstance(output_spec, Mapping)
         },
         type_env=type_env,
@@ -1812,10 +1878,6 @@ def _signature_from_imported_bundle(
                 ),
             )
         )
-    hidden_context_requirements = _hidden_context_requirements_from_bundle(
-        bundle,
-        params=params,
-    )
     return WorkflowSignature(
         name=alias,
         params=params,
@@ -1823,15 +1885,93 @@ def _signature_from_imported_bundle(
         span=span,
         form_path=form_path,
         param_defaults=param_defaults,
-        hidden_context_requirements=hidden_context_requirements,
-        private_compatibility_bridge_types=_compatibility_bridge_types_from_bundle(
-            bundle,
-            type_env=type_env,
-            span=span,
-            form_path=form_path,
-            existing_param_names=frozenset(name for name, _ in params),
+    )
+
+
+def _signature_from_imported_typed_program(
+    alias: str,
+    program,
+    *,
+    type_env: FrontendTypeEnvironment,
+) -> WorkflowSignature:
+    """Resolve a caller-view signature from an admitted retained typed body."""
+
+    from .contracts import derive_workflow_signature_contracts
+
+    native_workflow = program.entry
+    native_signature = native_workflow.signature
+    producer_env = program._workflow_type_env_with_retained_nominal_names(
+        native_workflow.definition.name
+    )
+    input_contracts, output_contracts, projection = derive_workflow_signature_contracts(
+        native_signature,
+        allow_transportable_inputs=True,
+        type_env=producer_env,
+    )
+    contracts_by_param: dict[str, dict[str, Mapping[str, object]]] = {}
+    public_param_order: list[str] = []
+    private_param_order: list[str] = []
+    private_formal_names = frozenset(
+        set(native_signature.hidden_context_requirements)
+        | set(native_signature.private_compatibility_bridge_types)
+    )
+    for flattened_field in projection.flattened_inputs:
+        contract = input_contracts.get(flattened_field.generated_name)
+        if contract is None:
+            continue
+        source_param_name = flattened_field.source_path[0] if flattened_field.source_path else None
+        param_name = (
+            source_param_name
+            if source_param_name in private_formal_names
+            else flattened_field.generated_name.split("__", 1)[0]
+        )
+        if param_name not in contracts_by_param:
+            contracts_by_param[param_name] = {}
+            order = (
+                private_param_order
+                if source_param_name in private_formal_names
+                else public_param_order
+            )
+            order.append(param_name)
+        contracts_by_param[param_name][flattened_field.generated_name] = dict(
+            contract.definition
+        )
+    param_order = [*public_param_order, *private_param_order]
+    input_contract_groups = tuple(
+        (param_name, contracts_by_param[param_name]) for param_name in param_order
+    )
+    call_signature = _signature_from_imported_contracts(
+        alias,
+        input_contract_groups=input_contract_groups,
+        output_contracts={
+            name: dict(contract.definition)
+            for name, contract in output_contracts.items()
+        },
+        type_env=type_env,
+        span=native_signature.span,
+        form_path=("workflow-lisp", alias),
+    )
+    return replace(
+        call_signature,
+        hidden_context_requirements=native_signature.hidden_context_requirements,
+        hidden_context_ambiguities=native_signature.hidden_context_ambiguities,
+        private_compatibility_bridge_types=(
+            native_signature.private_compatibility_bridge_types
         ),
-        allow_private_compatibility_bridge_omission=False,
+        allow_hidden_context_binding=native_signature.allow_hidden_context_binding,
+        allow_private_compatibility_bridge_omission=(
+            native_signature.allow_private_compatibility_bridge_omission
+        ),
+        allowed_hidden_context_callees=native_signature.allowed_hidden_context_callees,
+        derived_hidden_context_callees=native_signature.derived_hidden_context_callees,
+        entry_hidden_context_callees=native_signature.entry_hidden_context_callees,
+        allowed_private_compatibility_bridge_callees=(
+            native_signature.allowed_private_compatibility_bridge_callees
+        ),
+        entry_bootstrap_gate_denial=native_signature.entry_bootstrap_gate_denial,
+        compiler_direct_result_contract_digest=(
+            native_signature.compiler_direct_result_contract_digest
+        ),
     )
 
 
@@ -3071,6 +3211,11 @@ def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowP
         form_path=form_path,
         expansion_stack=raw_param.expansion_stack,
         default_value=default_value,
+        binding_label=(
+            name_identifier.display_name
+            if name_identifier.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 

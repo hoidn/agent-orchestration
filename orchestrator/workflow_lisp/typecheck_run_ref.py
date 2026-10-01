@@ -409,6 +409,12 @@ def _register_result_metadata(
             ("accounting", fixed_by_name["RunRefAccounting"]),
         ),
     )
+    source_key = (context.type_env.module_name, expression_key)
+    origin = context.session_state.run_ref_origins_by_source_key.setdefault(
+        source_key,
+        bytes.fromhex(_sha256(["run-ref-origin", *source_key])),
+    )
+    result_type = replace(result_type, run_ref_origin=(origin, input_types))
     _validate_staged_type(context.type_env, result_type)
     metadata = RunRefSiteMetadata(
         generated_type_name=generated_name,
@@ -553,6 +559,8 @@ def resolve_unique_run_ref_site_metadata(
     expr: RunRefExpr,
     *,
     session_state,
+    prefer_retained: bool = False,
+    source_module: str | None = None,
 ) -> RunRefSiteMetadata:
     """Resolve the sole typed result for an expression during WCC inference."""
 
@@ -563,6 +571,73 @@ def resolve_unique_run_ref_site_metadata(
             "run-ref metadata session is unavailable during WCC inference"
         )
     expression_key = _sha256(_expression_payload(expr))
+    retained = expr.run_ref_metadata
+    if prefer_retained and retained is not None:
+        if not isinstance(retained, RunRefSiteMetadata):
+            raise TypecheckSessionStateCollisionError(
+                "run-ref expression carries invalid retained metadata"
+            )
+        if (
+            not isinstance(retained.site_digest, str)
+            or len(retained.site_digest) != 64
+            or any(char not in "0123456789abcdef" for char in retained.site_digest)
+            or retained.expression_key != expression_key
+            or retained.generated_type_name
+            != f"RunRefResult${retained.site_digest[:16]}"
+        ):
+            raise TypecheckSessionStateCollisionError(
+                "run-ref retained metadata does not match its expression identity"
+            )
+        type_payload = {
+            "inputs": [
+                [name, _type_identity(type_ref)]
+                for name, type_ref in retained.input_types
+            ],
+            "value": _type_identity(retained.value_type_ref),
+        }
+        if (
+            retained.type_signature != _sha256(type_payload)
+            or retained.type_ref.name != retained.generated_type_name
+            or retained.type_ref.field_types.get("value")
+            is not retained.value_type_ref
+        ):
+            raise TypecheckSessionStateCollisionError(
+                "run-ref retained metadata has inconsistent checked type facts"
+            )
+        origin = retained.type_ref.run_ref_origin
+        if (
+            not isinstance(origin, tuple)
+            or len(origin) != 2
+            or not isinstance(origin[1], tuple)
+            or len(origin[1]) != len(retained.input_types)
+            or any(
+                actual_name != expected_name or actual_ref is not expected_ref
+                for (actual_name, actual_ref), (expected_name, expected_ref)
+                in zip(origin[1], retained.input_types)
+            )
+        ):
+            raise TypecheckSessionStateCollisionError(
+                "run-ref retained metadata lost its exact input type origins"
+            )
+        if source_module is not None:
+            origin_is_current = (
+                session_state.run_ref_origins_by_source_key.get(
+                    (source_module, expression_key)
+                )
+                == origin[0]
+            )
+        else:
+            origin_is_current = any(
+                key[1] == expression_key and token == origin[0]
+                for key, token in (
+                    session_state.run_ref_origins_by_source_key.items()
+                )
+            )
+        if not origin_is_current:
+            raise TypecheckSessionStateCollisionError(
+                "run-ref retained metadata has no matching source-origin token"
+            )
+        return retained
     signature_rows = session_state.run_ref_metadata_by_expr_key.get(
         expression_key
     )
@@ -840,7 +915,7 @@ def _typecheck_run_ref_expr_with_details(
         input_types=input_types,
     )
     typed_expr = typed_factory(
-        expr=typed_expr,
+        expr=replace(typed_expr, run_ref_metadata=metadata),
         type_ref=metadata.type_ref,
         effect=merge_effect_summaries(*input_effects, run_effect),
     )

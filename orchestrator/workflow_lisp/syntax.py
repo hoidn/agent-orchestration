@@ -17,6 +17,7 @@ import math
 import sys
 
 from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
+from .closed import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -45,6 +46,7 @@ SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
         "2.32",
         "2.33",
         "2.34",
+        "2.35",
     }
 )
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
@@ -175,6 +177,20 @@ def target_dsl_refuses_non_finite_floats(target_dsl_version: str) -> bool:
         minimum = tuple(
             int(part)
             for part in FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION.split(".")
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return target >= minimum
+
+
+def target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool:
+    """Return whether a target routes execution through the evaluated runtime."""
+
+    try:
+        target = tuple(int(part) for part in target_dsl_version.split("."))
+        minimum = tuple(
+            int(part)
+            for part in EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION.split(".")
         )
     except (AttributeError, TypeError, ValueError):
         return False

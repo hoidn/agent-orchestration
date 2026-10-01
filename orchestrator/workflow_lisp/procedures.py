@@ -40,6 +40,13 @@ class ProcedureParam:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -946,6 +953,11 @@ def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> Procedure
         span=raw_param.span,
         form_path=form_path,
         expansion_stack=raw_param.expansion_stack,
+        binding_label=(
+            name_identifier.display_name
+            if name_identifier.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 

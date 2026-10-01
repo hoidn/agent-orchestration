@@ -69,6 +69,7 @@ def _typecheck_equality(
                 span=bare_expr.span,
                 form_path=bare_expr.form_path,
                 expansion_stack=bare_expr.expansion_stack,
+                discriminant_owner=(discriminant.owner_union or discriminant.applied_union),
             )
             new_args = (tag_expr, typed_other.expr) if left_is_bare else (typed_other.expr, tag_expr)
             return typed_factory(

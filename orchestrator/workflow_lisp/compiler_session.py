@@ -25,8 +25,16 @@ NameResolver: TypeAlias = Callable[
     [str, "SourceSpan", tuple[str, ...]],
     str,
 ]
-LoopCarrierExprKey: TypeAlias = tuple[str, int, int, tuple[str, ...]]
+LoopCarrierSourceKey: TypeAlias = tuple[str, int, int, tuple[str, ...]]
+LoopCarrierExprKey: TypeAlias = (
+    LoopCarrierSourceKey
+    | tuple[str, int, int, tuple[str, ...], str]
+)
 LoopCarrierFieldSignature: TypeAlias = tuple[tuple[str, str], ...]
+LoopCarrierMetadataKey: TypeAlias = (
+    LoopCarrierFieldSignature
+    | tuple[LoopCarrierFieldSignature, str]
+)
 RunRefExprKey: TypeAlias = str
 RunRefTypeSignature: TypeAlias = str
 
@@ -72,9 +80,27 @@ class TypecheckSessionState:
     ] = field(default_factory=dict)
     loop_carrier_metadata_by_expr_key: dict[
         LoopCarrierExprKey,
-        dict[LoopCarrierFieldSignature, LoopStateCarrierMetadata],
+        dict[LoopCarrierMetadataKey, LoopStateCarrierMetadata],
     ] = field(
         default_factory=dict
+    )
+    loop_carrier_families_by_expr_key: dict[
+        LoopCarrierExprKey, tuple[object, int]
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        metadata={"json_omit_always": True},
+    )
+    run_ref_origins_by_source_key: dict[
+        tuple[str | None, str], object
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
     )
     run_ref_metadata_by_name: dict[str, RunRefSiteMetadata] = field(
         default_factory=dict
@@ -102,6 +128,11 @@ class LoweringSessionState:
 class CompilerSession:
     """All mutable state for exactly one public compile attempt."""
 
+    closed_program: bool = field(
+        default=False,
+        repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     elaboration: ElaborationSessionState = field(
         default_factory=ElaborationSessionState
     )

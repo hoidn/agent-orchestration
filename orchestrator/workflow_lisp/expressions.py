@@ -139,6 +139,16 @@ class UnionVariantTagExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    discriminant_owner: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 @dataclass(frozen=True)
 class FieldAccessExpr:
@@ -210,6 +220,20 @@ class ListMapExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -225,6 +249,20 @@ class ListMapEffectExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -271,6 +309,18 @@ class LoopStateField:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Resolved by the typed loop-state owner and carried across inline
+    # specialization. It is compiler evidence, not authored syntax identity.
+    resolved_type_ref: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -281,6 +331,18 @@ class LoopStateSeedExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Inline expansion can move the source span, while the carrier still
+    # belongs to its original expanded declaration and ordinal.
+    carrier_family: tuple[object, int] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -318,6 +380,35 @@ class LetStarExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Authored labels are transient hygiene origins, parallel to bindings.
+    binding_labels: tuple[str | None, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Existing typechecker binder identities, retained only for source-free
+    # closed lowering of lexical captures.
+    binding_identities: tuple[object | None, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # The checked condition expression replaced by this generated wrapper,
+    # retained in the wrapper's incoming lexical scope for closed elaboration.
+    condition_normalization_input: "ExprNode | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -369,6 +460,20 @@ class MatchArm:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -430,6 +535,15 @@ class RunRefExpr:
     returns_type_name: str | None = None
     environment: str | None = None
     expansion_stack: ExpansionStack = ()
+    run_ref_metadata: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -585,6 +699,13 @@ class BindProcBinding:
     keyword_span: SourceSpan
     keyword_form_path: tuple[str, ...]
     keyword_expansion_stack: ExpansionStack = ()
+    source_binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -839,6 +960,13 @@ class LoopBodyFnExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -877,6 +1005,35 @@ class LoopRecurExpr:
     exhaustion_diagnostic_code: str | None = None
     single_iteration_effect_kinds: tuple[str, ...] | None = None
     effect_cardinality_diagnostic_code: str | None = None
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Parser-owned :max/:state order survives macro substitution, whose
+    # argument spans can point back to a different source order. Hand-built
+    # nodes use the elaborator's documented deterministic :max-then-:state
+    # default. This is source metadata, not part of AST repr/equality/hash or
+    # serialized artifacts.
+    operand_evaluation_order: tuple[str, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -3229,6 +3386,11 @@ def _elaborate_list_map(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        binding_label=(
+            binder.display_name
+            if binder.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 
@@ -3317,6 +3479,11 @@ def _elaborate_list_map_effect(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        binding_label=(
+            binder.display_name
+            if binder.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 
@@ -3703,6 +3870,7 @@ def _elaborate_letstar(
         )
     current_names = set(bound_names)
     bindings: list[tuple[str, ExprNode]] = []
+    binding_labels: list[str | None] = []
     for raw_binding in raw_bindings.items:
         if not isinstance(raw_binding, SyntaxList) or len(raw_binding.items) != 2:
             _raise_error(
@@ -3727,6 +3895,11 @@ def _elaborate_letstar(
             session_state=session_state,
         )
         bindings.append((name_node.resolved_name, value_expr))
+        binding_labels.append(
+            name_node.display_name
+            if name_node.introduced_by_expansion_id is None
+            else None
+        )
         current_names.add(name_node.resolved_name)
     body = _elaborate(
         datum.items[2],
@@ -3741,6 +3914,7 @@ def _elaborate_letstar(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        binding_labels=tuple(binding_labels),
     )
 
 
@@ -3809,6 +3983,11 @@ def _elaborate_match(
                 span=raw_arm.span,
                 form_path=form_path,
                 expansion_stack=raw_arm.expansion_stack,
+                binding_label=(
+                    binding_node.display_name
+                    if binding_node.introduced_by_expansion_id is None
+                    else None
+                ),
             )
         )
     return MatchExpr(
@@ -4069,6 +4248,12 @@ def _elaborate_loop_recur(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        binding_label=body_fn.binding_label,
+        operand_evaluation_order=tuple(
+            keyword
+            for keyword in sections
+            if keyword in {":max", ":state"}
+        ),
     )
 
 
@@ -4125,6 +4310,11 @@ def _elaborate_loop_body_fn(
         span=node.span,
         form_path=form_path,
         expansion_stack=node.expansion_stack,
+        binding_label=(
+            binding_node.display_name
+            if binding_node.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 
@@ -5050,6 +5240,11 @@ def _elaborate_let_proc_param(raw_param: object, form_path: tuple[str, ...]) -> 
         span=raw_param.span,
         form_path=form_path,
         expansion_stack=raw_param.expansion_stack,
+        binding_label=(
+            name_identifier.display_name
+            if name_identifier.introduced_by_expansion_id is None
+            else None
+        ),
     )
 
 

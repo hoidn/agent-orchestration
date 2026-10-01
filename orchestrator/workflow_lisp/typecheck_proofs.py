@@ -197,6 +197,7 @@ def resolve_field_access(
             union_name=base_type.name,
             variant_names=tuple(variant.name for variant in base_type.definition.variants),
             applied_union=base_type if base_type.type_args else None,
+            owner_union=base_type,
         )
     if isinstance(base_type, RecordTypeRef):
         return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
@@ -430,12 +431,13 @@ def typecheck_match_expr(
         arm_env = dict(context.value_env)
         arm_env[arm.binding_name] = variant_type
         arm_binding_env = dict(context.binding_env)
-        arm_binding_env[arm.binding_name] = _allocate_binding_identity(
+        binding_identity = _allocate_binding_identity(
             arm_binding_env,
             form_path=arm.form_path,
             kind="arm",
             name=arm.binding_name,
         )
+        arm_binding_env[arm.binding_name] = binding_identity
         arm_facts = dict(context.proof_scope.facts)
         if subject_identity is not None:
             arm_facts[subject_identity] = PossibleVariants(
@@ -450,7 +452,13 @@ def typecheck_match_expr(
             expected_type=expected_type,
         )
         arm_summaries.append(typed_body.effect_summary)
-        rewritten_arms.append(replace(arm, body=typed_body.expr))
+        rewritten_arms.append(
+            replace(
+                arm,
+                body=typed_body.expr,
+                binding_identity=binding_identity,
+            )
+        )
         if arm_result_type is None:
             arm_result_type = typed_body.type_ref
             continue
@@ -614,6 +622,10 @@ def typecheck_if_expr(
                 span=expr.span,
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
+                condition_normalization_input=replace(
+                    normalized_if,
+                    condition_expr=typed_condition.expr,
+                ),
             )
         else:
             result_expr = normalized_if
@@ -752,6 +764,7 @@ def typecheck_cond_expr(
         )
         rewrite = CondClauseRewrite(
             condition_bindings=normalized_condition.bindings,
+            condition_input=typed_condition.expr,
             condition_terminal=normalized_condition.terminal,
             result_expr=typed_result.expr,
             true_proof_context=true_proof_facts,
@@ -805,6 +818,21 @@ def typecheck_cond_expr(
         if terminal_effect_summary == EMPTY_EFFECT_SUMMARY:
             final_expr = terminal_rewrite.result_expr
         elif terminal_rewrite.condition_bindings:
+            from .wcc.hygiene import fresh_name, reserved_identifiers
+
+            terminal_condition = _fold_forced_terminal_tests(
+                terminal_rewrite.condition_input,
+                binding_env=context.binding_env,
+                facts=terminal_facts,
+            )
+            discard_name = fresh_name(
+                "__cond_terminal_test",
+                reserved_identifiers(
+                    (terminal_condition, terminal_rewrite.result_expr),
+                    value_env=context.value_env,
+                    compile_time_bindings=context.session_state.value_expr_env,
+                ),
+            )
             final_expr = LetStarExpr(
                 bindings=tuple(
                     (name, _fold_forced_terminal_tests(binding_expr, binding_env=context.binding_env, facts=terminal_facts))
@@ -814,6 +842,13 @@ def typecheck_cond_expr(
                 span=terminal_rewrite.span,
                 form_path=terminal_rewrite.form_path,
                 expansion_stack=terminal_rewrite.expansion_stack,
+                condition_normalization_input=LetStarExpr(
+                    bindings=((discard_name, terminal_condition),),
+                    body=terminal_rewrite.result_expr,
+                    span=terminal_rewrite.span,
+                    form_path=terminal_rewrite.form_path,
+                    expansion_stack=terminal_rewrite.expansion_stack,
+                ),
             )
         else:
             raise AssertionError(
@@ -1014,6 +1049,16 @@ def _fold_forced_terminal_tests(expr, *, binding_env, facts, shadowed=frozenset(
             ),
         )
     if isinstance(expr, LetStarExpr):
+        retained_input = (
+            _fold_forced_terminal_tests(
+                expr.condition_normalization_input,
+                binding_env=binding_env,
+                facts=facts,
+                shadowed=shadowed,
+            )
+            if expr.condition_normalization_input is not None
+            else None
+        )
         bindings = []
         for name, binding_expr in expr.bindings:
             bindings.append(
@@ -1031,5 +1076,6 @@ def _fold_forced_terminal_tests(expr, *, binding_env, facts, shadowed=frozenset(
             body=_fold_forced_terminal_tests(
                 expr.body, binding_env=binding_env, facts=facts, shadowed=shadowed
             ),
+            condition_normalization_input=retained_input,
         )
     return expr

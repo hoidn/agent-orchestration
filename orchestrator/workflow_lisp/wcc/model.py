@@ -56,6 +56,20 @@ class WccNodeMetadata:
     proof_context: tuple[object, ...] = ()
     allocation_requests: tuple[object, ...] = ()
     phase_scope: "WccPhaseScope | None" = None
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -80,6 +94,7 @@ class WccIdentityFactory:
     # Only names generated from target 2.33 read them (`hygiene.generated_name_scope`);
     # `scope_id` and node ids leave them out, so every earlier identity stays the same.
     enclosing_variants: tuple[str, ...] = ()
+    closed_program: bool = False
 
     @property
     def scope_id(self) -> str:
@@ -99,6 +114,7 @@ class WccIdentityFactory:
             lexical_owner_chain=(*self.lexical_owner_chain, segment),
             route_schema_version=self.route_schema_version,
             enclosing_variants=self.enclosing_variants,
+            closed_program=self.closed_program,
         )
 
     def _metadata(
@@ -114,6 +130,8 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_label: str | None = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         digest = _stable_identity_digest(
             {
@@ -135,6 +153,8 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         )
 
     def atom_metadata(
@@ -201,6 +221,8 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_label: str | None = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="body",
@@ -213,6 +235,8 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         )
 
 
@@ -592,6 +616,13 @@ class WccSpecializationCapture:
     argument_index: int | None
     source_name: str
     value: WccValue
+    source_binding: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -610,6 +641,13 @@ class WccCall:
         tuple[int, str, bool],
         ...,
     ] = ()
+    bound_proc_source: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -691,6 +729,20 @@ class WccCaseArm:
     binding_name: str
     binding_type_ref: TypeRef
     body: "WccBody"
+    binding_label: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    binding_identity: object | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

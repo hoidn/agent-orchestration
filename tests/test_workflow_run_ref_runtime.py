@@ -59,6 +59,12 @@ from orchestrator.workflow.run_ref.runtime import (
     _child_result_document,
     _workspace_for_ordinal,
 )
+from orchestrator.workflow_lisp import syntax
+from orchestrator.workflow_lisp.compile_diagnostics import (
+    build_rejected_compile_diagnostics_document,
+)
+from orchestrator.workflow_lisp.diagnostics import LispFrontendDiagnostic
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow.run_ref.source import (
     MaterializedSource,
     SourceRequest,
@@ -980,6 +986,69 @@ def test_parent_preserves_validated_structural_child_failure_authority(
     assert excinfo.value.machine_fields == {
         "rejected_value": {"path": "candidate.orc"},
         "secondary_causes": ["program_missing"],
+    }
+
+
+def test_parent_preserves_evaluated_execution_refusal_location_and_limit(
+    tmp_path: Path,
+) -> None:
+    request = _runtime_request(tmp_path, mode="bundle")
+    launch = RunRefChildLaunch(
+        mode="bundle",
+        request_path=request.parent_run_root / "request.json",
+        request_document={},
+        workspace=request.run_ref_root / "workspace",
+        child_run_id="child",
+    )
+    span = SourceSpan(
+        SourcePosition("entry.orc", 3, 16, 32),
+        SourcePosition("entry.orc", 3, 17, 33),
+    )
+    compile_diagnostics = build_rejected_compile_diagnostics_document(
+        (
+            LispFrontendDiagnostic(
+                code="evaluated_execution_unavailable",
+                message=(
+                    f"target DSL {syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION} "
+                    "requires evaluated execution"
+                ),
+                span=span,
+                phase="lowering",
+            ),
+        )
+    )
+    diagnostic = {
+        "schema_version": "run_ref_child_diagnostic.v1",
+        "status": "rejected",
+        "code": "evaluated_execution_unavailable",
+        "reason": "flat_execution_unavailable",
+        "rejected_value": {
+            "target_dsl_version": syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+        },
+        "secondary_causes": [
+            "evaluated_execution_minimum_target_dsl_version:"
+            + syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+        ],
+        "compile_diagnostics": compile_diagnostics,
+    }
+
+    with pytest.raises(RunRefRuntimeError) as excinfo:
+        _child_result_document(
+            request,
+            launch=launch,
+            process=RunRefChildProcessResult(
+                returncode=2,
+                stdout=b"",
+                stderr=canonical_json_bytes(diagnostic) + b"\n",
+                duration_ms=1,
+            ),
+        )
+
+    assert excinfo.value.code == "evaluated_execution_unavailable"
+    assert excinfo.value.detail == "flat_execution_unavailable"
+    assert excinfo.value.machine_fields == {
+        key: diagnostic[key]
+        for key in ("rejected_value", "secondary_causes", "compile_diagnostics")
     }
 
 

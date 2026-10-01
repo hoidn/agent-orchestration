@@ -85,6 +85,7 @@ from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION
 from .wcc.route import LoweringRoute, normalize_lowering_route
+from .closed.target import refuse_compiled_target_at_evaluated_execution_target
 
 
 # Artifact helpers remain re-exported from this historical module boundary so
@@ -1040,6 +1041,9 @@ def _compile_entry(
     pipeline): `compile_stage3_entrypoint` + `_select_entry_workflow`.
     """
 
+    active_source_read_trace = (
+        source_read_trace if source_read_trace is not None else SourceReadTrace()
+    )
     compiler_session = CompilerSession()
     compile_result = compile_stage3_entrypoint(
         compile_request_capture.source_path,
@@ -1058,8 +1062,17 @@ def _compile_entry(
         workspace_root=compile_request_capture.workspace_root,
         lint_profile=compile_request_capture.lint_profile,
         lowering_route=compile_request_capture.lowering_route,
-        source_read_trace=source_read_trace,
+        source_read_trace=active_source_read_trace,
         compiler_session=compiler_session,
+    )
+
+    entry_module_source = compile_result.graph.modules_by_name[
+        compile_result.graph.entry_module_name
+    ]
+    refuse_compiled_target_at_evaluated_execution_target(
+        entry_module_source.path,
+        entry_module_source.syntax_module.target_dsl_version,
+        active_source_read_trace.raw_bytes_by_path,
     )
 
     export_surface = compile_result.graph.export_surfaces_by_name[
@@ -1609,11 +1622,33 @@ def _select_entry_workflow(
     source_path: Path,
 ) -> FrontendEntrySelection:
     export_surface = compile_result.graph.export_surfaces_by_name[compile_result.graph.entry_module_name]
+    entry_module = compile_result.graph.modules_by_name[
+        compile_result.graph.entry_module_name
+    ]
+    return _select_entry_workflow_from_surface(
+        export_surface,
+        requested_name=requested_name,
+        available_names=compile_result.entry_result.validated_bundles,
+        source_path=source_path,
+        entry_span=entry_module.syntax_module.span,
+    )
+
+
+def _select_entry_workflow_from_surface(
+    export_surface,
+    *,
+    requested_name: str | None,
+    available_names,
+    source_path: Path,
+    entry_span,
+) -> FrontendEntrySelection:
+    """Select one export while retaining the caller's owner-specific names."""
+
     exported_workflows = tuple(sorted(export_surface.workflows_by_name))
     if requested_name:
         binding = export_surface.workflows_by_name.get(requested_name)
         canonical_name = binding.canonical_name if binding is not None else requested_name
-        if canonical_name not in compile_result.entry_result.validated_bundles:
+        if canonical_name not in available_names:
             raise LispFrontendCompileError(
                 (
                     _cli_request_diagnostic(
@@ -1635,7 +1670,7 @@ def _select_entry_workflow(
                 LispFrontendDiagnostic(
                     code="entry_workflow_required",
                     message="`--entry-workflow` is required when the entry module exports multiple workflows",
-                    span=compile_result.graph.modules_by_name[compile_result.graph.entry_module_name].syntax_module.span,
+                    span=entry_span,
                     form_path=("workflow-lisp",),
                     phase="cli_request",
                 ),

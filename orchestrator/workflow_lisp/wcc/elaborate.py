@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
-from ..conditionals import _contains_effect, classify_condition_expr, fold_pure_short_circuit
+from ..conditionals import (
+    _contains_effect,
+    classify_condition_expr,
+    fold_pure_short_circuit,
+    _normalize_operand,
+    prepare_closed_condition_expr,
+    _wrap_bindings,
+)
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import map_expr, walk_expr
@@ -63,6 +70,12 @@ from ..procedures import (
 )
 from ..prompts import PromptApplicationExpr
 from ..procedure_refs import ResolvedProcRefValue
+from ..phase import (
+    IMPLEMENTATION_ATTEMPT_TARGET_FIELDS,
+    PHASE_TARGET_SPECS,
+    build_phase_scope,
+    resolve_phase_target_type,
+)
 from ..spans import SourceSpan
 from ..typecheck_pure_ops import catalog_operator_result_type
 from ..type_env import (
@@ -177,7 +190,8 @@ class WccPromptDependencyPayload:
 class _WccBoundProcedureBinding:
     """A compile-time procedure value plus bind-site runtime captures."""
 
-    capture_values: tuple[tuple[str, WccValue], ...]
+    capture_values: tuple[tuple[str, WccValue, object | None], ...]
+    source_binding: object | None = None
 
 
 @dataclass(frozen=True)
@@ -228,13 +242,21 @@ def elaborate_typed_workflow_body(
     procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     compile_time_bindings: Mapping[str, object] | None = None,
     route_schema_version: str | None = None,
+    closed_program: bool = False,
 ) -> WccBody:
     """Elaborate one typed workflow body into WCC."""
+
+    if closed_program:
+        typed_body = replace(
+            typed_body,
+            expr=prepare_closed_condition_expr(typed_body.expr),
+        )
 
     scope = WccIdentityFactory(
         owner_name=owner_name,
         lexical_owner_chain=("workflow",),
         route_schema_version=route_schema_version or WccIdentityFactory.route_schema_version,
+        closed_program=closed_program,
     )
     procedure_edges_by_site = {
         (edge.span, edge.form_path): edge.callee_name
@@ -311,11 +333,8 @@ def elaborate_typed_workflow_body(
     initial_compile_time_bindings = dict(
         compile_time_bindings or {}
     )
-    if any(
-        isinstance(
-            node,
-            (WithLiveProvidersExpr, WithLiveProviderPeersExpr),
-        )
+    if closed_program or any(
+        isinstance(node, (WithLiveProvidersExpr, WithLiveProviderPeersExpr))
         for node in walk_expr(typed_body.expr)
     ):
         initial_compile_time_bindings[
@@ -1143,7 +1162,7 @@ def _rewrite_specialization_value_captures(
                     shadowed=shadowed,
                 )
                 for field in dataclass_fields(node)
-                if field.init
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
             }
             changed_updates = {
                 name: rewritten
@@ -1409,7 +1428,7 @@ def _substitute_wcc_payload(
                 substitutions,
             )
             for field in dataclass_fields(value)
-            if field.init
+            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
         }
         if any(
             updates[name] is not getattr(value, name)
@@ -1541,6 +1560,51 @@ def _elaborate_expr_to_body(
     active_phase_scope: WccPhaseScope | None = None,
 ) -> WccBody:
     if isinstance(expr, WithPhaseExpr):
+        if scope.closed_program and not isinstance(
+            expr.ctx_expr,
+            (NameExpr, FieldAccessExpr),
+        ):
+            reserved = reserved_identifiers(
+                expr,
+                value_env=value_env,
+                compile_time_bindings=compile_time_bindings,
+            )
+            naming_scope = generated_name_scope(scope).child_scope(
+                "with-phase-context",
+                authored_binding_name="ctx",
+            )
+            binding_name = fresh_name(
+                _generated_effect_binding_name_from_scope(
+                    naming_scope,
+                    role="ctx",
+                ),
+                reserved,
+            )
+            context_name = NameExpr(
+                name=binding_name,
+                span=expr.ctx_expr.span,
+                form_path=expr.ctx_expr.form_path,
+                expansion_stack=expr.ctx_expr.expansion_stack,
+            )
+            wrapped = LetStarExpr(
+                bindings=((binding_name, expr.ctx_expr),),
+                body=replace(expr, ctx_expr=context_name),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            return _elaborate_let_star(
+                wrapped,
+                scope=scope.child_scope("with-phase-context"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
         return _elaborate_expr_to_body(
             expr.body,
             scope=scope,
@@ -1592,7 +1656,48 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    if (
+        scope.closed_program
+        and isinstance(expr, PureOpExpr)
+        and expr.operator in {"and", "or"}
+        and target_dsl_supports_strict_boolean_control_flow(
+            getattr(type_env, "target_dsl_version", "") or ""
+        )
+        and _contains_effect(expr)
+    ):
+        return _elaborate_if_to_body(
+            fold_pure_short_circuit(expr),
+            scope=scope.child_scope("short-circuit"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
     if isinstance(expr, LoopRecurExpr):
+        if scope.closed_program:
+            bound_operands = _bind_effectful_loop_operands(
+                expr,
+                scope=scope,
+                value_env=value_env,
+                compile_time_bindings=compile_time_bindings,
+            )
+            if bound_operands is not None:
+                return _elaborate_let_star(
+                    bound_operands,
+                    scope=scope.child_scope("loop-operands"),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                )
         return _elaborate_loop_recur_to_body(
             expr,
             scope=scope,
@@ -1660,6 +1765,59 @@ def _elaborate_expr_to_body(
         )
         return _wrap_prefix_lets(prefix, continue_node)
     if isinstance(expr, DoneExpr):
+        if scope.closed_program:
+            reserved = reserved_identifiers(
+                expr,
+                value_env=value_env,
+                compile_time_bindings=compile_time_bindings,
+            )
+            naming_scope = generated_name_scope(scope).child_scope(
+                "loop-done",
+                authored_binding_name="result",
+            )
+            bindings: list[tuple[str, object]] = []
+            changes: dict[str, object] = {}
+            for field_name, operand in (
+                ("result_expr", expr.result_expr),
+                ("terminal_state_expr", expr.terminal_state_expr),
+            ):
+                if operand is None or not (
+                    isinstance(operand, MatchExpr) or _contains_effect(operand)
+                ):
+                    continue
+                binding_name = fresh_name(
+                    _generated_effect_binding_name_from_scope(
+                        naming_scope,
+                        role=("result" if field_name == "result_expr" else "state"),
+                    ),
+                    reserved,
+                )
+                bindings.append((binding_name, operand))
+                changes[field_name] = NameExpr(
+                    name=binding_name,
+                    span=operand.span,
+                    form_path=operand.form_path,
+                    expansion_stack=operand.expansion_stack,
+                )
+            if bindings:
+                return _elaborate_let_star(
+                    LetStarExpr(
+                        bindings=tuple(bindings),
+                        body=replace(expr, **changes),
+                        span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    scope=scope.child_scope("loop-done-values"),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                )
         prefix, result_value = _elaborate_expr_to_value(
             expr.result_expr,
             scope=scope.child_scope("loop-done", authored_binding_name="result"),
@@ -1757,6 +1915,31 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    if scope.closed_program and _contains_effect(expr):
+        prefix, terminal = _normalize_operand(
+            expr,
+            path=(),
+            closed_program=True,
+        )
+        if prefix:
+            return _elaborate_let_star(
+                LetStarExpr(
+                    bindings=prefix,
+                    body=terminal,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                scope=scope.child_scope("value-operands"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
     prefix, value = _elaborate_expr_to_value(
         expr,
         scope=scope,
@@ -1858,6 +2041,118 @@ def _elaborate_let_star(
     compile_time_bindings: Mapping[str, object],
     active_phase_scope: WccPhaseScope | None = None,
 ) -> WccBody:
+    if scope.closed_program:
+        reserved = reserved_identifiers(
+            expr,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+        naming_scope = generated_name_scope(scope).child_scope(
+            "bind-proc-values"
+        )
+        bindings: list[tuple[str, object]] = []
+        labels: list[str | None] = []
+        identities: list[object | None] = []
+        changed = False
+        local_env = dict(value_env)
+
+        def rewrite_bound_values(
+            owner: BindProcExpr,
+            owner_path: tuple[str, ...],
+            owner_env: dict[str, TypeRef],
+        ) -> tuple[BindProcExpr, list[tuple[str, object]]]:
+            nonlocal changed
+            rewritten = []
+            prefixes: list[tuple[str, object]] = []
+            for bound in owner.bindings:
+                bound_expr = bound.value_expr
+                if isinstance(bound_expr, BindProcExpr):
+                    bound_expr, nested_prefixes = rewrite_bound_values(
+                        bound_expr,
+                        (*owner_path, bound.name),
+                        owner_env,
+                    )
+                    prefixes.extend(nested_prefixes)
+                if (
+                    bound.source_binding_identity is None
+                    and not isinstance(bound_expr, BindProcExpr)
+                    and _contains_effect(bound_expr)
+                ):
+                    bound_type = _infer_expr_type(
+                        bound_expr,
+                        type_env=type_env,
+                        value_env=owner_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    )
+                    if isinstance(bound_type, ProcRefTypeRef):
+                        rewritten.append(bound)
+                        continue
+                    binding_path = (*owner_path, bound.name)
+                    binding_scope = naming_scope.child_scope(
+                        "binding",
+                        authored_binding_name=":".join(binding_path),
+                    )
+                    generated_name = fresh_name(
+                        _generated_effect_binding_name_from_scope(
+                            binding_scope,
+                            role=bound.name,
+                        ),
+                        reserved,
+                    )
+                    prefixes.append((generated_name, bound_expr))
+                    owner_env[generated_name] = bound_type
+                    bound_expr = NameExpr(
+                        name=generated_name,
+                        span=bound.value_expr.span,
+                        form_path=bound.value_expr.form_path,
+                        expansion_stack=bound.value_expr.expansion_stack,
+                    )
+                if bound_expr is not bound.value_expr:
+                    bound = replace(bound, value_expr=bound_expr)
+                    changed = True
+                rewritten.append(bound)
+            if tuple(rewritten) != owner.bindings:
+                owner = replace(owner, bindings=tuple(rewritten))
+            return owner, prefixes
+
+        for index, (name, value) in enumerate(expr.bindings):
+            if isinstance(value, BindProcExpr):
+                value, prefixes = rewrite_bound_values(
+                    value,
+                    (str(index), name),
+                    local_env,
+                )
+                for prefix_name, prefix_value in prefixes:
+                    bindings.append((prefix_name, prefix_value))
+                    labels.append(None)
+                    identities.append(None)
+            bindings.append((name, value))
+            labels.append(
+                expr.binding_labels[index]
+                if index < len(expr.binding_labels)
+                else None
+            )
+            identities.append(
+                expr.binding_identities[index]
+                if index < len(expr.binding_identities)
+                else None
+            )
+            local_env[name] = _infer_expr_type(
+                value,
+                type_env=type_env,
+                value_env=local_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+        if changed:
+            expr = replace(
+                expr,
+                bindings=tuple(bindings),
+                binding_labels=tuple(labels),
+                binding_identities=tuple(identities),
+            )
+
     result_type = _infer_expr_type(
         expr,
         type_env=type_env,
@@ -1865,7 +2160,6 @@ def _elaborate_let_star(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
-
     def expansion_owned_binding_source(binding_expr):
         """Keep compiler call ancestry on its ordered lexical bindings.
 
@@ -1912,6 +2206,16 @@ def _elaborate_let_star(
             )
 
         binding_name, binding_expr = expr.bindings[index]
+        binding_label = (
+            expr.binding_labels[index]
+            if index < len(expr.binding_labels)
+            else None
+        )
+        binding_identity = (
+            expr.binding_identities[index]
+            if index < len(expr.binding_identities)
+            else None
+        )
         binding_expr, expansion_owned = expansion_owned_binding_source(binding_expr)
         binding_type = _infer_expr_type(
             binding_expr,
@@ -1963,23 +2267,24 @@ def _elaborate_let_star(
                 }
             )
             next_compile_time_bindings = dict(local_compile_time_bindings)
+            inherited_captures = _inherited_bind_proc_capture_values(
+                binding_expr,
+                compile_time_bindings=local_compile_time_bindings,
+            )
             next_compile_time_bindings[binding_name] = (
                 _WccBoundProcedureBinding(
                     capture_values=(
-                        *_inherited_bind_proc_capture_values(
-                            binding_expr,
-                            compile_time_bindings=(
-                                local_compile_time_bindings
-                            ),
-                        ),
+                        *inherited_captures,
                         *(
                             (
                                 capture.source_name,
                                 capture.alias_atom,
+                                binding_expr,
                             )
                             for capture in capture_rows
                         ),
                     ),
+                    source_binding=binding_expr,
                 )
             )
             tail = build(
@@ -2065,6 +2370,8 @@ def _elaborate_let_star(
                 binding_name=binding_name,
                 binding_type=binding_type,
                 binding_expr=binding_expr,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
                 continuation=tail,
                 let_result_type=result_type,
                 scope=local_scope,
@@ -2089,6 +2396,8 @@ def _elaborate_let_star(
                 binding_name=binding_name,
                 binding_type=binding_type,
                 match_expr=binding_expr,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
                 continuation=tail,
                 scope=local_scope.child_scope("match", authored_binding_name=binding_name),
                 type_env=type_env,
@@ -2130,6 +2439,8 @@ def _elaborate_let_star(
                 scope=binding_scope,
                 effect_summary=effect_summary,
                 active_phase_scope=active_phase_scope,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             )
 
         if (
@@ -2150,6 +2461,8 @@ def _elaborate_let_star(
                     source_span=binding_expr.span,
                     form_path=binding_expr.form_path,
                     expansion_stack=binding_expr.expansion_stack,
+                    binding_label=binding_label,
+                    binding_identity=binding_identity,
                 ),
                 bound_name=binding_name,
                 bound_type_ref=binding_type,
@@ -2195,6 +2508,8 @@ def _elaborate_let_star(
                 scope=binding_scope,
                 effect_summary=effect_summary,
                 active_phase_scope=active_phase_scope,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             )
 
         prefix, value = _body_to_prefix_and_value(binding_body)
@@ -2202,7 +2517,15 @@ def _elaborate_let_star(
         prefix, value = hoist_without_capture(
             prefix,
             value,
-            over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
+            over=((
+                replace(
+                    expr,
+                    bindings=expr.bindings[index + 1 :],
+                    binding_labels=expr.binding_labels[index + 1 :],
+                    binding_identities=expr.binding_identities[index + 1 :],
+                ),
+                frozenset({binding_name}),
+            ),),
             scope=binding_scope,
             value_env=local_env,
             compile_time_bindings=local_compile_time_bindings,
@@ -2214,6 +2537,8 @@ def _elaborate_let_star(
                 source_span=binding_expr.span,
                 form_path=binding_expr.form_path,
                 expansion_stack=binding_expr.expansion_stack,
+                binding_label=binding_label,
+                binding_identity=binding_identity,
             ),
             bound_name=binding_name,
             bound_type_ref=binding_type,
@@ -2284,7 +2609,7 @@ def _bind_proc_runtime_capture_sites(
             return
         if is_dataclass(node):
             for field in dataclass_fields(node):
-                if field.init:
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                     visit(
                         getattr(node, field.name),
                         shadowed=shadowed,
@@ -2370,7 +2695,7 @@ def _inherited_bind_proc_capture_values(
     expr: BindProcExpr,
     *,
     compile_time_bindings: Mapping[str, object],
-) -> tuple[tuple[str, WccValue], ...]:
+) -> tuple[tuple[str, WccValue, object | None], ...]:
     if not isinstance(expr.base_expr, NameExpr):
         return ()
     base_binding, _ = _unwrap_compile_time_alias(
@@ -2403,6 +2728,100 @@ def _wrap_bind_proc_capture_aliases(
             body=current,
         )
     return current
+
+
+def _bind_effectful_loop_operands(
+    expr: LoopRecurExpr,
+    *,
+    scope: WccIdentityFactory,
+    value_env: Mapping[str, TypeRef],
+    compile_time_bindings: Mapping[str, object],
+) -> LetStarExpr | None:
+    """Bind effectful loop operands in parser-retained keyword order.
+
+    Macro argument spans can point back to a call-site order that differs
+    from the expanded keyword order. Hand-built loops use the stable :max
+    then :state fallback. Seed fields remain in their own authored order.
+    """
+
+    reserved = reserved_identifiers(
+        expr,
+        value_env=value_env,
+        compile_time_bindings=compile_time_bindings,
+    )
+    naming_scope = generated_name_scope(scope).child_scope(
+        "loop-operands",
+        authored_binding_name=expr.binding_name,
+    )
+    bindings: list[tuple[str, object]] = []
+    max_expr = expr.max_iterations_expr
+    state_expr = expr.initial_state_expr
+
+    def bind_operand(operand, *, role: str):
+        binding_scope = naming_scope.child_scope(
+            "operand",
+            authored_binding_name=role,
+        )
+        binding_name = fresh_name(
+            _generated_effect_binding_name_from_scope(
+                binding_scope,
+                role=role,
+            ),
+            reserved,
+        )
+        bindings.append((binding_name, operand))
+        return NameExpr(
+            name=binding_name,
+            span=operand.span,
+            form_path=operand.form_path,
+            expansion_stack=operand.expansion_stack,
+        )
+
+    order = expr.operand_evaluation_order or (":max", ":state")
+    if len(order) != 2 or set(order) != {":max", ":state"}:
+        raise ValueError(
+            "loop operand evaluation order must contain :max and :state exactly once"
+        )
+    for operand_name in order:
+        if operand_name == ":max":
+            if _contains_effect(max_expr):
+                max_expr = bind_operand(max_expr, role="budget")
+            continue
+        if isinstance(state_expr, LoopStateSeedExpr):
+            fields = []
+            for state_field in state_expr.fields:
+                field_expr = state_field.value_expr
+                if _contains_effect(field_expr):
+                    field_expr = bind_operand(
+                        field_expr,
+                        role=f"seed_{state_field.name}",
+                    )
+                fields.append(replace(state_field, value_expr=field_expr))
+            if any(
+                rewritten is not original
+                for rewritten, original in zip(
+                    fields,
+                    state_expr.fields,
+                    strict=True,
+                )
+            ):
+                state_expr = replace(state_expr, fields=tuple(fields))
+        elif _contains_effect(state_expr):
+            state_expr = bind_operand(state_expr, role="seed")
+
+    if not bindings:
+        return None
+    return LetStarExpr(
+        bindings=tuple(bindings),
+        body=replace(
+            expr,
+            max_iterations_expr=max_expr,
+            initial_state_expr=state_expr,
+        ),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
 
 
 def _elaborate_loop_recur_to_body(
@@ -2476,6 +2895,7 @@ def _elaborate_loop_recur_to_body(
             active_phase_scope=active_phase_scope,
         ),
         loop_name=loop_name,
+        through_joins=scope.closed_program,
     )
     exhaustion = None
     if expr.on_exhausted_result_expr is not None:
@@ -2508,6 +2928,8 @@ def _elaborate_loop_recur_to_body(
             expansion_stack=expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=expr.binding_label,
+            binding_identity=expr.binding_identity,
         ),
         loop_name=loop_name,
         params=(WccJoinParam(name=expr.binding_name, type_ref=state_type),),
@@ -2526,11 +2948,23 @@ def _elaborate_loop_recur_to_body(
     return _wrap_prefix_lets(prefix, rec_join)
 
 
-def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
+def _retarget_loop_continue(
+    body: WccBody,
+    *,
+    loop_name: str,
+    through_joins: bool,
+) -> WccBody:
     if isinstance(body, WccLoopContinue):
         return replace(body, target_name=loop_name)
     if isinstance(body, WccLet):
-        return replace(body, body=_retarget_loop_continue(body.body, loop_name=loop_name))
+        return replace(
+            body,
+            body=_retarget_loop_continue(
+                body.body,
+                loop_name=loop_name,
+                through_joins=through_joins,
+            ),
+        )
     if isinstance(body, WccCase):
         return replace(
             body,
@@ -2539,7 +2973,13 @@ def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
                     variant_name=arm.variant_name,
                     binding_name=arm.binding_name,
                     binding_type_ref=arm.binding_type_ref,
-                    body=_retarget_loop_continue(arm.body, loop_name=loop_name),
+                    body=_retarget_loop_continue(
+                        arm.body,
+                        loop_name=loop_name,
+                        through_joins=through_joins,
+                    ),
+                    binding_label=arm.binding_label,
+                    binding_identity=arm.binding_identity,
                 )
                 for arm in body.arms
             ),
@@ -2547,8 +2987,30 @@ def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
     if isinstance(body, WccIf):
         return replace(
             body,
-            then_body=_retarget_loop_continue(body.then_body, loop_name=loop_name),
-            else_body=_retarget_loop_continue(body.else_body, loop_name=loop_name),
+            then_body=_retarget_loop_continue(
+                body.then_body,
+                loop_name=loop_name,
+                through_joins=through_joins,
+            ),
+            else_body=_retarget_loop_continue(
+                body.else_body,
+                loop_name=loop_name,
+                through_joins=through_joins,
+            ),
+        )
+    if through_joins and isinstance(body, WccJoin):
+        return replace(
+            body,
+            body=_retarget_loop_continue(
+                body.body,
+                loop_name=loop_name,
+                through_joins=through_joins,
+            ),
+            continuation=_retarget_loop_continue(
+                body.continuation,
+                loop_name=loop_name,
+                through_joins=through_joins,
+            ),
         )
     return body
 
@@ -2570,6 +3032,8 @@ def _elaborate_control_binding_to_body(
     scope: WccIdentityFactory,
     effect_summary: EffectSummary,
     active_phase_scope: WccPhaseScope | None = None,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
 ) -> WccBody:
     join_name = _generated_join_name(scope, binding_name=binding_name)
     return WccJoin(
@@ -2581,6 +3045,8 @@ def _elaborate_control_binding_to_body(
             expansion_stack=binding_expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         join_name=join_name,
         params=(WccJoinParam(name=binding_name, type_ref=binding_type),),
@@ -2734,6 +3200,154 @@ def _elaborate_expr_to_value(
             ),
         )
     if isinstance(expr, PhaseTargetExpr):
+        if scope.closed_program:
+            if active_phase_scope is None:
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="phase_translation_body_invalid",
+                            message="phase-target lowering requires an unambiguous phase context",
+                            span=expr.span,
+                            form_path=expr.form_path,
+                        ),
+                    )
+                )
+            context_expr = active_phase_scope.ctx_expr
+            if not isinstance(context_expr, (NameExpr, FieldAccessExpr)):
+                raise TypeError(
+                    "closed-program phase target context was not normalized at with-phase"
+                )
+            context_type = _infer_expr_type(
+                context_expr,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            phase_scope = build_phase_scope(
+                context_type,
+                phase_name=active_phase_scope.phase_name,
+                type_env=type_env,
+                span=active_phase_scope.source_span,
+                form_path=active_phase_scope.form_path,
+            )
+            target_type = resolve_phase_target_type(
+                phase_scope,
+                expr.target_name,
+                type_env=type_env,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+            context_prefix, context_value = _elaborate_expr_to_value(
+                context_expr,
+                scope=scope.child_scope("phase-target-context"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=None,
+            )
+            if phase_scope.uses_legacy_bridge:
+                target_field = IMPLEMENTATION_ATTEMPT_TARGET_FIELDS.get(
+                    expr.target_name
+                )
+                if target_field is None:
+                    # Preserve the canonical phase target diagnostic.
+                    resolve_phase_target_type(
+                        phase_scope,
+                        expr.target_name,
+                        type_env=type_env,
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                    raise TypeError("implementation phase target field was unavailable")
+                if isinstance(context_value, WccFieldAccessAtom):
+                    context_base = context_value.base
+                    context_fields = context_value.fields
+                elif isinstance(context_value, WccNameAtom):
+                    context_base = context_value
+                    context_fields = ()
+                else:
+                    raise TypeError(
+                        "closed-program phase context did not elaborate to a name or field access"
+                    )
+                return (
+                    context_prefix,
+                    WccFieldAccessAtom(
+                        metadata=scope.atom_metadata(
+                            role=f"phase-target:{expr.target_name}",
+                            type_ref=target_type,
+                            source_span=expr.span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                        base=context_base,
+                        fields=(*context_fields, target_field),
+                    ),
+                )
+
+            target_spec = PHASE_TARGET_SPECS[expr.target_name]
+            artifact_root_fields = (
+                *(
+                    context_expr.fields
+                    if isinstance(context_expr, FieldAccessExpr)
+                    else ()
+                ),
+                "artifact-root",
+            )
+            artifact_root_expr = FieldAccessExpr(
+                base=(
+                    context_expr.base
+                    if isinstance(context_expr, FieldAccessExpr)
+                    else context_expr
+                ),
+                fields=artifact_root_fields,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            artifact_prefix, artifact_root = _elaborate_expr_to_value(
+                artifact_root_expr,
+                scope=scope.child_scope("phase-target-artifact-root"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            suffix = target_spec[2]
+            path_literal = WccLiteralAtom(
+                metadata=scope.atom_metadata(
+                    role="phase-target:path-suffix",
+                    type_ref=PrimitiveTypeRef(name="String"),
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                value=f"{active_phase_scope.phase_name}/{suffix}",
+                literal_kind="string",
+            )
+            return (
+                (*context_prefix, *artifact_prefix),
+                WccPureOp(
+                    metadata=scope.value_metadata(
+                        role=f"phase-target:{expr.target_name}",
+                        type_ref=target_type,
+                        source_span=expr.span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    operator="path/join",
+                    args=(artifact_root, path_literal),
+                    field_names=(),
+                ),
+            )
         return (
             (),
             WccPhaseTargetAtom(
@@ -2844,6 +3458,25 @@ def _elaborate_expr_to_value(
             ),
         )
     if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
+        if (
+            scope.closed_program
+            and target_dsl_supports_strict_boolean_control_flow(
+                getattr(type_env, "target_dsl_version", "") or ""
+            )
+            and _contains_effect(expr)
+        ):
+            return _elaborate_if_to_value(
+                fold_pure_short_circuit(expr),
+                scope=scope.child_scope("short-circuit"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
         if (
             target_dsl_supports_strict_boolean_control_flow(
                 getattr(type_env, "target_dsl_version", "") or ""
@@ -3090,18 +3723,39 @@ def _elaborate_if_to_value(
                 expr=expr,
             ),
         )
-    condition_prefix, condition = _elaborate_expr_to_value(
-        expr.condition_expr,
-        scope=scope.child_scope("select-condition"),
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
-    )
+    condition_scope = scope.child_scope("select-condition")
+    if (
+        scope.closed_program
+        and _contains_effect(expr.condition_expr)
+        and not isinstance(expr.condition_expr, IfExpr)
+    ):
+        condition_prefix, condition = _body_to_prefix_and_value(
+            _elaborate_expr_to_body(
+                expr.condition_expr,
+                scope=condition_scope,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+        )
+    else:
+        condition_prefix, condition = _elaborate_expr_to_value(
+            expr.condition_expr,
+            scope=condition_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
     _, then_value_env = _branch_proof_narrowing(
         expr.true_proof_context,
         type_env=type_env,
@@ -3116,30 +3770,60 @@ def _elaborate_if_to_value(
         span=expr.span,
         form_path=expr.form_path,
     )
-    then_prefix, then_value = _elaborate_expr_to_value(
+    def elaborate_arm(arm_expr, *, arm_scope, arm_value_env):
+        if (
+            scope.closed_program
+            and _contains_effect(arm_expr)
+            and not isinstance(arm_expr, IfExpr)
+        ):
+            return _body_to_prefix_and_value(
+                _elaborate_expr_to_body(
+                    arm_expr,
+                    scope=arm_scope,
+                    type_env=type_env,
+                    value_env=arm_value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                )
+            )
+        return _elaborate_expr_to_value(
+            arm_expr,
+            scope=arm_scope,
+            type_env=type_env,
+            value_env=arm_value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+
+    then_prefix, then_value = elaborate_arm(
         expr.then_expr,
-        scope=scope.child_scope("select-then"),
-        type_env=type_env,
-        value_env=then_value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
+        arm_scope=scope.child_scope("select-then"),
+        arm_value_env=then_value_env,
     )
-    else_prefix, else_value = _elaborate_expr_to_value(
+    else_prefix, else_value = elaborate_arm(
         expr.else_expr,
-        scope=scope.child_scope("select-else"),
-        type_env=type_env,
-        value_env=else_value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
+        arm_scope=scope.child_scope("select-else"),
+        arm_value_env=else_value_env,
     )
+    then_arm = WccSelectArm(prefix=then_prefix, value=then_value)
+    else_arm = WccSelectArm(prefix=else_prefix, value=else_value)
+    if scope.closed_program:
+        condition_prefix, condition = hoist_without_capture(
+            condition_prefix,
+            condition,
+            over=((then_arm, frozenset()), (else_arm, frozenset())),
+            scope=condition_scope,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
     return (
         condition_prefix,
         WccSelect(
@@ -3151,8 +3835,8 @@ def _elaborate_if_to_value(
                 expansion_stack=expr.expansion_stack,
             ),
             condition=condition,
-            then_arm=WccSelectArm(prefix=then_prefix, value=then_value),
-            else_arm=WccSelectArm(prefix=else_prefix, value=else_value),
+            then_arm=then_arm,
+            else_arm=else_arm,
         ),
     )
 
@@ -3382,7 +4066,7 @@ def _elaborate_match_to_body(
     )
     # From target 2.33 the subject's bindings run before the case, as `let*` would,
     # under names the arms cannot see.
-    if subject_prefix and not _at_2_33(type_env):
+    if subject_prefix and not (_at_2_33(type_env) or scope.closed_program):
         raise TypeError(f"unsupported nested WCC M2 prefix for `{type(expr.subject).__name__}`")
     subject_prefix, subject = hoist_without_capture(
         subject_prefix,
@@ -3481,20 +4165,81 @@ def _elaborate_if_to_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
-    condition_prefix, condition = _elaborate_expr_to_value(
-        expr.condition_expr,
-        scope=scope.child_scope("if-condition"),
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
-    )
+    condition_scope = scope.child_scope("if-condition")
+    condition_control_body = None
+    condition_binding_name = None
+    condition_source_expr = expr.condition_expr
+    if (
+        scope.closed_program
+        and _contains_effect(expr.condition_expr)
+    ):
+        condition_control_body = _elaborate_expr_to_body(
+            expr.condition_expr,
+            scope=condition_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        if _is_linear_value_body(condition_control_body):
+            condition_prefix, condition = _body_to_prefix_and_value(
+                condition_control_body
+            )
+            condition_control_body = None
+            from .defunctionalize import _frontend_expr_from_wcc_value
+
+            condition_source_expr = _frontend_expr_from_wcc_value(condition)
+        else:
+            condition_prefix = ()
+            condition_binding_name = fresh_name(
+                _generated_value_binding_name_from_scope(
+                    condition_scope,
+                    role="condition",
+                ),
+                reserved_identifiers(
+                    expr,
+                    value_env=value_env,
+                    compile_time_bindings=compile_time_bindings,
+                ),
+            )
+            condition = WccNameAtom(
+                metadata=condition_scope.atom_metadata(
+                    role=f"name:{condition_binding_name}",
+                    type_ref=PrimitiveTypeRef(name="Bool"),
+                    source_span=expr.condition_expr.span,
+                    form_path=expr.condition_expr.form_path,
+                    expansion_stack=expr.condition_expr.expansion_stack,
+                ),
+                name=condition_binding_name,
+            )
+    else:
+        condition_prefix, condition = _elaborate_expr_to_value(
+            expr.condition_expr,
+            scope=condition_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
     condition_shape = classify_condition_expr(
-        expr.condition_expr,
+        (
+            NameExpr(
+                name=condition_binding_name,
+                span=expr.condition_expr.span,
+                form_path=expr.condition_expr.form_path,
+                expansion_stack=expr.condition_expr.expansion_stack,
+            )
+            if condition_binding_name is not None
+            else condition_source_expr
+        ),
         type_ref=PrimitiveTypeRef(name="Bool"),
         allow_pure_projection=True,
     )
@@ -3551,6 +4296,43 @@ def _elaborate_if_to_body(
         then_proof_context=then_proof,
         else_proof_context=else_proof,
     )
+    if condition_control_body is not None:
+        return _elaborate_control_binding_to_body(
+            binding_name=condition_binding_name,
+            binding_type=PrimitiveTypeRef(name="Bool"),
+            binding_expr=expr.condition_expr,
+            binding_body=condition_control_body,
+            continuation=if_body,
+            scope=condition_scope,
+            effect_summary=effect_summary,
+            active_phase_scope=active_phase_scope,
+        )
+    if scope.closed_program and condition_prefix:
+        condition_prefix, condition = hoist_without_capture(
+            condition_prefix,
+            condition,
+            over=(
+                (if_body.then_body, frozenset()),
+                (if_body.else_body, frozenset()),
+            ),
+            scope=condition_scope,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+        if condition_binding_name is None:
+            from .defunctionalize import _frontend_expr_from_wcc_value
+
+            condition_source_expr = _frontend_expr_from_wcc_value(condition)
+            condition_shape = classify_condition_expr(
+                condition_source_expr,
+                type_ref=PrimitiveTypeRef(name="Bool"),
+                allow_pure_projection=True,
+            )
+        if_body = replace(
+            if_body,
+            condition=condition,
+            condition_shape=condition_shape,
+        )
     return _wrap_prefix_lets(condition_prefix, if_body)
 
 
@@ -3629,6 +4411,8 @@ def _elaborate_case_arm(
         variant_name=arm.variant_name,
         binding_name=arm.binding_name,
         binding_type_ref=binding_type_ref,
+        binding_label=arm.binding_label,
+        binding_identity=arm.binding_identity,
         body=_elaborate_expr_to_body(
             arm.body,
             scope=scope,
@@ -3649,6 +4433,8 @@ def _elaborate_non_tail_match_binding(
     binding_name: str,
     binding_type: TypeRef,
     match_expr: MatchExpr,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
     continuation: WccBody,
     scope: WccIdentityFactory,
     type_env: FrontendTypeEnvironment,
@@ -3682,6 +4468,8 @@ def _elaborate_non_tail_match_binding(
             expansion_stack=match_expr.expansion_stack,
             effect_summary=effect_summary,
             phase_scope=active_phase_scope,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         join_name=join_name,
         params=(WccJoinParam(name=binding_name, type_ref=binding_type),),
@@ -3846,6 +4634,8 @@ def _elaborate_effect_binding_to_body(
     binding_name: str,
     binding_type: TypeRef,
     binding_expr,
+    binding_label: str | None = None,
+    binding_identity: object | None = None,
     continuation: WccBody,
     let_result_type: TypeRef,
     scope: WccIdentityFactory,
@@ -3866,6 +4656,10 @@ def _elaborate_effect_binding_to_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
+    matched_value_env = {
+        **value_env,
+        **{name: type_ref for name, type_ref, _ in match_bindings},
+    }
     normalized_expr, direct_bound_proc_args = (
         _prebind_direct_bind_proc_arguments(
             normalized_expr,
@@ -3874,18 +4668,14 @@ def _elaborate_effect_binding_to_body(
                 authored_binding_name=binding_name,
             ),
             type_env=type_env,
-            value_env=value_env,
+            value_env=(matched_value_env if scope.closed_program else value_env),
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             compile_time_bindings=compile_time_bindings,
         )
     )
     binding_value_env = {
-        **value_env,
-        **{
-            name: type_ref
-            for name, type_ref, _ in match_bindings
-        },
+        **matched_value_env,
         **{
             item.binding_name: item.type_ref
             for item in direct_bound_proc_args
@@ -3905,6 +4695,8 @@ def _elaborate_effect_binding_to_body(
             source_span=binding_expr.span,
             form_path=binding_expr.form_path,
             expansion_stack=binding_expr.expansion_stack,
+            binding_label=binding_label,
+            binding_identity=binding_identity,
         ),
         bound_name=binding_name,
         bound_type_ref=binding_type,
@@ -3922,6 +4714,13 @@ def _elaborate_effect_binding_to_body(
         ),
         body=continuation,
     )
+    if scope.closed_program:
+        for item in reversed(direct_bound_proc_args):
+            current = _wrap_bind_proc_capture_aliases(
+                item.capture_aliases,
+                tail=current,
+                result_type=let_result_type,
+            )
     for arg_name, arg_type, prebound_expr in reversed(match_bindings):
         if isinstance(prebound_expr, MatchExpr):
             current = _elaborate_non_tail_match_binding(
@@ -3953,6 +4752,18 @@ def _elaborate_effect_binding_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+        if scope.closed_program and not _is_linear_value_body(prebound_body):
+            current = _elaborate_control_binding_to_body(
+                binding_name=arg_name,
+                binding_type=arg_type,
+                binding_expr=prebound_expr,
+                binding_body=prebound_body,
+                continuation=current,
+                scope=prebound_scope,
+                effect_summary=effect_summary,
+                active_phase_scope=active_phase_scope,
+            )
+            continue
         prebound_prefix, prebound_value = _body_to_prefix_and_value(prebound_body)
         # The argument's bindings run before the later arguments, the call and its continuation.
         prebound_prefix, prebound_value = hoist_without_capture(
@@ -3978,12 +4789,13 @@ def _elaborate_effect_binding_to_body(
         )
         for prefix_let in reversed(prebound_prefix):
             current = replace(prefix_let, body=current)
-    for item in reversed(direct_bound_proc_args):
-        current = _wrap_bind_proc_capture_aliases(
-            item.capture_aliases,
-            tail=current,
-            result_type=let_result_type,
-        )
+    if not scope.closed_program:
+        for item in reversed(direct_bound_proc_args):
+            current = _wrap_bind_proc_capture_aliases(
+                item.capture_aliases,
+                tail=current,
+                result_type=let_result_type,
+            )
     return current
 
 
@@ -4042,18 +4854,18 @@ def _prebind_direct_bind_proc_arguments(
                     capture_values=(
                         *_inherited_bind_proc_capture_values(
                             arg_expr,
-                            compile_time_bindings=(
-                                compile_time_bindings
-                            ),
+                            compile_time_bindings=compile_time_bindings,
                         ),
                         *(
                             (
                                 capture.source_name,
                                 capture.alias_atom,
+                                arg_expr,
                             )
                             for capture in capture_aliases
                         ),
                     ),
+                    source_binding=arg_expr,
                 ),
                 capture_aliases=capture_aliases,
             )
@@ -4084,6 +4896,35 @@ def _prebind_effect_argument_matches(
     procedure_return_types: Mapping[str, TypeRef],
 ) -> tuple[object, tuple[tuple[str, TypeRef, object], ...]]:
     match_bindings: list[tuple[str, TypeRef, object]] = []
+    if (
+        scope.closed_program
+        and isinstance(expr, ProcedureCallExpr)
+        and any(
+            isinstance(argument, BindProcExpr) and _contains_effect(argument)
+            for argument in expr.args
+        )
+    ):
+        from ..conditionals import _normalize_composite
+
+        prefix, expr = _normalize_composite(
+            expr,
+            path=(),
+            closed_program=True,
+        )
+        for name, value in prefix:
+            match_bindings.append(
+                (
+                    name,
+                    _infer_expr_type(
+                        value,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    value,
+                )
+            )
 
     def replace_arg(
         arg_expr,
@@ -4115,10 +4956,15 @@ def _prebind_effect_argument_matches(
                 )
             )
         )
-        if not force_prebind and not isinstance(arg_expr, (MatchExpr, LetStarExpr)) and not (
+        if (
+            not force_prebind
+            and not (scope.closed_program and _contains_effect(arg_expr))
+            and not isinstance(arg_expr, (MatchExpr, LetStarExpr))
+            and not (
             prebind_pure_projection
             and (materialize_flattened_record or not isinstance(arg_expr, (NameExpr, FieldAccessExpr)))
             and is_pure_projection_expr(arg_expr)
+            )
         ):
             return arg_expr
         binding_type = _infer_expr_type(
@@ -4178,6 +5024,20 @@ def _prebind_effect_argument_matches(
                 argv=tuple(
                     replace_arg(arg_expr, role=f"command-arg:{index}")
                     for index, arg_expr in enumerate(expr.argv)
+                ),
+                adapter_inputs=(
+                    tuple(
+                        (
+                            input_name,
+                            replace_arg(
+                                input_expr,
+                                role=f"command-adapter-input:{input_name}",
+                            ),
+                        )
+                        for input_name, input_expr in expr.adapter_inputs
+                    )
+                    if scope.closed_program
+                    else expr.adapter_inputs
                 ),
             ),
             tuple(match_bindings),
@@ -4545,13 +5405,21 @@ def _elaborate_effect_expr_to_binding_value(
     compile_time_bindings: Mapping[str, object],
     active_phase_scope: WccPhaseScope | None = None,
 ) -> WccBindingValue:
-    result_type = _infer_expr_type(
-        expr,
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-    )
+    if isinstance(expr, RunRefExpr):
+        result_type = resolve_unique_run_ref_site_metadata(
+            expr,
+            session_state=type_env.session_state,
+            prefer_retained=scope.closed_program,
+            source_module=type_env.module_name,
+        ).type_ref
+    else:
+        result_type = _infer_expr_type(
+            expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     metadata_kwargs = dict(
         type_ref=result_type,
         source_span=expr.span,
@@ -4567,6 +5435,8 @@ def _elaborate_effect_expr_to_binding_value(
         metadata = resolve_unique_run_ref_site_metadata(
             expr,
             session_state=type_env.session_state,
+            prefer_retained=scope.closed_program,
+            source_module=type_env.module_name,
         )
         result_contract = derive_run_ref_result_contract(
             metadata.type_ref,
@@ -4672,6 +5542,8 @@ def _elaborate_effect_expr_to_binding_value(
             metadata = resolve_unique_run_ref_site_metadata(
                 run_ref,
                 session_state=type_env.session_state,
+                prefer_retained=scope.closed_program,
+                source_module=type_env.module_name,
             )
             arm_contract = derive_run_ref_result_contract(
                 metadata.type_ref,
@@ -5247,8 +6119,9 @@ def _elaborate_effect_expr_to_binding_value(
                     argument_index=None,
                     source_name=name,
                     value=value,
+                    source_binding=source_binding,
                 )
-                for name, value in compile_time_callee.capture_values
+                for name, value, source_binding in compile_time_callee.capture_values
             )
         for index, item in enumerate(expr.args):
             if not isinstance(item, NameExpr):
@@ -5284,8 +6157,9 @@ def _elaborate_effect_expr_to_binding_value(
                         argument_index=index,
                         source_name=name,
                         value=value,
+                        source_binding=source_binding,
                     )
-                    for name, value in compile_time_arg.capture_values
+                    for name, value, source_binding in compile_time_arg.capture_values
                 )
         return WccCall(
             metadata=scope.value_metadata(role=f"call:{specialized_name}", **metadata_kwargs),
@@ -5317,6 +6191,11 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             specialization_captures=tuple(
                 specialization_captures
+            ),
+            bound_proc_source=(
+                compile_time_callee.source_binding
+                if isinstance(compile_time_callee, _WccBoundProcedureBinding)
+                else None
             ),
             proc_ref_callee_source=(
                 callee_source_name
@@ -5510,6 +6389,17 @@ def _infer_expr_type(
         return DiscriminantTypeRef(
             union_name=expr.union_name,
             variant_names=expr.variant_names,
+            applied_union=(
+                expr.discriminant_owner
+                if isinstance(expr.discriminant_owner, UnionTypeRef)
+                and expr.discriminant_owner.type_args
+                else None
+            ),
+            owner_union=(
+                expr.discriminant_owner
+                if isinstance(expr.discriminant_owner, UnionTypeRef)
+                else None
+            ),
         )
     if isinstance(expr, LiteralExpr):
         return {
@@ -5560,6 +6450,7 @@ def _infer_expr_type(
             session_state=type_env.session_state,
             field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
             field_types=field_types,
+            type_env=type_env,
         )
         if metadata is None:
             raise TypeError("loop-state seed metadata was unavailable during WCC inference")
@@ -5613,6 +6504,7 @@ def _infer_expr_type(
                     union_name=current.name,
                     variant_names=tuple(variant.name for variant in current.definition.variants),
                     applied_union=current if current.type_args else None,
+                    owner_union=current,
                 )
                 continue
             if not isinstance(current, (RecordTypeRef, VariantCaseTypeRef)):

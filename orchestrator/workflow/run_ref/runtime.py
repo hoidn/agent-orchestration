@@ -2027,6 +2027,7 @@ def _child_result_document(
                 if key in diagnostic
             }
             if code.startswith("trial_")
+            or code == "evaluated_execution_unavailable"
             else None
         )
         raise RunRefRuntimeError(

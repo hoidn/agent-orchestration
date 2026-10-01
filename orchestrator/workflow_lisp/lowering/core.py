@@ -2089,6 +2089,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             session_state=context.type_env.session_state,
             field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
             field_types=tuple(field_types),
+            type_env=context.type_env,
         )
         if metadata is None:
             return None
@@ -2109,6 +2110,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             if carrier_metadata_for_type(
                 base_type,
                 session_state=context.type_env.session_state,
+                type_env=context.type_env,
             )
             is not None
             else None

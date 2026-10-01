@@ -111,6 +111,7 @@ def _nominal_descriptor_name(
         and carrier_metadata_for_type(
             type_ref,
             session_state=type_env.session_state,
+            type_env=type_env,
         )
         is not None
     ):

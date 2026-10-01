@@ -24,7 +24,10 @@ from types import MappingProxyType
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.loaded_bundle import (
+    LoadedWorkflowBundle,
+    WorkflowBoundaryProjectionView,
+)
 
 from .command_boundaries import (
     CertifiedAdapterBinding,
@@ -68,6 +71,7 @@ from .phase_family_boundary import (
 )
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
 from .expressions import (
+    CallExpr,
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
@@ -146,7 +150,12 @@ from .procedure_specialization import (
     discover_workflow_ref_specializations as _discover_workflow_ref_specializations_owner,
     procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
 )
-from .reader import SourceReadTrace, _read_source_file_views, read_sexpr_file
+from .reader import (
+    SourceReadTrace,
+    _read_source_file_views,
+    read_sexpr_file,
+    read_sexpr_text,
+)
 from .result_guidance import validate_module_result_guidance
 from .spans import SourcePosition, SourceSpan
 from .source_map import build_source_map_document
@@ -162,6 +171,7 @@ from .syntax import (
     target_dsl_is_2_33_or_newer,
     target_dsl_supports_provider_context_values,
     target_dsl_supports_pure_call_composition,
+    target_dsl_uses_evaluated_execution,
 )
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
@@ -478,6 +488,23 @@ def _syntax_module_uses_module_graph(
     return bool(syntax_module.imports)
 
 
+def _syntax_module_from_traced_read(
+    path: Path,
+    *,
+    source_read_trace: SourceReadTrace,
+    canonical_path: Path,
+) -> WorkflowLispSyntaxModule:
+    raw_bytes = source_read_trace.raw_bytes_by_path.get(canonical_path)
+    if raw_bytes is None:
+        raise RuntimeError("standalone module probe did not retain its source bytes")
+    parser_text = raw_bytes.decode("utf-8", errors="strict").replace(
+        "\r\n", "\n"
+    ).replace("\r", "\n")
+    return build_syntax_module(
+        read_sexpr_text(parser_text, source_path=str(path))
+    )
+
+
 def _infer_entry_source_root(
     path: Path,
     *,
@@ -496,6 +523,82 @@ def _infer_entry_source_root(
     if tuple(actual_parts[-len(expected_parts) :]) != expected_parts:
         return path.parent
     return path.parents[len(expected_parts) - 1]
+
+
+def _attach_typed_programs_to_source_bundles(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    typed_program,
+) -> dict[str, LoadedWorkflowBundle]:
+    """Attach transient bodies and rewire only imports that point into this catalog."""
+
+    attached = {
+        name: (
+            replace(
+                bundle,
+                typed_program=replace(
+                    typed_program,
+                    entry=typed_program.workflows[name],
+                ),
+            )
+            if name in typed_program.workflows
+            else bundle
+        )
+        for name, bundle in bundles_by_name.items()
+    }
+    for name, original in bundles_by_name.items():
+        replacement = attached[name]
+        if replacement is original:
+            continue
+        rewired = {
+            alias: attached.get(imported.surface.name, imported)
+            for alias, imported in original.imports.items()
+        }
+        if any(
+            rewired[alias] is not imported
+            for alias, imported in original.imports.items()
+        ):
+            object.__setattr__(replacement, "imports", MappingProxyType(rewired))
+    return attached
+
+
+def _bundle_boundary_contracts(
+    bundle: LoadedWorkflowBundle,
+) -> tuple[
+    Mapping[str, Mapping[str, object]],
+    Mapping[str, Mapping[str, object]],
+    WorkflowBoundaryProjectionView,
+]:
+    """Copy the final structural contracts and boundary classification of one bundle."""
+
+    from orchestrator.workflow.loaded_bundle import (
+        workflow_boundary_projection,
+        workflow_input_contracts,
+        workflow_output_contracts,
+    )
+
+    return (
+        workflow_input_contracts(bundle),
+        workflow_output_contracts(bundle),
+        workflow_boundary_projection(bundle),
+    )
+
+
+def _compiled_bundle_boundaries(
+    bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+) -> Mapping[
+    str,
+    tuple[
+        Mapping[str, Mapping[str, object]],
+        Mapping[str, Mapping[str, object]],
+        WorkflowBoundaryProjectionView,
+    ],
+]:
+    return {
+        name: _bundle_boundary_contracts(bundle)
+        for name, bundle in bundles_by_name.items()
+    }
+
+
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
     """Definition-only compile result for an entry module graph.
@@ -547,15 +650,26 @@ def _linked_module_type_environment(
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
     exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
+    retained_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
     rebuilt_by_name: dict[str, tuple[WorkflowLispModule, ModuleImportScope, FrontendTypeEnvironment]] = {}
 
     for current_module_name in compile_result.graph.topological_order:
         current_module = compiled_modules_by_name[current_module_name]
         import_scope = build_import_scope(current_module, export_surfaces_by_name=export_surfaces)
+        retained_enum_origins = _retained_enum_origins(
+            (facts[2] for facts in rebuilt_by_name.values())
+        )
+        imported_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
         type_env = FrontendTypeEnvironment.from_module(
             current_module,
             import_scope=import_scope,
-            imported_type_refs=_imported_type_refs(import_scope, exported_type_refs_by_module),
+            imported_type_refs=_imported_type_refs(
+                import_scope,
+                exported_type_refs_by_module,
+                enum_owner_facts=retained_enum_origins,
+                cloned_enum_origins=imported_enum_origins,
+            ),
+            imported_enum_origins_by_type_ref_id=imported_enum_origins,
             imported_resource_defs=_imported_resource_defs(import_scope, exported_resource_defs_by_module),
             imported_transition_defs=_imported_transition_defs(import_scope, exported_transition_defs_by_module),
         )
@@ -656,6 +770,7 @@ def compile_stage3_entrypoint(
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
@@ -666,6 +781,7 @@ def compile_stage3_entrypoint(
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
     compiler_session: CompilerSession | None = None,
+    _standalone_entry_namespace: str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -689,11 +805,8 @@ def compile_stage3_entrypoint(
     if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
-    module_graph_read_attempt_id = (
-        source_read_trace._begin_module_graph_read_attempt(path)
-        if source_read_trace is not None
-        else None
-    )
+    source_read_trace = source_read_trace or SourceReadTrace()
+    module_graph_read_attempt_id = source_read_trace._begin_module_graph_read_attempt(path)
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=_effective_source_roots(
@@ -705,6 +818,7 @@ def compile_stage3_entrypoint(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
+        imported_programs=imported_programs,
         command_boundaries=command_boundaries,
         validation_profile=normalized_validation_profile,
         boundary_admission_profile=normalized_boundary_admission_profile,
@@ -713,6 +827,7 @@ def compile_stage3_entrypoint(
         lowering_route=normalized_lowering_route,
         family_profile_catalog=family_profile_catalog,
         source_read_trace=source_read_trace,
+        standalone_entry_namespace=_standalone_entry_namespace,
         _module_graph_read_attempt_id=module_graph_read_attempt_id,
         compiler_session=compiler_session,
     )
@@ -739,14 +854,65 @@ def compile_stage3_entrypoint(
                 imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
             ),
         )
+    typed_program = compile_result.entry_result.typed_program
+    if typed_program is not None:
+        from .build_artifacts import _source_file_digests_from_trace
+
+        source_file_digests = _source_file_digests_from_trace(
+            compile_result=compile_result,
+            source_read_records=source_read_trace.records,
+            source_revision_vector=source_read_trace.revision_vector,
+        )
+        typed_program = replace(
+            typed_program,
+            source_file_digests=source_file_digests,
+            _compiled_bundle_boundaries=_compiled_bundle_boundaries(
+                compile_result.validated_bundles_by_name
+            ),
+        )
+        frozen_bundles = _attach_typed_programs_to_source_bundles(
+            compile_result.validated_bundles_by_name,
+            typed_program,
+        )
+        compiled_results_by_name = {
+            module_name: replace(
+                result,
+                typed_program=typed_program,
+                validated_bundles={
+                    name: frozen_bundles.get(name, bundle)
+                    for name, bundle in result.validated_bundles.items()
+                },
+            )
+            for module_name, result in compile_result.compiled_results_by_name.items()
+        }
+        entry_module_name = compile_result.graph.entry_module_name
+        entry_result = replace(
+            compile_result.entry_result,
+            typed_program=typed_program,
+            validated_bundles={
+                name: frozen_bundles.get(name, bundle)
+                for name, bundle in compile_result.entry_result.validated_bundles.items()
+            },
+        )
+        compiled_results_by_name[entry_module_name] = entry_result
+        compile_result = replace(
+            compile_result,
+            entry_result=entry_result,
+            compiled_results_by_name=compiled_results_by_name,
+            validated_bundles_by_name=frozen_bundles,
+        )
+    final_entry_result = replace(
+        compile_result.entry_result,
+        retained_non_promotable_diagnostics=retained_non_promotable,
+    )
+    compiled_results_by_name = dict(compile_result.compiled_results_by_name)
+    compiled_results_by_name[compile_result.graph.entry_module_name] = final_entry_result
     return replace(
         compile_result,
         diagnostics=diagnostics,
         retained_non_promotable_diagnostics=retained_non_promotable,
-        entry_result=replace(
-            compile_result.entry_result,
-            retained_non_promotable_diagnostics=retained_non_promotable,
-        ),
+        entry_result=final_entry_result,
+        compiled_results_by_name=compiled_results_by_name,
     )
 
 
@@ -757,6 +923,7 @@ def compile_stage3_module(
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
@@ -781,10 +948,39 @@ def compile_stage3_module(
             boundary_admission_profile
         )
     )
-    if _syntax_module_uses_module_graph(
+    source_read_trace = source_read_trace or SourceReadTrace()
+    effective_imported_programs = dict(imported_programs or {})
+    snapshot_allowed = all(
+        _is_complete_typed_program(getattr(bundle, "typed_program", None))
+        for bundle in (imported_workflow_bundles or {}).values()
+    ) and all(
+        _is_complete_typed_program(program)
+        for program in effective_imported_programs.values()
+    )
+    read_count_before_module_probe = len(source_read_trace.records)
+    uses_module_graph = _syntax_module_uses_module_graph(
         path,
         source_read_trace=source_read_trace,
-    ):
+    )
+    standalone_source_path = (
+        source_read_trace.records[read_count_before_module_probe].canonical_path
+        if len(source_read_trace.records) > read_count_before_module_probe
+        else None
+    )
+    evaluated_entry = False
+    standalone_entry_namespace = None
+    if standalone_source_path is not None:
+        source_syntax = _syntax_module_from_traced_read(
+            path,
+            source_read_trace=source_read_trace,
+            canonical_path=standalone_source_path,
+        )
+        evaluated_entry = target_dsl_uses_evaluated_execution(
+            source_syntax.target_dsl_version
+        )
+        if evaluated_entry and source_syntax.module_name is None:
+            standalone_entry_namespace = "entry"
+    if uses_module_graph or evaluated_entry:
         if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
             _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
         linked = compile_stage3_entrypoint(
@@ -793,6 +989,7 @@ def compile_stage3_module(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
+            imported_programs=effective_imported_programs,
             command_boundaries=command_boundaries,
             validation_profile=normalized_validation_profile,
             boundary_admission_profile=normalized_boundary_admission_profile,
@@ -801,6 +998,7 @@ def compile_stage3_module(
             lowering_route=normalized_lowering_route,
             family_profile_catalog=family_profile_catalog,
             source_read_trace=source_read_trace,
+            _standalone_entry_namespace=standalone_entry_namespace,
             compiler_session=compiler_session,
         )
         return linked.entry_result
@@ -810,6 +1008,7 @@ def compile_stage3_module(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
+        imported_programs=effective_imported_programs,
         command_boundaries=command_boundaries,
         validation_profile=normalized_validation_profile,
         boundary_admission_profile=normalized_boundary_admission_profile,
@@ -853,7 +1052,7 @@ def compile_stage3_module(
                 imported_workflow_bundles=state.workflow_catalog.imported_bundles_by_name,
             ),
         )
-    return Stage3CompileResult(
+    result = Stage3CompileResult(
         module=state.module,
         workflow_catalog=state.workflow_catalog,
         procedure_catalog=state.procedure_catalog,
@@ -869,6 +1068,133 @@ def compile_stage3_module(
         retained_non_promotable_diagnostics=retained_non_promotable,
         lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
     )
+    module_name = state.module.module_name or path.stem
+    if snapshot_allowed:
+        imported_snapshot_bindings = {
+            **effective_imported_programs,
+            **{
+                alias: bundle.typed_program
+                for alias, bundle in (imported_workflow_bundles or {}).items()
+                if getattr(bundle, "typed_program", None) is not None
+            },
+        }
+        try:
+            _reject_compiled_workflow_snapshot_conflicts(
+                imported_snapshots=imported_snapshot_bindings,
+                source_module_paths={module_name: path},
+                source_module_targets={
+                    module_name: state.module.target_dsl_version
+                },
+                source_module_spans={module_name: state.module.span},
+                source_read_trace=source_read_trace,
+                entry_dir=str(path.parent),
+                configuration_bindings={
+                    "command_boundaries": dict(command_boundaries or {}),
+                    "provider_externs": dict(provider_externs or {}),
+                    "prompt_externs": dict(prompt_externs or {}),
+                },
+            )
+        except LispFrontendCompileError as exc:
+            if target_dsl_uses_evaluated_execution(
+                state.module.target_dsl_version
+            ) or any(
+                diagnostic.code != "compiled_workflow_snapshot_conflict"
+                for diagnostic in exc.diagnostics
+            ):
+                raise
+            snapshot_allowed = False
+    if snapshot_allowed and all(
+        _is_complete_typed_program(getattr(bundle, "typed_program", None))
+        for bundle in (imported_workflow_bundles or {}).values()
+    ) and all(
+        _is_complete_typed_program(program)
+        for program in effective_imported_programs.values()
+    ):
+        from .build_artifacts import _source_file_digests_for_modules
+        from .closed.frontend import (
+            local_definition_keys_for_module,
+            local_definition_dids_for_module,
+            typed_program_from_graph,
+        )
+
+        procedure_type_envs = {
+            procedure.definition.name: procedure_type_env_for(
+                procedure,
+                procedure_type_envs={},
+                default=state.type_env,
+            )
+            for procedure in state.typed_procedures
+        }
+        typed_program = typed_program_from_graph(
+            target=state.module.target_dsl_version,
+            entry_module=module_name,
+            entry_dir=str(path.parent),
+            type_env=state.type_env,
+            extern_environment=state.extern_environment,
+            command_boundary_environment=state.command_boundary_environment,
+            command_boundary_origins=state.command_boundary_environment.origins_by_name,
+            typed_workflows=state.typed_workflows,
+            resolved_combined_procedures=state.typed_procedures,
+            typed_workflows_by_name={},
+            combined_procedure_type_envs=procedure_type_envs,
+            workflow_type_envs_by_name={
+                workflow.definition.name: state.type_env
+                for workflow in state.typed_workflows
+            },
+            module_type_envs={module_name: state.type_env},
+            module_externs={
+                module_name: state.extern_environment.bindings_by_name
+            },
+            local_definition_keys=local_definition_keys_for_module(
+                module_name,
+                state.expanded_syntax_module,
+                state.typed_procedures,
+            ),
+            local_definition_dids=local_definition_dids_for_module(
+                module_name,
+                state.expanded_syntax_module,
+                state.typed_procedures,
+            ),
+            configuration_bindings={
+                "command_boundaries": dict(command_boundaries or {}),
+                "provider_externs": dict(provider_externs or {}),
+                "prompt_externs": dict(prompt_externs or {}),
+            },
+            imported_programs={
+                **effective_imported_programs,
+                **{
+                    alias: bundle.typed_program
+                    for alias, bundle in (imported_workflow_bundles or {}).items()
+                    if getattr(bundle, "typed_program", None) is not None
+                },
+            },
+            module_workflow_signatures={
+                module_name: state.workflow_catalog.signatures_by_name
+            },
+        )
+        if standalone_source_path is None:
+            raise RuntimeError("standalone module probe was not recorded in the source trace")
+        typed_program = replace(
+            typed_program,
+            source_file_digests=_source_file_digests_for_modules(
+                {module_name: standalone_source_path},
+                source_read_records=source_read_trace.records,
+                source_revision_vector=source_read_trace.revision_vector,
+            ),
+            _compiled_bundle_boundaries=_compiled_bundle_boundaries(
+                result.validated_bundles
+            ),
+        )
+        frozen_bundles = _attach_typed_programs_to_source_bundles(
+            result.validated_bundles,
+            typed_program,
+        )
+        result = replace(
+            result,
+            typed_program=typed_program,
+            validated_bundles=frozen_bundles,
+        )
+    return result
 
 
 def _finalize_stage3_diagnostics(
@@ -1345,6 +1671,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | None = None,
@@ -1354,6 +1681,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     lowering_route: LoweringRoute | str | None = None,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
     source_read_trace: SourceReadTrace | None = None,
+    standalone_entry_namespace: str | None = None,
     _module_graph_read_attempt_id: int | None = None,
     compiler_session: CompilerSession | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
@@ -1373,6 +1701,7 @@ def _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=source_roots,
         source_read_trace=source_read_trace,
+        standalone_entry_namespace=standalone_entry_namespace,
     )
     if source_read_trace is not None:
         if _module_graph_read_attempt_id is None:
@@ -1395,6 +1724,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
+            imported_programs=imported_programs,
             command_boundaries=command_boundaries,
             validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
             boundary_admission_profile=normalized_boundary_admission_profile,
@@ -1440,12 +1770,23 @@ def _run_stage3_entrypoint_validation_pipeline(
         if not _shared_validation_enabled(normalized_validation_profile):
             return state
         assert compile_result is not None
-        validated_bundles = validate_lowered_workflows(
-            compile_result.entry_result.lowered_workflows,
-            workspace_root=workspace_root,
-            imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
-            validation_profile=normalized_validation_profile,
+        entry_module_source = compile_result.graph.modules_by_name.get(
+            compile_result.graph.entry_module_name
         )
+        entry_target = (
+            entry_module_source.syntax_module.target_dsl_version
+            if entry_module_source is not None
+            else compile_result.entry_result.module.target_dsl_version
+        )
+        if target_dsl_uses_evaluated_execution(entry_target):
+            validated_bundles = {}
+        else:
+            validated_bundles = validate_lowered_workflows(
+                compile_result.entry_result.lowered_workflows,
+                workspace_root=workspace_root,
+                imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
+                validation_profile=normalized_validation_profile,
+            )
         compile_result = replace(
             compile_result,
             entry_result=replace(
@@ -1564,6 +1905,36 @@ def _resolve_stage3_procedure_lowering(
             for procedure in state.typed_procedures
         ),
     )
+
+
+def _reject_legacy_to_evaluated_imports(graph: LinkedModuleGraph) -> None:
+    for source_name, source in graph.modules_by_name.items():
+        source_target = source.syntax_module.target_dsl_version
+        if target_dsl_uses_evaluated_execution(source_target):
+            continue
+        for directive in source.syntax_module.imports:
+            imported = graph.modules_by_name.get(directive.module_name)
+            if imported is None:
+                continue
+            imported_target = imported.syntax_module.target_dsl_version
+            if not target_dsl_uses_evaluated_execution(imported_target):
+                continue
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="evaluated_execution_target_direction_invalid",
+                        message=(
+                            f"legacy module `{source_name}` at target {source_target} "
+                            f"cannot import evaluated module `{directive.module_name}` "
+                            f"at target {imported_target}; legacy-to-evaluated edges "
+                            "are outside the evaluated-entry source graph"
+                        ),
+                        span=directive.span,
+                        form_path=directive.form_path,
+                        phase="typecheck",
+                    ),
+                )
+            )
 
 
 def _lower_workflows_for_route(
@@ -1715,6 +2086,7 @@ def _run_stage3_validation_pipeline(
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, PromptExternValue] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
+    imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | None = None,
@@ -1739,6 +2111,13 @@ def _run_stage3_validation_pipeline(
     )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
+    effective_imported_programs = dict(imported_programs or {})
+
+    def closed_entry(state: ValidationPipelineState) -> bool:
+        return (
+            state.module is not None
+            and target_dsl_uses_evaluated_execution(state.module.target_dsl_version)
+        )
 
     def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         return replace(
@@ -1765,6 +2144,45 @@ def _run_stage3_validation_pipeline(
             compiler_session=compiler_session,
         )
         _validate_definition_module(module)
+        _reject_duplicate_imported_program_bindings(
+            effective_imported_workflow_bundles,
+            effective_imported_programs,
+        )
+        _require_explicit_source_snapshots(
+            target=module.target_dsl_version,
+            source_path=path,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
+            imported_programs=effective_imported_programs,
+        )
+        imported_snapshot_bindings = {
+            **effective_imported_programs,
+            **{
+                alias: bundle.typed_program
+                for alias, bundle in effective_imported_workflow_bundles.items()
+                if getattr(bundle, "typed_program", None) is not None
+            },
+        }
+        standalone_module_name = module.module_name or path.stem
+        try:
+            _reject_compiled_workflow_snapshot_conflicts(
+                imported_snapshots=imported_snapshot_bindings,
+                source_module_paths={standalone_module_name: Path(module.span.start.path)},
+                source_module_targets={standalone_module_name: module.target_dsl_version},
+                source_module_spans={standalone_module_name: module.span},
+                source_read_trace=source_read_trace,
+                entry_dir=str(path.parent),
+                configuration_bindings={
+                    "command_boundaries": dict(command_boundaries or {}),
+                    "provider_externs": dict(provider_externs or {}),
+                    "prompt_externs": dict(prompt_externs or {}),
+                },
+            )
+        except LispFrontendCompileError as exc:
+            if target_dsl_uses_evaluated_execution(module.target_dsl_version) or any(
+                diagnostic.code != "compiled_workflow_snapshot_conflict"
+                for diagnostic in exc.diagnostics
+            ):
+                raise
         type_env = FrontendTypeEnvironment.from_module(
             module,
             session_state=compiler_session.typecheck,
@@ -1782,6 +2200,14 @@ def _run_stage3_validation_pipeline(
         )
         function_defs = elaborate_function_definitions(state.expanded_syntax_module)
         procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
+        from .loop_state import retain_loop_carrier_families
+
+        retain_loop_carrier_families(
+            module.module_name or path.stem,
+            procedures=procedure_defs,
+            workflows=workflow_defs,
+            session_state=compiler_session.typecheck,
+        )
         _validate_local_callable_name_collisions(function_defs, procedure_defs)
         validate_module_result_guidance(
             module,
@@ -1798,6 +2224,7 @@ def _run_stage3_validation_pipeline(
             workflow_defs,
             type_env,
             imported_workflow_bundles=effective_imported_workflow_bundles,
+            imported_programs=effective_imported_programs,
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
             allow_transportable_input_boundaries=(
@@ -2050,6 +2477,37 @@ def _run_stage3_validation_pipeline(
         return resolved_state
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        _reject_legacy_to_evaluated_snapshot_calls(
+            target=state.module.target_dsl_version,
+            module_name=state.module.module_name or path.stem,
+            typed_workflows=state.typed_workflows,
+            typed_procedures=state.typed_procedures,
+            imported_programs={
+                **effective_imported_programs,
+                **{
+                    alias: bundle.typed_program
+                    for alias, bundle in effective_imported_workflow_bundles.items()
+                    if getattr(bundle, "typed_program", None) is not None
+                },
+            },
+            procedure_type_envs={
+                procedure.definition.name: state.type_env
+                for procedure in state.typed_procedures
+            },
+            workflow_type_envs={
+                workflow.definition.name: state.type_env
+                for workflow in state.typed_workflows
+            },
+            module_type_envs={
+                state.module.module_name or path.stem: state.type_env
+            },
+            base_procedures_by_name={
+                procedure.definition.name: procedure
+                for procedure in state.typed_procedures
+            },
+        )
+        if closed_entry(state):
+            return replace(state, lowered_workflows=())
         lowered_workflows = _lower_workflows_for_route(
             compiler_session=compiler_session,
             lowering_route=normalized_lowering_route,
@@ -2074,6 +2532,8 @@ def _run_stage3_validation_pipeline(
         return replace(state, lowered_workflows=lowered_workflows)
 
     def source_map_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        if closed_entry(state):
+            return state
         _validate_stage3_source_map_lineage(
             state,
             path=path,
@@ -2084,6 +2544,8 @@ def _run_stage3_validation_pipeline(
     def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         if not _shared_validation_enabled(normalized_validation_profile):
             return state
+        if closed_entry(state):
+            return replace(state, validated_bundles={})
         validated_bundles = validate_lowered_workflows(
             state.lowered_workflows,
             workspace_root=workspace_root,
@@ -2093,6 +2555,8 @@ def _run_stage3_validation_pipeline(
         return replace(state, validated_bundles=validated_bundles)
 
     def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        if closed_entry(state):
+            return state
         _revalidate_stage3_executable_bundles(
             state.validated_bundles,
             lowered_workflows_by_name=_stage3_lowered_workflows_by_name(state.lowered_workflows),
@@ -2485,6 +2949,7 @@ def _compile_stage3_graph(
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, PromptExternValue] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
+    imported_programs: Mapping[str, object] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,
@@ -2515,6 +2980,11 @@ def _compile_stage3_graph(
             boundary_admission_profile
         )
     )
+    closed_entry = target_dsl_uses_evaluated_execution(
+        graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version
+    )
+    compiler_session.closed_program = closed_entry
+    _reject_legacy_to_evaluated_imports(graph)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -2535,7 +3005,71 @@ def _compile_stage3_graph(
     workflow_effects_by_name: dict[str, EffectSummary] = {}
     exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
     compiled_results_by_name: dict[str, Stage3CompileResult] = {}
+    module_type_envs: dict[str, FrontendTypeEnvironment] = {}
+    module_externs: dict[str, Mapping[str, object]] = {}
+    module_command_boundaries: dict[str, Mapping[str, object]] = {}
+    module_command_boundary_origins: dict[str, Mapping[str, str]] = {}
+    module_workflow_signatures: dict[str, Mapping[str, WorkflowSignature]] = {}
+    local_definition_keys: dict[str, object] = {}
+    local_definition_dids: dict[str, tuple[str, str, object]] = {}
+    typed_program_snapshot = None
     explicit_imported_bundles = dict(imported_workflow_bundles or {})
+    explicit_imported_programs = dict(imported_programs or {})
+    snapshot_complete = all(
+        _is_complete_typed_program(getattr(bundle, "typed_program", None))
+        for bundle in explicit_imported_bundles.values()
+    ) and all(
+        _is_complete_typed_program(program)
+        for program in explicit_imported_programs.values()
+    )
+    _reject_duplicate_imported_program_bindings(
+        explicit_imported_bundles,
+        explicit_imported_programs,
+    )
+    _require_explicit_source_snapshots(
+        target=graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version,
+        source_path=graph.modules_by_name[graph.entry_module_name].path,
+        imported_workflow_bundles=explicit_imported_bundles,
+        imported_programs=explicit_imported_programs,
+    )
+    imported_snapshot_bindings = {
+        **explicit_imported_programs,
+        **{
+            alias: bundle.typed_program
+            for alias, bundle in explicit_imported_bundles.items()
+            if getattr(bundle, "typed_program", None) is not None
+        },
+    }
+    try:
+        _reject_compiled_workflow_snapshot_conflicts(
+            imported_snapshots=imported_snapshot_bindings,
+            source_module_paths={
+                name: module_source.path
+                for name, module_source in graph.modules_by_name.items()
+            },
+            source_module_targets={
+                name: module_source.syntax_module.target_dsl_version
+                for name, module_source in graph.modules_by_name.items()
+            },
+            source_module_spans={
+                name: module_source.syntax_module.span
+                for name, module_source in graph.modules_by_name.items()
+            },
+            source_read_trace=source_read_trace,
+            entry_dir=str(graph.modules_by_name[graph.entry_module_name].path.parent),
+            configuration_bindings={
+                "command_boundaries": dict(command_boundaries or {}),
+                "provider_externs": dict(provider_externs or {}),
+                "prompt_externs": dict(prompt_externs or {}),
+            },
+        )
+    except LispFrontendCompileError as exc:
+        if closed_entry or any(
+            diagnostic.code != "compiled_workflow_snapshot_conflict"
+            for diagnostic in exc.diagnostics
+        ):
+            raise
+        snapshot_complete = False
     aggregate_diagnostics: list[LispFrontendDiagnostic] = []
     # Certified stdlib adapter bindings (builtin command adapters and
     # `resume-or-start` reusable-state adapters) must stay installed for every
@@ -2612,17 +3146,27 @@ def _compile_stage3_graph(
             import_scope=import_scope,
         )
 
-        imported_type_refs = _imported_type_refs(import_scope, exported_type_refs_by_module)
+        enum_owner_facts = _retained_enum_origins(module_type_envs.values())
+        imported_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
+        imported_type_refs = _imported_type_refs(
+            import_scope,
+            exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
+        )
         imported_resource_defs = _imported_resource_defs(import_scope, exported_resource_defs_by_module)
         imported_transition_defs = _imported_transition_defs(import_scope, exported_transition_defs_by_module)
         type_env = FrontendTypeEnvironment.from_module(
             definition_module,
             import_scope=import_scope,
             imported_type_refs=imported_type_refs,
+            imported_enum_origins_by_type_ref_id=imported_enum_origins,
             imported_resource_defs=imported_resource_defs,
             imported_transition_defs=imported_transition_defs,
             session_state=compiler_session.typecheck,
         )
+        enum_owner_facts.update(type_env.retained_enum_origins)
+        module_type_envs[module_name] = type_env
         imported_prompt_defs = _imported_prompt_definitions(
             import_scope,
             exported_prompt_defs_by_module,
@@ -2642,6 +3186,14 @@ def _compile_stage3_graph(
             ].prompts_by_name.items()
         }
         raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
+        from .loop_state import retain_loop_carrier_families
+
+        retain_loop_carrier_families(
+            module_name,
+            procedures=raw_procedure_defs,
+            workflows=raw_workflow_defs,
+            session_state=compiler_session.typecheck,
+        )
         function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
         workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)
@@ -2664,6 +3216,8 @@ def _compile_stage3_graph(
             import_scope,
             exported_procedure_signatures_by_module,
             exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
         )
         imported_function_signatures = _imported_function_signatures(
             import_scope,
@@ -2673,7 +3227,10 @@ def _compile_stage3_graph(
             import_scope,
             exported_workflow_signatures_by_module,
             exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=imported_enum_origins,
         )
+        type_env.retain_enum_origins(imported_enum_origins)
         effective_imported_bundles = _effective_imported_workflow_bundles(
             import_scope,
             explicit_imported_bundles=explicit_imported_bundles,
@@ -2686,6 +3243,7 @@ def _compile_stage3_graph(
             imported_signatures=imported_workflow_signatures,
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
+            imported_programs=explicit_imported_programs,
             allow_hidden_context_callers=module_name == graph.entry_module_name,
             selected_entry_workflow_name=(
                 entry_workflow if module_name == graph.entry_module_name else None
@@ -2700,6 +3258,9 @@ def _compile_stage3_graph(
                 )
             ),
             family_profile_catalog=family_profile_catalog,
+        )
+        module_workflow_signatures[module_name] = dict(
+            workflow_catalog.signatures_by_name
         )
         function_catalog = build_function_catalog(
             function_defs,
@@ -2717,6 +3278,7 @@ def _compile_stage3_graph(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
         )
+        module_externs[module_name] = dict(extern_environment.bindings_by_name)
         command_boundary_environment = build_command_boundary_environment(command_boundaries)
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
@@ -2743,6 +3305,12 @@ def _compile_stage3_graph(
         command_boundary_environment = _augment_resume_command_boundaries(
             command_boundary_environment,
             expressions=tuple(graph_adapter_expressions),
+        )
+        module_command_boundaries[module_name] = dict(
+            command_boundary_environment.bindings_by_name
+        )
+        module_command_boundary_origins[module_name] = dict(
+            command_boundary_environment.origins_by_name
         )
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=definition_module,
@@ -2772,7 +3340,9 @@ def _compile_stage3_graph(
             module_name,
             import_scope,
             local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
-            external_workflow_names=frozenset(effective_imported_bundles),
+            external_workflow_names=frozenset(
+                {*effective_imported_bundles, *explicit_imported_programs}
+            ),
         )
         validate_module_result_guidance(
             definition_module,
@@ -3080,31 +3650,54 @@ def _compile_stage3_graph(
             typed_procedures=typed_procedures,
             workflow_catalog=workflow_catalog,
         )
-        lowered_workflows = _lower_workflows_for_route(
-            compiler_session=compiler_session,
-            lowering_route=normalized_lowering_route,
+        _reject_legacy_to_evaluated_snapshot_calls(
+            target=definition_module.target_dsl_version,
+            module_name=module_name,
             typed_workflows=typed_workflows,
             typed_procedures=resolved_combined_procedures,
-            available_workflows_by_name=typed_workflows_by_name,
+            imported_programs={
+                **explicit_imported_programs,
+                **{
+                    alias: bundle.typed_program
+                    for alias, bundle in explicit_imported_bundles.items()
+                    if getattr(bundle, "typed_program", None) is not None
+                },
+            },
             procedure_type_envs=combined_procedure_type_envs,
             workflow_type_envs=workflow_type_envs_by_name,
-            procedure_catalog=procedure_catalog,
-            workflow_path=module_source.path,
-            workflow_catalog=lowering_workflow_catalog,
-            imported_workflow_bundles=effective_imported_bundles,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            type_env=type_env,
-            target_dsl_version=module_source.syntax_module.target_dsl_version,
-            source_read_trace=source_read_trace,
+            module_type_envs=module_type_envs,
+            base_procedures_by_name=resolved_procedures_by_name,
         )
+        if closed_entry:
+            lowered_workflows = ()
+        else:
+            lowered_workflows = _lower_workflows_for_route(
+                compiler_session=compiler_session,
+                lowering_route=normalized_lowering_route,
+                typed_workflows=typed_workflows,
+                typed_procedures=resolved_combined_procedures,
+                available_workflows_by_name=typed_workflows_by_name,
+                procedure_type_envs=combined_procedure_type_envs,
+                workflow_type_envs=workflow_type_envs_by_name,
+                procedure_catalog=procedure_catalog,
+                workflow_path=module_source.path,
+                workflow_catalog=lowering_workflow_catalog,
+                imported_workflow_bundles=effective_imported_bundles,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                type_env=type_env,
+                target_dsl_version=module_source.syntax_module.target_dsl_version,
+                source_read_trace=source_read_trace,
+            )
         requires_internal_bundle_validation = (
             normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
             and module_name != graph.entry_module_name
             and bool(export_surfaces[module_name].workflows_by_name)
         )
         validated_exports: Mapping[str, LoadedWorkflowBundle]
-        if (
+        if closed_entry:
+            validated_exports = {}
+        elif (
             normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
             or requires_internal_bundle_validation
         ):
@@ -3127,6 +3720,72 @@ def _compile_stage3_graph(
                 if resource.backing_kind == "bridge" and resource.backing_path_input
             ),
         )
+        from .closed.frontend import (
+            local_definition_keys_for_module,
+            local_definition_dids_for_module,
+            typed_program_from_graph,
+        )
+
+        local_definition_keys.update(
+            local_definition_keys_for_module(
+                module_name,
+                expanded_syntax,
+                tuple(typed_procedures),
+            )
+        )
+        local_definition_dids.update(
+            local_definition_dids_for_module(
+                module_name,
+                expanded_syntax,
+                tuple(typed_procedures),
+            )
+        )
+        if module_name == graph.entry_module_name and snapshot_complete:
+            imported_programs = {
+                **explicit_imported_programs,
+                **{
+                    alias: imported_bundle.typed_program
+                    for alias, imported_bundle in explicit_imported_bundles.items()
+                    if getattr(imported_bundle, "typed_program", None) is not None
+                },
+            }
+            typed_program_snapshot = typed_program_from_graph(
+                target=module_source.syntax_module.target_dsl_version,
+                entry_module=module_name,
+                entry_dir=str(module_source.path.parent),
+                type_env=type_env,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                command_boundary_origins=command_boundary_environment.origins_by_name,
+                typed_workflows=typed_workflows,
+                resolved_combined_procedures=resolved_combined_procedures,
+                typed_workflows_by_name=typed_workflows_by_name,
+                combined_procedure_type_envs=combined_procedure_type_envs,
+                workflow_type_envs_by_name=workflow_type_envs_by_name,
+                module_type_envs=module_type_envs,
+                module_externs=module_externs,
+                local_definition_keys=local_definition_keys,
+                configuration_bindings={
+                    "command_boundaries": dict(command_boundaries or {}),
+                    "provider_externs": dict(provider_externs or {}),
+                    "prompt_externs": dict(prompt_externs or {}),
+                    "used_command_boundaries": {
+                        name: dict(bindings)
+                        for name, bindings in module_command_boundaries.items()
+                    },
+                    "used_command_boundary_origins": {
+                        name: dict(origins)
+                        for name, origins in module_command_boundary_origins.items()
+                    },
+                    "resolved_externs": {
+                        name: dict(bindings)
+                        for name, bindings in module_externs.items()
+                    },
+                },
+                imported_programs=imported_programs,
+                module_workflow_signatures=module_workflow_signatures,
+                local_definition_dids=local_definition_dids,
+            )
         result = Stage3CompileResult(
             module=definition_module,
             workflow_catalog=workflow_catalog,
@@ -3146,6 +3805,7 @@ def _compile_stage3_graph(
             validation_profile=normalized_validation_profile,
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
+            typed_program=typed_program_snapshot if module_name == graph.entry_module_name else None,
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)
@@ -3176,11 +3836,14 @@ def _compile_stage3_graph(
                 procedure,
                 module_name=module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=imported_enum_origins,
             )
             procedure_type_envs_by_name[procedure.definition.name] = combined_procedure_type_envs[
                 procedure.definition.name
             ]
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
+        type_env.retain_enum_origins(imported_enum_origins)
         for function in typed_functions:
             typed_functions_by_name[function.definition.name] = function
         for workflow in typed_workflows:
@@ -3192,6 +3855,11 @@ def _compile_stage3_graph(
             for binding in export_surfaces[module_name].workflows_by_name.values():
                 exported_validated_bundles_by_name[binding.canonical_name] = validated_exports[binding.canonical_name]
 
+    if typed_program_snapshot is not None:
+        compiled_results_by_name = {
+            module_name: replace(result, typed_program=typed_program_snapshot)
+            for module_name, result in compiled_results_by_name.items()
+        }
     return LinkedStage3CompileResult(
         graph=LinkedModuleGraph(
             entry_module_name=graph.entry_module_name,
@@ -3293,6 +3961,9 @@ def _local_callable_lookup_aliases(
 def _imported_type_refs(
     import_scope: ModuleImportScope,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, TypeRef]:
     """Collect concrete type refs made visible by the import scope."""
 
@@ -3309,8 +3980,22 @@ def _imported_type_refs(
                 module_name=binding.module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
                 canonical_name=binding.canonical_name,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             )
     return imported
+
+
+def _retained_enum_origins(
+type_envs,
+) -> dict[int, tuple[PrimitiveTypeRef, str, str]]:
+    """Collect retained enum owner facts from existing typed environments."""
+
+    return {
+        ref_id: origin
+        for type_env in type_envs
+        for ref_id, origin in type_env.retained_enum_origins.items()
+    }
 
 
 def _canonical_export_type_name(module_name: str, type_name: str, exported_names: frozenset[str]) -> str:
@@ -3347,12 +4032,24 @@ def _canonicalize_nested_imported_type_ref(
     *,
     module_name: str,
     exported_names: frozenset[str],
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypeRef:
     if isinstance(type_ref, PrimitiveTypeRef):
         if not type_ref.allowed_values:
             return type_ref
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
-        return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
+        if canonical_name == type_ref.name:
+            return type_ref
+        clone = replace(type_ref, name=canonical_name)
+        origin = None if enum_owner_facts is None else enum_owner_facts.get(id(type_ref))
+        if (
+            origin is not None
+            and origin[0] is type_ref
+            and cloned_enum_origins is not None
+        ):
+            cloned_enum_origins[id(clone)] = (clone, origin[1], origin[2])
+        return clone
     if isinstance(type_ref, RecordTypeRef):
         from .context_types import contextual_type, is_contextual_type
 
@@ -3361,6 +4058,8 @@ def _canonicalize_nested_imported_type_ref(
                 field_type,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             )
             for field_name, field_type in type_ref.field_types.items()
         }
@@ -3375,7 +4074,13 @@ def _canonicalize_nested_imported_type_ref(
     if isinstance(type_ref, UnionTypeRef):
         canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
         type_args = tuple(
-            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            _canonicalize_nested_imported_type_ref(
+                arg,
+                module_name=module_name,
+                exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
+            )
             for arg in type_ref.type_args
         )
         if type_args:
@@ -3390,6 +4095,8 @@ def _canonicalize_nested_imported_type_ref(
                         field_type,
                         module_name=module_name,
                         exported_names=exported_names,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     )
                     for field_name, field_type in field_types.items()
                 }
@@ -3399,7 +4106,13 @@ def _canonicalize_nested_imported_type_ref(
     if isinstance(type_ref, VariantCaseTypeRef):
         canonical_union_name = _canonical_export_type_name(module_name, type_ref.union_name, exported_names)
         union_type_args = tuple(
-            _canonicalize_nested_imported_type_ref(arg, module_name=module_name, exported_names=exported_names)
+            _canonicalize_nested_imported_type_ref(
+                arg,
+                module_name=module_name,
+                exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
+            )
             for arg in type_ref.union_type_args
         )
         if union_type_args:
@@ -3416,6 +4129,8 @@ def _canonicalize_nested_imported_type_ref(
                         field_type,
                         module_name=module_name,
                         exported_names=exported_names,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     )
                     for field_name, field_type in type_ref.field_types.items()
                 }
@@ -3431,6 +4146,8 @@ def _canonicalize_nested_imported_type_ref(
                     param_type,
                     module_name=module_name,
                     exported_names=exported_names,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 )
                 for param_type in type_ref.param_type_refs
             ),
@@ -3438,6 +4155,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.return_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, ProcRefTypeRef):
@@ -3448,6 +4167,8 @@ def _canonicalize_nested_imported_type_ref(
                     param_type,
                     module_name=module_name,
                     exported_names=exported_names,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 )
                 for param_type in type_ref.param_type_refs
             ),
@@ -3455,6 +4176,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.return_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, OptionalTypeRef):
@@ -3464,6 +4187,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.item_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, ListTypeRef):
@@ -3473,6 +4198,8 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.item_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     if isinstance(type_ref, MapTypeRef):
@@ -3482,11 +4209,15 @@ def _canonicalize_nested_imported_type_ref(
                 type_ref.key_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
             value_type_ref=_canonicalize_nested_imported_type_ref(
                 type_ref.value_type_ref,
                 module_name=module_name,
                 exported_names=exported_names,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         )
     return type_ref
@@ -3521,11 +4252,19 @@ def _inlined_constructor_types(
         defining_module = defining_type_env.module_name
         if exported_type_refs_by_module is None or defining_module in (None, type_env.module_name):
             return resolved
-        return _canonicalize_imported_type_ref(
+        enum_owner_facts = _retained_enum_origins(
+            (type_env, *(procedure_type_envs or {}).values(), defining_type_env)
+        )
+        cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
+        imported = _canonicalize_imported_type_ref(
             resolved,
             module_name=defining_module,
             exported_type_refs_by_module=exported_type_refs_by_module,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=cloned_enum_origins,
         )
+        type_env.retain_enum_origins(cloned_enum_origins)
+        return imported
 
     return constructor_type
 
@@ -3536,12 +4275,16 @@ def _canonicalize_imported_type_ref(
     module_name: str,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
     canonical_name: str | None = None,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypeRef:
     exported_names = frozenset(exported_type_refs_by_module.get(module_name, {}))
     canonicalized = _canonicalize_nested_imported_type_ref(
         type_ref,
         module_name=module_name,
         exported_names=exported_names,
+        enum_owner_facts=enum_owner_facts,
+        cloned_enum_origins=cloned_enum_origins,
     )
     if canonical_name is None or getattr(canonicalized, "name", None) == canonical_name:
         return canonicalized
@@ -3674,6 +4417,9 @@ def _imported_procedure_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, ProcedureSignature]],
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, ProcedureSignature]:
     """Collect procedure signatures visible through imports."""
 
@@ -3690,6 +4436,8 @@ def _imported_procedure_signatures(
                             param_type,
                             module_name=binding.module_name,
                             exported_type_refs_by_module=exported_type_refs_by_module,
+                            enum_owner_facts=enum_owner_facts,
+                            cloned_enum_origins=cloned_enum_origins,
                         ),
                     )
                     for param_name, param_type in signature.params
@@ -3698,6 +4446,8 @@ def _imported_procedure_signatures(
                     signature.return_type_ref,
                     module_name=binding.module_name,
                     exported_type_refs_by_module=exported_type_refs_by_module,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 ),
             )
     return imported
@@ -3708,6 +4458,8 @@ def _canonicalize_exported_typed_procedure(
     *,
     module_name: str,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> TypedProcedureDef:
     """Expose one compiled procedure to importers with canonical exported types.
 
@@ -3727,6 +4479,8 @@ def _canonicalize_exported_typed_procedure(
                         param_type,
                         module_name=module_name,
                         exported_type_refs_by_module=exported_type_refs_by_module,
+                        enum_owner_facts=enum_owner_facts,
+                        cloned_enum_origins=cloned_enum_origins,
                     ),
                 )
                 for param_name, param_type in procedure.signature.params
@@ -3735,6 +4489,8 @@ def _canonicalize_exported_typed_procedure(
                 procedure.signature.return_type_ref,
                 module_name=module_name,
                 exported_type_refs_by_module=exported_type_refs_by_module,
+                enum_owner_facts=enum_owner_facts,
+                cloned_enum_origins=cloned_enum_origins,
             ),
         ),
     )
@@ -3775,6 +4531,9 @@ def _imported_workflow_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    *,
+    enum_owner_facts: Mapping[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
+    cloned_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] | None = None,
 ) -> dict[str, WorkflowSignature]:
     """Collect workflow signatures visible through imports."""
 
@@ -3791,6 +4550,8 @@ def _imported_workflow_signatures(
                             param_type,
                             module_name=binding.module_name,
                             exported_type_refs_by_module=exported_type_refs_by_module,
+                            enum_owner_facts=enum_owner_facts,
+                            cloned_enum_origins=cloned_enum_origins,
                         ),
                     )
                     for param_name, param_type in signature.params
@@ -3799,6 +4560,8 @@ def _imported_workflow_signatures(
                     signature.return_type_ref,
                     module_name=binding.module_name,
                     exported_type_refs_by_module=exported_type_refs_by_module,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=cloned_enum_origins,
                 ),
             )
     return imported
@@ -3915,6 +4678,554 @@ def _workflow_name_resolver(
     return resolve
 
 
+def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = frozenset()) -> bool:
+    from .closed.frontend import TypedProgram
+
+    if not isinstance(program, TypedProgram) or id(program) in _seen:
+        return False
+    if not program.workflows:
+        return False
+    entry = program.entry
+    if entry is None or entry.typed_body is None:
+        return False
+    entry_name = entry.definition.name
+    if program.workflows.get(entry_name) != entry:
+        return False
+    if program.entry_module not in program.module_type_envs:
+        return False
+    if not set(program.source_file_digests).issubset(program.module_type_envs):
+        return False
+    if not set(program.module_type_envs).issubset(program.module_externs):
+        return False
+    if not set(program.module_type_envs).issubset(program.module_workflow_signatures):
+        return False
+    if any(
+        workflow_name != workflow.definition.name
+        or workflow.typed_body is None
+        or workflow_name not in program.workflow_type_envs
+        or (
+            workflow_name.split("::", 1)[0]
+            if "::" in workflow_name
+            else program.entry_module
+        )
+        not in program.module_type_envs
+        for workflow_name, workflow in program.workflows.items()
+    ):
+        return False
+    if not program.source_file_digests:
+        return False
+    seen = _seen.union((id(program),))
+    if not all(
+        _is_complete_typed_program(child, _seen=seen)
+        for child in program.imported_programs.values()
+    ):
+        return False
+    imported_modules = {
+        module_name
+        for child in program.imported_programs.values()
+        for module_name in child.module_type_envs
+    }
+    if not (set(program.module_type_envs) - set(program.source_file_digests)).issubset(
+        imported_modules
+    ):
+        return False
+    if any(
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        for digest in program.source_file_digests.values()
+    ):
+        return False
+    from .expressions import CallExpr, ProcedureCallExpr
+
+    for procedure_name, procedure in program.procedures.items():
+        if (
+            procedure_name != procedure.definition.name
+            or procedure.typed_body is None
+            or procedure_name not in program.procedure_type_envs
+            or (
+                procedure_name.split("::", 1)[0]
+                if "::" in procedure_name
+                else program.entry_module
+            )
+            not in program.module_type_envs
+        ):
+            return False
+
+    workflow_ref_aliases: set[str] = set()
+    alias_scan_seen: set[int] = set()
+
+    def collect_import_aliases(current: TypedProgram) -> None:
+        if id(current) in alias_scan_seen:
+            return
+        alias_scan_seen.add(id(current))
+        for alias, child in current.imported_programs.items():
+            workflow_ref_aliases.add(alias)
+            collect_import_aliases(child)
+
+    collect_import_aliases(program)
+    for workflow_name, workflow in program.workflows.items():
+        workflow_ref_params = {
+            name
+            for name, type_ref in workflow.signature.params
+            if isinstance(type_ref, WorkflowRefTypeRef)
+        }
+        workflow_ref_params.update(
+            getattr(workflow.specialization, "workflow_ref_bindings", {})
+        )
+        for node in walk_expr(workflow.typed_body.expr):
+            if isinstance(node, CallExpr) and not (
+                node.callee_name in program.workflows
+                or node.callee_name in workflow_ref_aliases
+                or node.callee_name in workflow_ref_params
+            ):
+                return False
+            if isinstance(node, ProcedureCallExpr) and node.callee_name not in program.procedures:
+                return False
+
+    proc_ref_aliases = set(program.imported_programs)
+    for procedure_name, procedure in program.procedures.items():
+        proc_ref_params = {
+            name
+            for name, type_ref in procedure.signature.params
+            if isinstance(type_ref, ProcRefTypeRef)
+        }
+        specialization = procedure.specialization
+        workflow_ref_params = {
+            name
+            for name, type_ref in procedure.signature.params
+            if isinstance(type_ref, WorkflowRefTypeRef)
+        }
+        workflow_ref_params.update(
+            getattr(specialization, "workflow_ref_bindings", {})
+        )
+        proc_ref_params.update(getattr(specialization, "proc_ref_bindings", {}))
+        for node in walk_expr(procedure.typed_body.expr):
+            if isinstance(node, CallExpr) and not (
+                node.callee_name in program.workflows
+                or node.callee_name in workflow_ref_aliases
+                or node.callee_name in workflow_ref_params
+            ):
+                return False
+            if isinstance(node, ProcedureCallExpr) and not (
+                node.callee_name in program.procedures
+                or node.callee_name in proc_ref_aliases
+                or node.callee_name in proc_ref_params
+            ):
+                return False
+    return True
+
+
+def _reject_duplicate_imported_program_bindings(
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    imported_programs: Mapping[str, object],
+) -> None:
+    overlap = sorted(set(imported_workflow_bundles).intersection(imported_programs))
+    if not overlap:
+        return
+    alias = overlap[0]
+    bundle = imported_workflow_bundles[alias]
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="module_import_collision",
+                message=(
+                    f"compiled workflow binding `{alias}` is supplied through both a bundle "
+                    "and a typed program; one binding must have one producer owner"
+                ),
+                span=_bundle_span(bundle),
+                form_path=("workflow-lisp", alias),
+            ),
+        )
+    )
+
+
+def _require_explicit_source_snapshots(
+    *,
+    target: str,
+    source_path: Path,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    imported_programs: Mapping[str, object],
+) -> None:
+    from .syntax import target_dsl_uses_evaluated_execution
+
+    require_bundle_snapshot = target_dsl_uses_evaluated_execution(target)
+    for alias, program in imported_programs.items():
+        if _is_complete_typed_program(program):
+            continue
+        entry = getattr(program, "entry", None)
+        span = (
+            entry.definition.span
+            if entry is not None and getattr(entry, "definition", None) is not None
+            else SourceSpan(
+                start=SourcePosition(path=str(source_path), line=1, column=1, offset=0),
+                end=SourcePosition(path=str(source_path), line=1, column=1, offset=0),
+            )
+        )
+        raise _compiled_workflow_source_required(alias, target, span)
+    if not require_bundle_snapshot:
+        return
+    for alias, bundle in imported_workflow_bundles.items():
+        program = getattr(bundle, "typed_program", None)
+        selected_name = getattr(bundle.surface, "name", alias)
+        if (
+            not _is_complete_typed_program(program)
+            or program.entry.definition.name != selected_name
+            or not _typed_program_matches_bundle(program, bundle)
+        ):
+            raise _compiled_workflow_source_required(
+                selected_name,
+                target,
+                _bundle_span(bundle),
+            )
+
+
+def _compiled_workflow_source_required(
+    selected_name: str,
+    target: str,
+    span: SourceSpan,
+) -> LispFrontendCompileError:
+    return LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="compiled_workflow_source_required",
+                message=(
+                    f"compiled workflow `{selected_name}` cannot be admitted for target {target}; "
+                    "the applied limit requires a complete matching typed producer snapshot "
+                    "with its selected workflow body and boundary contracts"
+                ),
+                span=span,
+                form_path=("workflow-lisp", selected_name),
+            ),
+        )
+    )
+
+
+def _reject_compiled_workflow_snapshot_conflicts(
+    *,
+    imported_snapshots: Mapping[str, object],
+    source_module_paths: Mapping[str, Path],
+    source_module_targets: Mapping[str, str],
+    source_module_spans: Mapping[str, SourceSpan],
+    source_read_trace: SourceReadTrace | None,
+    entry_dir: str,
+    configuration_bindings: Mapping[str, object],
+) -> None:
+    """Reject overlapping source owners compiled under different contexts."""
+
+    from .closed.frontend import TypedProgram
+    from .build import _freeze_command_boundaries, _freeze_configuration_mapping
+
+    normalized_configuration = dict(configuration_bindings)
+    configured_boundaries = normalized_configuration.get("command_boundaries")
+    if isinstance(configured_boundaries, Mapping):
+        normalized_configuration["command_boundaries"] = _freeze_command_boundaries(
+            configured_boundaries
+        )
+    configuration_bindings = _freeze_configuration_mapping(normalized_configuration)
+
+    def fail(origin_a: str, origin_b: str, module_name: str, span: SourceSpan) -> None:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="compiled_workflow_snapshot_conflict",
+                    message=(
+                        f"compiled workflow sources for module `{module_name}` have incompatible "
+                        f"owners `{origin_a}` and `{origin_b}`; the applied limit admits one "
+                        "source revision and semantic compilation context per canonical module"
+                    ),
+                    span=span,
+                    form_path=("workflow-lisp", module_name),
+                ),
+            )
+        )
+
+    def collect_source_owners():
+        owners: list[tuple[str, TypedProgram, str, SourceSpan]] = []
+        seen_programs: set[int] = set()
+
+        def visit(origin: str, candidate: object) -> None:
+            if not isinstance(candidate, TypedProgram) or id(candidate) in seen_programs:
+                return
+            seen_programs.add(id(candidate))
+            if not _is_complete_typed_program(candidate):
+                return
+            entry_span = candidate.entry.definition.span
+            for module_name in candidate.source_file_digests:
+                owners.append((origin, candidate, module_name, entry_span))
+            for alias, child in candidate.imported_programs.items():
+                visit(f"{origin}/{alias}", child)
+
+        for origin, candidate in imported_snapshots.items():
+            visit(origin, candidate)
+        return owners
+
+    owners = collect_source_owners()
+    for index, (origin_a, program_a, module_a, span_a) in enumerate(owners):
+        digest_a = program_a.source_file_digests[module_a]
+        for origin_b, program_b, module_b, span_b in owners[index + 1 :]:
+            if module_a != module_b:
+                continue
+            owner_env_a = program_a.module_type_envs.get(module_a)
+            owner_env_b = program_b.module_type_envs.get(module_b)
+            if (
+                digest_a != program_b.source_file_digests[module_b]
+                or owner_env_a is None
+                or owner_env_b is None
+                or owner_env_a.target_dsl_version != owner_env_b.target_dsl_version
+                or program_a.entry_dir != program_b.entry_dir
+                or dict(program_a.configuration_bindings)
+                != dict(program_b.configuration_bindings)
+                or dict(program_a.command_boundaries)
+                != dict(program_b.command_boundaries)
+                or dict(program_a.command_boundary_origins)
+                != dict(program_b.command_boundary_origins)
+                or dict(program_a.module_externs.get(module_a, {}))
+                != dict(program_b.module_externs.get(module_b, {}))
+            ):
+                fail(origin_a, origin_b, module_a, span_b or span_a)
+
+    if source_read_trace is None:
+        return
+    revisions_by_path = {
+        path: revision.removeprefix("sha256:")
+        for path, revision in source_read_trace.revision_vector
+    }
+    for module_name, module_path in source_module_paths.items():
+        canonical_path = resolve_path_preserving_fd(module_path)
+        source_digest = revisions_by_path.get(canonical_path)
+        if source_digest is None:
+            continue
+        for origin, program, owner_module, owner_span in owners:
+            if module_name != owner_module:
+                continue
+            if (
+                program.source_file_digests[owner_module] != source_digest
+                or program.entry_dir != entry_dir
+                or program.module_type_envs[owner_module].target_dsl_version
+                != source_module_targets[module_name]
+                or any(
+                    program.configuration_bindings.get(name, {}) != value
+                    for name, value in configuration_bindings.items()
+                )
+            ):
+                fail(
+                    f"source graph `{module_name}`",
+                    origin,
+                    module_name,
+                    source_module_spans[module_name] or owner_span,
+                )
+
+
+def _typed_program_matches_bundle(program, bundle: LoadedWorkflowBundle) -> bool:
+    selected_name = bundle.surface.name
+    if program.entry is None or program.entry.definition.name != selected_name:
+        return False
+    retained_facts = program._compiled_bundle_boundaries.get(selected_name)
+    if retained_facts is None:
+        return False
+    try:
+        candidate_facts = _bundle_boundary_contracts(bundle)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+    return _bundle_boundary_facts_match(retained_facts, candidate_facts)
+
+
+def _bundle_boundary_facts_match(expected, actual) -> bool:
+    from .build import _freeze_configuration_value
+
+    def contract_map_semantics(contracts):
+        return {
+            name: {
+                str(key): _freeze_configuration_value(value)
+                for key, value in definition.items()
+                if key not in {"from", "__allow_unresolved_source"}
+            }
+            for name, definition in contracts.items()
+            if isinstance(name, str) and isinstance(definition, Mapping)
+        }
+
+    def binding_semantics(binding):
+        return (
+            binding.binding_id,
+            binding.source_param_name,
+            binding.context_family,
+            binding.bridge_class,
+            tuple(binding.generated_input_names),
+            tuple(binding.required_capabilities),
+            binding.derived_phase_identity,
+            tuple(binding.allocation_ids),
+            _freeze_configuration_value(binding.projection_hints),
+        )
+
+    def projection_semantics(projection):
+        return (
+            contract_map_semantics(projection.public_input_contracts),
+            tuple(
+                binding_semantics(binding)
+                for binding in projection.private_runtime_context_bindings
+            ),
+            tuple(projection.private_managed_write_root_inputs),
+            tuple(projection.private_compatibility_bridge_inputs),
+        )
+
+    expected_inputs, expected_outputs, expected_projection = expected
+    actual_inputs, actual_outputs, actual_projection = actual
+    return (
+        contract_map_semantics(expected_inputs)
+        == contract_map_semantics(actual_inputs)
+        and contract_map_semantics(expected_outputs)
+        == contract_map_semantics(actual_outputs)
+        and projection_semantics(expected_projection)
+        == projection_semantics(actual_projection)
+    )
+
+
+def _reject_legacy_to_evaluated_snapshot_calls(
+    *,
+    target: str,
+    module_name: str,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    imported_programs: Mapping[str, object],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    workflow_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    module_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
+    base_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
+) -> None:
+    evaluated_aliases = {
+        alias: program
+        for alias, program in imported_programs.items()
+        if target_dsl_uses_evaluated_execution(getattr(program, "target", ""))
+    }
+    if not evaluated_aliases:
+        return
+    def procedure_target(procedure: TypedProcedureDef) -> str:
+        procedure_env = (procedure_type_envs or {}).get(
+            procedure.definition.name
+        )
+        if procedure_env is not None:
+            return procedure_env.target_dsl_version
+        specialization = procedure.specialization
+        owner_name = (
+            specialization.base_name
+            if specialization is not None
+            else procedure.definition.name
+        )
+        owner_module = owner_name.split("::", 1)[0]
+        module_env = (module_type_envs or {}).get(owner_module)
+        return module_env.target_dsl_version if module_env is not None else target
+
+    def reject_edge(
+        *,
+        source_module: str,
+        source_target: str,
+        alias: str,
+        program,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        expansion_stack=(),
+    ) -> None:
+        producer_module = getattr(program, "entry_module", "<compiled-workflow>")
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="evaluated_execution_target_direction_invalid",
+                    message=(
+                        f"module `{source_module}` target {source_target} cannot call typed workflow "
+                        f"from module `{producer_module}` target {program.target}; "
+                        "legacy-to-evaluated calls exceed the applied target direction limit"
+                    ),
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                ),
+            )
+        )
+
+    for workflow in typed_workflows:
+        workflow_name = workflow.definition.name
+        source_target = (
+            (workflow_type_envs or {}).get(workflow_name).target_dsl_version
+            if workflow_name in (workflow_type_envs or {})
+            else target
+        )
+        if target_dsl_uses_evaluated_execution(source_target):
+            continue
+        source_module = workflow_name.split("::", 1)[0]
+        for node in walk_expr(workflow.typed_body.expr):
+            if not isinstance(node, CallExpr):
+                continue
+            program = evaluated_aliases.get(node.callee_name)
+            if program is not None:
+                reject_edge(
+                    source_module=source_module,
+                    source_target=source_target,
+                    alias=node.callee_name,
+                    program=program,
+                    span=node.authored_callee_span or node.span,
+                    form_path=node.form_path,
+                    expansion_stack=node.expansion_stack,
+                )
+
+    procedures_by_name = dict(base_procedures_by_name or {})
+    procedures_by_name.update(
+        (procedure.definition.name, procedure) for procedure in typed_procedures
+    )
+    for procedure in typed_procedures:
+        source_target = procedure_target(procedure)
+        if target_dsl_uses_evaluated_execution(source_target):
+            continue
+        specialization = procedure.specialization
+        source_owner_name = (
+            specialization.base_name
+            if specialization is not None
+            else procedure.definition.name
+        )
+        source_module = source_owner_name.split("::", 1)[0]
+        body = procedure.typed_body.expr
+        for node in walk_expr(body):
+            if not isinstance(node, CallExpr):
+                continue
+            program = evaluated_aliases.get(node.callee_name)
+            if program is not None:
+                reject_edge(
+                    source_module=source_module,
+                    source_target=source_target,
+                    alias=node.callee_name,
+                    program=program,
+                    span=node.authored_callee_span or node.span,
+                    form_path=node.form_path,
+                    expansion_stack=node.expansion_stack,
+                )
+        if specialization is None:
+            continue
+        for role_name, resolved_workflow_ref in specialization.workflow_ref_bindings.items():
+            program = evaluated_aliases.get(resolved_workflow_ref.workflow_name)
+            if program is None:
+                continue
+            base_procedure = procedures_by_name.get(specialization.base_name)
+            call_span = specialization.origin_span
+            form_path = specialization.origin_form_path
+            expansion_stack = ()
+            if base_procedure is not None:
+                for node in walk_expr(base_procedure.typed_body.expr):
+                    if isinstance(node, CallExpr) and node.callee_name == role_name:
+                        call_span = node.authored_callee_span or node.span
+                        form_path = node.form_path
+                        expansion_stack = node.expansion_stack
+                        break
+            reject_edge(
+                source_module=source_module,
+                source_target=source_target,
+                alias=resolved_workflow_ref.workflow_name,
+                program=program,
+                span=call_span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+
+
 def _bundle_span(bundle: LoadedWorkflowBundle):
     """Create a source span pointing at an imported workflow bundle file."""
 
@@ -3944,10 +5255,13 @@ def _augment_resume_command_boundaries(
     """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
 
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     resume_exprs = list(expressions)
     if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
         return command_boundary_environment
-    bindings.update(_fixed_resume_command_boundary_bindings())
+    fixed_bindings = _fixed_resume_command_boundary_bindings()
+    bindings.update(fixed_bindings)
+    origins.update({name: "package:orchestrator" for name in fixed_bindings})
     for return_type_name in sorted(
         {
             return_type_name
@@ -3959,6 +5273,7 @@ def _augment_resume_command_boundaries(
         bindings[loader_name] = CertifiedAdapterBinding(
             name=loader_name,
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name=return_type_name,
             effects=("structured_result",),
@@ -3970,7 +5285,8 @@ def _augment_resume_command_boundaries(
             owner_module="std/phase",
             replacement_path="resume-or-start",
         )
-    return build_command_boundary_environment(bindings)
+        origins[loader_name] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBinding]:
@@ -3980,6 +5296,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
         "validate_reusable_phase_state": CertifiedAdapterBinding(
             name="validate_reusable_phase_state",
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name="ResumeReuseDecision",
             effects=("resume_state_reuse", "structured_result"),
@@ -3998,6 +5315,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
         "write_reusable_phase_state_v1": CertifiedAdapterBinding(
             name="write_reusable_phase_state_v1",
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name="ReusablePhaseStateWriteAck",
             effects=("resume_state_reuse", "structured_result"),
@@ -4025,11 +5343,13 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
     """
 
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     if "apply_resource_transition" in bindings:
         return command_boundary_environment
     bindings["apply_resource_transition"] = CertifiedAdapterBinding(
         name="apply_resource_transition",
         stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
+        closure=(".",),
         input_contract={"type": "object"},
         output_type_name="ResourceTransitionResult",
         effects=("resource_transition", "ledger_update"),
@@ -4078,7 +5398,8 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
         invocation_protocol="json_object_positional_arg",
         declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     )
-    return build_command_boundary_environment(bindings)
+    origins["apply_resource_transition"] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _augment_builtin_command_boundaries(
@@ -4095,6 +5416,7 @@ def _augment_builtin_command_boundaries(
         else _builtin_command_binding_names_in_expr
     )
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     required_binding_names = {
         binding_name
         for root_expr in expressions
@@ -4114,9 +5436,11 @@ def _augment_builtin_command_boundaries(
         return command_boundary_environment
     for binding_name in missing_binding_names:
         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
+        origins[binding_name] = "package:orchestrator"
     for binding_name in replacement_binding_names:
         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
-    return build_command_boundary_environment(bindings)
+        origins[binding_name] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:

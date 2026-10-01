@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
@@ -50,6 +50,13 @@ class TypedExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
+    binding_environment: Mapping[str, object] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 ValueEnvironment = Mapping[str, TypeRef]
@@ -112,6 +119,12 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
                 state.loop_carrier_metadata_by_expr_key.items()
             )
         },
+        loop_carrier_families_by_expr_key=dict(
+            state.loop_carrier_families_by_expr_key
+        ),
+        run_ref_origins_by_source_key=dict(
+            state.run_ref_origins_by_source_key
+        ),
         run_ref_metadata_by_name=dict(state.run_ref_metadata_by_name),
         run_ref_metadata_by_expr_key={
             expr_key: dict(metadata_by_signature)
@@ -148,6 +161,12 @@ def restore_session_state(
             snapshot.loop_carrier_metadata_by_expr_key.items()
         )
     }
+    state.loop_carrier_families_by_expr_key = dict(
+        snapshot.loop_carrier_families_by_expr_key
+    )
+    state.run_ref_origins_by_source_key = dict(
+        snapshot.run_ref_origins_by_source_key
+    )
     state.run_ref_metadata_by_name = dict(snapshot.run_ref_metadata_by_name)
     state.run_ref_metadata_by_expr_key = {
         expr_key: dict(metadata_by_signature)
@@ -251,6 +270,17 @@ def merge_successful_session_outputs(
             outer.loop_carrier_metadata_by_expr_key,
             completed.loop_carrier_metadata_by_expr_key,
         )
+    )
+    merged.loop_carrier_families_by_expr_key = _merge_unique_outputs(
+        "loop_carrier_families_by_expr_key",
+        outer.loop_carrier_families_by_expr_key,
+        completed.loop_carrier_families_by_expr_key,
+    )
+    merged.run_ref_origins_by_source_key = _merge_unique_outputs(
+        "run_ref_origins_by_source_key",
+        outer.run_ref_origins_by_source_key,
+        completed.run_ref_origins_by_source_key,
+        values_match=lambda left, right: left == right,
     )
     from .typecheck_run_ref import run_ref_metadata_equivalent
 

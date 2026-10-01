@@ -46,6 +46,7 @@ from orchestrator.workflow.executable_ir import (
     RunRefStepConfig,
     StepCommonConfig,
 )
+from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.compiler import (
     LoweringRoute,
     compile_stage3_entrypoint,
@@ -57,6 +58,7 @@ _ASSET_MARKER = "CAPSULE-STAGED-ASSET-MARKER"
 _CHILD_MODULE = "orchestrator.workflow.run_ref.child"
 _PATH_SITE = "71d55760c27a0d51" + "0" * 48
 _STRING_DESCRIPTOR = {"kind": "primitive", "name": "String"}
+_EVALUATED_EXECUTION_TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 
 
 @dataclass(frozen=True)
@@ -121,7 +123,11 @@ def _write_imported_asset_sources(root: Path) -> tuple[Path, Path, Path]:
     return source_root, entry_source, prompt_asset
 
 
-def _build_capsule(root: Path) -> _CapsuleFixture:
+def _build_capsule(
+    root: Path,
+    *,
+    bundle_target_dsl_version: str = "2.24",
+) -> _CapsuleFixture:
     controller_root = root / "controller"
     source_root, entry_source, prompt_asset = _write_imported_asset_sources(
         controller_root
@@ -139,7 +145,20 @@ def _build_capsule(root: Path) -> _CapsuleFixture:
         lowering_route=LoweringRoute.WCC_M4,
     )
     target_workflow_name = "child_command/entry::run"
-    originals = dict(compiled.validated_bundles_by_name)
+    originals = {
+        name: (
+            replace(
+                bundle,
+                surface=replace(
+                    bundle.surface,
+                    version=bundle_target_dsl_version,
+                ),
+            )
+            if bundle_target_dsl_version != "2.24"
+            else bundle
+        )
+        for name, bundle in compiled.validated_bundles_by_name.items()
+    }
     assert target_workflow_name in originals
     import_storage = {name: {} for name in originals}
     catalog = {
@@ -290,6 +309,7 @@ def _build_path_fixture(
     *,
     body: str = "payload",
     case: str = "executes",
+    target_dsl_version: str = "2.24",
 ) -> _PathFixture:
     repository = root / f"repository-{case}"
     repository.mkdir()
@@ -299,7 +319,7 @@ def _build_path_fixture(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.24")',
+                f'  (:target-dsl "{target_dsl_version}")',
                 "  (defmodule candidate)",
                 "  (export run)",
                 "  (defworkflow run ((payload String)) -> String",
@@ -526,6 +546,105 @@ def test_mode1_child_executes_staged_import_and_prompt_asset_without_frontend(
     )
     assert persisted["status"] == "completed"
     assert persisted["workflow_outputs"] == result["workflow_outputs"]
+
+
+def test_mode1_child_refuses_evaluated_target_bundle_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _build_capsule(
+        tmp_path,
+        bundle_target_dsl_version=_EVALUATED_EXECUTION_TARGET,
+    )
+    payload, request_path, state_dir = _request(
+        fixture,
+        case="evaluated-target",
+    )
+
+    def reject_execution(*_args, **_kwargs):
+        pytest.fail("evaluated-execution bundles must reject before dispatch")
+
+    monkeypatch.setattr(ProviderExecutor, "execute", reject_execution)
+
+    return_code, stdout, stderr = _invoke(payload, request_path, capsys)
+
+    assert return_code == 2
+    assert stdout == ""
+    diagnostic = _assert_canonical_document(stderr)
+    assert diagnostic["schema_version"] == "run_ref_child_diagnostic.v1"
+    assert diagnostic["status"] == "rejected"
+    assert diagnostic["code"] == "evaluated_execution_unavailable"
+    assert diagnostic["reason"] == "flat_execution_unavailable"
+    assert diagnostic["rejected_value"] == {
+        "target_dsl_version": _EVALUATED_EXECUTION_TARGET
+    }
+    assert diagnostic["secondary_causes"] == [
+        "evaluated_execution_minimum_target_dsl_version:"
+        + _EVALUATED_EXECUTION_TARGET
+    ]
+    compile_rows = diagnostic["compile_diagnostics"]["diagnostics"]
+    assert len(compile_rows) == 1
+    row = compile_rows[0]
+    assert row["code"] == "evaluated_execution_unavailable"
+    assert row["path"].endswith("entry.orc")
+    assert (row["line"], row["column"], row["phase"]) == (1, 1, "lowering")
+    with pytest.raises(ValueError):
+        _child_module().validate_child_diagnostic_document(
+            {**diagnostic, "unexpected": "open-authority"}
+        )
+    assert not (state_dir / payload["child_run_id"]).exists()
+
+
+def test_mode1_refusal_uses_compiled_target_when_source_file_is_gone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    child = _child_module()
+
+    fixture = _build_capsule(
+        tmp_path,
+        bundle_target_dsl_version=_EVALUATED_EXECUTION_TARGET,
+    )
+    payload, request_path, state_dir = _request(
+        fixture,
+        case="evaluated-target-location-fallback",
+    )
+
+    original_target_bundle = child._target_bundle
+
+    def remove_location_metadata(request):
+        bundle = original_target_bundle(request)
+        missing_path = tmp_path / "removed-capsule-source" / "entry.orc"
+        return replace(
+            bundle,
+            provenance=replace(
+                bundle.provenance,
+                workflow_path=missing_path,
+            ),
+        )
+
+    def reject_execution(*_args, **_kwargs):
+        pytest.fail("evaluated-execution bundles must reject before dispatch")
+
+    monkeypatch.setattr(child, "_target_bundle", remove_location_metadata)
+    monkeypatch.setattr(ProviderExecutor, "execute", reject_execution)
+
+    return_code, stdout, stderr = _invoke(payload, request_path, capsys)
+
+    assert return_code == 2
+    assert stdout == ""
+    diagnostic = _assert_canonical_document(stderr)
+    assert diagnostic["code"] == "evaluated_execution_unavailable"
+    assert diagnostic["rejected_value"] == {
+        "target_dsl_version": _EVALUATED_EXECUTION_TARGET
+    }
+    row = diagnostic["compile_diagnostics"]["diagnostics"][0]
+    assert row["code"] == "evaluated_execution_unavailable"
+    assert row["path"].endswith("removed-capsule-source/entry.orc")
+    assert (row["line"], row["column"]) == (1, 1)
+    assert not (state_dir / payload["child_run_id"]).exists()
 
 
 @pytest.mark.parametrize(
@@ -804,6 +923,35 @@ def test_mode2_child_full_compiles_and_executes_under_run_writer_lock(
     persisted = json.loads((run_root / "state.json").read_text(encoding="utf-8"))
     assert persisted["status"] == "completed"
     assert persisted["workflow_outputs"] == result["workflow_outputs"]
+
+
+def test_mode2_child_refuses_compiled_evaluated_target_before_dispatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fixture = _build_path_fixture(
+        tmp_path,
+        case="evaluated-target",
+        target_dsl_version=_EVALUATED_EXECUTION_TARGET,
+    )
+    payload = _path_request(fixture)
+
+    return_code, stdout, stderr = _invoke_path(
+        payload,
+        fixture.request_path,
+        capsys,
+    )
+
+    assert return_code == 2
+    assert stdout == ""
+    diagnostic = _assert_canonical_document(stderr)
+    assert diagnostic["code"] == "trial_program_compile_rejected"
+    assert diagnostic["reason"] == "path_compile_rejected"
+    rows = diagnostic["compile_diagnostics"]["diagnostics"]
+    assert [(row["code"], row["line"]) for row in rows] == [
+        ("evaluated_execution_unavailable", 3)
+    ]
+    assert not (fixture.state_dir / fixture.child_run_id).exists()
 
 
 @pytest.mark.parametrize(
