@@ -284,8 +284,10 @@ every exact descriptor remain significant.
 `D` is the key projection of an existing recursively canonical normalized
 runtime descriptor: ordinary nominal definitions still agree with
 `tree.types`, while generated run-reference envelopes use the structural
-marker below, recursively even inside a captured or nested type. `T`
-additionally allows the key-only compile-time reference signatures:
+marker below, recursively even inside a captured or nested type. Applied
+nominal identity fields use the structured projection specified below,
+including phantom arguments not represented by any field. `T` additionally
+allows the key-only compile-time reference signatures:
 
 ```text
 {"kind": "procedure-reference", "signature": {"params": [T, ...], "result": T}}
@@ -340,10 +342,11 @@ Task 5 adds these pure helpers to `closed/names.py`; Tasks 6 and 8 reuse them:
 key_type_descriptor(descriptor: dict, *, run_ref_signatures: Mapping[str, dict]) -> dict
 canonical_run_ref_signature(inputs: Sequence[tuple[str, dict]], result_descriptor: dict,
                             *, run_ref_signatures: Mapping[str, dict]) -> dict
+run_ref_type_dependencies(descriptor: dict) -> tuple[str, ...]
 ```
 
-Both return fresh JSON values without changing their arguments, use existing
-neutral descriptor/result/input validators and raise `ValueError`/`TypeError`
+The first two return fresh JSON values without changing their arguments, use
+existing neutral descriptor/result/input validators and raise `ValueError`/`TypeError`
 for invalid facts. The second may reuse `RunRefInput` with a transient
 `ReferenceBinding("inputs." + name)` and nested transport enabled; that
 binding never enters S. Result validation also enables target 2.35 nested
@@ -368,10 +371,14 @@ against their complete `types` entries, including nested descriptors and
 config return refinements. Matching copied type labels are not inference.
 
 Compute each producer's S with a visiting guard and memoization over generated
-dependencies in its checked inputs and result fields (exclude only its own
-outer envelope). Missing/ambiguous origins or a visiting origin fail; input
-dependencies can form a cycle even with finite result descriptors. Derive
-this inventory before accepting key markers. A persisted marker must equal
+dependencies in its checked inputs and result fields, including generated
+atoms in applied identity arguments (exclude only its own outer envelope).
+Use `run_ref_type_dependencies`, which enumerates generated envelopes and
+identity-argument atoms in deterministic traversal order; a whole generated
+occurrence resolves through its own producer DFS. Missing/ambiguous origins
+or a visiting origin fail; input dependencies can form a cycle even with
+finite result descriptors or phantom-only arguments. Derive this inventory
+before accepting key markers. A persisted marker must equal
 a derived S in canonical JSON bytes, and runtime/key agreement must equal
 `key_type_descriptor` of **that actual runtime descriptor**, selecting its
 concrete producer. Canonical JSON equality keeps `false` distinct from `0`.
@@ -394,6 +401,84 @@ complete S equality; concrete producer occurrences remain distinct for Task
 Missing/ambiguous construction ownership is a compiler defect. This explicit
 expansion can enlarge keys for repeated nested contracts; a compact format
 would require an identity-format change.
+
+#### Applied nominal identities and interned generated views
+
+Runtime descriptor `name` and `union_name` remain canonical strings. For
+evaluated execution their exact spelling uses this closed identity grammar:
+
+```text
+Atom     = nonempty identity atom without whitespace, '[', ']' or ','
+Identity = Atom
+         | List[Identity] | Optional[Identity] | Map[Identity,Identity]
+         | NominalHead[Identity Identity ...]
+         | AppliedUnionIdentity.variant
+```
+
+Generic arguments use one ASCII space; Map uses a comma without surrounding
+spaces. List/Optional/Map have arities 1/1/2. A nominal application has at
+least one argument and a module-qualified template head. Reserved unqualified
+container heads differ from ordinary heads such as `pkg::List`. Non-applied
+ordinary nominal/discriminant atoms keep their exact registered spelling.
+The generated atom is exactly `RunRefResult$<16 lowercase hex>`, resolved
+through the checked origin index. An applied discriminant has a nominal
+applied union owner and the exact suffix `.variant`; no other suffix is
+discarded. Existing discriminant checks still validate the owner's variants.
+
+Only inside key descriptor `name`/`union_name` fields, project every applied
+identity structurally, even when no argument is generated:
+
+```text
+I = ordinary_identity_atom_string
+  | {"head": Head, "args": [I, ...]}
+  | {"owner": AppliedUnionI, "member": "variant"}
+  | {"kind": "run-ref-result", "signature": S}
+Head = "List" | "Optional" | "Map" | qualified_nominal_template_atom
+```
+
+Objects have exactly these keys and the same arities/order as the runtime
+grammar. `AppliedUnionI` has a nominal, not container, head. A generated atom
+uses the same complete S marker as a generated envelope, never a digest or
+site/name token. Template identity, ordinary arguments, refinements and every
+other descriptor field remain exact. For example `entry::Wrapper[A]` projects
+its name to `{"head":"entry::Wrapper","args":[M_A]}` when A is a checked
+generated identity and M_A its full S marker. This includes phantom arguments
+and nested constructors; matching payload fields alone do not prove identity.
+
+Keep the small parser/renderer private in `closed/names.py`. Parse only these
+identity fields and require canonical render-back equality; do not substitute
+arbitrary serialized strings. Typed construction uses retained `type_args`,
+`union_type_args`, discriminant ownership and declaring modules with the same
+renderer. Register referenced nominal arguments even when phantom. At
+read-back the exact runtime string indexes the full concrete `types` entry.
+P5 establishes internal consistency of retained identities; absent source
+template declarations/arity are not claims it can authenticate.
+
+P5 derives an ephemeral inventory of projections of independently checked
+runtime nominal descriptors. A persisted structured name in key D must match
+one of those complete projections. Runtime/key agreement projects the actual
+runtime descriptor, never a descriptor selected by inverting this inventory.
+Different concrete entries can project equally. Missing/unknown/malformed
+identity facts fail. The origin DFS includes these argument dependencies, so
+A taking `Wrapper[B]` and B taking `Wrapper[A]` is a cycle even if their
+Wrapper payload fields contain no generated descriptor. No descriptor/codec
+field, persisted origin table or generic type service is added.
+
+For equal converted keys, keep the first candidate in deterministic semantic
+entry/call traversal as the native representative, with its native body,
+capture/parameter order, result and concrete producer associations. Do not
+sort by provisional names, spans, paths or object identity. Later same-key
+requests keep their caller-view descriptors and use the checked generated
+view of `call.boundary` below when needed. Keep source/snapshot/configuration
+conflict checks; after canonical binder/type-key projection and producer
+association, contradictory bodies are compiler defects, not arbitrary choices
+or new body hashes. Candidate copies of an interned body are not additional
+lexical producers; distinct actual entry/body effects remain distinct.
+
+P5 first validates runtime inventories and caller-view expression typing,
+derives S including phantom dependencies, then completes deferred view/key/
+name/site checks. No artifact is accepted until all checks succeed. This
+ordering uses checked declared signatures, not trusted opaque annotations.
 
 #### Reference and closed-binding rows
 
@@ -673,7 +758,9 @@ For `c = len(K[7])`, P5 requires:
    closed calls by callee `DId` and occurrence. Their source/native paths
    have valid checked descriptors.
 3. At an annotated call into a converted definition, caller slots `[0:c]`
-   are its capture prefix in the same order and with the same descriptors.
+   are its capture prefix in the same order and with the same descriptors,
+   or the checked generated nominal view below. A changed nominal must use
+   projection rows; `direct` still requires strict compatibility.
    A direct pair for native capture slot `j` is `[j,j]`; an unrelated caller
    slot cannot masquerade as capture `j`. Call argument values are checked
    against these slots, not compared with values in the key. All remaining
@@ -774,8 +861,8 @@ parameter matching. An explicit compiled import retains the catalog's
 caller-view signature and its snapshot's native signature. Closing that
 boundary, or a converted internal call injecting its captured context into
 a different compatible native nominal, uses this optional `call.boundary`.
-The latter is the only additional internal annotation case; it does not
-relax ordinary source-call admission:
+Same-key interning may also require the checked generated nominal view below.
+These internal annotations do not broaden source-call admission:
 
 ```text
 {
@@ -872,6 +959,41 @@ paths under the same wire name, dropped rows and forged union activity with
 `call_boundary`. The ordinary strict rule applies without `boundary`.
 This checks internal consistency, not historical source authenticity; a
 jointly type-valid alteration of arguments and relation is another program.
+
+For an ordinary converted call whose native representative differs solely
+in generated nominal identities, require exact `key_type_descriptor` equality
+of the whole ordered caller/native signature: all capture-prefix slots,
+all residual slots and the result. At least one concrete generated identity
+must differ; otherwise use the existing strict call. Keep capture count,
+order and routes aligned with the key. This case adds no permutation or
+1:N cast. Every concrete endpoint descriptor must independently pass its
+nominal table and producer checks.
+
+Derive complete input and output rows independently from each endpoint's
+exact descriptor, including fixed workspace/accounting fields and unchanged
+scalar residuals/results. The existing builtin `RunId` projects to scalar
+string; no unknown-primitive fallback is permitted. Changed nominal captures
+use projection rows; `direct` retains strict compatibility. Keep each exact
+endpoint contract, structural path, transfer role, topology, union activity,
+inactive-path rule and exhaustive disjoint coverage.
+
+Paired wire contracts normally match exactly. Only within the established
+generated view may differing contracts match when their aligned endpoint
+descriptors have equal checked D projections. Both serialized contracts must
+still equal their independently derived endpoint contracts. This permits
+root `List[A]`/`List[B]` with two unequal exact nested schemas; it does not
+erase their nominal names. Scalar envelopes additionally require the whole
+root signature proof, since flattening alone also erases ordinary record
+identity. Phantom applications require the template/argument identity proof.
+
+For an already-admitted import/context boundary, compose a generated change
+of its native representative with the existing relation in the same
+annotation. Preserve original caller slots, existing 1:N mapping, all native/
+projected coverage and once-only evaluation; rederive final endpoint rows.
+Only aligned D-equal descriptor pairs justify generated contract differences.
+Existing ordinary nominal crossing rules do not expand. No boundary mode
+field, extra effect/site, second transfer or global assignability rule is
+introduced. Unannotated nominal matching remains strict.
 
 ### Values
 
@@ -1867,8 +1989,9 @@ are pure functions over the shared schema; no compiler/frontend import.
   ordering, reference-binding bijection, resolved extern rows and capture/
   residual agreement before calling it. Hand-written fixtures use this
   actual helper, with no placeholder naming algorithm or deferred check.
-- Produces: `names.key_type_descriptor` and `names.canonical_run_ref_signature`
-  with the exact [shared signature contract](#run-reference-structural-signatures).
+- Produces: `names.key_type_descriptor`, `names.canonical_run_ref_signature`
+  and `names.run_ref_type_dependencies` with the exact
+  [shared signature contract](#run-reference-structural-signatures).
   `check.py` owns the derived origin inventory and complete S/key/runtime checks
   now; neither opaque S acceptance nor deferred Task 8 correspondence is valid.
 - Produces: `sites.SEPARATOR = " / "`;
@@ -1951,7 +2074,9 @@ are pure functions over the shared schema; no compiler/frontend import.
   activity, dropped/redirected rows and altered direct pairs as `call_boundary`.
   Apply the same checks to converted internal context-injection calls,
   including their capture schema, ordinary residual rows and both output
-  views. Ordinary unannotated calls retain strict nominal/positional matching.
+  views. Also implement the shared generated nominal view and structured
+  applied-identity inventory, including phantom dependencies and staged S/view
+  checking. Ordinary unannotated calls retain strict nominal/positional matching.
   Resolve every definition configuration scope and verify its digest and
   effect bindings;
   missing or mismatched scopes fail `configuration_scope`.
@@ -2053,7 +2178,12 @@ to the digest suffix after its first 16 characters. Test equal-S distinct
 sites and refuse an expression/config nominal substitution between them.
 Changing a nested producer's S must change the outer signature/key/site
 correspondence. These tests prove complete Task 5 read-back; later producer
-integration does not replace them.
+integration does not replace them. Cover scalar, List and phantom-applied
+generated views, both endpoint rows, captures/residual/output coverage, strict
+no-boundary rejection, changed nested/phantom S, ordinary template/argument
+order differences, missing origins and phantom-only dependency cycles.
+Capture/context combinations without demonstrated source admission use typed
+fixtures here; do not report them as public source integration evidence.
 
 - [ ] **Step 2: Run; expected failure** `ImportError`.
 
@@ -2100,9 +2230,9 @@ execution facts A.5; design §4.2 and P6; the
 [canonical key schema](#canonical-definition-keys). Merge Task 5 first.
 
 **Interfaces:**
-- Consumes: Task 5's `canonical_callee_name_from_key`, `key_type_descriptor`
-  and `canonical_run_ref_signature`. Keep frontend imports under
-  `TYPE_CHECKING` or inside typed constructors so the pure helpers have no
+- Consumes: Task 5's `canonical_callee_name_from_key`, `key_type_descriptor`,
+  `canonical_run_ref_signature` and `run_ref_type_dependencies`. Keep frontend
+  imports under `TYPE_CHECKING` or inside typed constructors so the pure helpers have no
   frontend semantic dependency. Existing neutral import side effects are
   outside this claim. Do not import `closed.check` or `closed.program` into
   `names.py`. Derive origin scopes from retained typed producer metadata,
@@ -2122,7 +2252,9 @@ execution facts A.5; design §4.2 and P6; the
     then each `typed.module_type_envs` value, then the procedure and workflow
     environments; a `DiscriminantTypeRef` as `<union identity>.variant`;
     `ListTypeRef`/`OptionalTypeRef` as `List[<item>]`/`Optional[<item>]`; an
-    applied union as `<template identity>[<arg identity>, ...]`. It never
+    applied union as `<template identity>[<arg identity> ...]` (one ASCII
+    space between arguments), and Map as `Map[<key>,<value>]`. Use the exact
+    shared identity grammar/renderer, retaining phantom type arguments. It never
     reads a span, a path or `repr`. A type whose module cannot be found
     raises `CanonicalNameError(type name)`; the builder reports it as a
     located compiler defect and repairs the declaring-module facts. Builtin
@@ -2132,7 +2264,8 @@ execution facts A.5; design §4.2 and P6; the
     normalized descriptor shape and recursively replace all nominal names
     from the declaring-module index, including nested fields, variants,
     applied arguments, list/optional members and private imported types.
-    Register/check each nominal definition in the program `types` table.
+    Register/check each nominal definition in the program `types` table,
+    including nominal applied arguments with no corresponding payload field.
     Preserve refinements/path roots. Do not change the old descriptor route.
   - `canonical_definition_key(definition, *, typed, binding_facts,
     capture_parameters, residual_signature) -> list`: construct the complete
@@ -2152,8 +2285,11 @@ execution facts A.5; design §4.2 and P6; the
     occurrences, typed field paths and the caller's canonical captured type,
     excluding import aliases, generated wire prefixes, paths and spans. Two
     values of that type/routes share a body; distinct nominal capture types
-    may require distinct converted keys. Memoize by the complete converted
-    key; context conversion uses the existing specialized-name rule.
+    may require distinct converted keys. Generated-only nominal differences
+    use the shared structured S projection and may share a key; retain the
+    first semantic candidate as native representative and preserve later
+    caller views through the shared checked boundary. Memoize by the complete
+    converted key; context conversion uses the existing specialized-name rule.
     Sort formal selectors as the shared schema specifies; preserve ordered
     fields. The historical `typed.local_definition_keys` six-tuple supplies
     owner/name/ordinal metadata, not the wire key: resolve types from typed
@@ -2871,7 +3007,12 @@ Build and read back real direct and transitive compiled-import private-context
 specimens through the public API. Supply nondefault contexts; verify one
 capture slot, exact native recipients, complete outer/internal boundary rows,
 unchanged original signatures and reuse for two values of the same type/routes.
-Verify distinct canonical capture types produce consistent distinct keys,
+Build/read back the admitted scalar, List and phantom same-S generic-call
+fixtures with representative reuse and preserved distinct producer links;
+pure-name insertion/relocation must preserve identities. Cover an admitted
+capture/context combination when available, distinguishing typed-fixture
+proof from unproven source admission. Verify ordinary distinct canonical
+capture types produce consistent distinct keys,
 explicit bindings win, every matching omission receives the capture, and
 unrelated calls stay unchanged. Phase 3 adds an execution assertion with a
 once-counted source expression; a Phase 2 structural proof is not that test.
@@ -3002,15 +3143,20 @@ execution facts A.2 and A.4.
 
     After site assignment, compute the 64-character lowercase hexadecimal
     `site_digest = sha256(canonical_json(["workflow-lisp/run-ref-site/1", containing_canonical_definition, assigned_local_site, S])).hexdigest()`.
+    `containing_canonical_definition` is always the canonical name string
+    used in the first component of `sites`: `tree.entry` or the key string
+    in `tree.definitions` verified against its retained K, never K itself.
     Here `canonical_json` uses the closed program's canonical UTF-8 JSON
     encoding. Set `generated_result_type = "RunRefResult$" + site_digest[:16]`,
     exactly as `build_run_ref_static_config` requires; do not derive a second
     independent generated name. This configuration/type digest does not alter
     the lexical site table or §6's runtime effect identity.
 
-    Rewrite generated type occurrences in entry/definition/node descriptors
-    and `types`, preserving structural definition keys. Recompute result
-    descriptor digests, then call the unchanged
+    Rewrite generated type occurrences in entry/definition/node descriptors,
+    both endpoints of call boundaries and `types`, preserving structural
+    definition keys. Rewrite atoms in applied identities through their actual
+    producer associations, then re-render and register the concrete identity.
+    Recompute result descriptor digests, then call the unchanged
     `build_run_ref_static_config`/`encode_run_ref_static_config` with these
     canonical facts and `RunRefInput(..., ReferenceBinding(f"inputs.{name}"))`.
     Never copy `payload.site_digest`, `payload.result_digest` or span-based

@@ -253,6 +253,26 @@ results and sites. Equal signatures do not identify equal producer sites;
 construction/finalization retains producer context through calls and copied
 specializations, never a global generated-name replacement. Task 5 owns the
 pure projection helpers shared by typed construction and finalization.
+The containing definition in the site-digest tuple is its canonical name
+string (`entry` or the `definitions` map key), never the retained key tuple.
+
+The [shared applied-identity grammar](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#applied-nominal-identities-and-interned-generated-views)
+keeps runtime nominal names as strings but structurally projects every applied
+name in key descriptors, including phantom arguments with no payload field.
+It preserves template/argument order and ordinary identities; generated atoms
+use the same complete S marker. Typed construction retains real type arguments;
+read-back checks canonical spelling, concrete registered descriptors and their
+projected inventory. Origin dependencies include generated atoms inside those
+arguments, rejecting phantom-only cycles. No runtime descriptor/codec field
+or persisted origin table is added.
+
+Equal-key candidates keep the first native representative in deterministic
+semantic call traversal. Later calls retain their own concrete signature
+views, using the checked generated boundary below when necessary. Preserve
+source/snapshot/configuration and projected-body conflict checks. Candidate
+copies of one interned body are not extra lexical producers; finalization
+rewrites every concrete occurrence and boundary endpoint by its actual
+producer, including atoms in applied identities.
 
 Size evidence (gate report, §9.2; spike iteration 2, F, and iteration 3,
 D3; 52 shipped workflows, 38 built):
@@ -372,7 +392,26 @@ native nominal may use the same `boundary` annotation. This narrow case
 retains complete ordinary residual input and both output projections, even
 when those residual types are identical; `direct` remains restricted to
 strict-compatible captures/generated/context values. Intermediate calls with
-exact types may stay positional. No other source-call admission is widened.
+exact types may stay positional. No source-call admission is widened.
+
+Same-key interning can also retain a native signature with different generated
+run-reference nominal identities. Its explicit `boundary` must prove equality
+of the whole ordered caller/native signature under the shared checked key
+projection, including captures, residuals, result and phantom arguments.
+Ordinary nominal heads/arguments, refinements and S remain exact. Independently
+derive all endpoint input/output rows, including unchanged scalar slots; a
+changed capture uses projection while `direct` remains strict. At least one
+generated identity differs, or the ordinary strict call suffices.
+
+Preserve both exact endpoint wire contracts. Paired differences are allowed
+only for aligned descriptors certified equal under this generated projection;
+root List schemas can therefore retain their distinct nested generated names.
+Coverage, paths, topology and union activity remain independently checked.
+Compose this view with an already-admitted import/context relation in the same
+annotation, retaining caller slots, existing 1:N mapping and once-only argument
+evaluation. Do not introduce a boundary mode field or general nominal cast.
+P5 derives checked producer signatures before completing deferred view checks;
+it accepts only after all key/name/site and boundary checks succeed.
 
 P5 independently validates every descriptor against canonical nominal facts,
 every projection path and complete field/active-variant coverage, matching
