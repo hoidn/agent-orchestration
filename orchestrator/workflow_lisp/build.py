@@ -685,7 +685,11 @@ def _attach_compile_request_capture(
     error.compile_request_capture = capture
 
 
-def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
+def build_frontend_bundle(
+    request: FrontendBuildRequest,
+    *,
+    source_read_trace: SourceReadTrace | None = None,
+) -> FrontendBuildResult:
     """Compile one `.orc` entrypoint, validate it, and write build artifacts.
 
     This is the CLI/dashboard boundary for the frontend. It loads extern and
@@ -700,7 +704,9 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     build_root) -> `_emit` (artifact/manifest writes + result construction).
     """
 
-    in_memory = build_frontend_bundle_in_memory(request)
+    in_memory = build_frontend_bundle_in_memory(
+        request, source_read_trace=source_read_trace
+    )
     try:
         (
             validated_bundle,
@@ -1445,27 +1451,13 @@ def load_imported_workflow_bundle_manifest(
     )
 
 
-def _load_imported_workflow_bundle_manifest(
-    manifest_path: Path | None,
+def _iter_compiled_import_entries(
+    payload: object,
     *,
-    workspace_root: Path,
-    source_roots: tuple[Path, ...] = (),
-    provider_externs_path: Path | None = None,
-    prompt_externs_path: Path | None = None,
-    command_boundaries_path: Path | None = None,
-    lowering_route: LoweringRoute | str | None = None,
-    source_read_trace: SourceReadTrace | None,
-    configuration_read_trace: ConfigurationReadTrace,
-) -> tuple[ImportedWorkflowBundleBinding, ...]:
-    """Internal imported-bundle loader sharing one configuration trace."""
+    manifest_path: Path,
+):
+    """Validate shared manifest entry fields and yield binding/source/selection."""
 
-    if manifest_path is None:
-        return ()
-    payload = _load_json_file(
-        manifest_path,
-        label="imported workflow bundle manifest",
-        configuration_read_trace=configuration_read_trace,
-    )
     if not payload:
         raise LispFrontendCompileError(
             (
@@ -1486,8 +1478,6 @@ def _load_imported_workflow_bundle_manifest(
                 ),
             )
         )
-
-    bindings: list[ImportedWorkflowBundleBinding] = []
     for canonical_key, raw_entry in payload.items():
         if not isinstance(canonical_key, str) or not canonical_key:
             raise LispFrontendCompileError(
@@ -1509,8 +1499,7 @@ def _load_imported_workflow_bundle_manifest(
                     ),
                 )
             )
-        bundle_kind = raw_entry.get("kind")
-        if bundle_kind != "compiled":
+        if raw_entry.get("kind") != "compiled":
             raise LispFrontendCompileError(
                 (
                     _cli_request_diagnostic(
@@ -1534,8 +1523,10 @@ def _load_imported_workflow_bundle_manifest(
                     ),
                 )
             )
-        resolved_bundle_path = _resolve_manifest_relative_path(manifest_path, raw_path)
-        if resolved_bundle_path.suffix.lower() != ".orc":
+        resolved_source_path = _resolve_manifest_relative_path(
+            manifest_path, raw_path
+        )
+        if resolved_source_path.suffix.lower() != ".orc":
             raise LispFrontendCompileError(
                 (
                     _cli_request_diagnostic(
@@ -1548,15 +1539,47 @@ def _load_imported_workflow_bundle_manifest(
                     ),
                 )
             )
+        requested_entry = (
+            raw_entry.get("entry_workflow")
+            if isinstance(raw_entry.get("entry_workflow"), str)
+            else None
+        )
+        yield canonical_key, resolved_source_path, requested_entry
+
+
+def _load_imported_workflow_bundle_manifest(
+    manifest_path: Path | None,
+    *,
+    workspace_root: Path,
+    source_roots: tuple[Path, ...] = (),
+    provider_externs_path: Path | None = None,
+    prompt_externs_path: Path | None = None,
+    command_boundaries_path: Path | None = None,
+    lowering_route: LoweringRoute | str | None = None,
+    source_read_trace: SourceReadTrace | None,
+    configuration_read_trace: ConfigurationReadTrace,
+) -> tuple[ImportedWorkflowBundleBinding, ...]:
+    """Internal imported-bundle loader sharing one configuration trace."""
+
+    if manifest_path is None:
+        return ()
+    payload = _load_json_file(
+        manifest_path,
+        label="imported workflow bundle manifest",
+        configuration_read_trace=configuration_read_trace,
+    )
+    bindings: list[ImportedWorkflowBundleBinding] = []
+    for canonical_key, resolved_bundle_path, requested_entry in _iter_compiled_import_entries(
+        payload, manifest_path=manifest_path
+    ):
+        raw_entry = payload[canonical_key]
+        raw_path = raw_entry["path"]
+        bundle_kind = raw_entry["kind"]
         compiled_result = _build_frontend_bundle_in_memory(
             FrontendBuildRequest(
                 source_path=resolved_bundle_path,
                 source_roots=source_roots,
-                entry_workflow=(
-                    raw_entry.get("entry_workflow")
-                    if isinstance(raw_entry.get("entry_workflow"), str)
-                    else None
-                ),
+                entry_workflow=requested_entry,
                 provider_externs_path=provider_externs_path,
                 prompt_externs_path=prompt_externs_path,
                 imported_workflow_bundles_path=None,

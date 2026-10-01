@@ -3739,7 +3739,11 @@ shared/variant placement before checked-tree validation.
 - Create: `orchestrator/workflow_lisp/closed/artifact.py`
 - Modify: `orchestrator/workflow_lisp/build.py` (share compiled-import manifest entry validation; keep legacy loader/initializer behavior)
 - Modify: `orchestrator/workflow_lisp/closed/target.py` (optional source-read trace forwarding through the existing target reader)
+- Modify: `orchestrator/workflow_lisp/closed/frontend.py` (accept optional entry selection and preserve the shared unique-export refusal)
+- Modify: `orchestrator/workflow_lisp/closed/build.py` only if needed to expose the existing builder's canonical three-map projection for build-key contributions
 - Modify: `orchestrator/cli/commands/compile.py` (`compile_workflow`, before `normalize_frontend_artifact_exports` at line 63)
+- Modify: `docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md` (this Task 9 seam amendment)
+- Modify: `tests/test_workflow_lisp_cli.py` only to keep the existing I/O-error monkeypatch compatible with optional trace forwarding
 - Test: `tests/test_workflow_lisp_closed_program_compile_cli.py`
 
 **Read first:** `build.py` lines 845 to 980 (`_build_frontend_bundle_in_memory`:
@@ -3813,6 +3817,14 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   producer trace evidence; never inject hashes into the consumer's trace or
   reread source to compute the key. Raw source digests affect build identity,
   not semantic `program_digest`.
+- `FrontendBuildRequest.entry_workflow` is optional. The typed compile seam accepts
+  `None` and selects only through the shared explicit-export selector; a
+  moduleless source with no requested entry and no explicit exports reports the
+  normal located `entry_workflow_required` diagnostic. Explicit moduleless
+  selections continue to accept raw and canonical names.
+- Build-key configuration contributions use Task 7's `Builder.configuration_for`
+  projection (including all supplied commands and only used injected commands);
+  any extraction must preserve that caller and its exact behavior.
 - `compile_workflow`: after the `.orc` check, `target = entry_target_dsl_version(workflow_path)`;
   preserve the existing missing-source diagnostic
   `workflow_lisp_cli_input_missing` and old-target validation precedence:

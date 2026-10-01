@@ -562,7 +562,7 @@ def typed_program_from_graph(
 def compile_typed_program(
     entry_path: Path,
     *,
-    entry_workflow: str,
+    entry_workflow: str | None,
     source_roots: tuple[Path, ...],
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
     provider_externs: Mapping[str, str] | None = None,
@@ -618,7 +618,7 @@ def compile_typed_program(
     entry_workflow_names = {
         workflow.definition.name for workflow in result.entry_result.typed_workflows
     }
-    if source_syntax.module_name is None:
+    if source_syntax.module_name is None and entry_workflow is not None:
         canonical_name = (
             entry_workflow
             if "::" in entry_workflow
