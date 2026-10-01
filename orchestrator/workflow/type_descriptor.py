@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 import json
 import math
 from typing import Any, Callable
@@ -11,6 +12,12 @@ from typing import Any, Callable
 MAX_TRANSPORT_VALUE_DEPTH = 64
 MAX_TRANSPORT_VALUE_BYTES = 16_777_216
 _NONTRANSPORTABLE_PRIMITIVES = frozenset({"Json", "Provider", "Prompt"})
+COMPILER_PRIMITIVE_TYPE_NAMES = frozenset(
+    {
+        "String", "Int", "Float", "Bool", "Json", "Provider", "Prompt",
+        "PathRel", "RunId", "Symbol", "Value",
+    }
+)
 
 
 def _require_exact_descriptor_keys(
@@ -310,6 +317,227 @@ def transport_schema_for_descriptor(
     ):
         raise ValueError("normalized type descriptor is not transportable")
     return _transport_schema(descriptor)
+
+
+_BOUNDARY_IGNORED_CONTRACT_KEYS = frozenset(
+    {"default", "from", "projection", "__allow_unresolved_source"}
+)
+
+
+def normalize_boundary_contract_definition(value: Any) -> dict[str, Any]:
+    """Return the existing structural wire-contract view without provenance."""
+
+    if not isinstance(value, Mapping):
+        raise ValueError("boundary contract must be a mapping")
+    return {
+        str(key): item
+        for key, item in value.items()
+        if key not in _BOUNDARY_IGNORED_CONTRACT_KEYS
+    }
+
+
+def compiled_boundary_rows(
+    roots: Sequence[tuple[str, Mapping[str, Any]]],
+    *,
+    output: bool = False,
+    relax_inactive_union_paths: bool = False,
+    allow_nested_structures: bool = True,
+) -> list[dict[str, Any]]:
+    """Derive flattened call-boundary rows from checked nominal descriptors.
+
+    This mirrors the frontend's established wire schema while deriving names,
+    structural paths, exact transport contracts, and union activity from the
+    neutral descriptors retained in the closed program.
+    """
+
+    rows: list[dict[str, Any]] = []
+    seen: dict[str, dict[str, Any]] = {}
+
+    def contract_for(descriptor: Mapping[str, Any]) -> dict[str, Any]:
+        validate_compiler_normalized_type_descriptor(descriptor)
+        kind = descriptor["kind"]
+        schema = transport_schema_for_descriptor(
+            descriptor,
+            allow_nested_structures=allow_nested_structures,
+        )
+        if schema["type"] == "relpath":
+            schema = {"kind": "relpath", **schema}
+        elif schema["type"] in {"optional", "list", "map"}:
+            schema = {"kind": "collection", **schema}
+        elif schema["type"] == "value":
+            schema = {"kind": "value", **schema}
+        else:
+            schema = {"kind": "scalar", **schema}
+        if kind == "primitive" and descriptor["name"] in {"RunId", "Symbol"}:
+            # These prelude primitives have an established string wire shape.
+            # Keep the exact builtin cases explicit so unknown primitives
+            # cannot inherit the neutral codec's compatibility fallback.
+            return {"kind": "scalar", "type": "string"}
+        if kind == "primitive" and descriptor["name"] not in {
+            "String", "Int", "Float", "Bool", "Value"
+        }:
+            raise ValueError("unsupported primitive has no exact boundary contract")
+        return schema
+
+    def add(name: str, path: tuple[str, ...], contract: dict[str, Any]) -> None:
+        row = {"name": name, "path": list(path), "contract": contract}
+        previous = seen.get(name)
+        if previous is not None:
+            if previous != row:
+                raise ValueError("boundary projection has a conflicting wire name")
+            return
+        seen[name] = row
+        rows.append(row)
+
+    def flatten(
+        descriptor: Mapping[str, Any],
+        *,
+        wire_root: str,
+        path: tuple[str, ...],
+        relax_here: bool = False,
+    ) -> None:
+        kind = descriptor["kind"]
+        if kind == "record":
+            for field in descriptor["fields"]:
+                flatten(
+                    field["type"],
+                    wire_root=f"{wire_root}__{field['name']}",
+                    path=(*path, field["name"]),
+                )
+            return
+        if kind == "union":
+            variant_names = tuple(variant["name"] for variant in descriptor["variants"])
+            discr_name = f"{wire_root}__variant"
+            discr_contract = {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": list(variant_names),
+            }
+            if output:
+                discr_contract["projection"] = {
+                    "projection_class": "union_workflow_boundary",
+                    "return_kind": "union",
+                    "union_output_group": wire_root,
+                    "discriminant_output": discr_name,
+                    "field_role": "discriminant",
+                    "active_variants": list(variant_names),
+                }
+            add(discr_name, (*path, "variant"), discr_contract)
+
+            variant_rows: dict[str, list[tuple[str, tuple[str, ...], dict[str, Any]]]] = {}
+            for variant in descriptor["variants"]:
+                expanded: list[tuple[str, tuple[str, ...], dict[str, Any]]] = []
+                for field in variant["fields"]:
+                    leaves = _flatten_descriptor_leaves(
+                        field["type"],
+                        wire_root=f"{wire_root}__{field['name']}",
+                        path=(*path, field["name"]),
+                        contract_for=contract_for,
+                    )
+                    expanded.extend(leaves)
+                variant_rows[variant["name"]] = expanded
+
+            all_rows: dict[
+                str,
+                dict[str, tuple[tuple[str, ...], dict[str, Any]]],
+            ] = {}
+            for variant_name, leaves in variant_rows.items():
+                for leaf_name, leaf_path, leaf_contract in leaves:
+                    all_rows.setdefault(leaf_name, {})[variant_name] = (
+                        leaf_path,
+                        leaf_contract,
+                    )
+            first_variant_rows = variant_rows[variant_names[0]]
+            shared_names = {
+                leaf_name
+                for leaf_name, by_variant in all_rows.items()
+                if len(by_variant) == len(variant_names)
+                and all(
+                    row_path == next(iter(by_variant.values()))[0]
+                    and row_contract == next(iter(by_variant.values()))[1]
+                    for row_path, row_contract in by_variant.values()
+                )
+            }
+            ordered_names: list[str] = []
+            ordered_names.extend(
+                leaf_name
+                for leaf_name, _, _ in first_variant_rows
+                if leaf_name in shared_names
+            )
+            for variant_name in variant_names:
+                ordered_names.extend(
+                    leaf_name
+                    for leaf_name, _, _ in variant_rows[variant_name]
+                    if leaf_name not in shared_names and leaf_name not in ordered_names
+                )
+            for leaf_name in ordered_names:
+                by_variant = all_rows[leaf_name]
+                active = tuple(name for name in variant_names if name in by_variant)
+                sample_path, sample_contract = by_variant[active[0]]
+                if any(
+                    row_path != sample_path or row_contract != sample_contract
+                    for row_path, row_contract in by_variant.values()
+                ):
+                    raise ValueError("union boundary row is structurally ambiguous")
+                contract = deepcopy(sample_contract)
+                is_shared = len(active) == len(variant_names)
+                if (
+                    relax_here
+                    and output
+                    and not is_shared
+                    and contract.get("type") == "relpath"
+                    and contract.get("must_exist_target") is True
+                ):
+                    contract["must_exist_target"] = False
+                if output:
+                    contract["projection"] = {
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": wire_root,
+                        "discriminant_output": discr_name,
+                        "field_role": "shared" if is_shared else "variant",
+                        "active_variants": list(variant_names if is_shared else active),
+                    }
+                add(leaf_name, sample_path, contract)
+            return
+        add(f"{wire_root}", path, contract_for(descriptor))
+
+    for root_name, descriptor in roots:
+        validate_compiler_normalized_type_descriptor(descriptor)
+        relax_root_union = relax_inactive_union_paths or (
+            output and descriptor["kind"] == "union"
+        )
+        if descriptor["kind"] in {"record", "union"}:
+            flatten(
+                descriptor,
+                wire_root=root_name,
+                path=(root_name,),
+                relax_here=descriptor["kind"] == "union" and relax_root_union,
+            )
+        else:
+            add(root_name, (root_name,), contract_for(descriptor))
+    return rows
+
+
+def _flatten_descriptor_leaves(
+    descriptor: Mapping[str, Any],
+    *,
+    wire_root: str,
+    path: tuple[str, ...],
+    contract_for: Callable[[Mapping[str, Any]], dict[str, Any]],
+) -> list[tuple[str, tuple[str, ...], dict[str, Any]]]:
+    if descriptor["kind"] == "record":
+        return [
+            leaf
+            for field in descriptor["fields"]
+            for leaf in _flatten_descriptor_leaves(
+                field["type"],
+                wire_root=f"{wire_root}__{field['name']}",
+                path=(*path, field["name"]),
+                contract_for=contract_for,
+            )
+        ]
+    return [(wire_root, path, contract_for(descriptor))]
 
 
 def _transport_schema(descriptor: Mapping[str, Any]) -> dict[str, Any]:
@@ -906,6 +1134,7 @@ def _escape_pointer_token(value: str) -> str:
 
 
 __all__ = [
+    "COMPILER_PRIMITIVE_TYPE_NAMES",
     "MAX_TRANSPORT_VALUE_BYTES",
     "MAX_TRANSPORT_VALUE_DEPTH",
     "is_transportable_type_descriptor",

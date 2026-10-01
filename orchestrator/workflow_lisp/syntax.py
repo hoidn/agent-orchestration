@@ -17,6 +17,7 @@ import math
 import sys
 
 from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
+from .closed import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -69,7 +70,6 @@ PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
 HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
 GENERIC_UNION_MIN_TARGET_DSL_VERSION = "2.33"
 FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION = "2.34"
-EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION = "2.35"
 HUMAN_REPLY_TYPE_NAME = "HumanReply"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
