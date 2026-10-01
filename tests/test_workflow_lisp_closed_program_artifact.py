@@ -16,14 +16,20 @@ from orchestrator.workflow_lisp.closed.program import (
     strip_provenance,
 )
 from orchestrator.workflow_lisp.closed.check import validate
+from orchestrator.workflow_lisp.closed.names import canonical_callee_name_from_key
 from tests.test_workflow_lisp_closed_program_check import (
     BOOL,
     INT,
+    _boundary_tree,
     _command_result_tree,
     _effectful_call_tree,
     _halt,
     _lit,
     _name,
+    _provider_prompt_fills,
+    _provider_prompt_tree,
+    _record,
+    _run_ref_tree,
     _tree,
 )
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
@@ -40,6 +46,133 @@ def _closed(tree: dict) -> ClosedProgram:
         sites=tuple(tuple(row) for row in tree["sites"]),
         digest=program_digest(tree),
     )
+
+
+def _typed_call_tree() -> dict:
+    tree, call = _effectful_call_tree(effectful=False)
+    old_name = call["callee"]
+    definition = tree["definitions"].pop(old_name)
+    key = definition["key"]
+    key[8]["params"] = [deepcopy(INT)]
+    definition["key"] = key
+    definition["params"] = [["argument", deepcopy(INT)]]
+    callee = canonical_callee_name_from_key(key)
+    tree["definitions"][callee] = definition
+    call["callee"] = callee
+    call["args"] = [_lit(1)]
+    return tree
+
+
+def _list_map_tree() -> dict:
+    list_int = {"kind": "list", "item": deepcopy(INT)}
+    tree = _tree(
+        _halt(
+            {
+                "k": "list_map",
+                "binder": "item",
+                "source": _name("items"),
+                "body": _name("item"),
+                "type": deepcopy(list_int),
+            }
+        ),
+        result=list_int,
+    )
+    tree["params"] = [["items", deepcopy(list_int)]]
+    return tree
+
+
+def _nested_record_tree() -> dict:
+    nested = {
+        "kind": "record",
+        "name": "sample::Nested",
+        "fields": [{"name": "count", "type": deepcopy(INT)}],
+    }
+    outer = {
+        "kind": "record",
+        "name": "sample::Outer",
+        "fields": [{"name": "nested", "type": deepcopy(nested)}],
+    }
+    nested_value = {
+        "k": "record",
+        "type": deepcopy(nested),
+        "fields": [["count", _lit(1)]],
+    }
+    value = {
+        "k": "record",
+        "type": deepcopy(outer),
+        "fields": [["nested", nested_value]],
+    }
+    tree = _tree(_halt(value), result=outer)
+    tree["types"] = {nested["name"]: nested, outer["name"]: outer}
+    return tree
+
+
+def _wref_extern_configuration_tree() -> tuple[dict, str, str, str]:
+    producer_module = "cp/workflows/producer"
+    asset_base = logical_asset_base_for_module(producer_module)
+    configuration = canonical_configuration(
+        {},
+        origins={},
+        externs={
+            "reviewer": ProviderExtern(name="reviewer", provider_id="provider:review"),
+            "asset-prompt": PromptExtern(
+                name="asset-prompt", source_kind="asset_file", path="review.md"
+            ),
+            "input-prompt": PromptExtern(
+                name="input-prompt", source_kind="input_file", path="input.md"
+            ),
+        },
+        asset_base=asset_base,
+    )
+    configuration_digest = canonical_digest(configuration)
+    workflow_key = [
+        producer_module,
+        "workflow",
+        "nested",
+        [],
+        [],
+        [],
+        [],
+        [],
+        {"params": [], "result": deepcopy(INT)},
+    ]
+    reference = {
+        "target": workflow_key,
+        "externs": {
+            "providers": [
+                [name, deepcopy(row)]
+                for name, row in configuration["providers"].items()
+            ],
+            "prompts": [
+                [name, deepcopy(row)]
+                for name, row in configuration["prompts"].items()
+            ],
+        },
+    }
+    producer_key = [
+        producer_module,
+        "workflow",
+        "producer",
+        [],
+        [],
+        [["nested", reference]],
+        [],
+        [],
+        {"params": [], "result": deepcopy(INT)},
+    ]
+    producer_name = canonical_callee_name_from_key(producer_key)
+    tree = _tree(_halt(_lit(0)))
+    tree["configuration"]["imports"] = {configuration_digest: configuration}
+    tree["definitions"] = {
+        producer_name: {
+            "key": producer_key,
+            "params": [],
+            "result": deepcopy(INT),
+            "body": _halt(_lit(0)),
+            "configuration": configuration_digest,
+        }
+    }
+    return tree, configuration_digest, producer_name, asset_base
 
 
 def test_digest_omits_ast_provenance_but_keeps_it_in_the_artifact() -> None:
@@ -148,6 +281,205 @@ def test_artifact_round_trip_checks_the_tree_and_rebuilds_sites() -> None:
     assert readback.digest == program.digest
     assert tree == before
     assert canonical_digest({"unicode": "áλ"}).startswith("sha256:")
+
+
+def test_task5_boundary_fixtures_round_trip_through_artifact_readback() -> None:
+    fills, document, output = _provider_prompt_fills()
+    provider_tree, _provider = _provider_prompt_tree(
+        "Read the document; write {title} with score {score} to {output}", fills
+    )
+    provider_tree["types"].update(
+        {document["name"]: deepcopy(document), output["name"]: deepcopy(output)}
+    )
+
+    caller = _record("sample::Pair", [("x", INT), ("y", INT)])
+    boundary_tree, _call = _boundary_tree(
+        [("pair", caller)], [("pair__x", INT), ("pair__y", INT)], INT, INT
+    )
+    run_ref_tree, _effect, _config = _run_ref_tree()
+
+    for tree in (provider_tree, run_ref_tree, boundary_tree):
+        validate(tree)
+        program = _closed(tree)
+        readback = ClosedProgram.from_artifact(program.artifact())
+        assert readback.tree == tree
+        assert readback.sites == program.sites
+        assert readback.digest == program.digest
+
+
+def test_wref_extern_artifact_round_trip_matches_its_selected_producer_configuration() -> None:
+    tree, configuration_digest, producer_name, asset_base = (
+        _wref_extern_configuration_tree()
+    )
+    physical_sources = (
+        "/checkout-a/cp/workflows/producer.orc",
+        "/tmp/relocated/cp/workflows/producer.orc",
+    )
+    digests = []
+
+    for physical_source in physical_sources:
+        candidate = deepcopy(tree)
+        candidate["body"]["@"] = {
+            "span": f"{physical_source}:1:1",
+            "form": ["halt"],
+        }
+        validate(candidate)
+        program = _closed(candidate)
+        readback = ClosedProgram.from_artifact(program.artifact())
+        definition = readback.tree["definitions"][producer_name]
+        selected = readback.tree["configuration"]["imports"][
+            definition["configuration"]
+        ]
+        reference = definition["key"][5][0][1]
+
+        assert definition["configuration"] == configuration_digest
+        assert {
+            name: row for name, row in reference["externs"]["providers"]
+        } == selected["providers"]
+        assert {name: row for name, row in reference["externs"]["prompts"]} == selected[
+            "prompts"
+        ]
+        assert selected["providers"]["reviewer"] == {
+            "provider_id": "provider:review"
+        }
+        assert selected["prompts"]["asset-prompt"] == {
+            "source_kind": "asset_file",
+            "path": "review.md",
+            "asset_base": asset_base,
+        }
+        assert selected["prompts"]["input-prompt"] == {
+            "source_kind": "input_file",
+            "path": "input.md",
+        }
+        assert physical_source not in json.dumps(selected)
+        digests.append(readback.digest)
+
+    assert digests[0] == digests[1]
+
+
+@pytest.mark.parametrize(
+    ("surface", "category", "formal", "change", "rule"),
+    [
+        ("wref", "providers", "reviewer", "missing_provider_id", "definition_key"),
+        ("wref", "providers", "reviewer", "extra_provider_key", "definition_key"),
+        ("wref", "prompts", "asset-prompt", "missing_prompt_path", "definition_key"),
+        ("wref", "prompts", "asset-prompt", "missing_asset_base", "definition_key"),
+        ("wref", "prompts", "input-prompt", "input_has_asset_base", "definition_key"),
+        ("wref", "prompts", "input-prompt", "extra_prompt_key", "definition_key"),
+        ("wref", "prompts", "input-prompt", "invalid_prompt_source", "definition_key"),
+        (
+            "configuration",
+            "providers",
+            "reviewer",
+            "missing_provider_id",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "providers",
+            "reviewer",
+            "extra_provider_key",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "prompts",
+            "asset-prompt",
+            "missing_prompt_path",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "prompts",
+            "asset-prompt",
+            "missing_asset_base",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "prompts",
+            "input-prompt",
+            "input_has_asset_base",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "prompts",
+            "input-prompt",
+            "extra_prompt_key",
+            "configuration_scope",
+        ),
+        (
+            "configuration",
+            "prompts",
+            "input-prompt",
+            "invalid_prompt_source",
+            "configuration_scope",
+        ),
+    ],
+    ids=[
+        "wref-provider-missing-id",
+        "wref-provider-extra-key",
+        "wref-asset-prompt-missing-path",
+        "wref-asset-prompt-missing-base",
+        "wref-input-prompt-rejects-base",
+        "wref-prompt-extra-key",
+        "wref-prompt-invalid-source",
+        "config-provider-missing-id",
+        "config-provider-extra-key",
+        "config-asset-prompt-missing-path",
+        "config-asset-prompt-missing-base",
+        "config-input-prompt-rejects-base",
+        "config-prompt-extra-key",
+        "config-prompt-invalid-source",
+    ],
+)
+def test_readback_rejects_malformed_wref_and_configuration_extern_rows(
+    surface, category, formal, change, rule
+) -> None:
+    tree, configuration_digest, producer_name, _asset_base = (
+        _wref_extern_configuration_tree()
+    )
+    validate(tree)
+    if surface == "wref":
+        producer_key = tree["definitions"][producer_name]["key"]
+        reference = producer_key[5][0][1]
+        row = next(row for name, row in reference["externs"][category] if name == formal)
+    else:
+        selected = tree["configuration"]["imports"][configuration_digest]
+        row = selected[category][formal]
+
+    if change == "missing_provider_id":
+        row.pop("provider_id")
+    elif change == "extra_provider_key":
+        row["alias"] = "unexpected"
+    elif change == "missing_prompt_path":
+        row.pop("path")
+    elif change == "missing_asset_base":
+        row.pop("asset_base")
+    elif change == "input_has_asset_base":
+        row["asset_base"] = "pkg/workflows"
+    elif change == "extra_prompt_key":
+        row["template"] = "unexpected"
+    else:
+        assert change == "invalid_prompt_source"
+        row["source_kind"] = "remote_file"
+
+    if surface == "wref":
+        definition = tree["definitions"].pop(producer_name)
+        producer_name = canonical_callee_name_from_key(definition["key"])
+        tree["definitions"][producer_name] = definition
+    else:
+        imports = tree["configuration"]["imports"]
+        selected = imports.pop(configuration_digest)
+        configuration_digest = canonical_digest(selected)
+        imports[configuration_digest] = selected
+        tree["definitions"][producer_name]["configuration"] = configuration_digest
+
+    with pytest.raises(ClosedProgramInvalid) as excinfo:
+        ClosedProgram.from_artifact(_closed(tree).artifact())
+
+    assert (excinfo.value.code, excinfo.value.rule) == ("closed_program_invalid", rule)
 
 
 def test_artifact_round_trips_unequal_producer_scopes_and_deduplicates_equal_rows() -> None:
@@ -334,13 +666,41 @@ def test_readback_refuses_unencodable_unicode_instead_of_leaking_encode_errors()
             lambda tree: tree.__setitem__("result", deepcopy(STRING)),
             "entry_result",
         ),
+        (
+            _list_map_tree,
+            lambda tree: tree["body"]["value"]["type"].__setitem__(
+                "item", deepcopy(STRING)
+            ),
+            "type_mismatch",
+        ),
+        (
+            _nested_record_tree,
+            lambda tree: tree["body"]["value"]["fields"][0][1]["fields"][0].__setitem__(
+                1, _lit("wrong type", STRING)
+            ),
+            "type_mismatch",
+        ),
+        (
+            _typed_call_tree,
+            lambda tree: tree["body"]["value"].__setitem__("type", deepcopy(STRING)),
+            "call_signature",
+        ),
+        (
+            _typed_call_tree,
+            lambda tree: tree["body"]["value"]["args"].__setitem__(
+                0, _lit("wrong type", STRING)
+            ),
+            "call_signature",
+        ),
     ],
 )
 def test_readback_rejects_non_operator_type_tampering(builder, mutation, rule) -> None:
     tree = builder()
+    validate(tree)
     mutation(tree)
+    artifact = _closed(tree).artifact()
 
     with pytest.raises(ClosedProgramInvalid) as excinfo:
-        ClosedProgram.from_artifact(json.dumps(tree))
+        ClosedProgram.from_artifact(artifact)
 
     assert (excinfo.value.code, excinfo.value.rule) == ("closed_program_invalid", rule)
