@@ -431,15 +431,22 @@ Rules of elaboration into this form:
   Compiler-generated loops retain their construction order. This transient
   fact does not enter legacy AST serialization, repr, or callable identity;
   only the closed route changes evaluation behavior.
-  When condition normalization factors the operands into binding prefixes,
-  retain a permutation of the owning `let*`'s own rows. Compose complete
-  child-prefix orders with row offsets while keeping legacy storage order;
-  preserve the owner's permutation when normalization replaces its row
-  values again. Both the ordinary loop normalizer and the loop-body
-  composite normalizer carry this fact. Closed elaboration consumes it at
-  the lexical owner before emitting effects. It is transient like the loop
-  keyword order, including for independently compiled older typed bodies;
-  no source reopening, name matching, or descendant search recovers it.
+  When condition normalization factors operands into binding prefixes,
+  retain its already-checked full semantic input on the generated `let*`.
+  Before closed elaboration scans, restore that input and use the existing
+  normalizer with an explicit closed policy: order head prefixes physically
+  by the parser fact and keep body/exhaustion prefixes inside their loop.
+  Restore nested retained inputs inside a condition before normalizing that
+  condition once; select branch/result inputs independently. Ordinary
+  operands, including pure loops under operators, use this same normalizer.
+  The retained input belongs to the wrapper's incoming lexical scope;
+  semantic substitution, cloning and constructor-type resolution must reach
+  it there. Populate it for independently compiled older typed bodies too,
+  without reopening source. Global ordinary traversal still sees only the
+  legacy view. The alternate is transient, excluded from repr, equality,
+  hash, JSON and callable identity, and consumed only by the closed route.
+  Legacy normalization and consumption stay unchanged. No local-row
+  permutation or name/span-based scope recovery is needed.
 
 ### 4.4 Values the run supplies
 

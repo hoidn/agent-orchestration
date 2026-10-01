@@ -1471,9 +1471,9 @@ When Phase 7 retires the flat route, the two build functions merge.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/wcc/model.py` (`WccIdentityFactory`, line 73)
-- Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser; `LetStarExpr`'s local binding order), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), `orchestrator/workflow_lisp/build_manifest_io.py` and `orchestrator/workflow_lisp/procedure_typecheck.py` (transient-field omission from JSON and legacy semantic identity).
-- Modify: `orchestrator/workflow_lisp/conditionals.py` (binding-prefix order composition and both loop factoring owners), `orchestrator/workflow_lisp/typecheck_proofs.py` (if/cond wrapper transport), `orchestrator/workflow_lisp/typecheck_dispatch.py` (preserve order on reconstructed lets).
-- Inspect, modify only if an actual row-changing seam requires it: `orchestrator/workflow_lisp/functions.py`, `orchestrator/workflow_lisp/expression_traversal.py`, `orchestrator/workflow_lisp/wcc/use_site_scope.py` (cloning and renaming preserve owner-local row indexes).
+- Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser; `LetStarExpr`'s retained condition input), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), `orchestrator/workflow_lisp/build_manifest_io.py` and `orchestrator/workflow_lisp/procedure_typecheck.py` (transient-field omission from JSON and legacy semantic identity).
+- Modify: `orchestrator/workflow_lisp/conditionals.py` (closed condition selection and shared loop reconstruction), `orchestrator/workflow_lisp/typecheck_proofs.py` (if/cond wrapper transport), `orchestrator/workflow_lisp/typecheck_dispatch.py` (preserve checked inputs on reconstructed lets).
+- Modify: `orchestrator/workflow_lisp/functions.py`, `orchestrator/workflow_lisp/expression_traversal.py`, `orchestrator/workflow_lisp/wcc/use_site_scope.py` (semantic transport of retained inputs in the incoming scope, including copied constructor types).
 - Inspect, modify only if necessary: `orchestrator/workflow_lisp/wcc/anf.py` (the gated normalization path)
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`: `elaborate_typed_workflow_body` (line 219), the `DoneExpr` branch of `_elaborate_expr_to_body` (line 1662), `_retarget_loop_continue` (line 2529) and its call at line 2465, the `PhaseTargetExpr` branch of `_elaborate_expr_to_value` (line 2736), `_prebind_effect_argument_matches` (line 4077)
 - Test: `tests/test_workflow_lisp_closed_program_elaboration.py`
@@ -1550,40 +1550,69 @@ report iteration 3, D1 and D2.
   `procedure_typecheck._semantic_identity` traversal; do not create a second
   serializer or hash algorithm.
   Condition normalization may already have factored these operands before
-  WCC sees the loop. Retain `LetStarExpr.binding_evaluation_order` as a
-  transient tuple of local binding-row indexes: empty means stored order;
-  otherwise it must be a complete permutation. Within `conditionals.py`,
-  pass each prefix as its stored rows and explicit complete order (identity
-  included). One private composition helper concatenates rows unchanged
-  and offsets each child permutation by the preceding stored row counts.
-  Ordinary composition uses component order unchanged; only max/state
-  group composition uses the parser-retained keyword order. Do not sort
-  bindings by names or spans or scan descendants to recover their owner.
-  `_normalize_loop_recur` and the `LoopRecurExpr` case of
-  `_normalize_loop_body_composite` both compose the complete head groups;
-  body/exhaustion wrappers remain local. `_wrap_bindings` writes a
-  nonidentity permutation on its actual `LetStarExpr` owner. Transport the
-  prefix order through all existing normalization helpers,
-  `NormalizedCondition`, `CondClauseRewrite`, the if/ordinary-cond wrappers
-  and the effectful exhaustive terminal-cond forced-test fold. Existing
-  `_normalize_let_value`, `_normalize_loop_body_let`, and
-  `typecheck_dispatch` reconstructions keep the owner's permutation while
-  replacing each row's value at the same position; newly generated child
-  prefixes are wrapped locally. Existing count-preserving `replace`
-  cloning/renaming needs no extra protocol. A row-changing transformation
-  must explicitly remap its local permutation.
-  `_elaborate_let_star` consumes only its own row permutation, before WCC
-  emission and only when `scope.closed_program`; flag-off consumes stored
-  rows verbatim. Keep global child traversal/storage order unchanged. Each
-  loop head operand was checked in the same outer scope, so no generated
-  private binding in one operand is visible to the other. Preserve each
-  operand's internal dependencies; append the loop-result row after both.
-  Populate these transient facts at every target that already normalizes
-  conditions, so original independently compiled old typed snapshots retain
-  them without reopening source. Mark both fields `repr=False`,
-  `compare=False`, `hash=False`, with unconditional JSON and legacy semantic
-  identity omission. An invalid internal permutation is a compiler
-  invariant failure, never a new source admission rule or release gap.
+  WCC sees the loop and moved a nested loop's body prefix outside its owner.
+  Retain one transient `LetStarExpr.condition_normalization_input: ExprNode | None`
+  containing the already-checked full expression replaced by that generated
+  condition wrapper, in its original incoming scope. Ordinary lets leave it
+  `None`. Mark it `repr=False`, `compare=False`, `hash=False`, with existing
+  unconditional JSON and legacy semantic-identity metadata omission.
+  Populate at every already-normalizing target, including independently
+  compiled older producers; never recover it by source lookup or rechecking.
+
+  Producers are finite: `typecheck_if_expr` retains the corresponding If
+  with typed condition, typed arms and existing proof contexts. Ordinary
+  `cond` carries its original typed condition in `CondClauseRewrite` and
+  retains the corresponding If with typed result/continuation. Exhaustive
+  effectful terminal `cond` retains a semantic LetStar with exactly one fresh
+  unused binding to the full typed Bool condition and the typed final
+  result; first apply the existing forced-terminal-test fold using its
+  terminal facts. Its retained LetStar has no alternate of its own.
+  Legacy rows, folds and pure-terminal erasure remain unchanged.
+
+  Replace the local binding-permutation/private-prefix machinery with
+  ordinary tuple prefixes. Thread keyword-only `closed_program=False`
+  through the existing condition normalizers. Share the existing loop
+  reconstruction in a helper returning head rows and the rebuilt loop:
+  normalize max/state at their original structural paths, order their row
+  groups by `operand_evaluation_order` only under the closed policy, and
+  wrap body/exhaustion rows inside their owners. The ordinary loop-value
+  normalizer then appends its existing once-only result binding. Under the
+  closed policy, `_normalize_loop_body` handles a nested LoopRecur with
+  that helper before generic composite traversal, retaining its control
+  spine. The default keeps original legacy behavior. No effect predicate
+  decides whether an ordinary operand needs normalization: even pure loops
+  under `not` require the existing operand normalizer.
+
+  At the start of `elaborate_typed_workflow_body`, before every site, return,
+  capture or hygiene scan, select the closed view on a local TypedExpr copy
+  while preserving its type/effect evidence. Nodes without an alternate
+  recursively select ordinary children without normalizing unrelated nodes.
+  At an alternate If, restore all nested alternates inside its condition
+  without normalizing them, then run the existing `_normalize_operand`
+  once with `closed_program=True`. Select its branches independently,
+  rebuild the If with its unchanged proof contexts and wrap the returned
+  rows. For the terminal-cond alternate, restore/normalize its one condition
+  value in the same way, place returned rows before its unused binding and
+  independently select its result. Never revisit freshly generated rows.
+  Unexpected alternate roots/row counts are compiler invariant failures.
+  Selection is idempotent; generated wrappers have no alternate. Flag-off
+  elaboration consumes the stored legacy view without selecting anything.
+
+  Semantic transforms must separately visit the alternate using the
+  wrapper's incoming environment, not names introduced by legacy prefixes:
+  `map_expr`, function expansion, resolved-inline rewriting, cloning,
+  constructor-type resolution, expanded-condition folding, forced-test
+  folding, and local/bound-procedure specialization. In particular,
+  `_with_resolved_constructor_types` explicitly rewrites the alternate with
+  its existing resolver; resolved-inline LetStar rewriting uses incoming
+  procedure/workflow reference maps. Normalizer/typechecker LetStar
+  reconstructions preserve the checked input without a second check.
+  `_unshadow_let_star` processes it with incoming live names, clears it on
+  temporary sliced rest nodes and reattaches the independently processed
+  result. Global `iter_child_exprs`/`walk_expr` remain one-view; generic
+  read-only dataclass collectors skip the alternate to avoid duplicate
+  legacy observations. Generic semantic rewrites still visit it. No new
+  operator-specific WCC path, source admission rule or release gap is added.
   Enable the existing `_PRESERVE_BOUND_PROC_CAPTURES` mechanism when
   `closed_program=True`, so ordinary `bind-proc` calls retain lexical capture
   aliases and owner/argument capture rows for Task 4. Its existing live-provider
@@ -1648,14 +1677,21 @@ order disagrees with the operands' source spans. Check that loop operand
 effects occur once in that order, and that the transient field changes
 neither legacy AST repr/JSON nor the flag-off route. Include an older
 imported loop and the compiler-generated loop's retained order.
-Cover both orders in `if` and `cond`, repeated normalization in nested
-conditions, the exhaustive effectful terminal-cond fold, and a loop inside
-another condition loop's `done` value (the second factoring owner). A nested
-head prefix checks offset composition; an unchosen arm and shadowed helper
-clone check locality and scope. Import an independently compiled older
-producer's retained typed snapshot after deleting its source. Verify
-populated metadata leaves legacy repr, JSON and local semantic identity
-unchanged; these facts must not depend on the consuming entry's target.
+Cover both orders in `if` and `cond`, repeated nested retained conditions,
+exhaustive effectful terminal-cond folding, and runtime/literal-zero nested
+loops. Assert that inner body effects remain under both loop joins, head
+calls occur once in keyword order, and an unchosen arm remains lazy. Cover
+pure/effectful `not(loop)`, an ordinary equality operand and an admitted pure
+aggregate operand. Verify actual delayed selection restores nested inputs
+before one normalization, all names resolve, and selection is idempotent.
+Check helper/resolved-inline/local-procedure transport, shadowed captures,
+provenance and a copied cross-module constructor's resolved type after
+producer source deletion. Import an independently compiled, reachable 2.34
+snapshot through its original validated bundle. Its old-admitted effectful
+seed/literal-max case proves reachability and seed locality; the legacy
+route refuses a procedure-call max, so use 2.35 cases for two-effect order.
+Populated metadata must leave legacy repr/JSON/semantic identity unchanged
+and must not duplicate ordinary collector observations.
 
 - [ ] **Step 2: Run; expected failures**
 
@@ -1675,7 +1711,9 @@ The new module; then `tests/test_workflow_lisp_wcc_m4.py`,
 `tests/test_workflow_lisp_wcc_m1.py` (the ANF invariant tests),
 `tests/test_workflow_lisp_improve_stdlib.py`,
 `tests/test_workflow_lisp_guide_programs.py` (row 16 of the drafting guide
-still meets `compiler_defect` at 2.33 and 2.34).
+still meets `compiler_defect` at 2.33 and 2.34), plus
+`tests/test_workflow_lisp_strict_boolean_control_flow.py` and
+`tests/test_workflow_lisp_loop_recur.py` for the shared normalizer.
 
 - [ ] **Step 5: Compatibility evidence**
 
@@ -1700,9 +1738,9 @@ Commit message: `feat: elaborate effectful arguments, done values, continue targ
 **What this makes harder later:** `path/join` is an operator the catalog does
 not know; if Phase 3 wants to evaluate it through the catalog, the catalog
 gains a node kind then. Two elaboration behaviours now live behind one flag;
-Phase 7 removes the flag with the flat route. Condition prefix composition
-must retain both legacy storage order and closed evaluation order until
-that retirement.
+Phase 7 removes the flag with the flat route. Until that retirement,
+semantic expression rewrites must transport the retained condition input
+in its incoming scope while ordinary legacy traversal stays one-view.
 
 ---
 
