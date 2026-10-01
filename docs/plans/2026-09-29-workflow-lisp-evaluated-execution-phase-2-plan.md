@@ -3428,6 +3428,9 @@ lexical names from authored identity labels.
 
 ### Task 8: Effect Nodes: Providers, Run References, And The Gaps
 
+**Completed:** implementation `2a13965f` (including the reviewed pure-capture, nested generated-contract and provider-label repairs). Formal and quality reviews both PASS on that exact commit. Parent verification: 39 public groups PASS, 88 legacy CLI artifact pairs equal, 67 fixed-identity capsule pairs equal; actual-pin differences verified separately. Owned module: 31 tests; command/build consumers: 35; checker: 156; names: 22; provider contracts: 23. Detailed reports and immutable receipts are in `.superpowers/sdd/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan/`. This completes the effect compiler, not public CLI compilation or Phase 3 runtime.
+
+
 Finalize [loop-carrier](#generated-loop-state-carrier-identities) applied arguments together with fields and type-table uses through their retained actual producers. Their head stays stable because it hashes D rather than concrete generated names. Add public build/read-back checks with same-S distinct producers, including phantom arguments, without a new registry or serialized origin field.
 
 **Files:**
@@ -3582,7 +3585,7 @@ execution facts A.2 and A.4.
     form; this task adds a test per form.
 - Consumed by: Task 4's `binding()` (unchanged), Task 9, Task 10.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_a_provider_node_carries_prompt_inputs_policy_dependencies_and_contract(tmp_path) -> None:
@@ -3671,11 +3674,11 @@ def test_a_form_outside_the_release_is_a_gap_at_its_own_location(tmp_path, form)
 def test_a_provider_with_context_capture_and_a_bundle_run_ref_are_gaps(tmp_path) -> None:
 ```
 
-- [ ] **Step 2: Run; expected failures** `closed_program_gap` with
+- [x] **Step 2: Run; expected failures** `closed_program_gap` with
 `form=provider-result` and `form=run-ref` where nodes are expected; the
 gap tests pass already (Task 4 raised them) and stay as the record.
 
-- [ ] **Step 3: Implement** the existing effect dispatch, with helpers
+- [x] **Step 3: Implement** the existing effect dispatch, with helpers
 `_provider`, `_prompt`, `_inputs`, `_dependencies`, `_run_ref` as needed.
 Task 8 owns producer-scoped run-ref config/descriptors finalization after Task 5 assigns
 sites; keep this helper in `effects.py` and insert its call in
@@ -3688,10 +3691,10 @@ complete provider-producing X4 build check here. Re-derive generated-type-
 bearing command/provider result contracts at this same finalization boundary
 from their retained TypeRef and producer context, before validation.
 
-- [ ] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
+- [x] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
 behaviour for commands).
 
-- [ ] **Step 5: Compatibility evidence:** Task 8 also changes the shared
+- [x] **Step 5: Compatibility evidence:** Task 8 also changes the shared
 `closed/names.py` type-unification consumer and the optional nested descriptor
 projection in `contracts.py`. Run the focused canonical-name,
 PRef/let-proc, hygiene/normalizer, and old-target compatibility selectors;
@@ -3709,7 +3712,7 @@ the separate `dependencies` channel. The source frontend continues to reject
 fragment prompts that redeclare explicit prompt dependencies; this task does
 not widen source syntax.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 `git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/values.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/hygiene.py orchestrator/workflow_lisp/wcc/model.py tests/test_workflow_lisp_closed_program_effects.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
