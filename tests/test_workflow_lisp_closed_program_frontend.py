@@ -977,6 +977,47 @@ def test_local_definition_keys_ignore_paths_positions_and_pure_bindings(tmp_path
     assert {key[2] for key in first_keys} == {0, 1}
 
 
+def test_local_definition_specializations_keep_base_capture_and_declaration_identity(
+    tmp_path: Path,
+) -> None:
+    entry = _install(tmp_path, "local_proc_specializations")
+    typed = compile_typed_program(
+        entry,
+        entry_workflow="run",
+        source_roots=(tmp_path,),
+        command_boundaries={},
+    )
+
+    local_procedures = tuple(
+        procedure
+        for procedure in typed.procedures.values()
+        if procedure.definition.generated_local_procedure is not None
+    )
+    bases = {
+        procedure.definition.name: procedure
+        for procedure in local_procedures
+        if procedure.specialization is None
+    }
+    specializations = tuple(
+        procedure for procedure in local_procedures if procedure.specialization is not None
+    )
+
+    assert len(bases) == len(specializations) == 2
+    assert {
+        key[2]
+        for name, key in typed.local_definition_keys.items()
+        if name in bases
+    } == {0, 1}
+    for specialization in specializations:
+        base_name = specialization.specialization.base_name
+        base = bases[base_name]
+        assert base.definition.generated_local_procedure.capture_names == ("v",)
+        assert typed.local_definition_keys[specialization.definition.name] == (
+            typed.local_definition_keys[base_name]
+        )
+        assert typed.local_definition_keys[base_name][3] == (("v", "Int"),)
+
+
 def test_macro_expansion_local_identity_is_scoped_to_its_callable(tmp_path: Path) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")

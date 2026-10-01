@@ -230,10 +230,16 @@ def local_definition_keys_for_module(
     for form in expanded_syntax.forms:
         walk(syntax_node_datum(form))
 
-    local_keys: dict[str, object] = {}
+    procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    local_keys_by_base: dict[str, object] = {}
     for procedure in typed_procedures:
         metadata = procedure.definition.generated_local_procedure
-        if not isinstance(metadata, GeneratedLocalProcedure):
+        if (
+            not isinstance(metadata, GeneratedLocalProcedure)
+            or procedure.specialization is not None
+        ):
             continue
         declaration_key = (
             span_key(metadata.origin_span),
@@ -260,7 +266,7 @@ def local_definition_keys_for_module(
             (parameter.name, parameter.type_name)
             for parameter in procedure.definition.params[:capture_count]
         )
-        local_keys[procedure.definition.name] = (
+        local_keys_by_base[procedure.definition.name] = (
             canonical_owner,
             local_name,
             ordinal,
@@ -268,6 +274,42 @@ def local_definition_keys_for_module(
             metadata.residual_params,
             metadata.return_type_name,
         )
+
+    local_keys: dict[str, object] = {}
+    for procedure in typed_procedures:
+        specialization = procedure.specialization
+        base_name = (
+            specialization.base_name
+            if specialization is not None
+            else procedure.definition.name
+        )
+        base_procedure = procedures_by_name.get(base_name)
+        base_metadata = (
+            base_procedure.definition.generated_local_procedure
+            if base_procedure is not None
+            else None
+        )
+        metadata = procedure.definition.generated_local_procedure
+        if not isinstance(base_metadata, GeneratedLocalProcedure):
+            if isinstance(metadata, GeneratedLocalProcedure):
+                raise RuntimeError(
+                    "generated local procedure has no matching base procedure"
+                )
+            continue
+        if base_name not in local_keys_by_base:
+            raise RuntimeError(
+                "generated local procedure has no matching expanded declaration"
+            )
+        if isinstance(metadata, GeneratedLocalProcedure) and (
+            metadata.generated_name != base_metadata.generated_name
+            or metadata.owner_callable_name != base_metadata.owner_callable_name
+            or metadata.authored_local_name != base_metadata.authored_local_name
+            or span_key(metadata.origin_span) != span_key(base_metadata.origin_span)
+        ):
+            raise RuntimeError(
+                "generated local procedure specialization has a mismatched base"
+            )
+        local_keys[procedure.definition.name] = local_keys_by_base[base_name]
     return local_keys
 
 
