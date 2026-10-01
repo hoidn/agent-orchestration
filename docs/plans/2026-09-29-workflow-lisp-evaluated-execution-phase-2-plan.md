@@ -2932,6 +2932,19 @@ carry `representation` (§8.4): Phase 3 reads it from the artifact.
 
 ### Task 4: The Builder: Bodies, Values, The Table, X1 To X4, Command Nodes
 
+**Completed 2026-10-01:** implementation `c0b34b66`, corrected by `59e2a81b`
+and `0760be2b`; formal and quality re-reviews passed on the final commit.
+Fresh verification: 35 owned tests, 268 closed consumers, 70 selected legacy
+checks and 229 WCC/elaboration checks; 23 independent public probe groups
+include 20 computed/reference capture cases. All 88 legacy CLI artifact/build-key
+pairs and all 67 capsule pairs with a fixed identity input are byte-identical.
+With the real package pins, 55 capsule pairs match and 12 run-reference
+artifacts change only in the compiler pin and derived identities, inspected
+through JSON, state layouts and loaded pickle graphs. Provider/run-reference
+effect translation remains Task 8; this completion does not claim runtime
+execution or resume support.
+
+
 Consume the retained [loop-carrier families](#generated-loop-state-carrier-identities) and actual producer links. Register every concrete carrier and field nominal, including phantom applied arguments; existing first-native-representative and checked generated-view rules apply recursively.
 
 **Files:**
@@ -3227,7 +3240,7 @@ must not inherit a source binding's label merely because they copy its
 diagnostic metadata. The existing capture-safe spelling algorithm and
 flag-off behavior stay intact.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Through `build(root, sources)` of the helpers module (`install`,
 `compile_typed_program`, `build_closed_program`):
@@ -3368,10 +3381,10 @@ def test_a_provider_bundle_path_is_a_result_path_typed_under_the_run_root(tmp_pa
     # Task 8 owns the complete provider-producing program build.
 ```
 
-- [ ] **Step 2: Run; expected failures** `ImportError`, then gaps and
+- [x] **Step 2: Run; expected failures** `ImportError`, then gaps and
 `ValueError`s as each translation is missing.
 
-- [ ] **Step 3: Implement** in this order: the
+- [x] **Step 3: Implement** in this order: the
 [origin carriage](#binding-origin-retention-and-conversion) above, then `Definition` and `Builder.body`
 for `let`/`halt`/`if`/`case`/`join`/`jump`/`loop`/`continue`/`done`;
 `values.py` for atoms, ops, select, then each opaque kind; `effects.py`
@@ -3380,10 +3393,10 @@ for `let`/`halt`/`if`/`case`/`join`/`jump`/`loop`/`continue`/`done`;
 line; canonical type/config facts, sites, validation and digest at the end. Keep the existing responsibilities small;
 add no modules solely to meet a line estimate.
 
-- [ ] **Step 4: Run; expected pass.** Then Tasks 5, 6, 7 modules (they are
+- [x] **Step 4: Run; expected pass.** Then Tasks 5, 6, 7 modules (they are
 unchanged but their consumers are new).
 
-- [ ] **Step 5: Compatibility evidence**
+- [x] **Step 5: Compatibility evidence**
 
 Build the four programs of the table; require byte-identical output after
 both the gated `typecheck_effects.py` change and transient origin retention.
@@ -3393,7 +3406,7 @@ fields. The new public builds must pass artifact read-back, lexical scope
 checks and perform/site bijection. These compile checks do not establish
 Phase 3 runtime execution/resume behavior.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 `git add -- orchestrator/workflow_lisp/closed orchestrator/workflow_lisp/typecheck_effects.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/conditionals.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_structural_values.py orchestrator/workflow_lisp/workflows.py orchestrator/workflow_lisp/procedures.py orchestrator/workflow_lisp/procedure_specialization.py orchestrator/workflow_lisp/procedure_refs.py orchestrator/workflow_lisp/procedure_typecheck.py orchestrator/workflow_lisp/typecheck_context.py orchestrator/workflow_lisp/typecheck_loop_recur.py orchestrator/workflow_lisp/typecheck_proofs.py orchestrator/workflow_lisp/expression_traversal.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/wcc/model.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/anf.py tests/workflow_lisp_closed_program_helpers.py tests/test_workflow_lisp_closed_program_build.py tests/test_workflow_lisp_closed_program_context.py tests/test_workflow_lisp_closed_program_check.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
