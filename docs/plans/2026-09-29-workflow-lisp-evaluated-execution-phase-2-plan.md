@@ -3740,7 +3740,7 @@ shared/variant placement before checked-tree validation.
 - Modify: `orchestrator/workflow_lisp/build.py` (share compiled-import manifest entry validation; keep legacy loader/initializer behavior)
 - Modify: `orchestrator/workflow_lisp/closed/target.py` (optional source-read trace forwarding through the existing target reader)
 - Modify: `orchestrator/workflow_lisp/closed/frontend.py` (accept optional entry selection and preserve the shared unique-export refusal)
-- Modify: `orchestrator/workflow_lisp/closed/build.py` only if needed to expose the existing builder's canonical three-map projection for build-key contributions
+- Modify: `orchestrator/workflow_lisp/closed/build.py` to expose the existing builder's canonical three-map projection for build-key contributions and select exact source modules before callable owners
 - Modify: `orchestrator/cli/commands/compile.py` (`compile_workflow`, before `normalize_frontend_artifact_exports` at line 63)
 - Modify: `docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md` (this Task 9 seam amendment)
 - Modify: `tests/test_workflow_lisp_cli.py` only to keep the existing I/O-error monkeypatch compatible with optional trace forwarding
@@ -3770,6 +3770,7 @@ def build_closed_program_bundle(request: FrontendBuildRequest) -> ClosedProgramB
 def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: Mapping[str, str],
                      provider_externs: Mapping[str, str], prompt_externs: Mapping[str, object],
                      command_boundary_manifest: Mapping[str, object],
+                     source_module_configurations: Mapping[str, object],
                      imported_programs: Mapping[str, object]) -> str
 ```
 
@@ -3808,10 +3809,20 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   without `_require_runnable_in_memory_build` or a fake bundle. Task 2's shared
   export selector handles raw/canonical requested names and unique exports
   when omitted. The legacy loader's return type remains unchanged.
+- The entry's existing canonical three-map configuration remains in its
+  existing key fields. `source_module_configurations` maps each logical module
+  in the same retained snapshot, except its entry module, to that module's
+  canonical `{commands, providers, prompts}` projection. Derive the map only
+  from `source_file_digests`, using `Builder.configuration_for` for each exact
+  module name; exact snapshot-module selection must precede callable-owner
+  resolution in that owner so a bare module name cannot fall back to the entry.
+  Include the map as an explicit canonical key field, without duplicating the
+  entry triple.
 - `closed_build_key.imported_programs` contains canonical JSON contributions
   by supplied binding: selected canonical entry, producer target, original
-  `source_file_digests`, canonical three-map configuration, and recursively
-  retained import contributions. Reuse Task 7's projection; no old bundle
+  `source_file_digests`, canonical three-map entry configuration,
+  `source_module_configurations` for its non-entry modules, and recursively
+  retained import contributions with the same shape. Reuse Task 7's projection; no old bundle
   fingerprint, incidental source/install path or raw manifest formatting enters this
   semantic contribution. Independently compiled producer bytes remain in
   producer trace evidence; never inject hashes into the consumer's trace or
@@ -3823,8 +3834,10 @@ def closed_build_key(*, target: str, entry_workflow: str, source_file_digests: M
   normal located `entry_workflow_required` diagnostic. Explicit moduleless
   selections continue to accept raw and canonical names.
 - Build-key configuration contributions use Task 7's `Builder.configuration_for`
-  projection (including all supplied commands and only used injected commands);
-  any extraction must preserve that caller and its exact behavior.
+  projection (including all supplied commands and only used injected commands)
+  for the entry and every retained source module. Exact source-module selection
+  is added to that existing owner while callable-owner resolution and all
+  other callers retain their behavior.
 - `compile_workflow`: after the `.orc` check, `target = entry_target_dsl_version(workflow_path)`;
   preserve the existing missing-source diagnostic
   `workflow_lisp_cli_input_missing` and old-target validation precedence:

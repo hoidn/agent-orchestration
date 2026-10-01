@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -125,17 +126,158 @@ def _write_import_workspace(root: Path, producer_target: str) -> dict[str, Path]
     return files
 
 
+def _write_transitive_import_workspace(
+    root: Path,
+    *,
+    selected_entry: str = "selected-run",
+) -> dict[str, Path]:
+    files = _write_workspace(root)
+    source = root / "src" / "consumer" / "entry.orc"
+    source.parent.mkdir(parents=True)
+    source.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule consumer/entry)
+  (export run)
+  (defworkflow run () -> Int (call selected-run)))
+""")
+    producer = root / "src" / "producer" / "entry.orc"
+    producer.parent.mkdir(parents=True)
+    producer.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule producer/entry)
+  (import producer/helper :only (increment))
+  (export selected-run alternate-run)
+  (defworkflow selected-run () -> Int (increment 6))
+  (defworkflow alternate-run () -> Int (increment 8)))
+""")
+    helper = root / "src" / "producer" / "helper.orc"
+    helper.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule producer/helper)
+  (export increment)
+  (defproc increment ((value Int)) -> Int :effects () :lowering inline (+ value 1)))
+""")
+    old_producer = root / "src" / "unused" / "entry.orc"
+    old_producer.parent.mkdir(parents=True)
+    old_producer.write_text("""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.34")
+  (defmodule unused/entry)
+  (export run)
+  (defworkflow run () -> Int 9))
+""")
+    imports = files["imports"] = root / "imports.json"
+    imports.write_text(json.dumps({
+        "selected-run": {
+            "kind": "compiled",
+            "path": "src/producer/entry.orc",
+            "entry_workflow": selected_entry,
+        },
+        "unused-run": {
+            "kind": "compiled",
+            "path": "src/unused/entry.orc",
+            "entry_workflow": "run",
+        },
+    }))
+    files.update({
+        "source": source,
+        "producer": producer,
+        "helper": helper,
+        "unused_producer": old_producer,
+    })
+    return files
+
+
+def _write_injected_source_graph(root: Path) -> dict[str, Path]:
+    source_root = root / "src"
+    source_root.mkdir(parents=True)
+    helper = source_root / "helper.orc"
+    helper.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule helper)
+  (export ReviewFindings ReviewFindingsJsonPath fetch)
+  (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts" :must-exist true)
+  (defrecord ReviewFindings (schema_version String) (items_path String))
+  (defproc fetch ((items ReviewFindingsJsonPath)) -> ReviewFindings
+    :effects ((uses-command validate_review_findings_v1))
+    :lowering inline
+    (command-result validate_review_findings_v1
+      :adapter validate_review_findings_v1
+      :inputs ((items_path items))
+      :returns ReviewFindings)))
+""")
+    source = source_root / "entry.orc"
+    source.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule entry)
+  (import helper :only (ReviewFindings ReviewFindingsJsonPath fetch))
+  (export run)
+  (defworkflow run ((items ReviewFindingsJsonPath)) -> ReviewFindings (fetch items)))
+""")
+    return {"workspace": root, "source_root": source_root, "source": source, "helper": helper}
+
+
+def _write_injected_import_workspace(root: Path) -> dict[str, Path]:
+    files = _write_transitive_import_workspace(root)
+    helper = files["helper"]
+    helper.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule producer/helper)
+  (export ReviewFindings ReviewFindingsJsonPath fetch)
+  (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts" :must-exist true)
+  (defrecord ReviewFindings (schema_version String) (items_path String))
+  (defproc fetch ((items ReviewFindingsJsonPath)) -> ReviewFindings
+    :effects ((uses-command validate_review_findings_v1))
+    :lowering inline
+    (command-result validate_review_findings_v1
+      :adapter validate_review_findings_v1
+      :inputs ((items_path items))
+      :returns ReviewFindings)))
+""")
+    files["producer"].write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule producer/entry)
+  (import producer/helper :only (ReviewFindings ReviewFindingsJsonPath fetch))
+  (export selected-run alternate-run)
+  (defworkflow selected-run ((items ReviewFindingsJsonPath)) -> Int
+    (let* ((findings (fetch items))) 7))
+  (defworkflow alternate-run ((items ReviewFindingsJsonPath)) -> Int
+    (let* ((findings (fetch items))) 8)))
+""")
+    files["source"].write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule consumer/entry)
+  (export run)
+  (defpath ConsumerItems :kind relpath :under "artifacts" :must-exist true)
+  (defworkflow run ((items ConsumerItems)) -> Int (call selected-run :items items)))
+""")
+    return files
+
+
 def _write_specialized_callee_workspace(root: Path) -> dict[str, Path]:
     files = _write_workspace(root)
     source = files["source_root"] / "cp" / "if_in_hook.orc"
     source.parent.mkdir(parents=True)
     fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "closed_program" / "if_in_hook.orc"
     source.write_text(fixture.read_text().replace("TARGET", TARGET))
+    (root / "probe.py").write_text(
+        "import json\n"
+        "import sys\n\n"
+        "print(json.dumps({'n': int(sys.argv[-1])}))\n"
+    )
     files["commands"].write_text(json.dumps({
         "fetch": {
             "kind": "external_tool",
             "stable_command": ["python", "probe.py"],
-            "closure": [],
+            "closure": ["probe.py"],
         }
     }))
     files["source"] = source
@@ -379,6 +521,9 @@ def test_imported_specialized_callee_identity_survives_source_and_package_reloca
     tmp_path: Path,
 ) -> None:
     original_files = _write_specialized_callee_workspace(tmp_path / "original")
+    command = json.loads(original_files["commands"].read_text())["fetch"]
+    assert (original_files["workspace"] / "probe.py").is_file()
+    assert command["closure"] == ["probe.py"]
     original_summary, original_program, _artifact = _build_state(original_files)
 
     moved_files = _write_specialized_callee_workspace(tmp_path / "elsewhere" / "deeper")
@@ -468,8 +613,11 @@ def test_unused_command_provider_and_prompt_rows_are_part_of_identity(tmp_path: 
     commands["unused_boundary"] = {
         "kind": "external_tool",
         "stable_command": ["python", "unused.py"],
-        "closure": [],
+        "closure": ["unused.py"],
     }
+    (files["workspace"] / "unused.py").write_text("print('unused boundary fixture')\n")
+    assert (files["workspace"] / "unused.py").is_file()
+    assert commands["unused_boundary"]["closure"] == ["unused.py"]
     files["commands"].write_text(json.dumps(commands))
     command_summary, command_program, _artifact = _build_state(files)
     assert command_summary["build_key"] != prompt_summary["build_key"]
@@ -570,6 +718,415 @@ def _build_request(files: dict[str, Path]) -> FrontendBuildRequest:
         command_boundaries_path=files["commands"],
         workspace_root=files["workspace"],
     )
+
+
+def _plain_json(value):
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {str(key): _plain_json(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_plain_json(item) for item in value]
+    return value
+
+
+def _independent_build_key(recipe: dict[str, object]) -> str:
+    encoded = json.dumps(
+        _plain_json(recipe),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def test_imported_snapshot_configuration_and_source_contribute_to_build_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+
+    def clear_configuration(files: dict[str, Path]) -> None:
+        for name in ("commands", "providers", "prompts"):
+            files[name].write_text("{}")
+
+    raw_files = _write_transitive_import_workspace(tmp_path / "raw")
+    clear_configuration(raw_files)
+    recipes: list[dict[str, object]] = []
+    original_key = artifact_module.closed_build_key
+
+    def record_recipe(**kwargs):
+        recipes.append(_plain_json(kwargs))
+        return original_key(**kwargs)
+
+    monkeypatch.setattr(artifact_module, "closed_build_key", record_recipe)
+    raw_result = artifact_module.build_closed_program_bundle(_build_request(raw_files))
+    raw_recipe = recipes[-1]
+    assert raw_result.build_key == _independent_build_key(raw_recipe)
+    assert set(raw_recipe["imported_programs"]) == {"selected-run", "unused-run"}
+    producer = raw_recipe["imported_programs"]["selected-run"]
+    assert producer["entry_workflow"] == "producer/entry::selected-run"
+    assert set(producer["source_file_digests"]) == {
+        "producer/entry",
+        "producer/helper",
+    }
+    assert producer["source_file_digests"]["producer/entry"] == hashlib.sha256(
+        raw_files["producer"].read_bytes()
+    ).hexdigest()
+    assert producer["source_file_digests"]["producer/helper"] == hashlib.sha256(
+        raw_files["helper"].read_bytes()
+    ).hexdigest()
+    empty_configuration = {"commands": {}, "providers": {}, "prompts": {}}
+    assert producer["configuration"] == empty_configuration
+    assert producer["source_module_configurations"] == {
+        "producer/helper": empty_configuration,
+    }
+
+    canonical_files = _write_transitive_import_workspace(
+        tmp_path / "relocated" / "deeper",
+        selected_entry="producer/entry::selected-run",
+    )
+    clear_configuration(canonical_files)
+    canonical_result = artifact_module.build_closed_program_bundle(
+        _build_request(canonical_files)
+    )
+    assert (canonical_result.build_key, canonical_result.program.digest) == (
+        raw_result.build_key,
+        raw_result.program.digest,
+    )
+
+    changed_entry_files = _write_transitive_import_workspace(
+        tmp_path / "changed-entry",
+        selected_entry="alternate-run",
+    )
+    clear_configuration(changed_entry_files)
+    changed_entry = artifact_module.build_closed_program_bundle(
+        _build_request(changed_entry_files)
+    )
+    assert changed_entry.build_key != raw_result.build_key
+    assert changed_entry.program.digest != raw_result.program.digest
+
+    raw_files["helper"].write_text(
+        "; producer helper comment\n\n" + raw_files["helper"].read_text()
+    )
+    comment_result = artifact_module.build_closed_program_bundle(
+        _build_request(raw_files)
+    )
+    assert comment_result.build_key != raw_result.build_key
+    assert comment_result.program.digest == raw_result.program.digest
+    assert comment_result.program.sites == raw_result.program.sites
+    assert tuple(comment_result.program.tree["definitions"]) == tuple(
+        raw_result.program.tree["definitions"]
+    )
+
+    semantic_helper = raw_files["helper"].read_text().replace(
+        "(+ value 1)", "(+ value 2)"
+    )
+    raw_files["helper"].write_text(semantic_helper)
+    semantic_result = artifact_module.build_closed_program_bundle(
+        _build_request(raw_files)
+    )
+    assert semantic_result.build_key != comment_result.build_key
+    assert semantic_result.program.digest != comment_result.program.digest
+    assert semantic_result.program.sites == comment_result.program.sites
+    assert tuple(semantic_result.program.tree["definitions"]) == tuple(
+        comment_result.program.tree["definitions"]
+    )
+
+    unused_source = raw_files["unused_producer"].read_text()
+    raw_files["unused_producer"].write_text(unused_source.replace("-> Int 9", "-> Int 10"))
+    unused_producer = artifact_module.build_closed_program_bundle(
+        _build_request(raw_files)
+    )
+    assert unused_producer.build_key != semantic_result.build_key
+
+    commands = json.loads(raw_files["commands"].read_text())
+    commands["unused_imported_scope"] = {
+        "kind": "external_tool",
+        "stable_command": ["python", "unused_imported_scope.py"],
+        "closure": ["unused_imported_scope.py"],
+    }
+    (raw_files["workspace"] / "unused_imported_scope.py").write_text(
+        "print('declared but unused')\n"
+    )
+    raw_files["commands"].write_text(json.dumps(commands))
+    unused_configuration = artifact_module.build_closed_program_bundle(
+        _build_request(raw_files)
+    )
+    assert unused_configuration.build_key != unused_producer.build_key
+    assert unused_configuration.program.digest != unused_producer.program.digest
+    expected_unused_command = {
+        "kind": "external_tool",
+        "name": "unused_imported_scope",
+        "stable_command": ["python", "unused_imported_scope.py"],
+        "must_not_repeat": False,
+        "closure": [{"base": "workspace", "path": "unused_imported_scope.py"}],
+        "retirement_class": None,
+        "retirement_label": None,
+        "replacement_surface": None,
+        "bridge_owner": None,
+        "expiry_condition": None,
+        "evidence_refs": [],
+        "retirement_status": None,
+    }
+    expected_configuration = {
+        "commands": {"unused_imported_scope": expected_unused_command},
+        "providers": {},
+        "prompts": {},
+    }
+    final_producer = recipes[-1]["imported_programs"]["selected-run"]
+    assert final_producer["source_module_configurations"] == {
+        "producer/helper": expected_configuration,
+    }
+
+
+def test_fourth_manifest_build_keeps_old_and_evaluated_producer_bodies(
+    tmp_path: Path,
+) -> None:
+    files = _write_transitive_import_workspace(tmp_path)
+    source = files["source"].read_text()
+    files["source"].write_text(source.replace(
+        "(defworkflow run () -> Int (call selected-run))",
+        """(defworkflow run () -> Int
+    (let* ((current (call selected-run))
+           (legacy (call unused-run)))
+      (+ current legacy)))""",
+    ))
+
+    summary, program, _artifact = _build_state(files)
+
+    assert summary["build_key"] == Path(summary["build_root"]).name
+    definitions = program.tree["definitions"]
+    evaluated = definitions["workflow:producer/entry::selected-run"]
+    legacy = definitions["workflow:unused/entry::run"]
+    assert evaluated["body"]
+    assert legacy["body"]
+
+
+def test_imported_producer_key_uses_the_consumed_source_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+
+    files = _write_transitive_import_workspace(tmp_path)
+    original_helper = files["helper"].read_bytes()
+    original_compile = artifact_module.compile_typed_program
+    changed = False
+
+    def compile_then_edit(*args, **kwargs):
+        nonlocal changed
+        typed = original_compile(*args, **kwargs)
+        if typed.entry_module == "producer/entry" and not changed:
+            files["helper"].write_bytes(original_helper + b"\n; after retained producer compile\n")
+            changed = True
+        return typed
+
+    monkeypatch.setattr(artifact_module, "compile_typed_program", compile_then_edit)
+    first = artifact_module.build_closed_program_bundle(_build_request(files))
+    monkeypatch.setattr(artifact_module, "compile_typed_program", original_compile)
+    second = artifact_module.build_closed_program_bundle(_build_request(files))
+
+    assert changed
+    assert first.build_key != second.build_key
+    assert first.program.digest == second.program.digest
+
+
+def test_injected_nonentry_configuration_changes_root_build_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from unittest.mock import patch
+
+    from orchestrator.workflow_lisp import compiler
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+
+    files = _write_injected_source_graph(tmp_path)
+    request = FrontendBuildRequest(
+        source_path=files["source"],
+        source_roots=(files["source_root"],),
+        workspace_root=files["workspace"],
+    )
+    recipes: list[dict[str, object]] = []
+    original_key = artifact_module.closed_build_key
+
+    def record_recipe(**kwargs):
+        recipes.append(_plain_json(kwargs))
+        return original_key(**kwargs)
+
+    monkeypatch.setattr(artifact_module, "closed_build_key", record_recipe)
+    first = artifact_module.build_closed_program_bundle(request)
+    name = "validate_review_findings_v1"
+    registry = dict(compiler.STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME)
+    registry[name] = replace(registry[name], closure=("adapters",))
+    with patch.object(compiler, "STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME", registry):
+        second = artifact_module.build_closed_program_bundle(request)
+
+    first_scope = recipes[0]["source_module_configurations"]["helper"]
+    second_scope = recipes[1]["source_module_configurations"]["helper"]
+    assert recipes[0]["command_boundary_manifest"] == {}
+    assert "validate_review_findings_v1" in first_scope["commands"]
+    assert first_scope["commands"] != second_scope["commands"]
+    assert first.build_key != second.build_key
+    assert first.program.digest != second.program.digest
+
+
+def test_unused_injected_configuration_does_not_change_build_identity(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+    from unittest.mock import patch
+
+    from orchestrator.workflow_lisp import compiler
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+
+    files = _write_workspace(tmp_path)
+    request = _build_request(files)
+    first = artifact_module.build_closed_program_bundle(request)
+    name = "validate_review_findings_v1"
+    registry = dict(compiler.STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME)
+    registry[name] = replace(registry[name], closure=("adapters",))
+    with patch.object(compiler, "STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME", registry):
+        second = artifact_module.build_closed_program_bundle(request)
+
+    assert (second.build_key, second.program.digest) == (
+        first.build_key,
+        first.program.digest,
+    )
+
+
+def test_injected_nonentry_configuration_changes_imported_producer_contribution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from unittest.mock import patch
+
+    from orchestrator.workflow_lisp import compiler
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+
+    files = _write_injected_import_workspace(tmp_path)
+    request = _build_request(files)
+    recipes: list[dict[str, object]] = []
+    original_key = artifact_module.closed_build_key
+
+    def record_recipe(**kwargs):
+        recipes.append(_plain_json(kwargs))
+        return original_key(**kwargs)
+
+    monkeypatch.setattr(artifact_module, "closed_build_key", record_recipe)
+    first = artifact_module.build_closed_program_bundle(request)
+    name = "validate_review_findings_v1"
+    registry = dict(compiler.STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME)
+    registry[name] = replace(registry[name], closure=("adapters",))
+    with patch.object(compiler, "STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME", registry):
+        second = artifact_module.build_closed_program_bundle(request)
+
+    first_producer = recipes[0]["imported_programs"]["selected-run"]
+    second_producer = recipes[1]["imported_programs"]["selected-run"]
+    first_scope = first_producer["source_module_configurations"]["producer/helper"]
+    second_scope = second_producer["source_module_configurations"]["producer/helper"]
+    assert "validate_review_findings_v1" in first_scope["commands"]
+    assert first_scope["commands"] != second_scope["commands"]
+    assert first.build_key != second.build_key
+    assert first.program.digest != second.program.digest
+
+
+def test_recursive_imported_snapshot_contributions_include_leaf_module_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from orchestrator.workflow_lisp.closed import artifact as artifact_module
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+
+    files = _write_workspace(tmp_path)
+    source_root = files["source_root"]
+    leaf_path = source_root / "leaf" / "entry.orc"
+    leaf_path.parent.mkdir()
+    leaf_path.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule leaf/entry)
+  (export leaf-run)
+  (defworkflow leaf-run () -> Int 3))
+""")
+    middle_path = source_root / "middle" / "entry.orc"
+    middle_path.parent.mkdir()
+    middle_path.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule middle/entry)
+  (export selected-run)
+  (defworkflow selected-run () -> Int (call leaf-run)))
+""")
+    consumer = source_root / "consumer" / "entry.orc"
+    consumer.parent.mkdir()
+    consumer.write_text(f"""(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{TARGET}")
+  (defmodule consumer/entry)
+  (export run)
+  (defworkflow run () -> Int (call selected-run)))
+""")
+    imports = tmp_path / "imports.json"
+    imports.write_text(json.dumps({
+        "selected-run": {"kind": "compiled", "path": "src/middle/entry.orc"}
+    }))
+    files.update({"source": consumer, "imports": imports})
+    for name in ("commands", "providers", "prompts"):
+        files[name].write_text("{}")
+
+    def compile_leaf() -> object:
+        return compile_typed_program(
+            leaf_path,
+            entry_workflow="leaf-run",
+            source_roots=(source_root,),
+            command_boundaries={},
+            workspace_root=tmp_path,
+        )
+
+    def compile_middle(leaf: object) -> object:
+        return compile_typed_program(
+            middle_path,
+            entry_workflow="selected-run",
+            source_roots=(source_root,),
+            command_boundaries={},
+            imported_programs={"leaf-run": leaf},
+            workspace_root=tmp_path,
+        )
+
+    leaf = compile_leaf()
+    middle = compile_middle(leaf)
+    recipes: list[dict[str, object]] = []
+    original_key = artifact_module.closed_build_key
+
+    def record_recipe(**kwargs):
+        recipes.append(_plain_json(kwargs))
+        return original_key(**kwargs)
+
+    def retain_middle(_request, **_kwargs):
+        return {}, {"selected-run": middle}
+
+    monkeypatch.setattr(artifact_module, "closed_build_key", record_recipe)
+    monkeypatch.setattr(artifact_module, "_load_closed_imports", retain_middle)
+    first = artifact_module.build_closed_program_bundle(_build_request(files))
+    middle_recipe = recipes[-1]["imported_programs"]["selected-run"]
+    expected_leaf = {
+        "entry_workflow": "leaf/entry::leaf-run",
+        "target": TARGET,
+        "source_file_digests": _plain_json(leaf.source_file_digests),
+        "configuration": {"commands": {}, "providers": {}, "prompts": {}},
+        "source_module_configurations": {},
+        "imported_programs": {},
+    }
+    assert middle_recipe["entry_workflow"] == "middle/entry::selected-run"
+    assert middle_recipe["imported_programs"] == {"leaf-run": expected_leaf}
+    assert first.build_key == _independent_build_key(recipes[-1])
+
+    changed_leaf_source = leaf_path.read_text().replace("-> Int 3", "-> Int 4")
+    leaf_path.write_text(changed_leaf_source)
+    changed_leaf = compile_leaf()
+    middle = compile_middle(changed_leaf)
+    second = artifact_module.build_closed_program_bundle(_build_request(files))
+    assert second.build_key != first.build_key
+    assert second.program.digest != first.program.digest
+    assert recipes[-1]["imported_programs"]["selected-run"]["imported_programs"][
+        "leaf-run"
+    ]["source_file_digests"] == _plain_json(changed_leaf.source_file_digests)
 
 
 def test_build_key_uses_the_compiler_retained_source_snapshot(

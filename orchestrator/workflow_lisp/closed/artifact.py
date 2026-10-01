@@ -52,6 +52,7 @@ def closed_build_key(
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
+    source_module_configurations: Mapping[str, object],
     imported_programs: Mapping[str, object],
 ) -> str:
     """Return the portable identity of one exact typed source/configuration snapshot."""
@@ -65,6 +66,7 @@ def closed_build_key(
                 "provider_externs": provider_externs,
                 "prompt_externs": prompt_externs,
                 "command_boundary_manifest": command_boundary_manifest,
+                "source_module_configurations": source_module_configurations,
                 "imported_programs": imported_programs,
             })
         )
@@ -148,6 +150,9 @@ def build_closed_program_bundle(
         provider_externs=configuration["providers"],
         prompt_externs=configuration["prompts"],
         command_boundary_manifest=configuration["commands"],
+        source_module_configurations=_source_module_configurations(
+            typed, builder=builder
+        ),
         imported_programs=imported_contributions,
     )
     read_back = ClosedProgram.from_artifact(program.artifact())
@@ -286,8 +291,23 @@ def _program_contribution(
         "target": typed.target,
         "source_file_digests": typed.source_file_digests,
         "configuration": builder.configuration_for(typed, typed.entry_module),
+        "source_module_configurations": _source_module_configurations(
+            typed, builder=builder
+        ),
         "imported_programs": {
             alias: _program_contribution(program, builder=builder)
             for alias, program in sorted(typed.imported_programs.items())
         },
+    }
+
+
+def _source_module_configurations(
+    typed: TypedProgram,
+    *,
+    builder: Builder,
+) -> dict[str, dict[str, object]]:
+    return {
+        module: builder.configuration_for(typed, module)
+        for module in sorted(typed.source_file_digests)
+        if module != typed.entry_module
     }

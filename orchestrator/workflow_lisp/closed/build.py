@@ -694,7 +694,12 @@ class Builder:
         return names
 
     def configuration_for(self, source_program: Any, owner: str) -> dict[str, Any]:
-        module = self._module_for_owner(source_program, owner)
+        owned_modules = getattr(source_program, "source_file_digests", {}) or {}
+        module = (
+            owner
+            if owner in owned_modules
+            else self._module_for_owner(source_program, owner)
+        )
         cache_key = (id(source_program), module)
         cached = self.configuration_rows.get(cache_key)
         if cached is not None:
