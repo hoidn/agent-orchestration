@@ -41,9 +41,16 @@ Development rules:
 
 You are the primary coordinator and final integrator. Use subagent driven development when appropriate. If you are codex, use the following models for the respective subagent roles:
 - Implementation: luna 6 xhigh
-- Review: Sol 6 high
+- Review: Sol 6.1 high
 - Design: Astra 6 xhigh
 - planning: Astra 6 high
+
+If you are Claude, use the following models for the respective subagent roles:
+- Implementation: Opus 5.5 high
+- Review: Opus 5.5 high
+- Design: Fable 5.1 xhigh
+- planning: Fable 5.1 high
+
 
 For nontrivial tasks:
 
