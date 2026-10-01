@@ -266,6 +266,21 @@ projected inventory. Origin dependencies include generated atoms inside those
 arguments, rejecting phantom-only cycles. No runtime descriptor/codec field
 or persisted origin table is added.
 
+Compiler-generated loop-state records retain their nominal seed family. A family
+is the declaring callable's declaration-only identity and the semantic ordinal
+of the carrier introduction in its expanded declaration, retained through
+specialization and imports. `:like` preserves that family; the existing list-map
+expansion inherits its source constructor's introduction. The closed carrier
+name uses the shared applied identity grammar: its qualified head hashes the
+family and ordered field names/key-projected complete field descriptors, and its
+ordered arguments are the concrete canonical field type identities. Generated
+run-reference names are projected through the existing structural S before
+hashing, and concrete producer associations remain available for final
+argument/descriptor rewriting. Formatting, source relocation and unrelated pure
+bindings do not alter a family. Neither body hashes, canonical callee keys/sites
+nor legacy generated names define it. Distinct seed families remain distinct
+even with equal payload shape; no source-admission rule changes.
+
 Equal-key candidates keep the first native representative in deterministic
 semantic call traversal. Later calls retain their own concrete signature
 views, using the checked generated boundary below when necessary. Preserve

@@ -1130,6 +1130,40 @@ paths under the same wire name, dropped rows and forged union activity with
 This checks internal consistency, not historical source authenticity; a
 jointly type-valid alteration of arguments and relation is another program.
 
+#### Generated loop-state carrier identities
+
+Let `DId` be the already specified declaration-only `[module, kind, declaration]`, including the existing local-declaration object where needed. It is never a full canonical definition key/name. Define:
+
+```text
+F = [DId, carrier_introduction_ordinal]
+Q = [F, [[field_name, D(canonical_field_descriptor)], ...]]
+H = "workflow_lisp/private::loop-state-carrier$" + SHA256(canonical_JSON(Q))
+I(carrier) = H[I(field_type_0) I(field_type_1) ...]
+```
+
+The SHA is full lowercase hex, using the existing canonical JSON bytes without an artifact newline. `D` is **exactly** `key_type_descriptor` with the actual retained producer scope; `I` is the existing canonical runtime identity grammar/renderer. Fields retain declaration order, including names. Authored seeds have at least one field, and the existing synthesized map carrier has two, so the existing nonempty applied-argument grammar suffices. Runtime descriptors keep the normal `{kind:"record", name:I(carrier), fields:[...]}` shape and their complete concrete field descriptors.
+
+Why both Q and applied arguments are needed:
+
+- F preserves independent same-shaped nominal families; no seed body/value digest enters it.
+- Q preserves ordered field names, all canonical type content, private nominal identity and refinements, even where a type's rendered identity alone does not express a refinement.
+- D removes concrete generated origins from the head's hash. Two same-S views of one family can therefore share a projected callable key, under the already accepted generated-view boundary rules.
+- The applied arguments retain actual field type identities, including generated and phantom arguments. `key_type_descriptor` projects them through S, and Task 8 can rewrite them through their concrete producers. An opaque hash of a runtime descriptor would lose that capability.
+- Runtime descriptors that contain different concrete producers remain distinct. Never invert S to recover a name; never discard the actual TypeRef/producing-definition/substitution association after obtaining Q.
+
+Compute field descriptors/S dependencies before their containing carrier and memoize in the existing typed scope. A visiting dependency is the existing compiler defect, not a fallback name. F contains neither specialized K nor a loop/effect site. Q depends only on F, finite field types and the existing structural input/result signatures S, whose generated envelope root name is omitted. Thus no edge from Q to canonical callee/site, nor from those back into their own identity, is introduced. Actual cyclic generated dependencies continue to fail under the accepted visiting guard.
+
+##### Retained family and concrete variant
+
+At the evaluated-entry frontend's existing retained-declaration association seam, enumerate carrier **introductions** in the expanded owning declaration's semantic operand order, before specialization, inlining or normalization is allowed to change the inventory. Count an authored seed once; `:like` is not an introduction. Count the existing `list/map-effect` constructor once for its generated seed, at that constructor's lexical occurrence. Walk its child expressions normally, so independently authored seeds in its source/body still have their own introductions. This is one ordinal namespace per DId. Enter a local callable with its own existing local DId and ordinal counter; its seeds are not counted in the outer callable.
+
+Attach F to `LoopStateCarrierMetadata` through the existing by-expression/type association, using the same bounded retained-expanded-declaration pattern as local-procedure identities. This fact is transient, excluded from legacy repr/JSON. Source spans/form paths may associate products with the retained declaration; neither their values nor their ordering enter F or Q. No source reread or lexical-owner guess from `%loop-state`/specialization prefixes is valid.
+
+Specialization copies retain their source F; they do not recalculate it by counting a normalized specialized body. Imported/cloned producer snapshots retain the declaring module's F, independent of caller aliases. Generated list-map seeds inherit the F assigned to their actual originating constructor, not an ordinal from a post-expansion body or the currently uninformative `source_kind`. Existing metadata can be replaced with an enriched metadata value when the retained association is completed; do not add a process-global map or a parallel type registry. Every admitted seed must have exactly one association; missing/ambiguous association is a compiler defect to repair.
+
+For the concrete variant of one F, match `LoopStateCarrierMetadata.field_types` with the current resolved typed fields in declaration order, using its existing precise signature/type matching route. The expression index alone may contain several instantiations and its last-value fallback is not closed-name authority. Carrier matching also does not collapse concrete run-reference producer associations merely because S agrees. `canonical_type_identity(type_ref, *, typed)` consumes the retained family/type facts from its existing environment search; no new site/key argument is needed.
+
+
 #### Generated boundary construction and read-back
 
 The constructor and reader have distinct obligations, ratified 2026-09-30.
@@ -2472,6 +2506,9 @@ one case each.
 **Files:**
 - Modify: `orchestrator/workflow_lisp/closed/names.py` (Task 5 created the pure key-to-name and run-reference projection helpers; extend them with typed construction)
 - Modify: `orchestrator/workflow_lisp/type_env.py` (`FrontendTypeEnvironment.from_module`, line 604: the map of nominal descriptor names; a sibling map and a method)
+- Modify: `orchestrator/workflow_lisp/loop_state.py` (transient family fact on existing carrier metadata)
+- Modify: `orchestrator/workflow_lisp/closed/frontend.py` (retained expanded-declaration association, including snapshots)
+- Modify when required: `orchestrator/workflow_lisp/typecheck_structural_values.py` (propagate the originating list-map constructor family without changing legacy type/name/repr output)
 - Test: `tests/test_workflow_lisp_closed_program_names.py`
 
 **Read first:** the spike's `closed.py` lines 122 to 170 (`_Def.bind`,
@@ -2514,6 +2551,7 @@ execution facts A.5; design §4.2 and P6; the
     located compiler defect and repairs the declaring-module facts. Builtin
     and standalone types use their stable logical namespaces. Failure to
     name an admitted type is not a release exclusion.
+  - Generated loop-state records use the shared [F/Q/H/I rule](#generated-loop-state-carrier-identities). Retain the family before specialization/normalization, preserve it across imports and synthetic list-map expansion, and resolve the concrete variant from its actual typed field facts. Keep the public identity signature and environment search unchanged. Expression-only last-variant lookup and legacy generated names are not authority.
   - `canonical_type_descriptor(type_ref, *, typed) -> dict`: reuse the
     normalized descriptor shape and recursively replace all nominal names
     from the declaring-module index, including nested fields, variants,
@@ -2645,6 +2683,8 @@ by the entry, and require distinct kind-qualified names. Exercise local
 compile-time and runtime capture selectors, nested bound-reference index
 scopes and each fixed resolved extern row. Different runtime capture values
 reuse keys; changes in caller nominal descriptors or recipient routes do not.
+
+Add carrier identity checks for distinct nested shapes and independent same-shaped seeds, ordered fields/refinements, relocation and pure binding edits, imported aliases/local callables, synthetic list-map and specialization lineage. Generated field dependencies include phantom arguments; preserve each concrete producer even when S agrees. Tasks 4/8 add full public build/read-back and finalization checks.
 
 - [ ] **Step 2: Run; expected failures** `ImportError`; then missing binding
 facts or bare private nominal names until implemented.
@@ -2890,6 +2930,8 @@ carry `representation` (§8.4): Phase 3 reads it from the artifact.
 ---
 
 ### Task 4: The Builder: Bodies, Values, The Table, X1 To X4, Command Nodes
+
+Consume the retained [loop-carrier families](#generated-loop-state-carrier-identities) and actual producer links. Register every concrete carrier and field nominal, including phantom applied arguments; existing first-native-representative and checked generated-view rules apply recursively.
 
 **Files:**
 - Create: `orchestrator/workflow_lisp/closed/build.py` (bodies, bound values, calls, the table), `orchestrator/workflow_lisp/closed/values.py` (values, operators, surface objects), `orchestrator/workflow_lisp/closed/context.py` (X1, X2, X4), `orchestrator/workflow_lisp/closed/effects.py` (`require_command_closures`, `translate_perform` for `command_result`; every other kind raises `ClosedProgramGap` naming its form until Task 8 translates providers and run references)
@@ -3348,6 +3390,8 @@ lexical names from authored identity labels.
 ---
 
 ### Task 8: Effect Nodes: Providers, Run References, And The Gaps
+
+Finalize [loop-carrier](#generated-loop-state-carrier-identities) applied arguments together with fields and type-table uses through their retained actual producers. Their head stays stable because it hashes D rather than concrete generated names. Add public build/read-back checks with same-S distinct producers, including phantom arguments, without a new registry or serialized origin field.
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (call run-ref finalization after site assignment and before validation)
