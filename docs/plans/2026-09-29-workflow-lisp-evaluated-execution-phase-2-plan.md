@@ -2348,12 +2348,13 @@ returns a minimal program dict (`params: []`, `defaults: {}`). Perform nodes
 in these trees need only `{"k": "perform", "class": "command", "result": {...}, "repeat": "rerun", "boundary": "fetch", "command": ["python", "probe.py"], "closure": [], "contract": {...}, "argv": []}`.
 
 ```python
-def test_three_arms_in_a_loop_give_three_sites_with_the_frame_and_the_loop_segment() -> None:
-    # entry body: loop(param "state") whose body binds `got` to a case with three arms,
-    # each arm binding `%1` to a call of "procedure:cp/arms_in_loop::fetch"; the definition's body performs one unnamed effect
+def test_three_arms_in_a_loop_give_three_frames_over_one_site() -> None:
+    # loop(param "state") has a join with result param `got` and a three-arm case body.
+    # Each arm binds `%1` to a call of "procedure:cp/arms_in_loop::fetch", then jumps
+    # to the join with that value; its continuation is done(got). The callee performs one unnamed effect.
     table = assign_sites(t)
     assert table == [("procedure:cp/arms_in_loop::fetch", "#1")]
-    assert [n["frame"] for n in calls(t)] == [f"loop:state[*] / got / {arm} / #1=procedure:cp/arms_in_loop::fetch" for arm in (...)]
+    assert [n["frame"] for n in calls(t)] == [f"loop:state[*] / got / body / {arm} / #1=procedure:cp/arms_in_loop::fetch" for arm in (...)]
 
 def test_a_pure_binding_takes_no_ordinal_and_a_repeated_name_takes_a_counter() -> None:
     # lets: %1 = op, %2 = perform, x = perform, x = perform  ->  sites ["#1", "x", "x#2"]
