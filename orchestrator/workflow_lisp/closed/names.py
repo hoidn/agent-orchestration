@@ -657,7 +657,7 @@ def _loop_carrier_identity(
         [
             name,
             run_refs.key_type(field_type)
-            if isinstance(run_refs, _RunRefProjection)
+            if hasattr(run_refs, "key_type")
             else key_type_descriptor(
                 canonical_type_descriptor(field_type, typed=typed),
                 run_ref_signatures=run_refs,
@@ -1258,6 +1258,19 @@ def _unify_type_params(pattern: Any, actual: Any, *, typed: Any, bindings: dict[
         _unify_type_params(pattern.return_type_ref, actual.return_type_ref, typed=typed, bindings=bindings)
         return
     if isinstance(pattern, RecordTypeRef) and isinstance(actual, RecordTypeRef):
+        pattern_origin = getattr(pattern, "run_ref_origin", None)
+        actual_origin = getattr(actual, "run_ref_origin", None)
+        if pattern_origin is not None or actual_origin is not None:
+            if pattern_origin is None or actual_origin is None:
+                raise ValueError("resolved signature changes a generated run-ref result")
+            projection = _run_ref_signatures(typed)
+            if _key_type_ref(pattern, typed=typed, run_ref_signatures=projection) != _key_type_ref(
+                actual,
+                typed=typed,
+                run_ref_signatures=projection,
+            ):
+                raise ValueError("resolved signature changes a generated run-ref result")
+            return
         if (
             _definition_owner_identity(pattern, typed=typed)
             != _definition_owner_identity(actual, typed=typed)

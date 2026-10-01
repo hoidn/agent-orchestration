@@ -2053,6 +2053,7 @@ def _elaborate_let_star(
         bindings: list[tuple[str, object]] = []
         labels: list[str | None] = []
         identities: list[object | None] = []
+        capture_sources: list[tuple[object, TypeRef] | None] = []
         changed = False
         local_env = dict(value_env)
 
@@ -2127,6 +2128,7 @@ def _elaborate_let_star(
                     bindings.append((prefix_name, prefix_value))
                     labels.append(None)
                     identities.append(None)
+                    capture_sources.append(None)
             bindings.append((name, value))
             labels.append(
                 expr.binding_labels[index]
@@ -2136,6 +2138,11 @@ def _elaborate_let_star(
             identities.append(
                 expr.binding_identities[index]
                 if index < len(expr.binding_identities)
+                else None
+            )
+            capture_sources.append(
+                expr.binding_capture_sources[index]
+                if index < len(expr.binding_capture_sources)
                 else None
             )
             local_env[name] = _infer_expr_type(
@@ -2151,6 +2158,7 @@ def _elaborate_let_star(
                 bindings=tuple(bindings),
                 binding_labels=tuple(labels),
                 binding_identities=tuple(identities),
+                binding_capture_sources=tuple(capture_sources),
             )
 
     result_type = _infer_expr_type(
@@ -2216,13 +2224,22 @@ def _elaborate_let_star(
             if index < len(expr.binding_identities)
             else None
         )
+        capture_source = (
+            expr.binding_capture_sources[index]
+            if index < len(expr.binding_capture_sources)
+            else None
+        )
         binding_expr, expansion_owned = expansion_owned_binding_source(binding_expr)
-        binding_type = _infer_expr_type(
-            binding_expr,
-            type_env=type_env,
-            value_env=local_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
+        binding_type = (
+            capture_source[1]
+            if scope.closed_program and capture_source is not None
+            else _infer_expr_type(
+                binding_expr,
+                type_env=type_env,
+                value_env=local_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
         )
         next_env = dict(local_env)
         next_env[binding_name] = binding_type
@@ -2233,6 +2250,42 @@ def _elaborate_let_star(
             binding_name,
             None,
         )
+        if scope.closed_program and capture_source is not None:
+            source_identity, source_type_ref = capture_source
+            source_name = getattr(source_identity, "name", None)
+            if not isinstance(source_name, str):
+                raise ValueError("pure-call capture row has no retained lexical binder name")
+            tail = build(
+                index + 1,
+                next_env,
+                local_scope.child_scope("body", authored_binding_name=binding_name),
+                runtime_tail_compile_time_bindings,
+            )
+            return WccLet(
+                metadata=local_scope.body_metadata(
+                    role=f"let:{binding_name}",
+                    type_ref=result_type,
+                    source_span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                    expansion_stack=binding_expr.expansion_stack,
+                    binding_label=binding_label,
+                    binding_identity=binding_identity,
+                ),
+                bound_name=binding_name,
+                bound_type_ref=source_type_ref,
+                bound_value=WccNameAtom(
+                    metadata=local_scope.atom_metadata(
+                        role=f"name:{source_name}",
+                        type_ref=source_type_ref,
+                        source_span=binding_expr.span,
+                        form_path=binding_expr.form_path,
+                        expansion_stack=binding_expr.expansion_stack,
+                        binding_identity=source_identity,
+                    ),
+                    name=source_name,
+                ),
+                body=tail,
+            )
         if isinstance(binding_expr, BindProcExpr):
             if not local_compile_time_bindings.get(
                 _PRESERVE_BOUND_PROC_CAPTURES,
@@ -2523,6 +2576,7 @@ def _elaborate_let_star(
                     bindings=expr.bindings[index + 1 :],
                     binding_labels=expr.binding_labels[index + 1 :],
                     binding_identities=expr.binding_identities[index + 1 :],
+                    binding_capture_sources=expr.binding_capture_sources[index + 1 :],
                 ),
                 frozenset({binding_name}),
             ),),

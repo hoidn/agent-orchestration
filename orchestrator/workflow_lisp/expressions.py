@@ -397,6 +397,16 @@ class LetStarExpr:
         hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
+    # The actual lexical owner and checked type of a generated pure-call
+    # static-argument read. Parallel to bindings; closed elaboration consumes
+    # it instead of re-evaluating the copied source expression.
+    binding_capture_sources: tuple[tuple[object, "TypeRef"] | None, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     # The checked condition expression replaced by this generated wrapper,
     # retained in the wrapper's incoming lexical scope for closed elaboration.
     condition_normalization_input: "ExprNode | None" = field(

@@ -936,6 +936,7 @@ def _typecheck(
             expansion_stack=expr.expansion_stack,
             binding_labels=expr.binding_labels,
             binding_identities=tuple(binding_identities),
+            binding_capture_sources=expr.binding_capture_sources,
             condition_normalization_input=expr.condition_normalization_input,
         )
         return _typed(

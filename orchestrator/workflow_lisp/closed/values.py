@@ -32,7 +32,10 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     if isinstance(value, w.WccLiteralAtom):
         result = {"k": "lit", "v": value.value, "type": builder.desc(value.metadata.type_ref, d)}
     elif isinstance(value, w.WccNameAtom):
-        result = {"k": "name", "n": d.ref(value.name)}
+        result = {
+            "k": "name",
+            "n": d.ref(value.name, value.metadata.binding_identity),
+        }
     elif isinstance(value, w.WccFieldAccessAtom):
         result = {
             "k": "field",
@@ -73,10 +76,15 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
 def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
     local_names = dict(d.names)
     binding_aliases = dict(d.binding_aliases or {})
+    run_ref_names = dict(d.run_ref_names or {})
     local_types = dict(env)
     prefix = []
     for let in arm.prefix:
-        current = d.with_names(local_names, binding_aliases=binding_aliases)
+        current = d.with_names(
+            local_names,
+            binding_aliases=binding_aliases,
+            run_ref_names=run_ref_names,
+        )
         value = builder.binding(let.bound_value, current, local_types)
         nested = dict(local_names)
         name = d.renamer.bind(
@@ -85,14 +93,33 @@ def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, Typ
             env=nested,
         )
         prefix.append({"name": name, "value": value})
-        bound = d.with_names(nested, binding_aliases=binding_aliases)
+        producer = builder.run_ref_producers_by_effect.get(id(value))
+        if producer is None and isinstance(let.bound_value, w.WccNameAtom):
+            resolved_name = current.resolved_binding_name(
+                let.bound_value.name,
+                let.bound_value.metadata.binding_identity,
+            )
+            producers = run_ref_names.get(resolved_name, ())
+        elif producer is not None:
+            producers = (producer,)
+        else:
+            producers = builder._run_ref_context_for_value(let.bound_value, current)
+        if producers:
+            run_ref_names[let.bound_name] = producers
+        bound = d.with_names(
+            nested,
+            binding_aliases=binding_aliases,
+            run_ref_names=run_ref_names,
+        )
         bound, aliases = builder._freeze_bound_capture(
             bound,
             let.metadata.binding_identity,
             name,
+            producers,
         )
         binding_aliases = dict(bound.binding_aliases or {})
         local_names = dict(bound.names)
+        run_ref_names = dict(bound.run_ref_names or {})
         prefix.extend({"name": row["name"], "value": row["value"]} for row in aliases)
         local_types[let.bound_name] = let.bound_type_ref
     return {
@@ -100,7 +127,11 @@ def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, Typ
         "value": translate_value(
             builder,
             arm.value,
-            d.with_names(local_names, binding_aliases=binding_aliases),
+            d.with_names(
+                local_names,
+                binding_aliases=binding_aliases,
+                run_ref_names=run_ref_names,
+            ),
             local_types,
         ),
     }

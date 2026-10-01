@@ -6,7 +6,7 @@
 > and `superpowers:verification-before-completion` before any completion
 > claim. One worktree per task. Tasks of one group touch disjoint files and
 > may run in parallel only after their listed prerequisites are merged. Use
-> the repository role assignments: Implementation Luna 6 xhigh, Review Sol 6
+> the repository role assignments: Implementation Luna 6 xhigh, Review Sol 6.1
 > high, Design Astra 6 xhigh, Planning Astra 6 high. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The compiler produces, for a program at the evaluated execution
@@ -1313,10 +1313,14 @@ null and the row additionally retains required document-reference/content
 injection semantics (prepend, declaration order); it is not a rendered text
 placeholder. Other kinds retain their selected renderer, refinements, repeated
 placeholder positions and any declared output role/path/expected-output
-facts. Reuse the existing fragment/dependency owners' semantic projections;
-keep step ids and source subjects under provenance. Explicit dependencies
-retain ordered operands, role, position and instruction. Do not reduce these
-to counts or discard output-slot semantics.
+facts. A `doc` fill owns its required content injection: it is not a rendered
+placeholder and is prepended in declaration order. Keep that channel in
+`prompt.fills`; the separate `dependencies` row contains only explicit
+`WccPromptDependencyPayload` operands and its own ordered roles, position and
+instruction. Both channels may occur on one provider without replacing one
+another. Reuse the existing fragment/dependency owners' semantic projections;
+keep step ids and source subjects under provenance. Do not reduce these to
+counts or discard output-slot semantics.
 
 ### Provenance
 
@@ -3427,7 +3431,10 @@ lexical names from authored identity labels.
 Finalize [loop-carrier](#generated-loop-state-carrier-identities) applied arguments together with fields and type-table uses through their retained actual producers. Their head stays stable because it hashes D rather than concrete generated names. Add public build/read-back checks with same-S distinct producers, including phantom arguments, without a new registry or serialized origin field.
 
 **Files:**
-- Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (call run-ref finalization after site assignment and before validation)
+- Modify: `orchestrator/workflow_lisp/closed/effects.py` (created by Task 4 with the command node, the closure rule and the gaps), `orchestrator/workflow_lisp/closed/build.py` (producer associations and call run-ref finalization after site assignment and before validation), `orchestrator/workflow_lisp/closed/values.py` (preserve exact producer context across selected value-prefix bindings)
+- Modify: `orchestrator/workflow_lisp/closed/names.py` (generated RunRef results are structural, not ordinary nominal owners, during local ProcRef type unification)
+- Modify: `orchestrator/workflow_lisp/contracts.py` (allow the closed caller to project nested nominal descriptors from retained TypeRefs before shared-versus-variant contract placement; callers that omit the projector keep the legacy projection)
+- Modify: `orchestrator/workflow_lisp/expressions.py` and `functions.py` (retain the exact captured binder and checked type on generated pure-call static-argument rows), `typecheck_dispatch.py` (carry those transient rows through the typed `LetStarExpr` reconstruction), `wcc/elaborate.py` and `wcc/model.py` (consume them only on the closed route as identity-bearing name reads), `wcc/hygiene.py` (preserve that identity and type through spelling renames), and `closed/build.py` (pre-scan opaque retained rows, freeze their lexical owners and resolve values and producer context through the same scoped alias)
 - Modify if needed: `orchestrator/workflow_lisp/closed/check.py` (verify Task 5's complete read-back checks against finalized run-reference nodes)
 - Test: `tests/test_workflow_lisp_closed_program_effects.py`
 
@@ -3447,6 +3454,12 @@ execution facts A.2 and A.4.
 - Consumes: Task 4's `translate_perform`, `Builder.value`, `Builder.desc`,
   `ClosedProgramGap`; Task 7's exact resolved provider/prompt configuration
   rows and the shared structural key projection for generated run-ref types.
+- Consumes: normalized pure local-procedure capture rows retained on typed
+  `LetStarExpr`s at every source target that admits this normalization
+  (2.30+). They name the actual captured `BindingIdentity` and checked
+  `TypeRef`; an imported native snapshot is consumed as retained and is not
+  retyped or normalized again. Only closed WCC elaboration reads these rows;
+  the legacy route ignores them.
 - Produces: two more branches of `translate_perform`, each a `perform` node
   of the schema:
   - `provider_result`: `provider` = `d.externs[target].provider_id`;
@@ -3465,7 +3478,10 @@ execution facts A.2 and A.4.
     `_build_compiler_prompt_fragment_contract` in `lowering/phase_scope.py`
     and `_lower_prompt_fragment_dependencies` without constructing flat steps
     or copying their step-id-based identity. `inputs` retains the established
-    typed names, renderer selection and value expressions;
+    typed names, renderer selection and value expressions. Compiler-generated
+    ANF input labels use the retained `Renamer` binding for that exact input
+    occurrence, while authored labels (including lookalike spellings) remain
+    authored; do not classify by a generated-name prefix;
     `dependencies` from `WccPromptDependencyPayload` rows by role, with
     `position` and `instruction`; `policy` = each of `model`, `effort`,
     `delivery`, `materialization_attempts`, `timeout_sec` present in the
@@ -3500,6 +3516,9 @@ execution facts A.2 and A.4.
     both endpoints of call boundaries and `types`, preserving structural
     definition keys. Rewrite atoms in applied identities through their actual
     producer associations, then re-render and register the concrete identity.
+    Preserve the scoped producer map when sequential captures or selected-value
+    prefixes extend a definition's names; a copied binder origin may associate
+    with different actual producers in different emitted bodies.
     Recompute result descriptor digests, then call the unchanged
     `build_run_ref_static_config`/`encode_run_ref_static_config` with these
     canonical facts and `RunRefInput(..., ReferenceBinding(f"inputs.{name}"))`.
@@ -3579,10 +3598,35 @@ def test_a_path_mode_run_ref_carries_the_static_config_with_reference_bindings(t
     # Include a generated type forwarded through a call, distinct same-S sites,
     # and any admitted repeated specialization with shared provisional names.
 
+def test_same_signature_run_ref_producers_keep_occurrence_specific_types(tmp_path) -> None:
+    # Public build/read-back with distinct producers sharing S, including a
+    # captured local ProcRef, a copied/specialized body, a generated loop
+    # carrier, and a phantom applied argument. Every concrete name points to
+    # its own containing definition/site while structural keys stay unchanged.
+
+def test_selected_workflow_reference_body_uses_its_retained_provider_rows(tmp_path) -> None:
+    # Extend the admitted Task 4 WorkflowRef specimen through public build and
+    # read-back. Give caller and imported producer conflicting provider/prompt
+    # aliases, including asset_file and input_file, and assert the selected
+    # body, its WRef key and configuration use the producer's exact rows.
+
+def test_local_proc_ref_can_capture_and_forward_a_generated_run_ref(tmp_path) -> None:
+    # Public compile the Task 4 local-forward specimen. The selected local
+    # procedure's PRef key must compare retained structural signatures and
+    # retain the captured producer route; it must not resolve a generated
+    # result as an ordinary nominal owner or add a release gap.
+
 def test_run_ref_readback_checks_the_full_site_digest_and_reserved_types(tmp_path) -> None:
-    # Change only the digest suffix after its first 16 characters, preserving
-    # the generated name, and recompute outer artifact digests: read-back refuses.
-    # Also refuse a conflicting fixed runtime record in `types`.
+    # Public-build a finalized run-ref artifact, delete source, then change only
+    # the digest suffix after its first 16 characters and tamper a reserved
+    # runtime type. Strict artifact read-back refuses both.
+
+def test_pure_inline_local_capture_reuses_its_actual_effectful_binder(tmp_path) -> None:
+    # One authored effect captured through a local ProcRef remains one
+    # definition/site after WCC elaboration. Cover command/provider/run-ref,
+    # source-deleted native 2.35 and imported native 2.34 typed snapshots,
+    # captured aliases and copied lexical owners; transient rows remain a
+    # closed-route fact, with legacy byte compatibility checked separately.
 
 @pytest.mark.parametrize("form", ["materialize-view", "resource-transition", "trial", "request-input", "with-live-providers", "run-provider-phase"])
 def test_a_form_outside_the_release_is_a_gap_at_its_own_location(tmp_path, form) -> None:   # Review focus 4
@@ -3599,26 +3643,49 @@ gap tests pass already (Task 4 raised them) and stay as the record.
 
 - [ ] **Step 3: Implement** the existing effect dispatch, with helpers
 `_provider`, `_prompt`, `_inputs`, `_dependencies`, `_run_ref` as needed.
-Task 8 owns finalization of run-ref config/descriptors after Task 5 assigns
+Task 8 owns producer-scoped run-ref config/descriptors finalization after Task 5 assigns
 sites; keep this helper in `effects.py` and insert its call in
 `build_closed_program` after `assign_sites` and before `validate` and
-`program_digest`. Add the complete provider-producing X4 build check here.
+`program_digest`. Retain actual pure-call capture owners in transient typed
+rows for all admitted source targets, consume those rows only in closed WCC
+before copied initializers can emit effects, and resolve their exact aliases
+for both value translation and generated-type producer context. Add the
+complete provider-producing X4 build check here.
 
 - [ ] **Step 4: Run; expected pass.** Also Task 4's module (unchanged
 behaviour for commands).
 
-- [ ] **Step 5: Compatibility evidence:** no shared module touched; state so.
+- [ ] **Step 5: Compatibility evidence:** Task 8 also changes the shared
+`closed/names.py` type-unification consumer and the optional nested descriptor
+projection in `contracts.py`. Run the focused canonical-name,
+PRef/let-proc, hygiene/normalizer, and old-target compatibility selectors;
+report any byte changes against the same compiler/runtime pin inputs. New
+capture-source rows remain absent from equality, generic hygiene name
+collection, serialized artifacts and the legacy WCC/flat route; only the closed
+consumer resolves them. The native 2.34 import test must use its retained
+typed snapshot after source deletion, with no source replay. The generated-type
+branch must affect only the new structural comparison and must not alter the
+legacy identity recipe. Closed prompt rows retain document fills in
+`prompt.fills` and any explicit dependency rows in the separate
+`dependencies` channel. The source frontend continues to reject fragment
+prompts that redeclare explicit prompt dependencies; this task does not widen
+source syntax.
 
 - [ ] **Step 6: Commit**
 
-`git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_effects.py`
+`git add -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/values.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/hygiene.py orchestrator/workflow_lisp/wcc/model.py tests/test_workflow_lisp_closed_program_effects.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
-`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/check.py tests/test_workflow_lisp_closed_program_effects.py`
+`git commit -m "feat: provider and run reference nodes in the closed program" -- orchestrator/workflow_lisp/closed/effects.py orchestrator/workflow_lisp/closed/build.py orchestrator/workflow_lisp/closed/values.py orchestrator/workflow_lisp/closed/names.py orchestrator/workflow_lisp/contracts.py orchestrator/workflow_lisp/closed/check.py orchestrator/workflow_lisp/expressions.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/typecheck_dispatch.py orchestrator/workflow_lisp/wcc/elaborate.py orchestrator/workflow_lisp/wcc/hygiene.py orchestrator/workflow_lisp/wcc/model.py tests/test_workflow_lisp_closed_program_effects.py docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md`
 
 **What this makes harder later:** each later class replaces a gap branch.
 Phase 3 still proves assembled prompt parity and run-ref caller integration;
 Phase 2 must already preserve all assembly/contract facts, so that remaining
 runtime evidence does not authorize dropping document slots or dependencies.
+Pure-call normalizers and typed-tree rewrites must now keep one additional
+parallel transient fact aligned when they splice, slice or rename generated
+`let*` rows; generic name collectors must continue to ignore its owner facts.
+That row stays out of the wire schema, and the legacy consumer remains until
+its route retires.
 
 ---
 
@@ -3897,7 +3964,10 @@ source-map provenance, explicitly naming each ignored field. Keep all output
 validation fields, renderer ids, slot kinds/types/order/output roles,
 placeholder positions, policy and dependencies' ordered values, roles,
 position and instruction. Normalize canonical private type names through the
-known module mapping, never by deleting nominal distinctions. Compare prompt
+known module mapping, never by deleting nominal distinctions. For synthetic
+input labels, use the retained binding owner to normalize only the compiler-
+generated occurrence; preserve authored labels even when they resemble
+generated spellings. Compare prompt
 source kind and lookup selection using distinct file contents. Counts alone
 are not dependency parity. Reuse existing pure prompt/dependency projection
 helpers where available; full executor-free prompt assembly and request
@@ -3973,9 +4043,10 @@ appropriate owner before closeout; never claim a failing selector passed.
   both routes, once Phase 3 runs programs. Until then `context.py` follows
   the flat route's constants (`_runtime_context_default_value`).
 - The rendering of prompt dependency snapshots (design §19, 5): Phase 3,
-  when prompt assembly runs outside the executor; the `dependencies` node
-  already carries all rows, slot kinds, values, policy and ordering needed
-  to prove parity; Phase 3 verifies their actual rendering.
+  when prompt assembly runs outside the executor; the provider's ordered
+  `prompt.fills` and separate explicit `dependencies` row together carry slot
+  kinds, values, policy and ordering needed to prove parity; Phase 3 verifies
+  their actual rendering.
 - Which forms outside the release the corpus uses, by count: Task 10's
   expectation table is the answer and the input to Phase 4's order.
 - Whether a `list_map` value should instead be a catalog payload: decided
@@ -4049,7 +4120,7 @@ retry, terminal, trial-SDK or reader implementation enters this plan.
   `std/improve` example, at the new target; the summaries and the site
   counts in the report.
 - [ ] The corpus table of Task 10 in the report, with the count built.
-- [ ] Review by the repository Review role (Sol 6 high), with the owner's
+- [ ] Review by the repository Review role (Sol 6.1 high), with the owner's
   Critical-only gate above and every finding/evidence disposition recorded.
 - [ ] Integrate according to the coordinator's authorized branch workflow;
   this document revision itself neither implements Phase 2 nor authorizes a

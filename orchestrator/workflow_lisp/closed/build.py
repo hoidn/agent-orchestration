@@ -95,6 +95,7 @@ class CaptureSlot:
     source_name: str | None = None
     identity: Any = None
     type_program: Any | None = None
+    run_ref_producers: tuple["RunRefProducer", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,23 @@ class CallableRequest:
     workflow_refs: Mapping[str, Any]
     workflow_ref_keys: Mapping[str, Any]
     procedure: Any | None = None
+    argument_run_ref_producers: Mapping[str, tuple["RunRefProducer", ...]] | None = None
+
+
+@dataclass(eq=False)
+class RunRefProducer:
+    """One concrete run-ref effect occurrence retained until final naming."""
+
+    perform: WccPerform
+    owner: str
+    type_ref: TypeRef
+    typed: Any
+    node: dict[str, Any]
+    signature: dict[str, Any]
+    producer_context: tuple["RunRefProducer", ...]
+    site: str | None = None
+    site_digest: str | None = None
+    generated_name: str | None = None
 
 
 def _capture_owner_groups(
@@ -205,18 +223,43 @@ class Definition:
     context_call_occurrences: Mapping[int, tuple[list[Any], int]] | None = None
     binding_aliases: Mapping[object, str] | None = None
     capture_binding_identities: frozenset[object] = frozenset()
+    run_ref_names: Mapping[str, tuple[RunRefProducer, ...]] | None = None
 
     def with_names(
         self,
         names: dict[str, str],
         *,
         binding_aliases: Mapping[object, str] | None = None,
+        run_ref_names: Mapping[str, tuple[RunRefProducer, ...]] | None = None,
     ) -> Definition:
         aliases = (self.binding_aliases or {}) if binding_aliases is None else binding_aliases
-        return replace(self, names=names, binding_aliases=dict(aliases))
+        producers = (self.run_ref_names or {}) if run_ref_names is None else run_ref_names
+        return replace(
+            self,
+            names=names,
+            binding_aliases=dict(aliases),
+            run_ref_names=dict(producers),
+        )
 
-    def ref(self, name: str) -> str:
-        return self.renamer.ref(name, env=self.names)
+    def resolved_binding_name(
+        self,
+        name: str,
+        binding_identity: object | None = None,
+    ) -> str:
+        if binding_identity is None:
+            return name
+        alias = (self.binding_aliases or {}).get(binding_identity)
+        if alias is not None:
+            return alias
+        if binding_identity in self.capture_binding_identities:
+            raise ValueError("retained capture reference has no frozen lexical owner")
+        return name
+
+    def ref(self, name: str, binding_identity: object | None = None) -> str:
+        return self.renamer.ref(
+            self.resolved_binding_name(name, binding_identity),
+            env=self.names,
+        )
 
 
 @records_defect_provenance("closed-program")
@@ -253,6 +296,13 @@ class Builder:
         self.procedure_owners: dict[str, tuple[Any, Any]] = {}
         self.configuration_rows: dict[tuple[int, str], dict[str, Any]] = {}
         self.configuration_imports: dict[str, dict[str, Any]] = {}
+        self.run_ref_producers: list[RunRefProducer] = []
+        self.run_ref_producers_by_effect: dict[int, RunRefProducer] = {}
+        self.emitted_descriptors: list[
+            tuple[dict[str, Any], TypeRef, Any, tuple[RunRefProducer, ...], RunRefProducer | None]
+        ] = []
+        self.boundary_requests: list[dict[str, Any]] = []
+        self.compiler_runtime_identity: str | None = None
         self._workflow_wcc_cache: dict[tuple[int, str], Any] = {}
         self._index_owners()
 
@@ -562,6 +612,7 @@ class Builder:
         source_program: Any,
         captures: list[CaptureSlot],
     ) -> WorkflowRequest:
+        self._require_selected_callable(workflow)
         key = canonical_definition_key(
             workflow,
             typed=self.typed,
@@ -682,10 +733,397 @@ class Builder:
         d: Definition,
         *,
         typed: Any | None = None,
+        run_ref_producer: RunRefProducer | None = None,
+        run_ref_producers: tuple[RunRefProducer, ...] = (),
     ) -> dict[str, Any]:
-        descriptor = canonical_type_descriptor(type_ref, typed=typed or d.source_program)
+        type_program = typed or d.source_program
+        producer_context = tuple(
+            dict.fromkeys(
+                [
+                    *(producer for rows in (d.run_ref_names or {}).values() for producer in rows),
+                    *([run_ref_producer] if run_ref_producer is not None else []),
+                    *run_ref_producers,
+                ]
+            )
+        )
+        descriptor = canonical_type_descriptor(type_ref, typed=type_program)
+        self.emitted_descriptors.append(
+            (descriptor, type_ref, type_program, producer_context, run_ref_producer)
+        )
         self._register_types(descriptor)
         return descriptor
+
+    def register_run_ref(
+        self,
+        perform: WccPerform,
+        d: Definition,
+        node: dict[str, Any],
+    ) -> RunRefProducer:
+        from .names import _run_ref_signatures
+
+        type_ref = perform.metadata.type_ref
+        if not isinstance(getattr(type_ref, "run_ref_origin", None), tuple):
+            raise ValueError("run-ref perform has no retained generated type origin")
+        projection = _run_ref_signatures(d.source_program)
+        signature = projection.signature(type_ref)
+        producer_context = tuple(
+            dict.fromkeys(
+                producer
+                for rows in (d.run_ref_names or {}).values()
+                for producer in rows
+            )
+        )
+        producer = RunRefProducer(
+            perform=perform,
+            owner=d.canonical,
+            type_ref=type_ref,
+            typed=d.source_program,
+            node=node,
+            signature=signature,
+            producer_context=producer_context,
+        )
+        self.run_ref_producers.append(producer)
+        self.run_ref_producers_by_effect[id(node)] = producer
+        return producer
+
+    def _run_ref_context_for_value(
+        self,
+        value: Any,
+        d: Definition,
+        *,
+        seen: set[int] | None = None,
+    ) -> tuple[RunRefProducer, ...]:
+        from orchestrator.workflow_lisp.wcc.model import (
+            WccFieldAccessAtom,
+            WccInject,
+            WccNameAtom,
+            WccOpaqueFrontendValue,
+            WccPureOp,
+            WccRecordAtom,
+            WccSelect,
+            WccCall,
+        )
+
+        seen = set() if seen is None else seen
+        if id(value) in seen:
+            return ()
+        seen.add(id(value))
+        if isinstance(value, WccNameAtom):
+            resolved_name = d.resolved_binding_name(
+                value.name,
+                value.metadata.binding_identity,
+            )
+            return (d.run_ref_names or {}).get(resolved_name, ())
+        if isinstance(value, WccFieldAccessAtom):
+            return self._run_ref_context_for_value(value.base, d, seen=seen)
+        if isinstance(value, WccOpaqueFrontendValue):
+            from ..expression_traversal import free_expr_names
+
+            rows = [
+                producer
+                for name in free_expr_names(value.expr)
+                for producer in (d.run_ref_names or {}).get(name, ())
+            ]
+            return tuple(dict.fromkeys(rows))
+        if isinstance(value, WccCall):
+            target_name = value.specialized_callee_name or value.callee_name
+            target = self.procedure_owners.get(target_name) or self.procedure_owners.get(value.callee_name)
+            if target is None:
+                return ()
+            procedure, _source_program = target
+            result_origins = {
+                ref.run_ref_origin[0]
+                for ref in self._run_ref_type_refs(value.metadata.type_ref)
+            }
+            if not result_origins:
+                return ()
+            rows = []
+            for (_formal, parameter_type), argument in zip(
+                procedure.signature.params,
+                value.args,
+                strict=True,
+            ):
+                parameter_origins = {
+                    ref.run_ref_origin[0]
+                    for ref in self._run_ref_type_refs(parameter_type)
+                }
+                if not (result_origins & parameter_origins):
+                    continue
+                argument_rows = self._run_ref_context_for_value(argument, d, seen=seen)
+                rows.extend(
+                    producer
+                    for producer in argument_rows
+                    if producer.type_ref.run_ref_origin[0] in result_origins
+                )
+            return tuple(dict.fromkeys(rows))
+        children = ()
+        if isinstance(value, (WccRecordAtom, WccInject)):
+            children = tuple(child for _name, child in value.fields)
+        elif isinstance(value, WccPureOp):
+            children = value.args
+        elif isinstance(value, WccSelect):
+            children = (
+                value.condition,
+                *(item for arm in (value.then_arm, value.else_arm) for item in (*arm.prefix, arm.value)),
+            )
+        rows = [
+            producer
+            for child in children
+            for producer in self._run_ref_context_for_value(child, d, seen=seen)
+        ]
+        return tuple(dict.fromkeys(rows))
+
+    @staticmethod
+    def _run_ref_type_refs(type_ref: Any) -> tuple[Any, ...]:
+        from orchestrator.workflow_lisp.type_env import (
+            DiscriminantTypeRef,
+            ListTypeRef,
+            MapTypeRef,
+            OptionalTypeRef,
+            RecordTypeRef,
+            UnionTypeRef,
+            VariantCaseTypeRef,
+        )
+
+        refs = []
+        seen: set[int] = set()
+
+        def visit(ref: Any) -> None:
+            if id(ref) in seen:
+                return
+            seen.add(id(ref))
+            if isinstance(ref, RecordTypeRef):
+                if isinstance(getattr(ref, "run_ref_origin", None), tuple):
+                    refs.append(ref)
+                else:
+                    for field_type in ref.field_types.values():
+                        visit(field_type)
+            elif isinstance(ref, (ListTypeRef, OptionalTypeRef)):
+                visit(ref.item_type_ref)
+            elif isinstance(ref, MapTypeRef):
+                visit(ref.key_type_ref)
+                visit(ref.value_type_ref)
+            elif isinstance(ref, UnionTypeRef):
+                for arg in ref.type_args:
+                    visit(arg)
+                for fields in ref.variant_field_types.values():
+                    for field_type in fields.values():
+                        visit(field_type)
+            elif isinstance(ref, VariantCaseTypeRef):
+                for arg in ref.union_type_args:
+                    visit(arg)
+                for field_type in (ref.field_types or {}).values():
+                    visit(field_type)
+            elif isinstance(ref, DiscriminantTypeRef):
+                return
+
+        visit(type_ref)
+        return tuple(refs)
+
+    def _producer_for_type_ref(
+        self,
+        type_ref: Any,
+        producer_context: tuple[RunRefProducer, ...],
+        producer_hint: RunRefProducer | None = None,
+    ) -> RunRefProducer:
+        candidates = list(producer_context)
+        if producer_hint is not None and all(producer_hint is not row for row in candidates):
+            candidates.append(producer_hint)
+        exact = [row for row in candidates if row.type_ref is type_ref]
+        if len(exact) == 1:
+            return exact[0]
+        if len(exact) > 1:
+            raise ValueError("generated run-ref TypeRef has competing retained producers")
+        origin = getattr(type_ref, "run_ref_origin", None)
+        if isinstance(origin, tuple) and len(origin) == 2:
+            same_origin = [
+                row
+                for row in candidates
+                if isinstance(getattr(row.type_ref, "run_ref_origin", None), tuple)
+                and row.type_ref.run_ref_origin[0] == origin[0]
+            ]
+            if len(same_origin) == 1:
+                return same_origin[0]
+            if len(same_origin) > 1:
+                raise ValueError("generated run-ref origin has competing lexical producers")
+        from .names import CanonicalNameError
+
+        raise CanonicalNameError(getattr(type_ref, "name", type(type_ref).__name__))
+
+    def _canonical_descriptor(
+        self,
+        type_ref: TypeRef,
+        typed: Any,
+        producer_context: tuple[RunRefProducer, ...],
+        producer_hint: RunRefProducer | None = None,
+    ) -> dict[str, Any]:
+        builder = self
+
+        class ConcreteRunRefNames:
+            def __init__(self) -> None:
+                from .names import _run_ref_signatures
+
+                self.key_projection = _run_ref_signatures(typed)
+
+            def alias_for(self, ref: Any) -> str:
+                producer = builder._producer_for_type_ref(
+                    ref,
+                    producer_context,
+                    producer_hint,
+                )
+                if producer.generated_name is None:
+                    raise ValueError("run-ref producer name was not finalized")
+                return producer.generated_name
+
+            def key_type(self, ref: Any) -> dict[str, Any]:
+                return self.key_projection.key_type(ref)
+
+        return canonical_type_descriptor(
+            type_ref,
+            typed=typed,
+            _run_ref_projection=ConcreteRunRefNames(),
+        )
+
+    def finalize_run_refs(self, tree: dict[str, Any]) -> None:
+        if not self.run_ref_producers:
+            return
+        from base64 import b64encode
+        from hashlib import sha256
+
+        from orchestrator.workflow.run_ref.config import (
+            ReferenceBinding,
+            RunRefInput,
+            build_run_ref_static_config,
+            encode_run_ref_static_config,
+        )
+        from orchestrator.workflow.run_ref.contracts import canonical_sha256
+        from orchestrator.workflow.run_ref.result_contract import RUN_REF_RESULT_CONTRACT_SCHEMA
+
+        for producer in self.run_ref_producers:
+            site = producer.node.get("site")
+            if not isinstance(site, str) or not site:
+                raise ValueError("run-ref perform has no assigned local site")
+            producer.site = site
+            digest_input = [
+                "workflow-lisp/run-ref-site/1",
+                producer.owner,
+                site,
+                producer.signature,
+            ]
+            producer.site_digest = sha256(_canonical_json(digest_input).encode("utf-8")).hexdigest()
+            producer.generated_name = f"RunRefResult${producer.site_digest[:16]}"
+
+        for descriptor, type_ref, typed, context, hint in self.emitted_descriptors:
+            if not self._contains_run_ref(type_ref):
+                continue
+            rebuilt = self._canonical_descriptor(type_ref, typed, context, hint)
+            descriptor.clear()
+            descriptor.update(rebuilt)
+
+        self.nominal_types.clear()
+        for descriptor, _type_ref, _typed, _context, _hint in self.emitted_descriptors:
+            self._register_types(descriptor)
+
+        for request in self.boundary_requests:
+            node = request["node"]
+            caller_params = request["caller_params"]
+            native_params = request["native_params"]
+            caller_result = request["caller_result"]
+            native_result = request["native_result"]
+            direct_count = request["direct_count"]
+            if request["initial"]:
+                node["boundary"] = self._boundary_relation(
+                    caller_params,
+                    native_params,
+                    caller_result,
+                    native_result,
+                    direct_capture_count=direct_count,
+                )
+                continue
+            proof = request.get("proof")
+            if proof is None:
+                continue
+            generated = any(self._contains_run_ref(ref) for ref in proof["caller_types"])
+            generated = generated or self._contains_run_ref(proof["caller_result_ref"])
+            concrete_difference = (
+                len(caller_params) != len(native_params)
+                or any(left[1] != right[1] for left, right in zip(caller_params, native_params))
+                or caller_result != native_result
+            )
+            if generated and concrete_difference and self._ordinary_generated_signature_boundary(
+                caller_types=proof["caller_types"],
+                caller_type_scopes=proof["caller_type_scopes"],
+                caller_result_ref=proof["caller_result_ref"],
+                caller_scope=proof["caller_scope"],
+                caller_params=caller_params,
+                capture_routes=proof["capture_routes"],
+                native_params=native_params,
+                native_result=native_result,
+                key=proof["key"],
+            ):
+                node["boundary"] = self._boundary_relation(
+                    caller_params,
+                    native_params,
+                    caller_result,
+                    native_result,
+                    direct_capture_count=direct_count,
+                )
+
+        for producer in self.run_ref_producers:
+            payload = producer.perform.operation_payload
+            origin = producer.type_ref.run_ref_origin
+            input_types = origin[1]
+            if len(input_types) != len(producer.node["inputs"]):
+                raise ValueError("run-ref typed input rows differ from WCC values")
+            input_rows = []
+            for (name, input_type), (node_name, _value) in zip(
+                input_types,
+                producer.node["inputs"],
+                strict=True,
+            ):
+                if node_name != name:
+                    raise ValueError("run-ref input names differ from retained ordered TypeRefs")
+                input_descriptor = self._canonical_descriptor(
+                    input_type,
+                    producer.typed,
+                    producer.producer_context,
+                    None,
+                )
+                input_rows.append(
+                    RunRefInput(
+                        name=name,
+                        type_descriptor=input_descriptor,
+                        binding=ReferenceBinding(f"inputs.{name}"),
+                        allow_nested_structures=True,
+                    )
+                )
+                self._register_types(input_descriptor)
+            envelope = producer.node["result"]
+            result_descriptor = {
+                "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
+                "envelope": envelope,
+            }
+            result_digest = canonical_sha256(result_descriptor)
+            if self.compiler_runtime_identity is None:
+                from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
+
+                self.compiler_runtime_identity = compute_compiler_runtime_identity().digest
+            config = build_run_ref_static_config(
+                compiler_runtime_identity_digest=self.compiler_runtime_identity,
+                site_digest=producer.site_digest,
+                source=payload.source,
+                program=payload.program,
+                inputs=tuple(input_rows),
+                result_descriptor=result_descriptor,
+                result_digest=result_digest,
+                target_dsl_version=EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+            )
+            producer.node["config"] = b64encode(encode_run_ref_static_config(config)).decode("ascii")
+            self._register_types(envelope)
+
+    @staticmethod
+    def _contains_run_ref(type_ref: Any) -> bool:
+        return bool(Builder._run_ref_type_refs(type_ref))
 
     def _register_types(self, descriptor: dict[str, Any]) -> None:
         kind = descriptor.get("kind")
@@ -727,6 +1165,57 @@ class Builder:
             span=getattr(metadata, "source_span", getattr(metadata, "span", None)),
             form_path=getattr(metadata, "form_path", ()),
         )
+
+    def _selected_callable_gap(self, callable_def: Any) -> ClosedProgramGap | None:
+        """Return a located gap that must be reported before key construction.
+
+        Some admitted result types are generated from effects that this release
+        does not translate. Inspect only the retained body of the callable
+        selected for emission, and leave local procedure bodies for the point
+        where a call selects them.
+        """
+
+        from ..expression_traversal import iter_child_exprs
+        from ..expressions import LetProcExpr, ProviderResultExpr, TrialExpr
+
+        typed_body = getattr(callable_def, "typed_body", None)
+        expression = getattr(typed_body, "expr", typed_body)
+        if expression is None:
+            return None
+        pending = [expression]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, TrialExpr):
+                return self.gap("trial", "trial execution is outside the closed surface", node)
+            if isinstance(node, ProviderResultExpr):
+                if node.session_artifact is not None:
+                    return self.gap(
+                        "provider-result",
+                        "provider session artifacts are outside the closed provider surface",
+                        node,
+                    )
+                if node.context_expr is not None or node.capture_context is not None:
+                    return self.gap(
+                        "provider-result",
+                        "provider context capture is outside the closed provider surface",
+                        node,
+                    )
+                if node.materialization_attempts is not None:
+                    return self.gap(
+                        "provider-result",
+                        "provider materialization attempts are outside the closed provider surface",
+                        node,
+                    )
+            if isinstance(node, LetProcExpr):
+                pending.append(node.body)
+                continue
+            pending.extend(reversed(iter_child_exprs(node)))
+        return None
+
+    def _require_selected_callable(self, callable_def: Any) -> None:
+        gap = self._selected_callable_gap(callable_def)
+        if gap is not None:
+            raise gap
 
     def _renamer(self, node: Any, params: Any = ()) -> Renamer:
         reserved = {label for label in _authored_labels(node) if label is not None}
@@ -773,6 +1262,7 @@ class Builder:
         d: Definition,
         identity: object | None,
         wire_name: str,
+        run_ref_producers: tuple[RunRefProducer, ...] = (),
     ) -> tuple[Definition, list[dict[str, Any]]]:
         if identity is None or identity not in d.capture_binding_identities:
             return d, []
@@ -785,8 +1275,15 @@ class Builder:
             env=names,
         )
         binding_aliases[identity] = internal_name
+        run_ref_names = dict(d.run_ref_names or {})
+        if run_ref_producers:
+            run_ref_names[internal_name] = run_ref_producers
         return (
-            d.with_names(names, binding_aliases=binding_aliases),
+            d.with_names(
+                names,
+                binding_aliases=binding_aliases,
+                run_ref_names=run_ref_names,
+            ),
             [{"k": "let", "name": alias_wire, "value": {"k": "name", "n": wire_name}}],
         )
 
@@ -816,6 +1313,7 @@ class Builder:
                 current,
                 identity,
                 source_wire,
+                (current.run_ref_names or {}).get(param.name, ()),
             )
             prefix.extend(rows)
         return current, prefix
@@ -829,10 +1327,15 @@ class Builder:
     def _body_impl(self, node: WccBody, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         lets = []
         names = dict(d.names)
+        run_ref_names = dict(d.run_ref_names or {})
         binding_aliases = dict(d.binding_aliases or {})
         types = dict(env)
         while isinstance(node, WccLet):
-            current = d.with_names(names, binding_aliases=binding_aliases)
+            current = d.with_names(
+                names,
+                binding_aliases=binding_aliases,
+                run_ref_names=run_ref_names,
+            )
             value = self.binding(node.bound_value, current, types)
             nested_names = dict(names)
             wire_name = d.renamer.bind(
@@ -847,16 +1350,35 @@ class Builder:
             lets.append(row)
             names = nested_names
             types[node.bound_name] = node.bound_type_ref
+            producer = self.run_ref_producers_by_effect.get(id(value))
+            if producer is None and isinstance(node.bound_value, WccNameAtom):
+                resolved_name = current.resolved_binding_name(
+                    node.bound_value.name,
+                    node.bound_value.metadata.binding_identity,
+                )
+                producers = run_ref_names.get(resolved_name, ())
+            elif producer is not None:
+                producers = (producer,)
+            else:
+                producers = self._run_ref_context_for_value(node.bound_value, current)
+            if producers:
+                run_ref_names[node.bound_name] = producers
             identity = node.metadata.binding_identity
             if identity is not None and identity in d.capture_binding_identities:
-                current = d.with_names(names, binding_aliases=binding_aliases)
+                current = d.with_names(
+                    names,
+                    binding_aliases=binding_aliases,
+                    run_ref_names=run_ref_names,
+                )
                 current, alias_prefix = self._freeze_bound_capture(
                     current,
                     identity,
                     wire_name,
+                    producers,
                 )
                 names = dict(current.names)
                 binding_aliases = dict(current.binding_aliases or {})
+                run_ref_names = dict(current.run_ref_names or {})
                 lets.extend(alias_prefix)
             for request in (d.computed_capture_requests_by_alias or {}).get(node.bound_name, ()):
                 rewritten = dict(names)
@@ -871,7 +1393,11 @@ class Builder:
                 expression_value = frontend_value(
                     self,
                     request.expression,
-                    d.with_names(rewritten),
+                    d.with_names(
+                        rewritten,
+                        binding_aliases=binding_aliases,
+                        run_ref_names=run_ref_names,
+                    ),
                     types,
                 )
                 source_names = dict(names)
@@ -888,7 +1414,11 @@ class Builder:
             node = node.body
         tail = self.tail(
             node,
-            d.with_names(names, binding_aliases=binding_aliases),
+            d.with_names(
+                names,
+                binding_aliases=binding_aliases,
+                run_ref_names=run_ref_names,
+            ),
             types,
         )
         for row in reversed(lets):
@@ -919,6 +1449,7 @@ class Builder:
                     local,
                     arm.binding_identity,
                     binder,
+                    self._run_ref_context_for_value(node.subject, d),
                 )
                 arm_body = self.body(arm.body, arm_local, arm_env)
                 arm_body = _prepend_lets(arm_body, alias_prefix)
@@ -967,6 +1498,7 @@ class Builder:
             cont_local,
             node.metadata.binding_identity,
             param_wire,
+            self._run_ref_context_for_value(node.body, d),
         )
         continuation = self.body(node.continuation, continuation_local, continuation_env)
         continuation = _prepend_lets(continuation, alias_prefix)
@@ -997,6 +1529,7 @@ class Builder:
             body_local,
             node.metadata.binding_identity,
             param_wire,
+            self._run_ref_context_for_value(node.initial_state, d),
         )
         d.loops.append((node.loop_name, loop_wire))
         try:
@@ -1010,6 +1543,7 @@ class Builder:
                 post_param_local.with_names(dict(post_param_local.names)),
                 node.metadata.binding_identity,
                 param_wire,
+                self._run_ref_context_for_value(node.initial_state, d),
             )
             exhausted = self.body(node.exhaustion, exhausted_local, dict(loop_env))
             exhausted = _prepend_lets(exhausted, exhausted_prefix)
@@ -1132,6 +1666,7 @@ class Builder:
         value: Any,
         source_name: str | None,
         identity: Any,
+        run_ref_producers: tuple[RunRefProducer, ...] = (),
     ) -> int:
         descriptor = canonical_type_descriptor(type_ref, typed=typed)
         for index, capture in enumerate(captures):
@@ -1144,6 +1679,8 @@ class Builder:
             ):
                 if route not in capture.routes:
                     capture.routes.append(route)
+                if capture.run_ref_producers != run_ref_producers:
+                    raise ValueError("one retained capture route has competing run-ref producers")
                 return index
         captures.append(
             CaptureSlot(
@@ -1153,6 +1690,7 @@ class Builder:
                 source_name=source_name,
                 identity=identity,
                 type_program=typed,
+                run_ref_producers=run_ref_producers,
             )
         )
         return len(captures) - 1
@@ -1255,6 +1793,7 @@ class Builder:
                     value=actual,
                     source_name=source_name,
                     identity=actual_identity,
+                    run_ref_producers=tuple((d.run_ref_names or {}).get(source_name, ())),
                 )
                 facts[formal] = {"capture": index}
                 continue
@@ -1272,6 +1811,7 @@ class Builder:
                     value=actual,
                     source_name=bound_alias,
                     identity=("bind-proc-expression", id(argument.value_expr), formal),
+                    run_ref_producers=tuple((d.run_ref_names or {}).get(bound_alias, ())),
                 )
                 facts[formal] = {"capture": index}
                 continue
@@ -1299,6 +1839,8 @@ class Builder:
                     value=actual,
                     source_name=source_name,
                     identity=alias_identity,
+                    run_ref_producers=self._run_ref_context_for_value(actual, d)
+                    or tuple((d.run_ref_names or {}).get(source_name, ())),
                 )
                 facts[formal] = {"capture": index}
                 continue
@@ -1321,6 +1863,7 @@ class Builder:
                     value=actual,
                     source_name=source_name,
                     identity=("bind-proc-expression", id(argument.value_expr), formal),
+                    run_ref_producers=tuple((d.run_ref_names or {}).get(source_name, ())),
                 )
                 facts[formal] = {"capture": index}
                 continue
@@ -1375,9 +1918,10 @@ class Builder:
         return {"externs": rows}
 
     def _call_request(self, procedure: Any, source_program: Any, call: WccCall, d: Definition) -> CallableRequest:
-        from ..expression_traversal import free_expr_names
-        from ..expressions import BindProcExpr, LiteralExpr, NameExpr
+        from ..expression_traversal import free_expr_names, walk_expr
+        from ..expressions import BindProcExpr, LetStarExpr, LiteralExpr, NameExpr
 
+        self._require_selected_callable(procedure)
         specialization = getattr(procedure, "specialization", None)
         base_name = getattr(specialization, "base_name", None)
         base_owner = self.procedure_owners.get(base_name) if base_name is not None else None
@@ -1477,6 +2021,7 @@ class Builder:
                         value=actual,
                         source_name=source_name,
                         identity=identity,
+                        run_ref_producers=self._run_ref_context_for_value(actual, d),
                     )
                     runtime_formals.add(formal)
             if runtime_formals:
@@ -1507,6 +2052,16 @@ class Builder:
             capture_parameters=[{"type": row.type_ref, "routes": row.routes} for row in captures],
             residual_signature=None,
         )
+        argument_run_ref_producers: dict[str, tuple[RunRefProducer, ...]] = {}
+        parameters = tuple(getattr(procedure_view.signature, "params", ()))
+        if len(parameters) != len(call.args):
+            if any(self._run_ref_context_for_value(argument, d) for argument in call.args):
+                raise ValueError("run-ref call arguments have no aligned retained parameter owner")
+        else:
+            argument_run_ref_producers = {
+                formal: self._run_ref_context_for_value(argument, d)
+                for (formal, _type_ref), argument in zip(parameters, call.args, strict=True)
+            }
         return CallableRequest(
             key=key,
             canonical=canonical_callee_name(procedure_view, key=key),
@@ -1516,6 +2071,7 @@ class Builder:
             workflow_refs=workflow_refs,
             workflow_ref_keys={str(row[0]): row[1] for row in key[5]},
             procedure=procedure_view,
+            argument_run_ref_producers=argument_run_ref_producers,
         )
 
     @staticmethod
@@ -1560,7 +2116,12 @@ class Builder:
         caller_params = [
             [
                 native_params[index][0] if index < len(native_params) else f"arg{index}",
-                self.desc(capture.type_ref, d, typed=capture.type_program or d.source_program),
+                self.desc(
+                    capture.type_ref,
+                    d,
+                    typed=capture.type_program or d.source_program,
+                    run_ref_producers=capture.run_ref_producers,
+                ),
             ]
             for index, capture in enumerate(request.captures)
         ]
@@ -1609,9 +2170,26 @@ class Builder:
         }
         if boundary is not None:
             result["boundary"] = boundary
+        self._remember_boundary(
+            result,
+            caller_params,
+            native_params,
+            caller_result,
+            native_result,
+            direct_count=len(request.captures),
+            proof={
+                "caller_types": caller_types,
+                "caller_type_scopes": caller_type_scopes,
+                "caller_result_ref": call.metadata.type_ref,
+                "caller_scope": d.source_program,
+                "capture_routes": [capture.routes for capture in request.captures],
+                "key": key,
+            },
+        )
         return result
 
     def _callable_key(self, callable_def: Any, source_program: Any) -> tuple[list[Any], str]:
+        self._require_selected_callable(callable_def)
         key = canonical_definition_key(
             callable_def,
             typed=source_program,
@@ -1678,6 +2256,7 @@ class Builder:
         if target is None:
             raise ValueError(f"resolved procedure target {resolved.procedure_name!r} has no retained owner")
         procedure, source_program = target
+        self._require_selected_callable(procedure)
         captures: list[CaptureSlot] = []
         capture_args: list[dict[str, Any]] = []
         for row in key[7]:
@@ -1695,7 +2274,14 @@ class Builder:
             outer_index = matches[0]
             outer_capture = d.captures[outer_index]
             type_ref = self._capture_type_from_reference(resolved, routes[0], source_program)
-            captures.append(CaptureSlot(type_ref=type_ref, routes=list(routes), type_program=source_program))
+            captures.append(
+                CaptureSlot(
+                    type_ref=type_ref,
+                    routes=list(routes),
+                    type_program=source_program,
+                    run_ref_producers=outer_capture.run_ref_producers,
+                )
+            )
             source_name = (d.capture_names or [])[outer_index]
             capture_args.append({"k": "name", "n": d.ref(source_name)})
 
@@ -1724,6 +2310,14 @@ class Builder:
             procedure_ref_keys={str(row[0]): row[1] for row in key[4]},
             workflow_refs=dict(getattr(specialization, "workflow_ref_bindings", {}) or {}),
             workflow_ref_keys={str(row[0]): row[1] for row in key[5]},
+            argument_run_ref_producers={
+                formal: self._run_ref_context_for_value(argument, d)
+                for (formal, _type_ref), argument in zip(
+                    tuple(getattr(procedure.signature, "params", ())),
+                    call.args,
+                    strict=True,
+                )
+            },
         )
         canonical = request.canonical
         if canonical in self.active:
@@ -1742,7 +2336,12 @@ class Builder:
         caller_params = [
             [
                 native_params[index][0] if index < len(native_params) else f"arg{index}",
-                self.desc(capture.type_ref, d, typed=capture.type_program or source_program),
+                self.desc(
+                    capture.type_ref,
+                    d,
+                    typed=capture.type_program or source_program,
+                    run_ref_producers=capture.run_ref_producers,
+                ),
             ]
             for index, capture in enumerate(captures)
         ]
@@ -1791,6 +2390,22 @@ class Builder:
         }
         if boundary is not None:
             result["boundary"] = boundary
+        self._remember_boundary(
+            result,
+            caller_params,
+            native_params,
+            caller_result,
+            native_result,
+            direct_count=len(captures),
+            proof={
+                "caller_types": caller_types,
+                "caller_type_scopes": caller_type_scopes,
+                "caller_result_ref": call.metadata.type_ref,
+                "caller_scope": d.source_program,
+                "capture_routes": [capture.routes for capture in captures],
+                "key": key,
+            },
+        )
         return result
 
     def workflow_call(self, perform: WccPerform, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
@@ -1838,6 +2453,7 @@ class Builder:
                             source_name=outer_capture.source_name,
                             identity=("forwarded-context", outer_index, outer_capture.identity),
                             type_program=outer_capture.type_program,
+                            run_ref_producers=outer_capture.run_ref_producers,
                         )
                         target_captures_by_outer[outer_index] = slot
                     if suffix not in slot.routes:
@@ -1942,7 +2558,15 @@ class Builder:
             name: capture for name, (_index, capture) in forwarded_context.items()
         }
         caller_params = [
-            [capture.source_name or self._capture_source(index), self.desc(capture.type_ref, d, typed=capture.type_program)]
+            [
+                capture.source_name or self._capture_source(index),
+                self.desc(
+                    capture.type_ref,
+                    d,
+                    typed=capture.type_program,
+                    run_ref_producers=capture.run_ref_producers,
+                ),
+            ]
             for index, capture in enumerate(captures)
         ]
         caller_params.extend(
@@ -1966,18 +2590,18 @@ class Builder:
             or caller_result != native_result
         )
         context_boundary = bool(forwarded_context or caller_context_captures)
+        caller_types = [capture.type_ref for capture in captures]
+        caller_type_scopes = [capture.type_program or d.source_program for capture in captures]
+        for name, type_ref in caller_signature.params:
+            if name in captured_formals:
+                continue
+            forwarded = forwarded_context_slots.get(name)
+            caller_types.append(forwarded.type_ref if forwarded is not None else type_ref)
+            caller_type_scopes.append(
+                (forwarded.type_program or d.source_program) if forwarded is not None else d.source_program
+            )
         ordinary_generated_boundary = False
         if has_concrete_difference and not admitted_import and not context_boundary:
-            caller_types = [capture.type_ref for capture in captures]
-            caller_type_scopes = [capture.type_program or d.source_program for capture in captures]
-            for name, type_ref in caller_signature.params:
-                if name in captured_formals:
-                    continue
-                forwarded = forwarded_context_slots.get(name)
-                caller_types.append(forwarded.type_ref if forwarded is not None else type_ref)
-                caller_type_scopes.append(
-                    (forwarded.type_program or d.source_program) if forwarded is not None else d.source_program
-                )
             ordinary_generated_boundary = self._ordinary_generated_signature_boundary(
                 caller_types=caller_types,
                 caller_type_scopes=caller_type_scopes,
@@ -2022,6 +2646,22 @@ class Builder:
         }
         if boundary is not None:
             result["boundary"] = boundary
+        self._remember_boundary(
+            result,
+            caller_params,
+            native_params,
+            caller_result,
+            native_result,
+            direct_count=len(captures),
+            proof={
+                "caller_types": caller_types,
+                "caller_type_scopes": caller_type_scopes,
+                "caller_result_ref": perform.metadata.type_ref,
+                "caller_scope": d.source_program,
+                "capture_routes": [capture.routes for capture in captures],
+                "key": key,
+            },
+        )
         return result
 
     @staticmethod
@@ -2117,6 +2757,39 @@ class Builder:
             },
         }
 
+    def _remember_boundary(
+        self,
+        node: dict[str, Any],
+        caller_params: list[list[Any]],
+        native_params: list[list[Any]],
+        caller_result: dict[str, Any],
+        native_result: dict[str, Any],
+        *,
+        direct_count: int,
+        proof: Mapping[str, Any] | None,
+    ) -> None:
+        generated = bool(
+            proof
+            and (
+                any(self._contains_run_ref(ref) for ref in proof["caller_types"])
+                or self._contains_run_ref(proof["caller_result_ref"])
+            )
+        )
+        if node.get("boundary") is None and not generated:
+            return
+        self.boundary_requests.append(
+            {
+                "node": node,
+                "caller_params": caller_params,
+                "native_params": native_params,
+                "caller_result": caller_result,
+                "native_result": native_result,
+                "direct_count": direct_count,
+                "initial": node.get("boundary") is not None,
+                "proof": proof,
+            }
+        )
+
     def _signature_rows(
         self,
         callable_def: Any,
@@ -2168,7 +2841,15 @@ class Builder:
                 context = local
                 capture_names.append(source_name)
                 capture_rows.append(
-                    [wire, self.desc(capture.type_ref, context, typed=capture.type_program or source_program)]
+                    [
+                        wire,
+                        self.desc(
+                            capture.type_ref,
+                            context,
+                            typed=capture.type_program or source_program,
+                            run_ref_producers=capture.run_ref_producers,
+                        ),
+                    ]
                 )
                 for route in capture.routes:
                     if route[0] == "parameter":
@@ -2180,6 +2861,21 @@ class Builder:
                         local_name = local_row[3][route[1]][0]
                         context.names[local_name] = wire
                         local_capture_names[index] = local_name
+            run_ref_names = dict(context.run_ref_names or {})
+            if request is not None:
+                run_ref_names.update(request.argument_run_ref_producers or {})
+            for index, capture in enumerate(capture_slots):
+                if not capture.run_ref_producers:
+                    continue
+                run_ref_names[capture_names[index]] = capture.run_ref_producers
+                if capture.source_name is not None:
+                    run_ref_names[capture.source_name] = capture.run_ref_producers
+                for route in capture.routes:
+                    if route[0] == "parameter":
+                        run_ref_names[route[1]] = capture.run_ref_producers
+                    elif route[0] == "local" and index in local_capture_names:
+                        run_ref_names[local_capture_names[index]] = capture.run_ref_producers
+            context = context.with_names(context.names, run_ref_names=run_ref_names)
             context.callable_definition = procedure
             context.callable_key = key
             context.captures = capture_slots
@@ -2302,6 +2998,7 @@ class Builder:
                             capture.type_ref,
                             context,
                             typed=capture.type_program or self.typed,
+                            run_ref_producers=capture.run_ref_producers,
                         ),
                     ]
                 )
@@ -2316,6 +3013,17 @@ class Builder:
             for capture in captures:
                 if capture.source_name is not None:
                     value_env[capture.source_name] = capture.type_ref
+            run_ref_names = dict(context.run_ref_names or {})
+            for index, capture in enumerate(captures):
+                if not capture.run_ref_producers:
+                    continue
+                run_ref_names[capture_names[index]] = capture.run_ref_producers
+                if capture.source_name is not None:
+                    run_ref_names[capture.source_name] = capture.run_ref_producers
+                for route in capture.routes:
+                    if route[0] == "parameter":
+                        run_ref_names[route[1]] = capture.run_ref_producers
+            context = context.with_names(context.names, run_ref_names=run_ref_names)
             context.callable_definition = workflow
             context.callable_key = key
             context.captures = captures
@@ -2375,8 +3083,9 @@ class Builder:
         d: Definition,
         source_program: Any,
     ) -> None:
-        from ..expression_traversal import free_expr_names
-        from ..expressions import BindProcExpr, LiteralExpr, NameExpr
+        from ..expression_traversal import free_expr_names, walk_expr
+        from ..expressions import BindProcExpr, LetStarExpr, LiteralExpr, NameExpr
+        from ..wcc.model import WccNameAtom, WccOpaqueFrontendValue
 
         by_alias: dict[str, list[ComputedCaptureRequest]] = {
             alias: list(rows)
@@ -2390,6 +3099,17 @@ class Builder:
             for row in rows
         }
         capture_binding_identities: set[object] = set(d.capture_binding_identities)
+
+        def retain_static_capture_rows(expression: Any) -> None:
+            for node in walk_expr(expression):
+                if not isinstance(node, LetStarExpr):
+                    continue
+                capture_binding_identities.update(
+                    identity
+                    for row in node.binding_capture_sources
+                    if row is not None
+                    for identity in (row[0],)
+                )
 
         def retain_reference_identities(resolved: Any, seen: set[int]) -> None:
             if id(resolved) in seen:
@@ -2592,7 +3312,13 @@ class Builder:
                     visit_reference_owner(resolved, owner, rows, set())
 
         def visit_value(value: Any) -> None:
-            if isinstance(value, WccCall):
+            if isinstance(value, WccNameAtom):
+                identity = value.metadata.binding_identity
+                if identity is not None:
+                    capture_binding_identities.add(identity)
+            elif isinstance(value, WccOpaqueFrontendValue):
+                retain_static_capture_rows(value.expr)
+            elif isinstance(value, WccCall):
                 consider(value)
                 for argument in value.args:
                     visit_value(argument)
@@ -2879,6 +3605,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
         "sites": [],
     }
     tree["sites"] = [list(row) for row in assign_sites(tree)]
+    builder.finalize_run_refs(tree)
     validate(tree)
     return ClosedProgram(
         tree=tree,

@@ -169,6 +169,7 @@ class WccIdentityFactory:
         proof_context: tuple[object, ...] = (),
         allocation_requests: tuple[object, ...] = (),
         phase_scope: "WccPhaseScope | None" = None,
+        binding_identity: object | None = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="atom",
@@ -181,6 +182,7 @@ class WccIdentityFactory:
             proof_context=proof_context,
             allocation_requests=allocation_requests,
             phase_scope=phase_scope,
+            binding_identity=binding_identity,
         )
 
     def value_metadata(
