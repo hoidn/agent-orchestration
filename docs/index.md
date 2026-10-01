@@ -626,9 +626,9 @@ re-reviewed. No successor substrate tranche is selected.
 **Use this when:** Authoring or reviewing supported local procedure bindings and their explicit scope/capture restrictions, without runtime closures or a second lowering path.
 
 ### [Workflow Lisp Provider Prompt Queue](design/workflow_lisp_provider_prompt_queue.md)
-**Description:** Proposed design for a static `prompt-queue` grouping on provider invocation forms: one atomic runtime step drives N sequential turns against one persisted provider session, with step-level prompt injections on the first turn and the output contract plus result bundle on the final turn only.
+**Description:** Target design for delayed sequential prompts in one native provider session, with one final typed result and explicit turn-prefix recovery. The first delivery uses enumerated prompt externs; typed-fragment/computed queues are later consumer-driven extensions, not limits justified by the old runtime.
 **Keywords:** lisp-frontend, prompt-queue, provider-session, multi-turn, output-contract
-**Use this when:** Reviewing the separate, unscheduled process-per-turn session-resume proposal. Q5 phased delivery uses an interactive turn-queue adapter and its own coordinator; neither proposal implements or depends on the other.
+**Use this when:** Reviewing [PQ-1 in runtime Phase 4](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns), pending consumer qualification and implementation selection. Native continuity is distinct from portable context and Q5's task/materialization policy. Existing adapters are reusable substrate, not proof of queue recovery; this does not block Phases 2–3, parallel map, portable context, or the early pilot.
 
 ### [Workflow Lisp Provider Live Binding](design/workflow_lisp_provider_live_binding.md)
 **Description:** Stage 7 v1 contract, implemented through `4d4f05c7`, for default provider observation plus target-2.16 `with-live-providers`: exactly one worker and one supervisor run under a single-writer coordinator, and a validated `CONTINUE|STEER` union permits at most one fail-closed provider-session correction. The separately implemented additive v1.1 contract is owned by the peer-messaging design.

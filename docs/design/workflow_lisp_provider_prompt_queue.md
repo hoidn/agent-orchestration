@@ -1,524 +1,266 @@
 # Workflow Lisp Provider Prompt Queue
 
-- **Status:** proposed
-- **Kind:** feature / frontend and runtime architecture decision
-- **Owner:** Workflow Lisp frontend
-- **Reviewers:** pending independent design review; direction and the four
-  surface decisions (atomic step, static length, per-turn exit success,
-  provider-form parameter) selected by the user on 2026-07-10
-- **Created:** 2026-07-10
-- **Last material update:** 2026-07-27 (coordination boundary clarified;
-  sequencing repointed from the historical procedure-first amendment path)
-- **Coordination (2026-07-27):** this proposal and language-quality roadmap
-  Stage Q5 (`docs/design/workflow_lisp_phased_contract_delivery.md`) are
-  separate. Q5 uses `interactive_terminal_turn_queue.v1` through its own
-  single-process phase coordinator. This proposal owns any authored
-  process-per-turn session-resume loop and session-id contract. Neither
-  proposal implements, satisfies, or depends on the other.
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
-  - `docs/design/workflow_language_design_principles.md`
-  - `docs/design/workflow_lisp_native_transportable_returns.md` (accepted
-    v2.15 return-contract owner; the queue's final turn renders whatever
-    contract that design specifies)
-  - `docs/design/workflow_lisp_runtime_migration_foundation.md` (structured-output
-    authority, prompt extern semantics)
-  - `docs/plans/2026-04-20-adjudicated-provider-step-design.md` (precedent:
-    multi-invocation single step)
-  - `docs/design/workflow_lisp_phased_contract_delivery.md` (separate Stage
-    Q5 interactive-turn proposal; each proposal owns a separate mechanism and
-    neither depends on the other)
-  - `specs/providers.md`, `specs/io.md`, `specs/versioning.md`
-- **Implementation target:** unscheduled. Q5 neither schedules nor implements
-  this proposal. Selection requires an independent roadmap action; the former
-  procedure-first Stage-5 amendment path is historical.
+## Scope And Authority
 
-## Summary
+This is the target design for **sequential turns in one native provider
+session**, with `prompt-queue` as the bounded authoring surface. It is not
+implemented syntax. Selection, delivery limits, and evidence disposition
+belong to [PQ-1 in the evaluated-execution roadmap](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns).
 
-Authors need to walk a provider through several conversational turns —
-context-building, staged instructions, then a final ask — inside one logical
-operation, with only the final turn carrying the output contract and producing
-the validated result bundle. Today the `.orc` frontend offers no way to do
-this: each provider form is one prompt, one invocation, one contract, and the
-YAML `provider_session` chaining mechanics (v2.10) are not reachable from
-Workflow Lisp at all.
+This revision supersedes the earlier design's unconditional whole-queue
+replay, lack of durable turn progress, and claim that dynamic length is
+inherently incompatible with the runtime. It retains one logical provider
+operation and one final typed result. Atomic result publication does not
+make the agent's filesystem/tool effects transactional.
 
-This design adds a **`prompt-queue`** parameter to the provider invocation
-forms: a static, ordered list of prompt sources executed as **one runtime
-step** whose internal turn loop drives N sequential provider invocations
-against one persisted provider session. Turn 1 opens a fresh session and
-carries the step's prompt injections; turns 2..N-1 are raw conversational
-turns validated only by process exit; the final turn carries the output
-contract and produces the step's single validated result bundle. The form's
-type, effects, checkpoint identity, and result contract are unchanged — the
-queue changes only how the invocation transport executes.
+Governing contracts:
 
-## Context And Authority
+- [Evaluated execution](workflow_lisp_evaluated_execution.md), especially
+  effect inputs/identity and the coordinator protocol in §9.3.
+- [Provider Context Values](workflow_lisp_provider_context_values.md):
+  portable history and native continuation are different capabilities.
+- [Phased Contract Delivery](workflow_lisp_phased_contract_delivery.md):
+  its task/materialization policy is not a general authored queue.
+- [Providers](../../specs/providers.md), [Step IO](../../specs/io.md) and
+  [State](../../specs/state.md): current normative behavior remains unchanged
+  until a separately selected implementation amends it.
 
-The [portable context slice](workflow_lisp_provider_context_values.md#reviewed-portable-ordinary-call-slice)
-is separate: it captures exposed history into an immutable value and binds that
-value to a fresh ordinary call. This queue proposal resumes one private mutable
-session across turns and publishes one final result. It neither implements
-first-class context nor becomes a prerequisite for portable capture. Share the
-existing provider/session codec owner where applicable; do not introduce a
-second conversation transport or imply that a session ID is a snapshot. Context
-capture on a future queue needs its own settled-history/publication decision.
+## Purpose And Alternatives
 
-Verified implementation behavior this design builds on (2026-07-10 checkout):
+A caller supplies several instructions up front but wants the provider to
+receive each only after finishing the previous turn. For example: investigate
+a requested repository change, implement it, then self-review the result.
+The self-review is not an independent reviewer.
 
-- **Session transport exists and is fail-closed.** Provider templates may
-  declare `session_support` with `fresh_command` / `resume_command` and
-  `${SESSION_ID}` substitution (`orchestrator/providers/types.py:42-58`). The
-  builtin `codex` / `codex_gpt55` templates declare it
-  (`orchestrator/providers/registry.py:51-75`): fresh = `codex exec --json`,
-  resume = `codex exec resume ${SESSION_ID} --json`, metadata mode
-  `codex_exec_jsonl_stdout`. The session executor parses the session id from
-  JSONL stdout and fails closed when the transport exposes no session id,
-  more than one distinct session id, or a resume id mismatch
-  (`orchestrator/providers/executor.py:886-904`). The builtin `claude` and
-  `gemini` templates do **not** declare `session_support`.
-- **Sessions are persisted state, not live processes.** Every turn is a
-  separate process invocation that reattaches to provider-side conversation
-  state by session id. There is no long-lived process held across turns, so
-  "one step vs N steps" does not change what the provider actually executes.
-- **Cross-step session chaining already exists in YAML v2.10.**
-  `provider_session: {mode: resume, session_id_from: <artifact>}` with
-  loader-time validation (historical `orchestrator/loader.py:4004-4043`,
-  deleted with the YAML parser; the validation owner is now
-  `orchestrator/workflow/validation.py:4840-4899`) and provider-session
-  test coverage.
-  This design deliberately does not extend that YAML surface (see Non-Goals).
-- **Per-invocation contract suppression exists.**
-  `PromptComposer.apply_output_contract_prompt_suffix` skips the contract
-  block when `inject_output_contract` is false
-  (`orchestrator/workflow/prompting.py:111-113`).
-- **Multi-invocation single steps are an established runtime pattern.**
-  `adjudicated_provider` (v2.11) runs candidate and evaluator invocations
-  inside one logical step; `managed_jobs` (v2.13) wraps the selected
-  invocation with a runtime-owned guard. The prompt-queue turn loop is a third
-  member of this family.
-- **`.orc` provider surfaces.** `provider-result`
-  (`orchestrator/workflow_lisp/expressions.py:352`, fields `provider`,
-  `prompt`, `inputs`, `returns_type_name`) and `run-provider-phase`
-  (`RunProviderPhaseExpr`, `expressions.py:435`). Both carry a single `prompt`
-  expression today.
-- **Structured-result channel invariant.** Results travel only as validated
-  bundles at runtime-bound output locations; stdout/stderr are observability
-  evidence, never a result channel (`docs/index.md` clarifications;
-  `specs/io.md`). Intermediate-turn output therefore cannot be a result.
+| Approach | What it supplies | Boundary |
+| --- | --- | --- |
+| One combined prompt | One ordinary call | The agent sees all stages immediately; instructions do not enforce separate turns |
+| Sequential calls with portable Context | Explicit, reusable, inspectable history; fresh calls can branch | Rebinding quoted history does not continue the native session; each call has a result contract |
+| Native sequential turns | Delayed delivery in the same conversation, with only one final result contract | Requires a session-capable adapter and an explicit recovery contract |
 
-Ambiguity resolved by this design: whether multi-turn provider interaction is
-a workflow-graph concern (N steps) or an invocation-transport concern (one
-step). This design fixes it as invocation transport.
+Use ordinary context passing when it suffices. Native turns add conversation
+continuity, not merely shorter syntax. Neither session reuse nor a queue
+promises lower token cost, preserved hidden reasoning, or better task quality.
 
-## Problem
+## Authoring Contract
 
-- A single composed prompt is the only way to deliver staged instructions to
-  a provider from `.orc` today. Authors either cram context, instructions,
-  and the ask into one oversized prompt, or split work across separate
-  provider steps that each open a *new* session and re-establish context from
-  scratch (paying repeated context assembly and losing conversational state).
-- The YAML `provider_session` chaining escape hatch is unavailable to `.orc`,
-  and extending YAML authoring contradicts the YAML-retirement direction.
-- Chaining separate steps also forces every step to carry a typed output
-  contract, even when intermediate turns exist only to build conversation
-  state — producing contract noise the provider must answer and the runtime
-  must validate for no semantic gain.
-
-This needs a design-level decision because it fixes where multi-turn
-interaction lives in the architecture (transport vs step graph), touches the
-provider-session contract surface, and constrains checkpoint/resume
-semantics.
-
-## Goals And Non-Goals
-
-Goals:
-
-1. A `.orc` author can express an ordered, statically known sequence of
-   prompts executed against one provider session as one provider form.
-2. Only the final turn carries the output contract; only the final turn's
-   bundle is the step result; the form's declared return type is unchanged.
-3. Intermediate turns are observable (persisted transcripts) but produce no
-   typed output and no artifacts other than observability evidence.
-4. Failure anywhere in the queue fails the step with a turn-indexed
-   diagnostic; retry replays the whole queue on a fresh session.
-5. Queue arity 1 is exactly equivalent to today's single-prompt invocation.
-6. The mechanics are structural: no branching on workflow, provider, family,
-   or domain names.
-
-Non-Goals (intentionally excluded):
-
-- **Runtime-dynamic queue length.** The prompt list is static at compile
-  time. A runtime-computed list collides with the known dynamic-step-count
-  gap and is out of scope.
-- **Mid-queue checkpointing or mid-queue resume.** v1 has one checkpoint —
-  the step's. Resuming an interrupted run re-executes an incomplete queue
-  step from turn 1 with a fresh session. Session-id-based mid-queue resume
-  is deferred: it would make correctness depend on provider-side session
-  persistence, which lives outside the run workspace and is not
-  content-addressed.
-- **Persistent-process transports.** All current session providers are
-  exec-per-turn CLIs. Streaming/interactive transports would need per-turn
-  protocol markers instead of exit codes and are not designed here.
-- **New YAML authoring surface.** No `prompt_queue:` YAML field. The
-  executable-IR and runtime mechanics are frontend-neutral, but authoring
-  exposure is `.orc`-only, consistent with YAML retirement.
-- **Session sharing across forms.** A queue's session is private to its step.
-  Exposing session ids as first-class `.orc` values is out of scope.
-- **Intermediate-turn acknowledgment protocols.** No required marker or
-  validation of intermediate assistant output beyond process exit. A derail
-  check can be layered later without changing this contract.
-
-## Decision
-
-Add a `prompt-queue` grouping form accepted by the `prompt` slot of the
-provider invocation forms, lowering to **one provider step** whose runtime
-executes an internal turn loop over one provider session.
-
-- **Chosen approach:** atomic single step, static queue, parameter on the
-  existing provider forms, per-turn process-exit success for intermediate
-  turns, contract injection and bundle production on the final turn only,
-  whole-queue fresh-session replay on retry.
-- **Alternatives rejected:**
-  - *N chained runtime steps* (session id flowing as an artifact between
-    steps, as YAML v2.10 does). Rejected: intermediate turns have no typed
-    product, so this manufactures steps whose only effect is invisible
-    mutation of provider-side conversation state — against the explicit-
-    dataflow and typed-transition principles — and bloats checkpoint
-    identity for nothing the run can use.
-  - *Standalone `(queue ...)` expression form.* Rejected: duplicates
-    provider configuration, contract declaration, and typing rules onto a
-    second form for no semantic gain.
-  - *Macro-derived expansion to N explicit steps.* Rejected for the same
-    reason as N chained steps, plus it would require exposing raw session
-    plumbing as an authored `.orc` surface.
-- **Tradeoffs accepted:** a long queue replays fully on failure (no partial
-  credit); a single step summary covers N turns (mitigated by per-turn
-  transcript artifacts); step wall-time is the sum of N provider execs under
-  one step timeout budget.
-- **Left open:** see Open Questions (per-turn timeout policy, `claude`
-  builtin session template, which provider forms get the surface in the
-  first tranche, per-turn step-summary emission).
-
-Naming note: the form is spelled `prompt-queue`, not `queue` — "queue" is an
-established filesystem-queue term in this repo (`specs/queue.md`) and must
-not be overloaded.
-
-## Design Details
-
-### Authoring surface
-
-The `prompt` slot of `provider-result` (and, pending the open question,
-`run-provider-phase`) accepts either a single prompt source (unchanged) or a
-`prompt-queue` grouping:
+Proposed example; `providers.agent`, the prompt externs and `ChangeOutcome`
+would be declared by the consumer:
 
 ```lisp
-(provider-result providers.migration.executor
+(provider-result providers.agent
   :prompt (prompt-queue
-            prompts.migration.context      ;; turn 1: context assembly
-            prompts.migration.instructions ;; turn 2: staged instructions
-            prompts.migration.final-ask)   ;; turn N: contract-bearing ask
-  :inputs (...)
-  :returns MigrationOutcome)
+            prompts.investigate
+            prompts.implement
+            prompts.self-review)
+  :inputs (inputs.task)
+  :returns ChangeOutcome)
 ```
 
-Rules:
+The caller receives `ChangeOutcome`, not a session handle or a list of turn
+results. No intermediate typed acknowledgment is required. The runtime waits
+for a successful provider-native **turn boundary**, not a timeout, stdout
+silence, or the model claiming that it is finished. This does not prove that
+the turn's requested task was done correctly.
 
-- Each item is an ordinary prompt source drawn from the same domain the
-  `prompt` slot accepts today (prompt externs, literals). Items are
-  positional; arity is fixed at compile time; arity ≥ 1.
-- `(prompt-queue p)` compiles to exactly what `:prompt p` compiles to today
-  (identity — verified by a lowering-equivalence test).
-- The form's `:returns` type, effect classification, and step identity
-  derivation are computed exactly as for a single-prompt form. The queue is
-  invisible to the type system beyond arity/static-ness validation.
+The bounded first delivery uses:
 
-### Compile-time validation (fail-closed)
+- One provider binding, model/effort policy and workspace for the whole call.
+- A nonempty, explicitly enumerated sequence of existing prompt externs
+  (`input_file` or `asset_file`) and an explicit final `:returns` contract.
+  This avoids silently stripping intermediate typed-fragment output
+  obligations. Queue items with `defprompt` output positions or result
+  guidance need a reviewed composition rule before admission.
+- Existing procedure, generic specialization and control-flow placement for
+  the admitted provider form. No entry-root-only or positional exception is
+  introduced for queues.
+- One private native conversation; at most one turn is active at a time.
+  A single-item queue uses the ordinary single-prompt path exactly, without
+  allocating session machinery or requiring session support.
 
-- Queue arity must be a compile-time constant ≥ 1; a runtime-valued list is a
-  type error with a dedicated diagnostic code.
-- When arity > 1, the resolved provider template must declare
-  `session_support` with a `resume_command`. This is validated at
-  compile/load time (mirroring the validation precedent now owned by
-  `orchestrator/workflow/validation.py:4840-4899`; the originally cited
-  `orchestrator/loader.py` is deleted), not discovered at runtime. With the builtin
-  registry this admits `codex`/`codex_gpt55` and rejects `claude`/`gemini`
-  until their templates gain session support.
+Before selection, PQ-1a must settle whether the existing `:timeout-sec`
+bounds a complete multi-turn attempt or each turn, and how it applies to
+resumed attempts. Neither multiplying the caller's budget by queue length
+nor introducing new timeout knobs is implicit in this proposal.
 
-### Executable IR
+A finite enumerated sequence is a first-delivery scope choice, not a language
+principle or a consequence of the old flat runtime. Bounded computed queues,
+typed prompt fragments and conditional follow-up can be reconsidered when a
+consumer needs them; use ordinary expression/list/procedure mechanisms where
+they fit. Do not invent a second programming language inside a queue.
 
-The provider step schema gains one optional field: an ordered list of prompt
-sources (absent ⇒ single-prompt behavior, byte-identical IR for existing
-workflows). Source maps carry one entry per queue item so diagnostics can
-point at the failing turn's authored source.
+External enqueueing, an agent mailbox, concurrent senders, provider switching,
+exported mutable session handles, combined queue/context capture, and automatic
+same-session materialization repair are outside this contract. They are not
+prerequisites for native sequential turns or for portable context delivery.
 
-### Runtime turn loop
+## Turn Delivery And Result Authority
 
-For a queue of prompts `p_1 .. p_N`, the step runner executes:
+1. Prepare the declared prompt sources and bindings through their existing
+   owners. Keep their snapshots stable for this logical operation; future
+   turn payloads may be held by the runtime but are not sent to the provider
+   ahead of their turn. This is a delivery rule, not a claim that an agent
+   with repository tools cannot read a prompt's source file.
+2. Deliver the first prompt with the call's shared input/dependency
+   injections. For a multi-item queue, suppress the generated result
+   contract and do not expose the final result-path binding.
+3. Record successful completion before delivering the next prompt. Append
+   that prompt to the same native conversation. Do not repeatedly inject the
+   shared context or interpret an assistant's text as a queue command.
+4. Only the final turn receives the generated result contract and its
+   runtime-owned result destination. Validate the result and declared
+   artifacts using the ordinary output owner before publication.
+5. Publish one typed result to the caller. Intermediate assistant text and
+   transport records are observations, not typed workflow results.
+   Intermediate turns may still use tools and change workspace files.
 
-1. **Turn 1** — `ProviderExecutor.prepare_invocation` with a FRESH-mode
-   session request; the composed prompt is `p_1` plus **all step-level prompt
-   injections** (typed prompt inputs, consumes injection, asset injection) —
-   context is established at conversation start. No output contract block.
-   The session id is captured via the template's metadata mode under the
-   existing fail-closed rules.
-2. **Turns 2..N-1** — RESUME-mode invocations against the captured session
-   id. Composed prompt is the item's text only: no injections, no contract
-   block (`inject_output_contract` false). Success = process exit 0.
-3. **Turn N** — RESUME-mode invocation. Composed prompt is the item's text
-   plus the output contract suffix rendered by the form's existing contract
-   renderer (today's bundle/variant contract; the accepted native-returns
-   contract once that lands — the queue is transport-orthogonal to it). The
-   runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding is present on this
-   invocation **only**, so earlier turns cannot legitimately write the
-   bundle. Step success/output authority follows the existing final-turn
-   rules unchanged (a valid bundle at the bound path is the result; stdout is
-   evidence).
+Provider completion metadata and process outcome jointly decide intermediate
+turn success; process exit zero alone is insufficient. Failure stops delivery
+of later prompts and reports the turn index and source location. Final output
+acceptance follows the owning result contract, not a new queue-only parser.
+There is no fallback that concatenates the queue into one prompt.
 
-Turn-loop mechanics reuse `prepare_invocation`/`execute` per turn without
-modification; the loop lives beside the adjudication runner as a sibling
-step-execution mode, not inside `ProviderExecutor`.
+The first delivery adds no automatic extra conversational repair turn after
+a failed final result. Any later repair policy must be explicit about whether
+the task may be repeated and reuse the existing delivery/validation owners.
 
-### Failure, retry, and resume semantics
+## Language And Runtime Architecture
 
-- Any intermediate turn exiting nonzero, or any session-transport error
-  (missing id, plural ids, resume mismatch), fails the step immediately with
-  a diagnostic carrying the turn index and the queue item's source span.
-- The final turn is judged by the existing output-authority rules for the
-  form (including bundle-overrides-exit behavior where it applies today).
-- **Retry and resume both replay the entire queue with a fresh session.** No
-  turn cursor is persisted. An interrupted queue step is simply an
-  incomplete step; existing step-level resume semantics apply without
-  modification.
-- Turns after the first must observe the same session id captured at turn 1;
-  any deviation is a step failure (inherited executor rule).
+`prompt-queue` groups prompt sources in the existing `provider-result`
+prompt slot. It is not a general queue expression, a new workflow kind, or
+a second set of model/effort/result declarations.
 
-### Observability
+The closed program retains ordered prompt plans and per-item provenance in
+one provider effect. Membership, order, contents and bindings are semantic
+program/input data: changing them must participate in the normal program and
+resolved-input checks. The result type and ordinary provider effect remain;
+this does **not** imply unchanged program digests or resume compatibility
+after editing the queue.
 
-- Each turn's normalized assistant output and invocation metadata are
-  persisted as step-scoped observability artifacts (transcripts), named by
-  turn index. They are evidence, never a result channel and never consumed
-  by later steps.
-- Prompt-audit artifacts record, per turn, whether injections and the
-  contract block were applied — giving tests and reviewers a structural
-  (non-phrasing) way to assert the turn-composition rules.
+Reuse the existing owners:
 
-## Contracts And Interfaces
+| Responsibility | Owner to reuse or extend |
+| --- | --- |
+| Provider binding and invocation | `ProviderSessionSupport`, `ProviderSessionRequest`, and `ProviderExecutor` in `orchestrator/providers/` |
+| Native identity and completion decoding | `orchestrator/providers/session_transport.py`; identity alone is not a durable cursor |
+| Prompt sources, dependency snapshots and final contract | Existing prompt composition/dependency/result-contract owners |
+| Interactive turn delivery, if selected | `InteractiveTerminalTurnQueueAdapter` in `orchestrator/providers/interactive_terminal.py`; not a new terminal driver |
+| Final result publication and resume | Evaluated execution's effect memo and coordinator protocol |
+| Progress observations | Existing run/attempt storage and reporting conventions, not another session database or dashboard |
 
-- **New:** `prompt-queue` grouping accepted by provider-form prompt slots;
-  compile diagnostics for non-static arity and missing provider session
-  support; executable-IR optional ordered prompt-source list; per-turn
-  transcript artifact naming; turn-indexed failure diagnostics.
-- **Changed:** none for existing workflows. A single-prompt provider form
-  compiles to byte-identical IR and executes byte-identical invocations.
-- **Spec deltas required at implementation time:** `specs/providers.md`
-  (turn-loop composition order, session reuse, contract-suffix placement,
-  bundle-path binding scope), `specs/io.md` (transcript artifacts are
-  evidence-only), `specs/versioning.md` (feature gate note). The frontend
-  specification gains the `prompt-queue` surface contract.
+Start with one proven native fresh/resume transport. Session identity and
+turn completion must be structural adapter capabilities, not provider-name
+branches. Fresh/resume support does not by itself prove crash recovery.
+Implementing both process-per-turn and persistent-process transports is not
+a first-delivery requirement.
 
-## Dependencies And Sequencing
+A small coordinator owns turn order and durable progress; it must reuse
+transport and parsing rather than introduce another session manager.
+The phased-delivery coordinator's task/materialization policy remains
+distinct. Shared primitives are reused where proven; converting every
+existing coordinator into a new generic framework is not a prerequisite.
 
-- **Feasibility: proven for the codex family.** Session transport, resume
-  commands, fail-closed id capture, and per-invocation contract suppression
-  all exist and are exercised in production surfaces (evidence in Context And
-  Authority). No new provider-side capability is required for codex-backed
-  queues.
-- **Open prerequisite (recorded, not blocking design):** `claude`/`gemini`
-  builtin templates lack `session_support`; queues over those providers are
-  compile-time rejected until their templates gain session commands and a
-  metadata mode. Adding one is independent work.
-- **Sequencing:** implementation is unscheduled. The former procedure-first
-  sequencing route is complete historical provenance and cannot select this
-  proposal. The prompt queue remains unavailable until a separate owner
-  selection act, an updated independent design review against then-current
-  provider/session contracts, and a reviewed implementation plan explicitly
-  schedule it. Q5 selection, review, or implementation does none of those.
-- Work that can proceed independently: independent design review of this
-  document; the `claude` session-template prerequisite; a scripted
-  session-capable fixture provider for tests.
+## Recovery Contract
 
-## Invariants And Failure Modes
+The queue has one caller-visible final result but records turn progress.
+Keep only what recovery needs through the coordinator's attempt storage:
+the operation/attempt binding, private session locator, ordered turn
+starts and validated completions, plus final settlement evidence.
+Transcripts remain observations; they cannot replace those records.
 
-Invariants that must hold after implementation:
+| State at interruption or failure | Required behavior |
+| --- | --- |
+| Before the first turn starts | Start normally |
+| A successful prefix is durably recorded; the next turn has not started | Continue at the next turn only when the adapter can verify continuation of that recorded conversation |
+| A turn started but has no durable successful completion | Do not infer success or resend blindly. Reconcile a provider receipt if the adapter can establish it; otherwise report an unresolved turn and stop automatic continuation |
+| Native session is missing, advanced unexpectedly, or cannot be verified | Report the continuation failure; do not silently create a fresh session or substitute portable history |
+| Final result prepared but not committed to the parent memo | Recover through the agreed coordinator protocol; an on-disk result file alone is not commit authority |
+| Final result committed to the parent memo | Reuse it, complete settlement if needed, and send no further prompt |
 
-1. Queue membership never affects typing, effect classification, routing,
-   resume/checkpoint identity, or the declared return contract — only the
-   invocation transport.
-2. No name-keyed branches: the turn loop must not consult workflow, provider,
-   family, or domain names.
-3. Results travel only as the final turn's validated bundle at the
-   runtime-bound path; intermediate stdout/transcripts are never promoted to
-   results.
-4. The single-source-of-truth for per-turn contract suppression is the
-   composed invocation (`inject_output_contract`), not prompt-text
-   inspection.
-5. Session state is external, non-authoritative state: nothing in the run
-   may treat provider-side conversation persistence as durable workflow
-   state (hence fresh-session replay).
-6. Arity-1 equivalence: `(prompt-queue p)` ≡ `:prompt p` at IR and
-   invocation level.
+Never redeliver a durably completed turn as automatic recovery of that queue.
+An explicit decision to rerun the logical operation must be surfaced as a
+new attempt under the owning retry policy, not disguised as continuation.
+It may repeat tool work and does not roll back workspace changes.
+An unresolved or failed turn is not automatically restartable merely because
+the enclosing provider operation has no final result yet.
 
-Failure behavior:
+This requires a **bounded refinement of evaluated-execution recovery**, not
+an assumption that the current protocol already supplies it. Its K4 rule
+discards an uncommitted coordinator preparation and restarts a child; that
+rule cannot be inherited unchanged for a retained native turn prefix.
+Before implementation selection, specify how the same operation's turn
+progress survives parent attempts, how abandoned preparations are treated,
+and how final prepare/commit/settle stays consistent with K2–K5.
+Do not edit the running first-release implementation to make room for this
+later class. If the adapter cannot support the required distinction, revise
+the design or retain a clearly diagnosed recovery limitation; do not claim
+seamless continuation or default back to whole-queue replay.
 
-- Non-static queue / arity 0 → compile diagnostic.
-- Provider without session support, arity > 1 → compile/load diagnostic.
-- Turn k nonzero exit (k < N) → step failure, diagnostic names turn k and its
-  source span; no bundle is read.
-- Session id missing / plural / mismatched at any turn → step failure
-  (existing executor taxonomy, extended with turn index).
-- Final-turn contract violation → existing contract-violation behavior,
-  unchanged.
-- Crash mid-queue → incomplete step; resume replays from turn 1, fresh
-  session.
+## Feasibility Prerequisites
 
-## Security, Operations, And Performance
+These are proof obligations, not claims that the complete queue works because
+adjacent facilities exist. Their current disposition belongs in PQ-1.
 
-- No new authority or credentials; secrets masking and path-safety rules
-  apply per turn exactly as for single invocations.
-- Step wall-time is the sum of N provider invocations; the step timeout
-  budget therefore bounds the whole queue (per-turn budget is an open
-  question). Runs with long queues should size timeouts accordingly.
-- Provider-side session persistence is an external dependency with unknown
-  retention; the fresh-replay policy means retention only affects in-flight
-  steps, never completed ones.
+- **Delivery:** one existing adapter exposes a unique native conversation,
+  a successful natural turn boundary, and append-to-that-conversation.
+  Three prompts arrive separately and in order; the second cannot arrive
+  while the first is processing.
+- **Recovery:** distinguish a recorded successful prefix from an uncertain
+  in-flight turn. Prove continuation after a committed turn without
+  redelivery; expose the missing-session and unresolved-turn outcomes.
+  A session ID and a local counter alone do not establish this.
+- **Coordinator integration:** demonstrate the K4 refinement and both
+  final-result commit gaps through public run/resume; old classes retain
+  their contracts. Specify the minimal additional progress facts instead
+  of cloning the memo or storing rendered run state.
+- **Authoring and composition:** a generic helper containing the queue works
+  in admitted call/branch/loop positions. Prompt extern source kinds,
+  input/dependency snapshots and final output validation survive closure.
+  Any proposed broader prompt surface must preserve its typed output
+  obligations rather than silently remove them.
 
-## Evidence And Implementation Boundaries
-
-- The default path is the turn loop inside the provider step runner driving
-  `ProviderExecutor.prepare_invocation`/`execute` per turn. The adjudication
-  runner and `managed_jobs` guard are adjacent multi-invocation mechanisms
-  that must not be conflated with or reused as the queue implementation.
-- A scripted session-capable fixture provider (emitting deterministic JSONL
-  with a stable session id) is test infrastructure, not the implementation;
-  end-to-end evidence must include at least one real session-capable
-  provider smoke.
-- Prompt-audit metadata is the sanctioned evidence surface for asserting
-  turn-composition rules; tests must not assert literal prompt phrasing.
-
-## Compatibility And Migration
-
-- No existing workflow changes behavior; the surface is additive and
-  `.orc`-only. Arity-1 equivalence is the compatibility contract and gets a
-  dedicated test.
-- No YAML surface is added or deprecated by this design.
+Failure here is a reason to improve the relevant adapter or revisit a design
+assumption. It is not proof that native conversation continuity has no value,
+nor permission to keep adding parallel mechanisms without a consumer.
 
 ## Verification Strategy
 
-- **Typecheck:** arity-0 and runtime-list rejections; provider-without-
-  session-support rejection; queue form typechecks to the declared return
-  type; arity-1 acceptance.
-- **Lowering:** golden IR for a 3-item queue (ordered prompt sources, one
-  step, source-map entry per item); arity-1 IR equivalence against a plain
-  prompt form.
-- **Runtime (fixture provider):** turn ordering and session-id threading;
-  injections on turn 1 only; contract suffix and bundle-path binding on the
-  final turn only (asserted via prompt-audit metadata / invocation bindings,
-  not prompt text); transcripts persisted per turn; mid-queue nonzero exit
-  fails the step with the turn index; session-id mismatch fails closed;
-  retry replays from turn 1 with a new session id.
-- **End-to-end:** one orchestrator smoke compiling and running a small
-  queue-bearing `.orc` workflow against a real session-capable provider,
-  producing a validated final bundle (repo rule for DSL/frontend/runtime
-  changes).
-- **Negative:** a workflow attempting to consume an intermediate transcript
-  as a typed artifact fails validation; a queue over a session-less provider
-  fails at compile/load, not at runtime.
+Use one maintained consumer and its normal tools: investigate → implement →
+self-review. Keep any independently reviewed outer workflow independent.
+Compare with context passing only to identify practical differences and
+authoring friction, not to require a new scored research study.
 
-## Declarative Acceptance Scenario
+The minimal evidence includes:
 
-A `.orc` workflow declares a `provider-result` over `codex` with
-`(prompt-queue ctx instructions ask)` returning `ReportOutcome`. Running it:
+- Public compile, run and resume of the consumer, with invocation counts,
+  ordered delivery receipts and stable native conversation identity.
+- An interruption after each completed turn, plus an unresolved in-flight
+  interruption and a lost native session. Assert the recovery table, not
+  automatic replay. A committed final result causes zero further turns.
+- Delayed delivery, shared injections once, final result binding only on
+  the final turn, and no premature publication. Assert structured invocation
+  bindings and receipts, not literal prompt wording.
+- Single-item compatibility and omitted-queue compatibility; empty queues
+  and unsupported capabilities/forms produce located diagnostics before
+  launching anything.
+- One real supported-provider run in addition to deterministic stand-ins.
+  Report recovery/adapter limits and actual usability; fake transport success
+  is not evidence of native session persistence or task-quality improvement.
 
-- executes exactly three provider processes: one fresh (`codex exec --json`),
-  two resumes against the turn-1 session id;
-- composes typed-input/consumes/asset injections into turn 1 only; appends
-  the output contract block to turn 3 only; binds
-  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` on turn 3 only;
-- persists three turn transcripts as evidence artifacts;
-- validates the turn-3 bundle as the step's sole result, typed
-  `ReportOutcome`;
-- on a simulated turn-2 nonzero exit: fails the step naming turn 2 and its
-  source span, reads no bundle, and on retry issues a fresh session id and
-  re-executes all three turns.
+## Compatibility And Documentation
 
-This proves the intended integration path because the assertions are made on
-invocation records, session metadata, prompt-audit flags, and bundle
-validation — not on fixture-only shortcuts or prompt phrasing.
+This is a later evaluated-execution capability, not an extension of its
+first-release portable provider subset or a new feature on the retiring
+flat runtime. Select its admission target in the implementation plan; do
+not infer admission at target 2.35 from the existence of a proposal.
 
-## Success Criteria
+Existing ordinary, portable-context, phased, supervised and peer-group calls
+keep their contracts. Combining them with queues needs an explicit composition
+design; a queue is not automatically eligible for each specialized mode.
+No YAML authoring surface or public session-ID plumbing is introduced.
 
-- All Verification Strategy checks implemented and green, including the
-  end-to-end smoke on a real session-capable provider.
-- Arity-1 equivalence proven at IR and invocation level.
-- Spec deltas (`specs/providers.md`, `specs/io.md`, `specs/versioning.md`)
-  and frontend-specification delta landed with the implementation.
-- Capability matrix row and doc-index routing added.
-- Independent design review signoff before implementation starts.
-
-## Stop / Revise Criteria
-
-- The turn loop cannot be implemented without consulting provider or
-  workflow names → stop; the abstraction is wrong.
-- Intermediate turns turn out to need typed validation in practice (derailed
-  sessions produce garbage final bundles at a material rate) → revise toward
-  the deferred acknowledgment protocol rather than ad-hoc checks.
-- Session-id capture proves unreliable for a needed provider → revise the
-  provider-template prerequisite rather than weakening fail-closed rules.
-- The step-timeout-covers-whole-queue policy proves operationally unusable →
-  resolve the per-turn budget open question before proceeding.
-
-## Documentation Impact
-
-At implementation time: `specs/providers.md`, `specs/io.md`,
-`specs/versioning.md`, `docs/design/workflow_lisp_frontend_specification.md`,
-`docs/capability_status_matrix.md`, `docs/index.md` + `docs/design/README.md`
-routing entries, and the Workflow Lisp drafting guide (authoring guidance and
-the arity-1 equivalence note). None are edited by this proposal.
-
-## Implementation Handoff
-
-Suggested phases (each independently testable):
-
-1. **Runtime turn loop behind the IR field** — executable-IR schema addition,
-   step-runner turn loop, fixture provider, runtime tests. No frontend
-   changes; the field is only producible by hand-built IR in tests.
-2. **Frontend surface** — `prompt-queue` parsing on `provider-result`,
-   typecheck validations, lowering to the IR field, source-map entries,
-   arity-1 equivalence tests.
-3. **End-to-end + specs/docs** — orchestrator smoke, spec deltas, capability
-   matrix, drafting-guide guidance.
-
-Likely-touched modules: `orchestrator/workflow_lisp/expressions.py`,
-form parsing (`expressions.py:2395` region), the effects/calls typecheck
-family, lowering core, `orchestrator/workflow/executable_ir.py`,
-`orchestrator/workflow/prompting.py`, a new turn-loop runner module beside
-the adjudication runner, `orchestrator/providers/` (read-only reuse).
-
-Known tricky areas: the turn-1-vs-turn-N split of prompt composition (today
-composition assumes one composed prompt per step); resume reconciliation for
-a step that crashed mid-queue (must present as an ordinary incomplete step);
-transcript artifact naming under the state-layout path allocator.
-
-Safe first step: phase 1's runtime loop with the fixture provider — zero
-frontend exposure, fully removable.
-
-Out of scope for the implementation: YAML surface, dynamic arity, mid-queue
-resume, session-id values in `.orc`, `claude` template session support.
-
-## Open Questions
-
-1. **Per-turn timeout budget** — does the existing step timeout apply to the
-   whole queue (simplest) or per turn (predictable under long queues)?
-   Recommendation: whole-step in v1; revisit on evidence. Blocking: no.
-2. **`run-provider-phase` in tranche 1** — both forms route through shared
-   lowering, but `provider-result` alone may be a smaller first tranche.
-   Recommendation: `provider-result` first, `run-provider-phase` in the same
-   design once the base lands. Blocking: no.
-3. **Per-turn step-summary emission** — should the observability summary
-   pipeline emit one summary per turn or one per step referencing the
-   transcripts? Owner: dashboard/observability design. Blocking: no.
-4. **`claude` builtin session template** — independent prerequisite for
-   queues over Claude-family providers (needs resume command + a metadata
-   mode for session-id capture). Owner: provider registry. Blocking: no for
-   codex-backed use.
+At implementation, amend the frontend/closed-program contract and
+`specs/providers.md`, `specs/io.md`, `specs/state.md` and
+`specs/versioning.md`, including the scoped coordinator-recovery refinement.
+Update the drafting guide and capability catalog only to the extent proved.
+Roadmap entries and discovery links do not make the example runnable.

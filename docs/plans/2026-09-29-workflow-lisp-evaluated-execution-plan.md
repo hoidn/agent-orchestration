@@ -458,13 +458,44 @@ ledger, where it has one.
   belonging to an admitted first-release effect.
 - **4b — Other classes when needed:** requests for human input, resource
   transitions, materialized views, phased providers, supervision/peer groups,
-  adjudication, trials and remaining run-reference modes. Name the consumer
+  adjudication, trials, native sequential turns (PQ-1 below), and remaining
+  run-reference modes. Name the consumer
   and the missing behavior before selecting a class. Path-mode run references
   already belong to Phases 2–3; they do not wait here.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. Phase 4 is not an all-or-nothing prerequisite for
 Phases 5 or 6.
+
+#### PQ-1: Sequential Native-Session Turns
+
+**Status:** pending, consumer-conditioned Phase 4 work, recorded by owner
+request on 2026-10-01; not implementation selection or admission at target
+2.35. Governing [design](../design/workflow_lisp_provider_prompt_queue.md).
+This adds no prerequisite to Phases 2–3, Phase 5, the early Phase 6a pilot,
+or portable context in 4a/PC-1. Neither Q5's existing transport nor portable
+context implements this capability.
+
+**Candidate consumer:** an opt-in coder-call variant of
+[`reviewed_change.orc`](../../experiments/orc_vs_single_call/workflows/reviewed_change.orc):
+investigate → implement → self-review, returning its existing `Change` type.
+Keep the outer independent reviewer and review/revise control flow intact;
+self-review does not replace independent review. Select a session-capable
+provider explicitly; do not silently change the current consumer's model or
+claim that its existing typed prompt already fits the queue. No consumer is
+changed by this roadmap entry.
+
+| Step | Work and evidence | Consequence |
+| --- | --- | --- |
+| PQ-1a — qualify the bounded design | Review the design against the selected adapter and named consumer. Prove three delayed turns in one conversation, and continuation of a durably completed prefix. Resolve the scoped K4 recovery refinement and final commit gaps; specify timeout scope and resume accounting, unresolved-turn/session-loss behavior and prompt-source limits | Prerequisites remain open until evidenced. Select an implementation plan and target only for the qualified scope; revise an obstructing adapter/design assumption before dropping the use case |
+| PQ-1b — deliver the consumer slice | Existing `provider-result` configuration, finite enumerated prompt externs, one final typed result; reuse transport/session/prompt owners. Public compile/run/resume, invocation-count checks, composed helper placement and a real provider smoke | Keep first delivery bounded, without a second session manager, external inbox, or wholesale coordinator rewrite. Static membership is a delivery limit, not a permanent restriction justified by the old runtime |
+| PQ-1c — retain, improve, or simplify | Inspect normal authoring and actual recovery/friction relative to ordinary context passing; no new scoring apparatus or requirement that all five axes pass | Retain useful native continuity; improve concrete limitations (including typed fragments or bounded computed queues when justified), or cancel/remove unused queue-specific machinery while retaining independent transport/context capabilities |
+
+The generic coordinator restart rule is not evidence for prefix recovery.
+PQ-1a owns that open prerequisite; it does not authorize edits to the
+first-release protocol or the running Phase 2 task order. There is no new
+executable selector/manifest or top-level phase. Implementation tasks are
+written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 

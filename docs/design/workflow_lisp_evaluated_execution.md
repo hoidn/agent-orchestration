@@ -761,6 +761,7 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
 | Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
+| Provider, authored sequential native-session turns | Later | Existing session/turn transports with a bounded coordinator | The [queue design](workflow_lisp_provider_prompt_queue.md) requires qualified turn-prefix recovery; neither composed delivery nor K4's restart rule supplies it |
 
 A program at the new target that uses a class marked later is refused at
 build (§1.1). At older targets it runs as today.
@@ -806,6 +807,15 @@ needed for replay, rather than redraw it. Phased delivery still needs its own
 adapter: treating it as an ordinary composed call, as the spike did, proves
 no parity and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
+
+Authored native-session turns are another later class. Their
+[recovery contract](workflow_lisp_provider_prompt_queue.md#recovery-contract)
+retains completed turn progress before the parent result commits. K4's
+discard-and-restart rule does not provide that behavior: admission requires
+a reviewed, evidenced refinement for this class, including the binding of
+turn progress across attempts and the final K2–K5 settlement gaps. This
+prerequisite changes neither K4 for the first release nor the admission of
+any existing class.
 
 ### 9.4 The request contract
 

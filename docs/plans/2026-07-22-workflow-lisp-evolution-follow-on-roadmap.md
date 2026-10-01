@@ -95,6 +95,14 @@ sequence neither adds a research unit nor selects R1b/R2/R3 or a general
 search framework. Pilot authoring evidence informs improvements; it does
 not require all five axes to pass before useful capabilities can ship.
 
+Native sequential turns are separately recorded as
+[PQ-1 in runtime Phase 4](2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+on 2026-10-01: a pending, consumer-conditioned addition, not another research
+unit or a prerequisite for portable context, the executable core, or the
+early migration pilot. The [queue design](../design/workflow_lisp_provider_prompt_queue.md)
+owns delayed delivery and recovery; shared session/turn adapters must not
+become a parallel session manager.
+
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
 Its selected recovery follows the design's [normal agent sessions](../design/orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary):
@@ -449,8 +457,10 @@ session-artifact workaround. Reconsider type/transport, module/control-flow,
 static provider selection, and recursion assumptions when concrete uses justify
 it. Native opacity limits introspection; context does not clone a workspace or
 establish independent judgments. Avoid a universal memory service or parallel
-session manager. Reconcile the separate prompt-queue proposal before any shared
-transport work creates duplicate owners.
+session manager. [PQ-1](2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+owns the separate native-turn delivery: share adapter/codec owners without
+making portable capture wait for native continuation or claiming that either
+implements the other.
 
 The [pure-call composition target](../design/workflow_lisp_pure_call_composition.md)
 and [revised effect proposal](../design/workflow_lisp_effect_ledger_simplification.md)

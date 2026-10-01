@@ -51,7 +51,7 @@ not implemented capabilities. The table records the starting owners and limits.
 | [Transportable Value](workflow_lisp_transportable_value_type.md) | Existing strict-JSON carriage is useful infrastructure, but exact opaque `Value` is not an implicit cast, inspectable context type, or proof that all nested context positions already work. |
 | [Executable IR](workflow_lisp_executable_ir.md), [Semantic IR](workflow_lisp_semantic_workflow_ir.md), [State Layout](workflow_lisp_state_layout.md), [State](../../specs/state.md) | Preserve the WCC/shared-Core/validated-executable path, derived semantic explanations, generated paths, call-frame lineage, and completed-boundary reuse. Provider context is not private execution `RunCtx`. |
 | [Language principles](workflow_language_design_principles.md) | Explicit dataflow/effects, real procedure composition, structural types where sufficient, opt-in stronger constraints, and runtime-owned deterministic work govern this proposal. |
-| [Provider prompt queue](workflow_lisp_provider_prompt_queue.md) | A separate proposal for a private atomic multi-turn session. It neither implements nor precludes first-class context; its ownership decision must be reconciled before either proposal duplicates transport logic. |
+| [Provider prompt queue](workflow_lisp_provider_prompt_queue.md) | A separate target for sequential native-session turns with one final typed result and recorded turn progress. Atomic result publication does not imply whole-conversation replay. It neither implements nor blocks portable context; reuse the same adapter/codec owners. |
 
 ## Problem, Goals, And Boundaries
 
@@ -755,10 +755,12 @@ old mutable session IDs into immutable contexts by relabeling them.
 Prefer replacing hand-authored session-path plumbing and duplicate transcript
 packaging in the selected consumer. Retain `:session-artifact` where callers need
 the existing operational bridge; retire it only if all remaining uses are
-covered and a reviewed migration justifies deletion. If accepted, reconcile the
-prompt-queue proposal: preserve its distinct atomic multi-turn behavior where
-needed, but derive conversational plumbing from the same adapter/capture/bind
-owner rather than add a second session manager. No proposal is superseded here.
+covered and a reviewed migration justifies deletion. The
+[native-turn design](workflow_lisp_provider_prompt_queue.md) preserves one
+final result but requires a distinct continuation/recovery contract; derive
+conversational plumbing from the same adapter/codec owners rather than add a
+second session manager. Its [PQ-1 roadmap entry](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
+does not select native Context snapshots or delay portable-context work.
 
 At implementation time update the frontend/type and executable contracts,
 [DSL](../../specs/dsl.md), [Providers](../../specs/providers.md),
