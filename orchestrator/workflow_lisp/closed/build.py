@@ -1258,21 +1258,29 @@ class Builder:
                 )
                 facts[formal] = {"capture": index}
                 continue
+            bound_alias = (d.reference_capture_aliases or {}).get(
+                (id(argument.value_expr), formal)
+            )
+            if bound_alias is not None:
+                route = ["reference", list(path), ["parameter", formal]]
+                actual = {"k": "name", "n": d.ref(bound_alias)}
+                index = self._add_capture(
+                    captures,
+                    typed=source_program,
+                    type_ref=argument.type_ref,
+                    route=route,
+                    value=actual,
+                    source_name=bound_alias,
+                    identity=("bind-proc-expression", id(argument.value_expr), formal),
+                )
+                facts[formal] = {"capture": index}
+                continue
             if isinstance(argument.value_expr, NameExpr):
-                bound_alias = (d.reference_capture_aliases or {}).get(
-                    (id(argument.value_expr), formal)
-                )
-                actual = (
-                    {"k": "name", "n": d.ref(bound_alias)}
-                    if bound_alias is not None
-                    else aliases.get(argument.value_expr.name)
-                )
+                actual = aliases.get(argument.value_expr.name)
                 alias_identity = None
                 if isinstance(actual, tuple) and len(actual) == 2:
                     argument_index, actual = actual
                     alias_identity = ("argument", argument_index, id(actual))
-                elif bound_alias is not None:
-                    alias_identity = ("bind-proc-expression", id(argument.value_expr), formal)
                 if actual is None:
                     # A retained lexical name can be used directly when the
                     # frontend did not need an alias let for this boundary.
@@ -2508,6 +2516,19 @@ class Builder:
                     continue
                 if self._local_capture(resolved, source_program, binding.name) is not None:
                     continue
+                if isinstance(binding.value_expr, NameExpr):
+                    lexical_alias = aliases_for(rows, binding.value_expr).get(
+                        binding.value_expr.name
+                    )
+                    if lexical_alias is not None:
+                        key = (id(argument.value_expr), binding.name)
+                        previous = reference_aliases.get(key)
+                        if previous is not None and previous != lexical_alias:
+                            raise ValueError(
+                                "one checked bound reference argument has competing lexical owners"
+                            )
+                        reference_aliases[key] = lexical_alias
+                        continue
                 if isinstance(argument.value_expr, NameExpr):
                     lexical_aliases = aliases_for(rows, argument.value_expr)
                     alias = lexical_aliases.get(argument.value_expr.name)

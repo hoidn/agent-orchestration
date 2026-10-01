@@ -702,6 +702,252 @@ def test_one_bound_effect_creation_is_shared_by_direct_and_reference_calls(
     assert checked_calls == 2
 
 
+def test_zero_input_effectful_bound_value_runs_at_creation_once(tmp_path: Path) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/zero_input_bound_effect) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int
+        (let* ((hook (bind-proc (proc-ref helper) :fixed
+                      (command-result fetch :argv ("python" "probe.py") :returns Int))))
+          (let* ((x 100)
+                 (middle (command-result fetch :argv ("python" "probe.py" 99) :returns Int))
+                 (direct (hook 2))
+                 (through_ref (invoke hook 3)))
+            (+ direct through_ref)))))'''
+    root = tmp_path / "zero_input_bound_effect"
+    path = install(root, source)
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/zero_input_bound_effect::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    assert sum(
+        node.get("k") == "perform" for node in _walk_dataclasses(program.tree)
+        if isinstance(node, dict)
+    ) == 3
+
+    creation_effects = []
+    bindings = []
+    checked_calls = 0
+    body = program.tree["body"]
+    while body["k"] == "let":
+        value = body["value"]
+        if value["k"] == "perform":
+            creation_effects.append(value)
+        if (
+            value["k"] == "call"
+            and program.tree["definitions"][value["callee"]]["key"][2]
+            in {"invoke", "helper"}
+        ):
+            capture, _, _ = _resolve_closed_value(value["args"][0], bindings)
+            assert capture["k"] == "perform"
+            assert capture["site"] == creation_effects[0]["site"]
+            assert capture["argv"] == []
+            checked_calls += 1
+        bindings.append((body["name"], value))
+        body = body["body"]
+    assert len(creation_effects) == 2
+    assert creation_effects[0]["argv"] == []
+    assert [(arg["k"], arg.get("v")) for arg in creation_effects[1]["argv"]] == [
+        ("lit", 99),
+    ]
+    assert checked_calls == 2
+
+
+@pytest.mark.parametrize(
+    ("callee", "body", "expected_argv"),
+    (
+        (
+            "invoke",
+            '(invoke (bind-proc (proc-ref helper) :fixed '
+            '(command-result fetch :argv ("python" "probe.py") :returns Int)) '
+            '(command-result fetch :argv ("python" "probe.py" 99) :returns Int))',
+            ((), (("lit", 99),)),
+        ),
+        (
+            "invoke-last",
+            '(invoke-last (command-result fetch :argv ("python" "probe.py" 99) :returns Int) '
+            '(bind-proc (proc-ref helper) :fixed '
+            '(command-result fetch :argv ("python" "probe.py") :returns Int)))',
+            ((("lit", 99),), ()),
+        ),
+        (
+            "invoke",
+            '(let* ((answer (invoke (bind-proc (proc-ref helper) :fixed '
+            '(command-result fetch :argv ("python" "probe.py") :returns Int)) '
+            '(command-result fetch :argv ("python" "probe.py" 99) :returns Int)))) answer)',
+            ((), (("lit", 99),)),
+        ),
+        (
+            "invoke-last",
+            '(let* ((answer (invoke-last (command-result fetch :argv ("python" "probe.py" 99) :returns Int) '
+            '(bind-proc (proc-ref helper) :fixed '
+            '(command-result fetch :argv ("python" "probe.py") :returns Int))))) answer)',
+            ((("lit", 99),), ()),
+        ),
+    ),
+    ids=("capture-first", "capture-last", "capture-first-let-bound", "capture-last-let-bound"),
+)
+def test_inline_zero_input_capture_preserves_effect_argument_order(
+    tmp_path: Path,
+    callee: str,
+    body: str,
+    expected_argv: tuple[tuple[tuple[str, object], ...], ...],
+) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/inline_zero_input_capture) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defproc invoke-last ((y Int) (runner ProcRef[Int -> Int])) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run () -> Int BODY))'''
+    root = tmp_path / callee
+    path = install(root, source.replace("BODY", body))
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/inline_zero_input_capture::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    bindings = []
+    calls = []
+    effects = []
+    body = program.tree["body"]
+    while body["k"] == "let":
+        value = body["value"]
+        if value["k"] == "perform":
+            effects.append(value)
+        if (
+            value["k"] == "call"
+            and program.tree["definitions"][value["callee"]]["key"][2] == callee
+        ):
+            calls.append(
+                [
+                    _resolve_closed_value(argument, bindings)[0]
+                    for argument in value["args"]
+                ]
+            )
+        bindings.append((body["name"], value))
+        body = body["body"]
+    assert len(effects) == 2
+    assert [
+        tuple((argument["k"], argument.get("v")) for argument in effect["argv"])
+        for effect in effects
+    ] == list(expected_argv)
+    assert len(calls) == 1 and len(calls[0]) == 2
+    effect_by_argv = {
+        tuple((argument["k"], argument.get("v")) for argument in effect["argv"]): effect
+        for effect in effects
+    }
+    assert calls[0][0]["k"] == "perform"
+    assert calls[0][0]["site"] == effect_by_argv[()]["site"]
+    assert calls[0][1]["k"] == "perform"
+    assert calls[0][1]["site"] == effect_by_argv[(("lit", 99),)]["site"]
+    assert sum(
+        node.get("k") == "perform" for node in _walk_dataclasses(program.tree)
+        if isinstance(node, dict)
+    ) == 3
+
+
+def test_nested_zero_input_effectful_bound_value_runs_before_later_effects(
+    tmp_path: Path,
+) -> None:
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/nested_zero_input_effect) (export run)
+      (defproc helper ((fixed Int) (y Int)) -> Int
+        :effects ((uses-command fetch)) :lowering inline
+        (command-result fetch :argv ("python" "probe.py" fixed y) :returns Int))
+      (defproc apply-one ((callback ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (callback y))
+      (defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int
+        :effects () :lowering inline (runner y))
+      (defworkflow run ((x Int)) -> Int
+        (let* ((hook (bind-proc (proc-ref apply-one) :callback
+                      (bind-proc (proc-ref helper) :fixed
+                        (command-result fetch :argv ("python" "probe.py") :returns Int)))))
+          (let* ((x 100)
+                 (middle (command-result fetch :argv ("python" "probe.py" 99) :returns Int))
+                 (direct (hook 2))
+                 (through-ref (invoke hook 3)))
+            (+ direct through-ref)))))'''
+    root = tmp_path / "nested_zero_input_effect"
+    path = install(root, source)
+    typed = compile_typed_program(
+        path,
+        entry_workflow="cp/nested_zero_input_effect::run",
+        source_roots=(root,),
+        command_boundaries=BOUNDARIES,
+        workspace_root=root,
+    )
+    path.unlink()
+
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (program.tree, program.sites, program.digest) == (
+        restored.tree,
+        restored.sites,
+        restored.digest,
+    )
+    assert sum(
+        node.get("k") == "perform" for node in _walk_dataclasses(program.tree)
+        if isinstance(node, dict)
+    ) == 3
+    creation_effects = []
+    bindings = []
+    checked_calls = 0
+    body = program.tree["body"]
+    while body["k"] == "let":
+        value = body["value"]
+        if value["k"] == "perform":
+            creation_effects.append(value)
+        if (
+            value["k"] == "call"
+            and program.tree["definitions"][value["callee"]]["key"][2]
+            in {"invoke", "apply-one"}
+        ):
+            capture, _, _ = _resolve_closed_value(value["args"][0], bindings)
+            assert capture["k"] == "perform"
+            assert capture["site"] == creation_effects[0]["site"]
+            assert capture["argv"] == []
+            checked_calls += 1
+        bindings.append((body["name"], value))
+        body = body["body"]
+    assert len(creation_effects) == 2
+    assert creation_effects[0]["argv"] == []
+    assert [(arg["k"], arg.get("v")) for arg in creation_effects[1]["argv"]] == [
+        ("lit", 99),
+    ]
+    assert checked_calls == 2
+
+
 def test_inherited_name_captures_keep_their_distinct_creation_regions(tmp_path: Path) -> None:
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/inherited_name_capture) (export run)

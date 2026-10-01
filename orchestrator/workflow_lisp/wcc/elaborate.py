@@ -2041,6 +2041,118 @@ def _elaborate_let_star(
     compile_time_bindings: Mapping[str, object],
     active_phase_scope: WccPhaseScope | None = None,
 ) -> WccBody:
+    if scope.closed_program:
+        reserved = reserved_identifiers(
+            expr,
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+        naming_scope = generated_name_scope(scope).child_scope(
+            "bind-proc-values"
+        )
+        bindings: list[tuple[str, object]] = []
+        labels: list[str | None] = []
+        identities: list[object | None] = []
+        changed = False
+        local_env = dict(value_env)
+
+        def rewrite_bound_values(
+            owner: BindProcExpr,
+            owner_path: tuple[str, ...],
+            owner_env: dict[str, TypeRef],
+        ) -> tuple[BindProcExpr, list[tuple[str, object]]]:
+            nonlocal changed
+            rewritten = []
+            prefixes: list[tuple[str, object]] = []
+            for bound in owner.bindings:
+                bound_expr = bound.value_expr
+                if isinstance(bound_expr, BindProcExpr):
+                    bound_expr, nested_prefixes = rewrite_bound_values(
+                        bound_expr,
+                        (*owner_path, bound.name),
+                        owner_env,
+                    )
+                    prefixes.extend(nested_prefixes)
+                if (
+                    bound.source_binding_identity is None
+                    and not isinstance(bound_expr, BindProcExpr)
+                    and _contains_effect(bound_expr)
+                ):
+                    bound_type = _infer_expr_type(
+                        bound_expr,
+                        type_env=type_env,
+                        value_env=owner_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    )
+                    if isinstance(bound_type, ProcRefTypeRef):
+                        rewritten.append(bound)
+                        continue
+                    binding_path = (*owner_path, bound.name)
+                    binding_scope = naming_scope.child_scope(
+                        "binding",
+                        authored_binding_name=":".join(binding_path),
+                    )
+                    generated_name = fresh_name(
+                        _generated_effect_binding_name_from_scope(
+                            binding_scope,
+                            role=bound.name,
+                        ),
+                        reserved,
+                    )
+                    prefixes.append((generated_name, bound_expr))
+                    owner_env[generated_name] = bound_type
+                    bound_expr = NameExpr(
+                        name=generated_name,
+                        span=bound.value_expr.span,
+                        form_path=bound.value_expr.form_path,
+                        expansion_stack=bound.value_expr.expansion_stack,
+                    )
+                if bound_expr is not bound.value_expr:
+                    bound = replace(bound, value_expr=bound_expr)
+                    changed = True
+                rewritten.append(bound)
+            if tuple(rewritten) != owner.bindings:
+                owner = replace(owner, bindings=tuple(rewritten))
+            return owner, prefixes
+
+        for index, (name, value) in enumerate(expr.bindings):
+            if isinstance(value, BindProcExpr):
+                value, prefixes = rewrite_bound_values(
+                    value,
+                    (str(index), name),
+                    local_env,
+                )
+                for prefix_name, prefix_value in prefixes:
+                    bindings.append((prefix_name, prefix_value))
+                    labels.append(None)
+                    identities.append(None)
+            bindings.append((name, value))
+            labels.append(
+                expr.binding_labels[index]
+                if index < len(expr.binding_labels)
+                else None
+            )
+            identities.append(
+                expr.binding_identities[index]
+                if index < len(expr.binding_identities)
+                else None
+            )
+            local_env[name] = _infer_expr_type(
+                value,
+                type_env=type_env,
+                value_env=local_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+        if changed:
+            expr = replace(
+                expr,
+                bindings=tuple(bindings),
+                binding_labels=tuple(labels),
+                binding_identities=tuple(identities),
+            )
+
     result_type = _infer_expr_type(
         expr,
         type_env=type_env,
@@ -4544,6 +4656,10 @@ def _elaborate_effect_binding_to_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
+    matched_value_env = {
+        **value_env,
+        **{name: type_ref for name, type_ref, _ in match_bindings},
+    }
     normalized_expr, direct_bound_proc_args = (
         _prebind_direct_bind_proc_arguments(
             normalized_expr,
@@ -4552,18 +4668,14 @@ def _elaborate_effect_binding_to_body(
                 authored_binding_name=binding_name,
             ),
             type_env=type_env,
-            value_env=value_env,
+            value_env=(matched_value_env if scope.closed_program else value_env),
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             compile_time_bindings=compile_time_bindings,
         )
     )
     binding_value_env = {
-        **value_env,
-        **{
-            name: type_ref
-            for name, type_ref, _ in match_bindings
-        },
+        **matched_value_env,
         **{
             item.binding_name: item.type_ref
             for item in direct_bound_proc_args
@@ -4602,6 +4714,13 @@ def _elaborate_effect_binding_to_body(
         ),
         body=continuation,
     )
+    if scope.closed_program:
+        for item in reversed(direct_bound_proc_args):
+            current = _wrap_bind_proc_capture_aliases(
+                item.capture_aliases,
+                tail=current,
+                result_type=let_result_type,
+            )
     for arg_name, arg_type, prebound_expr in reversed(match_bindings):
         if isinstance(prebound_expr, MatchExpr):
             current = _elaborate_non_tail_match_binding(
@@ -4670,12 +4789,13 @@ def _elaborate_effect_binding_to_body(
         )
         for prefix_let in reversed(prebound_prefix):
             current = replace(prefix_let, body=current)
-    for item in reversed(direct_bound_proc_args):
-        current = _wrap_bind_proc_capture_aliases(
-            item.capture_aliases,
-            tail=current,
-            result_type=let_result_type,
-        )
+    if not scope.closed_program:
+        for item in reversed(direct_bound_proc_args):
+            current = _wrap_bind_proc_capture_aliases(
+                item.capture_aliases,
+                tail=current,
+                result_type=let_result_type,
+            )
     return current
 
 
@@ -4776,6 +4896,35 @@ def _prebind_effect_argument_matches(
     procedure_return_types: Mapping[str, TypeRef],
 ) -> tuple[object, tuple[tuple[str, TypeRef, object], ...]]:
     match_bindings: list[tuple[str, TypeRef, object]] = []
+    if (
+        scope.closed_program
+        and isinstance(expr, ProcedureCallExpr)
+        and any(
+            isinstance(argument, BindProcExpr) and _contains_effect(argument)
+            for argument in expr.args
+        )
+    ):
+        from ..conditionals import _normalize_composite
+
+        prefix, expr = _normalize_composite(
+            expr,
+            path=(),
+            closed_program=True,
+        )
+        for name, value in prefix:
+            match_bindings.append(
+                (
+                    name,
+                    _infer_expr_type(
+                        value,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    value,
+                )
+            )
 
     def replace_arg(
         arg_expr,
