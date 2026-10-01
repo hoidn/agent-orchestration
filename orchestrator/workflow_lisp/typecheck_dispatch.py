@@ -925,6 +925,7 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+            condition_normalization_input=expr.condition_normalization_input,
         )
         return _typed(
             expr=rewritten_expr,

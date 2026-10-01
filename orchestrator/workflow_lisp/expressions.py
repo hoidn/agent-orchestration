@@ -318,6 +318,18 @@ class LetStarExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # The checked condition expression replaced by this generated wrapper,
+    # retained in the wrapper's incoming lexical scope for closed elaboration.
+    condition_normalization_input: "ExprNode | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -877,6 +889,21 @@ class LoopRecurExpr:
     exhaustion_diagnostic_code: str | None = None
     single_iteration_effect_kinds: tuple[str, ...] | None = None
     effect_cardinality_diagnostic_code: str | None = None
+    # Parser-owned :max/:state order survives macro substitution, whose
+    # argument spans can point back to a different source order. Hand-built
+    # nodes use the elaborator's documented deterministic :max-then-:state
+    # default. This is source metadata, not part of AST repr/equality/hash or
+    # serialized artifacts.
+    operand_evaluation_order: tuple[str, ...] = field(
+        default=(),
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -4069,6 +4096,11 @@ def _elaborate_loop_recur(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+        operand_evaluation_order=tuple(
+            keyword
+            for keyword in sections
+            if keyword in {":max", ":state"}
+        ),
     )
 
 

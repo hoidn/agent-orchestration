@@ -650,6 +650,15 @@ def _normalize_expr(
                 for name, binding_expr in expr.bindings
             ),
             body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+            condition_normalization_input=(
+                _normalize_expr(
+                    expr.condition_normalization_input,
+                    typed_functions_by_name=typed_functions_by_name,
+                    expand_admitted_containers=expand_admitted_containers,
+                )
+                if expr.condition_normalization_input is not None
+                else None
+            ),
         )
     if isinstance(expr, IfExpr):
         return replace(
@@ -988,6 +997,15 @@ def normalize_resolved_inline_procedure_calls(
             )
 
         if isinstance(expr, LetStarExpr):
+            retained_input = (
+                rewrite(
+                    expr.condition_normalization_input,
+                    proc_ref_bindings=proc_ref_bindings,
+                    workflow_ref_bindings=workflow_ref_bindings,
+                )
+                if expr.condition_normalization_input is not None
+                else None
+            )
             child_proc_ref_bindings = dict(proc_ref_bindings)
             child_workflow_ref_bindings = dict(workflow_ref_bindings)
             rewritten_bindings: list[tuple[str, ExprNode]] = []
@@ -1036,6 +1054,7 @@ def normalize_resolved_inline_procedure_calls(
                     proc_ref_bindings=child_proc_ref_bindings,
                     workflow_ref_bindings=child_workflow_ref_bindings,
                 ),
+                condition_normalization_input=retained_input,
             )
         if isinstance(expr, ProcedureCallExpr):
             rewritten_args = tuple(
@@ -1308,11 +1327,19 @@ def _with_resolved_constructor_types(
     """
 
     def rewrite(node: ExprNode) -> ExprNode:
+        retained_input = (
+            rewrite(node.condition_normalization_input)
+            if isinstance(node, LetStarExpr)
+            and node.condition_normalization_input is not None
+            else None
+        )
         children = iter_child_exprs(node)
         if children:
             node = _rebuild_with_replacements(
                 node, {id(child): rewrite(child) for child in children}
             )
+        if isinstance(node, LetStarExpr) and node.condition_normalization_input is not retained_input:
+            node = replace(node, condition_normalization_input=retained_input)
         if isinstance(node, RecordExpr | UnionVariantExpr):
             return replace(node, resolved_type=constructor_type(node))
         return node
@@ -1658,6 +1685,16 @@ def _clone_function_expr(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+            ),
+            condition_normalization_input=(
+                _clone_function_expr(
+                    expr.condition_normalization_input,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                if expr.condition_normalization_input is not None
+                else None
             ),
             span=span,
             form_path=form_path,

@@ -60,7 +60,12 @@ from .model import (
 _CLOSED = (WccNodeMetadata, WccRunRefPayload, WccTrialPayload)
 
 
-def _gather(node: object, leaf: Callable[[object], set[str] | None]) -> set[str]:
+def _gather(
+    node: object,
+    leaf: Callable[[object], set[str] | None],
+    *,
+    include_condition_input: bool = False,
+) -> set[str]:
     """Union of `leaf(x)` over every object reachable from `node` through dataclass fields and containers."""
 
     found = leaf(node)
@@ -71,16 +76,33 @@ def _gather(node: object, leaf: Callable[[object], set[str] | None]) -> set[str]
     elif isinstance(node, (tuple, list, set, frozenset)):
         children = node
     elif is_dataclass(node) and not isinstance(node, type):
-        children = (getattr(node, field.name) for field in dataclass_fields(node))
+        children = (
+            getattr(node, field.name)
+            for field in dataclass_fields(node)
+            if include_condition_input or field.name != "condition_normalization_input"
+        )
     else:
         return set()
-    return set().union(*(_gather(child, leaf) for child in children))
+    return set().union(
+        *(
+            _gather(
+                child,
+                leaf,
+                include_condition_input=include_condition_input,
+            )
+            for child in children
+        )
+    )
 
 
-def _strings(node: object) -> set[str]:
+def _strings(node: object, *, include_condition_input: bool = False) -> set[str]:
     """Every string inside `node`: a superset of the identifiers it spells or binds."""
 
-    return _gather(node, lambda item: {item} if isinstance(item, str) else None)
+    return _gather(
+        node,
+        lambda item: {item} if isinstance(item, str) else None,
+        include_condition_input=include_condition_input,
+    )
 
 
 def _mentioned_names(node: object) -> set[str]:
@@ -126,7 +148,14 @@ def _free_names(node: object, bound: frozenset[str] = frozenset()) -> set[str]:
         return set().union(*(_free_names(item, bound) for item in items))
     if is_dataclass(node) and not isinstance(node, (type, *_CLOSED)):
         return set().union(
-            *(_free_names(getattr(node, field.name), bound | _bound_by(node, field.name)) for field in dataclass_fields(node))
+            *(
+                _free_names(
+                    getattr(node, field.name),
+                    bound | _bound_by(node, field.name),
+                )
+                for field in dataclass_fields(node)
+                if field.name != "condition_normalization_input"
+            )
         )
     return set()
 

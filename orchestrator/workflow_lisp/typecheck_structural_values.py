@@ -669,6 +669,7 @@ def typecheck_structural_value_expr(
             effect_cardinality_diagnostic_code=(
                 "list_map_effect_body_unsupported"
             ),
+            operand_evaluation_order=(":max", ":state"),
         )
         return recurse(synthetic_loop, expected_type=result_type)
     if isinstance(expr, PathJoinUnderExpr):

@@ -1957,6 +1957,7 @@ def _collect_proc_ref_use_spans(
         return tuple(
             span
             for field in fields(node)
+            if field.name != "condition_normalization_input"
             for span in _collect_proc_ref_use_spans(getattr(node, field.name), authored_name=authored_name)
         )
     return ()
@@ -1969,6 +1970,7 @@ def _semantic_identity(value: object) -> str:
                 f"{field.name}={_semantic_identity(getattr(value, field.name))}"
                 for field in fields(value)
                 if field.name not in {"span", "form_path", "expansion_stack"}
+                and not field.metadata.get("semantic_identity_omit")
             )
             + ")"
         )

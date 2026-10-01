@@ -72,6 +72,7 @@ def rename_capturing_binders(
     """
 
     reserved_names: set[str] | None = None
+    retained_reserved_names: set[str] | None = None
 
     def fresh(base: str) -> str:
         nonlocal reserved_names
@@ -79,26 +80,64 @@ def rename_capturing_binders(
             reserved_names = _strings(body) | live | set(params) | set(reserved)
         return fresh_name(base, reserved_names)
 
+    def fresh_retained(base: str) -> str:
+        nonlocal retained_reserved_names
+        if retained_reserved_names is None:
+            retained_reserved_names = (
+                _strings(body, include_condition_input=True)
+                | live
+                | set(params)
+                | set(reserved)
+            )
+        return fresh_name(base, retained_reserved_names)
+
     renamed_params = {name: fresh(name) for name in params if name in live}
     if renamed_params:
         body = _renamed(body, renamed_params)
-    return _unshadow(body, live, fresh), renamed_params
+    return _unshadow(body, live, fresh, retained_fresh=fresh_retained), renamed_params
 
 
-def _unshadow(node: object, live: frozenset[str], fresh: Callable[[str], str]) -> object:
+def _unshadow(
+    node: object,
+    live: frozenset[str],
+    fresh: Callable[[str], str],
+    *,
+    retained_fresh: Callable[[str], str] | None = None,
+) -> object:
     """`rename_capturing_binders` for one node, under the names `live` that pure bindings in scope read."""
 
     if isinstance(node, (Mapping, tuple, list)):
-        return _rebuilt_items(node, lambda item: _unshadow(item, live, fresh))
+        return _rebuilt_items(
+            node,
+            lambda item: _unshadow(
+                item,
+                live,
+                fresh,
+                retained_fresh=retained_fresh,
+            ),
+        )
     if isinstance(node, WccSelectArm):
-        return _unshadow_select_arm(node, live, fresh)
+        return _unshadow_select_arm(node, live, fresh, retained_fresh=retained_fresh)
     if isinstance(node, LetStarExpr):
-        return _unshadow_let_star(node, live, fresh)
+        return _unshadow_let_star(
+            node,
+            live,
+            fresh,
+            retained_fresh=retained_fresh,
+        )
     if not is_dataclass(node) or isinstance(node, (type, *_CLOSED)):
         return node
     if isinstance(node, _RENAMED_BINDERS):
         node = _rebound(node, {name: fresh(name) for name in _BINDERS[type(node)][1](node) if name in live})
-    changes = _field_changes(node, lambda name, old: _unshadow(old, _live_in(node, name, live), fresh))
+    changes = _field_changes(
+        node,
+        lambda name, old: _unshadow(
+            old,
+            _live_in(node, name, live),
+            fresh,
+            retained_fresh=retained_fresh,
+        ),
+    )
     return replace(node, **changes) if changes else node
 
 
@@ -123,20 +162,34 @@ def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin, names: Mapping[st
     return replace(node, **changes)
 
 
-def _unshadow_select_arm(arm: WccSelectArm, live: frozenset[str], fresh: Callable[[str], str]) -> WccSelectArm:
+def _unshadow_select_arm(
+    arm: WccSelectArm,
+    live: frozenset[str],
+    fresh: Callable[[str], str],
+    *,
+    retained_fresh: Callable[[str], str] | None = None,
+) -> WccSelectArm:
     """`_unshadow` for a select arm: pure `let`s scoped over the rest of the arm (their body links are not)."""
 
     prefix: list[WccLet] = []
     rest = arm
     while rest.prefix:
         let_node, rest = rest.prefix[0], WccSelectArm(prefix=rest.prefix[1:], value=rest.value)
-        let_node = _rebuilt_let(let_node, _unshadow(let_node.bound_value, live, fresh))
+        let_node = _rebuilt_let(
+            let_node,
+            _unshadow(
+                let_node.bound_value,
+                live,
+                fresh,
+                retained_fresh=retained_fresh,
+            ),
+        )
         if let_node.bound_name in live:
             renamed = fresh(let_node.bound_name)
             rest, let_node = _renamed(rest, {let_node.bound_name: renamed}), replace(let_node, bound_name=renamed)
         live = live | _free_names(let_node.bound_value)
         prefix.append(let_node)
-    value = _unshadow(rest.value, live, fresh)
+    value = _unshadow(rest.value, live, fresh, retained_fresh=retained_fresh)
     if value is arm.value and all(new is old for new, old in zip(prefix, arm.prefix)):
         return arm
     return WccSelectArm(prefix=tuple(prefix), value=value)
@@ -146,20 +199,45 @@ def _rebuilt_let(let_node: WccLet, bound_value: object) -> WccLet:
     return let_node if bound_value is let_node.bound_value else replace(let_node, bound_value=bound_value)
 
 
-def _unshadow_let_star(expr: LetStarExpr, live: frozenset[str], fresh: Callable[[str], str]) -> LetStarExpr:
+def _unshadow_let_star(
+    expr: LetStarExpr,
+    live: frozenset[str],
+    fresh: Callable[[str], str],
+    *,
+    retained_fresh: Callable[[str], str] | None = None,
+) -> LetStarExpr:
     """`_unshadow` for a frontend `let*`, which lowering resolves as it does WCC `let`s."""
 
+    retained_input = (
+        _unshadow(
+            expr.condition_normalization_input,
+            live,
+            retained_fresh or fresh,
+            retained_fresh=retained_fresh or fresh,
+        )
+        if expr.condition_normalization_input is not None
+        else None
+    )
     bindings: list[tuple[str, ExprNode]] = []
-    rest = expr
+    rest = replace(expr, condition_normalization_input=None)
     while rest.bindings:
         (name, value), rest = rest.bindings[0], replace(rest, bindings=rest.bindings[1:])
-        value = _unshadow(value, live, fresh)
+        value = _unshadow(value, live, fresh, retained_fresh=retained_fresh)
         if name in live:
             renamed = fresh(name)
             rest, name = _renamed(rest, {name: renamed}), renamed
         live = live | _free_names(value)
         bindings.append((name, value))
-    body = _unshadow(rest.body, live, fresh)
-    if body is expr.body and all(new[0] == old[0] and new[1] is old[1] for new, old in zip(bindings, expr.bindings)):
+    body = _unshadow(rest.body, live, fresh, retained_fresh=retained_fresh)
+    if (
+        retained_input is expr.condition_normalization_input
+        and body is expr.body
+        and all(new[0] == old[0] and new[1] is old[1] for new, old in zip(bindings, expr.bindings))
+    ):
         return expr
-    return replace(expr, bindings=tuple(bindings), body=body)
+    return replace(
+        expr,
+        bindings=tuple(bindings),
+        body=body,
+        condition_normalization_input=retained_input,
+    )

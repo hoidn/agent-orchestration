@@ -935,6 +935,8 @@ def _json_data(value: Any) -> Any:
         payload: dict[str, Any] = {}
         for field in fields(value):
             item = getattr(value, field.name)
+            if field.metadata.get("json_omit_always"):
+                continue
             # ``request_input`` did not exist in the frozen pre-2.32 Surface
             # carrier.  Preserve those canonical build bytes while retaining
             # the field for the only active request-input shape.

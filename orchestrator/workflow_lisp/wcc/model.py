@@ -80,6 +80,7 @@ class WccIdentityFactory:
     # Only names generated from target 2.33 read them (`hygiene.generated_name_scope`);
     # `scope_id` and node ids leave them out, so every earlier identity stays the same.
     enclosing_variants: tuple[str, ...] = ()
+    closed_program: bool = False
 
     @property
     def scope_id(self) -> str:
@@ -99,6 +100,7 @@ class WccIdentityFactory:
             lexical_owner_chain=(*self.lexical_owner_chain, segment),
             route_schema_version=self.route_schema_version,
             enclosing_variants=self.enclosing_variants,
+            closed_program=self.closed_program,
         )
 
     def _metadata(

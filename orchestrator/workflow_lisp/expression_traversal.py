@@ -321,6 +321,12 @@ def map_expr(
         # non-name substitution is handled.
         return expr
     if isinstance(expr, LetStarExpr):
+        retained_input = expr.condition_normalization_input
+        rewritten_retained_input = (
+            map_expr(retained_input, on_name, bound=bound)
+            if retained_input is not None
+            else None
+        )
         local_bound = set(bound)
         rewritten_bindings: list[tuple[str, ExprNode]] = []
         changed = False
@@ -339,12 +345,14 @@ def map_expr(
             bound=frozenset(local_bound),
         )
         changed = changed or rewritten_body is not expr.body
+        changed = changed or rewritten_retained_input is not retained_input
         if not changed:
             return expr
         return replace(
             expr,
             bindings=tuple(rewritten_bindings),
             body=rewritten_body,
+            condition_normalization_input=rewritten_retained_input,
         )
     if isinstance(expr, (ListMapExpr, ListMapEffectExpr)):
         rewritten_source = map_expr(expr.source_expr, on_name, bound=bound)
