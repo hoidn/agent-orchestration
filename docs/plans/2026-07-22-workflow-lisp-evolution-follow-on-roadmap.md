@@ -14,8 +14,11 @@ review/revision composition; see the
 CF-1a is closed, CF-1b is implemented at target 2.33, and CF-1c consumer
 migration is on hold. On 2026-09-29 the owner approved the defect repairs of
 the [value/effect decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md) and the brief's feasibility spike after
-them; the repairs are implemented and the spike is the next selected work
-([Independent Work And Successor](#independent-work-and-successor)).
+them. The repairs and spike are complete; gate G1 selected evaluated
+execution, with the closed-program compiler selected as Phase 2 at target
+2.35. The owner's 2026-10-01 delivery amendment introduces an early migration
+pilot and consumer-driven later additions; see
+[Independent Work And Successor](#independent-work-and-successor).
 Publication alone does not select
 later studies, new language surfaces, or source promotion.
 
@@ -79,6 +82,18 @@ Each has its own feasibility and consequence gates. They are not extra research
 units, new R1a deliverables, or automatic prerequisites for the five-axis studies.
 One explicit exception is recorded: CF-1b precedes R1b's review/revision
 composition by owner selection on 2026-09-28.
+
+The separate [evaluated-execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+owns runtime delivery: Phase 2 closed program → Phase 3 executable core →
+Phase 6a pilot, with selected Phase 4 additions and independent Phase 5
+parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement.
+Portable context is a named later delivery, not silently included in the
+first-release provider subset. Composition, macro provenance, typed prompt
+and result contracts, and artifact production/consumption/lineage are
+preserved obligations, not expendable simplifications. This implementation
+sequence neither adds a research unit nor selects R1b/R2/R3 or a general
+search framework. Pilot authoring evidence informs improvements; it does
+not require all five axes to pass before useful capabilities can ship.
 
 The [demonstration plan](2026-09-08-orc-research-demonstration-plan.md) owns
 detailed ceilings and controls; no machine-readable roadmap manifest is added.
@@ -718,11 +733,15 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   workspace, and lexical scope for hoisted and pure bindings at every target.
   The known defects that remain, cases d and f of the brief among them, are
   listed in [composition-first §11](../design/workflow_lisp_composition_first.md#11-known-defects-and-rules-at-target-233).
-- **Next selected work (owner, 2026-09-29):** the feasibility spike of the
-  [decision brief, section 10](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md#10-spike-scope-and-criteria-fixed-in-advance),
-  with its criteria fixed there. Its plan is written after the defect repairs
-  merge. The choice between the brief's options and the version policy for an
-  inverted runtime wait for its result.
+- **Selected runtime work:** the feasibility spike is complete; gate G1
+  selected evaluated execution on 2026-09-29. The
+  [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
+  owns the selected closed-program compiler at target 2.35 (owner decision,
+  2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+  owns the 2026-10-01 amendment: runnable core, early consumer pilot,
+  selective effect/context additions and independent parallel map, migration,
+  then retirement. Downstream implementation remains pending; this does not
+  select a new research study or alter the running Phase 2 task order.
 
 ## Routing And Historical Records
 
