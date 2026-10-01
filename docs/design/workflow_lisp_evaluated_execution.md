@@ -679,9 +679,10 @@ their existing binding declaration (`stdlib_contracts.py` for the stdlib
 catalog; the existing compiler factory for other injected adapters). Its
 relative base is the installed `orchestrator` package directory, not the
 workspace. No new user field chooses this base: trusted binding origin,
-preserved during injection, determines it. A manifest override keeps manifest
-semantics even when its name matches a builtin. Normalize both origins into
-closed rows `(base, path)`, where base is `workspace`, `absolute`, or the fixed
+preserved during injection, determines it. A retained manifest override keeps
+manifest semantics even when its name matches a builtin. Origin follows the
+effective binding instance, including an existing injector replacement.
+Normalize both origins into closed rows `(base, path)`, where base is `workspace`, `absolute`, or the fixed
 logical package identity `package:orchestrator`; the hashing and read-only
 rules are otherwise shared. An injected adapter without the checked-in
 declaration refuses with `command_boundary_closure_missing`; supply the
@@ -709,6 +710,21 @@ module's resolved launch origin must be this declared package tree (including
 workspace/PYTHONPATH shadowing checks); hashing one installation and executing
 another is forbidden. Keep the existing module command and resolver seam,
 with a fail-closed origin check, not a second adapter loader or a user knob.
+
+The exact canonical row variants and writer/reader correspondence are in
+[the Phase 2 plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#canonical-command-configuration).
+Both binding kinds retain every semantic model field, explicit defaults and
+normalized closure; certified rows retain raw signature type strings and
+promoted-field presence. No old-target fingerprint projection changes.
+Source input/return checks still resolve types in the caller's environment;
+`owner_module` metadata is not a resolver. The reader checks complete row
+shape, selected scope, stable tokens, repeat/closure agreement, admitted
+protocol and ordered document keys, and independently validates closed values
+and result/output contracts. It does not reconstruct alias history or
+manifest-input assignability from raw type strings: a document row contains
+no expected input descriptor. Preserve admitted duplicate signature rows
+and omit unresolved optional inputs without inventing a new restriction.
+This is an explicit internal-consistency contract, not source authenticity.
 
 At build, grammar and presence are checked; filesystem contents belong to
 resolved inputs at run/resume, because the workspace may not yet exist.

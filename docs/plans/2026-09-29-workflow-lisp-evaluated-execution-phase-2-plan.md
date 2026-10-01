@@ -219,6 +219,176 @@ tasks; a task that needs another key adds it here first.
   program, normalized using the same rules as in-memory bindings; provenance and raw manifest bytes are excluded. Its semantic
   content enters `program_digest`, not just the build-cache key.
 
+### Canonical command configuration
+
+Ratified Task 5/7 clarification, 2026-09-30. Keep
+`canonical_command_configuration(bindings, *, origins)` unchanged. The raw
+signature strings belong to configuration identity; source type resolution
+belongs to the frontend and retained caller environment. The reader checks
+closed typed consistency and the mechanical correspondence below. It does
+not independently reconstruct manifest-input assignability from type-name
+spelling: `document` has no per-use expected input descriptor. No basename
+comparison, source alias guess, second signature service or new source
+restriction is introduced. The independent review and public private/alias/
+generic-type proof are recorded in the Phase 2 execution handoff.
+
+`configuration.commands` is a JSON object keyed by the supplied binding lookup
+name. Each value has **exactly** the common fields below, plus the certified
+fields only for `kind: "certified_adapter"`. All fields are present, including
+nulls, false, and empty arrays. No dataclass `json_omit_*` policy controls this
+new projection. No arbitrary unparsed manifest keys are copied.
+
+| Common field | Exact JSON shape / source |
+| --- | --- |
+| `kind` | `"external_tool"` or `"certified_adapter"`, from actual binding class |
+| `name` | binding's string `name`, preserved |
+| `stable_command` | ordered string array from `stable_command` |
+| `must_not_repeat` | exact boolean, including `false` |
+| `closure` | canonical ordered array of exact `{ "base": string, "path": string }` rows below |
+| `retirement_class` | string or null |
+| `retirement_label` | string or null |
+| `replacement_surface` | string or null |
+| `bridge_owner` | string or null |
+| `expiry_condition` | string or null |
+| `evidence_refs` | ordered string array |
+| `retirement_status` | string or null |
+
+The outer key is lookup authority. Preserve `binding.name` rather than silently
+rewriting it from the key. The existing in-memory environment does not enforce
+equality of these two strings; this clarification adds no such admission rule.
+
+| Certified-only field | Exact JSON shape / source |
+| --- | --- |
+| `input_contract` | JSON object, preserving its full nested content |
+| `output_type_name` | raw declared string |
+| `effects` | ordered string array |
+| `path_safety` | JSON object, preserving its full nested content |
+| `source_map_behavior` | string |
+| `fixture_ids` | ordered string array |
+| `negative_fixture_ids` | ordered string array |
+| `behavior_class` | string or null |
+| `input_signature` | ordered array of exact `{ "name": string, "type_name": string, "required": boolean, "transport_key": string }` rows |
+| `artifact_contracts` | ordered string array |
+| `state_writes` | ordered string array |
+| `error_codes` | ordered string array |
+| `owner_module` | string or null; metadata, not type-resolution authority |
+| `replacement_path` | string or null |
+| `invocation_protocol` | string or null; current promoted protocol is `"json_object_positional_arg"` |
+| `transition_binding` | null or exact `{ "transition_name": string, "resource_kind": string, "contract_role": string, "backend_selector": string }` |
+| `view_binding` | null or exact `{ "view_name": string, "renderer_id": string, "renderer_version": integer, "contract_role": string }` |
+| `declared_promoted_fields` | sorted unique string array from the existing frozenset |
+
+String spellings are preserved, including type expressions and metadata paths.
+Current value/admission validation stays with existing owners. These tables do
+not turn documentary metadata into proof of fixtures, artifacts, or filesystem
+existence. Do not add enum restrictions or nonempty-string rules absent from
+those owners. Arrays preserve order and multiplicity except the two explicit
+set projections: closure and `declared_promoted_fields`. Nested tuples/mappings
+become JSON arrays/objects; object key order is serialization-only. Values must
+remain ordinary finite JSON data; no `repr`, absolute inferred package prefix,
+or frontend Python object enters the row.
+
+`declared_promoted_fields` cannot be discarded: actual field presence controls
+`certified_adapter_supports_promoted_calls`, even when supplied values equal
+model defaults. Fields omitted by the older fingerprint (`input_contract`,
+fixtures, `view_binding`, retirement metadata) cannot be omitted here.
+
+#### Closure normalization
+
+Both boundary kinds use the same existing C1 declaration grammar: explicit
+empty array is valid; missing/`None` refuses with
+`command_boundary_closure_missing`; explicit manifest `null`, scalar values,
+non-string entries, empty strings and NUL refuse with
+`command_boundary_manifest_invalid`. Never replace absence with `[]`.
+
+Normalize separators to POSIX spelling and discard empty/`.` components while
+retaining every `..` component. Preserve an absolute leading root; an empty
+relative component sequence becomes `.`. Thus `a//./b` becomes `a/b`, `a/../b`
+stays `a/../b`, `/./` becomes `/`, and `./` becomes `.`. Stable command tokens
+are not normalized. Paths are literal; there is no expansion, glob traversal,
+exclusion syntax, filesystem read, symlink resolution, or content hashing here.
+
+A normalized absolute declaration uses `base: "absolute"` with its absolute
+path. Relative supplied bindings use `base: "workspace"`. Only trusted
+compiler-injection origin supplies `base: "package:orchestrator"` for a relative
+path. Sort rows lexicographically by `(base, path)` and remove exact duplicates;
+overlapping directory/file declarations remain. A retained same-named manifest
+override keeps workspace origin. Origin follows the effective binding instance; an
+existing injector replacement has its own trusted origin. No user row or
+guessed builtin name selects the package base. The reader requires this canonical shape/order, and rejects extra row
+keys, unrecognized bases, noncanonical paths, or base/path absolute mismatches.
+
+#### Small example
+
+```json
+{"fetch":{"kind":"external_tool","name":"fetch","stable_command":["python","probe.py"],"must_not_repeat":false,"closure":[],"retirement_class":null,"retirement_label":null,"replacement_surface":null,"bridge_owner":null,"expiry_condition":null,"evidence_refs":[],"retirement_status":null}}
+```
+
+A certified row is this common shape with its kind changed and every field in
+the certified table added. There is no synthetic `return_contract`, resolved
+signature, binding digest, origin field, or raw manifest wrapper in either row.
+`output_type_name` is the existing return declaration; the resolved result
+contract is already on each perform.
+
+#### Writer and reader obligations
+
+**Writer (Tasks 4/6/7).** Select the actual source-program owner, retained
+procedure/workflow type environment and binding before conversion. Keep the
+existing source checks: return spelling matches the adapter declaration;
+supplied adapter inputs resolve and typecheck in that environment; required
+inputs exist, extras refuse, and protocol projectability remains enforced.
+Use resolved typed result/value facts and Task 6's canonical descriptor owner,
+not basename comparison or `owner_module`. Emit `result` and the derived
+`contract`, plus the existing `document` rows in declaration order over supplied
+inputs. The closed compiler must not resolve unused bindings or omitted
+optional signature entries merely to serialize configuration.
+
+Project all supplied bindings, including unused ones, and only the injected
+bindings used by the closed program. Preserve originating configuration for
+compiled producers; apply the identical projection to root and producer
+three-map configurations. Producer scope digesting/deduplication stays exactly
+as the plan specifies. A raw semantic configuration edit changes identity even
+when its binding is unused or its type string has equivalent source meaning.
+
+**Reader (Task 5).** Validate every row's exact variant and nested shape, every
+configuration scope and its digest, and every node/value descriptor against the
+closed type table. At a command perform under the selected owner scope:
+
+- Boundary lookup must succeed. `class` is `command` for both binding kinds;
+  do not invent a separate adapter effect class.
+- `command` equals `stable_command`; `closure` equals normalized closure;
+  `repeat` is exactly `never` for true or `rerun` for false.
+- `result` and `contract` must independently agree under the existing neutral
+  structured-result contract/descriptor semantics. Result literals, enclosing
+  results, field uses, nominal definitions and subsequent calls continue to be
+  checked; two unchecked copied type labels are never proof.
+- Raw argv mode has the existing typed `argv` tail and no `document`.
+  Both external tools and certified adapters can use this mode when the
+  existing source validators admit it. Never infer document mode merely from
+  the certified binding class.
+- Document mode requires the certified binding's existing promoted metadata
+  predicate and admitted invocation protocol, `argv: []`, and a `document`
+  projection matching `input_signature` transport keys in declared order.
+  Required supplied fields are present, optional ones may be absent, and
+  undeclared/excess rows refuse. Validate each value normally and its admitted
+  protocol value shape. A malformed protocol retains the owner's existing
+  boundary-validation meaning, not a new release exclusion.
+
+The signature parser currently does not reject repeated input names or
+transport keys. Preserve its ordered projection rather than adding uniqueness
+as an implicit new source restriction. More precisely, valid document keys are
+obtained by selecting a set of declared input names containing all required
+names, then projecting every signature row whose name is selected, in order.
+This also states the rule for repeated rows without inventing authored names
+that the closed document does not store.
+
+Do **not** compare raw type strings to canonical descriptor names, compare
+basenames, derive a module from metadata, or add a special-case primitive
+string resolver in the reader. The reader establishes closed typed consistency
+and the correspondence above, not source-history authenticity. A manifest type
+string changed alone remains a changed program identity; this contract does
+not claim its previous source meaning can be recovered from the artifact.
+
 ### Canonical definition keys
 
 This is the exact shared wire schema for design §4.2 and Tasks 4–8.
@@ -2040,7 +2210,11 @@ are pure functions over the shared schema; no compiler/frontend import.
   exhaustion results, provider result-path origins and every perform's
   result against its command/provider contract or decoded run-ref result.
   Effects must also match their canonical configuration entry in the
-  definition's resolved scope (`configuration.imports` or root). Reuse pure
+  definition's resolved scope (`configuration.imports` or root), under the
+  exact [command configuration correspondence](#writer-and-reader-obligations).
+  Raw manifest type strings are semantic configuration, not source-free
+  expected input descriptors; the reader does not re-run alias resolution or
+  compare them to canonical nominal names. Reuse pure
   catalog descriptor validation/coercion and assignability semantics; do not
   invoke frontend typecheck or accept equality of two unvalidated copied
   labels as proof. Unknown/missing type facts and mismatches fail read-back
@@ -2449,15 +2623,18 @@ unless added there; do not add it).
     canonical JSON) and `strip_provenance(node)`.
   - `program_digest(tree) -> str` = `canonical_digest(strip_provenance(tree))`
     (P7: `sites` are in the tree and enter the digest; `@` does not).
-- Produces: `ExternalToolBinding.closure: tuple[str, ...] | None = field(default=None, metadata={"json_omit_if_none": True})`,
+- Produces: `ExternalToolBinding.closure: tuple[str, ...] | None = field(default=None, repr=False, metadata={"json_omit_if_none": True})`,
   the same on `CertifiedAdapterBinding`. Both parser branches preserve
   absence (`None`) versus `[]` (`()`); explicit `null` is invalid, not absence.
   Validate each path as a nonempty literal string without NUL; no globs,
   environment expansion or exclusions. Use the existing array validator only
   where its null/empty rules match, otherwise add the direct presence check.
   Add `canonical_command_configuration(bindings, *, origins)` in `program.py`: project
-  all semantic fields of both boundary kinds, including adapter signature,
-  protocol, return contract, stable argv, repeat rule and closure. Normalize
+  the exact [canonical command rows](#canonical-command-configuration),
+  including all adapter metadata, raw input/output type declarations,
+  stable argv, repeat rule and closure. Do not resolve unused bindings or
+  omitted optional inputs during serialization; resolved result/contract
+  facts remain on each perform. Normalize
   closure separators and `.` components, retaining `..`, sort/deduplicate;
   relative paths use the command workspace, absolute declarations stay
   absolute. Do not use `posixpath.normpath` (it collapses `..` across symlinks).
@@ -2503,7 +2680,9 @@ unless added there; do not add it).
   bound path. No alias/provenance wrapper, policy/template payload or new
   binding hash is introduced. The same rows serve `WRef.externs` and the
   selected root/imported configuration; Task 8 consumes them.
-- Keep `closure` out of old-target binding serialization/fingerprints even
+- Keep `closure` out of binding dataclass repr with `repr=False`; old
+  identity owners can digest these objects. Keep `closure` out of
+  old-target binding serialization/fingerprints even
   when explicitly supplied: inspect `_json_data` and every boundary payload
   producer, and omit it in the old route's projection, not globally in the
   model. The existing raw-manifest-byte cache hashing algorithm remains
