@@ -616,6 +616,7 @@ def _loop_carrier_metadata(type_ref: Any, *, typed: Any):
             type_ref,
             session_state=state,
             field_types=field_types,
+            type_env=environment,
         )
         if metadata is not None and all(metadata is not old for old in matches):
             matches.append(metadata)

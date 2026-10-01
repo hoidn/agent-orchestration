@@ -236,6 +236,82 @@ def test_loop_carriers_keep_expanded_declaration_family_in_canonical_identity(
     assert first[0] != first[1]
 
 
+def test_generic_loop_carriers_keep_same_spelled_private_field_owners(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.build_manifest_io import _json_data
+    from orchestrator.workflow_lisp.closed.names import canonical_type_descriptor
+
+    def identities(root: Path, *, relocate: bool) -> dict[str, tuple[str, dict]]:
+        root.mkdir(parents=True)
+        for module in ("a", "b"):
+            (root / f"{module}.orc").write_text(
+                f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+                  (defmodule {module}) (export get)
+                  (defrecord Note (n Int))
+                  (defproc get () -> Note :effects () :lowering inline
+                    (record Note :n 1)))''',
+                encoding="utf-8",
+            )
+        entry = root / "main.orc"
+        prefix = "\n\n" if relocate else ""
+        entry.write_text(
+            prefix
+            + f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+              (defmodule main) (import a :as a) (import b :as b) (export run)
+              (defproc carry :forall (T) ((value T)) -> Int
+                :effects () :lowering inline
+                (let* ((state (loop-state (payload T value)))) 0))
+              (defworkflow run () -> Int
+                (+ (carry (a.get)) (carry (b.get)))))''',
+            encoding="utf-8",
+        )
+        typed = compile_typed_program(
+            entry,
+            entry_workflow="run",
+            source_roots=(root,),
+            command_boundaries={},
+        )
+        for source in root.rglob("*.orc"):
+            source.unlink()
+
+        env = typed.type_env
+        metadata_rows = [
+            metadata
+            for metadata in env.session_state.loop_carrier_metadata_by_name.values()
+            if metadata.field_names == ("payload",)
+            and metadata.field_types[0][1].name == "Note"
+        ]
+        assert len(metadata_rows) == 2
+        assert len({metadata.generated_type_name for metadata in metadata_rows}) == 2
+        projected = {}
+        with patch.object(Path, "read_text", side_effect=AssertionError("source read")), patch.object(
+            Path, "read_bytes", side_effect=AssertionError("source read")
+        ):
+            for metadata in metadata_rows:
+                field_type = metadata.field_types[0][1]
+                field_identity = canonical_type_identity(field_type, typed=typed)
+                descriptor = canonical_type_descriptor(metadata.type_ref, typed=typed)
+                assert descriptor["fields"][0]["type"]["name"] == field_identity
+                projected[field_identity] = (
+                    canonical_type_identity(metadata.type_ref, typed=typed),
+                    descriptor,
+                )
+                assert "family=" not in repr(metadata)
+                assert "family" not in _json_data(metadata)
+        assert set(projected) == {"a::Note", "b::Note"}
+        assert (
+            projected["a::Note"][1]["name"].split("[", 1)[0]
+            != projected["b::Note"][1]["name"].split("[", 1)[0]
+        )
+        return projected
+
+    first = identities(tmp_path / "first", relocate=False)
+    moved = identities(tmp_path / "elsewhere" / "deeper", relocate=True)
+    assert first == moved
+    assert first["a::Note"][0] != first["b::Note"][0]
+
+
 def test_specialized_loop_carriers_project_same_run_ref_signature_and_keep_origins(
     tmp_path: Path,
 ) -> None:

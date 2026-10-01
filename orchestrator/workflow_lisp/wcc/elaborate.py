@@ -1161,7 +1161,7 @@ def _rewrite_specialization_value_captures(
                     shadowed=shadowed,
                 )
                 for field in dataclass_fields(node)
-                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
             }
             changed_updates = {
                 name: rewritten
@@ -1427,7 +1427,7 @@ def _substitute_wcc_payload(
                 substitutions,
             )
             for field in dataclass_fields(value)
-            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
+            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
         }
         if any(
             updates[name] is not getattr(value, name)
@@ -2465,7 +2465,7 @@ def _bind_proc_runtime_capture_sites(
             return
         if is_dataclass(node):
             for field in dataclass_fields(node):
-                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
+                if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                     visit(
                         getattr(node, field.name),
                         shadowed=shadowed,
@@ -6244,6 +6244,7 @@ def _infer_expr_type(
             session_state=type_env.session_state,
             field_signature=tuple((field_name, field_type.name) for field_name, field_type in field_types),
             field_types=field_types,
+            type_env=type_env,
         )
         if metadata is None:
             raise TypeError("loop-state seed metadata was unavailable during WCC inference")

@@ -281,6 +281,18 @@ class LoopStateField:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Resolved by the typed loop-state owner and carried across inline
+    # specialization. It is compiler evidence, not authored syntax identity.
+    resolved_type_ref: "TypeRef | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+        hash=False,
+        metadata={
+            "json_omit_always": True,
+            "semantic_identity_omit": True,
+        },
+    )
 
 
 @dataclass(frozen=True)

@@ -31,6 +31,10 @@ LoopCarrierExprKey: TypeAlias = (
     | tuple[str, int, int, tuple[str, ...], str]
 )
 LoopCarrierFieldSignature: TypeAlias = tuple[tuple[str, str], ...]
+LoopCarrierMetadataKey: TypeAlias = (
+    LoopCarrierFieldSignature
+    | tuple[LoopCarrierFieldSignature, str]
+)
 RunRefExprKey: TypeAlias = str
 RunRefTypeSignature: TypeAlias = str
 
@@ -76,7 +80,7 @@ class TypecheckSessionState:
     ] = field(default_factory=dict)
     loop_carrier_metadata_by_expr_key: dict[
         LoopCarrierExprKey,
-        dict[LoopCarrierFieldSignature, LoopStateCarrierMetadata],
+        dict[LoopCarrierMetadataKey, LoopStateCarrierMetadata],
     ] = field(
         default_factory=dict
     )

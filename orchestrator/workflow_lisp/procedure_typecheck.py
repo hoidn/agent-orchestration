@@ -1485,7 +1485,7 @@ def _rewrite_local_proc_references(
     if is_dataclass(node):
         updates = {}
         for field in fields(node):
-            if field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
+            if field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                 continue
             current = getattr(node, field.name)
             rewritten = _rewrite_local_proc_references(current, local_bindings=local_bindings)
@@ -1966,6 +1966,7 @@ def _collect_proc_ref_use_spans(
                 "carrier_family",
                 "owner_union",
                 "discriminant_owner",
+                "resolved_type_ref",
             }
             for span in _collect_proc_ref_use_spans(getattr(node, field.name), authored_name=authored_name)
         )
@@ -2033,7 +2034,7 @@ def _replace_eliminated_let_procs(
     if is_dataclass(node):
         updates = {}
         for field in fields(node):
-            if field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
+            if field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                 continue
             current = getattr(node, field.name)
             rewritten = _replace_eliminated_let_procs(

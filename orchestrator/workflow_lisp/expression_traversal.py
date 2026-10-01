@@ -266,7 +266,7 @@ def _rebuild_with_replacements(
         updates = {
             field.name: _map_value(getattr(node, field.name))
             for field in dataclass_fields(node)
-            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}
+            if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}
         }
         return replace(node, **updates)
 
@@ -493,7 +493,7 @@ def map_expr(
     if is_dataclass(expr) and not isinstance(expr, type):
         changed_updates: dict[str, object] = {}
         for field in dataclass_fields(expr):
-            if not field.init or field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner"}:
+            if not field.init or field.name in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref"}:
                 continue
             current = getattr(expr, field.name)
             rewritten = map_expr(current, on_name, bound=bound)

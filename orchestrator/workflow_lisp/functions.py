@@ -89,6 +89,7 @@ from .type_env import (
     ProcRefTypeRef,
     TypeRef,
     WorkflowRefTypeRef,
+    substitute_type_params,
     type_refs_compatible,
 )
 from .type_expressions import parse_type_expression, type_expression_names
@@ -609,6 +610,7 @@ def _normalize_expr(
                     span=field.span,
                     form_path=field.form_path,
                     expansion_stack=field.expansion_stack,
+                    resolved_type_ref=field.resolved_type_ref,
                 )
                 for field in expr.fields
             ),
@@ -1202,6 +1204,10 @@ def normalize_resolved_inline_procedure_calls(
                     allocator=allocator,
                 )
                 specialization = getattr(procedure, "specialization", None)
+                cloned_body = _substitute_expanded_loop_state_type_facts(
+                    cloned_body,
+                    dict(getattr(specialization, "type_bindings", {})),
+                )
                 bound_param_types = dict(
                     getattr(specialization, "bound_param_types", {})
                 )
@@ -1614,6 +1620,7 @@ def _clone_function_expr(
                     span=span,
                     form_path=form_path,
                     expansion_stack=expansion_stack,
+                    resolved_type_ref=field.resolved_type_ref,
                 )
                 for field in expr.fields
             ),
@@ -1812,6 +1819,52 @@ def _clone_function_expr(
             expansion_stack=expansion_stack,
         )
     raise TypeError(f"unsupported pure helper expression clone: {type(expr)!r}")
+
+
+def _substitute_expanded_loop_state_type_facts(
+    expr: ExprNode,
+    type_bindings: Mapping[str, TypeRef],
+) -> ExprNode:
+    """Substitute retained loop-state field types in one selected specialization."""
+
+    if not type_bindings:
+        return expr
+
+    rewritten_by_id: dict[int, ExprNode] = {}
+
+    def rewrite(node: ExprNode) -> ExprNode:
+        known = rewritten_by_id.get(id(node))
+        if known is not None:
+            return known
+        children = iter_child_exprs(node)
+        replacements = {id(child): rewrite(child) for child in children}
+        rewritten = (
+            _rebuild_with_replacements(node, replacements)
+            if any(replacements[id(child)] is not child for child in children)
+            else node
+        )
+        if isinstance(rewritten, LoopStateSeedExpr):
+            fields = []
+            changed = False
+            for field in rewritten.fields:
+                if field.resolved_type_ref is None:
+                    fields.append(field)
+                    continue
+                resolved_type = substitute_type_params(
+                    field.resolved_type_ref,
+                    dict(type_bindings),
+                )
+                if resolved_type is field.resolved_type_ref:
+                    fields.append(field)
+                    continue
+                fields.append(replace(field, resolved_type_ref=resolved_type))
+                changed = True
+            if changed:
+                rewritten = replace(rewritten, fields=tuple(fields))
+        rewritten_by_id[id(node)] = rewritten
+        return rewritten
+
+    return rewrite(expr)
 
 
 def _function_dependencies(expr: ExprNode) -> set[str]:
