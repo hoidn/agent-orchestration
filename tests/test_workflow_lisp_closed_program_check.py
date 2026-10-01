@@ -2155,6 +2155,320 @@ def _provider_result_path_tree(*, params=None):
     return tree, provider, path
 
 
+def _provider_prompt_tree(template, fills):
+    string = {"kind": "primitive", "name": "String"}
+    tree, provider, _path = _provider_result_path_tree()
+    tree["result"] = deepcopy(string)
+    tree["body"] = {
+        "k": "let",
+        "name": "answer",
+        "value": provider,
+        "body": _halt(_name("answer")),
+    }
+    provider["prompt"] = {"template": template, "fills": fills}
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+    return tree, provider
+
+
+def _provider_prompt_fills():
+    string = {"kind": "primitive", "name": "String"}
+    document = {
+        "kind": "path",
+        "name": "sample::PromptDocument",
+        "under": "docs",
+        "must_exist_target": True,
+    }
+    output = {
+        "kind": "path",
+        "name": "sample::PromptOutput",
+        "under": "artifacts",
+        "must_exist_target": False,
+    }
+    fills = [
+        {
+            "name": "document",
+            "kind": "doc",
+            "type": deepcopy(document),
+            "value": _lit("docs/readme.md", document),
+            "renderer_id": None,
+            "output_role": None,
+            "placeholder_ordinals": [],
+        },
+        {
+            "name": "title",
+            "kind": "text",
+            "type": deepcopy(string),
+            "value": _lit("A title", string),
+            "renderer_id": "raw-utf8-string",
+            "output_role": "none",
+            "placeholder_ordinals": [0],
+        },
+        {
+            "name": "score",
+            "kind": "value",
+            "type": deepcopy(INT),
+            "value": _lit(7),
+            "renderer_id": "canonical-json",
+            "output_role": None,
+            "placeholder_ordinals": [1],
+        },
+        {
+            "name": "output",
+            "kind": "path",
+            "type": deepcopy(output),
+            "value": _lit("artifacts/result.txt", output),
+            "renderer_id": "posix-path-line",
+            "output_role": "required_string_file",
+            "placeholder_ordinals": [2],
+        },
+    ]
+    return fills, document, output
+
+
+def test_provider_template_fills_retain_all_closed_slot_semantics():
+    fills, document, output = _provider_prompt_fills()
+    tree, _provider = _provider_prompt_tree(
+        "Read the document; write {title} with score {score} to {output}",
+        fills,
+    )
+    tree["types"].update(
+        {document["name"]: deepcopy(document), output["name"]: deepcopy(output)}
+    )
+
+    validate(tree)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "document_integer",
+        "document_not_existing",
+        "document_has_renderer",
+        "text_integer",
+        "text_wrong_renderer",
+        "unknown_kind",
+        "value_wrong_renderer",
+        "path_integer",
+        "path_output_requires_existing_path",
+        "unknown_output_role",
+        "missing_placeholder",
+        "wrong_placeholder_ordinal",
+        "duplicate_placeholder_ordinal",
+        "document_claims_placeholder",
+    ],
+)
+def test_provider_template_fills_reject_semantic_and_placeholder_tampering(mutation):
+    fills, document, output = _provider_prompt_fills()
+    by_name = {row["name"]: row for row in fills}
+    template = "Read the document; write {title} with score {score} to {output}"
+    if mutation == "document_integer":
+        row = by_name["document"]
+        row["type"] = deepcopy(INT)
+        row["value"] = _lit(7)
+    elif mutation == "document_not_existing":
+        missing = {**output, "must_exist_target": False}
+        by_name["document"]["type"] = deepcopy(missing)
+        by_name["document"]["value"] = _lit("artifacts/result.txt", missing)
+        output = missing
+    elif mutation == "document_has_renderer":
+        by_name["document"]["renderer_id"] = "required-document"
+    elif mutation == "text_integer":
+        by_name["title"]["type"] = deepcopy(INT)
+        by_name["title"]["value"] = _lit(7)
+    elif mutation == "text_wrong_renderer":
+        by_name["title"]["renderer_id"] = "canonical-json"
+    elif mutation == "unknown_kind":
+        by_name["score"]["kind"] = "other"
+    elif mutation == "value_wrong_renderer":
+        by_name["score"]["renderer_id"] = "made-up-renderer"
+    elif mutation == "path_integer":
+        by_name["output"]["type"] = deepcopy(INT)
+        by_name["output"]["value"] = _lit(7)
+        by_name["output"]["output_role"] = None
+    elif mutation == "path_output_requires_existing_path":
+        existing_output = {**output, "must_exist_target": True}
+        by_name["output"]["type"] = deepcopy(existing_output)
+        by_name["output"]["value"] = _lit("artifacts/result.txt", existing_output)
+        output = existing_output
+    elif mutation == "unknown_output_role":
+        by_name["output"]["output_role"] = "optional_string_file"
+    elif mutation == "missing_placeholder":
+        by_name["score"]["placeholder_ordinals"] = []
+    elif mutation == "wrong_placeholder_ordinal":
+        by_name["title"]["placeholder_ordinals"] = [1]
+    elif mutation == "duplicate_placeholder_ordinal":
+        by_name["score"]["placeholder_ordinals"] = [0]
+    elif mutation == "document_claims_placeholder":
+        by_name["document"]["placeholder_ordinals"] = [0]
+
+    tree, _provider = _provider_prompt_tree(template, fills)
+    for descriptor in (document, output):
+        tree["types"][descriptor["name"]] = deepcopy(descriptor)
+
+    _rule(tree, "effect_shape")
+
+
+@pytest.mark.parametrize(
+    ("renderer", "descriptor", "value", "accepted"),
+    [
+        ("canonical-json", INT, 7, True),
+        (
+            "canonical-json",
+            {"kind": "path", "name": "sample::InputPath", "under": "docs", "must_exist_target": False},
+            "docs/input.md",
+            True,
+        ),
+        (
+            "posix-path-line",
+            {"kind": "path", "name": "sample::InputPath", "under": "docs", "must_exist_target": False},
+            "docs/input.md",
+            True,
+        ),
+        ("posix-path-line", {"kind": "primitive", "name": "String"}, "docs/input.md", True),
+        (7, INT, 7, False),
+        ("unknown-renderer", INT, 7, False),
+        ("posix-path-line", INT, 7, False),
+        ("posix-path-line", {"kind": "primitive", "name": "String"}, "docs/a\r\nb", False),
+    ],
+)
+def test_provider_input_renderer_is_registered_and_matches_its_value_shape(
+    renderer, descriptor, value, accepted
+):
+    tree, provider, _ = _provider_result_path_tree()
+    tree["result"] = {"kind": "primitive", "name": "String"}
+    tree["body"] = {
+        "k": "let",
+        "name": "answer",
+        "value": provider,
+        "body": _halt(_name("answer")),
+    }
+    if descriptor["kind"] == "path":
+        tree["types"][descriptor["name"]] = deepcopy(descriptor)
+    provider["inputs"] = [["input", renderer, _lit(value, descriptor)]]
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+
+    if accepted:
+        validate(tree)
+    else:
+        _rule(tree, "effect_shape")
+
+
+def _provider_operand_tree():
+    tree, provider, _ = _provider_result_path_tree()
+    string = {"kind": "primitive", "name": "String"}
+    tree["result"] = deepcopy(string)
+    tree["body"] = {
+        "k": "let",
+        "name": "answer",
+        "value": provider,
+        "body": _halt(_name("answer")),
+    }
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+    return tree, provider
+
+
+def test_provider_dependencies_keep_paths_separate_from_text_metadata():
+    path = {
+        "kind": "path",
+        "name": "sample::PromptDependency",
+        "under": "docs",
+        "must_exist_target": True,
+    }
+    for instruction in (None, "Read these documents"):
+        tree, provider = _provider_operand_tree()
+        tree["types"][path["name"]] = deepcopy(path)
+        tree["params"] = [["document", deepcopy(path)]]
+        provider["dependencies"] = {
+            "required": [_name("document")],
+            "optional": [],
+            "position": "prepend",
+            "instruction": instruction,
+        }
+        tree["sites"] = [list(row) for row in assign_sites(tree)]
+
+        validate(tree)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "dependency_non_path",
+        "invalid_position",
+        "unhashable_position",
+        "invalid_instruction_type",
+        "instruction_too_long",
+        "model_not_string",
+        "effort_not_string",
+        "timeout_not_integer",
+        "timeout_not_positive_literal",
+        "invalid_delivery",
+        "phased_delivery_unsupported",
+        "materialization_attempts_unsupported",
+    ],
+)
+def test_provider_dependencies_and_policy_reject_typed_operand_tampering(mutation):
+    string = {"kind": "primitive", "name": "String"}
+    path = {
+        "kind": "path",
+        "name": "sample::PromptDependency",
+        "under": "docs",
+        "must_exist_target": True,
+    }
+    tree, provider = _provider_operand_tree()
+    tree["types"][path["name"]] = deepcopy(path)
+    tree["params"] = [["document", deepcopy(path)]]
+    provider["dependencies"] = {
+        "required": [_name("document")],
+        "optional": [],
+        "position": "append",
+        "instruction": None,
+    }
+    provider["policy"] = {
+        "model": _lit("model", string),
+        "effort": _lit("high", string),
+        "timeout_sec": _lit(60),
+    }
+    if mutation == "dependency_non_path":
+        provider["dependencies"]["required"] = [_lit(7)]
+    elif mutation == "invalid_position":
+        provider["dependencies"]["position"] = "middle"
+    elif mutation == "unhashable_position":
+        provider["dependencies"]["position"] = ["prepend"]
+    elif mutation == "invalid_instruction_type":
+        provider["dependencies"]["instruction"] = 7
+    elif mutation == "instruction_too_long":
+        provider["dependencies"]["instruction"] = "x" * 261631
+    elif mutation == "model_not_string":
+        provider["policy"]["model"] = _lit(7)
+    elif mutation == "effort_not_string":
+        provider["policy"]["effort"] = _lit(7)
+    elif mutation == "timeout_not_integer":
+        provider["policy"]["timeout_sec"] = _lit("60", string)
+    elif mutation == "timeout_not_positive_literal":
+        provider["policy"]["timeout_sec"] = _name("timeout")
+        tree["params"].append(["timeout", deepcopy(INT)])
+    elif mutation == "invalid_delivery":
+        provider["policy"]["delivery"] = _lit("unknown", string)
+    elif mutation == "phased_delivery_unsupported":
+        provider["policy"]["delivery"] = _lit("phased", string)
+    elif mutation == "materialization_attempts_unsupported":
+        provider["policy"]["materialization_attempts"] = _lit(2)
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+
+    _rule(tree, "effect_shape")
+
+
+def test_provider_composed_policy_accepts_a_literal_composed_delivery():
+    string = {"kind": "primitive", "name": "String"}
+    tree, provider = _provider_operand_tree()
+    provider["policy"] = {
+        "delivery": _lit("composed", string),
+    }
+    tree["sites"] = [list(row) for row in assign_sites(tree)]
+
+    validate(tree)
+
+
 def test_result_path_requires_a_real_provider_binding_and_accepts_its_binder():
     tree, provider, path = _provider_result_path_tree()
     tree["body"] = {

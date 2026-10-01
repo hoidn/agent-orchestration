@@ -221,3 +221,27 @@ def test_definition_site_rows_follow_first_call_order_not_mapping_order():
         (second, "done"),
         (first, "done"),
     ]
+
+
+def test_reassignment_clears_stale_frames_in_entry_and_definition_bodies():
+    entry = "procedure:sample::entry-callee"
+    nested = "procedure:sample::nested-callee"
+    nested_call = {"k": "call", "callee": nested, "args": []}
+    entry_call = {"k": "call", "callee": entry, "args": []}
+    tree = _tree(
+        _let("invoke", entry_call, _halt()),
+        {
+            entry: {"params": [], "body": _let("nested", nested_call, _halt())},
+            nested: {"params": [], "body": _let("work", _perform(), _halt())},
+        },
+    )
+
+    assert assign_sites(tree) == [(nested, "work")]
+    assert "frame" in entry_call
+    assert "frame" in nested_call
+
+    tree["definitions"][nested]["body"] = _halt()
+
+    assert assign_sites(tree) == []
+    assert "frame" not in entry_call
+    assert "frame" not in nested_call

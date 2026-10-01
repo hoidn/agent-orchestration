@@ -20,6 +20,10 @@ from orchestrator.workflow.pure_expr import (
     canonical_json_for_pure_value,
     validate_pure_expr_payload,
 )
+from orchestrator.workflow.prompt_fragment_contract import (
+    _RENDERERS_BY_KIND,
+    _scan_placeholders,
+)
 from orchestrator.workflow.run_ref.config import (
     ReferenceBinding,
     decode_run_ref_static_config,
@@ -33,6 +37,11 @@ from orchestrator.workflow.type_descriptor import (
     normalize_boundary_contract_definition,
     transport_schema_for_descriptor,
     validate_compiler_normalized_type_descriptor,
+)
+from orchestrator.workflow.view_renderer import (
+    ViewRendererError,
+    render_view,
+    resolve_view_renderer,
 )
 
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
@@ -161,6 +170,26 @@ _PROMOTED_METADATA_FIELDS = frozenset(
         "invocation_protocol",
     }
 )
+_PROMPT_VALUE_PRIMITIVES = frozenset(
+    {"String", "Int", "Float", "Bool", "Json", "Value"}
+)
+
+
+def _prompt_value_type_is_renderable(descriptor: Any) -> bool:
+    """Mirror the source prompt owner's canonical-JSON type admission."""
+
+    if not isinstance(descriptor, Mapping):
+        return False
+    kind = descriptor.get("kind")
+    if kind == "primitive":
+        return descriptor.get("name") in _PROMPT_VALUE_PRIMITIVES
+    if kind in {"enum", "path", "record", "union"}:
+        # The closed target is 2.35; whole-union prompt values were admitted at
+        # 2.28 and the checked descriptor validator has already checked shape.
+        return True
+    if kind == "list":
+        return _prompt_value_type_is_renderable(descriptor.get("item"))
+    return False
 
 
 def _value_coercion_descriptor(descriptor: Any) -> Any:
@@ -519,7 +548,6 @@ class _Checker:
             if isinstance(dependencies, Mapping):
                 for key in ("required", "optional"):
                     children.extend(dependencies.get(key, []) if isinstance(dependencies.get(key, []), list) else [])
-                children.extend([dependencies.get("position"), dependencies.get("instruction")])
             policy = node.get("policy")
             if isinstance(policy, Mapping):
                 children.extend(policy.values())
@@ -3397,6 +3425,131 @@ class _Checker:
         if not self._same(actual, expected):
             self.fail("effect_result", "effect result descriptor differs from its command/provider contract", node)
 
+    def _provider_input_renderer(
+        self,
+        renderer_id: Any,
+        value: Mapping[str, Any],
+        value_type: Mapping[str, Any],
+        node: Mapping[str, Any],
+    ) -> None:
+        if not isinstance(renderer_id, str) or not renderer_id:
+            self.fail("effect_shape", "provider input renderer id must be a nonempty string", node)
+        try:
+            renderer = resolve_view_renderer(renderer_id, 1)
+        except ViewRendererError as exc:
+            self.fail("effect_shape", f"provider input renderer is not registered: {exc}", node)
+        if renderer.accepted_shape == "path_value":
+            try:
+                schema = transport_schema_for_descriptor(
+                    value_type,
+                    allow_nested_structures=True,
+                )
+            except (TypeError, ValueError, RecursionError) as exc:
+                self.fail("effect_shape", f"provider input renderer has no matching value shape: {exc}", node)
+            if schema.get("type") not in {"string", "enum", "relpath"}:
+                self.fail("effect_shape", "path-line provider input requires a string or path value", node)
+        elif renderer.accepted_shape != "any_pure_value":
+            self.fail("effect_shape", "provider input renderer has an unsupported accepted shape", node)
+
+        if value.get("k") == "lit":
+            try:
+                render_view(renderer_id, 1, value.get("v"))
+            except (ViewRendererError, TypeError, ValueError, OverflowError) as exc:
+                self.fail("effect_shape", f"provider input literal is not renderable: {exc}", node)
+
+    def _check_provider_prompt_fills(
+        self,
+        prompt: Mapping[str, Any],
+        *,
+        node: Mapping[str, Any],
+        env: dict[str, Any],
+        owner: str,
+        loops: tuple[dict[str, Any], ...],
+        scope: Mapping[str, Any],
+        provider_origins: frozenset[str],
+    ) -> None:
+        fills = prompt["fills"]
+        try:
+            placeholders = _scan_placeholders(prompt["template"])
+        except (TypeError, ValueError, RecursionError) as exc:
+            self.fail("effect_shape", f"provider prompt template is malformed: {exc}", node)
+
+        names: set[str] = set()
+        claimed: set[int] = set()
+        for fill in fills:
+            expected = {"name", "kind", "type", "value", "renderer_id", "output_role", "placeholder_ordinals"}
+            if not isinstance(fill, Mapping) or set(fill) != expected:
+                self.fail("effect_shape", "provider template fill has invalid fields", node)
+            name = fill["name"]
+            if not isinstance(name, str) or not _NAME_RE.fullmatch(name) or name in names:
+                self.fail("effect_shape", "provider template slot names must be unique valid names", node)
+            names.add(name)
+            descriptor = fill["type"]
+            self._validate_descriptor(descriptor, node=node)
+            actual = self._value(
+                fill["value"],
+                env,
+                owner=owner,
+                loops=loops,
+                scope=scope,
+                allow_effect=False,
+                provider_origins=provider_origins,
+            )
+            self._require_type(actual, descriptor, "type_mismatch", node)
+
+            slot_kind = fill["kind"]
+            if not isinstance(slot_kind, str):
+                self.fail("effect_shape", "provider template slot kind is invalid", node)
+            if slot_kind == "doc":
+                type_matches = descriptor.get("kind") == "path" and descriptor.get("must_exist_target") is True
+                expected_renderer = None
+            elif slot_kind == "text":
+                type_matches = descriptor.get("kind") == "primitive" and descriptor.get("name") == "String"
+                expected_renderer = _RENDERERS_BY_KIND["text"]
+            elif slot_kind == "path":
+                type_matches = descriptor.get("kind") == "path"
+                expected_renderer = _RENDERERS_BY_KIND["path"]
+            elif slot_kind == "value":
+                type_matches = _prompt_value_type_is_renderable(descriptor)
+                expected_renderer = _RENDERERS_BY_KIND["value"]
+            else:
+                self.fail("effect_shape", f"unsupported provider template slot kind {slot_kind!r}", node)
+            if not type_matches:
+                self.fail("effect_shape", f"provider template {slot_kind} slot has an incompatible type", node)
+            if fill["renderer_id"] != expected_renderer:
+                self.fail("effect_shape", "provider template slot renderer does not match its kind and type", node)
+
+            output_role = fill["output_role"]
+            if output_role not in (None, "none", "required_string_file"):
+                self.fail("effect_shape", "provider template output role is unsupported", node)
+            if output_role == "required_string_file" and not (
+                slot_kind == "path"
+                and descriptor.get("kind") == "path"
+                and descriptor.get("must_exist_target") is False
+            ):
+                self.fail("effect_shape", "required output slot must be a non-existing relpath", node)
+
+            ordinals = fill["placeholder_ordinals"]
+            if (
+                not isinstance(ordinals, list)
+                or any(type(index) is not int or index < 0 for index in ordinals)
+                or ordinals != sorted(set(ordinals))
+            ):
+                self.fail("effect_shape", "provider template slot placeholder ordinals are invalid", node)
+            if slot_kind == "doc":
+                if ordinals:
+                    self.fail("effect_shape", "document slots do not consume template placeholders", node)
+                continue
+            if not ordinals:
+                self.fail("effect_shape", "rendered prompt slots require placeholder positions", node)
+            for ordinal in ordinals:
+                if ordinal >= len(placeholders) or placeholders[ordinal] != name or ordinal in claimed:
+                    self.fail("effect_shape", "provider prompt placeholder rows are inconsistent", node)
+                claimed.add(ordinal)
+
+        if claimed != set(range(len(placeholders))):
+            self.fail("effect_shape", "provider prompt placeholder coverage is incomplete", node)
+
     def _effect_in_value(self, node: Any) -> bool:
         """Find forbidden effects using value/body AST edges only."""
 
@@ -3530,24 +3683,66 @@ class _Checker:
                 self.fail("effect_shape", "provider inputs must be an array", node)
             names: set[str] = set()
             for row in rows:
-                if not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], str) or row[0] in names:
+                if not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], str) or not row[0] or row[0] in names:
                     self.fail("effect_shape", "provider input row is malformed or duplicated", node)
                 names.add(row[0])
-                self._value(row[2], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                actual = self._value(row[2], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                self._provider_input_renderer(row[1], row[2], actual, node)
             dependencies = node.get("dependencies")
             if dependencies is not None:
                 if not isinstance(dependencies, Mapping) or set(dependencies) != {"required", "optional", "position", "instruction"}:
                     self.fail("effect_shape", "provider dependency payload is malformed", node)
+                if any(not isinstance(dependencies[key], list) for key in ("required", "optional")):
+                    self.fail("effect_shape", "provider dependency rows must be arrays", node)
+                position = dependencies["position"]
+                if not isinstance(position, str) or position not in {"prepend", "append"}:
+                    self.fail("effect_shape", "provider dependency position must be prepend or append", node)
+                instruction = dependencies["instruction"]
+                if instruction is not None:
+                    if not isinstance(instruction, str):
+                        self.fail("effect_shape", "provider dependency instruction must be text or null", node)
+                    try:
+                        instruction_bytes = instruction.encode("utf-8", errors="strict")
+                    except UnicodeEncodeError as exc:
+                        self.fail("effect_shape", f"provider dependency instruction is not valid UTF-8: {exc}", node)
+                    if len(instruction_bytes) > 261630:
+                        self.fail("effect_shape", "provider dependency instruction exceeds its UTF-8 byte limit", node)
                 for value in [*dependencies["required"], *dependencies["optional"]]:
-                    self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
-                self._value(dependencies["position"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
-                self._value(dependencies["instruction"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    if actual.get("kind") != "path":
+                        self.fail("effect_shape", "provider dependencies require relpath values", value)
             policy = node.get("policy")
             if policy is not None:
                 if not isinstance(policy, Mapping) or set(policy) - {"model", "effort", "delivery", "materialization_attempts", "timeout_sec"}:
                     self.fail("effect_shape", "provider policy payload is malformed", node)
-                for value in policy.values():
-                    self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                string_type = {"kind": "primitive", "name": "String"}
+                int_type = {"kind": "primitive", "name": "Int"}
+                for field_name in ("model", "effort"):
+                    if field_name in policy:
+                        value = policy[field_name]
+                        actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                        self._require_type(actual, string_type, "effect_shape", node)
+                        if not isinstance(value, Mapping) or value.get("k") not in {"lit", "name", "field"}:
+                            self.fail("effect_shape", f"provider policy {field_name} must be an inline String value", node)
+                if "timeout_sec" in policy:
+                    value = policy["timeout_sec"]
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    self._require_type(actual, int_type, "effect_shape", node)
+                    if (
+                        not isinstance(value, Mapping)
+                        or value.get("k") != "lit"
+                        or type(value.get("v")) is not int
+                        or value["v"] <= 0
+                    ):
+                        self.fail("effect_shape", "provider timeout must be a positive Int literal", node)
+                if "delivery" in policy:
+                    value = policy["delivery"]
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
+                    self._require_type(actual, string_type, "effect_shape", node)
+                    if not isinstance(value, Mapping) or value.get("k") != "lit" or value.get("v") != "composed":
+                        self.fail("effect_shape", "checked providers support only composed delivery", node)
+                if "materialization_attempts" in policy:
+                    self.fail("effect_shape", "materialization attempts are outside the composed provider surface", node)
             prompt = node.get("prompt")
             if not isinstance(prompt, Mapping):
                 self.fail("effect_shape", "provider prompt must be an object", node)
@@ -3560,29 +3755,15 @@ class _Checker:
             elif set(prompt) == {"template", "fills"}:
                 if not isinstance(prompt["template"], str) or not isinstance(prompt["fills"], list):
                     self.fail("effect_shape", "provider prompt template is malformed", node)
-                names: set[str] = set()
-                for fill in prompt["fills"]:
-                    expected = {"name", "kind", "type", "value", "renderer_id", "output_role", "placeholder_ordinals"}
-                    if not isinstance(fill, Mapping) or set(fill) != expected:
-                        self.fail("effect_shape", "provider template fill has invalid fields", node)
-                    if not isinstance(fill["name"], str) or not fill["name"] or fill["name"] in names:
-                        self.fail("effect_shape", "provider template slot names must be unique", node)
-                    names.add(fill["name"])
-                    self._validate_descriptor(fill["type"], node=node)
-                    actual = self._value(fill["value"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
-                    self._require_type(actual, fill["type"], "type_mismatch", node)
-                    if not isinstance(fill["kind"], str) or not fill["kind"]:
-                        self.fail("effect_shape", "provider template slot kind is invalid", node)
-                    if fill["kind"] == "doc":
-                        if fill["renderer_id"] is not None or not isinstance(fill["placeholder_ordinals"], list):
-                            self.fail("effect_shape", "document slots retain injection semantics without a renderer", node)
-                    elif not isinstance(fill["renderer_id"], str) or not fill["renderer_id"]:
-                        self.fail("effect_shape", "provider template slot renderer is invalid", node)
-                    if fill["output_role"] is not None and not isinstance(fill["output_role"], str):
-                        self.fail("effect_shape", "provider template slot output role is invalid", node)
-                    ordinals = fill["placeholder_ordinals"]
-                    if not isinstance(ordinals, list) or any(type(index) is not int or index < 0 for index in ordinals):
-                        self.fail("effect_shape", "provider template slot placeholder ordinals are invalid", node)
+                self._check_provider_prompt_fills(
+                    prompt,
+                    node=node,
+                    env=env,
+                    owner=owner,
+                    loops=loops,
+                    scope=scope,
+                    provider_origins=provider_origins,
+                )
             else:
                 self.fail("effect_shape", "provider prompt must be an extern source or typed template", node)
             return

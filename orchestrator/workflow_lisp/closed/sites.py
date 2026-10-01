@@ -49,7 +49,9 @@ def assign_sites(tree: dict[str, Any]) -> list[tuple[str, str]]:
     walker._body_has_effect(tree["body"])
     for definition in definitions.values():
         walker._body_has_effect(definition["body"])
-    _clear_annotations(tree)
+    _clear_annotations(tree["body"])
+    for definition in definitions.values():
+        _clear_annotations(definition["body"])
     rows: list[tuple[str, str]] = []
     walker.walk_definition(tree["entry"], tree["body"])
     rows.extend((tree["entry"], path) for path in walker.sites)
@@ -179,8 +181,8 @@ def _value_calls(value: dict[str, Any]):
             yield from _value_calls(child)
 
 
-def _clear_annotations(value: Any) -> None:
-    for node in _ast_nodes(value):
+def _clear_annotations(body: dict[str, Any]) -> None:
+    for node in _ast_nodes(body):
         if node.get("k") == "perform":
             node.pop("site", None)
         elif node.get("k") == "call":
