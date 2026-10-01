@@ -1474,6 +1474,7 @@ When Phase 7 retires the flat route, the two build functions merge.
 - Modify: `orchestrator/workflow_lisp/expressions.py` (`LoopRecurExpr` and its parser; `LetStarExpr`'s retained condition input), `orchestrator/workflow_lisp/typecheck_structural_values.py` (the compiler-generated loop constructor), `orchestrator/workflow_lisp/build_manifest_io.py` and `orchestrator/workflow_lisp/procedure_typecheck.py` (transient-field omission from JSON and legacy semantic identity).
 - Modify: `orchestrator/workflow_lisp/conditionals.py` (closed condition selection and shared loop reconstruction), `orchestrator/workflow_lisp/typecheck_proofs.py` (if/cond wrapper transport), `orchestrator/workflow_lisp/typecheck_dispatch.py` (preserve checked inputs on reconstructed lets).
 - Modify: `orchestrator/workflow_lisp/functions.py`, `orchestrator/workflow_lisp/expression_traversal.py`, `orchestrator/workflow_lisp/wcc/use_site_scope.py` (semantic transport of retained inputs in the incoming scope, including copied constructor types).
+- Modify: `orchestrator/workflow_lisp/wcc/hygiene.py` (ordinary identifier collection excludes retained inputs; retained-input renaming reserves its own complete view).
 - Inspect, modify only if necessary: `orchestrator/workflow_lisp/wcc/anf.py` (the gated normalization path)
 - Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`: `elaborate_typed_workflow_body` (line 219), the `DoneExpr` branch of `_elaborate_expr_to_body` (line 1662), `_retarget_loop_continue` (line 2529) and its call at line 2465, the `PhaseTargetExpr` branch of `_elaborate_expr_to_value` (line 2736), `_prebind_effect_argument_matches` (line 4077)
 - Test: `tests/test_workflow_lisp_closed_program_elaboration.py`
@@ -1609,7 +1610,10 @@ report iteration 3, D1 and D2.
   reconstructions preserve the checked input without a second check.
   `_unshadow_let_star` processes it with incoming live names, clears it on
   temporary sliced rest nodes and reattaches the independently processed
-  result. Global `iter_child_exprs`/`walk_expr` remain one-view; generic
+  result. Renaming the alternate must not consume the legacy fresh-name
+  allocator's state. Legacy identifier inventories exclude the alternate;
+  the alternate's own allocator reserves names throughout its nested view.
+  Global `iter_child_exprs`/`walk_expr` remain one-view; generic
   read-only dataclass collectors skip the alternate to avoid duplicate
   legacy observations. Generic semantic rewrites still visit it. No new
   operator-specific WCC path, source admission rule or release gap is added.
@@ -1691,7 +1695,10 @@ snapshot through its original validated bundle. Its old-admitted effectful
 seed/literal-max case proves reachability and seed locality; the legacy
 route refuses a procedure-call max, so use 2.35 cases for two-effect order.
 Populated metadata must leave legacy repr/JSON/semantic identity unchanged
-and must not duplicate ordinary collector observations.
+and must not duplicate ordinary collector observations. Compare legacy
+shadowing/renaming with and without the alternate; retaining it must not
+change ordinary output names. Reconstructed lets retain their original
+checked input across repeated normalization.
 
 - [ ] **Step 2: Run; expected failures**
 
@@ -1713,7 +1720,8 @@ The new module; then `tests/test_workflow_lisp_wcc_m4.py`,
 `tests/test_workflow_lisp_guide_programs.py` (row 16 of the drafting guide
 still meets `compiler_defect` at 2.33 and 2.34), plus
 `tests/test_workflow_lisp_strict_boolean_control_flow.py` and
-`tests/test_workflow_lisp_loop_recur.py` for the shared normalizer.
+`tests/test_workflow_lisp_loop_recur.py` for the shared normalizer, plus
+`tests/test_workflow_lisp_use_site_scope.py` for shared hygiene.
 
 - [ ] **Step 5: Compatibility evidence**
 
