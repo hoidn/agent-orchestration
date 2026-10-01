@@ -286,6 +286,7 @@ STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME: Mapping[str, CertifiedAdapterBinding]
                 "-m",
                 "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
             ),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name="ReviewFindings",
             effects=("structured_result",),

@@ -1132,6 +1132,7 @@ def compile_stage3_module(
             type_env=state.type_env,
             extern_environment=state.extern_environment,
             command_boundary_environment=state.command_boundary_environment,
+            command_boundary_origins=state.command_boundary_environment.origins_by_name,
             typed_workflows=state.typed_workflows,
             resolved_combined_procedures=state.typed_procedures,
             typed_workflows_by_name={},
@@ -3007,6 +3008,7 @@ def _compile_stage3_graph(
     module_type_envs: dict[str, FrontendTypeEnvironment] = {}
     module_externs: dict[str, Mapping[str, object]] = {}
     module_command_boundaries: dict[str, Mapping[str, object]] = {}
+    module_command_boundary_origins: dict[str, Mapping[str, str]] = {}
     module_workflow_signatures: dict[str, Mapping[str, WorkflowSignature]] = {}
     local_definition_keys: dict[str, object] = {}
     local_definition_dids: dict[str, tuple[str, str, object]] = {}
@@ -3306,6 +3308,9 @@ def _compile_stage3_graph(
         )
         module_command_boundaries[module_name] = dict(
             command_boundary_environment.bindings_by_name
+        )
+        module_command_boundary_origins[module_name] = dict(
+            command_boundary_environment.origins_by_name
         )
         reusable_state_producer_context = _derive_reusable_state_producer_context(
             definition_module=definition_module,
@@ -3751,6 +3756,7 @@ def _compile_stage3_graph(
                 type_env=type_env,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                command_boundary_origins=command_boundary_environment.origins_by_name,
                 typed_workflows=typed_workflows,
                 resolved_combined_procedures=resolved_combined_procedures,
                 typed_workflows_by_name=typed_workflows_by_name,
@@ -3766,6 +3772,10 @@ def _compile_stage3_graph(
                     "used_command_boundaries": {
                         name: dict(bindings)
                         for name, bindings in module_command_boundaries.items()
+                    },
+                    "used_command_boundary_origins": {
+                        name: dict(origins)
+                        for name, origins in module_command_boundary_origins.items()
                     },
                     "resolved_externs": {
                         name: dict(bindings)
@@ -5245,10 +5255,13 @@ def _augment_resume_command_boundaries(
     """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
 
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     resume_exprs = list(expressions)
     if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
         return command_boundary_environment
-    bindings.update(_fixed_resume_command_boundary_bindings())
+    fixed_bindings = _fixed_resume_command_boundary_bindings()
+    bindings.update(fixed_bindings)
+    origins.update({name: "package:orchestrator" for name in fixed_bindings})
     for return_type_name in sorted(
         {
             return_type_name
@@ -5260,6 +5273,7 @@ def _augment_resume_command_boundaries(
         bindings[loader_name] = CertifiedAdapterBinding(
             name=loader_name,
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name=return_type_name,
             effects=("structured_result",),
@@ -5271,7 +5285,8 @@ def _augment_resume_command_boundaries(
             owner_module="std/phase",
             replacement_path="resume-or-start",
         )
-    return build_command_boundary_environment(bindings)
+        origins[loader_name] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBinding]:
@@ -5281,6 +5296,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
         "validate_reusable_phase_state": CertifiedAdapterBinding(
             name="validate_reusable_phase_state",
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name="ResumeReuseDecision",
             effects=("resume_state_reuse", "structured_result"),
@@ -5299,6 +5315,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
         "write_reusable_phase_state_v1": CertifiedAdapterBinding(
             name="write_reusable_phase_state_v1",
             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
+            closure=(".",),
             input_contract={"type": "object"},
             output_type_name="ReusablePhaseStateWriteAck",
             effects=("resume_state_reuse", "structured_result"),
@@ -5326,11 +5343,13 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
     """
 
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     if "apply_resource_transition" in bindings:
         return command_boundary_environment
     bindings["apply_resource_transition"] = CertifiedAdapterBinding(
         name="apply_resource_transition",
         stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
+        closure=(".",),
         input_contract={"type": "object"},
         output_type_name="ResourceTransitionResult",
         effects=("resource_transition", "ledger_update"),
@@ -5379,7 +5398,8 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
         invocation_protocol="json_object_positional_arg",
         declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     )
-    return build_command_boundary_environment(bindings)
+    origins["apply_resource_transition"] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _augment_builtin_command_boundaries(
@@ -5396,6 +5416,7 @@ def _augment_builtin_command_boundaries(
         else _builtin_command_binding_names_in_expr
     )
     bindings = dict(command_boundary_environment.bindings_by_name)
+    origins = dict(command_boundary_environment.origins_by_name)
     required_binding_names = {
         binding_name
         for root_expr in expressions
@@ -5415,9 +5436,11 @@ def _augment_builtin_command_boundaries(
         return command_boundary_environment
     for binding_name in missing_binding_names:
         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
+        origins[binding_name] = "package:orchestrator"
     for binding_name in replacement_binding_names:
         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
-    return build_command_boundary_environment(bindings)
+        origins[binding_name] = "package:orchestrator"
+    return build_command_boundary_environment(bindings, origins_by_name=origins)
 
 
 def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:

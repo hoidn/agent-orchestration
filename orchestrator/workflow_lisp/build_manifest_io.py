@@ -317,10 +317,20 @@ def _parse_command_boundaries_manifest(
                     ),
                 )
             )
+        closure = (
+            _require_closure_array(
+                raw_entry["closure"],
+                binding_name=name,
+                manifest_path=manifest_path,
+            )
+            if "closure" in raw_entry
+            else None
+        )
         if kind == "external_tool":
             bindings[name] = ExternalToolBinding(
                 name=name,
                 stable_command=stable_command,
+                closure=closure,
                 must_not_repeat=_require_boolean_field(
                     raw_entry.get("must_not_repeat", False),
                     field_name="must_not_repeat",
@@ -380,6 +390,7 @@ def _parse_command_boundaries_manifest(
             bindings[name] = CertifiedAdapterBinding(
                 name=name,
                 stable_command=stable_command,
+                closure=closure,
                 must_not_repeat=_require_boolean_field(
                     raw_entry.get("must_not_repeat", False),
                     field_name="must_not_repeat",
@@ -540,6 +551,27 @@ def _parse_command_boundaries_manifest(
             )
         )
     return bindings
+
+
+def _require_closure_array(
+    value: object,
+    *,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or any(
+        not isinstance(path, str) or not path or "\x00" in path for path in value
+    ):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`closure` for `{binding_name}` must be an array of nonempty literal paths without NUL",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    return tuple(value)
 
 
 def _require_string_array(
@@ -935,6 +967,8 @@ def _json_data(value: Any) -> Any:
         payload: dict[str, Any] = {}
         for field in fields(value):
             item = getattr(value, field.name)
+            if field.metadata.get("json_omit_legacy"):
+                continue
             if field.metadata.get("json_omit_always"):
                 continue
             # ``request_input`` did not exist in the frozen pre-2.32 Surface

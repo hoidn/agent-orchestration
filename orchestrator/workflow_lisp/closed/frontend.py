@@ -527,6 +527,11 @@ def typed_program_from_graph(
             for module_name, bindings in used_boundaries.items()
             if isinstance(bindings, Mapping)
         }
+    effective_origins = (
+        command_boundary_environment.origins_by_name
+        if command_boundary_origins is None
+        else command_boundary_origins
+    )
     return TypedProgram(
         entry=None,
         workflows=workflows,
@@ -536,7 +541,10 @@ def typed_program_from_graph(
         workflow_type_envs=workflow_type_envs,
         module_type_envs=module_type_envs,
         command_boundaries=command_boundaries,
-        command_boundary_origins=dict(command_boundary_origins or {}),
+        command_boundary_origins={
+            name: effective_origins.get(name, "workspace")
+            for name in command_boundaries
+        },
         externs=dict(extern_environment.bindings_by_name),
         module_externs=module_externs,
         configuration_bindings=_freeze_configuration_mapping(frozen_configuration),
