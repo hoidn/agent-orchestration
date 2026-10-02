@@ -329,6 +329,97 @@ integration `9bb4b207` and source `0f1bbc46` unchanged; both are already importe
 `std/improve` and maintained consumers until a destination is authorized. Reuse
 `experiments/orc_repetition_census/variants/` as labeled W1/W3 comparisons.
 
+### Finite Execution Handoff
+
+The [proposal §6.4](../design/workflow_lisp_dynamic_core_proposal.md#64-bounded-complete-consumer-comparison)
+owns the additional experimental semantics. The [report §8](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#8-dc-2-finite-utility-scope)
+is the sole case inventory: **110 new logical cases**, including the fixed
+72-search vector. These are planned observations, not passed tests. Its case
+IDs must appear in test names or parameter IDs; keep any implementation-level
+parameterization count separately in the execution receipt.
+
+**Approach and cost:** extend the existing evaluator only for the collection
+operations and explicit failure needed by these protocols; reuse recursion,
+closures and compiled boundary owners. This keeps full module/import support,
+source maps and recovery out of this experiment; source assembly remains driver
+tooling, and errors/restarts can occur after external work.
+
+Keep qualification pin `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` and the
+105-control inventory in report §1 unchanged. `f9c75e93` records DC-2 selection,
+not a new comparator pin. Compare the control source content against that pin
+before execution; if an upstream import changes relevant behavior, explicitly
+record and review the re-pin and rerun affected comparisons. The coordinator
+owns synchronization and final integration; no implementer edits upstream
+worktrees or manufactures a replacement performer.
+
+DC-0 collected all 105 controls but did not run every case. DC-2 must execute
+all 20 improve, 76 paired-fixture and nine CLI controls using their frozen source
+files and record the exact current runtime revision separately. The combined
+check below includes all three modules. Preserve the 84 existing DC-1 candidate
+tests as regression evidence, with their original case IDs/files unchanged;
+neither count absorbs the 110 new observations. Known unrelated inherited
+failures remain documented and no global-suite PASS is claimed.
+
+| Sequential batch and role | Exclusive writable implementation paths | Required cases and completion |
+| --- | --- | --- |
+| DC-2a — code implementation, bounded core | `experiments/dynamic_core_evaluation/{program,source,evaluator,leaf_bridge}.py`; `tests/experiments/test_dynamic_core_utility_core.py` | UC01–UC12, including the two bridge groups; `/3` additions with frozen `/1` and `/2` admission; existing certified command adapter reaches the current compiler/executor |
+| DC-2b — code implementation, improve | `experiments/dynamic_core_evaluation/fixtures/improve.orc`; `experiments/dynamic_core_evaluation/fixtures/utility_leaves.orc`; `tests/experiments/test_dynamic_core_utility_improve.py` | UI01–UI11; full outcomes, payloads, failures and hook order; typed domain contracts retained |
+| DC-2c — code implementation, search | `experiments/dynamic_core_evaluation/fixtures/search.orc`; the same `fixtures/utility_leaves.orc` after DC-2b releases it; `tests/experiments/test_dynamic_core_utility_search.py` | US01's 72 pairs plus US02–US06; complete values, ordered requests, spend and exhaustion |
+| DC-2d — code implementation, paired edits and diagnostics | `tests/experiments/test_dynamic_core_utility_edits.py`; the two new consumer test modules only for small reused setup functions; `experiments/dynamic_core_evaluation/README.md` | UE01–UE04 and UD01–UD06; paired runnable edits, error timing, repeated work and one reproducible full-consumer demo |
+| DC-2e — independent code/utility review and coordinator integration | This plan and the same report; corrections return to the relevant implementer | Review code first, then benefit/cost evidence; inspect diff, run required final checks, prepare DC-U packet and stop for its owner disposition |
+
+No new helper framework, test registry, report family, schema converter, public
+CLI route or production stdlib migration belongs to these batches. The utility
+leaf module retains search's `Candidate` name for its existing adapter binding,
+uses `Draft` for improve, and imports existing `Decision`/`Improvement`
+declarations. Its adapter bindings reuse
+`experiments/mlevolve_pair/commands_compact.json`; scripted fixture response
+data and Python reference logic stay owned by the frozen control tests.
+
+`fixtures/improve.orc` contains the shared ordinary helper definitions; the
+experiment driver explicitly assembles these with a caller/header. Compare
+assembled and inline source as tooling, never as implemented dynamic imports.
+`fixtures/search.orc` contains the complete authored search controller. Preserve
+precise result/domain schemas at their boundaries; do not use `Value` to evade
+an outcome contract. Any required wire-field reconstruction is visible authored
+code and part of the authoring cost.
+
+For each batch, use the AGENTS implementation model and a distinct review model.
+Write the listed failing cases, run collection and narrow failures, implement
+the smallest fix, run the narrow module and obtain independent review before
+the next batch changes its files. Return bounded corrections to the author;
+new semantic decisions return to Design. No second owner start approval is
+needed. Required command shapes, from the worktree root:
+
+```bash
+# Collect new/renamed cases once their modules exist.
+python -m pytest --collect-only -q tests/experiments/test_dynamic_core_utility_core.py tests/experiments/test_dynamic_core_utility_improve.py tests/experiments/test_dynamic_core_utility_search.py tests/experiments/test_dynamic_core_utility_edits.py
+# Narrow red/green selection, replacing UC with UI, US, UE or UD as appropriate.
+python -m pytest -q tests/experiments/test_dynamic_core_utility_core.py
+python -m pytest -q tests/experiments/test_dynamic_core_utility_improve.py
+python -m pytest -q tests/experiments/test_dynamic_core_utility_search.py
+python -m pytest -q tests/experiments/test_dynamic_core_utility_edits.py
+```
+
+Run slower consumer matrices and the following combined impacted check in tmux,
+using the tmux skill and `-n 16 --dist=worksteal`. Narrow selectors come first;
+reuse valid receipts unless subsequent changes affect them.
+
+```bash
+python -m pytest -q -n 16 --dist=worksteal tests/experiments/test_dynamic_core_evaluation.py tests/experiments/test_dynamic_core_boundaries.py tests/experiments/test_dynamic_core_source.py tests/experiments/test_dynamic_core_utility_core.py tests/experiments/test_dynamic_core_utility_improve.py tests/experiments/test_dynamic_core_utility_search.py tests/experiments/test_dynamic_core_utility_edits.py tests/test_workflow_lisp_improve_stdlib.py tests/experiments/test_mlevolve_pair_fixture.py tests/test_workflow_evaluated_cli.py tests/test_workflow_lisp_drain_roadmap_routing.py
+```
+
+DC-2d supplies the exact full-consumer README command; the coordinator must run
+it and retain its fresh output in this report before claiming completion. It
+must admit the disk-written source artifact and exercise real local compiled
+leaves, with no paid calls. Existing public improve run/resume and evaluated CLI
+tests are public-route controls; the new demo remains an experimental route.
+Record exact revisions, commands, collected counts, exits, comparison outputs
+and independent review findings. Do not total overlapping selectors as distinct
+coverage or interpret a green parity matrix as a utility/adoption decision.
+
+### DC-U Completion Checklist
+
 - [ ] Port full `improve`: APPROVE, REVISE, BLOCKED, EXHAUSTED; latest revised
   candidate and evidence/reason payloads; zero limit rejected before hooks;
   invalid hook output and final-iteration revision failures remain failures;

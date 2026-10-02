@@ -647,6 +647,130 @@ finite source-and-boundary proof, not the complete improve utility comparison.
 The plan owns its case inventory and file scope; DC-U still requires full
 improve and MLEvolve behavior, authoring and failure-cost comparisons.
 
+### 6.4 Bounded Complete-Consumer Comparison
+
+The complete `std/improve` and paired-search comparisons use the same admitted
+artifact, source frontend and compiled-leaf route. Ordinary recursive helpers
+already express their control flow; this slice adds no loop, pattern matching,
+module system, schema compiler, performer or recovery mechanism. Preserve the
+existing type-to-contract, prompt and strict result owners. The additions below
+are experimental utility mechanisms, not a public language target.
+
+**Version and container operations.** Emit
+`workflow-lisp/dynamic-spike/3` from `compile_source`. Its top-level fields and
+effect registry are exactly `/2`'s. Read back `/1` and `/2` under their original
+closed node/operator vocabularies: none of the following additions is admitted
+by changing a shared allowlist for those versions. Effect linking and read-only
+refusal apply to both `/2` and `/3`. There is no caller-selectable source profile.
+
+| `/3` source and artifact | Meaning and refusal |
+| --- | --- |
+| `(list/append items value)`; existing `op` node with name `list/append` | Exactly two operands, evaluated left to right. Require an internal list and return a new list with one additional value; preserve order and the original list. Mixed values and closures remain legal internally. |
+| `(list/length items)`; existing `op` node with name `list/length` | Exactly one list operand; return its length through the existing checked Int owner. |
+| `(record-update base (field-name expression)...)`; `{"k":"record-update","base":node,"fields":[[name,node],...]}` | Require at least one unique literal field name, using `record`'s Symbol/String key syntax. Evaluate the base once, require a record and all named fields to exist, then evaluate replacements once in written order. Return a new immutable record retaining every other field. A replacement may change the internal value kind, including a closure. |
+| `(fail "reason_code")`; `{"k":"fail","reason":"reason_code"}` | A literal nonempty reason String, with no evaluated payload, immediately raises `dynamic_explicit_failure`; the diagnostic includes that reason, the existing error location, steps and ordinary call context. No result or implicit effect is produced. An unselected branch does not fail. |
+
+Container operand/arity failures use `dynamic_operand_type`; an unknown update
+field uses `dynamic_field_missing`, before evaluating its replacement. Malformed
+syntax, duplicate keys, wrong artifact fields and invalid reason literals fail
+the existing source/artifact admission checks, including in unreachable bodies.
+Every new node consumes the same one-node debit before execution; its evaluated
+children incur their normal debits. Containers and recursion do not reset the
+budget. Immutable values, closure transport refusal and boundary validation stay
+unchanged.
+
+Reuse `pure_expr.PURE_EXPR_OPERATOR_CATALOG` for the two list operator arities
+and the existing scalar evaluator for all thirteen earlier primitives. The
+typed list evaluator requires a homogeneous transport descriptor and cannot
+carry a dynamic closure; do not fabricate such a descriptor or introduce
+internal type inference to call it. Native tuple append/length and a copied,
+immutable mapping implement these dynamic container operations. The retained
+typed `record-update` owner establishes the unchanged-field/unknown-field
+behavior; it continues to enforce its own declared field types. This bounded
+dynamic difference is an added runtime responsibility to count. Do not expose
+the rest of the pure catalog speculatively. Use existing strict `if` instead of
+adding `and`/`or` syntax or eager/short-circuit ambiguities.
+
+**Real leaf reuse.** In addition to ordinary direct command results, the trusted
+registry may admit a workflow whose whole body is one direct
+`command-result :adapter ...`. Accept existing `CertifiedAdapterBinding`
+alongside `ExternalToolBinding` at `LeafBridge.compile`; remove only the
+candidate's extra adapter exclusion. The same compiler and shared validation
+must validate its binding, input signature, invocation protocol and output
+contract. A direct certified leaf already compiles through
+`compile_stage3_entrypoint(..., validate_shared=True)`; the maintained
+`experiments/mlevolve_pair/commands_compact.json` and
+`tests/experiments/test_evaluated_execution_spike_programs.py::compact_controller`
+own the adapter declarations and their current use. The implementation proof
+must execute this shape through the real bridge, including strict invalid-input
+and invalid-result cases, before claiming runtime reuse.
+
+Reuse that manifest and its `json_object_positional_arg` protocol for proposal
+and evaluation leaves. Reuse the existing improve command probes and the
+paired-search scenario script/answers; fixture installation may copy them into
+an isolated workspace. Do not add a Python controller or an argv-to-JSON
+replacement adapter. The existing snapshot guard, required-output validation,
+workflow outputs, run state, fresh attempts and failed-publication behavior
+apply without a second output path. Runtime `return__…` wire keys remain the
+bridge's output: small authored helpers reconstruct only the domain values they
+consume, and this adaptation cost belongs in the comparison. No generic inverse
+projection or new decoder is required.
+
+Keep the domain declarations in one typed `utility_leaves.orc` module, using
+distinct names for the improve draft and search candidate. Import existing
+`std/improve` `Decision`/`Improvement` declarations for the improve boundary;
+retain real `Candidate`, `Evaluation`, `Trial` and `SearchResult` schemas for
+search. Resolve applied boundary types through the same linked type environment
+and existing reader, including an `Improvement[Draft Feedback Blocker]` result.
+The candidate's internal search state needs no new nominal declaration. Check
+complete final domain results against those existing compiled descriptors;
+`Value` must not replace the final consumer contracts to make parity pass.
+
+**Authored policies and reuse limits.** `fixtures/improve.orc` holds ordinary
+helper definitions once. The helper accepts the current value, review/revise
+function values and a positive limit; caller closures capture goal, rubric or
+other context, and the helper does not acquire a mandatory context-carrier
+argument or type. Reject a nonpositive initial limit with `fail` before invoking
+either hook. Preserve every review/revision, latest candidate, reason/evidence,
+and final-revision failure specified by the existing improve tests. An exhausted
+positive limit returns the last revision without an extra review. The dynamic
+zero-limit diagnostic occurs at runtime before effects; report the difference
+from the typed compiler rejection.
+
+The experiment driver assembles the shared definition fragment with explicit
+headers and a caller into one `dynamic-core` document, then uses normal source
+compilation and serialized artifact read-back. This is visible fixture tooling,
+not implemented `.orc` imports. Count the assembler and its locations/diagnostic
+limitations. Compare fresh ordered calls with both real typed inline/imported
+controls; do not call two assembled candidate documents imported-module proof.
+The helper-extraction edit exercises ordinary lexical helper extraction, with
+this module-reuse limitation stated in the utility result.
+
+`fixtures/search.orc` contains the complete search policy as ordinary helpers,
+including a recursive controller, immutable state updates and complete trial
+history. Preserve the Python and compact `.orc` rules rather than improving
+their policy while porting it: strict score improvement, invalid-score handling,
+one repair on the failed branch, stall/fusion behavior and stop order all remain
+observable. A bounded authored controller counter preserves the compact source's
+loop-exhaustion result; the low-counter test is an explicit source variant, not
+a new public option or the evaluator's node-budget error. Python has no separate
+controller-counter outcome, so use the typed compact control for that case.
+
+The four paired author edits retain genuine boundary declarations on both sides.
+Use complete-consumer checks after each edit and include source/contract repair,
+internal errors before and after actual effects, fresh-restart repeated work,
+and the lack of static tracking/resume. Credit already available typed
+`record-update`, String context inputs and ordinary helpers; label W1/W3
+counterfactuals as proposed. Source size alone and removing legitimate domain
+types are not utility gains.
+
+The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-2-full-utility-comparison-and-gate-dc-u)
+owns the exact finite file/case handoff and receipts. Implementation is limited
+to the existing candidate files, these consumer fixtures, their shared test
+support and focused test modules; shared production owners need no change for
+this contract. Full consumer parity, authored edits and an independent utility
+review precede DC-U's owner disposition. No adoption follows automatically.
+
 ## 7. Errors, Owners, And Deletions
 
 | Check | Candidate timing and consequence |

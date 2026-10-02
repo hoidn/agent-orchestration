@@ -701,3 +701,175 @@ DC-2 entry synchronization checked integration `9bb4b207` and source
 `0f1bbc46`; both remain unchanged and imported. Design and planning are
 qualifying only the language additions and finite cases required by the full
 consumer protocols; no competing shared performer or recovery work is selected.
+
+## 8. DC-2 Finite Utility Scope
+
+This is the planned handoff after the recorded DC-F continue, not execution
+evidence or a DC-U disposition. The
+[plan's finite handoff](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#finite-execution-handoff)
+owns batch order, exclusive paths and commands; the
+[proposal §6.4](../design/workflow_lisp_dynamic_core_proposal.md#64-bounded-complete-consumer-comparison)
+owns semantics. No new registry/report is introduced. Freeze **110 new logical
+cases**: 12 core/boundary, 11 improve, 77 search, four paired edits and six
+diagnostic/restart cases. A case may contain the explicitly listed assertions;
+record actual pytest collection separately rather than silently expanding this
+inventory or calling assertion counts independent runs.
+
+Retain the §1 qualification pin
+`4b69ee00d4c6204dd816b4caa02b9fee1dae25e8` and its **105 controls**: 20 improve,
+76 paired-fixture and nine public evaluated CLI cases. Source files for those
+controls remain unchanged. Later synchronization/selection commits do not
+silently advance this baseline. The typed compact-search comparator is the
+historical evaluated spike, and the public original/compact refusals remain
+controls. Current public readiness and W1/W3 proposals are separate evidence.
+DC-2 executes all 105 controls, since DC-0 collection alone was not full
+execution evidence; record the current runtime revision alongside the frozen
+source pin. Keep the existing 84 DC-1 candidate cases and their historical IDs
+unchanged as regression controls, separately from these 110 planned cases.
+
+Qualification review, 2026-10-02: proposal §6.4 independently **PASS** by
+`/root/design_orc_showcase` (Astra 6 xhigh); plan/case handoff independently
+**PASS** by `/root/review_code_dynamic_core_utility` (Sol 6.1 high). The latter
+verified all three frozen control modules have no diff from `4b69ee00` and
+requested the valid-first/missing-later UC06 vector retained below. The
+coordinator inspected both contracts and selected DC-2a implementation next.
+These are scope reviews, not executed consumer cases or a DC-U disposition.
+
+### Core And Existing Boundary Reuse — 12 Cases
+
+UC01–UC12 live in `tests/experiments/test_dynamic_core_utility_core.py`; the two
+final groups cover the compiled bridge. All artifact cases
+must pass admission independently of source generation. Runtime negative cases
+record code, artifact location, call context and effects already completed.
+
+| ID | Frozen observation |
+| --- | --- |
+| UC01 | `/3` source artifact survives disk write/read-back; the four new forms are refused in `/1` and `/2`, while existing old-version artifacts still execute |
+| UC02 | Appending one item to empty/nonempty immutable lists retains order; mixed ordinary values and an internal closure are valid; the original list stays unchanged |
+| UC03 | `list/append` refuses non-list bases and wrong arity; no scalar coercion or homogeneous internal-list signature |
+| UC04 | `list/length` returns zero/nonzero Int lengths and refuses non-list operands and wrong arity |
+| UC05 | `record-update` retains untouched fields, evaluates replacements and permits an internal closure value without mutating the base |
+| UC06 | Updating an absent field or a non-record base fails before evaluating replacement expressions; include a valid first key with an observable replacement followed by a missing key, proving all-key validation precedes any replacement. No silent new keys or base coercion |
+| UC07 | Empty updates, duplicate/nonliteral update keys and malformed update nodes fail source/artifact admission, including in unreachable helpers |
+| UC08 | Container operands/replacement expressions execute once in source order; their evaluations share the same invocation budget and do not reset it |
+| UC09 | Reached `fail` emits its declared reason with location/call context; an unselected failing arm does not fail or dispatch |
+| UC10 | Nonliteral, empty or non-String fail reasons and forged nodes with missing/extra fields fail admission |
+| UC11 | One direct typed certified-adapter command leaf dispatches through the existing compiler/executor, preserves ordered JSON input and validates its declared result; `/3` read-only evaluation refuses with zero dispatch |
+| UC12 | A missing/mismatched adapter binding and invalid typed inputs refuse before dispatch; malformed raw adapter output is rejected before exposure, using the existing strict result check |
+
+No loop, match, dynamic import, Boolean combinator, mutation or host callback
+is added. Recursion and strict `if` express controller policy. Collection-copy
+costs, `/3` compatibility and the retained adapter/compiler machinery belong in
+the complexity accounting.
+
+### Full Improve — 11 Fresh-Run Cases
+
+`fixtures/improve.orc` is the shared ordinary-definition fragment.
+`fixtures/utility_leaves.orc` preserves typed `Draft`, `Feedback`, `Blocker`
+and existing imported `Decision`/`Improvement` schemas. The utility improve
+test module reuses the frozen review/revise probe behavior. Explicit driver
+assembly combines helper definitions with the caller/header; assembled versus
+inline source is tooling evidence, not a dynamic module/import feature.
+
+| ID | Frozen observation |
+| --- | --- |
+| UI01 | Initial `approve`, limit 3: APPROVED retains the initial candidate and evidence, one review and no revise |
+| UI02 | Initial `block`, limit 3: one revision then BLOCKED retains `block+r`, score 1 and the refusal reason |
+| UI03 | Initial `draft`, limit 3: EXHAUSTED retains the third revised candidate, score 3, and all three ordered review/revise pairs |
+| UI04 | `malformed` review payload fails its typed contract before decision consumption; no revise occurs |
+| UI05 | `fail`, limit 2: the final permitted revise failure is a runtime failure, never successful EXHAUSTED |
+| UI06 | An ordinary dynamic review wrapper agrees with the typed imported-wrapper control at `draft`, limit 2; no dynamic-import capability is claimed |
+| UI07 | `approve`, limit 3: explicitly assembled shared helper and inline definitions agree with typed imported/inline control outcomes and ordered hook inputs |
+| UI08 | `block`, limit 3: the same assembled/inline and typed-control comparison |
+| UI09 | `draft`, limit 3: the same assembled/inline and typed-control comparison |
+| UI10 | Limit 0 is rejected before either hook; report the dynamic failure stage alongside the typed compile-time refusal |
+| UI11 | BLOCKED passes the precise dynamic result boundary and agrees with the existing public typed-run output after explicit wire normalization; no public dynamic launch is claimed |
+
+Compare full payloads, latest candidate, per-hook ordered arguments and complete
+operation order, not only final tags. Keep the two typed committed-iteration
+resume cases as lost-capability controls exercised in UD05/UD06. Keep six
+old-target admission cases and the selected-hook effect-summary case unchanged;
+the candidate does not inherit those static guarantees.
+
+### Full Paired Search — 77 Cases
+
+`fixtures/search.orc` contains the authored controller. Reuse the exact
+`SCENARIOS`, `BUDGETS`, `_scenario_answers` and `_reference` owners in
+`tests/experiments/test_mlevolve_pair_fixture.py`; do not copy policy into a
+Python dynamic-controller implementation. Reuse its scripted JSON leaves and
+`experiments/mlevolve_pair/commands_compact.json` through the certified adapter.
+`utility_leaves.orc` retains `Candidate`, `Evaluation`, `Trial` and
+`SearchResult` domain schemas.
+
+**US01 contains exactly 72 pairs:** budgets **0, 1, 2, 3, 5, 6, 9, 12** crossed
+with `invalid_seed_a`, `invalid_seed_b`, `invalid_seeds_both`,
+`invalid_candidate_below_best`, `valid_tie_best`, `every_candidate_invalid`,
+`repair_fails_then_succeeds`, `only_a_improves`,
+`invalid_candidate_solved_score`. Use parameter IDs containing US01, scenario
+and budget. Each pair compares the entire Python result, trace, ordered command
+inputs and evaluation spend. The policy includes seed ranking, strict ties,
+one repair on the failed branch, stalls, one fusion and complete parent history.
+
+| ID | Additional observation, one logical case each |
+| --- | --- |
+| US02 | Existing nonscripted local leaf functions at budget 12 reproduce the Python ten-evaluation solved trace, including repair, ties and fusion |
+| US03 | Budget 17 returns domain `invalid_budget` with zero dispatch; 0 and 1 remain in US01 rather than being counted twice |
+| US04 | A real schema-invalid candidate bundle fails publication before evaluation consumes it; record the successful prefix separately |
+| US05 | A real schema-invalid evaluation bundle fails publication, whereas a correctly typed `valid=false` result follows the repair policy; neither becomes an implicit solved score |
+| US06 | A test-only reduced controller iteration bound reaches `loop_bound_exhausted`, agreeing with the same reduced-bound typed compact spike; this outcome is distinct from evaluation-budget exhaustion and VM-budget failure |
+
+US06 changes only the test specimen's internal bound; no public configuration
+or Python-reference outcome is invented. Invalid non-Int boundary inputs stay
+strict boundary failures. The two existing Python-reference tests and two
+public-refusal tests remain separate controls, not additional dynamic pairs.
+
+### Four Paired Edits And Six Diagnostic/Restart Cases
+
+`tests/experiments/test_dynamic_core_utility_edits.py` generates bounded edited
+copies in temporary workspaces; maintain the four pairs there rather than
+adding eight permanent specimen families. Small setup functions may be reused
+from the consumer test modules; no general fixture framework is required.
+Both sides execute each edited behavior with the same local leaves and retain
+their useful domain declarations and strict transport schemas.
+
+| ID | Concrete authored change or failure experiment |
+| --- | --- |
+| UE01 | Add `origin: String` to the improve candidate, initialized as `seed`, preserved by revision and observed in the final value; count boundary and internal-state edit sites separately |
+| UE02 | Rename review feedback/evidence `note` to `message`, preserving its content and updating the producing schema/probe and actual consumers on both sides |
+| UE03 | Capture an additional `rubric: String` used by review independently of `goal`; compare typed explicit context plumbing with a dynamic lexical capture, and credit the already-supported typed single-String context and proposed W3 alternative |
+| UE04 | Extract the feedback-to-revision-input expression into an ordinary pure helper while keeping the same boundary payload and ordered effects; compare with the existing executable typed pure-helper form rather than an intentionally verbose baseline |
+| UD01 | Unbound lexical name is rejected before dispatch; compare diagnostic stage/location with the corresponding typed source error |
+| UD02 | A wrong ordinary call arity before any effect and the same mistake after one successful review record their distinct effect counts; repair the one mistake and rerun |
+| UD03 | A missing internal field reached after one successful review records its late diagnostic, partial outputs and one-site repair; compare typed detection without deleting the field contract |
+| UD04 | Deliberately insufficient VM budget after a completed effect records deterministic exhaustion and the completed prefix; it is neither a controller outcome nor a resume point |
+| UD05 | Interrupt after the first successful review/revise pair, restart fresh and compare with typed committed-iteration resume: full final value agrees, but dynamic prefix calls repeat and existing external outputs remain |
+| UD06 | Repeat the interruption/restart comparison with the typed String-input control and captured dynamic goal; demonstrate preserved context plus repeated dynamic work without claiming a context-record-only typed baseline |
+
+For each UE case record the exact before/after source, touched semantic sites,
+duplicated facts, concepts required, observed repair attempts and outcome.
+Record implementation/programming time only if measured with a stated method;
+there is no live author study. For each UD case record error code, stage,
+location/call context, number/order of completed effects, remaining leaf/output
+artifacts, repaired result and restart calls. UD05/UD06 must prove the prefix
+completed before interruption; do not count a pre-dispatch failure as restart
+cost. No paid-provider quality, money or latency conclusion follows from these
+deterministic local calls.
+
+### DC-U Evidence Packet
+
+After these cases execute and independent review completes, append receipts to
+this same section. Separate supported, adverse, missing and untested findings.
+List added source/admission/evaluator/driver paths; retained domain validators,
+specialization, command/provider and state owners; actually displaced owners
+(possibly none); `/1`–`/3` identities; old-target compatibility; and each leaf's
+retained legacy state/startup work. LOC alone does not establish net complexity.
+The best implemented typed control, historical spike and proposed W1/W3 must
+remain separately labeled. Credit W1/W3's plausible reduction in constructor
+repetition/context plumbing without pretending it executes or requiring its
+implementation here.
+
+The full-consumer README command is part of DC-2d and must run before closeout,
+in addition to narrow/combined checks. Record fresh commands/exits/revisions
+and independent review, then recommend continue, bounded revision or typed
+fallback. **DC-U owner disposition remains pending**; passing these cases
+does not select DC-3, a public target or adoption.

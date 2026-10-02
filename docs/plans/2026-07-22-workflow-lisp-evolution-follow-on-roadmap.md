@@ -20,8 +20,9 @@ them. The repairs and spike are complete; gate G1 selected evaluated
 execution, with the closed-program compiler selected as Phase 2 at target
 2.35. The owner's 2026-10-01 delivery amendment introduces an early migration
 pilot and consumer-driven later additions. The 2026-10-02 branch amendment
-selects bounded dynamic-core qualification next, preserving the integrated typed
-baseline and putting later adoption behind DC-F/DC-U/DC-P; see
+preserves the integrated typed baseline while evaluating a dynamic core.
+Qualification and feasibility passed; the owner's DC-F continue activates DC-2
+utility comparison, with adoption still behind DC-U/DC-P; see
 [Dynamic-Core Evaluation](#dynamic-core-evaluation) and
 [Independent Work And Successor](#independent-work-and-successor).
 Publication alone does not select
@@ -879,10 +880,11 @@ allocations, and completed records are unchanged. No executable manifest/queue
 row, ready-to-run implementation plan, or live workflow selection is added.
 
 The 2026-10-01 W3 incorporation retains its 15 task numbers (Tasks 1–14
-pending, Task 15 deferred). The 2026-10-02 branch amendment selects human next
-task **DC-0 qualification**, with W3 Task 4 as comparison input and typed Phase
-4c as fallback. Dynamic evaluation adds four prose tranches (DC-0–DC-3), all
-pending execution: one selected next, three conditional. No machine-readable
+pending, Task 15 deferred). The initial 2026-10-02 branch amendment selected
+**DC-0 qualification**, with W3 Task 4 as comparison input and typed Phase 4c
+as fallback. Of the four prose tranches (DC-0–DC-3), DC-0/DC-1 are now complete,
+DC-2 is active after owner approval of DC-F, and DC-3 remains conditional.
+No machine-readable
 manifest/queue exists for this planset: machine tranche-count delta and
 ready/pending/completed/blocked count deltas are all **0**, no machine-selected
 next item changes, and no active workflow state is mutated. The five research
