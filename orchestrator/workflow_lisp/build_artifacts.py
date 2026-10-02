@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from orchestrator._common.canonical import sha256_json
+from orchestrator._common.safe_tree import resolve_path_preserving_fd
 from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import (
     TrialStepConfig,
@@ -145,7 +146,7 @@ def _source_file_digests_for_modules(
 
     source_file_digests: dict[str, str] = {}
     for module_name, module_path in sorted(module_paths.items()):
-        revision = revisions_by_path.get(module_path)
+        revision = revisions_by_path.get(resolve_path_preserving_fd(module_path))
         if revision is None:
             raise ValueError(
                 f"source read trace is missing compiled module `{module_name}`"

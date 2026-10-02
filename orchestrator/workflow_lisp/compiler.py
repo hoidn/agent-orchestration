@@ -2949,7 +2949,7 @@ def _compile_stage3_graph(
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, PromptExternValue] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
-    imported_programs: Mapping[str, object] | None,
+    imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
     validation_profile: Stage3ValidationProfile | str | None = None,

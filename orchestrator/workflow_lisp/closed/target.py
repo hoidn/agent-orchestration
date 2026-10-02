@@ -118,7 +118,11 @@ def _evaluated_execution_unavailable_diagnostic(
 def refuse_run_at_evaluated_execution_target(path: Path) -> None:
     """Refuse run/resume early when the entry header selects evaluated execution."""
 
-    target_dsl_version, target_span = _entry_target_header(path)
+    try:
+        target_dsl_version, target_span = _entry_target_header(path)
+    except (LispFrontendCompileError, OSError, UnicodeError):
+        # This is only an early refusal peek; the regular build owns source diagnostics.
+        return
     if syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
         _raise_evaluated_execution_unavailable(target_dsl_version, target_span)
 

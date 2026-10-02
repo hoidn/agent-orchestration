@@ -442,7 +442,11 @@ class Stage3CompileResult:
     validation_profile: object | None = None
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     lowering_schema_version: int = 1
-    typed_program: object | None = None
+    typed_program: object | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
