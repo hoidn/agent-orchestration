@@ -138,12 +138,14 @@ Execution receipt (2026-10-02): integrated at `da19e2bb7e5bb853fc99a35dfb56e6241
 
 **Role/artifact:** Implementation / durable memo code. **Prerequisite:** Phase 2 sites/contracts; may start independently of Tasks 1–3 after shared schema review.
 
-**Files:** Create `orchestrator/workflow/evaluated/memo.py`, `tests/test_workflow_evaluated_memo.py`; narrow `orchestrator/run_lock.py` adapter only if needed.
+**Files:** Create `orchestrator/workflow/evaluated/memo.py`, `tests/test_workflow_evaluated_memo.py`, `tests/test_workflow_evaluated_memo_writes.py`; narrow `orchestrator/run_lock.py` adapter only if needed.
 
-- [ ] RED: valid record sequence, malformed class/site/proof, duplicate/adjacent terminals, torn tail, ordinal gaps/collisions and coordinator settlement mismatch. Build offset-based ranges with future retry commits and a coordinator later in the suffix.
-- [ ] Run `tests/test_workflow_evaluated_memo.py`.
-- [ ] Implement strict complete-line read/reduction and synchronized append under existing writer-lock ownership. Track offsets, active commits, latest starts, settlements and terminal reopening. Preserve complete unsynchronized-surviving records; only the writer after preflight can discard the incomplete tail. Supply one validated suffix-range append operation; never rewrite prior records.
-- [ ] GREEN: two writers yield `memo_busy`; reader never locks out the writer or repairs bytes. Fault injection yields no-or-entire invalidation, preserves later commits and rejects invalid anchors/coordinator suffix before append. Review/commit.
+- [x] RED: valid record sequence, malformed class/site/proof, duplicate/adjacent terminals, torn tail, ordinal gaps/collisions and coordinator settlement mismatch. Build offset-based ranges with future retry commits and a coordinator later in the suffix.
+- [x] Run `tests/test_workflow_evaluated_memo.py` and `tests/test_workflow_evaluated_memo_writes.py`.
+- [x] Implement strict complete-line read/reduction and synchronized append under existing writer-lock ownership. Track offsets, active commits, latest starts, settlements and terminal reopening. Preserve complete unsynchronized-surviving records; only the writer after preflight can discard the incomplete tail. Supply one validated suffix-range append operation; never rewrite prior records.
+- [x] GREEN: two writers yield `memo_busy`; reader never locks out the writer or repairs bytes. Fault injection yields no-or-entire invalidation, preserves later commits and rejects invalid anchors/coordinator suffix before append. Review/commit.
+
+Execution receipt (2026-10-02): integrated at `2962dd44479b09c148f21a9499e254a613697df0` after independent conformity and quality PASS. Coordinator verification of both memo modules plus the existing process-level run-lock tests: **45 passed**. Task 6 retains C2 evidence-schema/hashing integration; Task 9 retains ledger authority/reconstruction. This closes Task 4 only, without declaring the public runtime complete.
 
 ## Task 5: Durable Run Authority And Minimal Public Execution
 
