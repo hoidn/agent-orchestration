@@ -36,7 +36,9 @@
       omission refuses with `command_boundary_closure_missing`. An explicit
       `[]` is valid; `null`, non-arrays, non-string entries, empty strings and
       NUL refuse with `command_boundary_manifest_invalid`. Below 2.35 the
-      valid field is accepted and ignored by legacy identity/artifacts.
+      valid field is accepted and ignored by binding serialization and effect
+      identity. Existing raw-manifest cache hashing stays unchanged; editing
+      the manifest can still change the build key.
       At build, C2 means canonical logical declarations enter configuration
       and program identity; compilation does not read, traverse, resolve
       symlinks or hash closure file bytes. Runtime content hashes and
