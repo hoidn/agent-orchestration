@@ -88,7 +88,7 @@ composition by owner selection on 2026-09-28.
 
 The separate [evaluated-execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns runtime delivery: Phase 2 closed program → Phase 3 executable core →
-Phase 6a pilot, with selected Phase 4 additions and independent Phase 5
+Phase 6a pilot, with Phase 4 additions including W3 and independent Phase 5
 parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement.
 Portable context is a named later delivery, not silently included in the
 first-release provider subset. Composition, macro provenance, typed prompt
@@ -636,9 +636,10 @@ and any necessary allocation.
 
 ## W3 — Local Hooks With Inferred Context
 
-**Status:** pending authoring improvement, planning updated by owner request
-on 2026-10-01 after the concrete before/after review. Implementation and
-target selection remain pending. This is W3 of the existing
+**Status:** pending Phase 4c authoring improvement in the
+[evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities),
+integrated by owner clarification on 2026-10-01. Implementation and target
+selection remain pending. This is W3 of the existing
 [write-once design](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
 not a new research unit or runtime-closure feature.
 
@@ -658,11 +659,14 @@ adding a hook input, with behavior preserved. Record line counts as evidence;
 a fixed percentage is not an adoption gate. Reuse the shipped proposal
 example and `reviewed_change.orc` comparison; this needs no new live study.
 
-W3 is not a prerequisite for evaluated-execution Phases 2–3 or the early
-Phase 6a pilot. Use pilot authoring evidence when available; if delivery uses
-the evaluated route, its runtime must exist for public run/resume acceptance.
-The Phase 2 task order, CF-1c hold and research allocations stay unchanged.
-No executable selector/manifest or active-run state is changed.
+The parent sequence owns its placement: Phase 3 supplies the runtime;
+Task 4 qualification and Phase 6a assess the caller improvement; Phase 4c
+delivers Tasks 11–14; Phase 6b migrates the maintained consumer inventory.
+Qualification preparation can overlap Phase 3. W3 syntax is not a condition
+for running the early pilot, and its delivery does not wait for unrelated
+Phase 4 effect ports. The component's Phase E is this same Phase 4c work,
+not a second schedule. Phase 2 order, CF-1c hold and research allocations
+stay unchanged; no executable selector/manifest or active-run state changes.
 
 ## Current ES Boundary
 
@@ -742,10 +746,11 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
-- [W3](#w3--local-hooks-with-inferred-context) is the named local-hook
-  authoring candidate in the repetition-reduction planset. Task 4 qualifies
-  the concrete API/capture change; Tasks 11–14 remain pending, with target and
-  compatibility decisions open. It does not gate the selected runtime work.
+- [W3](#w3--local-hooks-with-inferred-context) is integrated into runtime
+  delivery as Phase 4c. The repetition-reduction planset owns its technical
+  tasks: Task 4 qualification with Phase 6a, then Tasks 11–14, followed by
+  Phase 6b consumer migration. Target and compatibility decisions remain open;
+  it adds no prerequisite to Phases 2–3.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
@@ -810,8 +815,9 @@ row, ready-to-run implementation plan, or live workflow selection is added.
 The 2026-10-01 W3 incorporation makes the already proposed local-hook work
 discoverable here and expands its existing plan tasks. The five research
 units and the plan's 15 task numbers remain unchanged (Tasks 1–14 pending,
-Task 15 deferred). No machine-selected next item changes; W3's next planning
-step is Task 4 qualification, not automatic implementation.
+Task 15 deferred). No machine-selected next item changes. W3's next planning
+step is Task 4 qualification for Phase 6a and Phase 4c delivery, not automatic
+implementation or a separate delivery track.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector

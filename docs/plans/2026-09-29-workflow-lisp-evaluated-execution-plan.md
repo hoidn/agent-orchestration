@@ -377,7 +377,7 @@ selected.
 
 Owner amendment, 2026-10-01:
 
-**Phase 2 → Phase 3 → Phase 6a pilot → selected Phase 4 additions and
+**Phase 2 → Phase 3 → Phase 6a pilot → Phase 4 additions (including W3) and
 Phase 5 → Phase 6b migration → Phase 7 retirement.**
 
 This is the preferred delivery order, not a serial dependency chain or a
@@ -396,20 +396,15 @@ Simplify the execution machinery, not the language's useful contracts:
 | Typed prompt and result contracts | Preserve prompt assembly, validation and typed value transport for admitted effects; the pilot exercises these through public entries |
 | Artifact production, publication, consumption, freshness and lineage | Preserve the existing contracts needed by each migrating consumer and demonstrate a producer-to-consumer handoff. Memoized values do not substitute for artifact tracking, nor do declared dependencies prove every file an agent actually read |
 | Explicit portable provider context | A named Phase 4 priority, with capture, transformation/forking and rebinding evidence; not part of the first-release portable provider subset |
+| Local hooks with inferred context (W3) | Phase 6a qualifies the caller improvement; Phase 4c delivers capture/signature inference and the context-free `improve` API; Phase 6b migrates maintained consumers |
 
-The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md)
-and [effect-ledger workstream](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
-remain separate authoring improvements. They are not prerequisites for
-Phases 2–3, nor automatically selected wholesale by this amendment. No
-general program-search or evolution framework is required for this delivery.
-
-The [W3 local-hook entry](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#w3--local-hooks-with-inferred-context)
-records the owner's 2026-10-01 planning request for inferred captures and
-expected hook signatures, removing `inputs I` from `improve`. Qualification
-may proceed independently; the Phase 6a pilot can supply authoring evidence.
-Implementation, grammar and target/module compatibility remain pending in
-the repetition-reduction plan. W3 adds no effect class or prerequisite to
-Phases 2–3; public W3 run/resume acceptance on this route requires Phase 3.
+Delivery integration, 2026-10-01: W3 belongs to this delivery sequence as
+Phase 4c. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
+retains its technical tasks, not a competing schedule. Grammar, target and
+module compatibility remain open prerequisites; scheduling W3 does not mark
+it implemented or start a run. Other repetition rules and the
+[effect-ledger workstream](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
+remain separately scoped. None becomes a prerequisite for Phases 2–3.
 
 ### Phase 2: The Closed Program
 
@@ -455,12 +450,12 @@ design specifies, not compositional semantics within that admission.
 | `run`, `resume`, `--dry-run` | Public compile, dry-run, run and resume of first-release fixtures, including consumers nominated for Phase 6a; the authoring pilot follows Phase 3, not a prerequisite for it |
 | The state profile in `specs/state.md` | The specification and the code agree on every key of the view |
 
-### Phase 4: The Other Effect Classes
+### Phase 4: Consumer Capabilities And Authoring
 
 Entry: Phase 3. Select additions by a named maintained consumer's need,
-not a fixed port of every historical runtime class. Each addition needs an
-adapter and public run/resume evidence preserving its own contract and
-ledger, where it has one.
+not a fixed port of every historical runtime class. New effect classes need
+an adapter and public run/resume evidence preserving their contract and
+ledger. Authoring changes reuse existing effect and execution owners.
 
 - **4a — Priority additions:** portable context capture and rebinding,
   governed by [Provider Context Values](../design/workflow_lisp_provider_context_values.md)
@@ -479,10 +474,22 @@ ledger, where it has one.
   run-reference modes. Name the consumer
   and the missing behavior before selecting a class. Path-mode run references
   already belong to Phases 2–3; they do not wait here.
+- **4c — W3 local hooks:** deliver multiple `let-proc` bindings, inferred
+  lexical captures, expected `ProcRef` signatures and `improve` without
+  `inputs I`, using the existing compiler and Phase 3 evaluator. The
+  [component plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#e-hooks-that-capture-their-context)
+  owns Tasks 11 → 12 → 13 → 14, after Task 4 qualification and Task 6 target
+  registration. Entry includes the Phase 6a caller assessment and resolved
+  grammar/target/module compatibility. Prove public compile/run/resume,
+  definition-site captures and no repeated committed effects on the shipped
+  proposal example and the `reviewed_change.orc` helper variant. Task 14
+  proves representative migration; the maintained-consumer rollout belongs
+  to Phase 6b. W3 adds no runtime closure or new effect class.
 
 An unneeded class may remain deferred or be retired with its consumers by
-explicit decision. Phase 4 is not an all-or-nothing prerequisite for
-Phases 5 or 6.
+explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
+for unrelated effect ports or W0/W1/W2/W4. Phase 4 is not an all-or-nothing
+prerequisite for Phase 5 or each Phase 6b consumer.
 
 #### PQ-1: Sequential Native-Session Turns
 
@@ -548,6 +555,13 @@ as missing. Phase 3 and this pilot are the first evaluation point, not a
 global abandon/continue verdict before context and other differentiating
 capabilities can be exercised.
 
+For W3, use the existing explicit-hook API for the baseline and perform
+[component Task 4](2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers):
+compare the local-hook proposal, identify forwarding to delete and settle
+the migration/compatibility decision. Qualification preparation can overlap
+Phase 3; the pilot supplies executable caller evidence before Phase 4c.
+Do not require unimplemented W3 syntax to run the pilot.
+
 Use observed friction to select a principled improvement, a justified
 design/type-system revision, or explicit simplification of an unhelpful
 feature. A current design limit is not proof that the use case is
@@ -563,6 +577,11 @@ old state representation. Migration covers maintained consumers, not every
 historical/deprecated example; identify any consumer explicitly retired
 instead of ported. Complete this phase when the maintained set runs and
 resumes on the new runtime with its required capabilities.
+
+After Phase 4c, migrate each maintained `improve` consumer covered by W3's
+inventory to the context-free API and remove context-only forwarding.
+Consumers that do not need W3 can migrate earlier; old-target checkpoints
+retain their resolved module/runtime contract until their retirement decision.
 
 ### Phase 7: Retirement
 

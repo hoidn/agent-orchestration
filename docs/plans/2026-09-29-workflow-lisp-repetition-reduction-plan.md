@@ -43,13 +43,16 @@ lexical captures, expected `ProcRef` signatures, and removal of `inputs I`
 from `improve`. This selects the planning revision, not implementation of
 W0–W5 or a new language target. All implementation tasks remain pending.
 
-Task 4 qualifies W3; Tasks 11–14 deliver it after the open decisions and
-feasibility obligations are resolved. Qualification need not wait for W0,
-constructor shorthand, effect inference, or provider defaults. W3 does not
-gate the selected evaluated-execution Phases 2–3 or the early Phase 6a pilot.
-Use that pilot's authoring evidence when available. The
-[roadmap entry](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#w3--local-hooks-with-inferred-context)
-owns scheduling; [design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+Delivery integration, 2026-10-01: W3 is a component of evaluated-execution
+delivery, not a separately scheduled feature. The
+[parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
+owns scheduling: Phase 3 provides the runtime; Task 4 qualification feeds
+the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after the open decisions
+and Task 6 target registration; Phase 6b owns broader consumer migration.
+Phase E below is the component's work breakdown for Phase 4c, not another
+top-level phase. Qualification preparation can overlap Phase 3; W3 does not
+gate that phase or require its new syntax in the pilot. W0/W1/W2/W4 remain
+independent. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
 owns the proposed behavior and illustrative before/after.
 
 Target-selection update (2026-10-01): the original recommendation of 2.34
@@ -63,7 +66,7 @@ Decisions needed before execution:
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | 1 | Which of the rules W0 to W5 are accepted | W3 is a named authoring candidate, qualified by Task 4 independently of W0/W1/W2/W4. Their proposed scope remains unchanged; W5 stays deferred |
-| 2 | The target and execution route for each selected language change | Unresolved; reconcile with existing 2.34 numeric and selected 2.35 evaluated execution. Sharing a target is not a prerequisite for W3 qualification |
+| 2 | The target for each selected language change | W3 uses the evaluated route as Phase 4c; its language target remains unresolved against existing 2.34 numeric and selected 2.35 evaluated execution. Other repetition rules retain their own target decisions |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
 | 4 | The adoption bar for W3 | Preserve behavior while removing the context-only record/constructor, forwarding parameter and restated hook signatures. Review actual callers and edit locality; line counts are supporting evidence, not a percentage gate |
 | 5 | Where provider defaults are written | The provider externs file |
@@ -77,7 +80,9 @@ repaired.
 
 Out of scope: the compiler defects recorded in the
 [value/effect separation decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md);
-moving older workflows to the new target; the Design Delta family.
+broad migration of older workflows to the new target (parent Phase 6b owns
+that rollout; Task 14 proves the representative W3 consumers); the Design
+Delta family.
 
 ## Global Constraints
 
@@ -371,12 +376,12 @@ entry EL-1.
 
 ## E. Hooks That Capture Their Context
 
-Phase E starts after Task 4 resolves grammar, inference, capture ownership,
-target/module compatibility and the behavioral/ergonomic bar of decision 4.
+This is the technical breakdown of the parent's Phase 4c. Entry: Phase 3's
+runtime, the Phase 6a caller assessment, and Task 4's grammar, inference,
+capture ownership, target/module compatibility and decision-4 evidence.
 Task 6 registers the selected target before new syntax is admitted. Tasks
 11 → 12 → 13 → 14 form the W3 delivery order; unrelated W0/W1/W2/W4 delivery
-is not a prerequisite. If the selected route is evaluated execution, public
-run/resume acceptance requires its Phase 3 runtime.
+is not a prerequisite. Public run/resume acceptance uses Phase 3's evaluator.
 
 ### Task 11: Several Bindings In One `let-proc`
 
@@ -455,6 +460,8 @@ program.
    only context-only records/constructors. Retain reusable top-level hooks
    through existing `bind-proc` where that is clearer. Leave one public
    signature per resolved stdlib module, without an `improve-v2` wrapper.
+   These are Phase 4c's representative migrations; hand the remaining
+   maintained-consumer inventory and migration recipe to parent Phase 6b.
 3. Prove APPROVED, BLOCKED and EXHAUSTED results, final candidate and feedback,
    bounded review/revise ordering, distinct captures for two helper calls,
    lexical shadowing and committed-boundary resume through public entries
