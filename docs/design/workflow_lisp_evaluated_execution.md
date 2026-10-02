@@ -12,7 +12,8 @@
   and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
   Phase-wide checks and the completed red-suite diagnosis are recorded in
   the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
-  final code/verification review passed; documentation review and integration remain pending. The spike under
+  Phase 2 compiler closeout is complete: code/verification PASS `17049e79`,
+  documentation PASS `a6efc7e7` and integration `a7b157d8`. The spike under
   `experiments/evaluated_execution_spike/` remains separate runtime evidence.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime

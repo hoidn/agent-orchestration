@@ -55,8 +55,9 @@ it. The spike is not wired in and nothing of it is deleted by this plan.
   Phase-wide compilation/compatibility checks and a complete red-suite run
   are recorded in the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md).
   The sole confirmed test-caller integration regression is repaired;
-  final code/verification review passed at `17049e79`; documentation review
-  and authorized integration remain open at Closeout.
+  final code/verification review passed at `17049e79`, documentation review
+  passed at `a6efc7e7`, and both were integrated at `a7b157d8`.
+  All eleven tasks and the Phase 2 compiler closeout are complete.
   `compile` persists the checked target-2.35 program; runtime evaluation is
   still refused until Phase 3. Owning evidence: Task 8/9/10 completion records,
   `tests/test_workflow_lisp_closed_program_compile_cli.py`,
@@ -4424,7 +4425,7 @@ its revised link/anchor and explicit-selection checks passed, and the routing
 module passed again after the two historical-local-link corrections. The
 relative-link check resolves all 772 links across eleven documents. No tests
 were added or renamed. These are documentation/routing checks, not Phase 3
-runtime evidence or the open phase-wide closeout gate.
+runtime evidence or the then-open phase-wide closeout gate.
 
 
 ## Milestone Evidence
@@ -4527,7 +4528,7 @@ retry, terminal, trial-SDK or reader implementation enters this plan.
 - [x] The corpus table of Task 10 in the report, with the count built.
 - [x] Review by the repository Review role (Sol 6.1 high), with the owner's
   Critical-only gate above and every finding/evidence disposition recorded.
-- [ ] Integrate according to the coordinator's authorized branch workflow;
+- [x] Integrate according to the coordinator's authorized branch workflow;
   final integration follows the coordinator's authorized workflow after
   phase-wide verification and final reviews. No push is part of this plan.
 
@@ -4539,5 +4540,7 @@ two focused PASS checks. Existing baseline, checkout-location, concurrency
 and duration-variance failures are recorded without a full-green claim.
 Fresh legacy raw comparisons, authentic-pin capsule differences,
 controlled-identity serialization and public compile/readback smokes are
-recorded separately. Final code/verification review passed at `17049e79`; documentation review
-and authorized integration remain pending.
+recorded separately. Final code/verification review passed at `17049e79`;
+documentation review passed at `a6efc7e7`. The reviewed publication and code
+are integrated at `a7b157d8`; all Phase 2 closeout items are complete.
+Final delivery SHA/bundle evidence is recorded separately by the coordinator.

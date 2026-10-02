@@ -42,7 +42,9 @@ and decisions 1 to 4 below. Gate G1 selected evaluated execution; Phase 2
 compiler Tasks 1–11 are integrated at target 2.35 under the selected [implementation plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md).
 The [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
 records compilation/compatibility checks and the completed red-suite result;
-final code/verification review passed; documentation review and integration remain pending.
+Phase 2 compiler closeout is complete: code/verification review passed at
+`17049e79`, documentation review passed at `a6efc7e7`, and both were integrated
+at `a7b157d8`.
 The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
 to 7 remain pending; this amendment records neither implementation nor
 completion of those phases.
@@ -416,7 +418,9 @@ build-path safety repairs are integrated. Public CLI compilation at 2.35
 writes the checked closed-program artifact; execution/resume remain Phase 3
 work. The [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md)
 records the exact corpus, fresh public smokes, raw compatibility and completed
-red-suite diagnosis. Final code/verification review passed; documentation review and integration remain pending.
+red-suite diagnosis. Code/verification review passed at `17049e79`,
+documentation review passed at `a6efc7e7`, and both were integrated at
+`a7b157d8`; Phase 2 compiler closeout is complete.
 
 Entry: gate G1. Execute the selected
 [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
