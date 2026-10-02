@@ -19,6 +19,15 @@ consumer behavior and authoring utility before authorizing production migration.
 No permanent parallel implementation or dynamic facade over specialization is
 the intended destination.
 
+**Owner tradeoff amendment, 2026-10-02:** loss of effect tracking and resumability
+is acceptable if composition/complexity gains justify it. Evaluate one minimal
+candidate that executes fresh from entry; a restart may repeat earlier external
+work. Preserve most existing types-to-input/output contract machinery. Static
+effect summaries, committed-effect replay, dynamic memo identity and resume are
+comparison dimensions, not mandatory feasibility or adoption conditions. Keep
+existing targets/runs unchanged and retain actual boundary validation and
+execution permissions. Adding recovery later needs its own justified scope.
+
 **Tech Stack:** Existing Python runtime, closed-program admission, pure operators,
 boundary validators, command/provider performers, pytest, deterministic fixtures
 and public `python -m orchestrator` checks. No new dependency or report framework.
@@ -34,11 +43,12 @@ the [parent plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md), and
 [Phase 3 plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
 The proposal owns candidate semantics; existing specs own shipped behavior.
 
-Owner amendment, 2026-10-02: this branch selects **DC-0 qualification as the next
-prospective task**, with the bounded feasibility spike following its reviewed
-scope. Later tranches remain pending behind the gates below. This documentation
-turn performs integration and planning only: no dynamic implementation, new
-experiment, language-target allocation, production adoption or live-study budget.
+Initial owner amendment, 2026-10-02: select DC-0 qualification followed by a
+bounded feasibility spike. The initial integration/planning turn implemented no
+candidate. The subsequent owner instruction to start execution activates the
+reviewed **DC-1a pure mechanism sub-batch after completed DC-0 qualification**.
+Later tranches remain pending behind the gates below; no language-target
+allocation, production adoption or live-study budget follows from this start.
 Full typed Phase 3 completion is not an entry condition for qualification or the
 bounded spike; only the shared contracts actually exercised must be available.
 
@@ -62,11 +72,11 @@ selectors overlap and are not additive. Logs and exits are in
 `/tmp/orc-dynamic-core-integration-8_b5ym95/{narrow.log,impacted.log,results.json}`.
 This is baseline integration evidence, not a full-suite pass or dynamic gate.
 
-**Approach and cost:** overlay the existing phase ledger and reuse shared owners
-instead of deleting completed work or completing two full migrations. This makes
-cross-version imports, checkpoint retirement and honest old/new comparison more
-work until one destination is selected; dynamic checking also moves some errors
-after expensive effects and introduces closure identity and budget obligations.
+**Approach and cost:** overlay the existing phase ledger, reuse shared contract
+and execution owners, and evaluate the simpler non-resuming candidate. Some
+errors move after expensive effects, and restarting can repeat calls, cost and
+external writes. Compare those losses with composition gains; preserve old-run
+compatibility without rebuilding its checkpoint machinery for the candidate.
 
 ## Upstream Phase 3 Synchronization
 
@@ -121,8 +131,8 @@ reviewed. Documentation verification is recorded with this amendment's commit.
 
 | Tranche | Current state | Entry / bounded exit |
 | --- | --- | --- |
-| DC-0 — qualify exact scope and controls | Selected next; pending execution | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
-| DC-1 — feasibility spike | Pending DC-0 reviewed scope | One isolated candidate, the finite feasibility matrix, independent review and DC-F evidence; stop at DC-F |
+| DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
+| DC-1 — feasibility spike | DC-1a complete and reviewed; DC-1b boundary/dispatch qualification next | One isolated non-resuming candidate, finite feasibility matrix, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Pending DC-F continue | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
@@ -149,8 +159,9 @@ does not block the qualification/spike/evidence needed to reach that gate.
 No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
-units remain unchanged, and no active run is mutated. The human next task changes
-to DC-0; existing executable selectors have no new item to consume.
+units remain unchanged, and no active run is mutated. The human next task is
+DC-1b qualification after reviewed DC-0/DC-1a completion; existing executable selectors have no new
+item to consume.
 
 ## DC-0: Qualify Scope And Controls
 
@@ -163,32 +174,69 @@ read existing sources and tests, without editing their semantics:
 `experiments/mlevolve_pair/{search_compact.orc,leaves.py,README.md}` and
 `experiments/orc_vs_single_call/workflows/reviewed_change.orc`.
 
-- [ ] Trace all callers of reused owners; classify shared infrastructure versus
+- [x] Trace all callers of reused owners; classify shared infrastructure versus
   typed-only proofs/specialization. Command implementation **closure means files**
   and content evidence, not lexical function closure support.
-- [ ] Pin the best executable typed baseline and Python behavior reference; retain
+- [x] Pin the best executable typed baseline and Python behavior reference; retain
   their real limitations. Inspect `tests/test_workflow_lisp_improve_stdlib.py`,
   `tests/experiments/test_mlevolve_pair_fixture.py` and Phase 3 Tasks 13–15 to
   freeze complete behavioral cases, not a toy approval-only helper.
-- [ ] Inventory imports, hooks, prompt schemas, document/output roles, path and
+- [x] Inventory imports, hooks, prompt schemas, document/output roles, path and
   artifact requirements, read-only effect restrictions, and current diagnostics.
   Label proposed W1/W3 examples as proposed when they cannot execute; do not
   require implementing either proposal to start the dynamic comparison.
-- [ ] Define the smallest command/provider/recovery slice needed by DC-1 and DC-2
-  from Phase 3 Tasks 6–8/12–15; check upstream availability and import reviewed
+- [x] Define the smallest command/provider/boundary slice needed by DC-1 and DC-2
+  from Phase 3 Tasks 6–7/12–15; check upstream availability and import reviewed
   slices through the synchronization protocol above. Record missing dependencies
   with their upstream owners. Include R12 authored request parity where used;
   do not port views, watchdogs or child runs merely to start the spike.
-- [ ] Record exact fixture counts, paths and expected observations before coding;
+- [x] Record exact fixture counts, paths and expected observations before coding;
   allocate one finite spike with explicit owner transfers and independent review.
   Amend unresolved semantic details through Design, including representation,
-  schema strictness, call identity and deterministic budget accounting.
+  schema strictness, call context and deterministic budget accounting.
+
+Qualification execution, 2026-10-02: control/source pin `4b69ee00`; the
+[single report](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md)
+records the owner/caller inventory, actual missing upstream slices and frozen
+consumer controls. Fresh collection found 105 cases (20 improve, 76 paired
+fixture, nine pure CLI); collection is not runtime proof. On 2026-10-02,
+`/root/planning_dynamic_core_sequence` passed the independent Design review and
+`/root/design_dynamic_core_roadmap` passed the plan/report review; dispositions
+and bounded corrections are recorded in report §5. No shared implementation is copied
+or recreated to cover missing upstream performers/recovery.
+
+Owner clarification: retain most existing type declarations/descriptors → prompt
+formatting, input rendering, document/output roles, validation, projection and
+transport machinery. The candidate changes high-level composition toward ordinary
+Scheme-like functions/closures; its initial JSON artifact is an internal seam,
+not the final authoring surface. The report names the concrete reused pipeline.
+
+**Bounded first sub-batch DC-1a:** only
+`experiments/dynamic_core_evaluation/{program,evaluator}.py` and
+`tests/experiments/test_dynamic_core_evaluation.py`; 48 frozen pure/admission/
+boundary/budget cases, detailed in report §5. No shared code, parser, public target,
+effect shim or durable store. The coordinator selected this independent
+sub-batch after both reviews; its three paths are assigned to
+`/root/design_dynamic_core_roadmap/impl_code_dynamic_core_pure` (Luna 6 xhigh).
+DC-1b reuses real boundary/dispatch owners, checking upstream Tasks 6–7/12 for
+reusable progress first. The report's twelve families distinguish required
+fresh-execution evidence from accepted tracking/recovery losses. Task 8 and a
+dynamic memo/authority bridge are not prerequisites; pure success alone still
+cannot select DC-2.
 
 **Exit:** reviewed scope authorizes only DC-1's bounded experiment; no production
 version or release admission is inferred. Stop at a concrete unresolved contract
 rather than inventing one inside implementation.
 
 ## DC-1: Feasibility Spike And Gate DC-F
+
+**DC-1a complete, 2026-10-02:** the three experimental files passed independent
+conformity and quality review. Final candidate checks: 48 passed; serialized
+closure/generic-helper demo passed; nine unchanged public CLI controls passed.
+[Execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#6-dc-1a-execution-evidence)
+separates these results from the still-pending full DC-F matrix. Next is DC-1b
+qualification of fresh leaf execution through existing complete contract owners;
+freeze its exact cases/API before implementation. No new gate is passed here.
 
 **Artifacts:** create `experiments/dynamic_core_evaluation/` only when this task
 runs; use a minimal candidate module and `.orc` specimens there, and
@@ -201,10 +249,10 @@ merely by these planned paths.
   `python -m pytest --collect-only -q tests/experiments/test_dynamic_core_evaluation.py`.
 - [ ] Implement ordinary dynamic values/functions/lexical closures in the bounded
   candidate after importing the required upstream shared progress; reuse the
-  pure catalog, memo and admitted effect boundaries. One helper body must work
+  pure catalog and admitted effect boundaries. One helper body must work
   with different internal values without specialization.
 - [ ] Replace candidate P5 with checked lexical scope/code targets, schema and
-  effect bindings, site integrity and versioned artifact read-back; never disable
+  effect bindings and versioned artifact read-back; never disable
   validation or lower dynamic functions back into typed specialization.
 - [ ] Run the narrow module, correct only demonstrated defects, run one orchestrator
   or demo integration smoke, and record the exact invocation and limitations.
@@ -214,16 +262,18 @@ merely by these planned paths.
 
 | DC-F obligation | Required observations |
 | --- | --- |
-| Ordinary calls and lexical values | Create, return, store in internal collections and pass closures; select a closure from committed data; capture a committed value; definition-site values survive later binders |
-| Replay and identity | Interrupt before/after another effect commit and reconstruct closures from pinned code/inputs/commits; identical trace reuses commits; actual selected code plus lexical call/loop frames disambiguate identities without paths, spans, addresses or clocks |
-| Strict boundary schemas | Inputs checked before launch, outputs before commit; reject wrong Bool, missing/extra fields, invalid nested/tagged payloads, non-finite numbers and closures at public/provider/command boundaries; preserve document snapshots and required output checks |
-| Admission independent of compiler generation | Reject forged code references, schema/site tables, undeclared hosts and invalid artifact versions on read-back; a closure attempting an effect in a read-only context refuses before dispatch; no dynamic eval/import/host-call escape |
-| Bounded execution | Self-application exhausts a pinned deterministic budget; calls, replay and memo hits consume it; effect commits never reset it; resume cannot evade exhaustion |
-| Recovery and authority | One state authority and writer; orphan output is not adopted, divergent code/schema/input/file evidence refuses reuse, pending must-not-repeat effects refuse unsafe retry; no exactly-once external-execution claim |
+| Ordinary calls and lexical values | Create, return, store in internal collections and pass closures; select a closure using a validated effect result and capture that value; definition-site values survive later binders |
+| Fresh effect execution | Invoke actual shared command/provider transport from dynamic composition. Restart starts from entry with fresh attempt/result locations; record repeated calls and external-work consequences, without claiming committed-result reuse |
+| Strict boundary schemas | Inputs checked before launch, outputs before exposure; reject wrong Bool, missing/extra fields, invalid nested/tagged payloads, non-finite numbers and closures at public/provider/command boundaries; preserve document snapshots and required output checks |
+| Admission independent of compiler generation | Reject forged code/schema references, undeclared hosts and invalid artifact versions on read-back; honor declared execution permissions; no dynamic eval/import/host-call escape. No static purity/effect-summary guarantee is required |
+| Bounded execution | Self-application exhausts a pinned deterministic budget; calls and actual execution consume it, effects do not reset it within an invocation. Restart is a new invocation, not a way to claim resumed progress |
+| Honest failure semantics | Invalid/orphan bundles are not consumed as fresh successful results. Report partial external writes and repeated work after a failed invocation; recovery, exactly-once execution and rollback are not promised |
 
 **DC-F:** feasibility requires all applicable rows with fresh evidence. Continue
-selects DC-2 only. Revise/stop follow the finite policy above; unproven identity,
-reconstruction, boundary enforcement or budget safety prevents utility rollout.
+selects DC-2 only. Revise/stop follow the finite policy above; unproven dynamic
+composition, real boundary enforcement or budget safety prevents utility rollout.
+Missing effect tracking/resume does not fail this gate; quantify its consequences
+in DC-2 instead of restoring it merely to match the incumbent.
 
 ## DC-2: Full Utility Comparison And Gate DC-U
 
@@ -234,7 +284,8 @@ reconstruction, boundary enforcement or budget safety prevents utility rollout.
 - [ ] Port full `improve`: APPROVE, REVISE, BLOCKED, EXHAUSTED; latest revised
   candidate and evidence/reason payloads; zero limit rejected before hooks;
   invalid hook output and final-iteration revision failures remain failures;
-  imported/inline order and committed-hook reuse agree with the control.
+  imported/inline fresh-run order agrees with the control. Record committed-hook
+  reuse as a lost capability of the non-resuming candidate, not a parity failure.
 - [ ] Port full paired-search policy: seed ranking, strict improvement/ties,
   invalid evaluation, one same-branch repair, stalls, one fusion, full history,
   budget/score stops, invalid budgets and exhaustion. Run all 72 existing
@@ -245,21 +296,24 @@ reconstruction, boundary enforcement or budget safety prevents utility rollout.
 - [ ] Perform four paired edits: add a state field, change review payload, capture
   context, extract a helper. Record touched sites, duplicated facts, concepts,
   repairs and diagnosis. Preserve useful domain schemas/types instead of counting
-  their removal as a gain. State errors found before and after costly effects.
+  their removal as a gain. State errors found before and after costly effects;
+  compare repeated calls/cost and partial outputs after interruption/restart.
 - [ ] Compare the best **implemented** typed baseline and the proposed W1/W3
   improvement honestly. If W1/W3 cannot execute, label it a counterfactual and
   narrow the unique-gain claim; no requirement to build both languages first.
 - [ ] Inventory actual added/retained/displaced owners, validators, specialization
-  paths, identity forms and compatibility costs. Include budget/replay/runtime
-  diagnostics, lost static checks and old-target retention; LOC alone is not a
+  paths, identity forms and compatibility costs. Include budget/runtime
+  diagnostics, lost static checks/recovery and old-target retention; LOC alone is not a
   complexity or authoring verdict. No paid-provider quality/cost conclusion from
   scripted leaves or an unbudgeted authoring study.
 - [ ] Run narrow parity/integration checks and independent utility review; record
   supported, adverse, missing and untested evidence separately, then DC-U.
 
 **DC-U:** owner judges meaningful authoring/reuse benefit beyond the incumbent and
-credible W1/W3 gains, preserved full protocols, useful diagnostics including late
-errors, and net complexity after compatibility. Passing parity establishes
+credible W1/W3 gains, preserved fresh-run domain protocols, useful diagnostics
+including late errors, and net complexity after compatibility. Explicitly weigh
+lost effect tracking and resumability against those gains; neither loss alone
+requires rejection. Passing fresh-run parity establishes
 correctness only. Continue selects named DC-3 readiness work; stop retains typed
 execution and may qualify W3 under its existing plan, without shipping closures.
 
@@ -270,19 +324,24 @@ plan and accepted owner amendments. Exact files and independent verification
 belong to that plan; this task does not preallocate a language target or mutate
 normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
 
-- [ ] Settle distinct target/IR/state-profile versions, schema strictness,
-  mixed-version imports, stdlib API and checkpoint/run dispositions with owners.
+- [ ] Settle target/IR versions, schema strictness, mixed-version imports,
+  stdlib API and existing checkpoint/run dispositions with owners. Define only
+  the state the candidate actually retains; no resumable state profile is required.
   Preserve old run pins; never reinterpret typed checkpoints as dynamic captures.
 - [ ] Import upstream delivery of the named production slice: shared
-  requests/performers, recovery/invalidation and document transport from Tasks
-  6–8/12; child runs/coordinators in Task 9 when admitted; public views, report,
+  requests/performers and document transport from Tasks 6–7/12; child
+  runs/coordinators in Task 9 only when admitted; public views, report,
   dashboard/monitor/watchdog in Tasks 10–11 for the selected release. Implement
   only agreed dynamic-specific adaptations here and requalify the combined
-  behavior; route missing shared work to its upstream owner.
+  behavior; route missing shared work to its upstream owner. Resume/invalidation
+  and dynamic memo/authority integration are optional later capabilities, not
+  release requirements for the explicitly non-resuming profile.
 - [ ] Close relevant Tasks 13–15 full fixture/live-provider/artifact/kill/durable
   publication evidence for the admitted release, beyond earlier focused spike
   checks. Mark unavailable credentials or unimplemented classes as missing,
-  never satisfied by stand-ins. Obtain separate allocation for paid/live work.
+  never satisfied by stand-ins. Test interruption/restart consequences honestly;
+  do not require replay/durable-continuation guarantees the selected profile
+  omits. Obtain separate allocation for paid/live work.
 - [ ] Apply Tasks 16–17 to truthful selected-profile docs and independent closeout;
   retain the original typed checklist as history/fallback. Give each production
   obligation its exact evidence owner; candidate success never checks off a

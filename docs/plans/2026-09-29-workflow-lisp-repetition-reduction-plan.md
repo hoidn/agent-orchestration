@@ -46,9 +46,11 @@ W0–W5 or a new language target. All implementation tasks remain pending.
 Delivery integration, 2026-10-01: W3 is a component of evaluated-execution
 delivery, not a separately scheduled feature. The
 [parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-owns scheduling. Its 2026-10-02 branch amendment selects
-[dynamic DC-0 qualification](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-next, then a bounded spike and DC-F/DC-U/DC-P decisions. Task 4 and Phase 6a
+owns scheduling. The branch's
+[dynamic evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+now qualifies DC-1b after reviewed DC-0/DC-1a completion, with DC-F/DC-U/DC-P still
+pending. Effect tracking/resumability may be traded for composition gains;
+their preservation is not a candidate prerequisite. Task 4 and Phase 6a
 feed the typed comparison for DC-U. If the typed route is retained, Phase 3
 provides its runtime and Phase 4c delivers Tasks 11–14 after the open decisions
 and Task 6 registration. If dynamic closures are selected, ordinary functions

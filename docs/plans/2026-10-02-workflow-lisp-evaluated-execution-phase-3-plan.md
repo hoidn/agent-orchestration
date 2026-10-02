@@ -32,7 +32,7 @@ Read, in this order:
 The original typed Phases **3–7** order remains the fallback and the source
 control worktree's independently authorized scope. On this branch the
 [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) selects
-DC-0 qualification next, followed by a bounded feasibility spike; DC-F, DC-U and
+DC-1b qualification after reviewed DC-0/DC-1a completion; DC-F, DC-U and
 DC-P require explicit owner dispositions before their respective successors.
 Do not interpret the historical whole-goal wording as permission to finish all
 typed tasks first, adopt the candidate, or migrate both routes. This plan neither
@@ -64,25 +64,27 @@ coordinate missing upstream work and continue independent candidate work.
 | Task | Dynamic-route dependency and scope |
 | --- | --- |
 | 1 — values | Keep completed typed values/boundary evidence; adapt ordinary internal records and callable values in the candidate, retaining strict schemas at boundaries |
-| 2 — evaluator | Keep completed control/catalog evidence; adapt evaluation/call frames and add pinned deterministic budget/replay accounting |
+| 2 — evaluator | Keep completed control/catalog evidence; adapt evaluation/call frames and add a pinned per-invocation deterministic budget |
 | 3 — calls | Keep typed capture/boundary/shared-union proof receipts as fallback; candidate uses lexical closures and its replacement checked representation, not specialization |
-| 4 — memo | Reuse integrated journal/reducer and authority invariants; explicitly version candidate identity and schema evidence |
-| 5 — authority/CLI | Reuse integrated authority and bounded pure CLI substrate; no claim that all public operations or effects are delivered |
+| 4 — memo | Keep integrated journal/reducer as typed baseline; no candidate memo or durable identity bridge is required for fresh execution |
+| 5 — authority/CLI | Preserve typed authority and reuse applicable CLI/contract pieces; do not force the fresh candidate into typed run authority |
 | 6 — commands/R12 | Import the upstream performer, file closure, request parity and substitution slices exercised by DC-F/DC-U; implement only agreed candidate adaptations here and preserve reviewed contracts |
 | 7 — providers | Reuse prompt/output transport and required schema enforcement; deterministic providers suffice for initial protocol evidence, not live readiness |
-| 8 — resume/invalidation | Prove the candidate's exercised replay/recovery subset before DC-F; full selected-profile invalidation/readiness follows DC-U |
+| 8 — resume/invalidation | Optional later candidate capability; absent resume/invalidation is an accepted tradeoff, not a DC-F or release prerequisite |
 | 9 — child runs | Import upstream delivery early only if an evaluation fixture needs it; otherwise required admitted child/coordinator proofs belong to readiness |
 | 10 — views | Full selected-profile projections/readers belong to readiness, not the first spike |
 | 11 — monitor/watchdog | Same readiness dependency; do not require complete operational tooling before bounded feasibility |
 | 12 — input documents | Reuse transport/validation semantics; adapt schema authoring only with its candidate contract, preserving R12/order/parity where exercised |
 | 13 — totality/programs | Focused closure, full improve and search cases enter DC-F/DC-U early; full admitted production corpus later |
 | 14 — providers/artifacts | Exercise necessary deterministic handoffs early; actual providers and complete admitted artifact evidence remain readiness obligations |
-| 15 — crash qualification | Focused interrupted closure/replay/budget evidence before DC-F; full selected-release external-kill/durability coverage later |
+| 15 — crash qualification | Measure interruption, fresh restart and repeated external work; preserve claimed publication/boundary guarantees without requiring replay |
 | 16 — docs | Keep availability truthful throughout; selected dynamic-profile publication has its own evidence and does not mark typed task completion |
 | 17 — closeout | Separate selected-candidate closeout after readiness; preserve typed compatibility/receipt history and explicit fallback |
 
-Only prerequisites needed by the bounded experiment are pulled forward; this
-mapping does not waive their contracts. All remaining typed prerequisites below
+Owner amendment: the candidate may omit effect tracking and resumability when
+composition gains offset the loss. Reuse actual boundary/dispatch contracts; the
+typed memo/replay requirements below do not become candidate prerequisites.
+Only prerequisites needed by the bounded experiment are pulled forward. All remaining typed prerequisites below
 continue to govern **typed full-phase completion**, not entry to DC-0/DC-1.
 Candidate-only behavior gets new evidence; reuse valid shared-owner checks and
 rerun them when relevant changes justify it. Phase 4a/4b and Phase 5 require the
@@ -95,7 +97,11 @@ Every gate records evidence plus owner/date/continue-revise-stop. Continue names
 one successor; revise names a bounded correction and one reevaluation, then stop
 or a fresh owner allocation; stop returns to the unfinished typed tasks below.
 Pending gates block successors, not the evidence needed to reach the gate.
-The documentation turn launches no experiment, production target or live study.
+The owner has started bounded evaluation; the
+[execution report](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md)
+records DC-0 qualification and DC-1a scope. No production target or live study
+is selected. Shared dispatch/boundary work retains its upstream owners;
+recovery is optional for the explicitly non-resuming candidate.
 
 ## Contract Decisions Before Dependent Code
 

@@ -679,19 +679,22 @@ CF-1c hold and research allocations remain intact.
 
 ## Dynamic-Core Evaluation
 
-**Status:** DC-0 qualification selected next on `design/orc-dynamic-core-evaluation`;
-execution pending. The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+**Status:** execution started on `design/orc-dynamic-core-evaluation`; DC-0
+qualification and DC-1a pure mechanism complete and reviewed; DC-1b qualification next.
+The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns finite tasks and gate evidence; the
 [proposal](../design/workflow_lisp_dynamic_core_proposal.md) owns candidate
 semantics. This is an owner-directed implementation evaluation, not a sixth
 research unit, live-study budget or selected production architecture.
 
 Keep completed typed Phase 2 and integrated Phase 3 Tasks 1–5 as the baseline
-and reusable substrate. Adapt values/evaluation/calls; reuse memo/authority,
-performers, R12 request parity and boundary transport with versioned contracts.
+and reusable substrate. Adapt values/evaluation/calls; reuse contract generation,
+performers, request semantics and boundary transport. The owner accepts lost
+effect tracking/resumability if composition gains offset them: evaluate a fresh
+execution candidate, without requiring a memo/authority/recovery bridge.
 The [Phase 3 overlay](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#branch-scope-overlay-dynamic-evaluation)
 preserves all seventeen tasks and receipts while moving only required shared
-slices and focused fixture/recovery checks ahead of full runtime readiness.
+slices and focused fresh-execution checks ahead of full runtime readiness.
 The source control worktree's independently authorized typed work is unchanged.
 
 Shared components continue to be implemented upstream. Follow the evaluation
@@ -704,16 +707,18 @@ advance independent work rather than duplicate that implementation.
 
 | Gate | Evidence and explicit owner decision | Continue activates |
 | --- | --- | --- |
-| DC-F — feasibility | Ordinary functions/closures, strict boundary schemas, checked replacement P5, deterministic identity/budget and reconstruction/replay | DC-2 full utility comparison |
-| DC-U — utility | Full improve and MLEvolve parity, four paired edits, early/late diagnosis and total complexity against implemented typed control plus honestly labeled W1/W3 gains | Named DC-3 production-readiness scope |
-| DC-P — production readiness | Version/import/stdlib/run contracts, required public operations/readers/coordinators/recovery and one destination's migration/deletion evidence | Explicitly authorized Phase 6b migration |
+| DC-F — feasibility | Ordinary functions/closures, existing strict boundary contracts, checked admission, per-invocation budget and real fresh dispatch | DC-2 full utility comparison |
+| DC-U — utility | Full fresh-run improve/MLEvolve parity and paired edits; weigh composition/complexity gains against lost tracking/resume and repeated work | Named DC-3 production-readiness scope |
+| DC-P — production readiness | Version/import/stdlib contracts, honestly non-resuming public behavior, selected operations and one destination's migration/deletion evidence | Explicitly authorized Phase 6b migration |
 
 Qualification and the bounded spike happen **before** DC-F; pending gates block
 successors, not the work needed to gather their evidence. Each owner records
 continue, revise or stop: revise names one bounded correction and one reevaluation,
 then stop or a fresh owner allocation; stop returns to pending typed Phase 3
 Tasks 6–17 and qualified Phase 6a/W3/4/5 work. Tests never auto-select continuation.
-The current turn edits/integrates documents only; no candidate experiment runs.
+The [execution report](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md)
+separates pure evidence from real boundary/dispatch integration and records
+recovery as an optional capability rather than a prerequisite.
 
 Phase 6a evidence feeds DC-U. Shared Phase 4a/4b and Phase 5 still require the
 selected runtime's contract proofs and a consumer; static Phase 3 completion is
@@ -848,7 +853,7 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   owns the selected closed-program compiler at target 2.35 (owner decision,
   2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
   owns the current branch amendment: preserve completed Phase 2 and Phase 3
-  Tasks 1–5; select DC-0 qualification next and the bounded spike before DC-F;
+  Tasks 1–5; DC-0/DC-1a complete, qualify DC-1b next before DC-F;
   require explicit DC-F/DC-U/DC-P dispositions before later comparison,
   readiness and migration. The prior typed order remains fallback. No new
   research study or source worktree task reselection follows.

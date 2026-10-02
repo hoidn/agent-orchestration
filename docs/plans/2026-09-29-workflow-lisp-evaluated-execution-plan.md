@@ -392,8 +392,10 @@ Tasks 1–5, then follow the
 (including early Phase 6a evidence) → DC-U → DC-3 production readiness → DC-P
 → one selected Phase 6b migration → Phase 7 retirement.**
 
-DC-0 is the selected next prospective task; no new experiment runs in this
-planning turn. Each gate needs evidence and an explicit owner continue/revise/
+Execution has started: DC-0 qualification passed independent review; the bounded
+DC-1a pure mechanism sub-batch is complete and reviewed; DC-1b qualification is next. Its boundary/dispatch counterpart
+reuses upstream boundary/dispatch delivery, with resume optional; see the [execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md).
+Each gate needs evidence and an explicit owner continue/revise/
 stop disposition. Continue activates only its named successor; revise names one
 bounded correction and one reevaluation, then stop or fresh owner allocation;
 stop returns to the typed route below. Pending gates block successors, not the
@@ -418,8 +420,8 @@ work stays with its upstream owner; do not implement the same component here.
 | --- | --- |
 | Phase 2 | Keep completed typed compiler and artifact/closure/boundary infrastructure; candidate representation replaces specialization/type proofs and P5 with its own checked admission, never disables validation |
 | Phase 3 Tasks 1–3 | Adapt values, evaluator and calls for ordinary functions/lexical closures; retain completed typed implementation and proof evidence as baseline/fallback |
-| Phase 3 Tasks 4–5 | Reuse memo, authority and bounded CLI substrate with explicit version contracts |
-| Phase 3 Tasks 6–8, 12–15 | Import necessary shared performers, R12 request parity, recovery and input transport from upstream; add candidate-specific focused evidence early; full release qualification comes after DC-U |
+| Phase 3 Tasks 4–5 | Retain typed memo/authority as baseline; reuse applicable CLI/boundary pieces without requiring candidate resume |
+| Phase 3 Tasks 6–8, 12–15 | Import necessary shared performers, request/input transport and validation; compare fresh restart/repeated work. Task 8 recovery is optional, not a candidate gate |
 | Phase 3 Tasks 9–11, 16–17 | Child runs when needed; readers/watchdog are readiness, not initial-spike prerequisites; honest availability and separate selected-profile closeout |
 | Phase 4a/4b and Phase 5 | Shared, consumer-driven work after applicable runtime contract proofs; typed Phase 3 completion alone never authorizes dynamic parallel effects |
 | Phase 4c W3 | Typed comparator/fallback; candidate lexical closures replace future W3 delivery only if selected, with preserved caller/compatibility evidence |
@@ -427,7 +429,9 @@ work stays with its upstream owner; do not implement the same component here.
 
 W1/W5 are static-specific or deferred; EL-1 must reassess useful effect
 enforcement/inspection for dynamic functions, not import static inference
-cleanup as a prerequisite. This amendment starts no second full migration.
+cleanup as a prerequisite. The owner accepts loss of effect tracking and
+resumability if other advantages offset it; DC-U weighs that loss explicitly.
+This amendment starts no second full migration.
 
 The table below records useful capabilities and production obligations. Its
 typed forms are the baseline/comparator, not mandatory candidate mechanisms or
