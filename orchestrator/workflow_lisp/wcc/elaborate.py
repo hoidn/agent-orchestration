@@ -3477,6 +3477,7 @@ def _elaborate_expr_to_value(
                     name=expr.base.name,
                 ),
                 fields=expr.fields,
+                shared_field_types=expr.shared_field_types,
             ),
         )
     if isinstance(expr, RecordExpr):
@@ -6552,7 +6553,11 @@ def _infer_expr_type(
         return expr.path_type_ref
     if isinstance(expr, FieldAccessExpr):
         current: TypeRef = value_env[expr.base.name]
-        for field_name in expr.fields:
+        targets = expr.shared_field_types or (None,) * len(expr.fields)
+        for field_name, target in zip(expr.fields, targets, strict=True):
+            if target is not None:
+                current = target
+                continue
             if isinstance(current, UnionTypeRef) and field_name == "variant":
                 current = DiscriminantTypeRef(
                     union_name=current.name,

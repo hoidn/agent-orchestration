@@ -47,6 +47,8 @@ from orchestrator.workflow.view_renderer import (
     resolve_view_renderer,
 )
 
+from ..type_env import _named_type_basename
+
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
 from .names import (
     _parse_identity,
@@ -89,7 +91,7 @@ _BODY_KEYS = {
 _VALUE_KEYS = {
     "lit": {"k", "v", "type", "@"},
     "name": {"k", "n", "@"},
-    "field": {"k", "base", "path", "@"},
+    "field": {"k", "base", "path", "shared", "@"},
     "record": {"k", "type", "fields", "@"},
     "inject": {"k", "type", "variant", "fields", "@"},
     "op": {"k", "payload", "args", "@"},
@@ -257,6 +259,7 @@ class _Checker:
         self.pending_boundaries: list[dict[str, Any]] = []
         self.definition_order: list[str] = []
         self._run_ref_visiting: set[str] = set()
+        self._shared_key_types: dict[str, Any] | None = None
 
     def fail(
         self,
@@ -1109,6 +1112,9 @@ class _Checker:
             self._check_key_type_markers(value.get("type"), signatures)
         elif kind == "field":
             self._check_closed_value_markers(value.get("base"), signatures)
+            for target in value.get("shared", []):
+                if target is not None:
+                    self._check_key_type_markers(target, signatures)
         elif kind in {"record", "inject"}:
             self._check_key_type_markers(value.get("type"), signatures)
             for row in value.get("fields", []):
@@ -1264,8 +1270,9 @@ class _Checker:
             path = value["path"]
             if not path or any(not isinstance(part, str) or not part for part in path):
                 self.fail("definition_key", "closed field path must be a nonempty string path", value)
-            for segment in path:
-                descriptor = self._key_field_type(descriptor, segment, value)
+            targets = self._shared_targets(value, key_domain=True)
+            for segment, target in zip(path, targets, strict=True):
+                descriptor = self._shared_field_type(descriptor, segment, target, value, key_domain=True)
             return descriptor
         if kind in {"record", "inject"}:
             descriptor = value["type"]
@@ -2646,9 +2653,12 @@ class _Checker:
             if set(value) != {"k", "n"} or not isinstance(value["n"], str):
                 self.fail("definition_key", "closed name has invalid fields")
         elif kind == "field":
-            if set(value) != {"k", "base", "path"} or not isinstance(value["path"], list):
+            if not {"k", "base", "path"}.issubset(value) or set(value) - {"k", "base", "path", "shared"} or not isinstance(value["path"], list):
                 self.fail("definition_key", "closed field value is malformed")
             self._validate_closed_value(value["base"])
+            for target in self._shared_targets(value, key_domain=True):
+                if target is not None:
+                    self._validate_key_type(target, runtime_only=True)
         elif kind in {"record", "inject"}:
             expected = {"k", "type", "fields"} if kind == "record" else {"k", "type", "variant", "fields"}
             if set(value) != expected:
@@ -3061,8 +3071,9 @@ class _Checker:
             path = node.get("path")
             if not isinstance(path, list) or not path or any(not isinstance(part, str) or not part for part in path):
                 self.fail("field_path", "field path must be a nonempty string array", node)
-            for segment in path:
-                descriptor = self._field_type(descriptor, segment, node)
+            targets = self._shared_targets(node, key_domain=False)
+            for segment, target in zip(path, targets, strict=True):
+                descriptor = self._shared_field_type(descriptor, segment, target, node, key_domain=False)
             return descriptor
         if kind == "record":
             descriptor = node.get("type")
@@ -3211,6 +3222,224 @@ class _Checker:
         if kind == "perform":
             self.fail("effect_in_value", "perform appears in a value-only position", node)
         self.fail("node_kind", f"unknown value node kind {kind!r}", node)
+
+    def _shared_catalog(self, key_domain: bool) -> Mapping[str, Any]:
+        if not key_domain:
+            return self.types
+        if self._shared_key_types is None:
+            self._shared_key_types = {self._canonical(row.get("name", row)): row for row in (
+                key_type_descriptor(descriptor, run_ref_signatures=self.run_ref_signatures)
+                for descriptor in self.types.values()
+            )}
+        return self._shared_key_types
+
+    def _shared_lookup(self, identity: Any, *, key_domain: bool) -> Any:
+        key = self._canonical(identity) if key_domain else _render_key_identity(identity)
+        return self._shared_catalog(key_domain).get(key)
+
+    @staticmethod
+    def _shared_identity(identity: Any) -> Any:
+        return _parse_identity(identity) if isinstance(identity, str) else identity
+
+    def _shared_argument(self, identity: Any, *, key_domain: bool) -> Any:
+        parsed = self._shared_identity(identity)
+        if isinstance(parsed, Mapping) and parsed.get("head") in {"Optional", "List", "Map"}:
+            args = [self._shared_argument(arg, key_domain=key_domain) for arg in parsed["args"]]
+            if parsed["head"] == "Map":
+                return {"kind": "map", "key": args[0], "value": args[1]}
+            return {"kind": parsed["head"].lower(), "item": args[0]}
+        if isinstance(parsed, str) and parsed in COMPILER_PRIMITIVE_TYPE_NAMES:
+            return {"kind": "primitive", "name": parsed}
+        result = self._shared_lookup(parsed if key_domain else identity, key_domain=key_domain)
+        if result is None:
+            self.fail("definition_key" if key_domain else "nominal_definition", "shared field argument has no catalog fact")
+        return result
+
+    def _shared_owner_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        left, right = self._shared_identity(target), self._shared_identity(actual)
+        if isinstance(left, str) and isinstance(right, str):
+            return _named_type_basename(left) == _named_type_basename(right)
+        if not isinstance(left, Mapping) or not isinstance(right, Mapping):
+            return False
+        if set(left) != {"head", "args"} or set(right) != {"head", "args"}:
+            return False
+        return left["head"] == right["head"] and len(left["args"]) == len(right["args"]) and all(
+            self._shared_compatible(
+                self._shared_argument(t, key_domain=key_domain),
+                self._shared_argument(a, key_domain=key_domain), key_domain=key_domain,
+            ) for t, a in zip(left["args"], right["args"])
+        )
+
+    def _shared_discriminant_owner(self, descriptor: Any, *, key_domain: bool) -> Any:
+        if descriptor.get("kind") != "enum":
+            return None
+        identity = self._shared_identity(descriptor["name"])
+        if isinstance(identity, str) and identity.endswith(".variant"):
+            owner = identity[:-len(".variant")]
+        elif isinstance(identity, Mapping) and set(identity) == {"owner", "member"}:
+            owner = identity["owner"]
+        else:
+            return None
+        union = self._shared_lookup(owner, key_domain=key_domain)
+        if not isinstance(union, Mapping) or union.get("kind") != "union":
+            return None
+        return union if descriptor["allowed"] == [row["name"] for row in union["variants"]] else None
+
+    @staticmethod
+    def _shared_generated(descriptor: Any) -> bool:
+        if descriptor.get("kind") == "run-ref-result":
+            return True
+        identity = descriptor.get("name", "")
+        head = identity.get("head", "") if isinstance(identity, Mapping) else identity
+        return head.startswith(("RunRefResult$", "workflow_lisp/private::loop-state-carrier$"))
+
+    def _shared_fields_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        targets = {row["name"]: row["type"] for row in target}
+        actuals = {row["name"]: row["type"] for row in actual}
+        return targets.keys() == actuals.keys() and all(
+            self._shared_compatible(targets[name], actuals[name], key_domain=key_domain)
+            for name in targets
+        )
+
+    def _shared_case_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        if target["kind"] == "variant_case":
+            if actual["variant"] != target["variant"]:
+                return False
+            owner, fields = target["union_name"], target["fields"]
+        elif target["kind"] == "union":
+            variant = next((row for row in target["variants"] if row["name"] == actual["variant"]), None)
+            if variant is None:
+                return False
+            owner, fields = target["name"], variant["fields"]
+        else:
+            return False
+        return self._shared_owner_compatible(owner, actual["union_name"], key_domain=key_domain) and self._shared_fields_compatible(fields, actual["fields"], key_domain=key_domain)
+
+    def _shared_union_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        if not self._shared_owner_compatible(target["name"], actual["name"], key_domain=key_domain):
+            return False
+        targets = {row["name"]: row["fields"] for row in target["variants"]}
+        actuals = {row["name"]: row["fields"] for row in actual["variants"]}
+        return targets.keys() == actuals.keys() and all(
+            self._shared_fields_compatible(targets[name], actuals[name], key_domain=key_domain)
+            for name in targets
+        )
+
+    @staticmethod
+    def _shared_scalar_compatible(target: Any, actual: Any) -> bool:
+        if _named_type_basename(target["name"]) != _named_type_basename(actual["name"]):
+            return False
+        slots = {"primitive": (), "enum": ("allowed",), "path": ("under", "must_exist_target")}
+        return all(target[slot] == actual[slot] for slot in slots[target["kind"]])
+
+    def _shared_declared_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        kind = target["kind"]
+        if kind in {"optional", "list"}:
+            return self._shared_compatible(target["item"], actual["item"], key_domain=key_domain)
+        if kind == "map":
+            return all(self._shared_compatible(target[slot], actual[slot], key_domain=key_domain) for slot in ("key", "value"))
+        if kind == "record":
+            return self._shared_owner_compatible(target["name"], actual["name"], key_domain=key_domain) and self._shared_fields_compatible(target["fields"], actual["fields"], key_domain=key_domain)
+        if kind == "union":
+            return self._shared_union_compatible(target, actual, key_domain=key_domain)
+        return self._shared_scalar_compatible(target, actual)
+
+    def _shared_discriminants_compatible(self, target, actual, left, right, *, key_domain):
+        if left is None or right is None:
+            return False
+        return target["allowed"] == actual["allowed"] and self._shared_owner_compatible(left["name"], right["name"], key_domain=key_domain)
+
+    def _shared_compatible(self, target: Any, actual: Any, *, key_domain: bool) -> bool:
+        """Local C_R/C_K: conserve case activity at every recursive position."""
+        if self._same(target, actual):
+            return True
+        if actual["kind"] == "variant_case":
+            return self._shared_case_compatible(target, actual, key_domain=key_domain)
+        if target["kind"] == "variant_case":
+            return False
+        left = self._shared_discriminant_owner(target, key_domain=key_domain)
+        right = self._shared_discriminant_owner(actual, key_domain=key_domain)
+        if left is not None or right is not None:
+            return self._shared_discriminants_compatible(target, actual, left, right, key_domain=key_domain)
+        if target["kind"] != actual["kind"]:
+            return False
+        if self._shared_generated(target) or self._shared_generated(actual):
+            return False
+        return self._shared_declared_compatible(target, actual, key_domain=key_domain)
+
+    def _shared_assignable(self, actual: Any, target: Any, *, key_domain: bool) -> bool:
+        """F weakens path refinements only at the certified segment itself."""
+        if self._shared_compatible(target, actual, key_domain=key_domain):
+            return True
+        return actual["kind"] == target["kind"] == "path" and actual["under"] == target["under"] and (actual["must_exist_target"] or not target["must_exist_target"])
+
+    @staticmethod
+    def _shared_descriptor_children(descriptor: Any):
+        kind = descriptor["kind"]
+        if kind in {"optional", "list"}:
+            return (descriptor["item"],)
+        if kind == "map":
+            return descriptor["key"], descriptor["value"]
+        if kind in {"record", "variant_case"}:
+            return tuple(row["type"] for row in descriptor["fields"])
+        if kind == "union":
+            return tuple(row["type"] for variant in descriptor["variants"] for row in variant["fields"])
+        return ()
+
+    def _shared_key_nominals(self, descriptor: Any, node: Any) -> None:
+        kind = descriptor["kind"]
+        if kind in {"record", "union", "enum", "path", "run-ref-result"}:
+            registered = self._shared_lookup(descriptor.get("name", descriptor), key_domain=True)
+            if registered is None or not self._same(descriptor, registered):
+                self.fail("definition_key", "shared key type differs from projected nominal catalog", node)
+        elif kind == "variant_case":
+            owner = self._shared_lookup(descriptor["union_name"], key_domain=True)
+            variants = owner.get("variants", []) if isinstance(owner, Mapping) else []
+            variant = next((row for row in variants if row["name"] == descriptor["variant"]), None)
+            if variant is None or not self._same(descriptor["fields"], variant["fields"]):
+                self.fail("definition_key", "shared key case differs from its catalog owner", node)
+        for child in self._shared_descriptor_children(descriptor):
+            self._shared_key_nominals(child, node)
+
+    def _shared_validate_descriptor(self, descriptor: Any, node: Any, *, key_domain: bool) -> None:
+        if not key_domain:
+            self._validate_descriptor(descriptor, node=node)
+            return
+        self._validate_key_type(descriptor, runtime_only=True)
+        signatures = {self._canonical(row) for row in self.run_ref_signatures.values()}
+        self._check_key_type_markers(descriptor, signatures)
+        self._shared_key_nominals(descriptor, node)
+
+    def _shared_targets(self, node: Mapping[str, Any], *, key_domain: bool) -> list[Any]:
+        if "shared" not in node:
+            return [None] * len(node["path"])
+        targets = node["shared"]
+        if not isinstance(targets, list) or len(targets) != len(node["path"]) or not any(target is not None for target in targets):
+            self.fail("definition_key" if key_domain else "node_shape", "shared targets must be nonempty and aligned with field path", node)
+        return targets
+
+    def _shared_field_type(self, descriptor: Any, segment: str, target: Any, node: Any, *, key_domain: bool) -> Any:
+        if target is None:
+            ordinary = self._key_field_type if key_domain else self._field_type
+            return ordinary(descriptor, segment, node)
+        rule = "definition_key" if key_domain else "field_path"
+        self._shared_validate_descriptor(target, node, key_domain=key_domain)
+        for actual in self._shared_variant_fields(descriptor, segment, node, key_domain=key_domain):
+            if not self._shared_assignable(actual, target, key_domain=key_domain):
+                self.fail(rule, "shared field cannot be assigned to its certified target", node)
+        return target
+
+    def _shared_variant_fields(self, descriptor: Any, segment: str, node: Any, *, key_domain: bool):
+        rule = "definition_key" if key_domain else "field_path"
+        if descriptor.get("kind") != "union" or not descriptor["variants"] or segment == "variant":
+            self.fail(rule, "shared field target requires a nonempty union payload", node)
+        self._shared_validate_descriptor(descriptor, node, key_domain=key_domain)
+        for variant in descriptor["variants"]:
+            actual = next((row["type"] for row in variant["fields"] if row["name"] == segment), None)
+            if actual is None:
+                self.fail(rule, "shared field is absent from a variant", node)
+            self._shared_validate_descriptor(actual, node, key_domain=key_domain)
+            yield actual
 
     def _field_type(self, descriptor: Mapping[str, Any], segment: str, node: Any) -> dict[str, Any]:
         kind = descriptor.get("kind")

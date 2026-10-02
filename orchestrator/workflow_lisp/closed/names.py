@@ -1522,7 +1522,7 @@ def _remap_capture_fact_scope(facts: Any, index_map: Mapping[int, int]) -> Any:
     return result
 
 
-def _normalize_closed_value(value: Any) -> Any:
+def _normalize_closed_value(value: Any, *, run_ref_signatures=None) -> Any:
     """Project one checked closed expression without source names or labels."""
     # Checked closed values retain binder/reference links but no binder
     # provenance. Reserving source spellings would break alpha equivalence
@@ -1545,11 +1545,17 @@ def _normalize_closed_value(value: Any) -> Any:
         if kind == "name":
             return {"k": "name", "n": renamer.ref(node["n"], env=env)}
         if kind == "field":
-            return {
+            result = {
                 "k": "field",
                 "base": closed_value(node["base"], env),
                 "path": deepcopy(node["path"]),
             }
+            if "shared" in node:
+                result["shared"] = [
+                    key_type_descriptor(target, run_ref_signatures=run_ref_signatures or {})
+                    if target is not None else None for target in node["shared"]
+                ]
+            return result
         if kind in {"record", "inject"}:
             fields = [
                 [field_name, closed_value(field_value, env)]
@@ -1852,7 +1858,7 @@ def _definition_key(
                 [
                     selector,
                     _key_type_ref(type_ref, typed=typed, run_ref_signatures=run_refs),
-                    _normalize_closed_value(value),
+                    _normalize_closed_value(value, run_ref_signatures=run_refs.signatures),
                 ]
             )
         values.sort(key=lambda row: _formal_sort_key(row[0]))
@@ -2362,7 +2368,7 @@ def _procedure_reference_key(
         if descriptor != _key_type_ref(bound_args[formal].type_ref, typed=typed, run_ref_signatures=run_refs):
             raise ValueError(f"resolved bound formal type disagrees with target K: {formal!r}")
         if category == "value":
-            supplied = {"value": _normalize_closed_value(payload)}
+            supplied = {"value": _normalize_closed_value(payload, run_ref_signatures=run_refs.signatures)}
             if canonical_json_for_pure_value(supplied) != canonical_json_for_pure_value(binding):
                 raise ValueError(f"closed bound expression disagrees with target K: {formal!r}")
         elif category == "capture":

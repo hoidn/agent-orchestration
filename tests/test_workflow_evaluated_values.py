@@ -495,3 +495,40 @@ def test_built_union_variant_field_retains_checked_enum_descriptor(tmp_path: Pat
     )
     assert result.dependencies == {"committed:choice"}
     assert values.evaluate_closed_value(operator, environment).value is True
+
+
+@pytest.mark.parametrize("active", ["REPORT", "ARTIFACT"])
+def test_checked_shared_field_preserves_declared_path_dependencies_without_reads(monkeypatch, active):
+    values = _values_api()
+    other = {**PATH, "name": "other::ReportPath"}
+    target = {**PATH, "name": "Path.artifact-root", "must_exist_target": False}
+    choice = {"kind": "union", "name": "sample::Choice", "variants": [
+        {"name": tag, "fields": [{"name": "artifact", "type": descriptor}]}
+        for tag, descriptor in (("REPORT", PATH), ("ARTIFACT", other))]}
+    seen = []
+    def observe(*args, **kwargs):
+        raise AssertionError("pure projection reread the filesystem")
+    for attribute in ("exists", "is_file", "read_text", "read_bytes", "resolve"):
+        monkeypatch.setattr(Path, attribute, observe)
+    monkeypatch.setattr(os.path, "exists", observe)
+    producer = values.coerce_evaluated_value({"variant": active, "artifact": "artifacts/result"}, choice, dependencies={"committed-producer"})
+    def evaluate_body(body, environment):
+        seen.append(body)
+        return producer
+    node = {"k": "field", "base": {"k": "block", "body": {"k": "halt"}},
+            "path": ["artifact"], "shared": [target]}
+    result = values.evaluate_closed_value(node, values.LexicalEnvironment(), evaluate_body=evaluate_body)
+    assert result.json_value() == "artifacts/result"
+    assert dict(result.descriptor) == target
+    assert result.dependencies == producer.dependencies
+    assert seen == [{"k": "halt"}]
+
+
+def test_pure_ordinary_union_common_field_works_without_shared_evidence():
+    values = _values_api()
+    choice = {"kind": "union", "name": "sample::Choice", "variants": [
+        {"name": tag, "fields": [{"name": "n", "type": INT}]} for tag in ("A", "B")]}
+    node = {"k": "field", "base": {"k": "name", "n": "choice"}, "path": ["n"]}
+    for tag in ("A", "B"):
+        environment = values.LexicalEnvironment({"choice": values.coerce_evaluated_value({"variant": tag, "n": 7}, choice)})
+        assert values.evaluate_closed_value(node, environment).value == 7

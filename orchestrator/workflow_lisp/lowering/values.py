@@ -146,7 +146,7 @@ def _union_variant_materialize_source(
     )
 
 
-def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -> dict[str, Any]:
+def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
     """Represent a record parameter as nested refs to flattened inputs."""
 
     local_value: dict[str, Any] = {}
@@ -157,22 +157,24 @@ def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -
             local_value[field.name] = _build_record_local_value(
                 field_type,
                 generated_name=leaf_name,
+                type_env=type_env,
             )
         elif isinstance(field_type, UnionTypeRef):
             local_value[field.name] = _build_union_local_value(
                 field_type,
                 generated_name=leaf_name,
+                type_env=type_env,
             )
         else:
             local_value[field.name] = f"inputs.{leaf_name}"
     return local_value
 
 
-def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> dict[str, Any]:
+def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str, type_env: Any | None = None) -> dict[str, Any]:
     """Represent a union parameter as nested refs to flattened inputs."""
 
     local_value: dict[str, Any] = {}
-    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name):
+    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name, type_env=type_env):
         _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
     return local_value
 
@@ -470,7 +472,7 @@ def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -
     return local_value
 
 
-def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str, Any]:
+def _procedure_signature_local_values(procedure: TypedProcedureDef, *, type_env: Any | None = None) -> dict[str, Any]:
     """Seed local value refs from a private workflow procedure signature."""
 
     local_values: dict[str, Any] = {}
@@ -479,12 +481,14 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
             local_values[param_name] = _build_record_local_value(
                 param_type,
                 generated_name=param_name,
+                type_env=type_env,
             )
             continue
         if isinstance(param_type, UnionTypeRef):
             local_values[param_name] = _build_union_local_value(
                 param_type,
                 generated_name=param_name,
+                type_env=type_env,
             )
             continue
         local_values[param_name] = f"inputs.{param_name}"
@@ -495,16 +499,16 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
     return local_values
 
 
-def _signature_local_values(typed_workflow: Any) -> dict[str, Any]:
+def _signature_local_values(typed_workflow: Any, *, type_env: Any | None = None) -> dict[str, Any]:
     """Seed local value refs from a workflow signature."""
 
     signature = typed_workflow.signature
     local_values: dict[str, Any] = {}
     for param_name, param_type in signature.params:
         if isinstance(param_type, RecordTypeRef):
-            local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name)
+            local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name, type_env=type_env)
         elif isinstance(param_type, UnionTypeRef):
-            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name)
+            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name, type_env=type_env)
         else:
             local_values[param_name] = f"inputs.{param_name}"
     specialization = getattr(typed_workflow, "specialization", None)
@@ -894,7 +898,13 @@ def _union_variant_expr_value_at_path(
                 expansion_stack=current_value.expansion_stack,
             )
         if bound_record_fields and isinstance(current_value, FieldAccessExpr):
-            return replace(current_value, fields=current_value.fields + field_path[1:])
+            return replace(
+                current_value, fields=current_value.fields + field_path[1:],
+                shared_field_types=(
+                    current_value.shared_field_types + (None,) * len(field_path[1:])
+                    if current_value.shared_field_types else ()
+                ),
+            )
         raise _value_compile_error(
             code="workflow_return_not_exportable",
             message=(

@@ -165,6 +165,10 @@ class FieldAccessExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    shared_field_types: tuple["TypeRef | None", ...] = field(
+        default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

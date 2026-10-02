@@ -429,7 +429,7 @@ def _procedure_private_call_site_analysis(
     for workflow in typed_workflows:
         walk(
             workflow.typed_body.expr,
-            local_values=_signature_local_values(workflow),
+            local_values=_signature_local_values(workflow, type_env=type_env),
             current_type_env=type_env,
         )
     return MappingProxyType(

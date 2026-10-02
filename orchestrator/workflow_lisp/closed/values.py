@@ -42,6 +42,9 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
             "base": translate_value(builder, value.base, d, env),
             "path": list(value.fields),
         }
+        if value.shared_field_types:
+            result["shared"] = [builder.desc(target, d) if target is not None else None
+                                for target in value.shared_field_types]
     elif isinstance(value, w.WccRecordAtom):
         result = {
             "k": "record",

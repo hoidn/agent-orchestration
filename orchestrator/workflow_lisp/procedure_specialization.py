@@ -245,7 +245,7 @@ def _procedure_private_body_valid(
     return _private_workflow_body_exports_step_backed_outputs(
         procedure.typed_body.expr,
         return_type_ref=procedure.signature.return_type_ref,
-        local_values=_procedure_signature_local_values(procedure),
+        local_values=_procedure_signature_local_values(procedure, type_env=current_type_env),
         local_type_bindings=_procedure_signature_local_type_bindings(procedure),
         typed_procedures_by_name=typed_procedures_by_name,
         type_env=current_type_env,
@@ -499,7 +499,10 @@ def _private_workflow_binding_local_value(
             return None
         child_locals = {
             **dict(local_values),
-            **_procedure_signature_local_values(callee),
+            **_procedure_signature_local_values(callee, type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None else type_env
+            )),
         }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
@@ -684,7 +687,10 @@ def _private_workflow_body_exports_step_backed_outputs(
             return False
         child_locals = {
             **dict(local_values),
-            **_procedure_signature_local_values(callee),
+            **_procedure_signature_local_values(callee, type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None else type_env
+            )),
         }
         child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):

@@ -1339,6 +1339,9 @@ def typecheck_command_result_expr(
             for field_name, value_expr in expr.adapter_inputs
         }
         arg_summaries.extend(typed_input.effect_summary for typed_input in typed_inputs.values())
+        expr = replace(expr, adapter_inputs=tuple(
+            (name, typed_input.expr) for name, typed_input in typed_inputs.items()
+        ))
         expected_fields = {field.name: field for field in command_binding.input_signature}
         missing_fields = tuple(
             field.name
@@ -1382,9 +1385,9 @@ def typecheck_command_result_expr(
                 typed_input=typed_input,
             )
     else:
-        for arg_expr in expr.argv:
-            typed_arg = recurse(arg_expr)
-            arg_summaries.append(typed_arg.effect_summary)
+        typed_args = tuple(recurse(arg_expr) for arg_expr in expr.argv)
+        arg_summaries.extend(typed_arg.effect_summary for typed_arg in typed_args)
+        expr = replace(expr, argv=tuple(typed_arg.expr for typed_arg in typed_args))
         if command_binding is not None:
             validate_command_argv(expr, command_binding)
         else:

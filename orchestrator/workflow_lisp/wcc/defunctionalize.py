@@ -756,7 +756,7 @@ def _lower_one_wcc_workflow(
             route_schema_version=route_schema_version,
         )
     )
-    local_values = _signature_local_values(typed_workflow)
+    local_values = _signature_local_values(typed_workflow, type_env=type_env)
     wcc_body, _ = rename_capturing_binders(wcc_body, reserved=local_values)
     scope_analysis = analyze_wcc_body(wcc_body)
     continuation_binding_demands = _wcc_continuation_binding_demands(wcc_body)
@@ -7288,6 +7288,7 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             return FieldAccessExpr(
                 base=base_expr,
                 fields=value.fields,
+                shared_field_types=value.shared_field_types,
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
@@ -7296,6 +7297,11 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             return FieldAccessExpr(
                 base=base_expr.base,
                 fields=(*base_expr.fields, *value.fields),
+                shared_field_types=(
+                    (*(base_expr.shared_field_types or (None,) * len(base_expr.fields)),
+                     *(value.shared_field_types or (None,) * len(value.fields)))
+                    if base_expr.shared_field_types or value.shared_field_types else ()
+                ),
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,
@@ -7681,6 +7687,7 @@ def _frontend_expr_from_wcc_value(value: WccValue):
         return FieldAccessExpr(
             base=_frontend_expr_from_wcc_value(value.base),
             fields=value.fields,
+            shared_field_types=value.shared_field_types,
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,

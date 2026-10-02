@@ -516,6 +516,7 @@ def _typecheck(
             )
         expected_bindings = dict(base_value.signature_params)
         seen_bindings: set[str] = {binding.name for binding in base_value.bound_args}
+        typed_bindings = []
         for binding in expr.bindings:
             expected_type = expected_bindings.get(binding.name)
             if expected_type is None:
@@ -545,6 +546,8 @@ def _typecheck(
                     form_path=binding.value_expr.form_path,
                     expansion_stack=binding.value_expr.expansion_stack,
                 )
+            typed_bindings.append(replace(binding, value_expr=typed_binding.expr))
+        expr = replace(expr, base_expr=base_typed.expr, bindings=tuple(typed_bindings))
         resolved = resolve_proc_ref_value(
             expr,
             procedure_catalog=procedure_catalog,

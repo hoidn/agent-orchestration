@@ -177,8 +177,9 @@ def _evaluate_field(
         evaluate_binding=evaluate_binding,
     )
     value, descriptor = base.value, base.descriptor
-    for field_name in node["path"]:
-        descriptor = _field_descriptor(descriptor, field_name)
+    targets = node.get("shared", (None,) * len(node["path"]))
+    for field_name, target in zip(node["path"], targets, strict=True):
+        descriptor = target if target is not None else _field_descriptor(descriptor, field_name)
         if not isinstance(value, Mapping) or field_name not in value:
             raise _value_error(
                 "pure_expr_operand_type_mismatch",
@@ -387,6 +388,14 @@ def _field_descriptor(descriptor: Mapping[str, Any], name: str) -> Mapping[str, 
                 "allowed": [descriptor["variant"]],
             }
         fields = descriptor["fields"]
+    elif kind == "union" and name != "variant":
+        candidates = [field["type"] for variant in descriptor["variants"]
+                      for field in variant["fields"] if field["name"] == name]
+        if candidates and len(candidates) == len(descriptor["variants"]) and all(
+            candidate == candidates[0] for candidate in candidates[1:]
+        ):
+            return candidates[0]
+        raise EvaluatedValueError("record_field_unknown", f"union field {name!r} is not common")
     elif kind == "union" and name == "variant":
         return {
             "kind": "enum",
