@@ -10,7 +10,9 @@
   [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
   [target refusal tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
   and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
-  Phase-wide verification remains open. The spike under
+  Phase-wide checks and the completed red-suite diagnosis are recorded in
+  the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
+  final code/verification review passed; documentation review and integration remain pending. The spike under
   `experiments/evaluated_execution_spike/` remains separate runtime evidence.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
