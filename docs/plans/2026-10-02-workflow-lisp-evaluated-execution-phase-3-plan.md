@@ -132,6 +132,8 @@ Execution receipt (2026-10-02): integrated at `b92deb4f34888ce3e0c48d24d8282ca55
 
 **Files:** Create `orchestrator/workflow/evaluated/calls.py`, `tests/test_workflow_evaluated_calls.py`; modify `machine.py` narrow call dispatch. Reuse `orchestrator/workflow/type_descriptor.py`, existing boundary rows and contract validation.
 
+X3 checker sub-batch receipt (2026-10-02): the ordinary and definition-key `path_join` checks now permit the result-root refinement used by a generic phase target, with existing runtime containment guards unchanged. Integrated at `f7822614a645e7e15026ec3502a84099dde702fa` after independent conformity and quality PASS; coordinator fresh integration: **26 passed**. The exact 268-test candidate run and public compile/readback smoke are retained in `task-3-x3-integration.json` under the Phase 3 SDD evidence directory. Context/default coverage and actual old-route X3 value parity remain open; this receipt does not close Task 3.
+
 ### Task 3 prerequisite repair: preserve the admitted shared field
 
 Diagnosis on base `1962d81f` and integration `64f895fd` proves that generic
