@@ -116,12 +116,14 @@ Execution receipt (2026-10-02): integrated at `da19e2bb7e5bb853fc99a35dfb56e6241
 
 **Role/artifact:** Implementation / evaluator control code. **Prerequisite:** Task 1.
 
-**Files:** Create `orchestrator/workflow/evaluated/machine.py`, `tests/test_workflow_evaluated_control.py`. Reuse `closed/sites.py` annotations; amend it only for a demonstrated common identity defect.
+**Files:** Create `orchestrator/workflow/evaluated/machine.py`, `tests/test_workflow_evaluated_control.py`, `tests/test_workflow_evaluated_loops.py`. Reuse `closed/sites.py` annotations; amend it only for a demonstrated common identity defect.
 
-- [ ] RED: evaluate built/read-back programs using a test effect callback; cover `let`, `select` arm prefixes, nested `block`, strict `if`, `case`, join body/continuation (`halt` as join result), `jump`, bounded loops, matching `continue`, `done`, exhaustion, context and committed `result_path`. Include effectful aggregate/terminal positions and parser-ordered loop seed/budget.
-- [ ] Run `tests/test_workflow_evaluated_control.py` before implementation.
-- [ ] Implement one control machine with lexical environments and explicit control transfers. Calls initially use the checked strict positional path; no evaluation budget or payload serialization. Instantiate tagged site/frame annotations with loop ordinals rather than copying the spike's identity strings.
-- [ ] GREEN: three arms call one procedure inside two iterations; identities differ by call/iteration and all instantiate checked sites. Verify pure-binding insertions and escaped authored names; dependency sets distinguish selected values from mere branch entry. Commit after independent review.
+- [x] RED: evaluate built/read-back programs using a test effect callback; cover `let`, `select` arm prefixes, nested `block`, strict `if`, `case`, join body/continuation (`halt` as join result), `jump`, bounded loops, matching `continue`, `done`, exhaustion, context and committed `result_path`. Include effectful aggregate/terminal positions and parser-ordered loop seed/budget.
+- [x] Run the control and loop modules before their implementation/revision.
+- [x] Implement one control machine with lexical environments and explicit control transfers. Calls initially use the checked strict positional path; no evaluation budget or payload serialization. Instantiate tagged site/frame annotations with loop ordinals rather than copying the spike's identity strings.
+- [x] GREEN: three arms call one procedure inside two iterations; identities differ by call/iteration and all instantiate checked sites. Verify pure-binding insertions and escaped authored names; dependency sets distinguish selected values from mere branch entry. Commit after independent review.
+
+Execution receipt (2026-10-02): integrated at `b92deb4f34888ce3e0c48d24d8282ca553c72187` after independent conformity and quality PASS. Coordinator verification of values, control and loops: **49 passed**. The initial review failure and causal correction remain preserved; loop result dependencies include the choices selecting done/exhaustion without unused state. Task 3 retains complete call transport; Task 5 retains public runtime.
 
 ## Task 3: Calls, Captures And Boundary Transport
 
