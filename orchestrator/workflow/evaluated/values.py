@@ -22,6 +22,7 @@ class EvaluatedValue:
     value: Any
     descriptor: Mapping[str, Any]
     dependencies: frozenset[str] = frozenset()
+    committed_result_path: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", _freeze(self.value))
@@ -38,6 +39,7 @@ class EvaluatedValue:
 class LexicalEnvironment:
     bindings: Mapping[str, EvaluatedValue] = field(default_factory=dict)
     parent: LexicalEnvironment | None = None
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "bindings", MappingProxyType(dict(self.bindings)))
@@ -51,7 +53,7 @@ class LexicalEnvironment:
         raise KeyError(name)
 
     def extend(self, name: str, value: EvaluatedValue) -> LexicalEnvironment:
-        return LexicalEnvironment({name: value}, self)
+        return LexicalEnvironment({name: value}, self, self.run_id)
 
 
 class EvaluatedValueError(PureExprEvaluationError):
@@ -70,8 +72,10 @@ class EvaluatedValueError(PureExprEvaluationError):
 
 
 BodyEvaluator = Callable[[Mapping[str, Any], LexicalEnvironment], EvaluatedValue]
+BindingEvaluator = Callable[[Mapping[str, Any], LexicalEnvironment], EvaluatedValue]
 ValueEvaluator = Callable[
-    [Mapping[str, Any], LexicalEnvironment, BodyEvaluator | None], EvaluatedValue
+    [Mapping[str, Any], LexicalEnvironment, BodyEvaluator | None, BindingEvaluator | None],
+    EvaluatedValue,
 ]
 
 
@@ -80,6 +84,7 @@ def coerce_evaluated_value(
     descriptor: Mapping[str, Any],
     *,
     dependencies: Iterable[str] = (),
+    committed_result_path: str | None = None,
     context: str = "value",
 ) -> EvaluatedValue:
     try:
@@ -88,7 +93,9 @@ def coerce_evaluated_value(
         raise
     except (TypeError, ValueError, RecursionError) as exc:
         raise EvaluatedValueError("pure_expr_operand_type_mismatch", str(exc)) from exc
-    return EvaluatedValue(normalized, descriptor, frozenset(dependencies))
+    return EvaluatedValue(
+        normalized, descriptor, frozenset(dependencies), committed_result_path
+    )
 
 
 def evaluate_closed_value(
@@ -96,6 +103,7 @@ def evaluate_closed_value(
     environment: LexicalEnvironment,
     *,
     evaluate_body: BodyEvaluator | None = None,
+    evaluate_binding: BindingEvaluator | None = None,
 ) -> EvaluatedValue:
     evaluator = _VALUE_EVALUATORS.get(node.get("k"))
     if evaluator is None:
@@ -104,17 +112,19 @@ def evaluate_closed_value(
             f"unsupported closed value kind {node.get('k')!r}",
             node,
         )
-    return evaluator(node, environment, evaluate_body)
+    return evaluator(node, environment, evaluate_body, evaluate_binding)
 
 
 def _evaluate_literal(
-    node: Mapping[str, Any], environment: LexicalEnvironment, evaluate_body: BodyEvaluator | None
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     return coerce_evaluated_value(node.get("v"), node["type"], context="literal")
 
 
 def _evaluate_name(
-    node: Mapping[str, Any], environment: LexicalEnvironment, evaluate_body: BodyEvaluator | None
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     try:
         return environment.lookup(node["n"])
@@ -124,10 +134,48 @@ def _evaluate_name(
         ) from exc
 
 
-def _evaluate_field(
-    node: Mapping[str, Any], environment: LexicalEnvironment, evaluate_body: BodyEvaluator | None
+def _evaluate_context(
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
-    base = evaluate_closed_value(node["base"], environment, evaluate_body=evaluate_body)
+    if node.get("field") != "run-id" or environment.run_id is None:
+        raise _value_error("closed_context_missing", "run-id context is unavailable", node)
+    return coerce_evaluated_value(
+        environment.run_id, {"kind": "primitive", "name": "RunId"},
+        context="run-id context",
+    )
+
+
+def _evaluate_result_path(
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
+) -> EvaluatedValue:
+    try:
+        producer = environment.lookup(node["n"])
+    except KeyError as exc:
+        raise _value_error(
+            "provider_result_path_missing", "committed provider result is unavailable", node
+        ) from exc
+    if producer.committed_result_path is None:
+        raise _value_error(
+            "provider_result_path_missing", "committed provider result path is unavailable", node
+        )
+    return coerce_evaluated_value(
+        producer.committed_result_path,
+        node["type"],
+        dependencies=producer.dependencies,
+        context="committed result path",
+    )
+
+
+def _evaluate_field(
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
+) -> EvaluatedValue:
+    base = evaluate_closed_value(
+        node["base"], environment, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
     value, descriptor = base.value, base.descriptor
     for field_name in node["path"]:
         descriptor = _field_descriptor(descriptor, field_name)
@@ -144,10 +192,14 @@ def _evaluate_field(
 
 
 def _evaluate_list(
-    node: Mapping[str, Any], environment: LexicalEnvironment, evaluate_body: BodyEvaluator | None
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     items = [
-        evaluate_closed_value(item, environment, evaluate_body=evaluate_body)
+        evaluate_closed_value(
+            item, environment, evaluate_body=evaluate_body,
+            evaluate_binding=evaluate_binding,
+        )
         for item in node["items"]
     ]
     return coerce_evaluated_value(
@@ -157,10 +209,17 @@ def _evaluate_list(
 
 
 def _evaluate_path_join(
-    node: Mapping[str, Any], environment: LexicalEnvironment, evaluate_body: BodyEvaluator | None
+    node: Mapping[str, Any], environment: LexicalEnvironment,
+    evaluate_body: BodyEvaluator | None, evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
-    base = evaluate_closed_value(node["base"], environment, evaluate_body=evaluate_body)
-    child = evaluate_closed_value(node["child"], environment, evaluate_body=evaluate_body)
+    base = evaluate_closed_value(
+        node["base"], environment, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
+    child = evaluate_closed_value(
+        node["child"], environment, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
     try:
         descriptor, value = evaluate_pure_path_join(base.value, child.value, node["type"])
         return coerce_evaluated_value(
@@ -175,9 +234,13 @@ def _evaluate_aggregate(
     node: Mapping[str, Any],
     environment: LexicalEnvironment,
     evaluate_body: BodyEvaluator | None,
+    evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     values = [
-        (name, evaluate_closed_value(value, environment, evaluate_body=evaluate_body))
+        (name, evaluate_closed_value(
+            value, environment, evaluate_body=evaluate_body,
+            evaluate_binding=evaluate_binding,
+        ))
         for name, value in node["fields"]
     ]
     result = {name: value.value for name, value in values}
@@ -195,9 +258,13 @@ def _evaluate_operator(
     node: Mapping[str, Any],
     environment: LexicalEnvironment,
     evaluate_body: BodyEvaluator | None,
+    evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     operands = tuple(
-        evaluate_closed_value(arg, environment, evaluate_body=evaluate_body)
+        evaluate_closed_value(
+            arg, environment, evaluate_body=evaluate_body,
+            evaluate_binding=evaluate_binding,
+        )
         for arg in node["args"]
     )
     payload = node["payload"]
@@ -219,8 +286,12 @@ def _evaluate_select(
     node: Mapping[str, Any],
     environment: LexicalEnvironment,
     evaluate_body: BodyEvaluator | None,
+    evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
-    condition = evaluate_closed_value(node["cond"], environment, evaluate_body=evaluate_body)
+    condition = evaluate_closed_value(
+        node["cond"], environment, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
     try:
         condition_value = coerce_pure_value(
             condition.value,
@@ -232,12 +303,23 @@ def _evaluate_select(
     arm = node["then"] if condition_value else node["else"]
     scope = environment
     for row in arm["prefix"]:
-        value = evaluate_closed_value(row["value"], scope, evaluate_body=evaluate_body)
+        value = (
+            evaluate_binding(row["value"], scope)
+            if evaluate_binding is not None
+            else evaluate_closed_value(
+                row["value"], scope, evaluate_body=evaluate_body,
+                evaluate_binding=evaluate_binding,
+            )
+        )
         scope = scope.extend(row["name"], value)
-    result = evaluate_closed_value(arm["value"], scope, evaluate_body=evaluate_body)
+    result = evaluate_closed_value(
+        arm["value"], scope, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
     return coerce_evaluated_value(
         result.value, result.descriptor,
         dependencies=condition.dependencies | result.dependencies,
+        committed_result_path=result.committed_result_path,
         context="select result",
     )
 
@@ -246,8 +328,12 @@ def _evaluate_list_map(
     node: Mapping[str, Any],
     environment: LexicalEnvironment,
     evaluate_body: BodyEvaluator | None,
+    evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
-    source = evaluate_closed_value(node["source"], environment, evaluate_body=evaluate_body)
+    source = evaluate_closed_value(
+        node["source"], environment, evaluate_body=evaluate_body,
+        evaluate_binding=evaluate_binding,
+    )
     if not isinstance(source.value, tuple):
         raise _value_error("pure_expr_operand_type_mismatch", "list_map source is not a list", node)
     item_descriptor = source.descriptor["item"]
@@ -258,7 +344,10 @@ def _evaluate_list_map(
             context="list_map binder",
         )
         local = environment.extend(node["binder"], bound)
-        result = evaluate_closed_value(node["body"], local, evaluate_body=evaluate_body)
+        result = evaluate_closed_value(
+            node["body"], local, evaluate_body=evaluate_body,
+            evaluate_binding=evaluate_binding,
+        )
         mapped.append(coerce_evaluated_value(
             result.value, node["type"]["item"], dependencies=result.dependencies,
             context="list_map result item",
@@ -273,6 +362,7 @@ def _evaluate_block(
     node: Mapping[str, Any],
     environment: LexicalEnvironment,
     evaluate_body: BodyEvaluator | None,
+    evaluate_binding: BindingEvaluator | None,
 ) -> EvaluatedValue:
     if evaluate_body is None:
         raise EvaluatedValueError(
@@ -362,6 +452,8 @@ def _thaw(value: Any) -> Any:
 _VALUE_EVALUATORS: Mapping[str, ValueEvaluator] = {
     "lit": _evaluate_literal,
     "name": _evaluate_name,
+    "context": _evaluate_context,
+    "result_path": _evaluate_result_path,
     "field": _evaluate_field,
     "record": _evaluate_aggregate,
     "inject": _evaluate_aggregate,
