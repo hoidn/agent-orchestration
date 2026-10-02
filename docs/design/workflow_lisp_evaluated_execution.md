@@ -18,8 +18,8 @@
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
 - **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
-  input-document, profile, invalidation-entry, artifact-handoff and command
-  transport clarification.
+  input-document, profile, invalidation-entry, artifact-handoff, command
+  transport and shared-union field-proof clarifications.
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -482,6 +482,263 @@ constraints. This is an in-memory call, not another effect, site or journal
 entry. Phase 2 persists and checks the relation; it does not implement its
 evaluator. Union activity, legacy structural paths and inactive-path relaxation
 require independent artifact read-back proof, not only compiler generation.
+
+### 4.2.3 Shared-union field projection
+
+The [parametric type-system constraint vocabulary](workflow_lisp_parametric_type_system.md#constraint-vocabulary)
+owns source admission: `has-shared-union-field f T` proves that every variant
+of a nonempty concrete union has `f` assignable **to** `T`. It grants exactly
+that projection, with result type `T`; it does not prove a particular variant.
+The closed program must preserve this already admitted operation. For example,
+two distinct nominal `ReportPath` and `ArtifactPath` fields can both satisfy
+`Path.state-root` without being mutually compatible. Selecting the first
+variant's type or requiring pairwise equality loses the declared result type.
+
+Retain the checked projection in the existing `field` value. Do not lower it
+to `case`/`join`: those constructs currently require compatible arm/parameter
+types too, and widening their relation would spread this permission beyond
+the operation that owns it. The cost of retaining it is a bounded addition to
+field serialization, descriptor traversal and definition-key checking; no
+new source form, runtime value class, effect or general cast is introduced.
+
+**Typed retention.** `typecheck_field_access_expr` retains the exact resolved
+constraint `TypeRef` at each path segment where it consumes a shared-union
+capability, alongside the typed base. Ordinary segments have no such proof.
+Use an optional aligned tuple `shared_field_types` on `FieldAccessExpr` and
+`WccFieldAccessAtom`; empty means no shared projection. A nonempty tuple has
+one entry per segment, each either that segment's checked target `TypeRef` or
+`None`, and at least one target. The specialization's concrete re-typecheck
+replaces provisional facts; unresolved `TypeParamRef`s never reach closed
+construction. Keep these internal facts out of frontend repr, semantic
+identity and old-route serialization using the existing omission conventions.
+They are not a new procedure-wide capability lookup in WCC.
+
+WCC inference walks the path using these retained targets at certified
+segments and its ordinary field rule elsewhere; its final metadata type is
+the last segment's result. Copy/rewrite/ANF and retained frontend values keep
+the tuple. Concatenating paths concatenates their aligned tuples, padding an
+uncertified prefix/suffix with `None`; merely replacing a base name preserves
+alignment. Never recover a target by looking up its spelling in the consuming
+module. Source imports and complete older-target typed snapshots retain the
+same resolved owners (§4.2.1); neither construction nor read-back rereads a
+deleted source root to recover a proof.
+
+**Wire.** The only additional field is optional `shared` on the existing
+closed `field` node. When present it is a JSON array aligned with `path`,
+containing canonical target descriptors or `null`, with at least one
+descriptor. Thus `choice.selection.item-id`, where only `selection` uses a
+shared proof, carries `path: ["selection", "item-id"]` and
+`shared: [<canonical Payload descriptor>, null]`. A terminal shared path
+carries its declared `Path.state-root` descriptor. There is no redundant
+union name, field name, final type, capability table or frontend trust token.
+Absent `shared` keeps the existing wire bytes and meaning. Reject an empty,
+all-null, misaligned or otherwise malformed array. The closed schema and
+`table/1` representation remain unchanged: this is optional checked evidence
+on an existing value; old readers fail closed on the new field.
+
+**Independent segment check.** Starting from the independently inferred base
+descriptor, P5 visits `path` in order:
+
+| Segment | Required proof and resulting descriptor |
+| --- | --- |
+| No target (`shared` absent or this entry `null`) | Apply the existing ordinary field rule: record/proven-variant field, union discriminant, or common union field with canonically equal descriptors in every variant. The result is that ordinary descriptor; there is no implicit constraint-type inference |
+| Target `T` | Current descriptor must be a nonempty union, the segment must name a payload field rather than `variant`, and every declared variant must contain that field. Validate `T` and every actual field descriptor against the closed nominal catalog; require the directional relation below for each actual field. The segment result is exactly `T`, used as the base of the next segment |
+
+**Local assignment relation.** Source admission remains owned by
+`constraint_field_type_satisfied(actual, expected)`, including its first call
+to `type_refs_compatible(expected, actual)`, not the stricter closed
+`_descriptors_match`. Let `C(T, A)` be the local compatibility below over
+validated closed type facts, and `F(A, T)` the shared-field assignment. For
+source-declarable types it preserves the source relation. Compiler-internal
+cases/discriminants additionally require the proof-preserving rules below:
+the frontend's symmetric union/case boolean is not independent evidence of
+variant activity.
+For body checking those facts are canonical runtime descriptors (`C_R`);
+for key-value checking they are the existing key-type projection of those
+descriptors (`C_K`). The ordinary rules below apply in both domains; the
+generated distinction below is not elided by calling both relations `C`:
+
+```text
+F(A, T) = C(T, A)
+          or (A and T are paths and A.under == T.under
+              and (A.must_exist_target or not T.must_exist_target))
+```
+
+The final clause is **direct only**; recursive positions in `C` call `C`,
+never `F`. All admitted path declarations are `relpath`; the wire's
+`must_exist_target` is the source `PathDef.must_exist`. A refined path may
+satisfy a base path constraint, but that does not by itself make
+`List[ReportPath]` satisfy `List[Path.state-root]`, or relax a path nested in a
+record. No additional conversion is inferred from runtime JSON shape.
+
+Compute `C` from the registered complete descriptors and canonical identity
+grammar, with the following source-owner rules. Exact type equality is the
+first case. For an ordinary unapplied declared nominal, *basename* uses the
+source owner's `_named_type_basename` on that individual name; it is a
+comparison operand only,
+never a replacement descriptor or catalog key. Declaration equality means
+the same canonical declaring module/name, not equal source spans. Maps of
+field/variant names compare as sets as in the source owner; descriptor bytes
+retain declaration order. Ordered enum values and applied arguments remain
+ordered. Different type families do not match except for forgetting an
+already proved case to a union as specified below.
+
+| Type facts | Compatibility `C(T, A)` after exact equality |
+| --- | --- |
+| Builtin primitive | Same primitive name; no Bool/Int, numeric or Value/Json coercion |
+| Declared enum (`PrimitiveTypeRef` with allowed values) | Same declared basename and exactly the same ordered allowed values |
+| Path | Same declared basename, root and existence requirement (the direct `F` clause above is separate) |
+| Ordinary record, including a structural private context | Same declared basename, exactly the same field names and `C` for every corresponding field; source aliases of the same declaration resolve through its canonical owner. Equal shape with a different basename does not pass |
+| Unapplied union | Same declared basename, exactly the same variant names and each variant's field names, and `C` for every corresponding field. Declaration aliases resolve through their canonical owner; equal tags alone do not pass |
+| Applied union | Same fully qualified template declaration and same arity; `C` for each ordered argument, including phantom arguments. Read arguments through the checked applied-identity grammar and registered type facts, not by stripping qualification from the rendered application. Every instantiated payload descriptor must separately match its catalog definition |
+| Optional / List | Same constructor and `C` for the item |
+| Map | `C` for key and value, preserving the Map constructor |
+
+Thus a field of `entry::Payload(item-id: String)` satisfies a constraint
+`helper::Payload(item-id: String)`, even though those canonical descriptors
+remain different. A different basename, field set, or incompatible recursive
+field does not. The result of the certified segment is still the complete
+`helper::Payload` descriptor. This existing source permission applies to the
+whole checked field view, including nested enums, unions and containers; it
+is not permission to rewrite either catalog declaration or other values.
+
+**Internal proof conservation.** A catalog-valid `variant_case` target says
+that the variant exists; it does not prove that the projected value has that
+tag. The independently inferred **actual** descriptor must already carry any
+case proof that the result retains. For example, the existing checked `case`
+arm binds its subject with that arm's exact variant descriptor. Looking up a
+variant in the catalog, seeing a union with one variant, or inspecting one
+runtime input does not create such a proof in a certified field. No new
+activity annotation or variant-conversion wire is introduced.
+
+Cases and discriminants retain their internal family and owning union, rather
+than becoming declared enums/records because their wire shapes resemble one.
+Resolve the complete owner from the validated catalog in the current domain.
+The necessary owner-name comparison is the source owner's rule: two unapplied
+owners have the same basename; applied owners have the same fully qualified
+template declaration and arity and `C`-compatible ordered arguments. This
+comparison alone grants no payload or tag permission. In addition require:
+
+| Actual `A` → target `T` | Local permission, including at every recursive `C` position |
+| --- | --- |
+| Union → case | Refuse: the actual type carries no active-variant proof, even if the target is a real case of that exact union |
+| Case → case | The owner-name comparison above, the same variant tag, exactly the same payload field names and `C` for corresponding payload descriptors. This preserves the already proved tag; individual catalog validity or equal owner basenames alone are insufficient |
+| Case → union | The owner-name comparison above, presence of the actual case's tag in the target union, exactly the same field names in that target variant and `C` for each corresponding payload descriptor. Only the existing narrowing is forgotten; no other target variant is asserted active |
+| Discriminant → discriminant | The owner-name comparison above and exactly equal complete ordered tag lists derived from both registered unions. A common basename alone does not equate their tag sets; payload compatibility is not inferred from a tag value |
+| Discriminant ↔ declared enum, or any other internal-family crossing | Refuse; matching wire `kind`, spelling or values does not merge source families |
+
+Identify discriminants from the existing owner/member identity grammar and
+the `U.variant` descriptors derived from cataloged unions, with the same
+ordered tags as ordinary union-discriminant projection. In key space use the
+existing projection of that owner and descriptor. A plausible `.variant`
+suffix or a separately valid enum row is insufficient. This uses the existing
+catalog, not a persisted origin table or new declaration syntax. Both complete
+endpoints remain catalog-checked; cross-owner case permissions additionally
+compare the selected payloads, and discriminant permissions compare both tag
+lists. Equal tags never prove a payload variant active.
+
+Apply these guards wherever `C` recurses: records, union payloads, containers,
+applied arguments and case payloads. In particular, a container or record
+cannot hide union→case narrowing. `C_R` uses complete runtime owners;
+`C_K` uses their validated projected owners and payloads. Key equality does
+not supply runtime activity, and body checking remains independent. An
+argument/owner identity ending in `.variant` is not a case proof: only an
+independently validated actual `variant_case` descriptor provides its tag and
+payload. Do not recover a missing case fact from an identity projection.
+Existing checked case bindings, same-case projections and forgetting a proved case to
+its owning union remain valid. These internal types do not become
+source-nameable, and compile-time refs or unresolved parameters do not become
+transportable fields.
+
+Generated units are not ordinary basenames. In `C_R`, a run-reference
+envelope or loop carrier retains its complete validated canonical identity
+and descriptor; a common generated prefix, payload shape or signature alone
+does not equate distinct runtime identities. Existing representative changes
+remain governed by the checked generated boundary relation of §4.2.2, not by
+a new implicit conversion in `field`. In `C_K`, `closed/names.py::key_type_descriptor`
+already replaces a generated run-reference envelope by its full S marker and
+recursively projects generated arguments in applied identities; compare those
+complete markers for equality after the checker derives/validates their
+producer signatures. Carrier heads and their ordered projected arguments
+remain exact. This existing projection may identify different concrete
+producer names with one key type; it neither erases ordinary nominal owners
+inside S nor proves `C_R` for distinct runtime endpoints. Check the body
+relation independently; do not recover one arbitrary runtime endpoint from S
+or use key equality as runtime assignment permission.
+
+No admitted shared-field specimen requiring a new cross-generated runtime
+conversion has been demonstrated. Existing generated identity/catalog/key
+invariants are retained, not a claim that an unspecified algorithm transports
+such a new pair. A concrete admitted source counterexample must return to
+Design before repair completion, without excluding the source or changing
+the constraint oracle. No new origin metadata is added in anticipation of it.
+
+Implement `C`/`F` once for the certified-field checker and use it in bodies
+and keys. Keep the source functions unchanged as the admission oracle; test
+positive and negative parity for admitted source types across their recursive
+branches, including the same-name imported-record case. For internal types,
+test proof conservation rather than copying the source's symmetric boolean.
+The union→case counterexample is a forged-artifact negative, not evidence of
+an admitted source case constraint being removed. Do not approximate the
+oracle by a list of fixture types or broaden recursive path assignment. No change to global
+call, join, branch, operator or ordinary-field compatibility is authorized.
+An admitted mismatch is a repair obligation, never a new gap, allowlist or
+typecheck restriction. P5 validates both endpoints independently before this
+local relation; acceptance does not make their canonical nominal identities
+equal.
+
+P5 checks the relation from the artifact's types, not retained Python objects
+or a frontend assertion. Wrong field/segment, scalar/proven-variant base,
+absent variant field or failed assignment refuses with `field_path`; malformed
+shape and invalid/forged nominal descriptors retain the existing `node_shape`,
+`type_descriptor` and `nominal_definition` rules. In a definition-key closed
+expression the corresponding failures use `definition_key`. Changing and
+rehashing the artifact must not bypass these checks. Conversely, a different
+target that independently satisfies the relation is a different valid typed
+program, not evidence of the original source author's constraint.
+
+**Keys, identities and execution.** Emit every target through the existing
+source-owned descriptor registration/finalization path. Key value bindings
+and bound-reference values keep `shared` during alpha-normalization and apply
+the existing recursive key-type projection, including applied arguments and
+generated S markers. Their shape, marker, nominal-inventory and type inference
+checks visit every non-null target. Derive the key-domain nominal inventory
+by the existing key-type projection of the validated runtime catalog and
+derived producer signatures; a descriptor with a plausible name but altered
+fields is invalid in either domain. Key shape/marker checks alone are not
+this catalog agreement. Runtime and key checkers use the same segment
+relation in their respective validated descriptor domains, parsing structured
+applied identities before choosing the source compatibility branch. Never
+strip the evidence while computing a key, neutralize away an ordinary nominal,
+or add a persisted origin table. The annotation contributes to the semantic
+program/key bytes where present; provenance does not. It introduces no new
+value child or lexical site: traversal still visits only `base`.
+
+The evaluator evaluates `base` once and walks the active value's fields in
+order. At each certified segment it uses the checked target descriptor;
+otherwise it derives the ordinary descriptor. Coercion/shape checks remain
+pure, preserving the value, the declared projected type and all base
+dependencies. No branch duplication, extra frame/site/memo entry, filesystem
+existence check or referent read occurs. Initial input and new effect boundary
+checks keep their existing ownership. Formatting, pure-binding insertion and
+source/package relocation preserve keys/sites for the same typed program.
+
+Required evidence covers identical `Int`, distinct nominal paths satisfying
+one declared base path, and shared concrete-record fields followed by ordinary
+projection, including equal-basename records from different modules and an
+incompatible nested-field control; recursive enum/union/container compatibility,
+applied template/argument/phantom distinctions and generated projection parity;
+body/key rejection of fabricated case activity, including recursive positions,
+and cross-owner internal tag/payload mismatches, alongside existing case-proof
+and compatible payload/tag positives;
+both active variants and an ordinary prefix before a certified
+segment; old-source imported helpers with conflicting same-spelled private
+types, construction/read-back after source deletion and relocation; key-bound
+values; structural tampering after rehash; once-only ordered execution and
+committed-boundary public resume. A constraint field type bound from another
+`:forall` is subject to its existing source admission: a specimen refused
+during typecheck proves no WCC failure and this amendment does not change that
+frontend boundary. The Phase 3 plan owns runnable checks and evidence status.
 
 ### 4.3 Constructs
 
