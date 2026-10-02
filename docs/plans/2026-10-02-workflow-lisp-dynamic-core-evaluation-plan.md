@@ -265,6 +265,16 @@ preceding case draft, not this final documentation diff.
 Then record actual receipts and continue directly to DC-1c; tests alone do not
 select DC-F or DC-2.
 
+**DC-1c bounded handoff:** proposal §6.3 owns the experimental source grammar;
+[report §5](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-1c-source-scope)
+records twelve source cases and four new paths. Reuse the existing reader and
+DC-1b leaves; infer captures and lower to the same checked artifact. Qualify
+this scope while DC-1b executes, then implement it immediately after DC-1b's
+review. Its runnable specimen and before/after excerpt are required before
+DC-F; public syntax, full consumer migration and production adoption remain
+outside this slice. Independent source-contract and finite-scope review passed;
+ordinary call arity remains a runtime check, with explicit S08 evidence.
+
 **Artifacts:** create `experiments/dynamic_core_evaluation/` only when this task
 runs; use a minimal candidate module and `.orc` specimens there, and
 `tests/experiments/test_dynamic_core_evaluation.py`. Append actual evidence to the

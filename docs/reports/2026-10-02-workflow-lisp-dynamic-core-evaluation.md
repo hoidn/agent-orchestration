@@ -408,6 +408,56 @@ focused shared-owner regressions plus an actual subprocess integration/demo;
 unit stubs cannot discharge E01/E02/E09/E11. Record inherited leaf state and
 invocation overhead, repeated calls and surviving partial writes as costs.
 
+### DC-1c Source Scope
+
+Reviewed finite handoff; proposal §6.3 and this scope passed independent review
+by `/root/design_orc_showcase`. Run after
+DC-1b review and before DC-F; no extra owner permission is needed to complete
+this already selected feasibility evidence. These are **12 source cases**
+S01–S12, not execution receipts or a full language conformance suite:
+
+| Case | Required observation |
+| --- | --- |
+| S01 | Compile the checked-in `.orc` specimen, serialize/read back its artifact and execute two real registered leaves in order |
+| S02 | One unannotated helper body accepts both an integer and an internal record, with no argument-shape specialization |
+| S03 | Nested inferred captures retain lexical values after shadowing, including a variable used only by an inner function |
+| S04 | A validated result selects a returned closure; store it in a record/list and pass it to an ordinary application helper |
+| S05 | Sequential `let*`, selected-arm-only evaluation and strict boolean conditions retain evaluator behavior |
+| S06 | Zero-argument functions, empty collections and ordinary record/list/field/index expressions lower without new runtime machinery |
+| S07 | Top-level helper forward references and bounded recursion work; helpers cannot implicitly capture public entry inputs, and local names shadow helpers |
+| S08 | Unsupported/malformed forms and unbound names, including unreachable helper bodies, refuse with source diagnostics. An ordinary call with wrong arity compiles, fails with `dynamic_call_arity` only when reached, and does not fail in an unselected branch |
+| S09 | Missing/extra/out-of-order headers, duplicate or reserved binders, duplicate fields and malformed declarations refuse |
+| S10 | Public type names resolve through the compiled leaf type environment; preserve strict input/result validation and reject unknown schemas and callable boundary values |
+| S11 | Whitespace/comments and source filename changes preserve the admitted artifact digest; a semantic literal change alters it |
+| S12 | An effect reached through an authored closure obeys the existing read-only refusal with zero dispatch |
+
+Exclusive implementation scope: new
+`experiments/dynamic_core_evaluation/source.py`,
+`experiments/dynamic_core_evaluation/fixtures/composition.orc`,
+`experiments/dynamic_core_evaluation/README.md`, and
+`tests/experiments/test_dynamic_core_source.py`. Reuse the DC-1b fixtures and
+bridge. No production frontend, target, tokenizer, import system, evaluator or
+schema grammar is added. The README compares composition excerpts with the real
+`std/improve` signature/caller and gives the complete experimental command;
+retain the typed route's existing String-context option and label proposed W3
+as unimplemented. This specimen does not claim full improve parity or measured
+net utility.
+
+Proposed verification, from the worktree root:
+
+```bash
+python -m pytest --collect-only -q tests/experiments/test_dynamic_core_source.py
+python -m pytest -q tests/experiments/test_dynamic_core_source.py
+```
+
+Expect 12 cases; record any deliberate count change before interpreting results.
+Execute the README's complete command independently and record its actual
+inputs, ordered subprocess effects, result and artifact digest. Source lowering
+must call artifact admission; its runnable check must read the serialization
+back before execution. Reuse unchanged boundary/pure evidence; broaden checks
+only for relevant changes or discovered failures. Full DC-F remains pending
+until evidence, independent review and an owner disposition exist.
+
 ### Review State
 
 On 2026-10-02 `/root/planning_dynamic_core_sequence` independently reviewed

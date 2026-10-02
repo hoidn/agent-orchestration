@@ -538,6 +538,115 @@ same checked artifact. Keep boundary declarations in the existing compiled leaf
 module. Freeze that small grammar before coding it; JSON authoring and fixed
 typed leaf syntax alone cannot satisfy this source-level obligation.
 
+### 6.3 Minimal Authored Composition Contract
+
+The next source slice makes ordinary composition visible before DC-F. One
+experimental `source.py` reuses `reader.read_sexpr_text`; it lowers to the same
+§6.2 artifact and calls `DynamicProgram.from_artifact` before returning it. No
+production parser, target, module system or alternate evaluator is introduced.
+`compile_source(text, *, source_path, type_env)` returns that admitted program.
+The caller supplies the existing linked type environment from the trusted leaf
+compilation and supplies the registered leaves separately at execution.
+
+The reader's document wrapper contains exactly one outer `dynamic-core` form,
+with exactly one each of these headers, in this order, followed by zero or more
+helper definitions and one final `run`:
+
+```lisp
+(dynamic-core
+  (:budget 200)
+  (:inputs (goal String) (rubric String))
+  (:result Value)
+  (:effects review revise)
+  (define (identity x) x)
+  (define (make-reviser goal rubric)
+    (fn (reviewed)
+      (fn (candidate)
+        (effect revise
+          (record (text (field candidate "title"))
+                  (goal goal) (rubric rubric)
+                  (feedback (field reviewed "return__feedback")))))))
+  (run
+    (let* ((seed (identity (record (title "draft"))))
+           (count (identity 1))
+           (reviewed (effect review (record (text (field seed "title")))))
+           (next (if (field reviewed "return__approved")
+                     (fn (candidate) candidate)
+                     ((make-reviser goal rubric) reviewed)))
+           (callbacks (record (next next))))
+      ((field callbacks "next") seed))))
+```
+
+The checked-in specimen uses actual input/output wire names from its compiled
+leaves; the example above fixes composition behavior, not new public names.
+Its deterministic review requests revision, so the returned, selected and
+stored closure actually invokes the second leaf. A small ordinary application
+helper in that specimen also passes the closure as a value. The same `identity`
+body accepts an integer and an internal record without specialization. Capture
+`goal`, `rubric` and the review result lexically; authors never write a capture
+list or a context-carrier type. Boundary declarations and prompt contracts stay
+in the existing typed leaf module.
+
+**Finite grammar.** A helper is `(define (name parameter...) expression)` and a
+callable literal is `(fn (parameter...) expression)`. There is one body
+expression, no return/type/effect annotation and no second `lambda` spelling.
+Expressions are the reader's Bool/Int/Float/String literals, lexical symbols,
+ordinary `(callee argument...)` application, `let*`, strict `if`, `record`,
+`field`, `list`, `at`, the thirteen §6.1 primitive calls, and `effect`:
+
+- `(let* ((name expression)...) body)` binds sequentially; each initializer sees
+  earlier bindings. `(if condition consequent alternative)` selects one arm.
+- `(record (field-name expression)...)`, `(field base "field-name")`,
+  `(list expression...)` and `(at base index)` map directly to their existing
+  nodes. A record key is a literal nonempty symbol or String; field access
+  requires a literal nonempty String. Neither accepts a computed field name.
+  Empty records/lists and zero-argument functions
+  are valid; duplicate record fields, parameters or names within one binding
+  list are invalid.
+- `(effect operation-id input-expression)` uses a literal declared symbol ID.
+  The runtime registry, read-only refusal and validation remain exactly §6.2.
+  Primitive calls use the existing operator allowlist; this slice does not
+  expose primitive operators as callable values.
+
+Reserve the form names and primitive names in binder positions. Distinct nested
+scopes may shadow ordinary names. Top-level helpers are mutually visible
+lexical code references with no captured entry inputs; their bodies see their
+parameters, local bindings and other helpers. The `run` body additionally sees
+declared inputs. A local binding shadows a helper of the same name. Infer each
+`fn`'s free local variables, including those needed by nested functions, and
+capture immutable values in sorted name order. Resolve helper references to
+ordinary function values; do not specialize a body by call site or argument
+shape. Stable definition IDs use helper names and structural expression paths,
+never line/column offsets or the source filename. Whitespace/comments and
+renaming the file therefore leave the admitted artifact digest unchanged.
+
+Headers require a positive integer budget, unique input/effect/helper names,
+and a single existing type-name symbol per public input/result. Resolve each
+type through `type_env.resolve_type` using its source span, then derive its
+descriptor through `compiler_normalized_type_descriptor`; admission still
+enforces §6.1's supported transport kinds. This is not a new schema grammar.
+Reject unsupported forms, malformed special-form arity, duplicate declarations
+and unbound names in every body, including unreachable helpers. Ordinary call
+arity, primitive arity and operand types remain their existing runtime checks.
+Reader/type diagnostics
+retain their existing source positions; source-lowering refusals use
+`dynamic_source_invalid` with the offending source position. Runtime diagnostics
+retain artifact expression paths in this finite slice; complete source mapping
+is not claimed. There are no imports, macros, mutation, implicit truthiness,
+new literals or unbounded frontend features in this slice.
+
+An experiment README supplies a runnable command and a small before/after
+composition excerpt grounded in `std/improve` and its actual caller fixtures.
+Do not claim the typed route needs a record for one captured string: its
+String-input caller already avoids that wrapper. Show the generic signature,
+explicit procedure references and context arguments that the dynamic specimen
+replaces in equivalent partial callback wiring, while retaining genuine
+domain/boundary declarations on both sides. Do not compare the complete improve
+implementation's size to this one-pass specimen. This is a
+finite source-and-boundary proof, not the complete improve utility comparison.
+The plan owns its case inventory and file scope; DC-U still requires full
+improve and MLEvolve behavior, authoring and failure-cost comparisons.
+
 ## 7. Errors, Owners, And Deletions
 
 | Check | Candidate timing and consequence |
