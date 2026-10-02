@@ -4228,8 +4228,7 @@ class _Checker:
             native_row = native_by_name[name]
             left_contract = normalize_boundary_contract_definition(caller_row["contract"])
             right_contract = normalize_boundary_contract_definition(native_row["contract"])
-            if self._same(left_contract, right_contract):
-                continue
+            same_contract = self._same(left_contract, right_contract)
             left_terminals = caller["terminals"].get(name, [])
             right_terminals = native["terminals"].get(name, [])
             if not left_terminals or not right_terminals:
@@ -4251,6 +4250,10 @@ class _Checker:
                     if self._generated_activation_is_active(activation, assignment)
                 ]
                 if not left_active and not right_active:
+                    continue
+                if len(left_active) != len(right_active):
+                    return False
+                if same_contract:
                     continue
                 if (
                     not left_active
