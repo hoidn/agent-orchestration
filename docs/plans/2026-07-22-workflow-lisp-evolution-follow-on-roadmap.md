@@ -78,8 +78,9 @@ requires explicit selection and its own bounded allocation.
 Language/foundation improvements are tracked independently:
 [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected),
 [EC-1](#ec-1--pure-call-expression-composition-pending-unselected),
-[PC-1](#pc-1--first-class-provider-context-pending-unselected), and
-[CF-1](#cf-1--composition-first-procedures-pending-unselected).
+[PC-1](#pc-1--first-class-provider-context-pending-unselected),
+[CF-1](#cf-1--composition-first-procedures-pending-unselected), and
+[W3](#w3--local-hooks-with-inferred-context).
 Each has its own feasibility and consequence gates. They are not extra research
 units, new R1a deliverables, or automatic prerequisites for the five-axis studies.
 One explicit exception is recorded: CF-1b precedes R1b's review/revision
@@ -633,6 +634,36 @@ through the utility evaluation (Tasks 8–12). Its later library
 migration/retirement (Tasks 13–15) and CF-1d require separate owner decisions
 and any necessary allocation.
 
+## W3 — Local Hooks With Inferred Context
+
+**Status:** pending authoring improvement, planning updated by owner request
+on 2026-10-01 after the concrete before/after review. Implementation and
+target selection remain pending. This is W3 of the existing
+[write-once design](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
+not a new research unit or runtime-closure feature.
+
+The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
+owns Task 4 qualification and Tasks 11–14 delivery: multiple local bindings,
+inferred lexical captures, signatures from the expected `ProcRef`, then
+removal of `inputs I` and context-only records from `improve` callers.
+
+Qualify W3 independently of W0/W1/W2/W4. Resolve the surface grammar,
+cross-hook type inference and stdlib target/module migration before
+implementation. Preserve definition-site values, once-only captured effects,
+public fresh-run/resume behavior and older-target compatibility. Existing
+`bind-proc` remains the option for reusable top-level hooks.
+
+Judge the change by concrete deletions, clearer callers and the locality of
+adding a hook input, with behavior preserved. Record line counts as evidence;
+a fixed percentage is not an adoption gate. Reuse the shipped proposal
+example and `reviewed_change.orc` comparison; this needs no new live study.
+
+W3 is not a prerequisite for evaluated-execution Phases 2–3 or the early
+Phase 6a pilot. Use pilot authoring evidence when available; if delivery uses
+the evaluated route, its runtime must exist for public run/resume acceptance.
+The Phase 2 task order, CF-1c hold and research allocations stay unchanged.
+No executable selector/manifest or active-run state is changed.
+
 ## Current ES Boundary
 
 The [ES component plan](2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md)
@@ -711,6 +742,10 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
+- [W3](#w3--local-hooks-with-inferred-context) is the named local-hook
+  authoring candidate in the repetition-reduction planset. Task 4 qualifies
+  the concrete API/capture change; Tasks 11–14 remain pending, with target and
+  compatibility decisions open. It does not gate the selected runtime work.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
@@ -771,6 +806,12 @@ of R1b. The five research units, their allocations, and completed records are
 unchanged; R1b's entry now names the corrected review interface. The five research units, selected work,
 allocations, and completed records are unchanged. No executable manifest/queue
 row, ready-to-run implementation plan, or live workflow selection is added.
+
+The 2026-10-01 W3 incorporation makes the already proposed local-hook work
+discoverable here and expands its existing plan tasks. The five research
+units and the plan's 15 task numbers remain unchanged (Tasks 1–14 pending,
+Task 15 deferred). No machine-selected next item changes; W3's next planning
+step is Task 4 qualification, not automatic implementation.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector

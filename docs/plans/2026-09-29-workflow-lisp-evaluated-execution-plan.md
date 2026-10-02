@@ -403,6 +403,14 @@ remain separate authoring improvements. They are not prerequisites for
 Phases 2–3, nor automatically selected wholesale by this amendment. No
 general program-search or evolution framework is required for this delivery.
 
+The [W3 local-hook entry](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#w3--local-hooks-with-inferred-context)
+records the owner's 2026-10-01 planning request for inferred captures and
+expected hook signatures, removing `inputs I` from `improve`. Qualification
+may proceed independently; the Phase 6a pilot can supply authoring evidence.
+Implementation, grammar and target/module compatibility remain pending in
+the repetition-reduction plan. W3 adds no effect class or prerequisite to
+Phases 2–3; public W3 run/resume acceptance on this route requires Phase 3.
+
 ### Phase 2: The Closed Program
 
 Reviewed Tasks 1–7 are integrated from `d178ad7e` (2026-10-01). Tasks 8–11
