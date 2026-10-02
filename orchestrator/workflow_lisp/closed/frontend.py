@@ -55,6 +55,7 @@ class TypedProgram:
     local_definition_dids: Mapping[str, tuple[str, str, object]]
     imported_programs: Mapping[str, "TypedProgram"]
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
+    producer_lowering_schema: int
     _compiled_bundle_boundaries: Mapping[
         str,
         tuple[
@@ -66,6 +67,14 @@ class TypedProgram:
 
     def __post_init__(self) -> None:
         from ..build import _freeze_configuration_value
+
+        if (
+            type(self.producer_lowering_schema) is not int
+            or self.producer_lowering_schema not in (1, 2)
+        ):
+            raise ValueError(
+                "producer_lowering_schema must be the integer 1 or 2"
+            )
 
         immutable_value = _freeze_configuration_value
 
@@ -444,6 +453,7 @@ def typed_program_from_graph(
     configuration_bindings: Mapping[str, object] | None = None,
     imported_programs: Mapping[str, TypedProgram] | None = None,
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]] | None = None,
+    producer_lowering_schema: int,
 ) -> TypedProgram:
     from ..build import _freeze_command_boundaries, _freeze_configuration_mapping
 
@@ -556,6 +566,7 @@ def typed_program_from_graph(
         local_definition_dids=local_definition_dids,
         imported_programs=direct_imported_programs,
         module_workflow_signatures=module_workflow_signatures,
+        producer_lowering_schema=producer_lowering_schema,
     )
 
 

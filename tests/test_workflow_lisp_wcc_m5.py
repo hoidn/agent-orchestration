@@ -105,6 +105,7 @@ def _assert_default_wcc_does_not_reach_surface_dispatcher(
 
     assert result.lowering_schema_version == 2
     assert result.validated_bundles
+    assert result.typed_program.producer_lowering_schema == 2
 
 
 def test_wcc_m5_default_route_and_schema_are_wcc_after_readiness_gate() -> None:
@@ -170,6 +171,7 @@ def test_compile_stage3_entrypoint_wcc_candidate_uses_schema_2_for_module_graph(
 
     assert result.entry_result.lowering_schema_version == 2
     assert result.entry_result.validated_bundles
+    assert result.entry_result.typed_program.producer_lowering_schema == 2
 
 
 def test_compile_stage3_module_defaults_to_wcc_schema_2(tmp_path: Path) -> None:
@@ -184,6 +186,7 @@ def test_compile_stage3_module_defaults_to_wcc_schema_2(tmp_path: Path) -> None:
 
     assert result.lowering_schema_version == 2
     assert result.validated_bundles
+    assert result.typed_program.producer_lowering_schema == 2
 
 
 def test_compile_stage3_entrypoint_defaults_to_wcc_schema_2_for_module_graph(
@@ -207,6 +210,7 @@ def test_compile_stage3_entrypoint_defaults_to_wcc_schema_2_for_module_graph(
 
     assert result.entry_result.lowering_schema_version == 2
     assert result.entry_result.validated_bundles
+    assert result.entry_result.typed_program.producer_lowering_schema == 2
 
 
 def test_run_workflow_lisp_stamps_lowering_schema_2_in_run_state(tmp_path: Path, monkeypatch) -> None:
