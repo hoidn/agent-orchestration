@@ -1,8 +1,8 @@
 # Dynamic-Core Evaluation: Execution Evidence
 
 Status: DC-0 and DC-1a/b/c implementation, verification and independent review
-complete; DC-F evidence ready for the owner decision. No DC-F/DC-U/DC-P
-disposition. This report records actual source inspection,
+complete; DC-F owner **continue** on 2026-10-02. DC-2 is active; DC-U/DC-P
+dispositions remain pending. This report records actual source inspection,
 test collection and coordinator-supplied control execution. The
 [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns selection; the [proposal](../design/workflow_lisp_dynamic_core_proposal.md)
@@ -691,7 +691,13 @@ and proposed W3 remain untested here. They belong to DC-2; these omissions do no
 capabilities because feasibility checks passed.
 
 Independent feasibility review: **PASS**. Coordinator recommendation:
-**continue to DC-2** to measure those benefits and costs. Owner disposition: **pending**; no date/owner
-approval is invented. The only proposed successor is the plan's finite DC-2
-consumer/authoring comparison, preserving the frozen controls and upstream
-synchronization cadence. DC-U, DC-P and production migration remain unselected.
+**continue to DC-2** to measure those benefits and costs. Owner disposition, **2026-10-02: continue** — the user selected
+“Continuar a DC-2 (recomendado)” after this packet was complete and committed
+as `40fbdf8f` (code `53032343`). The selected successor is the plan's finite
+DC-2 consumer/authoring comparison, preserving frozen controls and upstream
+synchronization. DC-U, DC-P and production migration remain unselected.
+
+DC-2 entry synchronization checked integration `9bb4b207` and source
+`0f1bbc46`; both remain unchanged and imported. Design and planning are
+qualifying only the language additions and finite cases required by the full
+consumer protocols; no competing shared performer or recovery work is selected.

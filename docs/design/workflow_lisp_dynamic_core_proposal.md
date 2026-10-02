@@ -1,6 +1,6 @@
 # Workflow Lisp: Dynamic Core With Explicit Boundary Contracts
 
-- **Status:** experimental source functions/closures and compiled leaves implemented; feasibility evidence reviewed; DC-F owner decision, public target and adoption remain pending.
+- **Status:** experimental source functions/closures and compiled leaves implemented; DC-F passed by owner decision; DC-2 utility evaluation active; public target and adoption remain pending.
 - **Kind:** architecture proposal, not an accepted language specification or implementation plan.
 - **Scope:** ordinary computation, callable values, boundary schemas, and the execution contracts those changes would require.
 - **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.

@@ -394,7 +394,7 @@ Tasks 1–5, then follow the
 
 DC-0 and the pure mechanism are complete; experimental source composition now
 uses ordinary functions with inferred captures and real compiled leaves. DC-F
-remains pending; the [runnable specimen](../../experiments/dynamic_core_evaluation/README.md)
+passed by owner decision and DC-2 is active; the [runnable specimen](../../experiments/dynamic_core_evaluation/README.md)
 shows the surface before full typed Phase 3 or W3 delivery. The boundary adapter
 reuses existing execution owners, with resume omitted; see the [execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md).
 Each gate needs evidence and an explicit owner continue/revise/

@@ -682,7 +682,7 @@ CF-1c hold and research allocations remain intact.
 **Status:** execution started on `design/orc-dynamic-core-evaluation`; DC-0
 qualification and DC-1a pure mechanism complete and reviewed. Experimental
 source composition and compiled leaves are available in the
-[runnable specimen](../../experiments/dynamic_core_evaluation/README.md); DC-F remains pending.
+[runnable specimen](../../experiments/dynamic_core_evaluation/README.md); DC-F passed by owner decision and DC-2 is active.
 The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns finite tasks and gate evidence; the
 [proposal](../design/workflow_lisp_dynamic_core_proposal.md) owns candidate
@@ -856,7 +856,7 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
   owns the current branch amendment: preserve completed Phase 2 and Phase 3
   Tasks 1–5; DC-0/DC-1a complete, source composition and real leaves implemented,
-  with DC-F owner disposition pending;
+  with DC-F passed and DC-2 utility evaluation active;
   require explicit DC-F/DC-U/DC-P dispositions before later comparison,
   readiness and migration. The prior typed order remains fallback. No new
   research study or source worktree task reselection follows.

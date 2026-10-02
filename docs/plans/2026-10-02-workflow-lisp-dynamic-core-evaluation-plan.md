@@ -134,8 +134,8 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | Tranche | Current state | Entry / bounded exit |
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
-| DC-1 — feasibility spike | DC-1a/b/c implemented and reviewed; DC-F owner disposition pending | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
-| DC-2 — utility comparison | Pending DC-F continue | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
+| DC-1 — feasibility spike | Complete; DC-F owner continue on 2026-10-02 | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
+| DC-2 — utility comparison | Active; finite consumer/author-edit scope qualification executing | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
 
@@ -162,8 +162,8 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-the DC-F owner disposition on the reviewed combined evidence;
-DC-1a/b/c implementation and verification are complete. Existing
+DC-2 finite consumer/author-edit scope qualification and execution;
+DC-F continue was explicitly selected by the owner on 2026-10-02. Existing
 executable selectors have no new item to consume.
 
 ## DC-0: Qualify Scope And Controls
@@ -248,8 +248,9 @@ full typed Phase 3 or W3 delivery; it does not establish full consumer utility.
 The combined evidence passed: 84 candidate cases, nine public CLI controls and
 71 documentation-routing cases, plus the exact README demonstration. Code is
 committed at `53032343`; the single report records independent review and
-limitations. Only DC-F's explicit owner disposition remains; no gate is passed
-by these results.
+limitations. On 2026-10-02 the owner explicitly selected **continue to DC-2**
+after reviewing this decision packet. This completes DC-F and activates only
+the finite utility comparison; DC-U/DC-P and adoption remain pending.
 
 **DC-1b bounded handoff:** [report §5](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-1b-reviewed-finite-scope)
 freezes 24 cases E01a–E12b, exact commands and ownership. Modify only candidate
@@ -297,7 +298,7 @@ merely by these planned paths.
 - [x] Run the narrow module, correct only demonstrated defects, run one orchestrator
   or demo integration smoke, and record the exact invocation and limitations.
   Spike-driver evidence is labeled experimental, never public production support.
-- [ ] Obtain independent code/design review of feasibility and record DC-F's owner
+- [x] Obtain independent code/design review of feasibility and record DC-F's owner
   disposition. End this tranche even when all tests pass.
 
 | DC-F obligation | Required observations |
@@ -316,6 +317,13 @@ Missing effect tracking/resume does not fail this gate; quantify its consequence
 in DC-2 instead of restoring it merely to match the incumbent.
 
 ## DC-2: Full Utility Comparison And Gate DC-U
+
+**Selected, 2026-10-02:** owner answered “Continuar a DC-2 (recomendado)” to
+the completed DC-F packet at code `53032343` / evidence `40fbdf8f`. Qualify and
+execute the finite cases below with independent review; do not request another
+start authorization. Effect tracking/resume remain accepted losses. No paid
+calls, public target or adoption are authorized. Entry synchronization found
+integration `9bb4b207` and source `0f1bbc46` unchanged; both are already imported.
 
 **Artifacts:** extend the same candidate/fixtures and report; preserve production
 `std/improve` and maintained consumers until a destination is authorized. Reuse
