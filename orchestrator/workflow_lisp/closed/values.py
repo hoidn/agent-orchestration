@@ -162,7 +162,7 @@ def _operator(builder: Any, op: w.WccPureOp, d: Any, env: Mapping[str, TypeRef])
     else:
         expression = {"kind": "op", "operator": op.operator, "args": refs}
     payload = _payload(expression, result_type, arg_types)
-    validate_pure_expr_payload(payload)
+    validate_pure_expr_payload(payload, max_nodes=None)
     return {"k": "op", "payload": payload, "args": args}
 
 
@@ -212,7 +212,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
                 *[frontend_value(builder, item, d, env) for _, item in expr.overrides],
             ],
         }
-        validate_pure_expr_payload(result["payload"])
+        validate_pure_expr_payload(result["payload"], max_nodes=None)
     elif isinstance(expr, ListExpr):
         result = {
             "k": "list",
@@ -236,7 +236,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
             ),
             "args": [frontend_value(builder, expr.source_expr, d, env)],
         }
-        validate_pure_expr_payload(result["payload"])
+        validate_pure_expr_payload(result["payload"], max_nodes=None)
     elif isinstance(expr, ListMapExpr):
         source = frontend_value(builder, expr.source_expr, d, env)
         body_env = dict(env)
@@ -270,7 +270,7 @@ def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[
             path_desc,
             [{"kind": "primitive", "name": "String"}],
         )
-        validate_pure_expr_payload(payload)
+        validate_pure_expr_payload(payload, max_nodes=None)
         result = {
             "k": "op",
             "payload": payload,

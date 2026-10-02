@@ -19,6 +19,8 @@ from orchestrator.workflow.pure_expr import (
     _descriptors_match,
     canonical_json_for_pure_value,
     validate_pure_expr_payload,
+    value_coercion_descriptor as _value_coercion_descriptor,
+    value_coercion_payload,
 )
 from orchestrator.workflow.prompt_fragment_contract import (
     _RENDERERS_BY_KIND,
@@ -190,34 +192,6 @@ def _prompt_value_type_is_renderable(descriptor: Any) -> bool:
     if kind == "list":
         return _prompt_value_type_is_renderable(descriptor.get("item"))
     return False
-
-
-def _value_coercion_descriptor(descriptor: Any) -> Any:
-    """Use the catalog's JSON coercion for DSL Value, including nested slots."""
-
-    if not isinstance(descriptor, Mapping):
-        return descriptor
-    kind = descriptor.get("kind")
-    if kind == "primitive" and descriptor.get("name") == "Value":
-        return {"kind": "primitive", "name": "Json"}
-    projected = deepcopy(dict(descriptor))
-    if kind in {"optional", "list"} and "item" in projected:
-        projected["item"] = _value_coercion_descriptor(projected["item"])
-    elif kind == "map":
-        for field in ("key", "value"):
-            if field in projected:
-                projected[field] = _value_coercion_descriptor(projected[field])
-    elif kind in {"record", "variant_case"}:
-        for row in projected.get("fields", []):
-            if isinstance(row, Mapping) and "type" in row:
-                row["type"] = _value_coercion_descriptor(row["type"])
-    elif kind == "union":
-        for variant in projected.get("variants", []):
-            if isinstance(variant, Mapping):
-                for row in variant.get("fields", []):
-                    if isinstance(row, Mapping) and "type" in row:
-                        row["type"] = _value_coercion_descriptor(row["type"])
-    return projected
 
 
 def _coerce_checked_value(value: Any, descriptor: Mapping[str, Any], *, context: str) -> Any:
@@ -1181,7 +1155,7 @@ class _Checker:
             self.fail("definition_key", "closed operator payload must use pure-expression schema version 2")
         projected = self._catalog_payload_from_key(payload, signatures)
         try:
-            validate_pure_expr_payload(projected)
+            validate_pure_expr_payload(projected, max_nodes=None)
         except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
             self.fail("definition_key", f"closed operator payload has invalid typed descriptors: {exc}")
 
@@ -1190,79 +1164,12 @@ class _Checker:
 
         if not isinstance(payload, Mapping):
             return payload
-        result = deepcopy(dict(payload))
 
         def descriptor(value: Any) -> Any:
             self._validate_key_type(value)
             self._check_key_type_markers(value, signatures)
             return _value_coercion_descriptor(self._neutralize_key_type(value))
-
-        bindings = result.get("bindings")
-        if isinstance(bindings, Mapping):
-            for row in bindings.values():
-                if isinstance(row, Mapping) and "type" in row:
-                    row["type"] = descriptor(row["type"])
-        if "result_type" in result:
-            result["result_type"] = descriptor(result["result_type"])
-
-        def expression(node: Any) -> None:
-            if not isinstance(node, Mapping):
-                return
-            kind = node.get("kind")
-            if kind in {"literal", "record", "union"} and "type" in node:
-                node["type"] = descriptor(node["type"])
-            elif kind == "record_update" and "record_type" in node:
-                node["record_type"] = descriptor(node["record_type"])
-            elif kind == "let":
-                for row in node.get("bindings", []):
-                    if isinstance(row, Mapping) and "type" in row:
-                        row["type"] = descriptor(row["type"])
-            elif kind == "list" and "element_type" in node:
-                node["element_type"] = descriptor(node["element_type"])
-            elif kind == "list_map":
-                binder = node.get("binder")
-                if isinstance(binder, Mapping) and "type" in binder:
-                    binder["type"] = descriptor(binder["type"])
-                if "result_element_type" in node:
-                    node["result_element_type"] = descriptor(node["result_element_type"])
-            elif kind == "path_join_under" and "path_type" in node:
-                node["path_type"] = descriptor(node["path_type"])
-            elif kind == "list_nonempty_head" and "element_type" in node:
-                node["element_type"] = descriptor(node["element_type"])
-
-            if kind in {"field_access"}:
-                expression(node.get("base"))
-            elif kind == "if":
-                for field in ("condition", "then", "else"):
-                    expression(node.get(field))
-            elif kind in {"record", "union"}:
-                for row in node.get("fields", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-            elif kind == "record_update":
-                expression(node.get("base"))
-                for row in node.get("fields", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-            elif kind == "let":
-                for row in node.get("bindings", []):
-                    if isinstance(row, Mapping):
-                        expression(row.get("value"))
-                expression(node.get("body"))
-            elif kind == "list":
-                for child in node.get("items", []):
-                    expression(child)
-            elif kind == "list_map":
-                expression(node.get("source"))
-                expression(node.get("body"))
-            elif kind in {"path_join_under", "list_nonempty_head"}:
-                expression(node.get("child" if kind == "path_join_under" else "source"))
-            elif kind == "op":
-                for child in node.get("args", []):
-                    expression(child)
-
-        expression(result.get("expr"))
-        return result
+        return value_coercion_payload(payload, descriptor_projector=descriptor)
 
     def _check_key_runtime_agreement(self) -> None:
         """Compare capture/residual/runtime facts through the shared S projection."""
@@ -1384,7 +1291,7 @@ class _Checker:
             try:
                 signatures = {self._canonical(row) for row in self.run_ref_signatures.values()}
                 catalog_payload = self._catalog_payload_from_key(payload, signatures)
-                validate_pure_expr_payload(catalog_payload)
+                validate_pure_expr_payload(catalog_payload, max_nodes=None)
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
                 self.fail("definition_key", f"closed operator payload is invalid: {exc}", value)
             args = value["args"]
@@ -3189,7 +3096,7 @@ class _Checker:
         if kind == "op":
             payload = node.get("payload")
             try:
-                validate_pure_expr_payload(payload)
+                validate_pure_expr_payload(payload, max_nodes=None)
             except (PureExprEvaluationError, TypeError, ValueError, RecursionError) as exc:
                 self.fail("payload_invalid", f"operator payload is invalid: {exc}", node)
             if payload.get("pure_expr_schema_version") != 2:
