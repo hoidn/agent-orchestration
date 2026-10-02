@@ -99,10 +99,13 @@ Fresh preferred starting points:
   the Design Delta family is deprecated, apart from its reusable library
   procedures. Its authored YAML family is archived; the historical promotion
   report remains preserved as evidence of the route decision.
-- `workflows/examples/review_revise_design_docs.orc` does not pass the
-  command-line entry: `--dry-run` exits 2 with `workflow_signature_mismatch`
-  at line 139 and the note `entry_bootstrap_name_gate_denied`. Read it as a
-  reference for a design-doc review/fix loop, not as a starting point.
+- `workflows/examples/review_revise_design_docs.orc` compiles without
+  `--entry-workflow` ([compile-only command](../README.md#first-compile-check)).
+  Explicit selection of `review_revise_design_docs::review-revise-design-docs`
+  hits the bootstrap gate: `--dry-run` exits 2 with
+  `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. Its
+  registry role remains `not_current_guidance`; use it as a design-doc review
+  reference.
 - For the real-life-tested `.orc` review/fix path that revised the parametric
   design docs, inspect
   `workflows/examples/review_revise_parametric_design_docs.orc` as provenance.
@@ -183,9 +186,9 @@ Resolution rules:
 | `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the retired stack baselines. |
 | `workflows/examples/cycle_guard_demo.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `cycle-guard-demo` | Preserved `.orc` surface from the cycle-guard migration tranche. Its certified command boundary and frozen historical contract/evidence remain useful migration context; it is not a live YAML-parity target or preferred authoring route. |
 | `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
-| `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. It does not pass the command-line entry today (`--dry-run` exits 2 with `workflow_signature_mismatch` at line 139, note `entry_bootstrap_name_gate_denied`), so it is a reference, not a starting point; it is not a production drain or YAML parity replacement. |
+| `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. Compilation without `--entry-workflow` succeeds; selecting the listed entry explicitly makes `--dry-run` fail with `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. It remains a reference (`not_current_guidance`); it is not a production drain or YAML parity replacement. |
 | `workflows/examples/review_revise_parametric_design_docs.orc` | Workflow Lisp historical one-off review/fix workflow; input-required | `2.14` | `review-revise-parametric-design-docs` | Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path; start new authoring from a recent example. |
-| `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp `std/improve` evidence; input-required | `2.33` | `improve_experiment_proposal::run-experiment` | Drafts a typed experiment proposal, runs it through `std/improve`'s review/revise loop with provider-backed review and revise hooks, and hands the returned proposal to the workspace's `scripts/launch_experiment.py` in every outcome. Route-readiness `migration_evidence_only`: evidence for the target-2.33 surface, not preferred guidance. Dry-run command and launcher protocol: [drafting guide](../docs/lisp_workflow_drafting_guide.md#137-improve). |
+| `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp `std/improve` evidence; input-required | `2.33` | `improve_experiment_proposal::run-experiment` | Drafts a typed experiment proposal, runs it through `std/improve`'s review/revise loop with provider-backed review and revise hooks, and hands the returned proposal to the workspace's `scripts/launch_experiment.py` in every outcome. Route-readiness `preferred_current_guidance` for this bounded review-loop shape; a real run requires the workspace launcher. Dry-run command and launcher protocol: [drafting guide](../docs/lisp_workflow_drafting_guide.md#137-improve). |
 ## Reusable Library Workflows
 
 | Path | DSL | Workflow Name | Purpose |

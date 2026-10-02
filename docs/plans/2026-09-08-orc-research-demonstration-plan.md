@@ -4,13 +4,114 @@
 > `superpowers:subagent-driven-development` (or `superpowers:executing-plans`
 > for an approved separate execution session). Use checkboxes to track tasks.
 
-**Status:** ES remains owner-parked and PC-1 unselected. The reduced R1a pilot
-is closed out; the owner selected assisted C1 development below, using configured
-OpenAI model roles and the existing USD375 cap. Its normal-session correction
-governs subsequent authoring; historical charges, holds, and pilot results remain.
+**Status:** ES remains owner-parked and PC-1 unselected. The reduced R1a pilot,
+assisted C1 feasibility, and qualitative ergonomic assessment are recorded. The
+follow-on documentation portion is addressed; C1 receipt-interface
+implementation remains unselected. Historical charges, holds, pilot results,
+configured roles, and the existing USD375 cap remain recorded below.
 See the [execution record](../reports/2026-09-08-orc-research-demonstration.md).
 
+### Proposed follow-on — explicit current-value handoff
+
+**Owner decision required: select one local example/interface repair, at most
+USD15 all-inclusive and 60 minutes elapsed implementation time.** This paragraph
+authorizes no implementation. Baseline is commit `5e4e761a` and the completed
+assisted C1 pair; proposal preparation alone is selected, under the owner's
+separate at-most-USD10 Main reserve inside the unchanged USD375 project cap.
+The documentation portion of this proposal was addressed by the 2026-10-01
+consistency pass; the C1 original/terminal receipt-interface implementation
+remains unselected.
+
+**Resolved fact.** The maintained example is not generally broken. This exact
+selection-free invocation compiled unchanged with exit0 and empty diagnostics:
+
+```sh
+python -m orchestrator compile workflows/examples/review_revise_design_docs.orc \
+  --source-root workflows/examples \
+  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
+  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json \
+  --diagnostics-json
+```
+
+The earlier explicit `--entry-workflow
+review_revise_design_docs::review-revise-design-docs` hit the name-gated bootstrap
+route. `workflows.py::_entry_bootstrap_name_gate_denial` accepts only particular
+entry names; `test_build_artifacts_emit_private_artifact_catalog` deliberately
+uses `entry_workflow=None` for this example. This is real invocation-dependent
+discoverability friction, not evidence that its omitted `run` binding always
+fails. Compilation here proves no new runtime or agent-effectiveness result.
+
+**One bounded change, if selected:**
+
+- In `docs/lisp_workflow_drafting_guide.md`, put the working command beside the
+  maintained `review_revise_design_docs.orc` example and explain its file-oriented
+  subject contract. Keep the working example source and public export unchanged;
+  do not rename it to satisfy the compiler name gate or add an allowlist exception.
+- In `experiments/orc_research_demo/development/review_handoff.orc`, replace
+  duplicate `completed-local`/`blocked-local` receipt builders with one
+  `review-unit` helper taking `original Candidate`, `terminal Completion` and
+  `boundary String`. Remove unused findings forwarding from delivery/cancellation
+  helpers; retain actual findings inputs where review/revision/completion use them.
+  Keep the public `review-completion` signature, leaf operations, Python control
+  and meaningful behavior unchanged.
+
+Expected author-facing usage (named arguments, not a new language feature):
+
+```lisp
+; Before: identical receipt builders; findings is forwarded but unused.
+(call completed-local :candidate candidate :findings findings
+  :completion completion :boundary boundary)
+; After: original is provenance; terminal owns the final candidate/findings.
+(call review-unit :original candidate :terminal completion :boundary boundary)
+```
+
+`revise-candidate` still explicitly reviews the revised candidate before creating
+`completion`. Only the common receipt boundary projects the original payload and
+the terminal's current candidate/findings fields. Neither a stale digest nor a
+success label can substitute for approval of the actual completed candidate.
+
+**Alternative considered:** revisit `std/phase` so a review/fix operation returns
+its final subject with decision/findings, rather than only path-backed
+`ReviewLoopResult` evidence. That is the substantive solution if one abstraction
+must serve both file-mutating and value-returning consumers: today's procedure
+updates `state.completed` but discards it from its public result. It may require
+revising result polymorphism and findings ownership, not another adapter/helper
+layer. The present type/language design is not sacrosanct. Do not implement that
+contract change, invent C1 findings files, or copy/fork the stdlib loop in this
+local repair. **Tradeoff:** the recommendation leaves this cross-domain coupling
+unresolved and C1's bounded control explicit; it does not deliver one generic
+review abstraction for all subjects. If that is the required outcome, reject
+this local scope and select an explicit abstraction revision instead.
+
+**Verification and ergonomic acceptance:** reuse the existing C1 normal-case
+execution helpers for R1/R2/R3, including actual assemble/index handoff and blocked
+cancellation, unchanged accepted content and approval of the current candidate.
+Retain the existing stale-review invalid example. Compare semantic results, not
+incidental formatting, callback/write counts or ordering. Recompile the documented
+example through the command above; exercise its existing review/fix behavioral
+fixture only if the example source unexpectedly needs changing. No live provider
+study, collision comparison, new matrix or judge pipeline. Review actual
+before/after callers: the invocation is discoverable at the example; a reader
+can identify original versus final values locally; receipt changes have one
+owner; no unused findings plumbing, new shim, forced file encoding or nonlocal
+compiler change remains. These are qualitative judgments, not a numeric reuse pass.
+
+Count authoring, Main assistance, debugging, verification and reporting inside
+the implementation envelope; recheck ledger headroom before admission and retain
+USD27.30 old holds. Use installed OMP defaults plus the existing cost hook,
+resolved OpenAI role and ordinary task/workspace/session settings. No child is
+launched for this proposal. Stop and report at the bound or if the local repair
+requires compiler/stdlib contract changes; do not silently turn it into redesign.
+Preserve successful runs, scored history and unrelated dirty code.
+
 ### Owner-selected assisted C1 development
+
+**Completed record (2026-10-01):** Assisted C1 feasibility and the qualitative
+ergonomic assessment are recorded in the
+[execution report](../reports/2026-09-08-orc-research-demonstration.md#assisted-c1-development-and-corrected-interpretation).
+The “Start now” instruction below is preserved historical text; no new C1
+development is selected, and the proposed receipt-interface implementation
+remains unselected.
 
 Start now: develop correct review/revision-to-handoff ORC and reusable Python
 using the existing C1 leaves and identical meaningful acceptance conditions.

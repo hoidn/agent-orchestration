@@ -33,12 +33,18 @@ command-backed deterministic procedures and stand-in providers.
 Status: draft for the owner. Not approved. No task starts before the
 decisions below are recorded.
 
+Target-selection update (2026-10-01): the original recommendation of 2.34
+predated its delivered numeric surface; 2.35 is now selected for evaluated
+execution. Neither delivery selects this proposal. Decision 2 must be
+resolved against those allocations before target registration or tests are
+written; this update chooses no replacement target.
+
 Decisions needed before execution:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | 1 | Which of the rules W0 to W5 are accepted | W0, W1, W2 and W4. W3 on the result of Task 4. W5 deferred under its own condition |
-| 2 | The target that carries W1, W2, W3 and W4 | One new target, 2.34 |
+| 2 | The target that carries W1, W2, W3 and W4 | Unresolved; reconcile with the existing 2.34 numeric and selected 2.35 evaluated-execution targets |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
 | 4 | The adoption bar for W3 | The helper variant of `reviewed_change.orc` is at least 10 % shorter than the hand-written variant and keeps every behaviour |
 | 5 | Where provider defaults are written | The provider externs file |
@@ -228,7 +234,9 @@ diagnostic `provider_parameters_missing`, `specs/providers.md`.
 `orchestrator/workflow_lisp/syntax.py`,
 `orchestrator/workflow/validation.py`, `tests/test_workflow_lisp_target_233.py`.
 **Update:** those owners.
-**Create:** `tests/test_workflow_lisp_target_234.py`.
+**Tests:** choose the target test module after decision 2. The existing
+`tests/test_workflow_lisp_target_234.py` owns numeric-target evidence and must
+not be replaced or presented as repetition-reduction delivery.
 
 1. Write failing tests: a module at the new target that uses no new form
    compiles, and lowers to what it lowers to at 2.33.

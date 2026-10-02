@@ -426,7 +426,7 @@
       ],
       "lowering_route": "wcc_m4",
       "lowering_schema_version": 2,
-      "notes": "Evidence for the target-2.33 generic-union and std/improve surface. wcc_default records its route only; it is not copy-safe authoring guidance.",
+      "notes": "Preferred current guidance for a bounded target-2.33 std/improve review loop. A real run requires the workspace launcher documented in the drafting guide; wcc_default records the lowering route, not general parity.",
       "path": "workflows/examples/improve_experiment_proposal.orc",
       "readiness_label": "leaf_runtime_candidate",
       "route_label": "wcc_default",

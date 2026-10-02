@@ -6,10 +6,10 @@ and final compatibility results live in the linked plan.
 
 Purpose: remove composition obstacles exposed by
 [progressive execution](workflow_lisp_progressive_execution.md), without adding
-an agent framework to the language. Examples below are target sketches, not
-runnable workflows. Current fallbacks remain explicit bindings, supported
-scalar/record state, matched union payloads, artifact handoffs, and questions
-handled by the surrounding chat.
+an agent framework to the language. Earlier targets retain their prior
+boundaries and workarounds. Most examples below are design sketches. The
+[Durable Host Input guide](../lisp_workflow_drafting_guide.md#durable-host-input)
+provides a copy-safe `request-input` module and current authoring steps.
 
 ## Decision And Ownership
 
@@ -51,7 +51,7 @@ limits are preferable to claiming uniformity before the relevant paths work.
 | Loop carriage | Target 2.29 carries rich lists through state, recursive exhaustion exits and committed-boundary resume. Older targets retain their original limits. |
 | Prompt consumption | Target 2.28 now admits whole closed unions and eligible lists through the [existing renderer](../../orchestrator/workflow_lisp/typed_prompt_inputs.py), including imported private returns and resumed consumption. Below 2.28 the previous boundary remains. This does not admit every result type as a prompt input. |
 | Helper expressions | Target 2.30 composes resolved inline effect-free helpers through expression positions; private/effectful or unrepresentable calls retain explicit placement requirements. |
-| Conversation | Target 2.31 implements portable ordinary Codex context. Target 2.32 implements one durable human question per run, including imported calls, loops and answer/cancel recovery. |
+| Conversation | Target 2.31 implements portable ordinary Codex context. Target 2.32 permits one outstanding human-input request per root at a time; sequential questions are allowed after the prior request is consumed. Imported calls, loops and answer/cancel recovery are supported. |
 
 Current-target probes established rich-list transport and pure-map typechecking,
 not full runtime traversal. Do not describe all record/union lists as unsupported
@@ -496,7 +496,8 @@ host-mediated request operation: ask a question, wait without a live provider
 process, receive an answer or explicit cancellation, and continue the same
 workflow at that expression. Initial replies are text, with a distinct cancelled
 outcome; structured forms and multiple simultaneous requests are not required.
-The initial target permits one outstanding request per run. An overlapping
+The target permits one outstanding request per root at a time; sequential
+questions are allowed after the previous request is consumed. An overlapping
 request must be diagnosed, never silently replace the pending question.
 The operation and its ordinary reply union must compose inside a procedure and
 loop, not only at an entrypoint.

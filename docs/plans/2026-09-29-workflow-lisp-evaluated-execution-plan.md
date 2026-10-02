@@ -48,7 +48,7 @@ Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
 | # | Decision | Outcome |
 | --- | --- | --- |
-| 1 | The target that carries the surface changes of Phase 0 | 2.34, the target of the repetition reduction plan |
+| 1 | The target that carries the surface changes of Phase 0 | 2.34 for the numeric surface; repetition reduction remains a separate unapproved proposal |
 | 2 | Whether Phase 0 includes the interim repair of the flat route, Task 2 | Yes |
 | 3 | Whether the numeric operators are adopted now or when a maintained workflow needs them | Now, with the fixture of the numeric surface design, section 4 |
 | 4 | Where the spike lives and how long it may take | `experiments/evaluated_execution_spike/`, removed after the gate. One week of agent time |

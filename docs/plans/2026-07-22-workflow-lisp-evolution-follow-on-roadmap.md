@@ -6,8 +6,10 @@ request. This roadmap owns prospective order and disposition; the
 the [demonstration design](../design/orc_reuse_introspection_search_experiment.md)
 owns the experiment, and the
 [implementation plan](2026-09-08-orc-research-demonstration-plan.md) describes
-selected assisted development and conditional successors. The reduced R1a pilot
-has reported its partial results; the owner selected the C1 recovery below.
+selected assisted development and conditional successors. The reduced R1a pilot,
+assisted C1 feasibility, and code-grounded qualitative ergonomic assessment are
+recorded. The proposal's documentation portion is addressed; the C1
+receipt-interface implementation remains unselected.
 On 2026-09-28 the owner selected CF-1a and slated CF-1b ahead of R1b's
 review/revision composition; see the
 [CF-1 selection record](#cf-1--composition-first-procedures-pending-unselected).
@@ -62,7 +64,7 @@ unchanged.
 | Unit | Question and bounded work | Entry and exit |
 | --- | --- | --- |
 | R0 — ES disposition | Owner selected **prelaunch park** on 2026-09-08; preserve the completed prompt correction and frozen scientific evidence. | Complete as a disposition, not scientific completion. [Recorded hand-back](#current-es-boundary); resumption needs explicit owner selection and the existing adoption gate. |
-| R1a — construction, reuse, and introspection | Reduced pilot closed out with partial construction, unavailable reuse-proxy measurements, and inconclusive diagnosis. Selected follow-up: assisted C1 ORC/Python development with normal agent sessions. Assess ergonomic `.orc` reuse qualitatively from real abstractions/callers, optionally with LLM-assisted judgment; the contrived maintenance comparison is withdrawn as a reuse test. The active plan retains USD375 and configured OpenAI roles. | Compare real behavior and actual development friction before substantial redesign. Neither three successful novice builds, shared-edit propagation, nor a token threshold defines reuse ergonomics. If representative evidence is absent, leave the axis unassessed. A fresh scored comparison needs its own selection and held-back final cases, not a rerun of the old matrix by default. |
+| R1a — construction, reuse, and introspection | Reduced pilot closed with partial construction, unavailable reuse-proxy measurements, and inconclusive diagnosis. Assisted C1 ORC/Python feasibility and a code-grounded qualitative ergonomic assessment are recorded. The documentation portion of the follow-on is addressed; the remaining C1 original/terminal receipt-interface repair is ready but unselected. See the [active plan](2026-09-08-orc-research-demonstration-plan.md#proposed-follow-on--explicit-current-value-handoff) and [execution report](../reports/2026-09-08-orc-research-demonstration.md#assisted-c1-development-and-corrected-interpretation). R1b, R2, and R3 remain unselected and require separate selection. | Compare real behavior and actual development friction before substantial redesign. Neither three successful novice builds, shared-edit propagation, nor a token threshold defines reuse ergonomics. If representative evidence is absent, leave the axis unassessed. A fresh scored comparison needs its own selection and held-back final cases, not a rerun of the old matrix by default. |
 | R1b — agent authoring and self-programming | Separately budgeted actual agent authoring, feedback-driven revision, and one agent-chosen orchestration-improvement episode using the review-handoff family. Normal tools, execution and debugging belong inside each authoring session; scripted leaves do not test prompt-quality improvement. | Requires a working execution path, oracle, and composition cases, not passing R1a's reuse/introspection utility screens. Its review/revision composition authors against the CF-1b value-returning review helper, not `std/phase`, so that a known library defect is not measured as authoring friction; if CF-1a stops CF-1b, R1b proceeds on `std/phase` with that defect recorded as a confound. A cost/time envelope appropriate to normal sessions and a named model require approval before allocation; task-level revision episodes do not impose a compiler-only or fixed-model-turn loop. Scripted leaf providers do not make authoring free or establish task efficacy. |
 | R2 — task qualification and finite catalog | Qualify one live family before candidate work: prefer session-derived review/planning improvement when independently evaluable, with linear-classifier repair as the hard-oracle alternative. Compare a finite authored catalog under one separately preregistered budget, not two studies. | Separate review and explicit allocation; R1b success is not required. Retain actual task failures and cost; no general effectiveness claim from a descriptive pilot. |
 | R3 — search and representation | Test adaptive topology/prompt search against fixed and enumeration/random controls; compare the same protocol as an agent skill and credible reusable Python/native orchestration before claiming ORC-specific superiority. Evaluate whole-program and combined-change effects. | Requires a usable executable program space and evaluation, not all five axes passing. Separate bounded plan and budget. Broader generated provider-workflow execution is an implementation capability question, not a prerequisite safety project. |
@@ -1168,13 +1170,15 @@ one another circularly:
    context/background-stratified subject selection improve sample efficiency or
    outcomes enough to justify its observation and archive machinery?
 
-The
-[candid effectiveness analysis](../reports/2026-07-22-compelling-example-search-and-effectiveness-doubts.md)
-that preceded this roadmap found no existing five-minute artifact that answers
-these questions. The roadmap therefore starts with evidence collection and
-preserves independent baselines throughout. It does not use the system's
-self-hosting history, a toy that merely compiles, or the existence of a complex
-substrate as proof of effectiveness.
+The historical source named “Compelling Example Search and Effectiveness
+Doubts” (2026-07-22) is unavailable: its report is absent from this checkout
+and Git history. This roadmap cited it for the finding that no existing
+five-minute artifact answered these questions. The
+[retained R1a pilot report](../reports/2026-09-08-orc-research-demonstration.md)
+is later evidence, not a substitute for that missing source. The roadmap
+therefore starts with evidence collection and preserves independent baselines
+throughout. It does not use the system's self-hosting history, a toy that merely
+compiles, or the existence of a complex substrate as proof of effectiveness.
 
 ## Decision
 

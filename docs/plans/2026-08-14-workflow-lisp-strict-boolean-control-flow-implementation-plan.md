@@ -16,9 +16,12 @@ branch-local union proof from typed `.variant` comparisons.
 rewrites effectful operands to compiler-owned `let*` bindings, rewrites Boolean
 short circuit and temporary `cond` clauses to ordinary nested `IfExpr`, and
 carries singleton branch proof into existing WCC `proof_context`,
-`requires_variant`, and checkpoint surfaces. Reuse the existing control join,
-pure projection, `WccIf`, state 2.1, Semantic IR, Executable IR, and executor;
-do not add a runtime `cond` or another control/evidence model.
+`requires_variant`, and checkpoint surfaces. Effectful selection reuses
+`WccIf`; effect-free selection that must remain value-shaped uses internal
+`WccSelect` and the existing pure-projection `kind: "if"` payload. Correct that
+payload evaluator to execute only the selected branch. State 2.1, Semantic IR,
+Executable IR, and executor envelopes remain unchanged; do not add a runtime
+`cond` or another control/evidence model.
 
 **Tech Stack:** Python 3.11+, immutable Workflow Lisp AST/type references,
 target DSL 2.26 with target-2.25 compatibility controls, WCC M4, state schema
@@ -234,14 +237,52 @@ implementation. Do not silently limit `.variant` proof to provider results.
 - Modify: `orchestrator/workflow_lisp/conditionals.py`
 - Modify: `orchestrator/workflow_lisp/typecheck_dispatch.py`
 - Modify: `orchestrator/workflow_lisp/typecheck_pure_ops.py`
-- Modify: `orchestrator/workflow_lisp/lowering/pure_projection.py`
-- Modify only if the normalized invariant needs generic join support:
-  `orchestrator/workflow_lisp/wcc/elaborate.py` and
-  `orchestrator/workflow_lisp/wcc/anf.py`
+- Modify: `orchestrator/workflow_lisp/compiler.py`
+- Modify: `orchestrator/workflow_lisp/functions.py`
+- Modify: `orchestrator/workflow_lisp/expression_traversal.py`
+- Modify: `orchestrator/workflow_lisp/wcc/model.py`
+- Modify: `orchestrator/workflow_lisp/wcc/analysis.py`
+- Modify: `orchestrator/workflow_lisp/wcc/elaborate.py`
+- Modify: `orchestrator/workflow_lisp/wcc/defunctionalize.py`
+- Modify: `orchestrator/workflow/pure_expr.py`
+- Modify: `orchestrator/workflow_lisp/wcc/anf.py`
 - Test: `tests/test_workflow_lisp_strict_boolean_control_flow.py`
 - Test: `tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py`
+- Test: `tests/test_workflow_lisp_provider_supervision.py`
+- Test: `tests/test_workflow_lisp_provider_peer_group.py`
+- Test: `tests/test_workflow_lisp_provider_peer_group_e2e.py`
 - Regression: `tests/test_workflow_lisp_expressions.py`
 - Regression: `tests/test_workflow_lisp_native_returns_e2e.py`
+- Regression: `tests/test_workflow_pure_expr.py`
+
+- [ ] Add five internal-value RED regressions before the broader feasibility
+  scenarios:
+  1. validate a `pure_projection` `kind: "if"` payload whose untaken branch
+     would fail value evaluation, then prove evaluation returns the selected
+     branch without touching it;
+  2. compile and run a closed live-provider/peer member whose post-provider
+     result contains pure short-circuit selection, proving it lowers through
+     the existing member settlement projection rather than `WccIf`;
+  3. nest that selection with a pure `let*`/helper-generated prefix inside an
+     untaken arm whose evaluation would fail; execute the workflow, assert the
+     selected settlement succeeds, and inspect durable state to prove no
+     arm-specific projection node or row is created;
+  4. place the selection in a recursively closed `:lowering inline` procedure
+     and prove its condition and arms use the substituted provider argument or
+     capture; and
+  5. compile and run provider-supervision and provider-peer-group members with
+     unresolved workflow `Bool` inputs and a direct
+     `(let* ((selected (if a b false))) (provider-result ... :inputs
+     (selected) ...))` before the sole provider perform. Through one shared
+     carriage path, lift the whole selection to one existing owner-scope
+     `pure_projection`, make each owning group node depend on it, and feed its
+     existing `typed_binding_ref` to the perform. Each fixture has exactly
+     those two execution nodes, no arm-specific nodes, and authored source
+     lineage bound to the actual emitted group and member ownership keys. Then
+     replace the direct `if` with authored dynamic pure `and`/`or` and prove
+     normalization reaches the same path. Capture the provider-visible input
+     on the initial attempt and after a forced downstream failure/resume; both
+     invocations must receive the same selected value.
 
 - [ ] Add the first three accepted feasibility scenarios as RED tests:
 
@@ -301,15 +342,34 @@ implementation. Do not silently limit `.variant` proof to provider results.
 - [ ] Add strictness/failure RED tests: a direct provider/procedure/workflow
   call returning `Bool` is accepted; `Int`, `String`, enum, record, union, and
   `Value` conditions are rejected with `if_condition_not_bool`; an executed
-  invalid/failing condition effect fails before either branch runs. Retain
-  target-2.25 `if_condition_has_effect` and
-  `if_condition_not_projectable` controls.
+  invalid/failing condition effect fails before either branch runs. Add
+  immutable complete serialized target-2.25 diagnostic goldens for
+  `if_condition_has_effect` and `if_condition_not_projectable`, including
+  message, span, form path, and expansion stack bytes. Also cover the existing
+  closed-member pure-`if` outcome and unchanged `op: and`/`op: or`
+  normalization and evaluation.
+
+- [ ] Restore the owner/provenance RED set: helper-clone `and`/`or`; an
+  authored effectful callee-body return that stays atomic; nested-`let*`
+  shadowing; list-map binder scope and effect cardinality; live-provider and
+  peer-member lifecycle scope; `WithPhaseExpr` body scope; loop-body and
+  exhaustion scope; command `adapter_inputs` traversal; effectful `not`
+  inversion/cardinality; and invalid-contract failure before routing. Add an
+  untaken loop `done`/`continue` branch effect counter and a loop match-arm
+  binding regression so branch/arm prefixes cannot escape.
 
 - [ ] Run RED:
 
   ```sh
-  pytest -q tests/test_workflow_lisp_strict_boolean_control_flow.py -k 'strict or linear or short_circuit or nested_control'
-  pytest -q tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py -k 'linear or short_circuit or nested_control or failure'
+  pytest -q tests/test_workflow_pure_expr.py -k 'if and untaken'
+  pytest -q \
+    tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py \
+    tests/test_workflow_lisp_provider_supervision.py \
+    -k 'closed_member or nested_pure_short_circuit or inline_select or pre_provider_input'
+  pytest -q tests/test_workflow_lisp_strict_boolean_control_flow.py \
+    -k 'strict or linear or short_circuit or nested_control or target_225'
+  pytest -q tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py \
+    -k 'linear or short_circuit or nested_control or failure'
   ```
 
 - [ ] Implement one target-2.26 condition normalizer in `conditionals.py`.
@@ -324,13 +384,35 @@ implementation. Do not silently limit `.variant` proof to provider results.
   (and A B ...)          -> nested if; evaluate next operand only on true
   (or A B ...)           -> nested if; evaluate next operand only on false
   (not A)                -> one evaluation followed by Boolean inversion
-  nested if value        -> existing non-linear let binding and WCC join
-  terminal Bool          -> literal/ref or existing pure_projection
+  nested effectful if   -> existing non-linear let binding and WCC join
+  nested pure if value  -> internal WccSelect, then existing pure_projection
+  terminal Bool         -> literal/ref or existing pure_projection
   ```
 
-  Normalize all target-2.26 `and`/`or`, including pure operands, because the
-  shared pure evaluator is eager. Do not change the runtime pure-expression
-  evaluator.
+  Normalize all target-2.26 `and`/`or`, including pure operands. Gate both this
+  normalization and `WccSelect` elaboration with the existing target predicate.
+  Keep shared `op: and`/`op: or` evaluation unchanged for target-2.25
+  compatibility. Correct only existing `kind: "if"` evaluation for every
+  payload: payloads carry no target version, validation already derives and
+  compares both branch types statically, and runtime value evaluation must
+  execute the condition and selected branch only.
+
+  The post-helper-expansion pass is target-gated and folds only exact cloned
+  helper expressions identified by `HelperExpansionFrame` (or the existing
+  equivalent provenance), never arbitrary authored subtrees in whole
+  workflow/procedure bodies. Preserve effectful non-condition return values.
+  Traverse all admitted expression children, including command
+  `adapter_inputs`, but retain the existing computed-adapter scalar exclusion.
+
+  Generated bindings must remain under the construct that owns their scope and
+  lifecycle. Use dedicated rebuilders for nested authored `let*`, list-map
+  binders, `WithPhaseExpr`, live-provider/supervision and peer members,
+  `TrialExpr`, `ResumeOrStartExpr`, and loop body/exhaustion. Within a loop,
+  normalize an `IfExpr` condition or `MatchExpr` subject in the parent iteration
+  scope, wrap branch/arm prefixes inside that branch/arm, and keep `LetStarExpr`
+  body prefixes inside its lexical body. An untaken `done`/`continue` branch
+  must not execute an effect, and a match-arm binding must never escape its arm.
+  Direct effect calls stay atomic until their owned children are normalized.
 
 - [ ] At target 2.26, remove only `if`'s special purity/projectability and
   run-ref-effect refusals. All expression-owned placement and contract rules
@@ -338,46 +420,104 @@ implementation. Do not silently limit `.variant` proof to provider results.
   only the exact final `Bool` type. Below 2.26, retain the current checker byte
   behavior.
 
-- [ ] Feed WCC only normalized shapes. First reuse
-  `_elaborate_control_binding_to_body` for nested control results. Modify WCC
-  only if a generic normalized value still cannot reach the existing join;
-  assert that no effectful `and`/`or` reaches `_elaborate_expr_to_value` or the
-  eager ANF pure-op path.
+- [ ] Feed WCC only normalized shapes. Reuse
+  `_elaborate_control_binding_to_body` for effectful nested control results.
+  At target 2.26 only, elaborate an effect-free `IfExpr` required in `WccValue`
+  position as `WccSelect(condition, then_arm, else_arm)`. Represent each arm as
+  an internal `WccSelectArm(prefix, value)`, where `prefix` is that arm's
+  linear pure `WccLet` sequence and `value` is its terminal `WccValue`.
+  Dependency, scope, source-provenance, substitution, and free-name walks must
+  recurse through the condition and both arm prefixes and terminal values,
+  respecting each prefix's lexical shadowing. Closed-member substitution must
+  reach inline-procedure arguments and captures in every child. ANF must treat
+  the complete `WccSelect` as a non-hoisting value barrier. Only the condition
+  prefix may join the enclosing prefix; `then_arm.prefix` and
+  `else_arm.prefix` remain branch-local. Reconstruct each non-empty prefix as
+  a branch-local `LetStarExpr` during defunctionalization, then reconstruct the
+  ordinary `IfExpr`, so an already-supported pure-projection value position
+  emits `kind: "if"`.
+
+  For a selection consumed by a member perform, lift the whole reconstructed
+  value to the owning closed group's existing pure-projection binding path
+  through one helper shared by provider supervision and peer groups. Replace
+  the member input with that projection's existing `typed_binding_ref`, and
+  make the owning group node depend on the projection. Derive node/binding
+  identity and source maps from the authored selection. Never lift either arm
+  or an effect across the member boundary. Assert that no effectful `and`/`or`
+  reaches `_elaborate_expr_to_value` or the eager ANF pure-op path.
+
+- [ ] Prove the existing post-provider member settlement projection first.
+  Then prove the pre-provider direct-`if` input produces exactly one existing
+  `pure_projection` plus its owning provider-supervision or peer-group node.
+  Do not extend `ProviderStepConfig`, typed-input value-source variants, public
+  Executable IR, runtime forms, state families, or schema versions.
 
 - [ ] Run GREEN, collection, and adjacent regressions:
 
   ```sh
   pytest --collect-only -q \
     tests/test_workflow_lisp_strict_boolean_control_flow.py \
-    tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py
+    tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py \
+    tests/test_workflow_lisp_provider_supervision.py \
+    tests/test_workflow_lisp_provider_peer_group.py \
+    tests/test_workflow_lisp_provider_peer_group_e2e.py
   pytest -q tests/test_workflow_lisp_strict_boolean_control_flow.py \
-    -k 'strict or linear or short_circuit or nested_control'
-  pytest -q tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py \
-    -k 'linear or short_circuit or nested_control or failure'
+    -k 'strict or linear or short_circuit or nested_control or target_225'
+  pytest -q \
+    tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py \
+    tests/test_workflow_lisp_provider_supervision.py \
+    tests/test_workflow_lisp_provider_peer_group.py \
+    tests/test_workflow_lisp_provider_peer_group_e2e.py \
+    -k 'linear or short_circuit or nested_control or failure or closed_member or inline_select or pre_provider_input'
   pytest -q \
     tests/test_workflow_lisp_expressions.py::test_typecheck_expression_accepts_pure_ops_and_computed_if \
     tests/test_workflow_lisp_wcc_characterization.py::test_wcc_ifexpr_non_tail_binding_uses_control_join_without_unsupported_rewrite \
     tests/test_workflow_lisp_native_returns_e2e.py::test_provider_root_bool_result_drives_branching_persists_and_resumes
   pytest -q tests/test_workflow_pure_expr.py \
-    -k 'and_bool or or_bool or not_bool'
+    -k 'and_bool or or_bool or not_bool or if_untaken'
+  pytest -q \
+    tests/test_workflow_lisp_strict_boolean_control_flow.py \
+    tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py
+  pytest -q tests/test_workflow_lisp_command_adapters.py
+  pytest -q \
+    tests/test_workflow_lisp_loop_recur.py \
+    tests/test_workflow_lisp_provider_peer_group.py
+  pytest -q \
+    tests/test_workflow_lisp_provider_supervision.py \
+    tests/test_workflow_lisp_transportable_value.py \
+    tests/test_workflow_lisp_phase_stdlib.py \
+    tests/test_workflow_lisp_list_traversal.py
   ```
 
-- [ ] Stop for design revision if any of the first three fixtures requires a
-  new runtime/public-IR form. Otherwise commit the exact modified paths:
+- [ ] Stop for design revision if the post-provider `WccSelect` cannot lower
+  through the existing pure-projection payload, or if the pre-provider input
+  needs anything beyond one existing whole-value `pure_projection` and its
+  `typed_binding_ref`. Also stop if owner-scope materialization would move an
+  effect, either arm, or a member-runtime dependency across the boundary. Do
+  not add new runtime/public-IR/state semantics.
+  Otherwise commit the exact modified paths:
 
   ```sh
-  git add orchestrator/workflow_lisp/conditionals.py \
+  git add orchestrator/workflow/pure_expr.py \
+    orchestrator/workflow_lisp/conditionals.py \
     orchestrator/workflow_lisp/typecheck_dispatch.py \
     orchestrator/workflow_lisp/typecheck_pure_ops.py \
-    orchestrator/workflow_lisp/lowering/pure_projection.py \
+    orchestrator/workflow_lisp/compiler.py \
+    orchestrator/workflow_lisp/functions.py \
+    orchestrator/workflow_lisp/expression_traversal.py \
+    orchestrator/workflow_lisp/wcc/model.py \
+    orchestrator/workflow_lisp/wcc/analysis.py \
+    orchestrator/workflow_lisp/wcc/anf.py \
+    orchestrator/workflow_lisp/wcc/elaborate.py \
+    orchestrator/workflow_lisp/wcc/defunctionalize.py \
+    tests/test_workflow_pure_expr.py \
+    tests/test_workflow_lisp_provider_supervision.py \
+    tests/test_workflow_lisp_provider_peer_group.py \
+    tests/test_workflow_lisp_provider_peer_group_e2e.py \
     tests/test_workflow_lisp_strict_boolean_control_flow.py \
     tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py
   git commit -m "Normalize strict Boolean Workflow Lisp conditions"
   ```
-
-  Add `orchestrator/workflow_lisp/wcc/elaborate.py` or
-  `orchestrator/workflow_lisp/wcc/anf.py` only if the reviewed implementation
-  actually changes it.
 
 ## Task 3: Prove Union Narrowing End To End
 

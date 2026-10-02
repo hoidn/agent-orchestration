@@ -2,9 +2,12 @@
 
 ## Metadata
 
-- **Status:** accepted design; no implementation authorized by this document
-  (see [Tranche Sequence And Gates](#tranche-sequence-and-gates) for what each
-  tranche additionally requires before work starts)
+- **Status:** accepted design; E0 direct control, E1 pinned child
+  runs, and E2 trials are implemented and complete. E3's external evolution
+  controller is not implemented. Its separate owner-selected pending state is
+  recorded in the [evolution roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md);
+  that selection is not execution authority. See the [Capability Status
+  Matrix](../capability_status_matrix.md) for current status and copy safety.
 - **Kind:** target architecture and experiment-platform design
 - **Owner:** agent-orchestration maintainers
 - **Reviewers:** ordered independent `E_DESIGNS_SPEC_APPROVED`, then
@@ -37,28 +40,32 @@
   - `specs/dsl.md`, `specs/providers.md`, `specs/state.md`, and
     `specs/versioning.md` target-2.11 `adjudicated_provider` sections (the
     historical origin of the reuse candidate, not this design's target)
-- **Implementation target:** none selected. Ordered design review is complete;
-  a reviewed component plan and explicit E0 selection remain required before
-  implementation. The landed ML
-  kill-mid-provider crash/resume contract and the lean-pilot owner-decision
-  handoff are additional E0/E1 entry prerequisites owned by the E roadmap.
+- **Implementation targets:** the original unassigned-target wording below is
+  historical. E1 `run-ref` is implemented at target 2.24 and E2 `trial` at
+  target 2.25. The E3 design remains pending and does not itself authorize
+  execution or follow-on work.
 
 Purpose: define the smallest coherent platform on which (1) the effectiveness
 of `.orc` orchestration can be measured against controls on real repository
 tasks, and (2) bounded, generational program evolution can later be run —
 without adding runtime `eval`, code values, or a parallel evaluation system.
 
-Authority: normative runtime behavior remains in `specs/`. This document
-schedules no spec change by itself. E0 is a library-and-tests tranche with no
-new language target; E1 and E2 land spec amendments first, then code, at a DSL
-target chosen at admission. Target 2.23 is already implemented; the first new
-language target remains unassigned and must be post-2.23. Where this document
-conflicts with
+Authority: normative runtime behavior remains in `specs/`. Current E1/E2
+contracts are in [the DSL spec](../../specs/dsl.md), [state
+spec](../../specs/state.md), [versioning spec](../../specs/versioning.md), and
+[CLI contract](../../specs/cli.md); authoring guidance is in the [drafting
+guide](../lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials).
+This document preserves the design rationale and original pre-implementation
+gates; its target-assignment language is not current admission guidance.
+Where this document conflicts with
 `workflow_lisp_program_search_boundaries.md`, the boundaries document wins.
 
-Copy safety: all `.orc` fragments and record shapes in this document are
-conceptual and **not copy-safe**. They name proposed contracts, not
-implemented syntax.
+Copy safety: `.orc` fragments and record shapes here are design sketches, not
+copy-safe templates. Use the current specs and drafting guide for implemented
+syntax. The matrix identifies
+[`workflows/library/control/direct_task.orc`](../../workflows/library/control/direct_task.orc)
+as copy-safe for E0's bounded direct-control shape; E1/E2 have no checked-in
+production `.orc` template, and test fixtures are not authoring templates.
 
 ## Provenance And Inputs
 
@@ -324,9 +331,10 @@ it may not reinterpret a pilot evidence root as a platform run.
 
 ### Refusal families (structural only)
 
-The v1 refusal registry is closed at admission and each envelope carries
-`code`, `rejected_value`, and optional stable secondary causes. Human prose is
-a view and is never routing authority.
+The v1 refusal registry is closed; current codes and envelopes are normative
+in the [DSL spec](../../specs/dsl.md). The original design required each
+envelope to carry `code`, `rejected_value`, and optional stable secondary
+causes. Human prose is a view and is never routing authority.
 
 | Boundary | Stable refusal codes |
 | --- | --- |
@@ -623,6 +631,10 @@ not broaden or narrow them.
 
 ## Language Substrate Dependencies
 
+The entry-proof and admission statements in this section record the original
+pre-implementation assessment. E1/E2 implementation plans and the current
+specs now own those contracts; these statements are not current blockers.
+
 Named dependencies on existing tracks; this design builds none of them.
 
 - **Compiler invocation strategy:** child compiles run inside child-run
@@ -700,9 +712,13 @@ Named dependencies on existing tracks; this design builds none of them.
 
 ## Feasibility Entry Proofs
 
-This draft does not infer new composition capabilities from adjacent features.
-The reviewed E component plan must close these proofs before their owning
-tranche can start:
+This list records the original pre-implementation entry proofs; it does not
+claim that E0–E2 remain gated. Their completion and exact contracts are
+recorded in the [Capability Status Matrix](../capability_status_matrix.md),
+the [E1 component plan](../plans/2026-07-31-workflow-lisp-e1-run-ref-component-plan.md),
+and the [E2 component plan](../plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md).
+E3 remains unimplemented; its historical owner selection is not current
+execution authority. See the [evolution roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md).
 
 1. **E0 accounting parity:** one deterministic-provider fixture proves that
    the direct control and an ordinary arm emit the same accounting fields
@@ -731,6 +747,10 @@ parallel runtime, a weaker identity, or a prompt-carried substitute.
 
 ## Spec Amendment Inventory (At Admission, Per Tranche)
 
+This table preserves the intended landing order. The current target-2.24 and
+target-2.25 contracts are already in the linked normative specs above; the
+old post-2.23 target assignment is not an open question.
+
 - **E0:** none (library + tests only).
 - **E1:** `specs/dsl.md` (`run-ref` form, structural refusals, version
   gating at a post-2.23 target); `specs/state.md` (parent-side trial ledger
@@ -746,6 +766,10 @@ parallel runtime, a weaker identity, or a prompt-carried substitute.
   landed at-least-once and single-writer contracts continue unchanged.
 
 ## Tranche Sequence And Gates
+
+This table records the entry and exit criteria as reviewed on 2026-07-31. E0,
+E1, and E2 have since completed; the remaining E3 row is not implementation
+authorization or evidence that E3 has been selected.
 
 | Tranche | Content | Entry gate | Exit gate |
 | --- | --- | --- | --- |

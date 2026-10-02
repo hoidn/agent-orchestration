@@ -6,9 +6,10 @@ selection. See the [current roadmap](2026-07-22-workflow-lisp-evolution-follow-o
 [experiment design](../design/orc_reuse_introspection_search_experiment.md),
 and [next-step plan](2026-09-08-orc-research-demonstration-plan.md).
 
-The reduced R1a pilot is closed. The owner selected assisted C1 development;
-its current scope and subsequent work belong to the
-[active plan](2026-09-08-orc-research-demonstration-plan.md#owner-selected-assisted-c1-development).
+The reduced R1a pilot is closed. Assisted C1 feasibility and the qualitative
+ergonomic assessment are recorded; no new development is selected. The
+implementation proposal and its current disposition belong to the
+[active plan](2026-09-08-orc-research-demonstration-plan.md#proposed-follow-on--explicit-current-value-handoff).
 Authoring follows the design's
 [normal agent sessions and evaluation boundary](../design/orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary).
 The [execution boundaries](2026-09-08-orc-research-demonstration-plan.md#execution-boundaries-and-replacement-budgets)
@@ -104,9 +105,11 @@ old request/token ceilings or two source revisions cannot limit internal
 debugging. Resource-cap authority does not select a successor. Scripted leaves
 may isolate orchestration behavior, but actual authoring inference is charged.
 
-Separately dispose of ES: finish the bounded approved study or explicitly
-park/close it; do not enlarge it to make RICH win. Its result informs topology
-choice, not whether the five hypotheses may be investigated.
+ES was parked prelaunch by the owner on 2026-09-08. Preserve the existing
+resumption gate: further work requires explicit owner selection and the
+[adoption gate](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#current-es-boundary).
+Do not enlarge ES to make RICH win. Its result informs topology choice, not
+whether the five hypotheses may be investigated.
 
 ## Conditional Follow-On
 

@@ -80,6 +80,12 @@ It should make high-level workflows easier to write without changing runtime
 authority. The frontend lowers through shared validation, semantic IR, executable
 IR, source maps, and the existing runtime.
 
+That is the runnable route through target 2.34. The accepted
+[evaluated-execution design](design/workflow_lisp_evaluated_execution.md) instead
+compiles a closed program for evaluation; its target-2.35 compiler is partially
+integrated, with public compilation and execution still unavailable. Check the
+[capability matrix](capability_status_matrix.md) before choosing a target.
+
 Workflow Lisp is the only fresh authoring frontend. If the required form is not
 implemented, record a capability gap rather than creating a lower-level or YAML
 workaround. Historical YAML/YML sources remain translation and evidence inputs,

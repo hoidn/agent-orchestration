@@ -1,8 +1,10 @@
 # Workflow Lisp Execution: Facts About The Current System
 
-- **Status:** evidence record. It states facts and proposes nothing. The
-  design that uses it is
-  [Workflow Lisp Evaluated Execution](../design/workflow_lisp_evaluated_execution.md).
+- **Status:** historical evidence at the code checkpoint below, including its
+  then-open repairs; it proposes nothing. Current capabilities and remaining
+  work belong to the [capability matrix](../capability_status_matrix.md) and
+  [Workflow Lisp Evaluated Execution](../design/workflow_lisp_evaluated_execution.md),
+  which incorporates this evidence and subsequent compiler delivery.
 - **Date and code:** 2026-09-29. Code and documents were read from the branch
   `feat/orc-shared-defect-repairs` at `98ba8f0a`, which is `main` plus the
   repairs of the

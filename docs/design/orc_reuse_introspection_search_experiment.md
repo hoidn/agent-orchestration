@@ -11,6 +11,11 @@ The plan owns current selection and resource limits; this design selects no
 new study or budget. Earlier human-only, zero-paid-R1a, and constrained-authoring
 proposals remain historical context, not the normal agent-session contract below.
 
+The reduced pilot, assisted C1 feasibility and qualitative ergonomic assessment
+are recorded. The remaining C1 receipt-interface repair is unselected; consult
+the plan for current disposition. Completed development does not select a new
+study or establish comparative efficacy.
+
 Normative behavior remains in `specs/`. The existing [trial design](workflow_lisp_trial_runs.md)
 owns child-run/evaluation methodology; [program-search boundaries](workflow_lisp_program_search_boundaries.md)
 record the current architecture. This proposal adds no language target.
@@ -227,7 +232,7 @@ six portfolio adaptations/eighteen consumer checks, and six paired diagnosis
 cases with twelve assessments. Those counts describe the historical protocol
 whose reduced pilot is closed; they are not mandatory next work. R1b's proposed
 three episodes remain separately selectable. These priorities create no new
-matrix, arms, or independent samples. The selected development scope uses the
+matrix, arms, or independent samples. The completed assisted C1 development used the
 [execution boundaries](../plans/2026-09-08-orc-research-demonstration-plan.md#execution-boundaries-and-replacement-budgets)
 and [input manifest](../../experiments/orc_research_demo/inputs.json) for finite
 monetary/time limits and their authorized amendments. Request and token counts

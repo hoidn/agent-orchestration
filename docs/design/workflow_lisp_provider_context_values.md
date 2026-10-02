@@ -4,13 +4,19 @@
 - **Kind:** language and provider-boundary architecture decision
 - **Owner:** Workflow Lisp frontend and provider/runtime boundary
 - **Created:** 2026-09-08
-- **Last material update:** 2026-09-22
+- **Last material update:** 2026-10-01
 - **Implementation target:** 2.31 for portable ordinary calls in the
   [composition implementation plan](../plans/2026-09-22-value-and-continuation-composition-implementation-plan.md#d-portable-context-pc-1-ordinary-call-slice);
   source/runtime support includes imported generic/private carriage, collections,
   loops, pure context edits, independent branches and committed-boundary resume.
-  Real Codex capture/fresh binding is verified; native continuation is unselected.
-- **Roadmap:** [PC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected), pending and unselected; feasibility, compositional implementation, and consequent improvement/retirement require their own selection and allocation
+  Real Codex capture/fresh binding is verified. Private flattened boundaries
+  still reject colliding paths such as `a__b` and nested `a.b`; native
+  continuation and other adapters remain unselected.
+- **Roadmap:** [PC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected)
+  research/utility selection remains pending and unselected. The bounded
+  target-2.31 implementation above was delivered separately; native support,
+  additional adapters, and later improvement or retirement require their own
+  selection and allocation.
 - **Review and drafting record:** [design plan and comparative simulation](../plans/2026-09-08-provider-context-design-plan.md)
 - **Incremental integration:** [value and continuation composition](workflow_lisp_value_and_continuation_composition.md); its Increment 4 starts with portable capture/bind under this contract, keeping native continuation and human input independent.
 
@@ -31,6 +37,12 @@ that conversational dependencies become explicit dataflow rather than hidden
 mutable session state. Reusing `context₀` starts independent conversational
 branches; it does not resume and mutate one shared session twice.
 
+Target 2.31 implements the portable ordinary-call slice for supported Codex
+calls. Native continuation, cross-provider transfer, and other adapters remain
+proposals; use the [capability matrix](../capability_status_matrix.md) and
+[authoring guide](../lisp_workflow_drafting_guide.md#portable-provider-context)
+for the current scope and copy-safe example.
+
 Portable history and opaque native continuation are different representations
 with different promises. This is not universal memory, live-process cloning,
 workspace transfer, or a claim to capture a model's hidden internal state.
@@ -45,10 +57,10 @@ not implemented capabilities. The table records the starting owners and limits.
 | Existing owner | Reuse and limitation |
 | --- | --- |
 | [Providers](../../specs/providers.md), [provider types](../../orchestrator/providers/types.py), [executor](../../orchestrator/providers/executor.py) | Existing preparation, execution, capability declarations, and session codecs are the adapter boundary. Resume support alone does not prove immutable snapshot, export, or fork support. |
-| [DSL](../../specs/dsl.md), [provider expression parsing](../../orchestrator/workflow_lisp/expressions.py), [effect lowering](../../orchestrator/workflow_lisp/lowering/effects.py), [session-artifact tests](../../tests/test_workflow_lisp_session_artifact.py) | Target-2.27 `:session-artifact` publishes a fresh scalar handle separately from the typed result. The inspected `provider-result` keywords include no first-class context input. A handle is not captured content. |
+| [DSL](../../specs/dsl.md), [provider expression parsing](../../orchestrator/workflow_lisp/expressions.py), [effect lowering](../../orchestrator/workflow_lisp/lowering/effects.py), [session-artifact tests](../../tests/test_workflow_lisp_session_artifact.py) | At the original 2026-09-08 inspection, target-2.27 `:session-artifact` published a fresh scalar handle separately from the typed result, and `provider-result` had no first-class context input. Target 2.31 adds the portable ordinary-call clauses below; a handle alone is still not captured content. |
 | [OMP templates](../../orchestrator/providers/omp_templates.py), [CLI contract](../../specs/cli.md) | Foreground session bridging and native CLI features are distinct from ordinary workflow calls. OMP template `resume_command=None` cannot be treated as existing workflow rebinding support. |
 | [Prompt calculus](workflow_lisp_prompt_calculus.md), [Step IO](../../specs/io.md) | Reuse current-call composition and output-contract ownership. Q3's content-free provenance is not conversation content and must not be repurposed as an export format. |
-| [Transportable Value](workflow_lisp_transportable_value_type.md) | Existing strict-JSON carriage is useful infrastructure, but exact opaque `Value` is not an implicit cast, inspectable context type, or proof that all nested context positions already work. |
+| [Transportable Value](workflow_lisp_transportable_value_type.md) | Existing strict-JSON carriage supplies the portable slice's storage and recursive validation. Target 2.31 proves supported imported generic, aggregate, collection and loop carriage; `Value` remains opaque and is not an implicit `Context` cast. Private flattened boundaries still reject colliding field paths such as `a__b` and nested `a.b`. |
 | [Executable IR](workflow_lisp_executable_ir.md), [Semantic IR](workflow_lisp_semantic_workflow_ir.md), [State Layout](workflow_lisp_state_layout.md), [State](../../specs/state.md) | Preserve the WCC/shared-Core/validated-executable path, derived semantic explanations, generated paths, call-frame lineage, and completed-boundary reuse. Provider context is not private execution `RunCtx`. |
 | [Language principles](workflow_language_design_principles.md) | Explicit dataflow/effects, real procedure composition, structural types where sufficient, opt-in stronger constraints, and runtime-owned deterministic work govern this proposal. |
 | [Provider prompt queue](workflow_lisp_provider_prompt_queue.md) | A separate target for sequential native-session turns with one final typed result and recorded turn progress. Atomic result publication does not imply whole-conversation replay. It neither implements nor blocks portable context; reuse the same adapter/codec owners. |
@@ -56,12 +68,15 @@ not implemented capabilities. The table records the starting owners and limits.
 ## Problem, Goals, And Boundaries
 
 An investigation can produce both an answer and useful accumulated working
-context. Today a reusable workflow can pass declared artifacts or author a
-handoff, but cannot express this whole continuation as an ordinary captured
-value. A scalar session handle leaves selection, portability, branch isolation,
-and lifetime outside the value contract.
+context. At this design's 2026-09-08 starting point, a reusable workflow could
+pass declared artifacts or author a handoff, but could not express an ordinary
+captured value; a scalar session handle left selection, portability, branch
+isolation and lifetime outside the value contract. Target 2.31 now implements
+the bounded portable ordinary-call slice below. Native continuation, other
+adapters, and unproved event kinds remain outside that delivered scope.
 
-Required outcomes:
+Long-term design goals (the shipped target-2.31 slice covers supported Codex
+ordinary calls and the carriage positions listed below):
 
 - Pass context through ordinary procedure arguments/returns, imported modules,
   records, collections, conditionals, and loop-carried state.
@@ -84,19 +99,18 @@ existing platform contracts are neither expanded nor removed by this proposal.
 | Layer | Consequence | Main cost or limitation |
 | --- | --- | --- |
 | Conceptual | A workflow programs the evolution of explicit conversational state, not just a graph of answers. A reusable procedure can return work plus the means to continue it. | Context is a dependency, not truth or the entire world state; preserving a mistaken premise can worsen later work. |
-| Language design | Context is a duplicable value; provider calls optionally consume and produce it. Content transformations compose with ordinary data operations and effectful procedures. | Type/transport restrictions that prevent ordinary composition must be repaired or explicitly identified as prerequisites, not hidden behind root-only syntax. |
-| Implementation / architecture | Capture and bind extend the existing provider boundary; immutable content and runtime-produced result metadata use existing storage, validation, and checkpoints. | Export fidelity, native branching, and atomic result/context publication are substantive new responsibilities. A session-ID alias is insufficient. |
-| Frontend / authoring | Small additions to `provider-result`, ordinary projections, compiler diagnostics, and source-mapped explanations expose context flow. | Syntax alone does not deliver the feature. WCC, generic specialization, public boundaries, lowering, and resume must carry the same contract. |
+| Language design | Target 2.31 makes the fixed portable `Context` and `Contextual[T]` ordinary typed values for the supported carriage positions; provider calls can consume or capture them. | The private flattened-path collision case remains rejected; this does not promise arbitrary transport or native continuation. |
+| Implementation / architecture | The shipped Codex ordinary-call path captures and binds portable content through existing provider, validation, artifact, and checkpoint owners. | Cross-provider import, native branching, and event kinds outside the closed codec still need separate adapter evidence. A session-ID alias is insufficient. |
+| Frontend / authoring | Target 2.31 adds ordinary `provider-result` clauses, wrapper typing, context projections, and WCC/lowering/resume carriage for the supported slice. | Syntax alone does not deliver broader provider forms or native continuation; those need their own contract and proof. |
 | Practical use | Reusable investigations, alternate approaches, targeted handoffs, and context-policy experiments become directly expressible and auditable. | Storage, export latency, repeated input tokens, contamination, and adapter limitations can outweigh the benefit. Existing SDK/agent handoffs are the comparison, not a straw-man stateless call. |
 
 ## Decision And Alternatives
 
-The long-term design distinguishes immutable `Portable` and `Native` cases;
-the reviewed first slice implements only the portable record specified below.
-Extend the existing provider boundary with opt-in context input
-and capture. Return captured context alongside, not inside, the model-authored
-result contract. Use ordinary data transformations and reusable procedures
-before adding specialized operators.
+The design distinguishes immutable `Portable` and `Native` cases. Target 2.31
+implements the portable record and ordinary-call input/capture specified below;
+native remains proposed. Captured context returns alongside, not inside, the
+model-authored result contract. Use ordinary data transformations and reusable
+procedures before adding specialized operators.
 
 Alternatives:
 
@@ -122,8 +136,9 @@ new context API as a facade over authored shell-resume workflows.
 
 ### Values And Representation
 
-`Context` is a proposed transportable language value, distinct from `String`,
-opaque `Value`, and execution `RunCtx`. The logical representation is:
+Target 2.31 implements the closed portable `Context` value, distinct from
+`String`, opaque `Value`, and execution `RunCtx`. Native remains a proposed
+semantic case. The longer-term logical representation is:
 
 ```text
 Context = Portable(content, coverage, lineage)
@@ -132,14 +147,12 @@ Context = Portable(content, coverage, lineage)
 Contextual[T] = { result: T, context: Context }
 ```
 
-These are long-term semantic cases, not the first slice's wire schema. Existing
-authored records are not generic: there is no general generic `defrecord`
-declaration/application surface. Introduce one spellable builtin type constructor
-`Contextual[T]` resolving to an ordinary structural record with `result:T` and
-`context:Context`; do not add arbitrary generic-record syntax or a new transport
-kind. The materialized portable slice below instantiates `Context` as a closed
-ordinary record. Native representation needs a separately versioned decision;
-do not reserve an unusable native alternative now.
+`Context` and `Contextual[T]` in the portable slice use the fixed ordinary
+record schemas below; `Contextual[T]` resolves to `{result:T, context:Context}`.
+Existing authored records are not generic: this builtin constructor does not
+add general generic `defrecord` syntax or a new transport kind. Native
+representation needs a separately versioned decision; no native wire
+alternative is implemented.
 
 - **Portable:** an ordered, inspectable history of representable messages,
   tool-call/result relationships, instructions as historical records, and
@@ -174,16 +187,18 @@ applying content transformations.
 
 ### Capture, Transform, And Bind
 
-Capture on a completed provider call records its effective supplied context,
-new task/current-call contributions, and the exposed conversation through the
-settled boundary. The adapter, not the model's final answer, supplies this data.
-Opt-in capture specifies portable or native representation. If a required
+At target 2.31, opt-in capture selects the portable representation on supported
+ordinary Codex calls. It records the effective supplied context, new
+task/current-call contributions, and exposed conversation through the settled
+boundary; the adapter, not the model's final answer, supplies this data. Native
+capture and import of pre-existing sessions remain proposed. If a required
 representation or coverage cannot be delivered, capture fails explicitly.
 
-Importing a pre-existing session is a separate effectful adapter operation over
-an exact settled checkpoint. It is not scraping an actively changing journal
-and declaring its latest offset a snapshot. Existing session-ID imports require
-this validation; they are not automatic conversions to `Context`.
+If implemented later, importing a pre-existing session is a separate effectful
+adapter operation over an exact settled checkpoint. It cannot scrape an
+actively changing journal and declare its latest offset a snapshot. Existing
+session-ID imports would require this validation; they are not automatic
+conversions to `Context`.
 
 Logical operations, not commitments to new builtins:
 
@@ -235,7 +250,11 @@ external-effect handling remain separate existing facilities or separate work.
 
 ## Language And Frontend
 
-Illustrative proposed syntax, **not runnable current `.orc`**:
+The ordinary-call syntax below is implemented at target 2.31 for supported
+Codex providers. This is a body fragment that assumes its provider, prompt,
+type, and `seed` declarations; use the [portable provider context authoring
+guide](../lisp_workflow_drafting_guide.md#portable-provider-context) for a
+copy-safe example and current limits.
 
 ```lisp
 (let* ((investigation
@@ -262,7 +281,7 @@ Both later calls consume the investigation snapshot; the checker receives no
 alternative-branch history through context. This alone does not constitute a
 blinded evaluation: the investigation itself may contain conclusions.
 
-Proposed typing rules:
+Implemented typing rules for target 2.31:
 
 - With neither clause, existing calls and result types remain unchanged.
 - `:context c` accepts a `Context`; absence means the existing fresh-call path,
@@ -274,9 +293,10 @@ Proposed typing rules:
 - `:returns T` and prompt-owned returns still describe only the model's result.
   The runtime assembles the wrapper; the model is never instructed to fabricate
   the context descriptor. Existing return-contract coherence checks remain.
-- A reusable procedure can accept/return `Context` or `Contextual[T]`, place it
-  in ordinary aggregates, and carry it through loops. These positions are
-  requirements to prove, not claims of current transport support.
+- Reusable procedures can accept/return `Context` or `Contextual[T]`; public
+  checks cover imported generic helpers, record/list carriage, branches, and
+  loop state. Private flattened carriage rejects colliding paths such as
+  `a__b` and nested `a.b`; no universal `Value` conversion is implied.
 - Effects stay explicit under the existing effect contract. Passing an already
   materialized value is not provider I/O; invoking, exporting, loading stored
   content, and model-assisted compaction are. This proposal does not depend on
@@ -284,35 +304,36 @@ Proposed typing rules:
 
 ### Relationship To Effect Contracts And Pure-Call Composition
 
-The [revised effect proposal](workflow_lisp_effect_ledger_simplification.md)
-separates inferred operations from optional authored restrictions. It does not
-make capture or provider invocation pure. Context-bearing procedures should
-propagate the effects of their selected calls automatically; an intentionally
-named provider ceiling may restrict rebinding, while an unconstrained reusable
-helper need not name every possible destination.
+The [effect-ledger proposal](workflow_lisp_effect_ledger_simplification.md)
+remains separate: it does not make capture or provider invocation pure. The
+implemented target-2.31 context path uses the existing effect contract for its
+selected provider calls; adopting optional effect restrictions is not a
+prerequisite.
 
-The [pure-call composition proposal](workflow_lisp_pure_call_composition.md)
-addresses a different boundary: an effect-free inline helper should not be
-rejected in an aggregate or pure map merely because it is a procedure call.
-Materialized context selection/packaging is a relevant consumer, but context
-type/transport and collection eligibility remain separate feasibility questions.
-Passing an immutable stored-content reference is pure; dereferencing it is I/O.
-Context lineage belongs to values and execution provenance, not mandatory
-effect-name repetition on every wrapper.
+The [pure-call composition design](workflow_lisp_pure_call_composition.md)
+addresses a different boundary: its target-2.30 resolved-inline subset lets an
+effect-free helper compose where that representation is admitted. Target 2.31
+uses this path for supported materialized Context transformations and proves
+the listed imported, aggregate, collection, branch and loop positions. It does
+not imply universal collection eligibility. Passing materialized context is
+pure; capture, provider invocation, and loading stored content are I/O. Context
+lineage belongs to values and execution provenance, not mandatory effect-name
+repetition on every wrapper.
 
-Neither proposal is a blanket prerequisite for PC-1. The compositional spike
-must identify whether an obstruction is actual I/O, missing transport/type
-support, expression normalization, or private-boundary identity. Select the
-necessary shared correction, or reconsider the foundation where justified.
-Do not solve it with context-specific pure-call syntax, a new effect atom for
-each transformation policy, or an alternative global-artifact transport.
+Neither proposal is a blanket prerequisite for PC-1. For the shipped target-2.31
+slice, public checks cover the selected transport, imported/helper, aggregate,
+collection, branch, loop, and resume positions; no further feasibility spike is
+needed for those positions. Evaluate any new representation or placement
+narrowly if a real consumer requires it. Do not solve unrelated gaps with
+context-specific pure-call syntax, a new effect atom for each transformation
+policy, or alternative global-artifact transport.
 
 ### Compatibility, Provider Selection, And Tooling
 
-Initially diagnose contradictory `:session-artifact`/context-capture requests
-rather than manufacturing two independently authoritative publications. The
-implementation design must define a deliberate compatibility projection before
-allowing both. Initial rebinding uses declared provider externs: current
+Target 2.31 rejects contradictory `:session-artifact`/context-capture requests
+rather than manufacturing two independently authoritative publications. Any
+future support for both requires a deliberate compatibility projection.
+Rebinding uses declared provider externs: current
 `typecheck_effects.py` requires a compiler-known provider and `lowering/effects.py`
 resolves it to a fixed provider ID. Dynamic model/effort options do not imply
 dynamic provider identity. Validate known capability incompatibility statically
@@ -325,11 +346,12 @@ carriage and prelaunch capability validation. Reconsider the static-provider
 restriction when justified, rather than silently adding dynamic dispatch to
 this feature or declaring it permanently out of scope.
 
-Compiler/editor consequences: reserve/gate the new clauses only when accepted;
-carry input and output types through generic specialization and WCC; diagnose
-unsupported representation at the authored call; expose context dependencies
-and transformation origins in semantic explanations/source maps. Reuse existing
-editor diagnostics. A new dashboard or context editor is not a prerequisite.
+Target 2.31 gates the implemented clauses and carries their input/output types
+through generic specialization and WCC. Unsupported representations are
+diagnosed at the authored call. The wider design calls for context dependencies
+and transformation origins in semantic explanations/source maps; reuse
+existing editor diagnostics, and do not treat a new dashboard or context editor
+as a prerequisite.
 
 ## Implementation Architecture And Publication
 
@@ -398,11 +420,11 @@ events with transformation lineage rather than retaining a captured-content
 claim. Capture preserves the inherited coverage and transformation lineage.
 
 First adapter: installed **Codex 0.155.1**, using the existing `codex exec --json`
-transport and `ProviderExecutionResult.raw_stdout`. Its declared coverage is
-exposed task/assistant/command/file-change history, not all possible Codex activity. The
-current `CodexExecJsonlAccumulator` normalizes assistant output/session metadata;
-that normalization alone is not capture. Extend the existing session codec with
-opt-in closed event decoding, preserving command start/result relationships.
+transport and `ProviderExecutionResult.raw_stdout`. Target 2.31 implements
+opt-in closed event decoding in the existing session codec, with declared
+coverage limited to exposed task/assistant/command/file-change history, not all
+possible Codex activity. `CodexExecJsonlAccumulator` still normalizes ordinary
+assistant output/session metadata; that normalization alone is not capture.
 The closed first codec accepts these envelope/item families:
 
 | JSONL event/item | Capture behavior |
@@ -458,14 +480,18 @@ payload was discarded; it does not claim preservation of native message roles
 or provider continuation state. The prompt identifies the payload as historical
 data, with current-call instructions and output contracts kept separate.
 
-Adapter feasibility evidence: two fresh calls through the existing provider
-executor, explicitly selecting Terra, captured a real `command_execution`
-start/completion pair reading a dummy marker and then delivered the structured
-history to a fresh call. The second call extracted that marker without executing
-a command. Local artifacts: `/tmp/codex-context-probe.vXthUq` (temporary, not a
-durable dependency). The coordinator inspected the event keys and second result.
-Capture stdout included both a preamble and final answer; this probe establishes
-the history substrate, **not** typed `T` validation or public `.orc` capture.
+The original adapter feasibility probe used two fresh calls through the
+existing provider executor, explicitly selecting Terra. It captured a real
+`command_execution` start/completion pair reading a dummy marker, then delivered
+the structured history to a fresh call; the second call extracted the marker
+without executing a command. Its temporary artifacts under `/tmp` were not a
+durable dependency. That early probe established the history substrate only.
+Since then, the public target-2.31 `.orc` capture/bind path and a real normal-tools
+Codex capture/fresh-bind have been verified; see the
+[composition implementation plan](../plans/2026-09-22-value-and-continuation-composition-implementation-plan.md#d-portable-context-pc-1-ordinary-call-slice)
+and [context carriage tests](../../tests/test_workflow_lisp_provider_context_e2e.py).
+Neither that evidence nor the early probe proves cross-provider transfer or
+native fork.
 [Official noninteractive documentation](https://learn.chatgpt.com/docs/non-interactive-mode)
 also describes JSONL thread/turn/item events. Installed OMP 18.1.14 differs from
 the repo's supported pin 17.3.4, so it is not an advertised second adapter; no pin
@@ -509,25 +535,27 @@ actual JSON booleans and exact record/variant keys. This deliberate stricter
 structural contract preserves typed `T`, not every permissive flattened input.
 Astra approved this capture-only representation. It avoids a new validated-
 document API, at the cost of recursive prompt/guidance support and root-centered
-diagnostics; imported/private whole-value carriage remains a separate obligation.
+diagnostics. Target 2.31 also verifies imported/private whole-value carriage in
+the supported positions; flattened-path collisions remain rejected below.
 Recursive rendering is selected by the existing capture configuration; omitted
 capture retains the legacy prompt projection, including older nested-container
 schemas. Target 2.31 shared validation admits complete structural schemas at an
 output bundle's single root pointer and validates nested field guidance. Computed
 Context materialization uses that same generic whole-root schema path.
 
-Whole structural references already feed the pure evaluator's typed
-`field_access`. Repair shared local binding/field access to route record refs
-there; do not add context-specific prefix splitting or another evaluator.
+Whole structural references feed the pure evaluator's typed `field_access` in
+the target-2.31 path; record-reference projection uses that shared route, not
+context-specific prefix splitting or another evaluator.
 Existing private-return projection may still join field paths with `__`.
 The broad `__`-prefixed key filter in `pure_projection._runtime_binding_value`
 has been replaced with exact compiler-metadata filtering; unit and public
 execution checks preserve legal user fields. These were shared pre-existing
-defects, not reserved user syntax. Preserve whole-value projection through the
-required imported/private/aggregate routes. A precise existing boundary rejection
-must be disclosed if it remains; it cannot count as transparent arbitrary
-carriage. The two-atomic-artifact choice must not merely postpone a collision
-until the first private return.
+defects, not reserved user syntax. Target 2.31 preserves whole-value projection
+through the verified imported/private/aggregate routes. The existing private
+flattening representation rejects a real collision such as `a__b` beside
+nested `a.b`; provider capture preserves those distinct shapes. Do not describe
+private carriage as transparent for that rejected case or add ambiguous
+flattening to the two-artifact publication path.
 
 At target 2.31+, shared private-boundary admission uses the existing complete
 transportability predicate with the procedure's defining type environment.
@@ -618,8 +646,9 @@ agreement remain executable-validation responsibilities, not reconstructed
 dashboard authority. Existing supported-schema consumers need v5 acceptance;
 no run-state schema or execution-persistence owner is added. Context-bearing
 artifacts require an updated reader; unchanged graphs retain their wire format.
-This Astra-reviewed encoding is an implementation obligation, not a claim that
-the public context surface is delivered.
+The v2.31 implementation delivers this closed graph encoding with the ordinary
+portable context surface; it does not deliver native continuation or broader
+provider forms.
 
 Insert quoted history through the existing prompt-composition owner **before**
 final prompt identity is sealed; recorded Q3 evidence must match the actual
@@ -629,11 +658,15 @@ existing codec owns decoding and the existing finalizer owns state publication.
 Runnable failing contract tests precede implementation; the real probe is not
 a substitute for public typed-value proof.
 
-Required proofs beyond the live adapter probe: wrapper-only generic inference
-and mismatch refusal; root Bool/union/record results; legal `__` fields; whole
-record-reference projection; imported/private returns; list/loop carriage;
-capture/precommit failure; committed-pair resume without provider/export; input
-identity change rejection; and two fresh branches from one immutable seed.
+The original proof list beyond the live adapter probe has been addressed for
+the shipped slice: wrapper-only generic inference and mismatch refusal; root
+Bool/union/record results; legal `__` fields; whole-record projection; imported
+and private helper carriage; list/loop carriage; capture/precommit failure;
+committed-boundary resume; changed-input identity rejection; and fresh branches
+from one immutable seed. The collision case between a literal `a__b` path and
+nested `a.b` is deliberately rejected at private flattened boundaries; provider
+capture itself preserves both shapes. Cross-provider and native claims remain
+unproved.
 
 ### Shared Publication Path
 
@@ -646,10 +679,10 @@ projections. Context handling must travel through that path, not bypass it.
 | Expression/type/transport pipeline | Context clauses and structural wrapper typing; source spans; context carriage in generic and aggregate positions; reject unsupported casts. |
 | WCC and effect lowering | Preserve explicit context dependencies and generated capture output ownership through specialization, calls, loops, and persistence. No bare global side-artifact workaround. |
 | Shared provider configuration / executable validation | Versioned input/capture contract and adapter capability requirements, present consistently in loaded and persisted execution input. |
-| Provider preparation and adapter/codec | Resolve exact context input, validate compatibility, fork/bind natively or import declared portable content, then capture settled output. Providers still own tool use. |
+| Provider preparation and adapter/codec | Resolve exact context input and validate compatibility. The shipped path imports supported portable content for ordinary Codex calls and captures the settled exposed history. Native forking and other adapters remain future work; providers still own tool use. |
 | Prompt composition | Compose the current task/inputs/output contract once; preserve the distinction between inherited history and current-call contributions. Do not reinterpret Q3 digests as stored history. |
 | Existing result and state owners | Validate `T`, capture/validate context, assemble the runtime-owned wrapper, and commit one caller-visible value. |
-| State layout / artifact storage | Allocate attempt-private staging and immutable committed content, retain content referenced by live values, and support existing run/call-frame ownership. No second persistence database. |
+| State layout / artifact storage | Commit the materialized typed pair through existing run/call-frame and dataflow ownership; this slice needs no content store or second persistence database. Any later storage-backed references must reuse existing artifact lifetime/export ownership. |
 | Semantic/source-map/evidence projections | Explain input context identity, lineage, representation, conversions, output context, and source call without becoming executable authority. Native opacity remains visible. |
 
 The publication unit is `{result, context}` when capture is required. Validate
@@ -670,12 +703,14 @@ the provider or exporting the conversation again. Pending/interrupted attempts
 follow existing discard-and-rerun behavior. Context selection, representation,
 and transformations participate in program/input identity; data-content digests
 participate in value identity. Changed context is changed input, not a way to
-silently patch an old checkpoint. Native reference expiry may prevent a later
-bind, but does not invalidate the already committed model result.
+silently patch an old checkpoint. If a future native representation uses
+expiring references, expiry may prevent a later bind but would not invalidate
+the already committed model result.
 
-For cross-run reuse, use existing artifact export/import ownership with explicit
-content availability and digest verification. A path under a deleted run is
-not portable merely because it was serialized. Do not add garbage collection,
+If a future schema adds storage-backed content references for cross-run reuse,
+use existing artifact export/import ownership with explicit content
+availability and digest verification. A path under a deleted run is not
+portable merely because it was serialized. Do not add garbage collection,
 cross-host storage, or a general context catalog until an actual consumer
 requires more than existing storage lifetime rules can provide.
 
@@ -708,31 +743,30 @@ retain it as deliberate data, not automatically as a verbose report.
 
 ## Feasibility Prerequisites And Design Reconsideration
 
-Before implementation selection, prove or resolve these concrete questions:
+The questions used to select the target-2.31 ordinary-call slice are resolved
+for its advertised scope: Codex 0.155.1 capture/fresh binding, the closed event
+schema, `Contextual[T]` typing, atomic typed publication, imported/private and
+aggregate carriage, collections, branches, loops, and committed-boundary resume
+have public or real-adapter evidence in the linked implementation plan and
+tests. This does not select broader PC-1 research or imply universal support.
 
-1. **Real adapter capability:** demonstrate settled exposed-history capture and
-   a declared portable import on the intended providers. Demonstrate immutable
-   native branching separately if claiming it. Similar CLI names are not proof.
-2. **Composite value carriage:** a compile/run/resume spike must pass captured
-   context through an imported generic procedure, nested return, supported
-   collection operations, and loop state. The current scalar session-artifact
-   route and transportable `Value` do not prove this. Treat aggregate/type
-   limitations as language/transport work, not as reasons to fake first-class
-   support with global artifacts. Include a reusable materialized-content
-   transformation in an aggregate and a supported collection/loop position;
-   distinguish a procedure-placement failure from unsupported collection
-   transport. Optional annotations alone cannot establish this capability.
-3. **Runtime-produced wrapper:** prove existing `T` output validation remains
-   unchanged while the runtime atomically publishes context alongside it.
-   Particularly cover tagged results and compiler-owned direct-root returns.
-4. **History and instruction fidelity:** define the first supported event
-   schema, role projection, tool relationship rules, unsupported modalities,
-   coverage reports, and exact native compatibility checks with adapter evidence.
-5. **Other provider forms:** explicitly define semantics before exposing context
-   capture on phased, supervised, peer, or adjudicated calls. In particular,
-   decide which attempt/member history is returned; never silently take the last
-   transcript. Ordinary calls are the initial vertical slice, not a promise that
-   every composite form already has one unambiguous context.
+Before making claims beyond that slice, prove or resolve these concrete questions:
+
+1. **Additional adapters and cross-provider transfer:** demonstrate capture and
+   delivery of the declared exposed history on each advertised adapter. Similar
+   CLI names are not evidence of compatible event or role semantics.
+2. **Native continuation or session import:** demonstrate an immutable settled
+   checkpoint and independent forks before claiming native capture or binding.
+   Import from a pre-existing session must establish that exact boundary;
+   mutable session resume is not that capability.
+3. **Other provider forms:** define semantics before exposing context capture
+   on phased, supervised, peer, or adjudicated calls. In particular, decide
+   which attempt/member history is returned; never silently take the last
+   transcript.
+4. **Expanded history/storage:** define and test each newly advertised event
+   kind or storage-backed reference, including its coverage, conversion/loss,
+   identity, availability, and failure behavior. The current Codex codec does
+   not capture patch bytes, hidden reasoning, or unsupported tool events.
 
 Do not turn a failed narrow prototype into an automatic abandonment decision.
 Distinguish provider impossibility, an adapter gap, poor ergonomics, and a
@@ -762,20 +796,22 @@ conversational plumbing from the same adapter/codec owners rather than add a
 second session manager. Its [PQ-1 roadmap entry](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
 does not select native Context snapshots or delay portable-context work.
 
-At implementation time update the frontend/type and executable contracts,
+The target-2.31 slice updated the frontend/type and executable contracts,
 [DSL](../../specs/dsl.md), [Providers](../../specs/providers.md),
 [Step IO](../../specs/io.md), [State](../../specs/state.md),
-[Versioning](../../specs/versioning.md), and the drafting guide together.
-Capability and documentation indexes must continue to distinguish proposal,
-partial adapter support, and copy-safe implemented examples. The active research
+[Versioning](../../specs/versioning.md), and the drafting guide. Keep capability
+and documentation routes clear about the implemented portable subset, the
+proposed native/other-adapter work, and copy-safe examples. The active research
 study is not expanded or rescheduled by this design draft. Roadmap PC-1 tracks
-this proposal separately; its listing does not fund or activate implementation.
+that research separately; its listing does not fund or activate further work.
 
 ## Verification And Acceptance Scenarios
 
-Use behavioral/dataflow assertions, not literal prompt wording. Fixture adapters
-prove deterministic mechanics; real provider adapters must separately establish
-capture/import/fork feasibility. Neither proves effectiveness.
+Use behavioral/dataflow assertions, not literal prompt wording. The target-2.31
+ordinary Codex slice has public carriage/resume and real capture/fresh-bind
+evidence. Fixture adapters prove deterministic mechanics; any new real adapter
+or native representation needs separate capture/import/fork evidence. Neither
+mechanical proof establishes research effectiveness.
 
 1. **Composition and fork:** through the public `.orc` entrypoint, an imported
    investigation procedure returns `Contextual[T]`. Pass its context through an
@@ -813,8 +849,10 @@ capture/import/fork feasibility. Neither proves effectiveness.
    evidence, diagnosis, and full costs. Shared-context reviewers are not counted
    as independent without the required information separation.
 
-Acceptance requires an independently reviewed implementation design resolving
-the prerequisites, public-entry integration evidence, real adapter evidence for
-each advertised representation, unchanged-call regressions, and honest utility
-results. A successful minimum example opens the relevant improvement questions;
-it is neither an ORC-superiority claim nor automatic approval for a memory system.
+The target-2.31 ordinary Codex slice is implemented and verified within its
+closed portable scope. Any broader PC-1 work still requires an independently
+reviewed design, public-entry integration evidence, real adapter evidence for
+each newly advertised representation, unchanged-call regressions, and honest
+utility results. A successful minimum example opens the relevant improvement
+questions; it is neither an ORC-superiority claim nor automatic approval for a
+memory system.
