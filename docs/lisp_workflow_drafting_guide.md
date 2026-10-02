@@ -562,10 +562,13 @@ output of a step
 ([decision brief](reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md)).
 [Evaluated execution](design/workflow_lisp_evaluated_execution.md) is a
 model accepted at gate G1 that addresses that cause. At target 2.35,
-`compile` now builds a checked closed program; `run` and `resume` refuse
-with `evaluated_execution_unavailable` until Phase 3. Use targets through
-2.34 for runnable workflows. The [Phase 2 status](plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope)
-separates implemented compilation from open runtime verification.
+`compile` builds a checked closed program; validated public dry-run and pure
+public run are integrated. Public effects and resume remain pending. Use targets
+through 2.34 for complete effectful workflows. The [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+and [public CLI tests](../tests/test_workflow_evaluated_cli.py) distinguish the
+bounded runtime from complete release qualification. The
+[dynamic-core evaluation](plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+is a separate prospective route; its examples are not current syntax.
 
 Run a program from the repository root. The value is in
 `.orchestrate/runs/<run>/state.json`, under `workflow_outputs`:
@@ -607,10 +610,13 @@ At target **2.35**, public `compile` builds `closed_program.json` and
 canonical configuration and the perform-site table. Commands, portable
 composed providers (extern `asset_file`/`input_file` and admitted `defprompt`
 slots, without context capture), calls/captures/bounded local procedures and
-path-mode run references are admitted. `run` and `resume` refuse with
-`evaluated_execution_unavailable`; the compiler does not establish runtime
-parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py)
-and [target refusal tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
+path-mode run references are admitted by the compiler. Public dry-run validates
+without launching effects, and pure public run is implemented. Public effect
+dispatch currently fails with `closed_effect_handler_missing`; public resume
+still refuses with `evaluated_execution_unavailable`. Compilation is not evidence
+of effectful runtime parity. Evidence: [public compile tests](../tests/test_workflow_lisp_closed_program_compile_cli.py),
+[public runtime tests](../tests/test_workflow_evaluated_cli.py) and
+[target admission tests](../tests/test_workflow_lisp_target_evaluated_execution.py).
 
 Selected `request-input`, `trial`, phased provider delivery,
 `run-provider-phase`, `produce-one-of`, `resume-or-start`,

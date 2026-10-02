@@ -1,0 +1,261 @@
+# Workflow Lisp Dynamic-Core Evaluation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: use
+> `superpowers:subagent-driven-development` for selected execution, with
+> `superpowers:test-driven-development` for code and
+> `superpowers:verification-before-completion` for evidence claims.
+> Track only executed work with checkboxes; a passing test does not select a gate.
+
+**Goal:** Decide, through bounded evidence and explicit owner dispositions,
+whether an ordinary dynamic core with strict boundary schemas should replace
+the prospective typed internal representation of evaluated execution.
+
+**Architecture:** Retain the completed typed compiler and integrated evaluator,
+memo, authority and CLI work as the baseline and reusable substrate. Qualify a
+versioned dynamic candidate using the same effect owners, then compare full
+consumer behavior and authoring utility before authorizing production migration.
+No permanent parallel implementation or dynamic facade over specialization is
+the intended destination.
+
+**Tech Stack:** Existing Python runtime, closed-program admission, pure operators,
+boundary validators, command/provider performers, pytest, deterministic fixtures
+and public `python -m orchestrator` checks. No new dependency or report framework.
+
+---
+
+## Authority, Selection And Baseline
+
+Read [docs/index](../index.md), the [capability matrix](../capability_status_matrix.md),
+[dynamic proposal §8](../design/workflow_lisp_dynamic_core_proposal.md#8-compatibility-and-evidence-required-before-adoption),
+[accepted evaluated design §13](../design/workflow_lisp_evaluated_execution.md#13-targets-and-compatibility),
+the [parent plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md), and
+[Phase 3 plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
+The proposal owns candidate semantics; existing specs own shipped behavior.
+
+Owner amendment, 2026-10-02: this branch selects **DC-0 qualification as the next
+prospective task**, with the bounded feasibility spike following its reviewed
+scope. Later tranches remain pending behind the gates below. This documentation
+turn performs integration and planning only: no dynamic implementation, new
+experiment, language-target allocation, production adoption or live-study budget.
+Full typed Phase 3 completion is not an entry condition for qualification or the
+bounded spike; only the shared contracts actually exercised must be available.
+
+Baseline: branch `design/orc-dynamic-core-evaluation` in `.worktrees/orc-dynamic-core`,
+from main `c0dacad1` with committed source `7af8ebf6` from
+`.worktrees/orc-phase3-r12-control` merged with its dependency-closed history
+at merge `3420a690` (parents `c0dacad1`, `7af8ebf6`).
+The source's uncommitted edits and untracked control implementation are excluded.
+The merge preserves Phase 2 closeout and Phase 3 Tasks 1–5 receipts; it is not
+proof of dynamic execution or a completed runtime release. The bounded pure
+public run/dry-run path exists; effects still refuse `closed_effect_handler_missing`
+and public resume, full views and effectful release remain unfinished.
+Retain the recorded six-test red baseline as red; do not recast it as passing.
+The source worktree's independently authorized typed work is not rescheduled here.
+
+Coordinator integration receipt: runtime/test trees match the pinned source;
+fresh narrow substitution/command checks passed **26**, public CLI/target smoke
+checks passed **54**, and the broader impacted run recorded **1497 passed,
+6 inherited characterization failures** (`-q -n 16 --dist=worksteal`). The
+selectors overlap and are not additive. Logs and exits are in
+`/tmp/orc-dynamic-core-integration-8_b5ym95/{narrow.log,impacted.log,results.json}`.
+This is baseline integration evidence, not a full-suite pass or dynamic gate.
+
+**Approach and cost:** overlay the existing phase ledger and reuse shared owners
+instead of deleting completed work or completing two full migrations. This makes
+cross-version imports, checkpoint retirement and honest old/new comparison more
+work until one destination is selected; dynamic checking also moves some errors
+after expensive effects and introduces closure identity and budget obligations.
+
+## Finite Tranches And Decision Record
+
+| Tranche | Current state | Entry / bounded exit |
+| --- | --- | --- |
+| DC-0 — qualify exact scope and controls | Selected next; pending execution | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
+| DC-1 — feasibility spike | Pending DC-0 reviewed scope | One isolated candidate, the finite feasibility matrix, independent review and DC-F evidence; stop at DC-F |
+| DC-2 — utility comparison | Pending DC-F continue | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
+| DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
+| Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
+
+Each gate records in `docs/reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md`:
+tested commits, commands and raw outcomes, supported/adverse/missing evidence,
+independent review, and **owner + date + disposition + exact next tranche**.
+Create that report only when execution supplies evidence. Keep failures and
+proposed controls separate from executable receipts; use this one report rather
+than new registries or scoring infrastructure.
+
+- **Continue:** explicitly activates only the named next tranche and its finite
+  cases/scope; it never implies a live-study allocation or later gate approval.
+- **Revise:** owner names one bounded correction and one reevaluation of the
+  affected gate. A remaining failure stops that route unless the owner explicitly
+  allocates fresh work; no open-ended revise-until-green loop.
+- **Stop:** retain the typed baseline, archive the candidate/evidence, remove
+  candidate-only machinery when present, and return to pending typed Phase 3
+  Tasks 6–17, Phase 6a and qualified W3/Phase 4/5 work under their existing gates.
+  Stop does not undo integrated Phase 2 or Phase 3 Tasks 1–5.
+
+A gate with no owner disposition is **pending** and blocks its successor. It
+does not block the qualification/spike/evidence needed to reach that gate.
+No result, test count, reviewer recommendation or document publication selects
+continue automatically. There is no new machine manifest: machine tranche and
+ready/pending/completed/blocked count deltas are all **0**, the five research
+units remain unchanged, and no active run is mutated. The human next task changes
+to DC-0; existing executable selectors have no new item to consume.
+
+## DC-0: Qualify Scope And Controls
+
+**Artifacts:** update this plan with the exact case inventory and patch ownership;
+read existing sources and tests, without editing their semantics:
+`orchestrator/workflow/evaluated/{values,machine,calls,memo,authority,runtime}.py`,
+`orchestrator/workflow_lisp/closed/{program,check,sites,artifact}.py`,
+`orchestrator/contracts/output_contract.py`,
+`orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`,
+`experiments/mlevolve_pair/{search_compact.orc,leaves.py,README.md}` and
+`experiments/orc_vs_single_call/workflows/reviewed_change.orc`.
+
+- [ ] Trace all callers of reused owners; classify shared infrastructure versus
+  typed-only proofs/specialization. Command implementation **closure means files**
+  and content evidence, not lexical function closure support.
+- [ ] Pin the best executable typed baseline and Python behavior reference; retain
+  their real limitations. Inspect `tests/test_workflow_lisp_improve_stdlib.py`,
+  `tests/experiments/test_mlevolve_pair_fixture.py` and Phase 3 Tasks 13–15 to
+  freeze complete behavioral cases, not a toy approval-only helper.
+- [ ] Inventory imports, hooks, prompt schemas, document/output roles, path and
+  artifact requirements, read-only effect restrictions, and current diagnostics.
+  Label proposed W1/W3 examples as proposed when they cannot execute; do not
+  require implementing either proposal to start the dynamic comparison.
+- [ ] Define the smallest command/provider/recovery slice needed by DC-1 and DC-2
+  from Phase 3 Tasks 6–8/12–15. Include R12 authored request parity where used;
+  do not port views, watchdogs or child runs merely to start the spike.
+- [ ] Record exact fixture counts, paths and expected observations before coding;
+  allocate one finite spike with explicit owner transfers and independent review.
+  Amend unresolved semantic details through Design, including representation,
+  schema strictness, call identity and deterministic budget accounting.
+
+**Exit:** reviewed scope authorizes only DC-1's bounded experiment; no production
+version or release admission is inferred. Stop at a concrete unresolved contract
+rather than inventing one inside implementation.
+
+## DC-1: Feasibility Spike And Gate DC-F
+
+**Artifacts:** create `experiments/dynamic_core_evaluation/` only when this task
+runs; use a minimal candidate module and `.orc` specimens there, and
+`tests/experiments/test_dynamic_core_evaluation.py`. Append actual evidence to the
+single report above. Before creation, DC-0 records exact module/fixture paths and
+exclusive shared-owner edits. No new production evaluator/CLI route is authorized
+merely by these planned paths.
+
+- [ ] Write failing behavioral/admission cases for the matrix below and run
+  `python -m pytest --collect-only -q tests/experiments/test_dynamic_core_evaluation.py`.
+- [ ] Implement ordinary dynamic values/functions/lexical closures in the bounded
+  candidate, reusing the pure catalog, memo and admitted effect boundaries. One
+  helper body must work with different internal values without specialization.
+- [ ] Replace candidate P5 with checked lexical scope/code targets, schema and
+  effect bindings, site integrity and versioned artifact read-back; never disable
+  validation or lower dynamic functions back into typed specialization.
+- [ ] Run the narrow module, correct only demonstrated defects, run one orchestrator
+  or demo integration smoke, and record the exact invocation and limitations.
+  Spike-driver evidence is labeled experimental, never public production support.
+- [ ] Obtain independent code/design review of feasibility and record DC-F's owner
+  disposition. End this tranche even when all tests pass.
+
+| DC-F obligation | Required observations |
+| --- | --- |
+| Ordinary calls and lexical values | Create, return, store in internal collections and pass closures; select a closure from committed data; capture a committed value; definition-site values survive later binders |
+| Replay and identity | Interrupt before/after another effect commit and reconstruct closures from pinned code/inputs/commits; identical trace reuses commits; actual selected code plus lexical call/loop frames disambiguate identities without paths, spans, addresses or clocks |
+| Strict boundary schemas | Inputs checked before launch, outputs before commit; reject wrong Bool, missing/extra fields, invalid nested/tagged payloads, non-finite numbers and closures at public/provider/command boundaries; preserve document snapshots and required output checks |
+| Admission independent of compiler generation | Reject forged code references, schema/site tables, undeclared hosts and invalid artifact versions on read-back; a closure attempting an effect in a read-only context refuses before dispatch; no dynamic eval/import/host-call escape |
+| Bounded execution | Self-application exhausts a pinned deterministic budget; calls, replay and memo hits consume it; effect commits never reset it; resume cannot evade exhaustion |
+| Recovery and authority | One state authority and writer; orphan output is not adopted, divergent code/schema/input/file evidence refuses reuse, pending must-not-repeat effects refuse unsafe retry; no exactly-once external-execution claim |
+
+**DC-F:** feasibility requires all applicable rows with fresh evidence. Continue
+selects DC-2 only. Revise/stop follow the finite policy above; unproven identity,
+reconstruction, boundary enforcement or budget safety prevents utility rollout.
+
+## DC-2: Full Utility Comparison And Gate DC-U
+
+**Artifacts:** extend the same candidate/fixtures and report; preserve production
+`std/improve` and maintained consumers until a destination is authorized. Reuse
+`experiments/orc_repetition_census/variants/` as labeled W1/W3 comparisons.
+
+- [ ] Port full `improve`: APPROVE, REVISE, BLOCKED, EXHAUSTED; latest revised
+  candidate and evidence/reason payloads; zero limit rejected before hooks;
+  invalid hook output and final-iteration revision failures remain failures;
+  imported/inline order and committed-hook reuse agree with the control.
+- [ ] Port full paired-search policy: seed ranking, strict improvement/ties,
+  invalid evaluation, one same-branch repair, stalls, one fusion, full history,
+  budget/score stops, invalid budgets and exhaustion. Run all 72 existing
+  scenario/budget pairs (nine scenarios × eight budgets) owned by
+  [the fixture](../../tests/experiments/test_mlevolve_pair_fixture.py) against
+  the Python reference. Schema-invalid transport
+  is not domain `valid=false`; compare ordered decisions, spend and final value.
+- [ ] Perform four paired edits: add a state field, change review payload, capture
+  context, extract a helper. Record touched sites, duplicated facts, concepts,
+  repairs and diagnosis. Preserve useful domain schemas/types instead of counting
+  their removal as a gain. State errors found before and after costly effects.
+- [ ] Compare the best **implemented** typed baseline and the proposed W1/W3
+  improvement honestly. If W1/W3 cannot execute, label it a counterfactual and
+  narrow the unique-gain claim; no requirement to build both languages first.
+- [ ] Inventory actual added/retained/displaced owners, validators, specialization
+  paths, identity forms and compatibility costs. Include budget/replay/runtime
+  diagnostics, lost static checks and old-target retention; LOC alone is not a
+  complexity or authoring verdict. No paid-provider quality/cost conclusion from
+  scripted leaves or an unbudgeted authoring study.
+- [ ] Run narrow parity/integration checks and independent utility review; record
+  supported, adverse, missing and untested evidence separately, then DC-U.
+
+**DC-U:** owner judges meaningful authoring/reuse benefit beyond the incumbent and
+credible W1/W3 gains, preserved full protocols, useful diagnostics including late
+errors, and net complexity after compatibility. Passing parity establishes
+correctness only. Continue selects named DC-3 readiness work; stop retains typed
+execution and may qualify W3 under its existing plan, without shipping closures.
+
+## DC-3: Production Readiness And Gate DC-P
+
+**Artifacts:** only after DC-U continue, write a bounded production implementation
+plan and accepted owner amendments. Exact files and independent verification
+belong to that plan; this task does not preallocate a language target or mutate
+normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicate.
+
+- [ ] Settle distinct target/IR/state-profile versions, schema strictness,
+  mixed-version imports, stdlib API and checkpoint/run dispositions with owners.
+  Preserve old run pins; never reinterpret typed checkpoints as dynamic captures.
+- [ ] Implement/requalify the named production slice: shared requests/performers,
+  recovery/invalidation and typed-document transport from Tasks 6–8/12; child
+  runs/coordinator gaps in Task 9 when admitted; public views, report,
+  dashboard/monitor/watchdog in Tasks 10–11 for the selected release.
+- [ ] Close relevant Tasks 13–15 full fixture/live-provider/artifact/kill/durable
+  publication evidence for the admitted release, beyond earlier focused spike
+  checks. Mark unavailable credentials or unimplemented classes as missing,
+  never satisfied by stand-ins. Obtain separate allocation for paid/live work.
+- [ ] Apply Tasks 16–17 to truthful selected-profile docs and independent closeout;
+  retain the original typed checklist as history/fallback. Give each production
+  obligation its exact evidence owner; candidate success never checks off a
+  typed-only task whose specified implementation was not delivered.
+- [ ] Select one maintained-consumer migration destination and list removable
+  candidate/old-target machinery, with an explicit existing-run disposition and
+  later Phase 7 retirement decision. Do not finance two full migrations.
+- [ ] Record independent readiness review and DC-P's explicit owner disposition.
+
+**DC-P:** only a continue disposition explicitly authorizing adoption/migration
+activates Phase 6b for the selected target and consumers. Phase 4a/4b capabilities
+and Phase 5 parallelism require that target's runtime contract proofs and their
+own consumer scope; completing static Phase 3 alone cannot authorize dynamic
+parallel effects. Phase 7 still requires completed migration and run-retirement
+approval. Stop returns to the typed fallback with no implicit target deletion.
+
+## Verification And Handoff
+
+This planning amendment requires link/anchor checks, stale-route inspection and
+`git diff --check`; coordinator-owned integration receipts remain separate.
+During future execution, collect any new/renamed test module, run narrow cases
+first, then broad/slow/full checks in tmux with `pytest -q -n 16 --dist=worksteal`.
+Use the tmux skill and run from the repository root. For runtime/DSL/shared
+boundary changes include an orchestrator/demo smoke and public integration check;
+record why a spike-only check cannot establish production support. Keep tests on
+behavior/contracts/dataflow, never literal prompt wording. Inspect each diff and
+fresh result; compare failures against the pinned baseline without weakening it.
+
+After each gate, update this table's task state, the parent/Phase 3 overlay,
+roadmap W3/EL-1 routing and repetition-plan entry conditions together. Preserve
+all existing completed receipts. Do not mutate unrelated active workflows or
+invent a selector to implement a prose-owned decision.

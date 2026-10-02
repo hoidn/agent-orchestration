@@ -8,7 +8,8 @@
 - **Owner:** Workflow Lisp frontend
 - **Created:** 2026-09-29
 - **Evidence:** [repetition census](../reports/2026-09-29-workflow-lisp-repetition-census.md)
-- **Plan:** [repetition reduction plan](../plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md)
+- **Plan:** [repetition reduction plan](../plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md);
+  alternative selection belongs to the [dynamic-core evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 - **Related:**
   [design principles](workflow_language_design_principles.md) 15, 25, 26, 29
   and 30,
@@ -412,7 +413,7 @@ serve.
 | General type inference (Hindley-Milner), annotated `let*`, type ascription | The accepted list design excludes them, and W1 needs none: every position in 4.2 has a declared type |
 | Resolving a bare variant tag by searching the visible unions | Ambiguous at thirteen of thirty-three sites |
 | A result-type clause on `loop/recur` | The loop takes its expected type from its position. A loop bound by `let*` writes its constructors in the explicit form |
-| Runtime closures | Owned and excluded by the runtime closures boundary; compile-time capture suffices |
+| Runtime closures within W3 | Outside this typed proposal; compile-time capture suffices for W3. Ordinary lexical functions are a separate [dynamic-core candidate](workflow_lisp_dynamic_core_proposal.md), not a hidden extension of `let-proc` |
 | Provider options as module-level defaults in the program | Model and effort are deployment choices; a program would have to change to run elsewhere |
 | Removing `:lowering` | It records a choice of state and resume namespace |
 | Replacing `Decision[F B]` by constraints now | No measured caller needs it; section 8.4 |
@@ -454,3 +455,19 @@ procedure/capture representation; on evaluated execution that is the
 [closed-program definition and capture contract](workflow_lisp_evaluated_execution.md#4-the-closed-program).
 Public runtime evidence on that route must establish the behavior above;
 compiler acceptance alone is insufficient.
+
+W1's expected-type construction, W3's inferred compile-time hooks and W5's
+constraint inference are the typed alternative to parts of the
+[dynamic-core proposal](workflow_lisp_dynamic_core_proposal.md). They remain
+comparison and fallback contracts; qualifying the dynamic candidate does not
+retire typed behavior or turn W3 into runtime closures. Its ordinary records and
+functions would replace those internal typing mechanisms only under an adopted
+target and consumer migration contract. Boundary schemas and meaningful domain
+outcomes remain required in either design.
+
+The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+owns prospective routing and the decision to retain the typed path. Credit
+qualified W1/W3 reductions in that comparison, distinguish illustrative rewrites
+from executable evidence, and require W5's concrete caller need (§8.4) before
+adding inference machinery. Do not deliver two stdlib migrations merely to
+compare the candidates.

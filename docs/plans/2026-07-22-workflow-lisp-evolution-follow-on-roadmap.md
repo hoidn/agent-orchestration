@@ -19,7 +19,10 @@ the [value/effect decision brief](../reports/2026-09-29-workflow-lisp-value-effe
 them. The repairs and spike are complete; gate G1 selected evaluated
 execution, with the closed-program compiler selected as Phase 2 at target
 2.35. The owner's 2026-10-01 delivery amendment introduces an early migration
-pilot and consumer-driven later additions; see
+pilot and consumer-driven later additions. The 2026-10-02 branch amendment
+selects bounded dynamic-core qualification next, preserving the integrated typed
+baseline and putting later adoption behind DC-F/DC-U/DC-P; see
+[Dynamic-Core Evaluation](#dynamic-core-evaluation) and
 [Independent Work And Successor](#independent-work-and-successor).
 Publication alone does not select
 later studies, new language surfaces, or source promotion.
@@ -87,9 +90,12 @@ One explicit exception is recorded: CF-1b precedes R1b's review/revision
 composition by owner selection on 2026-09-28.
 
 The separate [evaluated-execution plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-owns runtime delivery: Phase 2 closed program → Phase 3 executable core →
-Phase 6a pilot, with Phase 4 additions including W3 and independent Phase 5
-parallel map → Phase 6b maintained-consumer migration → Phase 7 retirement.
+owns runtime delivery. Its typed fallback is Phase 2 → Phase 3 → Phase 6a,
+consumer-driven Phase 4 (including W3) and Phase 5 → Phase 6b → Phase 7.
+On `design/orc-dynamic-core-evaluation`, first follow DC-0 qualification and a
+bounded spike, then explicit DC-F/DC-U/DC-P dispositions before utility,
+readiness and one selected migration. Full static Phase 3 completion is not
+required to start qualification; it does not authorize dynamic parallelism.
 Portable context is a named later delivery, not silently included in the
 first-release provider subset. Composition, macro provenance, typed prompt
 and result contracts, and artifact production/consumption/lineage are
@@ -355,6 +361,11 @@ provides current-behavior counterexamples, not implementation or utility proof.
 Prioritize inference-default authoring with meaningful optional restrictions and
 inferred inspection over the existing analysis representation. Internal cleanup
 is a separate conditional decision, not the price of obtaining those benefits.
+On the dynamic evaluation route, reassess which effect enforcement, read-only
+restrictions and inspection remain useful with ordinary functions. Do not make
+static summary/inference cleanup a candidate prerequisite or assume static purity
+survives dynamic calls. EL-1 remains separately unselected; its typed proposal
+and completed evidence are retained.
 
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
@@ -638,37 +649,69 @@ and any necessary allocation.
 
 ## W3 — Local Hooks With Inferred Context
 
-**Status:** pending Phase 4c authoring improvement in the
-[evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities),
-integrated by owner clarification on 2026-10-01. Implementation and target
-selection remain pending. This is W3 of the existing
-[write-once design](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
+**Status:** pending typed Phase 4c comparator/fallback in the
+[evaluated-execution delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities).
+The 2026-10-01 integration is conditioned on this branch by the 2026-10-02 dynamic
+qualification route below. W3 implementation/target selection remain pending;
+this is the existing [write-once proposal](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context),
 not a new research unit or runtime-closure feature.
 
 The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
-owns Task 4 qualification and Tasks 11–14 delivery: multiple local bindings,
-inferred lexical captures, signatures from the expected `ProcRef`, then
-removal of `inputs I` and context-only records from `improve` callers.
+retains Task 4 qualification and Tasks 11–14 typed delivery: multiple local
+bindings, inferred lexical captures and expected `ProcRef` signatures, then
+removal of `inputs I` and context-only records from `improve` callers. Preserve
+useful domain records, definition-site values, once-only effects and old-target
+compatibility. Grammar, inference and stdlib target/module decisions stay open.
 
-Qualify W3 independently of W0/W1/W2/W4. Resolve the surface grammar,
-cross-hook type inference and stdlib target/module migration before
-implementation. Preserve definition-site values, once-only captured effects,
-public fresh-run/resume behavior and older-target compatibility. Existing
-`bind-proc` remains the option for reusable top-level hooks.
+Task 4 and Phase 6a supply the typed comparator for DC-U. Use the best executable
+incumbent and clearly labeled proposed W1/W3 variants; do not require building
+W1/W3 to start dynamic evaluation. Count actual deletions, touched sites and edit
+locality, full helper behavior and diagnostics, not an arbitrary percentage.
+Use the proposal example and `reviewed_change.orc`; no new live study is implied.
 
-Judge the change by concrete deletions, clearer callers and the locality of
-adding a hook input, with behavior preserved. Record line counts as evidence;
-a fixed percentage is not an adoption gate. Reuse the shipped proposal
-example and `reviewed_change.orc` comparison; this needs no new live study.
+If the typed route is retained, Phase 3 and the caller assessment lead to Phase
+4c Tasks 11–14, then its single Phase 6b migration. If dynamic closures are
+selected after the gates below, they replace **future** W3 delivery with ordinary
+functions; the same caller/protocol/compatibility evidence remains required.
+Do not execute both full migrations. W3 is not an initial spike prerequisite;
+W0/W1/W2/W4 remain independent and W5 deferred. Completed Phase 2/3 receipts,
+CF-1c hold and research allocations remain intact.
 
-The parent sequence owns its placement: Phase 3 supplies the runtime;
-Task 4 qualification and Phase 6a assess the caller improvement; Phase 4c
-delivers Tasks 11–14; Phase 6b migrates the maintained consumer inventory.
-Qualification preparation can overlap Phase 3. W3 syntax is not a condition
-for running the early pilot, and its delivery does not wait for unrelated
-Phase 4 effect ports. The component's Phase E is this same Phase 4c work,
-not a second schedule. Phase 2 order, CF-1c hold and research allocations
-stay unchanged; no executable selector/manifest or active-run state changes.
+## Dynamic-Core Evaluation
+
+**Status:** DC-0 qualification selected next on `design/orc-dynamic-core-evaluation`;
+execution pending. The [evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+owns finite tasks and gate evidence; the
+[proposal](../design/workflow_lisp_dynamic_core_proposal.md) owns candidate
+semantics. This is an owner-directed implementation evaluation, not a sixth
+research unit, live-study budget or selected production architecture.
+
+Keep completed typed Phase 2 and integrated Phase 3 Tasks 1–5 as the baseline
+and reusable substrate. Adapt values/evaluation/calls; reuse memo/authority,
+performers, R12 request parity and boundary transport with versioned contracts.
+The [Phase 3 overlay](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md#branch-scope-overlay-dynamic-evaluation)
+preserves all seventeen tasks and receipts while moving only required shared
+slices and focused fixture/recovery checks ahead of full runtime readiness.
+The source control worktree's independently authorized typed work is unchanged.
+
+| Gate | Evidence and explicit owner decision | Continue activates |
+| --- | --- | --- |
+| DC-F — feasibility | Ordinary functions/closures, strict boundary schemas, checked replacement P5, deterministic identity/budget and reconstruction/replay | DC-2 full utility comparison |
+| DC-U — utility | Full improve and MLEvolve parity, four paired edits, early/late diagnosis and total complexity against implemented typed control plus honestly labeled W1/W3 gains | Named DC-3 production-readiness scope |
+| DC-P — production readiness | Version/import/stdlib/run contracts, required public operations/readers/coordinators/recovery and one destination's migration/deletion evidence | Explicitly authorized Phase 6b migration |
+
+Qualification and the bounded spike happen **before** DC-F; pending gates block
+successors, not the work needed to gather their evidence. Each owner records
+continue, revise or stop: revise names one bounded correction and one reevaluation,
+then stop or a fresh owner allocation; stop returns to pending typed Phase 3
+Tasks 6–17 and qualified Phase 6a/W3/4/5 work. Tests never auto-select continuation.
+The current turn edits/integrates documents only; no candidate experiment runs.
+
+Phase 6a evidence feeds DC-U. Shared Phase 4a/4b and Phase 5 still require the
+selected runtime's contract proofs and a consumer; static Phase 3 completion is
+insufficient for dynamic parallel effects. Phase 6b awaits DC-P, Phase 7 explicit
+existing-run disposition. W1/W5 remain static-specific/deferred; EL-1 reconsiders
+useful enforcement rather than assuming old analysis must be ported.
 
 ## Current ES Boundary
 
@@ -752,11 +795,11 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   anchor. It owns the value-returning review helper and generic-union delta;
   `std/phase` remains available beside `std/improve` until CF-1c decides
   otherwise.
-- [W3](#w3--local-hooks-with-inferred-context) is integrated into runtime
-  delivery as Phase 4c. The repetition-reduction planset owns its technical
-  tasks: Task 4 qualification with Phase 6a, then Tasks 11–14, followed by
-  Phase 6b consumer migration. Target and compatibility decisions remain open;
-  it adds no prerequisite to Phases 2–3.
+- [W3](#w3--local-hooks-with-inferred-context) remains typed Phase 4c
+  comparator/fallback. Task 4 and Phase 6a feed DC-U; its Tasks 11–14 and Phase
+  6b rollout follow only if that destination is retained. Selected dynamic
+  closures replace future W3 delivery, preserving caller/compatibility duties;
+  no requirement to build W3 before the dynamic spike.
 - Candidate work recorded by the owner on 2026-09-28 from the
   [single-call comparison](../reports/2026-09-28-orc-versus-single-call.md#runtime-and-language-findings),
   in this order, each unselected until planned:
@@ -796,10 +839,11 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
   owns the selected closed-program compiler at target 2.35 (owner decision,
   2026-09-30). The [parent plan's delivery order](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-  owns the 2026-10-01 amendment: runnable core, early consumer pilot,
-  selective effect/context additions and independent parallel map, migration,
-  then retirement. Downstream implementation remains pending; this does not
-  select a new research study or alter the running Phase 2 task order.
+  owns the current branch amendment: preserve completed Phase 2 and Phase 3
+  Tasks 1–5; select DC-0 qualification next and the bounded spike before DC-F;
+  require explicit DC-F/DC-U/DC-P dispositions before later comparison,
+  readiness and migration. The prior typed order remains fallback. No new
+  research study or source worktree task reselection follows.
 
 ## Routing And Historical Records
 
@@ -818,12 +862,16 @@ unchanged; R1b's entry now names the corrected review interface. The five resear
 allocations, and completed records are unchanged. No executable manifest/queue
 row, ready-to-run implementation plan, or live workflow selection is added.
 
-The 2026-10-01 W3 incorporation makes the already proposed local-hook work
-discoverable here and expands its existing plan tasks. The five research
-units and the plan's 15 task numbers remain unchanged (Tasks 1–14 pending,
-Task 15 deferred). No machine-selected next item changes. W3's next planning
-step is Task 4 qualification for Phase 6a and Phase 4c delivery, not automatic
-implementation or a separate delivery track.
+The 2026-10-01 W3 incorporation retains its 15 task numbers (Tasks 1–14
+pending, Task 15 deferred). The 2026-10-02 branch amendment selects human next
+task **DC-0 qualification**, with W3 Task 4 as comparison input and typed Phase
+4c as fallback. Dynamic evaluation adds four prose tranches (DC-0–DC-3), all
+pending execution: one selected next, three conditional. No machine-readable
+manifest/queue exists for this planset: machine tranche-count delta and
+ready/pending/completed/blocked count deltas are all **0**, no machine-selected
+next item changes, and no active workflow state is mutated. The five research
+units, budgets and completed records remain unchanged. Do not manufacture a
+selector or reroute an active source workflow to enact this prose decision.
 
 `workflows/examples/inputs/review_revise_design_docs/roadmap_follow_on_inputs.json`
 is a legacy review example with historical context, not a live stage selector

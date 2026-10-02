@@ -1,8 +1,14 @@
 # Workflow Lisp Evaluated Execution Phase 3 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task by task. Use `superpowers:test-driven-development` for code and `superpowers:verification-before-completion` before completion claims. Steps use checkbox (`- [ ]`) syntax for tracking. The coordinator integrates and verifies; a reviewer distinct from the author reviews each substantive task.
+> **For agentic workers:** Read the branch scope overlay below before selecting
+> work. REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` for the
+> selected task; the retained typed checklist is not an instruction to execute
+> all remaining typed work before dynamic qualification. Use `superpowers:test-driven-development` for code and `superpowers:verification-before-completion` before completion claims. Steps use checkbox (`- [ ]`) syntax for tracking. The coordinator integrates and verifies; a reviewer distinct from the author reviews each substantive task.
 
-**Goal:** Deliver public execution, resume, invalidation and inspection of every composition admitted by the target-2.35 closed program, with durable effect authority and preserved old-target behavior.
+**Goal (retained typed Phase 3):** Deliver public execution, resume, invalidation
+and inspection of every composition admitted by the target-2.35 closed program,
+with durable effect authority and preserved old-target behavior. The branch
+amendment below changes prospective selection without resetting this ledger.
 
 **Architecture:** Evaluate the existing checked table program with lexical values and activation frames, reusing the pure catalog and the existing command/provider/run-reference boundaries. A synchronized append-only memo owns results; the same evaluator supplies execution, preflight and read-only position projection. Profile-aware adapters consume memo-derived views rather than fabricated flat workflows.
 
@@ -22,11 +28,65 @@ Read, in this order:
 4. [Phase 2 plan](2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md), shared schema and final “Verification Commands And Phase 3 Handoff”; [Phase 2 closeout](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md).
 5. Normative owners [state](../../specs/state.md), [I/O](../../specs/io.md), [CLI](../../specs/cli.md), [versioning](../../specs/versioning.md); [command adapter contract](../design/workflow_command_adapter_contract.md), [core calculus](../design/workflow_lisp_core_calculus_middle_end.md), and relevant prompt/run-reference contracts reached from the index.
 
-The whole authorized goal remains Phases **3–7**, in the parent's order: Phase 3 → early Phase 6a pilot → consumer-selected Phase 4 additions (including W3) and independent Phase 5 → Phase 6b migration → Phase 7 retirement. Phase 5 can start after Phase 3 alongside the pilot; a consumer advances independently when its capabilities land. This plan closes only Phase 3 and hands remaining work back to the whole-goal ledger. It neither retires targets nor selects a new effect class, portable context, W3 grammar or native-session semantics.
+The original typed Phases **3–7** order remains the fallback and the source
+control worktree's independently authorized scope. On this branch the
+[evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) selects
+DC-0 qualification next, followed by a bounded feasibility spike; DC-F, DC-U and
+DC-P require explicit owner dispositions before their respective successors.
+Do not interpret the historical whole-goal wording as permission to finish all
+typed tasks first, adopt the candidate, or migrate both routes. This plan neither
+retires targets nor selects a new effect class, W3 grammar or native sessions.
 
 First-release classes are commands (external tools and certified adapters), portable **composed** providers, in-memory procedure/workflow calls, and path-mode run references. Preserve all admitted generic/reference/value bindings, `bind-proc`, bounded `let-proc`, compiled boundary views, macros, typed prompts/results and arbitrary admitted nesting. No new “unsupported position” refusal, wrapper requirement, size/evaluation budget or known-defect allowlist is an acceptable substitute. Existing source-language restrictions and explicit later-class `closed_program_gap` refusals remain distinct.
 
 **Approach and cost:** Keep one evaluator and reuse existing boundary/ledger logic instead of constructing an `ExecutableWorkflow` for 2.35. This makes legacy readers require explicit profile adapters and retains two execution routes until the owner's Phase 7 decision; suffix invalidation deliberately reruns more effects than a future declared-file dependency graph would.
+
+## Branch Scope Overlay: Dynamic Evaluation
+
+Owner amendment, 2026-10-02, for `design/orc-dynamic-core-evaluation` only.
+Merge `3420a690` retains committed source `7af8ebf6` and its full dependency
+history; source uncommitted work is excluded. The seventeen numbered tasks,
+checkboxes and original receipts below remain intact. Tasks 1–5 are integrated;
+the public pure run/dry-run slice works, effects refuse
+`closed_effect_handler_missing`, and resume/full effectful release remains
+unfinished. A command **closure** in Tasks 5–8 is file/content evidence, not a
+lexical runtime closure.
+
+| Task | Dynamic-route dependency and scope |
+| --- | --- |
+| 1 — values | Keep completed typed values/boundary evidence; adapt ordinary internal records and callable values in the candidate, retaining strict schemas at boundaries |
+| 2 — evaluator | Keep completed control/catalog evidence; adapt evaluation/call frames and add pinned deterministic budget/replay accounting |
+| 3 — calls | Keep typed capture/boundary/shared-union proof receipts as fallback; candidate uses lexical closures and its replacement checked representation, not specialization |
+| 4 — memo | Reuse integrated journal/reducer and authority invariants; explicitly version candidate identity and schema evidence |
+| 5 — authority/CLI | Reuse integrated authority and bounded pure CLI substrate; no claim that all public operations or effects are delivered |
+| 6 — commands/R12 | Reuse/complete only the performer, file closure, request parity and substitution slice exercised by DC-F/DC-U; preserve the existing reviewed contracts |
+| 7 — providers | Reuse prompt/output transport and required schema enforcement; deterministic providers suffice for initial protocol evidence, not live readiness |
+| 8 — resume/invalidation | Prove the candidate's exercised replay/recovery subset before DC-F; full selected-profile invalidation/readiness follows DC-U |
+| 9 — child runs | Pull forward only if an evaluation fixture needs them; otherwise required admitted child/coordinator proofs belong to readiness |
+| 10 — views | Full selected-profile projections/readers belong to readiness, not the first spike |
+| 11 — monitor/watchdog | Same readiness dependency; do not require complete operational tooling before bounded feasibility |
+| 12 — input documents | Reuse transport/validation semantics; adapt schema authoring only with its candidate contract, preserving R12/order/parity where exercised |
+| 13 — totality/programs | Focused closure, full improve and search cases enter DC-F/DC-U early; full admitted production corpus later |
+| 14 — providers/artifacts | Exercise necessary deterministic handoffs early; actual providers and complete admitted artifact evidence remain readiness obligations |
+| 15 — crash qualification | Focused interrupted closure/replay/budget evidence before DC-F; full selected-release external-kill/durability coverage later |
+| 16 — docs | Keep availability truthful throughout; selected dynamic-profile publication has its own evidence and does not mark typed task completion |
+| 17 — closeout | Separate selected-candidate closeout after readiness; preserve typed compatibility/receipt history and explicit fallback |
+
+Only prerequisites needed by the bounded experiment are pulled forward; this
+mapping does not waive their contracts. All remaining typed prerequisites below
+continue to govern **typed full-phase completion**, not entry to DC-0/DC-1.
+Candidate-only behavior gets new evidence; reuse valid shared-owner checks and
+rerun them when relevant changes justify it. Phase 4a/4b and Phase 5 require the
+selected runtime's proofs; static completion is insufficient for dynamic
+parallelism. Phase 6a feeds DC-U, Phase 6b requires DC-P adoption/migration
+approval, and Phase 7 requires explicit old-run disposition. W3 remains the typed
+comparator/fallback; runtime closures replace future W3 delivery only if selected.
+
+Every gate records evidence plus owner/date/continue-revise-stop. Continue names
+one successor; revise names a bounded correction and one reevaluation, then stop
+or a fresh owner allocation; stop returns to the unfinished typed tasks below.
+Pending gates block successors, not the evidence needed to reach the gate.
+The documentation turn launches no experiment, production target or live study.
 
 ## Contract Decisions Before Dependent Code
 
@@ -437,7 +497,11 @@ with `-q -n 16 --dist=worksteal`. No broad run belongs to design preparation.
 **Files:** Modify `specs/{state,io,cli,versioning}.md`, `docs/design/workflow_lisp_evaluated_execution.md`, `docs/design/workflow_lisp_core_calculus_middle_end.md`, `docs/design/workflow_command_adapter_contract.md`, `docs/{index,capability_status_matrix,lisp_workflow_drafting_guide,runtime_execution_lifecycle}.md`, parent Phase 3 status in `docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md`. Create `docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md`. Other roadmap/whole-goal ledger changes remain coordinator-owned.
 
 - [ ] Document exact authority/header/memo/view keys, record transitions, errors, profile/representation routing, lock liveness, artifact evidence, typed `:inputs`, invalidation and read-only readers. Cross-check key-for-key against actual files produced by public fixtures; add no phase status to normative contracts beyond availability metadata conventions.
-- [ ] Replace “run/resume unavailable until Phase 3” only after required executable evidence passes. Preserve later effect exclusions, C5 promise limits, genuine open later-admission questions and old-target/runtime retention. Link Phase 6a next without calling Phase 3 the end of the whole goal.
+- [ ] Publish exact availability for each public operation and selected profile:
+  retain bounded pure run/dry-run evidence without claiming effect/resume support;
+  remove each remaining refusal only after its required executable evidence passes. Preserve later effect exclusions, C5 promise limits, genuine open later-admission questions and old-target/runtime retention. Route this branch through DC-F/DC-U/DC-P and Phase 6a evidence; the typed
+  fallback still hands off to its pilot. Do not call Phase 3 the end of the goal
+  or let the old whole-goal instruction bypass a candidate gate.
 - [ ] Report exact corpus/totality counts, scenario/kill counts, live-provider versus stand-in evidence, old-byte comparisons, raw suite exits and all failure dispositions. Never turn a compile-only Phase 2 result or historical spike count into fresh runtime evidence.
 - [ ] Run existing narrow docs routing selectors after inspecting their names, a relative-link check of touched docs, `git diff --check`, and code-generated-key comparison. Tests should validate contract/dataflow/navigation, not literal explanatory prose. Independent spec/design reviewer verifies amendment and final docs; review/commit.
 
@@ -451,7 +515,10 @@ with `-q -n 16 --dist=worksteal`. No broad run belongs to design preparation.
 - [ ] Compare with baseline and resolve every newly observed failure with matching serial/base probes. Reuse unchanged valid checks; repeat only when relevant code changes/failures justify it. Full red baseline evidence remains red; require no unexplained new failure, no pytest error/disk exhaustion and no weakened security or expectation.
 - [ ] Fresh public compile/dry-run/run/resume/invalidate/report, dashboard/monitor/watchdog and actual-provider receipt after integration; use existing fixture commands recorded by the tests, not a reconstruction from memory. Smoke at least one selected maintained consumer and one path run-reference, plus the producer→consumer handoff.
 - [ ] Independent whole-phase code/evidence reviewer of a model family different from implementer checks all findings and the coverage matrix below; independent documentation/spec review confirms published claims. Coordinator reviews actual diff and output, then completes checked steps and closeout report.
-- [ ] Complete the parent's authorized “Merge to `main` by fast-forward; push” through a safe integration checkout when feasible, preserving every dirty owner file. If current delivery constraints prevent it, keep that parent item **open** in the closeout/whole-goal ledger with the concrete constraint and next safe integration step; isolated-branch completion does not satisfy it. Do not force/overwrite dirty main or bypass delivery constraints. No retirement decision is inferred. Hand Phase 6a nominees, Phase 4 capability needs, independent Phase 5 and remaining Phase 6b/7 work to the whole-goal ledger and continue the user's authorized Phases 3–7 goal.
+- [ ] Complete the parent's authorized “Merge to `main` by fast-forward; push” through a safe integration checkout when feasible, preserving every dirty owner file. If current delivery constraints prevent it, keep that parent item **open** in the closeout/whole-goal ledger with the concrete constraint and next safe integration step; isolated-branch completion does not satisfy it. Do not force/overwrite dirty main or bypass delivery constraints. No retirement decision is inferred. Hand Phase 6a nominees and remaining consumer/retirement needs to the parent
+  ledger under its selected route. On the dynamic branch stop at the applicable
+  DC gate; a typed closeout does not authorize dynamic successors, adoption,
+  parallelism or two full migrations.
 
 ## Evidence Coverage Matrix
 
@@ -499,4 +566,5 @@ Every row requires fresh public execution/resume unless explicitly a compile/rea
 - [ ] Actual providers and artifact handoff proven, or Phase 3 explicitly remains incomplete with concrete missing evidence.
 - [ ] Old-target bytes/pins/runs audited; complete phase suite and every new failure disposition recorded honestly.
 - [ ] Coordinator inspected integrated diff and evidence; independent whole-phase code and spec/docs reviews complete.
-- [ ] Parent fast-forward to `main` and push completed safely, or explicitly still open with concrete constraint and next integration step while dirty owner files remain preserved; no branch-only delivery claim. Phase 6a/4/5/6b/7 remain tracked and execution continues toward the whole user goal.
+- [ ] Parent fast-forward to `main` and push completed safely, or explicitly still open with concrete constraint and next integration step while dirty owner files remain preserved; no branch-only delivery claim. Phase 6a/4/5/6b/7 remain tracked under the parent route; candidate successors
+  require the recorded DC dispositions and do not activate from this checkbox.

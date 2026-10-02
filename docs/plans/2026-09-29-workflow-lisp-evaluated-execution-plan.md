@@ -8,15 +8,16 @@
 > in its own git worktree. Reviews are made by a reviewer of a model family
 > other than the implementer's. Track execution with the checkboxes below.
 
-**Goal:** Make every `.orc` program that typechecks run, by evaluating the
-compiled program with an environment of values and a memo of effects; and
-add the numeric surface, structured effect inputs and the diagnostics that a
-search controller needs.
+**Goal:** Deliver compositional evaluated execution with durable effects,
+structured boundary contracts and useful diagnostics. The original typed route
+remains the existing baseline and fallback; this branch first evaluates a
+bounded dynamic-core candidate before choosing the remaining production route.
 
-**Architecture:** Phases 0 and 1 change no execution model: they repair what
-is independent of it and test the model in throwaway code. The model enters
-at one new target, after the owner's decision at gate G1. Targets that exist
-today keep their behaviour.
+**Architecture:** Phases 0–2 and integrated Phase 3 work remain intact.
+The 2026-10-02 amendment below reuses that substrate for a bounded dynamic-core
+evaluation, with feasibility, utility and production gates before migration.
+Existing targets/runs keep their versioned semantics; G1's selection of evaluated
+execution does not by itself select a new internal value/function model.
 
 **Tech Stack:** Python, Workflow Lisp typechecker and elaborator, the
 workflow core calculus, the pure expression catalog, the command and provider
@@ -45,9 +46,12 @@ records compilation/compatibility checks and the completed red-suite result;
 Phase 2 compiler closeout is complete: code/verification review passed at
 `17049e79`, documentation review passed at `a6efc7e7`, and both were integrated
 at `a7b157d8`.
-The owner's 2026-10-01 amendment sets the downstream order below. Phases 3
-to 7 remain pending; this amendment records neither implementation nor
-completion of those phases.
+The 2026-10-01 downstream order is retained as the typed fallback, amended on
+2026-10-02 for this branch by the dynamic evaluation route below. Phase 3
+Tasks 1–5 and their receipts are integrated from pinned source `7af8ebf6`;
+Tasks 6–17 and later delivery remain unfinished. The public pure run/dry-run
+slice exists; effects refuse `closed_effect_handler_missing`, while resume and
+full effectful runtime support remain pending. This is not a Phase 3 closeout.
 
 Owner decisions (2026-09-29, with target selection on 2026-09-30):
 
@@ -369,7 +373,8 @@ decisions that the spike had to guess before the plan of Phase 2 is written.
 The owner selected evaluated execution over repairing the flat route or
 values as expressions, on the report of Task 10. Each later phase gets its
 own implementation plan when selected; G1 is not reopened by the delivery
-ordering below.
+ordering below. Dynamic-core evaluation separately tests the representation,
+strict schema, closure, budget and replay delta; it cannot inherit G1 as approval.
 
 ---
 
@@ -380,19 +385,47 @@ selected.
 
 ### Delivery Order And Preserved Capabilities
 
-Owner amendment, 2026-10-01:
+**Branch amendment, 2026-10-02:** preserve completed Phase 2 and Phase 3
+Tasks 1–5, then follow the
+[dynamic-core evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md).
+**DC-0 qualification → bounded DC-1 feasibility spike → DC-F → DC-2 utility
+(including early Phase 6a evidence) → DC-U → DC-3 production readiness → DC-P
+→ one selected Phase 6b migration → Phase 7 retirement.**
 
-**Phase 2 → Phase 3 → Phase 6a pilot → Phase 4 additions (including W3) and
-Phase 5 → Phase 6b migration → Phase 7 retirement.**
+DC-0 is the selected next prospective task; no new experiment runs in this
+planning turn. Each gate needs evidence and an explicit owner continue/revise/
+stop disposition. Continue activates only its named successor; revise names one
+bounded correction and one reevaluation, then stop or fresh owner allocation;
+stop returns to the typed route below. Pending gates block successors, not the
+qualification or spike needed to reach them. Full typed Phase 3 completion is
+not a prerequisite for the bounded candidate. No live-study budget, target or
+production adoption is selected by this amendment.
 
-This is the preferred delivery order, not a serial dependency chain or a
-requirement to finish every effect class before using the runtime. Phase 5
-may start after Phase 3 alongside the
-pilot; it does not wait for all of Phase 4. Phase 6b advances consumer by
-consumer as the capabilities each needs land. Existing phase numbers and
-the selected Phase 2 task order stay unchanged.
+The 2026-10-01 **typed fallback** remains: Phase 2 → remaining Phase 3 →
+Phase 6a pilot → consumer-selected Phase 4 (including W3) and independent
+Phase 5 → Phase 6b → Phase 7. The source control worktree's existing typed
+scope is unchanged; this branch owns the prospective evaluation route.
+Existing phase/task numbers and completed receipts remain intact.
 
-Simplify the execution machinery, not the language's useful contracts:
+| Existing phase | Disposition on the dynamic evaluation route |
+| --- | --- |
+| Phase 2 | Keep completed typed compiler and artifact/closure/boundary infrastructure; candidate representation replaces specialization/type proofs and P5 with its own checked admission, never disables validation |
+| Phase 3 Tasks 1–3 | Adapt values, evaluator and calls for ordinary functions/lexical closures; retain completed typed implementation and proof evidence as baseline/fallback |
+| Phase 3 Tasks 4–5 | Reuse memo, authority and bounded CLI substrate with explicit version contracts |
+| Phase 3 Tasks 6–8, 12–15 | Reuse only necessary performers, R12 request parity, recovery and input transport plus focused fixtures early; full release qualification comes after DC-U |
+| Phase 3 Tasks 9–11, 16–17 | Child runs when needed; readers/watchdog are readiness, not initial-spike prerequisites; honest availability and separate selected-profile closeout |
+| Phase 4a/4b and Phase 5 | Shared, consumer-driven work after applicable runtime contract proofs; typed Phase 3 completion alone never authorizes dynamic parallel effects |
+| Phase 4c W3 | Typed comparator/fallback; candidate lexical closures replace future W3 delivery only if selected, with preserved caller/compatibility evidence |
+| Phase 6a / 6b / 7 | Pilot evidence feeds DC-U; migrate once after DC-P; retire only with explicit consumer and existing-run dispositions |
+
+W1/W5 are static-specific or deferred; EL-1 must reassess useful effect
+enforcement/inspection for dynamic functions, not import static inference
+cleanup as a prerequisite. This amendment starts no second full migration.
+
+The table below records useful capabilities and production obligations. Its
+typed forms are the baseline/comparator, not mandatory candidate mechanisms or
+prerequisites for DC-U; the experiment plan owns the bounded candidate scope.
+Preserve useful boundary/domain contracts while evaluating internal typing.
 
 | Capability to retain | Delivery and evidence |
 | --- | --- |
@@ -401,10 +434,10 @@ Simplify the execution machinery, not the language's useful contracts:
 | Typed prompt and result contracts | Preserve prompt assembly, validation and typed value transport for admitted effects; the pilot exercises these through public entries |
 | Artifact production, publication, consumption, freshness and lineage | Preserve the existing contracts needed by each migrating consumer and demonstrate a producer-to-consumer handoff. Memoized values do not substitute for artifact tracking, nor do declared dependencies prove every file an agent actually read |
 | Explicit portable provider context | A named Phase 4 priority, with capture, transformation/forking and rebinding evidence; not part of the first-release portable provider subset |
-| Local hooks with inferred context (W3) | Phase 6a qualifies the caller improvement; Phase 4c delivers capture/signature inference and the context-free `improve` API; Phase 6b migrates maintained consumers |
+| Local hooks with inferred context (W3) | Phase 6a/DC-U compares full caller improvement against the typed baseline and labeled proposed W1/W3 controls. Phase 4c remains the typed fallback; selected dynamic closures may replace its future delivery, and Phase 6b migrates only the chosen destination |
 
-Delivery integration, 2026-10-01: W3 belongs to this delivery sequence as
-Phase 4c. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
+Delivery integration, 2026-10-01, conditioned by the 2026-10-02 amendment:
+W3 remains Phase 4c on the typed comparator/fallback route. The [repetition-reduction plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#w3-planning-amendment)
 retains its technical tasks, not a competing schedule. Grammar, target and
 module compatibility remain open prerequisites; scheduling W3 does not mark
 it implemented or start a run. Other repetition rules and the
@@ -440,17 +473,21 @@ remain explicit release gaps, not extra Phase 2 prerequisites.
 
 ### Phase 3: Evaluator, Memo And State Profile
 
-Entry: Phase 2.
-
-Execution follows the reviewed [Phase 3 implementation plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
-Its task checklist owns implementation progress; this link does not mark
-the runtime or later phases complete.
+Typed entry: Phase 2. The reviewed
+[Phase 3 implementation plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md)
+preserves all 17 tasks and owns typed implementation progress, with a branch
+scope overlay for reuse/adaptation. Tasks 1–5 are integrated, not reset.
+Execute the new evaluation plan first on this branch; take narrow shared slices
+needed by its experiment without claiming full Phase 3 completion or requiring
+all remaining typed tasks before the spike.
 
 Deliver a coherent executable core for the admitted effect classes, not a
 collection of preferred syntactic positions. A failure to close or evaluate
 an admitted composition is a compiler/runtime defect, not a reason to
 require a wrapper or narrow nesting. Restrict effect-class admission as the
-design specifies, not compositional semantics within that admission.
+design specifies, not compositional semantics within that admission. The table
+below describes full typed Phase 3 completion/selected production qualification;
+it does not make every public milestone a prerequisite for DC-F or DC-U.
 
 | Milestone | Evidence |
 | --- | --- |
@@ -466,7 +503,9 @@ design specifies, not compositional semantics within that admission.
 
 ### Phase 4: Consumer Capabilities And Authoring
 
-Entry: Phase 3. Select additions by a named maintained consumer's need,
+Entry: the selected runtime's required contract proofs and a named maintained
+consumer; Phase 3 for the typed fallback, the applicable DC readiness/selection
+for the dynamic route. Select additions by that consumer's need,
 not a fixed port of every historical runtime class. New effect classes need
 an adapter and public run/resume evidence preserving their contract and
 ledger. Authoring changes reuse existing effect and execution owners.
@@ -488,7 +527,8 @@ ledger. Authoring changes reuse existing effect and execution owners.
   run-reference modes. Name the consumer
   and the missing behavior before selecting a class. Path-mode run references
   already belong to Phases 2–3; they do not wait here.
-- **4c — W3 local hooks:** deliver multiple `let-proc` bindings, inferred
+- **4c — W3 local hooks (typed comparator/fallback):** if that route is selected,
+  deliver multiple `let-proc` bindings, inferred
   lexical captures, expected `ProcRef` signatures and `improve` without
   `inputs I`, using the existing compiler and Phase 3 evaluator. The
   [component plan](2026-09-29-workflow-lisp-repetition-reduction-plan.md#e-hooks-that-capture-their-context)
@@ -498,7 +538,10 @@ ledger. Authoring changes reuse existing effect and execution owners.
   definition-site captures and no repeated committed effects on the shipped
   proposal example and the `reviewed_change.orc` helper variant. Task 14
   proves representative migration; the maintained-consumer rollout belongs
-  to Phase 6b. W3 adds no runtime closure or new effect class.
+  to Phase 6b. W3 adds no runtime closure or new effect class. Dynamic lexical
+  closures replace this prospective delivery only after explicit candidate
+  selection; do not implement both migrations to run DC-U. Label non-executable
+  W1/W3 comparisons and narrow claims of gain unique to the dynamic model.
 
 An unneeded class may remain deferred or be retired with its consumers by
 explicit decision. The 4a/4b/4c lanes need not run serially; W3 does not wait
@@ -537,11 +580,13 @@ written only after explicit selection of this bounded slice.
 
 ### Phase 5: Parallel Map
 
-Entry: Phase 3, and a workflow that needs it. The best-of-N workflow of the
-single-call comparison is one: its four implementers run in sequence.
-Recommended alongside the early pilot, independently of unneeded Phase 4
-classes. Reuse the evaluator and memo; no general scheduling framework is
-part of this phase.
+Entry: a workflow that needs it and the selected runtime's identity, memo,
+recovery and effect-safety proofs. The typed fallback can start after Phase 3
+alongside its pilot; static Phase 3 completion is insufficient for dynamic
+parallelism. On the dynamic route, select a bounded parallel slice only after
+its applicable DC gates/runtime proofs. The best-of-N workflow's four serial
+implementers are a candidate consumer, not a spike prerequisite. Reuse the
+evaluator and memo; no general scheduling framework is part of this phase.
 
 | Milestone | Evidence |
 | --- | --- |
@@ -552,11 +597,17 @@ part of this phase.
 
 ### Phase 6: Migration
 
-**6a — Early pilot.** Entry: Phase 3. Select a small set of maintained
+**6a — Early pilot.** On the typed fallback, entry is Phase 3. On this branch,
+focused caller qualification and full protocol comparison feed DC-U after DC-F;
+preparation and the bounded spike need not await all static Phase 3 tasks.
+Select a small set of maintained
 workflows whose effects are admitted, starting from the `std/improve` and
 single-call comparison consumers already used by Phase 3. Do not wait for
-all of Phase 4. Record public compile, dry-run, run and resume evidence,
-including no redispatch of committed effects. Compare values and required
+all of Phase 4. The typed pilot records public compile, dry-run, run and resume
+evidence, including no redispatch of committed effects. Before production
+admission, the dynamic candidate records equivalent experimental-driver checks
+with that limitation explicit; public candidate operations are DC-3 readiness
+evidence, not an initial-spike prerequisite. Compare values and required
 effect ordering with the flat route where it runs; for formerly broken
 compositions, check the intended behavior, not parity with the defect.
 
@@ -565,16 +616,18 @@ different domain types/hooks, compose nested calls without positional
 workarounds, and trace an artifact handoff. Assess reuse ergonomics from
 those changes and reasoned review, not an arbitrary build count, line-count
 threshold or mandatory benchmark harness. Record missing capability evidence
-as missing. Phase 3 and this pilot are the first evaluation point, not a
-global abandon/continue verdict before context and other differentiating
-capabilities can be exercised.
+as missing. The candidate's DC-F/DC-U/DC-P owner decisions govern further
+investment; evidence is limited to the capabilities exercised, and untested
+context or other capabilities neither prove benefit nor authorize expansion.
 
 For W3, use the existing explicit-hook API for the baseline and perform
 [component Task 4](2026-09-29-workflow-lisp-repetition-reduction-plan.md#task-4-qualify-w3-on-concrete-callers):
 compare the local-hook proposal, identify forwarding to delete and settle
 the migration/compatibility decision. Qualification preparation can overlap
-Phase 3; the pilot supplies executable caller evidence before Phase 4c.
-Do not require unimplemented W3 syntax to run the pilot.
+Phase 3; DC-U uses the best executable incumbent and clearly labeled proposed
+W1/W3 controls. Do not require unimplemented W3 syntax or its production
+implementation to run the pilot. Its typed Phase 4c delivery remains conditional
+on the selected destination.
 
 Use observed friction to select a principled improvement, a justified
 design/type-system revision, or explicit simplification of an unhelpful
@@ -582,7 +635,9 @@ feature. A current design limit is not proof that the use case is
 impossible; investigate the limit before dropping the case. Scope changes
 still need selection, not an automatic expansion of the running phase.
 
-**6b — Maintained-consumer migration.** Entry per consumer: Phase 3 plus
+**6b — Maintained-consumer migration.** This branch requires DC-P's explicit
+migration authorization and one selected destination; stop returns to the typed
+fallback. Entry per consumer then includes that runtime's qualified core and
 only the Phase 4/5 capabilities it needs. Extend pilot evidence to portable
 context reuse and parallel best-of-N as those land; parallel execution need
 not reproduce the old serial completion order, but must preserve results
@@ -592,10 +647,11 @@ historical/deprecated example; identify any consumer explicitly retired
 instead of ported. Complete this phase when the maintained set runs and
 resumes on the new runtime with its required capabilities.
 
-After Phase 4c, migrate each maintained `improve` consumer covered by W3's
-inventory to the context-free API and remove context-only forwarding.
-Consumers that do not need W3 can migrate earlier; old-target checkpoints
-retain their resolved module/runtime contract until their retirement decision.
+On the selected typed fallback, Phase 4c leads to migration of the maintained
+`improve` inventory to its context-free API. If dynamic closures are selected,
+migrate that same inventory once to the selected helper API instead. Remove
+only context-only forwarding, preserve domain contracts, and keep old-target
+checkpoints pinned until their explicit retirement decision.
 
 ### Phase 7: Retirement
 
@@ -620,4 +676,7 @@ retirement is a delivery milestone, not indefinite optional cleanup.
   per new form.
 - [ ] Review of the phase by a reviewer of a model family other than the
   implementer's.
-- [ ] Merge to `main` by fast-forward; push.
+- [ ] For selected implementation delivery, integrate to `main` and push under
+  its authorization. The dynamic documentation/evaluation branch has a separate
+  review/integration disposition; this historical checklist does not authorize
+  candidate adoption, a new experiment or an automatic production merge.

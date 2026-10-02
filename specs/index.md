@@ -32,12 +32,16 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - DSL v2.34 implements decimal literals, numeric operators and finite-value
     checks at boundaries. Repetition reduction is a separate unapproved
     proposal; see [versioning](versioning.md) for the implemented surface.
-  - DSL v2.35 is the selected evaluated-execution target. Internal closed-program
-    compilation is partially integrated; public CLI compilation, execution
-    and resume remain unavailable with `evaluated_execution_unavailable`.
+  - DSL v2.35 is the selected typed evaluated-execution target. Public closed-program
+    compilation, validated dry-run and pure public execution are integrated.
+    Public effect execution and resume remain pending; this is not a complete
+    Phase 3 release. The bounded runtime evidence is
+    [the public CLI suite](../tests/test_workflow_evaluated_cli.py).
     The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
     owns the accepted model; [versioning](versioning.md) owns target admission.
-  - State schema: `schema_version: "2.1"`.
+  - Legacy state schema: `schema_version: "2.1"`. The partial evaluated profile
+    uses the versioned authority/view contract in the
+    [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation); it does not reinterpret legacy state.
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
 
 - Precedence and scope

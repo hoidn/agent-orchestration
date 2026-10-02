@@ -3,12 +3,14 @@
 ## Metadata
 
 - **Status:** accepted for the first release at gate G1 on 2026-09-29;
-  Phase 2 closed-program compilation is implemented at target 2.35.
-  `orchestrator compile` writes the checked artifact; `run` and `resume`
-  refuse with `evaluated_execution_unavailable` until the open Phase 3
-  evaluator is implemented. Evidence:
+  Closed-program compilation and bounded pure execution are implemented at
+  target 2.35. `orchestrator compile` writes the checked artifact;
+  `run --dry-run` validates inputs and pure `run` publishes durable authority
+  and a terminal result. Effect dispatch, public resume and full profile
+  readers remain unfinished; this is not the complete Phase 3 release. Evidence:
   [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
-  [target refusal tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
+  [pure-run and dry-run tests](../../tests/test_workflow_evaluated_cli.py),
+  [target routing tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
   and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
   Phase-wide checks and the completed red-suite diagnosis are recorded in
   the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
@@ -2382,9 +2384,18 @@ Codes this design introduces or keeps, and where each is raised:
 
 ## 13. Targets And Compatibility
 
+The [dynamic-core proposal](workflow_lisp_dynamic_core_proposal.md) is a separate
+candidate contract; its [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+owns decisions about that alternative. This accepted target retains typed P5,
+statically resolved callable identities and its bounded, nonrecursive execution
+contract. Adopting dynamic values/closures would require a distinct target and
+versioned program/profile contract, with explicit owner amendments. Shared memo,
+performer or request-parity evidence does not permit reinterpreting saved typed
+programs or runs as dynamic environments.
+
 - Evaluated execution applies from target 2.35 (plan decision 6, selected
-  by the owner on 2026-09-30). A program at that target runs on the evaluator
-  only once the evaluator is delivered; Phase 2 provides compilation only.
+  by the owner on 2026-09-30). Programs at that target use the evaluator;
+  compilation alone does not establish runtime availability or recovery evidence.
 - Until explicitly retired under plan decision 8, programs at older targets
   compile and run as they do. Require raw byte-identical artifacts for
   identical identity inputs. The existing compiler/runtime identity hashes

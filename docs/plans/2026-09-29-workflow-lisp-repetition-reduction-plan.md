@@ -46,13 +46,23 @@ W0–W5 or a new language target. All implementation tasks remain pending.
 Delivery integration, 2026-10-01: W3 is a component of evaluated-execution
 delivery, not a separately scheduled feature. The
 [parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
-owns scheduling: Phase 3 provides the runtime; Task 4 qualification feeds
-the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after the open decisions
-and Task 6 target registration; Phase 6b owns broader consumer migration.
+owns scheduling. Its 2026-10-02 branch amendment selects
+[dynamic DC-0 qualification](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+next, then a bounded spike and DC-F/DC-U/DC-P decisions. Task 4 and Phase 6a
+feed the typed comparison for DC-U. If the typed route is retained, Phase 3
+provides its runtime and Phase 4c delivers Tasks 11–14 after the open decisions
+and Task 6 registration. If dynamic closures are selected, ordinary functions
+replace future W3 delivery, with one Phase 6b migration after DC-P.
 Phase E below is the component's work breakdown for Phase 4c, not another
 top-level phase. Qualification preparation can overlap Phase 3; W3 does not
-gate that phase or require its new syntax in the pilot. W0/W1/W2/W4 remain
-independent. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+gate that phase or require its new syntax in the pilot. Do not finish the
+entire static Phase 3 or implement W1/W3 merely to begin dynamic qualification.
+Use the best executable typed control and clearly labeled proposed variants;
+narrow unique-gain claims when a proposed control cannot run. W0/W2/W4 remain
+independent; W1/W5 are static-specific/deferred and not candidate prerequisites.
+All 15 tasks/checkmarks remain intact; none is completed or selected by this
+amendment. Stop at a dynamic gate returns to qualified typed W3 work, not to a
+second concurrent migration. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
 owns the proposed behavior and illustrative before/after.
 
 Target-selection update (2026-10-01): the original recommendation of 2.34
@@ -65,8 +75,8 @@ Decisions needed before execution:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
-| 1 | Which of the rules W0 to W5 are accepted | W3 is a named authoring candidate, qualified by Task 4 independently of W0/W1/W2/W4. Their proposed scope remains unchanged; W5 stays deferred |
-| 2 | The target for each selected language change | W3 uses the evaluated route as Phase 4c; its language target remains unresolved against existing 2.34 numeric and selected 2.35 evaluated execution. Other repetition rules retain their own target decisions |
+| 1 | Which of the rules W0 to W5 are accepted | W3 is the typed comparator/fallback, with Task 4 feeding DC-U. Dynamic selection may replace prospective W3 delivery; W1/W5 are static-specific/deferred, and other rules retain independent scope |
+| 2 | The target for each selected language change | If retained, W3 uses typed evaluated Phase 4c with unresolved target/module compatibility. The candidate's distinct target/representation decision belongs to DC-P readiness; 2.35 is not silently redefined. Other rules retain their decisions |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
 | 4 | The adoption bar for W3 | Preserve behavior while removing the context-only record/constructor, forwarding parameter and restated hook signatures. Review actual callers and edit locality; line counts are supporting evidence, not a percentage gate |
 | 5 | Where provider defaults are written | The provider externs file |
@@ -199,6 +209,11 @@ codes and how `--dry-run` prints them.
 ### Task 4: Qualify W3 On Concrete Callers
 
 - [ ] Complete
+
+Branch routing: this task supplies the comparator to dynamic DC-U as well as
+the typed Phase 6a pilot. Keep executable and proposed examples distinct;
+qualification is allowed before full Phase 3/W3 delivery. The six steps below
+retain the typed proposal's questions; they do not select its implementation.
 
 **Read/trace:** `experiments/orc_repetition_census/variants/`, the
 `let-proc` and `bind-proc` contracts, design §6,
@@ -361,7 +376,10 @@ constructor names its type), `docs/orc_workflow_design_lessons.md`,
 
 - [ ] Complete
 
-The design exists and lists its own prerequisites. This task writes its plan.
+The typed design exists and lists its own prerequisites. This task remains
+unselected. If dynamic functions are selected, reassess useful effect enforcement,
+read-only restrictions and inspection before planning EL-1; static inference and
+summary cleanup are not assumed candidate prerequisites.
 
 **Read:** `docs/design/workflow_lisp_effect_ledger_simplification.md`,
 `docs/reports/2026-09-08-workflow-lisp-effect-tracking-audit.md`, roadmap
@@ -376,9 +394,12 @@ entry EL-1.
 
 ## E. Hooks That Capture Their Context
 
-This is the technical breakdown of the parent's Phase 4c. Entry: Phase 3's
-runtime, the Phase 6a caller assessment, and Task 4's grammar, inference,
-capture ownership, target/module compatibility and decision-4 evidence.
+This is the technical breakdown of the parent's **typed fallback** Phase 4c,
+not the next task on the dynamic evaluation branch. Entry requires retention
+and selection of that route, its Phase 3 runtime, the Phase 6a caller assessment,
+and Task 4's grammar, inference, capture ownership, target/module compatibility
+and decision-4 evidence. If dynamic lexical closures are selected, they replace
+this future delivery; preserve caller evidence without implementing both routes.
 Task 6 registers the selected target before new syntax is admitted. Tasks
 11 → 12 → 13 → 14 form the W3 delivery order; unrelated W0/W1/W2/W4 delivery
 is not a prerequisite. Public run/resume acceptance uses Phase 3's evaluator.
