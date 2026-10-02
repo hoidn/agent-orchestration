@@ -735,6 +735,16 @@ requested the valid-first/missing-later UC06 vector retained below. The
 coordinator inspected both contracts and selected DC-2a implementation next.
 These are scope reviews, not executed consumer cases or a DC-U disposition.
 
+Fresh comparator execution: **105 passed in 7.93s**, exit 0, in tmux using
+`python -m pytest -q -n 16 --dist=worksteal` on the three §1 control modules.
+Runtime checkout: `706c10c8f782852c1ffacf48345d70c68072a5c9`, production tree
+`bf8cc895758c12f78b98f4531f0997c358f64f41`. The coordinator verified those three
+source files have no diff from `4b69ee00` and no uncommitted production changes.
+Exact command, file hashes and exit are in
+`/tmp/orc-dc2-execution-0jczbaqn/controls-result.json`, with `controls.log`.
+This closes the earlier collection-only gap for the retained controls; none
+of the 110 new dynamic utility cases is credited by this run.
+
 ### Core And Existing Boundary Reuse — 12 Cases
 
 UC01–UC12 live in `tests/experiments/test_dynamic_core_utility_core.py`; the two
