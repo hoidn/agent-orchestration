@@ -772,6 +772,32 @@ is added. Recursion and strict `if` express controller policy. Collection-copy
 costs, `/3` compatibility and the retained adapter/compiler machinery belong in
 the complexity accounting.
 
+**DC-2a complete, 2026-10-02, code `e7da6fd2`:** Luna 6 xhigh implemented
+only the four candidate modules and new UC module. Independent conformity by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh) and code/quality review by
+`/root/review_code_dynamic_core_utility` (Sol 6.1 high) both passed, with fresh
+12-case checks and no open finding. The coordinator inspected the diff and
+verified unchanged hashes before committing. Early RED included malformed test
+fixtures; those were corrected separately from actual missing `/3` forms and
+the existing candidate adapter refusal. No claim that every initial failure
+proved missing functionality is made.
+
+Coordinator receipts in `/tmp/orc-dc2-execution-0jczbaqn/`: `core-collect.log`
+collected **12**, `core-final.log` passed **96 in 4.51s** (12 new + 84 retained,
+`-q -n 16 --dist=worksteal` in tmux), and the exact existing README command
+passed in `core-demo.log`/`core-demo.sh`. `core-result.json` holds commands,
+exits and equal before/after source hashes. The `/3` example still executes
+provider → command in **53 nodes**, returning the same captured goal/rubric/
+DOC_A feedback; its new versioned digest is
+`sha256:399dea840313beaa532c51247011943ca0dfba3b736f7a6e4adc2dd3efb87774`.
+The earlier `/2` digest in §7 remains historical at its recorded code pin.
+
+UC11/UC12 execute a real certified adapter and strict refusal paths through the
+existing compiler and executor. No shared production file changed. The latest
+upstream check still found integration `9bb4b207`; no new import was available.
+These results complete DC-2a only: DC-2b improve is now executing; the other
+98 utility cases and the full-consumer demonstration remain pending.
+
 ### Full Improve — 11 Fresh-Run Cases
 
 `fixtures/improve.orc` is the shared ordinary-definition fragment.
