@@ -21,6 +21,7 @@ from ..build_manifest_io import (
     _load_prompt_extern_mapping,
     _load_string_mapping,
     _parse_command_boundaries_manifest,
+    _require_build_path_within_workspace,
     _resolve_request,
 )
 from .. import syntax
@@ -169,6 +170,11 @@ def build_closed_program_bundle(
     build_root = resolved.workspace_root / ".orchestrate" / "build" / build_key
     artifact_path = build_root / "closed_program.json"
     manifest_path = build_root / "manifest.json"
+    for path in (build_root, artifact_path, manifest_path):
+        _require_build_path_within_workspace(
+            path,
+            workspace_root=resolved.workspace_root,
+        )
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(artifact_path, program.artifact())
     manifest = {
