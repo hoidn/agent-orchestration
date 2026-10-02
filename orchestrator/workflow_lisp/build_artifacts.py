@@ -35,7 +35,11 @@ from orchestrator.workflow.persisted_surface import (
 from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from .build_manifest_io import _json_data, _sha256_path
+from .build_manifest_io import (
+    _json_data,
+    _require_build_path_within_workspace,
+    _sha256_path,
+)
 from .compiler import LinkedStage3CompileResult
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendDiagnostic, serialize_diagnostics
@@ -165,6 +169,7 @@ def _is_sha256_revision(revision: object) -> bool:
 def _write_build_artifacts(
     *,
     build_root: Path,
+    workspace_root: Path,
     compile_result: LinkedStage3CompileResult,
     validated_bundle: LoadedWorkflowBundle,
     entry_selection: FrontendEntrySelection,
@@ -227,11 +232,19 @@ def _write_build_artifacts(
         "persisted_workflow_surface": persisted_surface_payload,
     }
     for name, path in artifact_paths.items():
+        _require_build_path_within_workspace(
+            path,
+            workspace_root=workspace_root,
+        )
         if name == "persisted_workflow_surface":
             path.write_bytes(canonical_persisted_surface_bytes(persisted_surface_payload))
         else:
             path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:
+        _require_build_path_within_workspace(
+            debug_yaml_path,
+            workspace_root=workspace_root,
+        )
         debug_yaml_path.write_text(
             render_debug_yaml(
                 validated_bundle,
@@ -240,8 +253,13 @@ def _write_build_artifacts(
             encoding="utf-8",
         )
         artifact_paths["expanded_debug_yaml"] = debug_yaml_path
-    elif debug_yaml_path.exists():
-        debug_yaml_path.unlink()
+    else:
+        _require_build_path_within_workspace(
+            debug_yaml_path,
+            workspace_root=workspace_root,
+        )
+        if debug_yaml_path.exists():
+            debug_yaml_path.unlink()
     return artifact_paths
 
 

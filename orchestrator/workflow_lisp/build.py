@@ -46,6 +46,7 @@ from .build_manifest_io import (
     _load_prompt_extern_mapping,
     _load_string_mapping,
     _parse_command_boundaries_manifest,
+    _require_build_path_within_workspace,
     _resolve_manifest_relative_path,
     _resolve_request,
 )
@@ -1244,9 +1245,14 @@ def _emit(
     """
 
     diagnostics = compile_result.diagnostics
+    _require_build_path_within_workspace(
+        build_root,
+        workspace_root=resolved_request.workspace_root,
+    )
     build_root.mkdir(parents=True, exist_ok=True)
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
+        workspace_root=resolved_request.workspace_root,
         compile_result=compile_result,
         validated_bundle=validated_bundle,
         entry_selection=entry_selection,
@@ -1260,6 +1266,10 @@ def _emit(
     )
     if run_ref_bundle_capsule is not None:
         capsule_root = build_root / "run_ref_bundle_capsule.v1"
+        _require_build_path_within_workspace(
+            capsule_root,
+            workspace_root=resolved_request.workspace_root,
+        )
         write_bundle_capsule_directory(
             capsule_root,
             run_ref_bundle_capsule,
@@ -1311,6 +1321,10 @@ def _emit(
             "persisted workflow surface manifest anchor mismatches selected bundle provenance"
         )
     manifest_path = build_root / "manifest.json"
+    _require_build_path_within_workspace(
+        manifest_path,
+        workspace_root=resolved_request.workspace_root,
+    )
     manifest_path.write_text(
         json.dumps(_json_data(manifest), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
