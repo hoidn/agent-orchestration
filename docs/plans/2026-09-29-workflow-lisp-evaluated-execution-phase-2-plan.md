@@ -4107,10 +4107,14 @@ and replace generic call arguments with their typed children only for
 legacy route remains on its original expression tree. Maintain source-produced
 old-target and imported-snapshot controls, private homonyms, an invalid
 authored enum-member refusal, and the generic generated-path seed case. The
-new metadata is omitted from legacy JSON when it is `None` and is excluded
-from semantic identity; later typed-product formats must explicitly preserve
-or reconstruct enum ownership if they begin serializing these in-memory
-typecheck nodes.
+maintained frontend controls are
+`test_imported_private_enum_owners_survive_evaluated_retyping` for old source
+imports and `test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion`
+for a supplied 2.34 bundle snapshot, caller homonym, producer source deletion,
+retained producer enum owner, and strict artifact readback. The new metadata is
+omitted from legacy JSON when it is `None` and is excluded from semantic
+identity; later typed-product formats must explicitly preserve or reconstruct
+enum ownership if they begin serializing these in-memory typecheck nodes.
 
 The imported `lisp_frontend_design_delta/stdlib_payloads` source workflows
 provide another entry-shape control: they require an explicit `DrainCtx` whose
@@ -4120,10 +4124,13 @@ parameters and then tries to synthesize this unsupported context, producing a
 compiler defect. Keep only contexts for which the existing `RunCtx`/`PhaseCtx`
 constructors can actually supply an entry value hidden; retain required
 non-synthesizable contexts as normal typed parameters. The maintained source
-test must show that 2.14 accepted this required input and that 2.35 builds,
-validates and strictly reads it back; an omitted unsupported context remains a
-refusal. Do not infer support from `allows_entry_bootstrap`, which is false for
-both some supported contexts and this unsupported one.
+`test_required_drain_context_stays_an_explicit_entry_input` must show that 2.14
+accepted this required input and that 2.35 builds, validates and strictly
+reads it back. `test_omitted_non_synthesizable_drain_context_is_refused` must
+separately prove the public 2.35 typed/build route refuses a caller that omits
+the required `DrainCtx` (`workflow_signature_mismatch`). Do not infer support
+from `allows_entry_bootstrap`, which is false for both some supported contexts
+and this unsupported one.
 
 The 12-argument operator control also exposes an artifact-reader defect. The
 operator payload's `bindings` is a JSON object keyed by `a0` through `aN`,

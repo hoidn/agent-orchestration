@@ -2283,6 +2283,68 @@ def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path)
     assert excinfo.value.diagnostics[0].code == "enum_member_unknown"
 
 
+def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
+    tmp_path: Path,
+) -> None:
+    producer_path = tmp_path / "producer.orc"
+    producer_path.write_text(
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+          (defmodule producer) (export get)
+          (defenum Status DONE BLOCKED)
+          (defrecord Result (status Status))
+          (defproc make () -> Result :effects () :lowering inline
+            (record Result :status Status.DONE))
+          (defworkflow get () -> Bool
+            (let* ((result (make))) (= result.status Status.DONE))))''',
+        encoding="utf-8",
+    )
+    producer_result = compile_stage3_entrypoint(
+        producer_path,
+        source_roots=(tmp_path,),
+        workspace_root=tmp_path,
+        validate_shared=True,
+    )
+    producer_bundle = producer_result.validated_bundles_by_name["producer::get"]
+    assert producer_bundle.typed_program is not None
+
+    consumer_path = tmp_path / "consumer.orc"
+    consumer_path.write_text(
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+          (defmodule consumer) (export run)
+          (defenum Status LOCAL OTHER)
+          (defworkflow run () -> Bool (call dep)))''',
+        encoding="utf-8",
+    )
+    producer_path.unlink()
+    typed = compile_typed_program(
+        consumer_path,
+        entry_workflow="consumer::run",
+        source_roots=(tmp_path,),
+        workspace_root=tmp_path,
+        command_boundaries={},
+        imported_workflow_bundles={"dep": producer_bundle},
+    )
+    program = build_closed_program(typed)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    assert (restored.tree, restored.sites, restored.digest) == (
+        program.tree,
+        program.sites,
+        program.digest,
+    )
+
+    def enum_owners(value):
+        if isinstance(value, dict):
+            if value.get("kind") == "enum" and value.get("allowed"):
+                yield value.get("name")
+            for child in value.values():
+                yield from enum_owners(child)
+        elif isinstance(value, list):
+            for child in value:
+                yield from enum_owners(child)
+
+    assert set(enum_owners(program.tree)) == {"producer::Status"}
+
+
 def test_generic_retyped_argument_keeps_generated_path_seed_type(tmp_path: Path) -> None:
     helper = tmp_path / "helper.orc"
     helper.write_text(
@@ -2434,6 +2496,35 @@ def test_required_drain_context_stays_an_explicit_entry_input(
     )
     assert "ctx" in {name for name, _type in program.tree["params"]}
     assert "ctx" not in program.tree["defaults"]
+
+
+def test_omitted_non_synthesizable_drain_context_is_refused(tmp_path: Path) -> None:
+    source = tmp_path / "entry.orc"
+    source.write_text(
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+          (defmodule entry) (export run)
+          (defrecord DrainCtx
+            (state-root Path.state-root)
+            (artifact-root Path.artifact-root)
+            (extra String))
+          (defworkflow leaf ((ctx DrainCtx)) -> String ctx.extra)
+          (defworkflow run () -> String (call leaf)))''',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typed = compile_typed_program(
+            source,
+            entry_workflow="entry::run",
+            source_roots=(tmp_path,),
+            workspace_root=tmp_path,
+            command_boundaries={},
+        )
+        build_closed_program(typed)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "ctx" in diagnostic.message
 
 
 def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodies(
