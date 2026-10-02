@@ -359,6 +359,20 @@ renaming pass does not know, listed in the same section.
 
 ### 10.1 Constructs
 
+At target 2.35 the implemented compiler converts WCC to a closed program
+that retains control and callee bodies instead of flattening them as at
+targets through 2.34. The closed body uses `let`, `perform`, `call`, `if`, `case`,
+`join`, `jump`, `loop`, `continue`, `done` and `halt`; closed values retain
+literals/references, operators, records, variants, projections, lists/maps,
+pure conditionals/selections, `block`, runtime `context`/`result_path` and
+`list_map`. Callee definitions, concrete types, canonical configuration and
+perform sites are retained in the artifact.
+The exact variants and typed fields are owned by the
+[Phase 2 schema](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#the-closed-programs-form).
+Evidence: `orchestrator/workflow_lisp/closed/build.py`, `closed/values.py`,
+`closed/check.py` and `tests/test_workflow_lisp_closed_program_corpus.py`.
+Compilation does not implement the Phase 3 evaluator.
+
 WCC is deliberately small. Target construct count is ten; additions require
 amending this document.
 
@@ -514,7 +528,15 @@ Join points are second-class, so defunctionalization is total and simple:
 
 ### 11.4 Identity and resume
 
-Step and binding identity is semantic:
+At target 2.35 the compiler assigns local perform sites separately from
+call frames; source spans remain provenance. Effect identity for the open
+Phase 3 runtime is `(site, activation path)`, as owned by
+[evaluated execution §6](workflow_lisp_evaluated_execution.md#6-effect-identity).
+The closed artifact uses its own checked schema; no flat lowering schema
+identifies its effects. Evidence: `orchestrator/workflow_lisp/closed/sites.py`
+and `tests/test_workflow_lisp_closed_program_sites.py`.
+
+On the flat route through target 2.34, step and binding identity is semantic:
 
 ```text
 step_identity = (workflow/module id,
@@ -780,18 +802,14 @@ oracles can catch it.
   that produced the findings and grows quadratically (forms x contexts). It
   remains acceptable as a stopgap only if this document is rejected.
 - Nesting-preserving executable IR with runtime execution (authority
-  inversion): deferred, not rejected. It removes flattening but rebuilds the
-  runtime, shared validation, and resume semantics — the highest-risk
-  surface in the system. WCC keeps this path open: such a runtime would
-  execute WCC. Revisit after the flattening route has proven the calculus on
-  a real promoted family. The lexical execution checkpoints target
-  (`workflow_lisp_lexical_execution_checkpoints.md`) supplies the groundwork
-  this path would consume — program-point identity, statically shaped frame
-  schemas, environment serialization, and effect-boundary resume policies —
-  and is sequenced to be proven on the flat route first. With that machinery
-  in place, the remaining design problem for bounded general recursion under
-  an inverted runtime reduces to activation identity: per-call-site
-  activation ordinals generalizing loop ordinals.
+  inversion): selected at gate G1 on 2026-09-29 in
+  [evaluated execution](workflow_lisp_evaluated_execution.md). Phase 2's
+  target-2.35 compiler is implemented; runtime evaluation/resume remain open
+  in Phase 3. WCC feeds the closed program, retaining callee bodies and sites
+  instead of flattening them. The [delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md)
+  owns later delivery; targets through 2.34 retain the flat route. Evidence:
+  `tests/test_workflow_lisp_closed_program_compile_cli.py` and
+  `tests/test_workflow_lisp_target_evaluated_execution.py`.
 - Durable execution / journal replay (Temporal-style): rejected for this
   system. It trades away static effect visibility, validation-before-commit,
   and machine-diffable parity evidence — the repo's core authority
@@ -803,9 +821,6 @@ oracles can catch it.
 
 ## 16. Deferred Work
 
-- Authority inversion: executing WCC (or an IR derived from it) directly in
-  a future runtime, making YAML the lowered view. Revisit only after one
-  real family is promoted through the flattening route.
 - Optimization passes beyond linear jump fusion (dead-binding elimination,
   step deduplication across arms): defer until equivalence tooling is
   mature; every pass must preserve provenance and equivalence evidence.
