@@ -10,12 +10,12 @@ from orchestrator.workflow_lisp.sexpr import (
     BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, StringAtom, SymbolAtom,
 )
 
-from .program import DynamicProgram, EFFECT_SCHEMA, _OPERATORS, _pointer
+from .program import DynamicProgram, DYNAMIC_OPERATORS, DYNAMIC_SCHEMA, _OPERATORS, _pointer
 
 
 _FORMS = {'dynamic-core', 'define', 'run', 'fn', 'let*', 'if', 'record',
-          'field', 'list', 'at', 'effect'}
-_RESERVED = _FORMS | _OPERATORS
+          'field', 'list', 'at', 'effect', 'record-update', 'fail'}
+_RESERVED = _FORMS | _OPERATORS | DYNAMIC_OPERATORS
 
 
 def _invalid(node, message):
@@ -163,6 +163,25 @@ def _compile_source(text, *, source_path, type_env):
                 fields.append([key.value, child])
                 free.update(used)
             return {'k': 'record', 'fields': fields}, free
+        if head == 'record-update':
+            if len(row) < 3:
+                raise _invalid(node, 'record-update requires a base and at least one field')
+            base, free = lower(row[1], scope, _pointer(path, 1))
+            fields, seen = [], set()
+            for index, field in enumerate(row[2:], 2):
+                key, value = _items(field, 2)
+                if not isinstance(key, (SymbolAtom, StringAtom)) or not key.value or key.value in seen:
+                    raise _invalid(key, 'record update field names must be literal, nonempty and unique')
+                seen.add(key.value)
+                child, used = lower(value, scope, _pointer(path, index))
+                fields.append([key.value, child])
+                free.update(used)
+            return {'k': 'record-update', 'base': base, 'fields': fields}, free
+        if head == 'fail':
+            _items(node, 2)
+            if not isinstance(row[1], StringAtom) or not row[1].value:
+                raise _invalid(row[1], 'fail requires a nonempty literal reason string')
+            return {'k': 'fail', 'reason': row[1].value}, set()
         if head == 'field':
             _items(node, 3)
             if not isinstance(row[2], StringAtom) or not row[2].value:
@@ -181,7 +200,7 @@ def _compile_source(text, *, source_path, type_env):
             nodes, free = children(enumerate(row[1:], 1))
             keys = ('cond', 'then', 'else') if head == 'if' else ('base', 'index')
             return {'k': head, **dict(zip(keys, nodes))}, free
-        if head == 'list' or head in _OPERATORS:
+        if head == 'list' or head in _OPERATORS or head in DYNAMIC_OPERATORS:
             nodes, free = children(enumerate(row[1:], 1))
             if head == 'list':
                 return {'k': 'list', 'items': nodes}, free
@@ -196,7 +215,7 @@ def _compile_source(text, *, source_path, type_env):
     body, _ = lower(run[1], set(input_names), 'entry/body')
     definitions['entry'] = {'params': input_names, 'captures': [], 'body': body}
     return DynamicProgram.from_artifact(json.dumps({
-        'schema': EFFECT_SCHEMA, 'entry': 'entry', 'budget': budget[0].value,
+        'schema': DYNAMIC_SCHEMA, 'entry': 'entry', 'budget': budget[0].value,
         'schemas': schemas, 'inputs': typed_inputs, 'result': result_name,
         'effects': effect_names, 'definitions': definitions,
     }, ensure_ascii=False, allow_nan=False))

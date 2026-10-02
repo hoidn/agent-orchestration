@@ -19,9 +19,11 @@ from orchestrator.workflow_lisp.closed.program import canonical_digest
 
 SCHEMA = "workflow-lisp/dynamic-spike/1"
 EFFECT_SCHEMA = "workflow-lisp/dynamic-spike/2"
+DYNAMIC_SCHEMA = "workflow-lisp/dynamic-spike/3"
 _TOP_FIELDS = {"schema", "entry", "budget", "schemas", "inputs", "result", "definitions"}
 _EFFECT_TOP_FIELDS = _TOP_FIELDS | {"effects"}
 _OPERATORS = {"+", "-", "*", "/", "<", "<=", ">", ">=", "=", "!=", "not", "string/concat", "string/empty?"}
+DYNAMIC_OPERATORS = {"list/append", "list/length"}
 _NODE_FIELDS = {
     "lit": {"v"},
     "name": {"n"},
@@ -35,6 +37,10 @@ _NODE_FIELDS = {
     "at": {"base", "index"},
     "op": {"name", "args"},
     "effect": {"name", "inputs"},
+}
+_DYNAMIC_NODE_FIELDS = {
+    "record-update": {"base", "fields"},
+    "fail": {"reason"},
 }
 _PRIMITIVES = {"Bool", "Int", "Float", "String", "Value"}
 
@@ -147,8 +153,8 @@ class DynamicProgram:
 
 def _validate_artifact(raw: dict[str, Any]) -> None:
     schema = raw.get("schema")
-    if schema not in {SCHEMA, EFFECT_SCHEMA}:
-        raise _invalid(f"expected artifact schema {SCHEMA!r} or {EFFECT_SCHEMA!r}", "/schema")
+    if schema not in {SCHEMA, EFFECT_SCHEMA, DYNAMIC_SCHEMA}:
+        raise _invalid(f"expected artifact schema {SCHEMA!r}, {EFFECT_SCHEMA!r} or {DYNAMIC_SCHEMA!r}", "/schema")
     expected_fields = _TOP_FIELDS if schema == SCHEMA else _EFFECT_TOP_FIELDS
     if set(raw) != expected_fields:
         raise _invalid("artifact fields must be exactly the dynamic-spike contract")
@@ -192,7 +198,7 @@ def _validate_artifact(raw: dict[str, Any]) -> None:
         raise _invalid("definitions must be a non-empty object", "/definitions")
     headers: dict[str, tuple[list[str], list[str]]] = {}
     effects: list[str] = []
-    if schema == EFFECT_SCHEMA:
+    if schema in {EFFECT_SCHEMA, DYNAMIC_SCHEMA}:
         for index, effect in enumerate(_sequence(raw["effects"], "/effects")):
             effect = _identifier(effect, _pointer("/effects", index))
             if effect in effects:
@@ -221,6 +227,7 @@ def _validate_artifact(raw: dict[str, Any]) -> None:
             definitions,
             _pointer(pointer, "body"),
             set(effects),
+            schema,
         )
 
     entry = definitions.get(raw["entry"])
@@ -271,12 +278,15 @@ def _validate_node(
     definitions: Mapping[str, Any],
     pointer: str,
     effects: set[str] | None = None,
+    schema: str = SCHEMA,
 ) -> None:
     effects = effects or set()
     if type(node) is not dict or not isinstance(node.get("k"), str):
         raise _invalid("node must be an object with a kind", pointer)
     kind = node["k"]
     fields = _NODE_FIELDS.get(kind)
+    if fields is None and schema == DYNAMIC_SCHEMA:
+        fields = _DYNAMIC_NODE_FIELDS.get(kind)
     if fields is None:
         raise _invalid(f"unsupported node kind {kind!r}", pointer)
     if set(node) != {"k", *fields}:
@@ -302,10 +312,10 @@ def _validate_node(
             binder = _identifier(row[0], _pointer(row_pointer, 0))
             if binder in seen:
                 raise _invalid("let binding names must be unique", row_pointer)
-            _validate_node(row[1], local, definitions, _pointer(row_pointer, 1), effects)
+            _validate_node(row[1], local, definitions, _pointer(row_pointer, 1), effects, schema)
             seen.add(binder)
             local.add(binder)
-        _validate_node(node["body"], local, definitions, _pointer(pointer, "body"), effects)
+        _validate_node(node["body"], local, definitions, _pointer(pointer, "body"), effects, schema)
     elif kind == "fn":
         code = _identifier(node["code"], _pointer(pointer, "code"))
         target = definitions.get(code)
@@ -315,14 +325,14 @@ def _validate_node(
         if len(captures) != len(target["captures"]):
             raise _invalid("function capture count does not match its definition", pointer)
         for index, child in enumerate(captures):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "captures"), index), effects)
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "captures"), index), effects, schema)
     elif kind == "call":
-        _validate_node(node["callee"], bound, definitions, _pointer(pointer, "callee"), effects)
+        _validate_node(node["callee"], bound, definitions, _pointer(pointer, "callee"), effects, schema)
         for index, child in enumerate(_sequence(node["args"], _pointer(pointer, "args"))):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effects)
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effects, schema)
     elif kind == "if":
         for field in ("cond", "then", "else"):
-            _validate_node(node[field], bound, definitions, _pointer(pointer, field), effects)
+            _validate_node(node[field], bound, definitions, _pointer(pointer, field), effects, schema)
     elif kind == "record":
         seen = set()
         for index, row in enumerate(_sequence(node["fields"], _pointer(pointer, "fields"))):
@@ -333,27 +343,46 @@ def _validate_node(
             if field_name in seen:
                 raise _invalid("record field names must be unique", row_pointer)
             seen.add(field_name)
-            _validate_node(row[1], bound, definitions, _pointer(row_pointer, 1), effects)
+            _validate_node(row[1], bound, definitions, _pointer(row_pointer, 1), effects, schema)
     elif kind == "field":
         _identifier(node["name"], _pointer(pointer, "name"))
-        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effects)
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effects, schema)
     elif kind == "list":
         for index, child in enumerate(_sequence(node["items"], _pointer(pointer, "items"))):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "items"), index), effects)
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "items"), index), effects, schema)
     elif kind == "at":
-        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effects)
-        _validate_node(node["index"], bound, definitions, _pointer(pointer, "index"), effects)
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effects, schema)
+        _validate_node(node["index"], bound, definitions, _pointer(pointer, "index"), effects, schema)
     elif kind == "op":
         operator = _identifier(node["name"], _pointer(pointer, "name"))
-        if operator not in _OPERATORS:
+        if operator not in _OPERATORS and not (schema == DYNAMIC_SCHEMA and operator in DYNAMIC_OPERATORS):
             raise _invalid(f"unsupported primitive {operator!r}", pointer)
         for index, child in enumerate(_sequence(node["args"], _pointer(pointer, "args"))):
-            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effects)
+            _validate_node(child, bound, definitions, _pointer(_pointer(pointer, "args"), index), effects, schema)
     elif kind == "effect":
         effect_name = _identifier(node["name"], _pointer(pointer, "name"))
         if effect_name not in effects:
             raise _invalid("effect node refers to an undeclared operation", _pointer(pointer, "name"))
-        _validate_node(node["inputs"], bound, definitions, _pointer(pointer, "inputs"), effects)
+        _validate_node(node["inputs"], bound, definitions, _pointer(pointer, "inputs"), effects, schema)
+    elif kind == "record-update":
+        _validate_node(node["base"], bound, definitions, _pointer(pointer, "base"), effects, schema)
+        fields = _sequence(node["fields"], _pointer(pointer, "fields"))
+        if not fields:
+            raise _invalid("record update fields must be non-empty", _pointer(pointer, "fields"))
+        seen: set[str] = set()
+        for index, row in enumerate(fields):
+            row_pointer = _pointer(_pointer(pointer, "fields"), index)
+            if type(row) is not list or len(row) != 2:
+                raise _invalid("record update fields must be [name, node] pairs", row_pointer)
+            field_name = _identifier(row[0], _pointer(row_pointer, 0))
+            if field_name in seen:
+                raise _invalid("record update field names must be unique", row_pointer)
+            seen.add(field_name)
+            _validate_node(row[1], bound, definitions, _pointer(row_pointer, 1), effects, schema)
+    elif kind == "fail":
+        reason = node["reason"]
+        if not isinstance(reason, str) or not reason:
+            raise _invalid("failure reason must be a non-empty string", _pointer(pointer, "reason"))
 
 
 def strict_json_loads(text: str) -> Any:
@@ -367,4 +396,4 @@ def strict_json_loads(text: str) -> Any:
     )
 
 
-__all__ = ["DynamicProgram", "SCHEMA", "EFFECT_SCHEMA", "strict_json_loads"]
+__all__ = ["DynamicProgram", "SCHEMA", "EFFECT_SCHEMA", "DYNAMIC_SCHEMA", "strict_json_loads"]

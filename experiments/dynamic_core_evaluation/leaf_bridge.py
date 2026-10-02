@@ -26,7 +26,7 @@ from orchestrator.workflow.type_descriptor import (
     transport_descriptor_for_schema,
     validate_transport_value,
 )
-from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
+from orchestrator.workflow_lisp.command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from orchestrator.workflow_lisp.compiler import (
     compile_stage3_entrypoint,
     linked_module_type_environment,
@@ -191,7 +191,7 @@ class LeafBridge:
         operations: Mapping[str, str],
         *,
         provider_externs: Mapping[str, str] | None = None,
-        command_boundaries: Mapping[str, ExternalToolBinding] | None = None,
+        command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
         provider_templates: Sequence[ProviderTemplate] = (),
     ) -> LeafBridge:
         source_path = Path(source_path).resolve()
@@ -235,14 +235,7 @@ class LeafBridge:
                     or expression.prompt_dependencies is not None
                 ):
                     raise ValueError("provider leaf must use one ordinary fresh result")
-            elif isinstance(expression, CommandResultExpr):
-                if expression.adapter_name is not None or expression.adapter_inputs:
-                    raise EvaluatedValueError(
-                        "dynamic_effect_unlinked",
-                        "trusted command leaf cannot use an adapter",
-                        location="/effects",
-                    )
-            else:
+            elif not isinstance(expression, CommandResultExpr):
                 raise EvaluatedValueError(
                     "dynamic_effect_unlinked",
                     "trusted leaf must directly contain one provider or command result",

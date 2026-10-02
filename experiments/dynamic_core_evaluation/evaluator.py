@@ -16,7 +16,7 @@ from orchestrator.workflow.pure_expr import (
 )
 from orchestrator.workflow.type_descriptor import validate_transport_value
 
-from .program import DynamicProgram, _pointer
+from .program import DYNAMIC_SCHEMA, EFFECT_SCHEMA, DynamicProgram, _pointer
 
 
 _BOOL = {"kind": "primitive", "name": "Bool"}
@@ -209,7 +209,7 @@ def evaluate(
 
     if type(read_only) is not bool:
         raise TypeError("read_only must be Bool")
-    if program.schema.endswith("/2"):
+    if program.schema in {EFFECT_SCHEMA, DYNAMIC_SCHEMA}:
         if leaf_bridge is None and program.effects:
             raise EvaluatedValueError(
                 "dynamic_effect_unlinked",
@@ -341,6 +341,18 @@ def evaluate(
                     )
                 tasks.append(("effect_done", node["name"], pointer, context))
                 tasks.append(("enter", node["inputs"], env, _pointer(pointer, "inputs"), code, context))
+            elif kind == "record-update":
+                tasks.append(("record_update_base_done", node, env, pointer, code, context))
+                tasks.append(("enter", node["base"], env, _pointer(pointer, "base"), code, context))
+            elif kind == "fail":
+                raise _error(
+                    "dynamic_explicit_failure",
+                    "dynamic program failed explicitly",
+                    pointer,
+                    context,
+                    steps,
+                    reason=node["reason"],
+                )
             continue
 
         if action == "let_next":
@@ -454,6 +466,49 @@ def evaluate(
             values.append(base[field_name])
             continue
 
+        if action == "record_update_base_done":
+            _, node, env, pointer, code, context = task
+            base = values.pop()
+            if not isinstance(base, Mapping):
+                raise _error(
+                    "dynamic_operand_type",
+                    f"record update requires a record or map, observed {_kind(base)}",
+                    pointer,
+                    context,
+                    steps,
+                    observed_kind=_kind(base),
+                )
+            for index, (field_name, _replacement) in enumerate(node["fields"]):
+                if field_name not in base:
+                    raise _error(
+                        "dynamic_field_missing",
+                        "record update cannot add a field that is absent from its base",
+                        _pointer(_pointer(_pointer(pointer, "fields"), index), 0),
+                        context,
+                        steps,
+                        field=field_name,
+                    )
+            fields = node["fields"]
+            tasks.append(("record_update_done", base, tuple(row[0] for row in fields), len(fields)))
+            for index in reversed(range(len(fields))):
+                tasks.append((
+                    "enter",
+                    fields[index][1],
+                    env,
+                    _pointer(_pointer(_pointer(pointer, "fields"), index), 1),
+                    code,
+                    context,
+                ))
+            continue
+
+        if action == "record_update_done":
+            _, base, fields, count = task
+            replacements = _pop_values(values, count)
+            updated = dict(base)
+            updated.update(zip(fields, replacements))
+            values.append(MappingProxyType(updated))
+            continue
+
         if action == "list_done":
             _, count = task
             values.append(tuple(_pop_values(values, count)))
@@ -490,6 +545,33 @@ def evaluate(
                     expected_arity=[spec.min_arity, spec.max_arity],
                     observed_arity=count,
                 )
+            if operator in {"list/append", "list/length"}:
+                base = args[0]
+                if type(base) is not tuple:
+                    raise _error(
+                        "dynamic_operand_type",
+                        f"primitive {operator!r} requires a list operand",
+                        pointer,
+                        context,
+                        steps,
+                        operator=operator,
+                        operand_kinds=[_kind(base)],
+                    )
+                if operator == "list/append":
+                    values.append(base + (args[1],))
+                else:
+                    try:
+                        values.append(coerce_pure_value(len(base), _INT, context="list length"))
+                    except PureExprEvaluationError as exc:
+                        raise _error(
+                            "dynamic_operand_type",
+                            "list length is outside the admitted Int range",
+                            pointer,
+                            context,
+                            steps,
+                            operator=operator,
+                        ) from exc
+                continue
             kinds = [_kind(arg) for arg in args]
             descriptors = {"Bool": _BOOL, "Int": _INT, "Float": _FLOAT, "String": {"kind": "primitive", "name": "String"}}
             if any(kind not in descriptors for kind in kinds):
