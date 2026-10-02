@@ -1,9 +1,8 @@
-"""The obvious Python version of `workflows/examples/improve_experiment_proposal.orc`.
+"""Original minimal Python illustration of the proposal-improvement policy.
 
-Shorter than the workflow. It is also a different program: an agent answer is
-trusted as it comes, a crash after the second agent call repeats both calls,
-nothing records which answer led to which decision, and a typo in a dictionary
-key is found after the agents it follows have already been paid for.
+This sketch omits response validation and recovery. It is not a comparison
+with a typed Python workflow library; see README.md for the conceptual
+examples and the services assumed on each side.
 """
 
 import json

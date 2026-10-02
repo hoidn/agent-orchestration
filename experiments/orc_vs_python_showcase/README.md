@@ -1,308 +1,417 @@
-# One program, in ORC and in Python
+# Two contracts, in ORC and in Python
 
-A showcase with a condition. ORC is more concise, more reusable and easier to
-read than Python **for a program made of a few expensive, non-deterministic
-agent calls joined by deterministic routing, when the Python must give the same
-guarantees**: every answer checked against its declared shape, no paid call
-repeated after a crash, no stale answer accepted, the run inspectable on disk.
-Against Python that gives none of those guarantees, ORC is longer. Against a
-controller that is mostly computation, Python wins today; see
-[Where Python wins](#where-python-wins).
+The useful comparison is what connects an agent's instructions to the values
+and files a workflow can trust. These two conceptual showcases make that
+connection visible: a typed review result, then a prompt signature that also
+owns document delivery and a report postcondition.
 
-Everything below was run on 2026-10-02 at `main` (`e0fd904b`). The commands
-are in [Evidence](#evidence).
+The first example includes a complete workflow body and its Python counterpart;
+provider configuration, transport, and shared application handlers are supplied
+separately. The later snippets are conceptual fragments. These examples explain
+the authoring model, not full runtime equivalence or benchmark results. Both
+languages use a reusable provider transport, which is assumed rather than
+implemented or counted here. There is no general claim that ORC needs fewer
+lines or offers more reuse than Python.
 
-## The program
+## 1. One result declaration, from agent instructions to routing
 
-Draft an experiment proposal from a research question; have an agent review
-it; when the review asks for changes, have an agent revise it; stop at an
-approval, a block, or after three reviews; hand the result to the workspace's
-launcher with the outcome. The shipped example
-[`workflows/examples/improve_experiment_proposal.orc`](../../workflows/examples/improve_experiment_proposal.orc)
-is exactly this program.
-
-## Listing 1: ORC, 60 lines
-
-The workflow without its header comment. The review loop is not written here:
-it is `std/improve::improve`, a 37-line library procedure, generic over the
-value, the inputs, the evidence and the block types.
+A reviewer either approves a draft with notes or requests revision with a
+list of findings. In ORC, the workflow declares that distinction as a union
+and returns the validated result:
 
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
-  (defmodule improve_experiment_proposal)
-  (import std/improve :only (Decision improve))
-  (export run-experiment)
+  (:target-dsl "2.34")
+  (defmodule review)
+  (export run)
 
-  (defrecord Parameter (name String) (value Int))
-  (defrecord ExperimentProposal
-    (hypothesis String)
-    (parameters List[Parameter]))
-  (defrecord ExperimentBrief (question String))
-  (defrecord ReviewNotes (notes String))
-  (defrecord ReviewBlocker (issue String))
-  (defrecord ExperimentRun (status String))
+  (defunion Review
+    (APPROVE (notes String))
+    (REVISE (findings List[String])))
 
-  (defproc propose ((brief ExperimentBrief)) -> ExperimentProposal
-    :effects ()
-    :lowering inline
-    (record ExperimentProposal
-      :hypothesis brief.question
-      :parameters (list (record Parameter :name "seed" :value 0))))
+  (defprompt review-prompt
+    (:fills (draft :text))
+    -> Review
+    "Review correctness. APPROVE if there are no blocking defects; otherwise REVISE with actionable findings. Draft: {draft}")
 
-  (defproc review-proposal
-    ((proposal ExperimentProposal) (brief ExperimentBrief))
-    -> Decision[ReviewNotes ReviewBlocker]
-    :effects ((uses-provider providers.proposal.review))
-    :lowering inline
-    (provider-result providers.proposal.review
-      :prompt prompts.proposal.review
-      :inputs (brief.question proposal.hypothesis proposal.parameters)
-      :returns Decision[ReviewNotes ReviewBlocker]))
-
-  (defproc revise-proposal
-    ((proposal ExperimentProposal) (brief ExperimentBrief) (review ReviewNotes))
-    -> ExperimentProposal
-    :effects ((uses-provider providers.proposal.revise))
-    :lowering inline
-    (provider-result providers.proposal.revise
-      :prompt prompts.proposal.revise
-      :inputs (brief.question proposal.hypothesis proposal.parameters review.notes)
-      :returns ExperimentProposal))
-
-  (defproc execute
-    ((proposal ExperimentProposal) (outcome String) (note String))
-    -> ExperimentRun
-    :effects ((uses-command launch_experiment))
-    :lowering inline
-    (command-result launch_experiment
-      :argv ("python" "scripts/launch_experiment.py"
-             "--outcome" outcome
-             "--note" note
-             "--hypothesis" proposal.hypothesis
-             "--parameters" proposal.parameters)
-      :returns ExperimentRun))
-
-  (defworkflow run-experiment ((question String)) -> ExperimentRun
-    (let* ((brief (record ExperimentBrief :question question))
-           (result (improve (propose brief) brief
-                            (proc-ref review-proposal)
-                            (proc-ref revise-proposal)
-                            3)))
-      (match result
-        ((APPROVED approved) (execute approved.value "approved" approved.evidence.notes))
-        ((BLOCKED blocked) (execute blocked.value "blocked" blocked.reason.issue))
-        ((EXHAUSTED exhausted) (execute exhausted.value "exhausted" ""))))))
+  (defworkflow run ((draft String)) -> Review
+    (provider-result providers.reviewer
+      :prompt (review-prompt :draft draft))))
 ```
 
-Beside it, 17 lines of JSON bind the two provider names, the two prompt files
-and the launcher command
-([`workflows/examples/inputs/improve_experiment_proposal/`](../../workflows/examples/inputs/improve_experiment_proposal/)).
-The two prompts are shared with the Python versions.
+The prompt describes **how to judge** the draft. It does not manually describe
+the JSON structure: `-> Review` determines the output contract delivered to
+the agent and enforced by the runtime. When the call succeeds, its consumer
+receives a variant of `Review`, not a dictionary awaiting validation:
 
-What the reader holds in mind: the types, the three hooks, the policy. What
-the runtime supplies without a line here: each answer is parsed and checked
-against `Decision[ReviewNotes ReviewBlocker]` or `ExperimentProposal`, a
-mismatch failing the step with a JSON pointer and the source location; each
-hook call is committed once and a resume (`orchestrator resume <run>`) never
-repeats a committed call; an answer file must come from the call that claims
-it; the run directory holds the state with every step's result, the
-checkpoints, the typed inputs of every prompt, the provider observations and
-the call frames, so `orchestrator status` and `resume` work from disk; the
-launcher's result file is confined to the workspace; and the whole program is
-checked before the first agent runs.
+1. The runtime adds output instructions describing the allowed variants,
+   their fields and field types, and where to write the structured result.
+2. The structured result file is parsed and validated before it becomes a
+   workflow value. Invalid output fails that boundary.
+3. Consumers can branch on a typed value. Before execution, the compiler
+   checks field access and requires each `match` to cover every variant.
 
-## Listing 2: the obvious Python, 33 lines
+An existing external prompt can use the same result boundary with
+`(provider-result providers.review :prompt prompts.review :inputs (draft)
+:returns Review)`. With a `defprompt` application, the declaration owns the
+result contract: adding a separate call-site `:returns` is refused.
 
-[`improve_naive.py`](improve_naive.py). Shorter than the workflow, and a
-different program: an answer is trusted as it comes; a crash after the second
-agent call repeats both calls on the next run; nothing records which answer
-led to which decision; a typo in a dictionary key of the third step is found
-after the two agents before it have been paid for.
+Here are concrete structured answers and their consequences:
+
+| Agent answer | Result |
+| --- | --- |
+| `{"variant":"APPROVE","notes":"Ready to publish"}` | `accept` receives a string. |
+| `{"variant":"REVISE","findings":["Define the failure policy"]}` | `revise` receives a list of strings. |
+| `{"variant":"MAYBE","notes":"Unsure"}` | Undeclared variant; reject. |
+| `{"variant":"APPROVE"}` | Required field missing; reject. |
+| `{"variant":"APPROVE","notes":7}` | Wrong field type; reject. |
+| `{"variant":"REVISE","findings":"Please improve the tests"}` | A string is not a list of strings; reject. |
+| `{"variant":"REVISE","findings":["Clarify retries",7]}` | Wrong list element type; reject. |
+| `{"variant":"APPROVE","notes":"Fine","findings":[]}` | Field belonging to the inactive variant; reject. |
+
+Malformed JSON is also rejected. At the current target-2.34-and-earlier
+`variant_output` boundary, unrelated unknown keys are ignored: an additional
+`"debug":"x"` is not the same as including the other variant's `findings`.
+This is validation of the declared union, not a promise to reject every extra
+JSON key.
+
+**Python with the standard library: declare the types, describe the format,
+and write the validator.** `run_agent(prompt)` represents the reusable
+transport: it returns the path of the structured result file. No journal,
+subprocess launcher, or provider client belongs in this comparison:
 
 ```python
-def run(question):
-    proposal = {"hypothesis": question, "parameters": [{"name": "seed", "value": 0}]}
-    outcome, note = "exhausted", ""
-    for _ in range(3):
-        decision = ask("review.md", question=question, **proposal)
-        if decision["kind"] == "APPROVE":
-            outcome, note = "approved", decision["evidence"]["notes"]
-            break
-        if decision["kind"] == "BLOCKED":
-            outcome, note = "blocked", decision["reason"]["issue"]
-            break
-        proposal = ask("revise.md", question=question, **proposal, notes=decision["feedback"]["notes"])
-    subprocess.run(["python", "scripts/launch_experiment.py", "--outcome", outcome, ...], check=True)
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Approved:
+    notes: str
+
+
+@dataclass(frozen=True)
+class RevisionRequested:
+    findings: list[str]
+
+
+Review = Approved | RevisionRequested
+
+OUTPUT_CONTRACT = """
+Write one JSON object to the result file, using either:
+{"variant": "APPROVE", "notes": "Explanation"}
+or:
+{"variant": "REVISE", "findings": ["First finding", "Second finding"]}
+For APPROVE, notes is a required string and findings is forbidden.
+For REVISE, findings is a required list of strings and notes is forbidden.
+"""
+
+
+def review_draft(
+    draft: str, run_agent: Callable[[str], Path]
+) -> Review:
+    prompt = (
+        "Review correctness. APPROVE if there are no blocking defects; "
+        "otherwise REVISE with actionable findings. Draft: "
+        + draft + "\n" + OUTPUT_CONTRACT
+    )
+    bundle = run_agent(prompt)
+    result = json.loads(bundle.read_text(encoding="utf-8"))
+
+    if not isinstance(result, dict):
+        raise ValueError("Expected a review object")
+
+    if result.get("variant") == "APPROVE":
+        if "findings" in result:
+            raise ValueError("APPROVE cannot contain findings")
+        notes = result.get("notes")
+        if not isinstance(notes, str):
+            raise ValueError("APPROVE requires string notes")
+        return Approved(notes)
+
+    if result.get("variant") == "REVISE":
+        if "notes" in result:
+            raise ValueError("REVISE cannot contain notes")
+        findings = result.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError("REVISE requires a findings list")
+        if not all(isinstance(item, str) for item in findings):
+            raise ValueError("Every finding must be a string")
+        return RevisionRequested(findings)
+
+    raise ValueError("Unknown or missing review variant")
 ```
 
-## Listing 3: Python with the same guarantees, 118 lines
+Annotations and dataclasses do not automatically validate external JSON.
+The explicit checks above establish the types promised by the constructed
+objects. This validator handles the cases in the table and permits unrelated
+extra keys, matching the stated boundary.
 
-[`improve_equivalent.py`](improve_equivalent.py). It builds by hand what the
-workflow gets from the runtime: shape declarations and a `check` that names
-the JSON pointer of a mismatch (31 lines); a `Run` whose append-only journal
-commits each effect once and replays committed effects on resume, with a
-torn last line treated as uncommitted (25 lines); an `ask` that deletes the
-answer file before the call so an old answer cannot pass for a new one (10
-lines); `run`/`resume` entry points (13 lines). The policy itself, `improve`
-and `run_experiment`, is 14 lines, the same size as in Listing 2.
-
-It still lacks what cannot be bolted on afterwards: no check of the whole
-program before the first agent is paid (a typo in `revise_proposal` surfaces
-after the review has run); no lineage view; no confinement of the launcher;
-and its journal identifies an effect by its ordinal, which is sound only
-while control flow depends on nothing but committed answers. A reviewer who
-lets the two panel reviewers below run concurrently breaks resume silently.
-
-[`selfcheck.py`](selfcheck.py) proves the three guarantees it does give:
-a crash after the second committed effect and a resume make three agent
-calls in all, not five; an answer with `notes: 7` is refused at
-`/evidence/notes: expected str`; a call that writes no answer is refused
-rather than served the previous answer.
-
-## The comparison
-
-| | ORC (Listing 1) | Python, obvious (2) | Python, same guarantees (3) |
-| --- | ---: | ---: | ---: |
-| Lines of code (no blanks, comments, docstrings) | 60 + 17 JSON | 33 | 118 |
-| Lines that state the policy | 10 (`run-experiment`) | 13 (`run`) | 14 (`improve`, `run_experiment`) |
-| Answer shape checked, mismatch located | yes, from `:returns` | no | yes, 30 lines |
-| Resume repeats no committed call | yes | no | yes, 30 lines, by convention |
-| Stale answer refused | yes | no | yes |
-| Program checked before the first agent runs | yes, `--dry-run`, 1.5 s | no | no |
-| `match` must cover every outcome | compile error | no | no |
-| Run inspectable on disk: state, checkpoints, typed prompt inputs, provider observations | yes | no | journal only |
-
-Concision: ORC beats the Python that matches its guarantees (77 lines against
-118, with the policy the same size) and loses to the Python that does not (77
-against 33). The 44 lines the ORC spends over the obvious Python are its type
-declarations (8), the `:effects`/`:lowering` ceremony on four procedures (8),
-the extern bindings (17) and the generic hook signatures; they are the price
-of the compile-time checks in the table.
-
-## Reuse: a second reviewer and a panel
-
-The example's own test suite substitutes the reviewer with a panel: a second
-reviewer and an adjudication in which the stricter verdict wins, so an inner
-block is never downgraded. These 25 lines are added and `(proc-ref
-review-proposal)` becomes `(proc-ref review-by-panel)`; nothing else changes.
+**After that boundary, consuming the result is simple in both languages.**
+Suppose `accept` and `revise` are application operations with the appropriate
+argument types and a common result type. The conceptual ORC consumer is:
 
 ```lisp
-  (defproc review-statistics
-    ((proposal ExperimentProposal) (brief ExperimentBrief))
-    -> Decision[ReviewNotes ReviewBlocker]
-    :effects ((uses-provider providers.proposal.statistics-review))
-    :lowering inline
-    (provider-result providers.proposal.statistics-review
-      :prompt prompts.proposal.review
-      :inputs (brief.question proposal.hypothesis proposal.parameters)
-      :returns Decision[ReviewNotes ReviewBlocker]))
-  (defproc review-by-panel
-    ((proposal ExperimentProposal) (brief ExperimentBrief))
-    -> Decision[ReviewNotes ReviewBlocker]
-    :effects ((uses-provider providers.proposal.review)
-              (uses-provider providers.proposal.statistics-review))
-    :lowering inline
-    (let* ((methods (review-proposal proposal brief))
-           (statistics (review-statistics proposal brief)))
-      (match methods
-        ((BLOCKED blocked) methods)
-        ((REVISE revise)
-         (match statistics
-           ((BLOCKED blocked) statistics)
-           ((REVISE other) methods)
-           ((APPROVE approve) methods)))
-        ((APPROVE approve) statistics))))
+(match result
+  ((APPROVE a) (accept a.notes))
+  ((REVISE r)  (revise r.findings)))
 ```
 
-The compiler checks that the panel returns the `Decision` the loop expects
-and declares both providers it uses; the loop, the checkpoints inside it and
-the resume behaviour are unchanged, which
-`test_panel_reviewer_substitution_changes_only_the_selected_hook` and
-`test_panel_returns_an_inner_block_never_a_downgraded_verdict` pin. In Python
-the panel is ten lines and as readable; what Python cannot check is that it
-kept the journal discipline, and its journal, which names an effect by its
-prompt file, records both reviews as `review.md` and no longer says which
-reviewer's verdict won.
+The Python consumer also uses typed variants, with no further JSON validation:
 
-Reuse runs the other way too: `std/improve::improve` drives any
-review-revise loop over any record type with any pair of hooks, and the
-checkpoints inside it belong to the library, not to each caller. A Python
-`improve()` is as generic over values; it is generic over effects only if
-every caller threads the journal through every hook, by hand, forever.
-
-## Readability
-
-Listing 1 reads top-down as the policy: the types, the three hooks, the loop
-call, the three outcomes. The reader does not need to know how an answer is
-validated, committed or resumed, because none of that is in the file.
-Listing 3 is two thirds plumbing, and the plumbing is where the bugs live:
-the stale-answer check, the torn journal line, the ordinal identity. Listing
-2 is the most readable of the three and the least truthful about what happens
-when something goes wrong.
-
-## Evidence
-
-Dry run of the shipped example, state under a scratch directory (exit 0,
-1.5 s; the lint warnings are about generated boundary names):
-
-```bash
-python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
-  --entry-workflow improve_experiment_proposal::run-experiment \
-  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
-  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
-  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json \
-  --input-file workflows/examples/inputs/improve_experiment_proposal/inputs.json \
-  --state-dir /tmp/showcase-state --dry-run
+```python
+match result:
+    case Approved(notes):
+        accept(notes)
+    case RevisionRequested(findings):
+        revise(findings)
 ```
 
-Two copies of the example, each broken in one place, refused by the same
-command before any agent runs (exit 2):
+The difference appears when the contract changes. Suppose a reviewer can
+also return `BLOCKED(reason String)`:
 
-| Change | Refusal |
-| --- | --- |
-| The `EXHAUSTED` arm removed from `match` | `improve_experiment_proposal.orc:76:7: [union_match_non_exhaustive] match must cover every variant of std/improve::Improvement[ExperimentProposal ReviewNotes ReviewBlocker]; missing EXHAUSTED` |
-| `review.notes` misspelt `review.note` in `revise-proposal` | `improve_experiment_proposal.orc:53:71: [record_field_unknown] unknown field note` |
+| What changes? | ORC declaration | Manual Python baseline |
+| --- | --- | --- |
+| Tell the agent about `BLOCKED` | Add the union variant; generated output instructions follow. | Update `OUTPUT_CONTRACT`. |
+| Validate the new result | The same union drives the runtime contract. | Add the dataclass to `Review` and extend `review_draft`, including the inactive-field rules. |
+| Consume the new result | Add a `match` arm; incomplete coverage is a compile error. | Add a case; plain Python permits an unmatched value to fall through. A type checker can enforce exhaustive handling when configured or used with `assert_never`. |
+| Change a field's type | Update the union; validation and typed consumers follow. | Update the dataclass, instructions, decoder, and affected consumers. |
 
-The example's end-to-end module, run alone
-(`pytest -q -p no:cacheprovider tests/test_workflow_lisp_improve_example_e2e.py`):
-11 passed in 9.5 s, among them
-`test_resume_reaches_the_same_consumer_without_repeating_provider_work`
-(interrupted after the committed review, and after the committed revision:
-on resume the agent calls are the same three, the launcher runs once) and
-`test_resume_after_the_final_continue_projects_the_latest_proposal`.
+### The same result with Pydantic AI
 
-The Python self-check (`python -m experiments.orc_vs_python_showcase.selfcheck`):
-`selfcheck: ok (resume repeats no call; malformed and missing answers refused)`.
+The manual Python version has several representations to keep aligned.
+[Pydantic AI](https://pydantic.dev/docs/ai/core-concepts/output/) already derives
+schemas and validation from output types and exposes typed results. Replace
+the dataclasses and handwritten decoder above with Pydantic models:
 
-## Where Python wins
+```python
+from typing import Literal
+from pydantic import BaseModel, ConfigDict
+from pydantic_ai import Agent
 
-The claim holds for programs whose substance is a handful of effects. It
-fails for controllers whose substance is computation.
-[The MLEvolve comparison](../../docs/reports/2026-09-29-mlevolve-orc-python-comparison.md)
-wrote the same two-branch search policy in both languages: the Python
-controller is 128 lines and runs; the ORC controller is 239 lines and does not
-compile, because its explicit control flow produces a 361-node pure expression
-against a limit of 256, after rejections of record-valued command arguments
-and of effectful calls in several expression positions. (That report also
-found a repeated command boundary consuming the previous iteration's result
-file. At today's `main` its retained probe,
-`experiments/mlevolve_pair/probes/missing_bundle.orc`, fails the second
-iteration with `contract_violation` / `missing_bundle_file`, "Expected output
-bundle file was not created": that defect is repaired.)
 
-Smaller costs visible in this showcase: a third broken copy, passing the whole
-proposal where the launcher wants a string, is refused with
-`workflow_return_not_exportable: Stage 3 lowering requires command argv values
-to resolve to literals or workflow inputs`, a true refusal in the compiler's
-words rather than the author's; the dry run prints twelve lint warnings about
-names the author never wrote; a `Float` literal cannot yet be written in an
-expression at this target; and the totality matrix at target 2.33 records 82
-form-and-position cells the present route still gets wrong.
+class Approved(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    variant: Literal["APPROVE"]
+    notes: str
 
-So the honest statement is conditional. When the program is agent calls and
-routing, and the guarantees matter, the workflow is the shorter, more
-reusable and more readable of the two equivalent programs. When the program
-is a search over rich state, write it in Python and keep the agent calls at a
-boundary.
+
+class RevisionRequested(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    variant: Literal["REVISE"]
+    findings: list[str]
+
+
+Review = Approved | RevisionRequested
+
+reviewer = Agent[None, Review](
+    model,
+    output_type=[Approved, RevisionRequested],
+    tools=workspace_tools,
+)
+
+
+async def review_draft(draft: str) -> Review:
+    result = await reviewer.run(
+        "Review correctness. APPROVE if there are no blocking defects; "
+        "otherwise REVISE with actionable findings. Draft: " + draft
+    )
+    return result.output
+```
+
+`model` and `workspace_tools` stand for shared provider and file-tool
+configuration, also needed by the ORC provider; the file tools are used by
+the second example. Pydantic AI handles structured output without a manual
+`OUTPUT_CONTRACT` or JSON decoder. Its default output-tool transport differs
+from ORC's result-file transport, so this compares authoring responsibilities,
+not identical wire protocols or retry behavior. The explicit
+[`extra="forbid"`](https://pydantic.dev/docs/validation/latest/concepts/models/#extra-data)
+policy rejects all extra fields, including unrelated ones that the ORC
+boundary above ignores.
+
+Pydantic model consumers use keyword class patterns:
+
+```python
+match result:
+    case Approved(notes=notes):
+        accept(notes)
+    case RevisionRequested(findings=findings):
+        revise(findings)
+```
+
+For structured responses alone, this version is not meaningfully inferior
+to ORC. Both derive validation from types and deliver typed values. The next
+example shows the more specific difference in prompt and file contracts.
+
+## 2. One prompt signature, from typed inputs to a required report
+
+Now review a design document against a list of checks, write a human-readable
+report, and return the same structured decision. ORC gives the three inputs
+different delivery roles:
+
+```lisp
+(defpath DesignDoc
+  :kind relpath :under "docs" :must-exist true)
+(defpath ReportTarget
+  :kind relpath :under "artifacts/review" :must-exist false)
+
+(defprompt review-design
+  (:fills
+    (doc :doc DesignDoc)
+    (checks :value List[String])
+    (report :path :out ReportTarget))
+  -> Review
+  "Review the injected design against these checks: {checks}\nWrite your review report to {report}.")
+
+(provider-result providers.review
+  :prompt
+    (review-design
+      :doc design_path
+      :checks checks
+      :report report_path))
+```
+
+`design_path`, `checks`, and `report_path` are surrounding typed inputs. The
+same declaration tells the compiler and runtime how to prepare the prompt,
+what to validate afterward, and which structured value the caller receives:
+
+| Signature entry | Provider context | Enforced contract |
+| --- | --- | --- |
+| `doc :doc DesignDoc` | Existing document content is prepended through the document-dependency lane; no `{doc}` placeholder is used. | A required workspace-relative document satisfying the path contract. |
+| `checks :value List[String]` | The list is rendered as canonical JSON at `{checks}`. | The fill has the declared supported type. |
+| `report :path :out ReportTarget` | `{report}` renders the destination as a POSIX path reference. | The same resolved destination must contain one UTF-8 file after a successful provider attempt. |
+| `-> Review` | Generated instructions request the structured review result. | Parse and validate the union before returning it. |
+
+The report destination is filled once. It supplies both the path shown to
+the agent and the required-file postcondition, so the author cannot quietly
+change one while leaving the other behind. Unknown, missing, duplicate, or
+mistyped fills are compiler errors; a fragment call cannot override its
+signature with parallel `:inputs`, `:prompt-dependencies`, or `:returns`.
+
+The report and structured result are checked together: if either fails, the
+step exposes neither artifact mapping. Files the provider wrote are not
+rolled back. `Review` remains the decision authority; the report is for a
+reader, not something the workflow parses to discover the verdict.
+
+### Python with Pydantic AI and a required report
+
+Reuse the Pydantic AI `reviewer` above. A small wrapper connects document
+delivery, the requested destination, and the required report:
+
+```python
+import json
+from pathlib import Path
+
+
+async def review_design(
+    doc: Path, checks: list[str], report: Path
+) -> Review:
+    doc = checked_path(doc, under="docs", must_exist=True)
+    report = checked_path(
+        report, under="artifacts/review", must_exist=False
+    )
+
+    prompt = (
+        f"Review this design:\n{doc.read_text(encoding='utf-8')}\n"
+        f"Against these checks: {json.dumps(checks)}\n"
+        f"Write your review report to {report.as_posix()}."
+    )
+    decision = (await reviewer.run(prompt)).output
+
+    # A valid Review is insufficient: the requested report must exist.
+    report.read_text(encoding="utf-8")
+    return decision
+```
+
+`checked_path` is an assumed reusable application helper, not a Pydantic AI
+API: it enforces workspace-relative paths and the stated containment and
+existence constraints. Both the wrapper and the agent's file tools use that
+same workspace. Reading the report rejects a missing file, a directory, or
+invalid UTF-8 before returning the decision to the wrapper's caller.
+Pydantic AI still validates `Review`; no manual response parser is needed.
+The file check could instead live in an
+[`output_validator`](https://pydantic.dev/docs/ai/core-concepts/output/#output-validators)
+using the destination from dependencies. That is another way to connect the
+same obligations, not a missing framework capability.
+
+### Where this Python version is less direct
+
+Both correct versions provide the stated success condition. The Python
+wrapper even uses the same `report` variable for the instruction and the
+check. ORC's advantage is narrower: `(report :path :out ReportTarget)`
+declares their relationship in the prompt signature and derives both
+operations. In Python, that relationship is expressed by the function body;
+the `Path` annotation does not require its use in either operation.
+
+Consider adding a second deliverable, a UTF-8 evidence file. In ORC, add
+`(evidence :path :out ReportTarget)` to `:fills`, use `{evidence}` in the
+template, and supply `:evidence` at the call. The same declaration makes the
+file mandatory; a caller missing that fill fails compilation. In Python,
+add the parameter and path check, include it in the prompt, and add
+`evidence.read_text(encoding="utf-8")` before returning:
+
+| Requirement | ORC | Python + Pydantic AI above |
+| --- | --- | --- |
+| Deliver the document's content | Derived from `:doc`. | Explicit `doc.read_text(...)` in prompt construction. |
+| Communicate and require an output file | Both derived from the same `:path :out` slot and fill. | Prompt interpolation plus a separate file check. |
+| Add another required file | The new `:out` slot carries the postcondition. | The author must also add the postcondition to the wrapper or validator. |
+| Validate the structured decision | Derived from `-> Review`. | Derived from `output_type`; no manual decoder. |
+
+If the Python author omits the new file check, the code remains well typed
+and can return a valid `Review` without the evidence file. The correctly
+declared ORC `:out` slot prevents that omission. This is not proof against
+an incorrect specification: an ORC author can also mistakenly write `:path`
+without `:out`. The benefit starts once the output role is declared: its
+consequences do not need a second implementation.
+
+A Python `@prompt` decorator using `Annotated` delivery metadata and a typed
+`Review` return could derive those same connections from the function
+signature. A reusable Python abstraction could therefore narrow this gap.
+ORC supplies the connection as an implemented language contract; the example
+shows a local ergonomics advantage over the wrapper, not that Pydantic AI is
+generally inferior or that adopting another language is justified for one
+function.
+
+The boundary is deliberately narrow. `:out` checks for a UTF-8 file at the
+destination; it does not prove freshness, authorship, or equality with any
+path field in `Review`. Neither `:doc` nor `:out` establishes registry
+`consumes`/`publishes` lineage, a sandbox guarantee, or a context-token budget.
+
+## Supporting examples and contract references
+
+The earlier experiment-proposal comparison remains in
+[`improve_naive.py`](improve_naive.py) and
+[`improve_equivalent.py`](improve_equivalent.py). The latter is a deliberately
+handwritten validator and sequential journal specimen, not the best possible
+Python architecture or an implementation of all orchestrator guarantees.
+[`selfcheck.py`](selfcheck.py) checks its specific committed-effect resume,
+malformed-answer, and missing-answer cases. An interrupted external effect
+that has not been committed can repeat; those checks do not prove exactly-once
+agent execution across arbitrary crashes.
+
+For a complete ORC consumer, see
+[`improve_experiment_proposal.orc`](../../workflows/examples/improve_experiment_proposal.orc)
+and the library it uses,
+[`std/improve`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc).
+[`review_revise_design_docs.orc`](../../workflows/examples/review_revise_design_docs.orc)
+shows a real document-review prompt with an output position.
+
+The conceptual contracts above are implemented surfaces, but the current
+lowerer still restricts some combinations and expression positions. A valid
+fragment is not evidence that every surrounding program shape executes; use
+the [drafting guide's current program shapes](../../docs/lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today)
+and [capability matrix](../../docs/capability_status_matrix.md) before building
+a complete workflow.
+
+For the owning definitions and behavioral evidence, start with the
+[prompt-fragment and output-position guide](../../docs/lisp_workflow_drafting_guide.md#authoring-prompt-fragments---target-220),
+the frontend specification
+[§22.6](../../docs/design/workflow_lisp_frontend_specification.md#226-workflow-lisp-prompt-fragments-target-220)
+and [§22.7](../../docs/design/workflow_lisp_frontend_specification.md#227-implemented-prompt-output-positions-target-221),
+and the existing tests for
+[union prompt results](../../tests/test_workflow_lisp_generic_union_defprompt_results.py),
+[prompt compilation](../../tests/test_workflow_lisp_prompt_calculus.py), and
+[prompt runtime behavior](../../tests/test_workflow_lisp_prompt_calculus_runtime.py).

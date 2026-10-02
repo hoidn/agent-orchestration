@@ -1,13 +1,14 @@
-"""Python with the guarantees the Workflow Lisp runtime gives the same program.
+"""Original Python illustration of validation and sequential result recovery.
 
-Built by hand here, because `improve_experiment_proposal.orc` gets them from
-the runtime: every agent answer is checked against its declared shape and a
-mismatch names its JSON pointer; every effect is committed to a journal once,
-so a resume after a crash never repeats a paid agent call; an answer file must
-be produced by the call that claims it; the run is a directory anyone can
-inspect. Not built, because it cannot be bolted on afterwards: a check of the
-whole program before the first agent is paid, the run's lineage view, and the
-confinement of the launcher to the workspace. See README.md.
+The historical filename does not imply equivalence with the ORC runtime.
+This script checks a few response shapes, journals completed effects and
+reuses those results in a fixed sequential program. An interrupted effect
+without a durable result may run again. selfcheck.py exercises specific
+committed-boundary recovery, malformed-answer and missing-answer cases.
+
+A Python workflow library could supply these services to its callers;
+implementing them here is not an inherent cost of Python authoring. See
+README.md for the conceptual language comparisons.
 
     python -m experiments.orc_vs_python_showcase.improve_equivalent run "<question>"
     python -m experiments.orc_vs_python_showcase.improve_equivalent resume .runs/<id>
@@ -68,7 +69,7 @@ def check_decision(value):
 
 
 class Run:
-    """A run directory whose journal commits each effect once, in program order."""
+    """A journal of completed effects for one fixed sequential program."""
 
     def __init__(self, root: Path) -> None:
         self.root = root

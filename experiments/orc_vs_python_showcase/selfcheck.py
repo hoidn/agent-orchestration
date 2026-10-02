@@ -1,11 +1,12 @@
-"""The one check that fails if `improve_equivalent.py` loses a guarantee.
+"""Narrow checks for the original Python recovery illustration.
 
     python -m experiments.orc_vs_python_showcase.selfcheck
 
 Stands in for the agents with a script whose answers depend on the prompt's
 inputs, crashes the controller after its second committed effect, resumes, and
-checks that no paid call is repeated; then feeds a malformed answer and no
-answer at all.
+checks that those committed calls are reused; then feeds a malformed answer
+and no answer at all. This does not establish full runtime equivalence or
+exactly-once external execution.
 """
 
 from __future__ import annotations
@@ -138,7 +139,7 @@ def main() -> None:
         assert "produced no answer file" in str(violation), violation
 
     shutil.rmtree(root)
-    print("selfcheck: ok (resume repeats no call; malformed and missing answers refused)")
+    print("selfcheck: ok (committed calls reused; malformed and missing answers refused)")
 
 
 if __name__ == "__main__":
