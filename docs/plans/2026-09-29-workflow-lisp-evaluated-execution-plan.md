@@ -442,6 +442,10 @@ remain explicit release gaps, not extra Phase 2 prerequisites.
 
 Entry: Phase 2.
 
+Execution follows the reviewed [Phase 3 implementation plan](2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
+Its task checklist owns implementation progress; this link does not mark
+the runtime or later phases complete.
+
 Deliver a coherent executable core for the admitted effect classes, not a
 collection of preferred syntactic positions. A failure to close or evaluate
 an admitted composition is a compiler/runtime defect, not a reason to

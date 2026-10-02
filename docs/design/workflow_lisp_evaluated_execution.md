@@ -17,8 +17,8 @@
   `experiments/evaluated_execution_spike/` remains separate runtime evidence.
 - **Kind:** execution model, run state and compiler output contract
 - **Owner:** Workflow Lisp frontend and runtime
-- **Created:** 2026-09-29. **Revised:** 2026-09-30, after gate G1, independent design/Phase 2
-  contract review, and the supplied compiled-import contract amendment.
+- **Created:** 2026-09-29. **Revised:** 2026-10-02, including the Phase 3
+  input-document, profile, invalidation-entry and artifact-handoff clarification.
 - **Evidence:**
   [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
   below as "gate report";
@@ -939,6 +939,20 @@ run twice (gate report, §2, criterion 3).
 
 ### 8.4 The run header and the representation
 
+The exact evaluated selector is
+`result_persistence_profile: "evaluated_execution.v1"`, with
+`schema_version: "3.0"`, in both `run.json` and its derived `state.json`.
+These name the memo-backed run contract; the independent closed-artifact
+schema remains `workflow-lisp/closed-program/1`, representation `table/1`.
+There is no per-record version or second runtime selector. Schema 2.1 with
+an absent profile, or `derived_pure_replay.v1`, retains its existing route.
+Unknown profiles or unsupported versions in authoritative run metadata fail
+closed; they never select the flat route. Dispatch recognizes the header
+before applying legacy state/status checks. A missing, stale or contradictory
+view is reconstructed from the header, checked program and memo, not used
+to infer or upgrade the profile. A missing header with journal activity
+remains `memo_inconsistent`. No legacy state is converted.
+
 The run root holds `run.json`, written before the first record: the program
 digest, the input digest, the bound inputs, the representation version of
 the closed program (§4.2), and the interpreters fixed for the run (C3). The
@@ -1001,6 +1015,30 @@ flight completes on the release that started it.
 
 ### 8.5 Explicit continuation after a divergence
 
+The public entry is `orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]`
+(also `python -m orchestrator invalidate ...`). `RUN_ID` and `--state-dir`
+resolve exactly as for `resume`: the current workspace's
+`.orchestrate/runs/RUN_ID`, or `DIR/RUN_ID`. `IDENTITY` is one shell argument
+containing the exact canonical text shown by `report`, not a label, prefix,
+digest or filename. For example:
+
+```sh
+python -m orchestrator invalidate "$run_id" 'workflow:search::run-search / evaluate'
+python -m orchestrator resume "$run_id"
+```
+
+The command takes the same run-writer lock as execution, validates stored
+authority and the complete journal prefix, then applies C8. It does not
+freshly compile source or demand equality of current effect inputs: the
+purpose is to authorize continuation after those inputs diverge. Program
+and input checks still apply on the subsequent resume. It launches nothing
+and does not resume automatically. No force, cascade or alternate-scope
+option exists. Success prints the appended range record as JSON and exits
+0; refusal prints its diagnostic and exits 2, following the existing
+out-of-band `input` command convention. An old-profile run refuses with
+`invalidate_profile_unsupported`; malformed evaluated authority refuses with
+`memo_inconsistent`. All C8 refusal checks precede tail repair or any write.
+
 A resume that stops with `effect_input_diverged` does not rerun anything.
 For a committed result, the continuation is C8. For an uncommitted attempt's
 implementation mismatch, restore its `started` evidence under C4; invalidation
@@ -1044,7 +1082,7 @@ records, unions, lists, optionals and paths, nested to any depth.
 | --- | --- |
 | A value in `:argv` | Rendered as the present route's variable substitution renders it: a string as itself, a number as its decimal text, a `Bool` as `true` or `false`, a record or list as JSON with the substitution's spacing (`json.dumps` defaults), keys in the value's order. Both routes give the same argv bytes (spike iteration 3, F) |
 | A certified adapter's inputs | One JSON object, fields in signature order, as the last argv token, as today. The document carries the declared inputs only, each projected to its declared type |
-| Any value bound in `:inputs` (Phase 3 of the plan) | One typed input document in JSON, written in the attempt's directory. The command receives the path. The document is validated against the declared types before launch |
+| An external tool's `:inputs` (§9.1.1) | One typed input document in JSON, written in the attempt's directory. Its path is the last argv token. The document is validated against the checked field types before launch |
 | A value that is large, or that a person should be able to read | A materialized view (a later release). The effect receives the path of the view |
 | A prompt fill | As the prompt calculus defines: the `defprompt` template with each fill rendered by its renderer, then the typed prompt inputs, each assigned a unique input label under the rule below and rendered by the default renderer |
 
@@ -1070,6 +1108,145 @@ from values in the environment and from committed results.
 
 An expression in an argument position is evaluated like any other. The author
 does not have to find a name that happens to hold the same value.
+
+### 9.1.1 Typed command input documents
+
+At target 2.35 an external-tool `command-result` may combine `:argv` with
+`:inputs ((field expression) ...)`. This reuses the certified-adapter pair
+grammar: field names are distinct nonempty symbols and expressions are
+ordinary expressions. The command's label still selects its external-tool
+manifest binding, and the existing stable-command prefix rule still applies.
+`:adapter` remains mutually exclusive with `:argv`; a certified binding does
+not acquire the external-tool file protocol by using its name in argv mode.
+No new manifest signature, invocation protocol, placeholder or environment
+variable is introduced. The expression's checked static type is the field's
+contract; type declarations already present in the program are not repeated.
+Every transportable type from §9.1 is admitted, including nested unions and
+lists. `:inputs ()` explicitly sends `{}`; omitting `:inputs` adds no document
+or token. Preserve that presence distinction through compilation.
+
+For `candidate: Candidate` and `trials: List[Trial]`, the argv form sends two
+JSON argument strings:
+
+```lisp
+(command-result evaluate
+  :argv ("python" "scripts/evaluate.py" candidate trials)
+  :returns Evaluation)
+```
+
+Its file-input form, for a tool that accepts an input document, is:
+
+```lisp
+(command-result evaluate
+  :argv ("python" "scripts/evaluate.py")
+  :inputs ((candidate candidate) (trials trials))
+  :returns Evaluation)
+```
+
+The latter launches the stable command followed by one path token, for
+example `.orchestrate/runs/RUN_ID/effects/DIGEST/attempt-1/inputs.json`.
+That file contains `{"candidate":{"a":1,"b":2},"trials":[]}` for those
+values. Extra authored argv remains before the path; a tool requiring a
+named option can end authored argv with its existing option name. There is
+one delivery rule, not a configurable insertion position.
+
+The closed command reuses its optional `document` field, an ordered array
+of `[field, closed_value]` pairs. `argv` retains only the arguments after the
+stable command. The selected configuration row's existing `kind` determines
+document delivery: `external_tool` allows argv plus the file document;
+`certified_adapter` retains empty argv plus its signature-ordered inline
+JSON document. Existing argv-only invocations of either kind stay unchanged.
+Absence versus `document: []` remains significant. P5 checks
+external document keys and transportability, derives each field descriptor
+from the checked expression and lexical signature, and validates every argv
+and document value. Runtime uses those same derived descriptors; no second
+type schema is authored or serialized. Existing certified signature/key
+checks and optional-input omission remain unchanged. At 2.35 its typed inputs
+also use recursive transport validation instead of the old scalar-only
+projection restriction; its positional JSON protocol does not change.
+
+Evaluate all operand expressions once in expanded structural source order,
+including effects in argv or input fields, before validating this command's
+resolved input. Within each list retain authored order. Keyword reordering
+does not reorder the assembled argv or JSON keys; it can reorder operand
+effects. For external documents, project each value to its checked type and
+validate recursive shape, active union fields, finite numbers and path
+constraints with the existing transport/contract owners. Malformed or
+duplicate source pairs and nontransportable input types refuse at build with
+`command_result_inputs_invalid`; a runtime value violation is
+`effect_input_invalid`, with the field/value path and existing contract
+violation code. Both point at the authored form. Runtime validation precedes
+this command's `started` record and any launch. When re-resolving a committed
+effect for reuse, a failed input contract instead reports
+`effect_input_diverged` with that same field/path evidence, before mutation.
+
+Serialize external documents as the existing canonical finite JSON encoding
+(UTF-8, sorted object keys, compact separators, no trailing newline). Bind
+the exact byte digest as the `document` resolved-input part, with the ordered
+checked field contract; never hash the allocated attempt path as input.
+The path is transport metadata, derived only after reserving the attempt;
+otherwise a retry would change its own input identity. After exclusive
+attempt allocation, publish `inputs.json` through the pinned run-root file
+owner, rejecting an existing file, unsafe path or closure overlap before
+launch. Pass its workspace-relative POSIX path, using the same external
+run-root handling as R2. A publication failure fails the reserved attempt.
+Memo hits neither read nor regenerate that file: values and byte digests are
+recomputed in memory. Editing an old generated document cannot change the
+workflow or authorize reuse. User path values remain paths; this protocol
+does not read/hash their referents or turn them into closure entries.
+
+This is distinct from the CLI `--input-file` (workflow parameter binding),
+provider `input_file`/`asset_file` (prompt sources, with their existing bases),
+prompt dependencies/document fills (file-content reads under C6), and a
+certified adapter's inline JSON argument. None is renamed, rebased or silently
+converted to the external command's generated document.
+
+### 9.1.2 Artifact handoff within the admitted release
+
+The parent plan's preservation rule applies to each consumer's actual
+artifact contract. Ordinary typed result paths retain their declared root,
+active-variant and `must_exist` checks before commit, and the same path value
+passes through calls, loop state and later inputs. Their external files stay
+where the author declared them; an attempt's `result.json` does not replace
+them. `must_exist` does not promise newly written bytes, a version increment,
+or `since_last_consume` freshness. Returning a value does not implicitly
+publish a named public artifact (frontend specification, §16.2–17).
+
+For a declared document consumer, preserve C6's immutable attempt read/render
+snapshot, path/content evidence and changed-file refusal on resume. Retain
+producer and consumer identities/attempts, typed result-field provenance and
+the actual declared-read path/digest in the memo-derived evidence. The
+checked contracts, stored results, resolved-input parts and C9 lineage are
+the owners of those facts; a second mutable artifact ledger is unnecessary
+for this handoff. C9 alone proves value dependence, not a file read, and no
+declared dependency attests to all files an agent actually opened. C8 still
+invalidates the entire later committed suffix for untracked file dependence.
+
+The `std/improve` proposal and compact search nominees carry typed values;
+the single-call comparison workflows additionally return `ReviewReport` or
+`SelectionReport` paths with `must_exist`. Their sources author no public
+registry or versioned-consume policy. A stronger first-release handoff fixture
+is the admitted [watchdog](../../workflows/library/generic_run_watchdog/watchdog.orc):
+probe produces `watch_bundle_path`, the provider reads it through required
+prompt dependencies, and the publisher writes the final watchdog artifact.
+Preserve the actual files, order, dependency freshness and once-only publish
+on resume asserted by `test_watchdog_orc_both_branches_preserve_artifact_lineage`
+and `test_watchdog_orc_resume_reuses_provider_and_publishes_once` in
+[its owner tests](../../tests/test_workflow_lisp_generic_run_watchdog.py), and the
+corresponding handoff/retry checks in
+[verified-drain tests](../../tests/test_workflow_lisp_verified_iteration_drain.py).
+Repeat an admitted producer-to-consumer handoff through public evaluated
+run/resume; compilation alone is not this evidence. Preserve R12 for authored
+argv substitutions in these sources rather than rewriting the fixture to
+hide a parity gap.
+
+No generic `artifacts`/`publishes`/`consumes` metadata is added to the closed
+program or V9 by this clarification. Before migrating a consumer with a
+stronger named-publication, version/freshness or specialized effect contract,
+carry and test that contract through its owning effect. Consumer-conditioned
+Phase 4a closes such additional needs; it cannot defer the admitted result,
+declared-read or handoff obligations above, or replace artifact evidence with
+a claim that memoized values already provide it.
 
 ### 9.2 Performers
 
@@ -1161,7 +1338,7 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R6 | `provider.cwd` | The workspace, named. The present route inherits the orchestrator's working directory |
 | R7 | `provider_call_policy` and `timeout_sec` | The effect node's policy: `model`, `effort`, `timeout_sec` |
 | R8 | `params`, `session_request`, `provider_session_dir`, `provider_session_identity`, `secrets` | The parameters the effect node declares; none of the others in the first release (§1.1) |
-| R9 | `command.command` | The stable command tokens, the interpreter replaced by its resolved path (C3), then the rendered argv (§9.1), then for a certified adapter the input document |
+| R9 | `command.command` | The stable command tokens, the interpreter replaced by its resolved path (C3), then the rendered argv (§9.1); append a certified adapter's inline input document, or an external tool's generated input-document path when `:inputs` is present (§9.1.1) |
 | R10 | `command.env` | R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
 | R12 | A value in a command argument | Rendered as §9.1 states; equal to the present route's bytes |
@@ -1198,9 +1375,10 @@ on order. For this profile the runtime derives views by these rules.
 | V6 | Per-attempt files live in the attempt's directory (§8.2): `result.json`, `stdout.txt`, `stderr.txt`, and `prompt.txt` for a provider. A row's output preview reads them. Nothing is named by step name; nothing is overwritten by a later attempt |
 | V7 | The memo does not carry, and the view does not report: `step_visits`, `transition_count`, `call_frames`, the prompt-context audit, judgment views, observability summaries, provider sessions and observation files, the heartbeat. The readers that need them (the resume planner, the projection integrity audit, the dashboard cursor's frame walk, the human-input guard, the prompt session lookup, the monitor email's log lookup by step name) are not used at the new target, or are adapted to V6 when their class enters. Sessions and observation files enter with the classes that need them, named by identity digest and attempt |
 | V8 | A view launches or reconciles nothing and may be taken while the writer holds the lock. Cost is the journal scan plus pure replay of the reached program; no linear bound in memo length covers unbounded pure work. The spike measured 0.17 seconds for its 5,000-effect specimen (gate report, §5) |
-| V9 | `state.json` is an atomically replaced derived view after each synchronized record, with the header keys `schema_version`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `updated_at`, `status`, plus `error`, `workflow_outputs`, `bound_inputs` and effect rows. Its schema/profile discriminant routes readers to the adapters below; writing old header keys alone does not establish compatibility |
+| V9 | `state.json` is an atomically replaced derived view after each synchronized record, with the header keys `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `updated_at`, `status`, plus `error`, `workflow_outputs`, `bound_inputs` and effect rows. The exact schema/profile pair in §8.4 routes readers to the adapters below; writing old header keys alone does not establish compatibility |
 
-The view records the complete journal byte offset it represents. Concurrent
+The view's integer `memo_offset` is the exclusive end byte offset of the
+complete journal prefix it represents (zero for an empty journal). Concurrent
 readers snapshot a complete-line prefix, ignore a torn tail, and use lock
 liveness for V2; they never append or repair run files. A stale/missing view
 is reconstructed in memory. Only the writer repairs it on resume. If atomic
@@ -1291,6 +1469,8 @@ Codes this design introduces or keeps, and where each is raised:
 | `command_boundary_manifest_invalid` | At build: a malformed closure declaration, including `null` (C1) |
 | `command_closure_unreadable` | Before a first attempt: a missing, unreadable or unsupported declared path, with path/reason (C2); when comparing a prior start/commit use `effect_input_diverged` |
 | `command_closure_written` | Before commit: declared closure evidence changed during the command attempt (C4) |
+| `command_result_inputs_invalid` | At build: malformed, duplicate or nontransportable external-tool `:inputs` (§9.1.1) |
+| `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5) |
 | `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3) |
 | `interpreter_changed` | A diagnostic, not a refusal, at resume (C3) |
@@ -1301,6 +1481,7 @@ Codes this design introduces or keeps, and where each is raised:
 | `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept |
 | `effect_attempt_path_exists` | Exclusive allocation collides after the ordinal's synchronized `started`; append `failed`, preserve the directory, launch nothing (§8.2) |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8) |
+| `invalidate_profile_unsupported` | Public invalidation selects a legacy profile; no write occurs (§8.5) |
 | `parallel_workspace_shared` | A later release (§11) |
 
 ## 13. Targets And Compatibility
@@ -1344,6 +1525,15 @@ Codes this design introduces or keeps, and where each is raised:
   targets through 2.34 the field is accepted and ignored by binding
   serialization and effect identity, including when explicitly supplied;
   absence emits no new field. Existing raw-manifest cache hashing stays as is.
+- External-tool `:argv` plus `:inputs` is a target-2.35 source form; older
+  entries retain the existing `command_result_adapter_invalid` refusal for
+  that combination. Existing argv-only and certified inline-document forms
+  retain their source meanings, absent-field serialization and request bytes.
+  The additive closed `document` use does not change the schema/representation
+  for existing checked artifacts; the earlier Phase 2 reader refuses the new
+  external-document combination. It never executed target-2.35 runs. Once
+  runtime runs exist, §8.4's profile/representation pin applies without
+  conversion.
 
 ## 14. What Is Preserved
 
@@ -1404,7 +1594,8 @@ repeat.
 | Real programs | The `std/improve` example and the two workflows of the single-call comparison run to their expected result, unchanged in source apart from the target | Met with stand-in providers (gate report, §2, criterion 1) |
 | The search controller | The MLEvolve-inspired controller makes the decisions of its Python reference, in the same order, with the same budget spent, and returns the same result. Its form is the compact one, with one helper for both branches | Met on 72 pairs of leaf scenario and budget (gate report, §2, criterion 2) |
 | Growth | Doubling the fields of the controller's state and the number of its branches leaves it running. No limit depends on the size of an expression | Open |
-| Structured inputs | A command receives a candidate record and the list of earlier trials, with their types, and rejects a document of another shape | Open: typed input documents are Phase 3 of the plan (§9.1) |
+| Structured inputs | Public compile/run/resume of external `:inputs`: a candidate record and list of records of unions round-trip; wrong shape, non-finite and invalid nested path values fail before dispatch; source operand effects run once in order; empty versus absent documents, read-back tampering, stable digests across attempts and unchanged legacy/certified argv are checked | Open: Phase 3, exact contract in §9.1.1 |
+| Artifact handoff | A real file-producing command returns a typed path, a provider reads its declared document dependency, and the final publisher writes its declared file; assert path/producer/consumer evidence, required-file validation, fresh dependency bytes on retry, changed-byte refusal and no repeated committed provider/publisher on resume | Open: repeat the watchdog/verified-drain owner behavior through public evaluated entries (§9.1.2); neither a path string nor C9 alone is file-read evidence |
 | Nesting | A loop in a branch, a loop in a loop, and a branch in a hook run | Met (gate report, §3) |
 | Resume | For each real program, killing the process from outside in each window of each effect and resuming gives the final value of the uninterrupted run, with no committed effect run twice | Met: 96 kills (gate report, §2, criterion 3) |
 | Identity | Adding blank lines, and moving the program and the package, change no identity | Met (gate report, §2, criterion 5) |
