@@ -933,7 +933,7 @@ the ordinal rule's moves are measured against the alternative (gate report,
 | `suspended` | When an effect waits for a person (a later release) | identity, attempt ordinal, the request |
 | `settled` | After a coordinator's final commit (`by: settle`), or its reconciliation on a memo hit (`by: reconcile`) | identity, attempt ordinal |
 | `invalidated` | Once for the whole suffix, by the explicit continuation (C8) | `from_commit`: byte offset of the chosen active `committed` record's first byte; time. No per-effect records; affected identities/attempts are reconstructed from the preceding journal prefix |
-| `terminal` | `completed` only after `halt`, every reached effect committed and every committed coordinator settled; `failed` after an attempt or evaluation fails, with no unsettled committed coordinator | no identity; `completed` with the value of `halt`, or `failed` with the code and message |
+| `terminal` | `completed` only after `halt`, every reached effect committed and every committed coordinator settled; `failed` after an attempt or evaluation fails, with no pending start or unsettled committed coordinator | no identity; `completed` with the value of `halt`, or `failed` with the code and message |
 
 A failed terminal does not require the failed effect to have committed.
 Failure during settlement leaves a committed, unsettled effect and no new
@@ -968,7 +968,7 @@ files that differ.
 | C1 | Every supplied external-tool and certified-adapter binding (including unused rows), and every used compiler-injected binding retained for emission, declares `closure`, using the common rules below. An empty list is a declaration, not a fallback for unknown implementation files. An absent field is refused at build with `command_boundary_closure_missing`; `null` is not an empty declaration. No build option or builtin exception weakens this rule |
 | C2 | The resolved input of a command binds, by content: each stable-command token selected as a workspace path by the conservative rules below, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
 | C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
-| C4 | A closure is read-only. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). Caches and outputs, including generated adapter input documents and attempt files, live outside every closure. Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
+| C4 | A command must treat its closure as read-only. Before starting its attempt, check that the concrete runtime destinations for that attempt are disjoint from that command's closure, as below. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse any change (§8.1), even if no failure record survived. A resume that finds a committed effect's declared file changed also refuses (C7). The local check does not protect closures from startup, other effects or rejection bookkeeping (§8.2). Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
 | C5 | Outside the promise: modification times; the environment; a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares. A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
 | C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
@@ -1028,10 +1028,13 @@ This conservative selection intentionally binds existing literal homonyms,
 including directories such as `.`. They incur the same hashing and C4
 read-only/destination-disjointness rules as explicit declarations, even when
 the command treats them as data. For example, a selected workspace `.`
-overlaps the normal run root beneath `.orchestrate/runs`; C4 refuses those
-destinations before creation. This cost is accepted without a semantic-role
-exception or a new class/form admission restriction. It does not promise
-success for every literal command or permit a new `closed_program_gap`.
+covers the concrete attempt/journal destinations beneath `.orchestrate/runs`;
+C4 refuses the command before its `started`, attempt-directory creation or
+dispatch. Initial authority, caches and locks may already exist; the refusal
+does not promise that the initial run root was never created. This cost is
+accepted without a semantic-role exception or a new class/form admission
+restriction. It does not promise success for every literal command or permit
+a new `closed_program_gap`.
 
 The manifest grammar is `"closure": [<path string>, ...]` for both boundary
 kinds. Each entry is a nonempty literal path without NUL; there are no globs,
@@ -1179,18 +1182,45 @@ material. The same live resolver reconstructs evidence for initial binding,
 precommit, retry and reuse and compares it with the relevant prior map;
 a stored opaque digest never substitutes for fresh resolution/rehash.
 
-Input/result/cache destinations must not equal a closure file or lie beneath
-a closure directory, including resolved symlink aliases. During that same
+For a command that needs a new attempt, its concrete runtime destinations
+must not equal a file in that command's closure or lie beneath one of its
+directories, including resolved symlink aliases. During that same
 live walk, retain transient resolved coverage of closure directory roots,
 traversed directory-symlink targets and regular leaves. C4 consumes this
 coverage and resolves destinations through their existing ancestors before
 creation: a new descendant under an external empty directory-symlink target
 is covered even though it has no file row. Do not infer this coverage from an
 opaque digest, persist a target list or discover it with a second resolver.
-Check runtime-owned
-destinations before creation; a command that writes an undeclared cache there
-violates C4 and its changed closure refuses resume. There is no ignored-cache
-rule. The adapter's positional JSON input remains value data (§9.1), never an
+The caller computes the next ordinal and paths in memory after the memo's
+reuse/divergence/retry decisions. Pass the current command, its closure and
+explicit destinations to the filesystem helper: directories to create,
+`inputs.json` when applicable, `result.json`, stdout/stderr, known runtime
+caches and bookkeeping paths to modify during the attempt (`memo.jsonl`,
+`state.json`). Check before `started`, mkdir or constructing `StepExecutor`,
+whose constructor prepares capture. A replacement temporary whose name is
+only determined later is checked before creation through the same safe file
+mechanism; its parent is not reserved as a whole tree. A nonconflicting leaf
+inside the run root is not rejected merely for belonging to that namespace.
+A memo hit creates no attempt and needs no preventive destination check.
+
+This is a local check of the command being prepared. The helper receives
+paths, not the checked program, sites, effect identities, memo or reachability.
+It does not trace the effects that produced inputs, inventory future commands,
+preview the entry, accumulate earlier closures or sweep them around every
+write. A branch never reached adds no C4 filesystem check to startup or a
+clean completed resume; C1 and C3 retain their independent scopes. Startup
+publication and earlier effects may already have written within a closure
+only discovered later. No rollback, retroactive protection or snapshot against
+external filesystem changes is promised. Bookkeeping of a local refusal is
+permitted under the memo transition rules even inside the rejected closure
+(§8.2); the workspace need not remain byte-identical. C2/C7 still detect
+pertinent changes, including writes by another command.
+
+A token absent at preparation may appear during the attempt: precommit C2
+rehash selects it and refuses a changed evidence map rather than committing
+silently. A command that writes an undeclared cache in its closure violates
+C4 and its changed closure refuses resume. There is no ignored-cache rule.
+The adapter's positional JSON input remains value data (§9.1), never an
 implicit closure entry. These rules alter only the new target's identity and
 runtime route; targets through 2.34 omit `closure` from binding serialization
 and identity payloads even when supplied (§13). Their existing build-cache
@@ -1254,8 +1284,11 @@ invalidated does not pin that explicitly authorized re-execution to old bytes.
 
 1. Under the writer lock choose one more than the greatest `started` ordinal
    for this identity (1 if absent), including failed and invalidated attempts.
-   Derive `effects/<digest of the identity>/attempt-<n>/` and its result path.
-   Append and synchronize `started` **before** creating that directory.
+   Derive `effects/<digest of the identity>/attempt-<n>/` and its result path
+   in memory. For a command, resolve C2 and check the explicit destinations
+   against its current closure (§7.3) before `started`, directory creation or
+   capture/`StepExecutor` construction. Append and synchronize `started`
+   **before** creating that directory.
 2. Create the directory exclusively and synchronize its parent. If it exists,
    preserve it, append `failed` with `effect_attempt_path_exists`, and stop.
    Other allocation failures also fail the reserved attempt. Never launch
@@ -1274,12 +1307,30 @@ result of the one that succeeded. The attempt directory also holds the
 attempt's `stdout.txt`, `stderr.txt` and, for a provider, `prompt.txt` (V6).
 
 A failed attempt stops the run, as `on_error=stop` does today: the memo gets
-the attempt's `failed` record and a `terminal` record with outcome `failed`.
+the attempt's `failed` record and, only when no pending start or unsettled
+coordinator remains, a `terminal` record with outcome `failed`.
 A resume runs the next attempt unless `must_not_repeat` refuses it. For
 commands and portable providers, one memo attempt permits one external
 dispatch: bypass internal executor retries. Retryable failures still stop
 this run; resume reserves the next ordinal. A coordinator's child attempts
 remain governed by its existing ledger and K2 to K4.
+
+Local path refusal bookkeeping may be persisted even when its destinations
+fall inside the rejected closure. It authorizes no new attempt or dispatch;
+it follows the actual memo state, not an unconditional catch-all terminal:
+
+| State when preparation/path checking fails | Allowed persistence |
+| --- | --- |
+| Before a new start; no pending/unsettled effect or terminal preventing append | Ordinary failed terminal and view may be written; never invent `failed` for an attempt without a start |
+| Resume readonly preflight or pertinent baseline comparison refuses | Diagnostic only; preserve authority, memo, attempts and views |
+| Retry `n+1` rejected before its start while `started(n)` remains pending | Diagnostic only; preserve that start, its baseline and the next ordinal. No terminal, `started(n+1)` or fabricated `failed`; do not close `n` artificially to permit a terminal |
+| Existing failed terminal without new activity | Do not duplicate it |
+| A later-named destination fails after the current attempt's real start | Do not create that destination; fail the already reserved attempt using its actual ordinal. Add a terminal only when no pending/unsettled effect remains and no prior terminal forbids it |
+
+A post-command closure rehash failure uses the same normal failure persistence,
+even if new coverage reaches the journal/view. Never replace the start's
+evidence, adopt orphan output or bypass the retry baseline because no `failed`
+record survived.
 
 ### 8.3 What a stop leaves, and what resume does
 
@@ -1343,33 +1394,41 @@ authority is `memo_inconsistent`; never rebuild missing authority from current
 source or overwrite it. This uses the header's existing readiness role, not
 an additional initialization journal or marker.
 
-Resume takes the writer lock without
-changing the journal, freshly builds the authored entry with the current
-manifests/configuration, and compares that program digest and the newly bound
-input digest with the header. A mismatch refuses with `resume_program_changed`
-or `resume_inputs_changed` before reading any memo record or mutating run
+Resume takes the existing writer locks without changing authority, memo,
+attempts or views. Lock-file ownership publication retains its existing
+operational seam and legacy defaults; it is not an exception allowing writes
+to that evidence, nor a new protocol requiring pre-existing locks. Freshly
+build the authored entry in memory with the current manifests/configuration,
+without publishing build caches, and compare that program digest and the
+newly bound input digest with the header. A mismatch refuses with
+`resume_program_changed` or `resume_inputs_changed` before reading any memo record or mutating run
 evidence. An invalid fresh build is also a preflight refusal. Formatting and
 provenance-only changes are allowed by P6, not raw source-byte equality.
 
 Then validate the stored artifact's checked form and header digest; execute
 that stored artifact after equality is established. Read complete memo records
 without repairing them yet and validate their classes, sites and settlements.
-Before any mutation, launch or coordinator reconciliation, replay the active
-committed prefix using stored result values, freshly resolving every input and
-checking it in commit order. This supplies later inputs dependent on earlier
+Before any mutation of authority/memo/attempts/views, launch or coordinator
+reconciliation, replay the active committed prefix using stored result values,
+freshly resolving every input and checking it in commit order. This supplies later inputs dependent on earlier
 results. At the first uncommitted effect, also check any latest `started`
 implementation-file evidence under §8.1 before stopping preflight. An active
 later commit that replay cannot reach is inconsistent, not permission to
 launch past it. Only
 after preflight passes may M3 repair a torn tail and evaluation continue.
 This preflight and evaluation share one interpreter; they are not separate
-resume planners. Files changed concurrently after preflight remain outside a
-snapshot guarantee; an input is checked again on encounter before reuse.
+resume planners. Fresh-build preparation in memory belongs to resume
+preflight. Run startup retains its publication route above; C4 checks only a command needing an attempt (§7.3).
+Files changed concurrently after preflight remain outside a snapshot guarantee;
+an input is checked again on encounter before reuse.
 
 If the last complete record is a valid completed terminal, replay must reach
 the same `halt` value, with all settlements present. Return that terminal
-without appending records, creating attempts or launching/reconciling work.
-An unchanged failed terminal with no new activity is likewise not duplicated.
+without modifying authority/memo/attempts/views, repairing a torn tail,
+appending records or launching/reconciling work. There is no global closure
+location/hash check or new condition for a never-reached command; C3 and
+the pertinent replay checks still apply. An unchanged failed terminal with no
+new activity is likewise not duplicated.
 
 The representation is part of the program identity. A run started under one
 representation is finished, resumed or abandoned under it; a memo is never
