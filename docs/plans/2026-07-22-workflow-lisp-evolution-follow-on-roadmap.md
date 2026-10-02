@@ -694,6 +694,14 @@ preserves all seventeen tasks and receipts while moving only required shared
 slices and focused fixture/recovery checks ahead of full runtime readiness.
 The source control worktree's independently authorized typed work is unchanged.
 
+Shared components continue to be implemented upstream. Follow the evaluation
+plan's [periodic synchronization protocol](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization)
+at session/resume, before shared-task selection and each DC tranche/gate, and at
+least once per active working day. Check both the R12 source and Phase 3
+integration branches, import reviewed progress, then adapt and verify only the
+dynamic-specific delta. Missing shared work stays with its upstream owner;
+advance independent work rather than duplicate that implementation.
+
 | Gate | Evidence and explicit owner decision | Continue activates |
 | --- | --- | --- |
 | DC-F — feasibility | Ordinary functions/closures, strict boundary schemas, checked replacement P5, deterministic identity/budget and reconstruction/replay | DC-2 full utility comparison |

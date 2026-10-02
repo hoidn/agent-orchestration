@@ -1,7 +1,8 @@
 # Workflow Lisp Evaluated Execution Phase 3 Implementation Plan
 
 > **For agentic workers:** Read the branch scope overlay below before selecting
-> work. REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` for the
+> work and follow its upstream synchronization requirement before delegating.
+> REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` for the
 > selected task; the retained typed checklist is not an instruction to execute
 > all remaining typed work before dynamic qualification. Use `superpowers:test-driven-development` for code and `superpowers:verification-before-completion` before completion claims. Steps use checkbox (`- [ ]`) syntax for tracking. The coordinator integrates and verifies; a reviewer distinct from the author reviews each substantive task.
 
@@ -52,6 +53,14 @@ the public pure run/dry-run slice works, effects refuse
 unfinished. A command **closure** in Tasks 5–8 is file/content evidence, not a
 lexical runtime closure.
 
+On this dynamic branch, shared implementations come from the upstream Phase 3
+owners via the [synchronization protocol](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#upstream-phase-3-synchronization).
+Check both source and integration branches at session/resume, before shared-task
+delegation and every DC tranche/gate, and at least daily while actively working.
+Import reviewed progress before dependent adaptations. The mapping below
+identifies dependencies, not permission to independently redo shared tasks;
+coordinate missing upstream work and continue independent candidate work.
+
 | Task | Dynamic-route dependency and scope |
 | --- | --- |
 | 1 — values | Keep completed typed values/boundary evidence; adapt ordinary internal records and callable values in the candidate, retaining strict schemas at boundaries |
@@ -59,10 +68,10 @@ lexical runtime closure.
 | 3 — calls | Keep typed capture/boundary/shared-union proof receipts as fallback; candidate uses lexical closures and its replacement checked representation, not specialization |
 | 4 — memo | Reuse integrated journal/reducer and authority invariants; explicitly version candidate identity and schema evidence |
 | 5 — authority/CLI | Reuse integrated authority and bounded pure CLI substrate; no claim that all public operations or effects are delivered |
-| 6 — commands/R12 | Reuse/complete only the performer, file closure, request parity and substitution slice exercised by DC-F/DC-U; preserve the existing reviewed contracts |
+| 6 — commands/R12 | Import the upstream performer, file closure, request parity and substitution slices exercised by DC-F/DC-U; implement only agreed candidate adaptations here and preserve reviewed contracts |
 | 7 — providers | Reuse prompt/output transport and required schema enforcement; deterministic providers suffice for initial protocol evidence, not live readiness |
 | 8 — resume/invalidation | Prove the candidate's exercised replay/recovery subset before DC-F; full selected-profile invalidation/readiness follows DC-U |
-| 9 — child runs | Pull forward only if an evaluation fixture needs them; otherwise required admitted child/coordinator proofs belong to readiness |
+| 9 — child runs | Import upstream delivery early only if an evaluation fixture needs it; otherwise required admitted child/coordinator proofs belong to readiness |
 | 10 — views | Full selected-profile projections/readers belong to readiness, not the first spike |
 | 11 — monitor/watchdog | Same readiness dependency; do not require complete operational tooling before bounded feasibility |
 | 12 — input documents | Reuse transport/validation semantics; adapt schema authoring only with its candidate contract, preserving R12/order/parity where exercised |

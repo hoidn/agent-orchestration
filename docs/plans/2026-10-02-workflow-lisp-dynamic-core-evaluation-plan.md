@@ -5,6 +5,8 @@
 > `superpowers:test-driven-development` for code and
 > `superpowers:verification-before-completion` for evidence claims.
 > Track only executed work with checkboxes; a passing test does not select a gate.
+> Before selecting or delegating work, follow [upstream synchronization](#upstream-phase-3-synchronization):
+> import shared Phase 3 progress from its owner instead of implementing it again.
 
 **Goal:** Decide, through bounded evidence and explicit owner dispositions,
 whether an ordinary dynamic core with strict boundary schemas should replace
@@ -40,7 +42,7 @@ experiment, language-target allocation, production adoption or live-study budget
 Full typed Phase 3 completion is not an entry condition for qualification or the
 bounded spike; only the shared contracts actually exercised must be available.
 
-Baseline: branch `design/orc-dynamic-core-evaluation` in `.worktrees/orc-dynamic-core`,
+Initial baseline: branch `design/orc-dynamic-core-evaluation` in `.worktrees/orc-dynamic-core`,
 from main `c0dacad1` with committed source `7af8ebf6` from
 `.worktrees/orc-phase3-r12-control` merged with its dependency-closed history
 at merge `3420a690` (parents `c0dacad1`, `7af8ebf6`).
@@ -65,6 +67,55 @@ instead of deleting completed work or completing two full migrations. This makes
 cross-version imports, checkpoint retirement and honest old/new comparison more
 work until one destination is selected; dynamic checking also moves some errors
 after expensive effects and introduces closure identity and budget obligations.
+
+## Upstream Phase 3 Synchronization
+
+Shared Phase 3 components retain their upstream implementation owners. Track
+`feat/orc-phase3-r12-control` in `.worktrees/orc-phase3-r12-control` and the
+integration branch `feat/orc-phase3-execution` in `.worktrees/orc-phase3`.
+Prefer reviewed integrated commits with their dependencies; continue tracking
+the integration branch after an individual task branch stops advancing. Record
+any owner-designated successor here. These are moving sources, not a one-time
+baseline import.
+
+**Cadence:** check at every session start/resume, before selecting or delegating
+a shared-component task, before each DC tranche or decision gate, and before
+integration/closeout. During ongoing execution, check at least once per active
+working day even if the current tranche has not ended.
+
+At each checkpoint:
+
+1. Inspect committed upstream heads, changes since the last check, and the
+   Phase 3 task/review receipts. Local worktrees share refs; fetch relevant refs
+   when progress is published remotely. A dirty source tree is work in progress,
+   not reusable committed evidence; never copy it or overwrite its owner.
+2. Import relevant reviewed, dependency-complete progress **before implementing
+   dependent candidate work**. Merge compatible history, or selectively import
+   an independently reusable slice with its prerequisites. Preserve this branch's
+   evaluation gates and the upstream typed contracts when resolving conflicts;
+   do not replace either plan wholesale. Memo/authority, performers, R12,
+   recovery, document transport and readers must not acquire parallel copies.
+3. If a required slice is unfinished upstream, coordinate with its existing
+   owner and advance independent candidate work meanwhile. Any shared fix needs
+   an explicit ownership handoff and return to upstream; its absence is not
+   permission to implement a competing copy or substitute a shim. This branch
+   owns dynamic-specific adaptations, not a second execution of the Phase 3 list.
+4. Inspect the merged diff and run affected narrow checks; include the existing
+   public smoke when runtime/boundary behavior changes. Record date, checked
+   heads, imported SHA(s), relevant deferred work with reason/owner, and fresh
+   verification in this plan until the single evaluation report exists, then
+   there. Reuse unchanged evidence and retain known failures as failures.
+
+Keep the moving integration head separate from frozen comparison controls.
+Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
+affected paired cases after a relevant update. Synchronization neither approves
+a DC gate nor requires waiting for all of typed Phase 3.
+
+Latest check, 2026-10-02: R12 source `7af8ebf6`; integration source `44c2d559`.
+Imported documentation commits `08cf53d3` and `44c2d559`, preserving the dynamic
+overlay; runtime/tests remain unchanged from the initial integration receipt.
+R12 control/capture work remains with its upstream owner until committed and
+reviewed. Documentation verification is recorded with this amendment's commit.
 
 ## Finite Tranches And Decision Record
 
@@ -124,7 +175,9 @@ read existing sources and tests, without editing their semantics:
   Label proposed W1/W3 examples as proposed when they cannot execute; do not
   require implementing either proposal to start the dynamic comparison.
 - [ ] Define the smallest command/provider/recovery slice needed by DC-1 and DC-2
-  from Phase 3 Tasks 6–8/12–15. Include R12 authored request parity where used;
+  from Phase 3 Tasks 6–8/12–15; check upstream availability and import reviewed
+  slices through the synchronization protocol above. Record missing dependencies
+  with their upstream owners. Include R12 authored request parity where used;
   do not port views, watchdogs or child runs merely to start the spike.
 - [ ] Record exact fixture counts, paths and expected observations before coding;
   allocate one finite spike with explicit owner transfers and independent review.
@@ -147,8 +200,9 @@ merely by these planned paths.
 - [ ] Write failing behavioral/admission cases for the matrix below and run
   `python -m pytest --collect-only -q tests/experiments/test_dynamic_core_evaluation.py`.
 - [ ] Implement ordinary dynamic values/functions/lexical closures in the bounded
-  candidate, reusing the pure catalog, memo and admitted effect boundaries. One
-  helper body must work with different internal values without specialization.
+  candidate after importing the required upstream shared progress; reuse the
+  pure catalog, memo and admitted effect boundaries. One helper body must work
+  with different internal values without specialization.
 - [ ] Replace candidate P5 with checked lexical scope/code targets, schema and
   effect bindings, site integrity and versioned artifact read-back; never disable
   validation or lower dynamic functions back into typed specialization.
@@ -219,10 +273,12 @@ normative specs. Reuse Phase 3's evidence matrix rather than creating a duplicat
 - [ ] Settle distinct target/IR/state-profile versions, schema strictness,
   mixed-version imports, stdlib API and checkpoint/run dispositions with owners.
   Preserve old run pins; never reinterpret typed checkpoints as dynamic captures.
-- [ ] Implement/requalify the named production slice: shared requests/performers,
-  recovery/invalidation and typed-document transport from Tasks 6–8/12; child
-  runs/coordinator gaps in Task 9 when admitted; public views, report,
-  dashboard/monitor/watchdog in Tasks 10–11 for the selected release.
+- [ ] Import upstream delivery of the named production slice: shared
+  requests/performers, recovery/invalidation and document transport from Tasks
+  6–8/12; child runs/coordinators in Task 9 when admitted; public views, report,
+  dashboard/monitor/watchdog in Tasks 10–11 for the selected release. Implement
+  only agreed dynamic-specific adaptations here and requalify the combined
+  behavior; route missing shared work to its upstream owner.
 - [ ] Close relevant Tasks 13–15 full fixture/live-provider/artifact/kill/durable
   publication evidence for the admitted release, beyond earlier focused spike
   checks. Mark unavailable credentials or unimplemented classes as missing,
