@@ -9,6 +9,7 @@ from hashlib import sha256
 import json
 import math
 import re
+from pathlib import PurePosixPath
 from itertools import product
 from dataclasses import dataclass, field as dataclass_field
 from typing import Any
@@ -1345,8 +1346,8 @@ class _Checker:
             descriptor = value["type"]
             base = self._infer_closed_value(value["base"], env)
             child = self._infer_closed_value(value["child"], env)
-            if descriptor.get("kind") != "path" or base.get("kind") != "path" or base.get("under") != descriptor.get("under"):
-                self.fail("definition_key", "closed path join does not preserve its path root", value)
+            if descriptor.get("kind") != "path" or base.get("kind") != "path" or not PurePosixPath(descriptor["under"]).is_relative_to(base["under"]):
+                self.fail("definition_key", "closed path join result root is outside its base path root", value)
             self._require_key_type(child, {"kind": "primitive", "name": "String"}, value["child"])
             if value["child"].get("k") != "lit" or not isinstance(value["child"].get("v"), str) or not value["child"]["v"] or "\\" in value["child"]["v"]:
                 self.fail("definition_key", "closed path join child is not a literal relative component", value["child"])
@@ -3169,8 +3170,8 @@ class _Checker:
             if descriptor.get("kind") != "path" or not descriptor.get("under"):
                 self.fail("path_root", "path_join requires a path descriptor with a root", node)
             base = self._value(node.get("base"), env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins)
-            if base.get("kind") != "path" or base.get("under") != descriptor.get("under"):
-                self.fail("path_root", "path_join base does not have the same path root", node)
+            if base.get("kind") != "path" or not PurePosixPath(descriptor["under"]).is_relative_to(base["under"]):
+                self.fail("path_root", "path_join result root is outside its base path root", node)
             child = node.get("child")
             if not isinstance(child, Mapping) or child.get("k") != "lit":
                 self.fail("path_child", "path_join child must be a literal", node)
