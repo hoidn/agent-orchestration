@@ -677,7 +677,7 @@ def _compare_improve_command(tree, lowered, step, context, owner, effect):
     configuration = tree["configuration"]["commands"][effect["boundary"]]
     assert effect["command"] == configuration["stable_command"]
     assert effect["closure"] == configuration["closure"]
-    assert effect["repeat"] == ("must_not_repeat" if configuration["must_not_repeat"] else "rerun")
+    assert effect["repeat"] == ("never" if configuration["must_not_repeat"] else "rerun")
     authored = [_flat_value(value, refs) for value in step["command"]]
     emitted = [_literal(value) for value in effect["command"]] + [
         _closed_value(value, names) for value in effect["argv"]

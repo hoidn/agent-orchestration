@@ -586,7 +586,7 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
     assert effect["boundary"] == binding.name
     assert effect["command"] == list(binding.stable_command)
     assert effect["closure"] == expected_configuration["closure"]
-    assert effect["repeat"] == ("must_not_repeat" if binding.must_not_repeat else "rerun")
+    assert effect["repeat"] == ("never" if binding.must_not_repeat else "rerun")
     assert effect["contract"]["payload"]["fields"] == old_step["output_bundle"]["fields"]
     if invocation == "argv":
         assert len(effect["argv"]) == 1
