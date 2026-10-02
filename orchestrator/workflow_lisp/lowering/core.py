@@ -136,7 +136,7 @@ from ..phase_family_boundary import (
 from ..macros import collect_macro_catalog, expand_module_forms
 from ..reader import SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
-from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum, target_dsl_supports_trial
+from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from ..type_env import (
     FrontendTypeEnvironment,
     OptionalTypeRef,
@@ -1750,48 +1750,26 @@ def _inline_output_refs_for_expr(
     """Resolve direct branch output refs without synthesizing a child step."""
 
     output_refs: dict[str, str] = {}
-    allow_compiler_direct_result = (
-        type_ref == context.signature.return_type_ref
-        and isinstance(
-            getattr(context.signature, "compiler_direct_result_contract_digest", None),
-            str,
-        )
-        and target_dsl_supports_trial(context.type_env.target_dsl_version)
+    from .command_control_decisions import inline_output_boundary_fields
+
+    fields = inline_output_boundary_fields(
+        expr, type_ref=type_ref, type_env=context.type_env, signature=context.signature,
     )
-    fields = (
-        derive_workflow_boundary_fields(
-            type_ref,
-            generated_name="return",
-            source_path=("return",),
-            span=expr.span,
-            form_path=expr.form_path,
-            allow_transportable_value=allow_compiler_direct_result,
-            type_env=context.type_env,
-        )
-        if isinstance(type_ref, (RecordTypeRef, UnionTypeRef))
-        else (
-            replace(
-                root_workflow_boundary_field(
-                    type_ref,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    type_env=context.type_env,
-                ),
-                generated_name="return",
-            ),
-        )
-    )
-    for field in fields:
-        leaf_value = _inline_expr_field_value(
-            expr,
-            field_path=field.source_path[1:],
-            local_values=local_values,
-            context=context,
-        )
-        if not isinstance(leaf_value, str):
-            return None
-        output_refs[field.generated_name] = leaf_value
-    return output_refs
+    from .command_transport_decisions import direct_output_leaves_available
+
+    def leaf_values():
+        for field in fields:
+            leaf_value = _inline_expr_field_value(
+                expr,
+                field_path=field.source_path[1:],
+                local_values=local_values,
+                context=context,
+            )
+            if isinstance(leaf_value, str):
+                output_refs[field.generated_name] = leaf_value
+            yield isinstance(leaf_value, str)
+
+    return output_refs if direct_output_leaves_available(leaf_values()) else None
 
 
 def _conditional_case_outputs(

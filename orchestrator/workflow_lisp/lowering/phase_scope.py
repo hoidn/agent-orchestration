@@ -43,7 +43,6 @@ from ..expressions import (
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
-    EnumMemberExpr,
     DoneExpr,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
@@ -68,10 +67,8 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..phase import (
-    IMPLEMENTATION_ATTEMPT_PHASE_NAME,
     IMPLEMENTATION_ATTEMPT_TARGET_FIELDS,
     PHASE_TARGET_SPECS,
-    PhaseScope,
 )
 from ..prompts import PromptApplicationExpr, PromptOutputRole, PromptSlotKind
 from ..normalized_type_descriptor import compiler_normalized_type_descriptor
@@ -79,8 +76,7 @@ from ..syntax import (
     target_dsl_supports_prompt_attempt_identity,
     target_dsl_supports_union_prompt_input,
 )
-from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
-from ..procedures import ProcedureCatalog
+from ..procedure_refs import ResolvedProcRefValue
 from ..spans import SourcePosition, SourceSpan
 from ..type_env import (
     PathTypeRef,
@@ -92,7 +88,7 @@ from ..type_env import (
     VariantCaseTypeRef,
 )
 from ..typecheck import TypedExpr
-from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
+from ..workflow_refs import ResolvedWorkflowRef
 from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
 from .context import (
     _ActivePhaseScope,
@@ -328,34 +324,21 @@ def _resolve_active_phase_scope_parts(
     """Resolve derived phase paths and targets for a transparent phase-scope wrapper."""
 
     context_value = _resolve_inline_expr_value(ctx_expr, local_values=local_values)
-    if not isinstance(context_value, Mapping):
-        raise _compile_error(
-            code="phase_translation_body_invalid",
-            message="`with-phase` lowering requires the phase context to resolve from workflow inputs",
-            span=ctx_expr.span,
-            form_path=ctx_expr.form_path,
-        )
+    from .command_control_decisions import selected_phase_scope
+
+    scope, selected_targets = selected_phase_scope(
+        context_value, phase_name=phase_name, ctx_expr=ctx_expr, span=span, form_path=form_path,
+    )
     if "implementation_state_bundle_path" not in context_value:
         state_root_ref = context_value.get("state-root")
         artifact_root_ref = context_value.get("artifact-root")
         runtime_phase_name_ref = context_value.get("phase-name")
-        if not isinstance(state_root_ref, str) or not isinstance(artifact_root_ref, str):
-            raise _compile_error(
-                code="phase_translation_body_invalid",
-                message="`with-phase` lowering requires generic phase roots to resolve from workflow inputs",
-                span=ctx_expr.span,
-                form_path=ctx_expr.form_path,
-            )
         target_refs = {
             target_name: _join_ref_path(artifact_root_ref, f"{phase_name}/{suffix}")
             for target_name, (_, _, suffix) in PHASE_TARGET_SPECS.items()
         }
         return _ActivePhaseScope(
-            scope=PhaseScope(
-                context_record_name="PhaseCtx",
-                phase_name=phase_name,
-                target_types={},
-            ),
+            scope=scope,
             bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/state.json"),
             temp_bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/state.tmp.json"),
             snapshot_root_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/snapshots"),
@@ -363,38 +346,11 @@ def _resolve_active_phase_scope_parts(
             target_refs=target_refs,
             runtime_phase_name_ref=runtime_phase_name_ref if isinstance(runtime_phase_name_ref, str) else None,
         )
-    if phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
-        raise _compile_error(
-            code="phase_context_invalid",
-            message="`with-phase` supports only the `implementation` phase in the legacy bridge",
-            span=span,
-            form_path=form_path,
-        )
     bundle_ref = context_value.get("implementation_state_bundle_path")
-    execution_ref = context_value.get("execution_report_target")
-    progress_ref = context_value.get("progress_report_target")
-    if not all(isinstance(ref, str) for ref in (bundle_ref, execution_ref, progress_ref)):
-        raise _compile_error(
-            code="phase_translation_body_invalid",
-            message="`with-phase` lowering requires bound relpath fields on the phase context",
-            span=ctx_expr.span,
-            form_path=ctx_expr.form_path,
-        )
     return _ActivePhaseScope(
-        scope=PhaseScope(
-            context_record_name="ImplementationAttemptPhaseCtx",
-            phase_name=phase_name,
-            bundle_path_field="implementation_state_bundle_path",
-            target_fields={
-                "execution-report": "execution_report_target",
-                "progress-report": "progress_report_target",
-            },
-        ),
+        scope=scope,
         bundle_path_ref=bundle_ref,
-        target_refs={
-            "execution-report": execution_ref,
-            "progress-report": progress_ref,
-        },
+        target_refs=dict(selected_targets),
     )
 
 
@@ -829,54 +785,12 @@ def _resolved_workflow_ref_value(
     context: _LoweringContext,
     expected_type: WorkflowRefTypeRef | None,
 ) -> ResolvedWorkflowRef | None:
-    if isinstance(value, ResolvedWorkflowRef):
-        return value
-    if isinstance(value, WorkflowRefLiteralExpr):
-        if expected_type is None:
-            signature = context.workflow_catalog.signatures_by_name.get(value.target_name)
-            if signature is None:
-                raise _compile_error(
-                    code="workflow_ref_unknown",
-                    message=f"unknown workflow ref `{value.target_name}`",
-                    span=value.span,
-                    form_path=value.form_path,
-                )
-            expected_type = WorkflowRefTypeRef(
-                name=f"WorkflowRef[{ ' '.join(type_ref.name for _, type_ref in signature.params) } -> {signature.return_type_ref.name}]",
-                param_type_refs=tuple(type_ref for _, type_ref in signature.params),
-                return_type_ref=signature.return_type_ref,
-            )
-        return resolve_workflow_ref_literal(
-            value,
-            expected_type=expected_type,
-            workflow_catalog=context.workflow_catalog,
-            typed_workflows_by_name=context.workflows_by_name,
-            allow_extern_rebinding=False,
-        )
-    if isinstance(value, (NameExpr, EnumMemberExpr)):
-        return resolve_workflow_ref_name(
-            workflow_ref_target_name(value),
-            workflow_catalog=context.workflow_catalog,
-            span=value.span,
-            form_path=value.form_path,
-            expansion_stack=value.expansion_stack,
-            expected_type=expected_type,
-            typed_workflows_by_name=context.workflows_by_name,
-            allow_extern_rebinding=False,
-        )
-    return None
+    from .command_control_decisions import resolved_surface_workflow_ref
 
-
-def _proc_ref_env_from_local_values(
-    local_values: Mapping[str, Any],
-    *,
-    context: _LoweringContext,
-) -> dict[str, ResolvedProcRefValue]:
-    env: dict[str, ResolvedProcRefValue] = {}
-    for name, value in local_values.items():
-        if isinstance(value, ResolvedProcRefValue):
-            env[name] = value
-    return env
+    return resolved_surface_workflow_ref(
+        value, workflow_catalog=context.workflow_catalog,
+        typed_workflows=context.workflows_by_name, expected_type=expected_type,
+    )
 
 
 def _resolved_proc_ref_value(
@@ -886,28 +800,11 @@ def _resolved_proc_ref_value(
     local_values: Mapping[str, Any],
     expected_type: ProcRefTypeRef | None = None,
 ) -> ResolvedProcRefValue | None:
-    if isinstance(value, ResolvedProcRefValue):
-        return value
-    if not isinstance(value, (NameExpr, ProcRefLiteralExpr, BindProcExpr)):
-        return None
-    procedure_catalog = getattr(context, "procedure_catalog", None)
-    if procedure_catalog is None:
-        procedure_catalog = ProcedureCatalog(
-            signatures_by_name={
-                name: procedure.signature
-                for name, procedure in context.typed_procedures.items()
-            },
-            definitions_by_name={
-                name: procedure.definition
-                for name, procedure in context.typed_procedures.items()
-            },
-            call_graph={},
-        )
-    return resolve_proc_ref_value(
-        value,
-        procedure_catalog=procedure_catalog,
-        proc_ref_env=_proc_ref_env_from_local_values(local_values, context=context),
-        expected_type=expected_type,
+    from .command_control_decisions import resolved_surface_proc_ref
+
+    return resolved_surface_proc_ref(
+        value, typed_procedures=context.typed_procedures, local_values=local_values,
+        procedure_catalog=getattr(context, "procedure_catalog", None), expected_type=expected_type,
     )
 
 

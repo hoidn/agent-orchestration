@@ -198,13 +198,14 @@ def _provider_context_capture_output_refs(
 ) -> dict[str, str] | None:
     """Return the two whole runtime artifacts for a captured Contextual value."""
 
-    from ..context_types import is_contextual_type
+    from .command_control_decisions import provider_capture_artifact_names
 
-    if not capture_context or not is_contextual_type(result_type):
+    outputs = provider_capture_artifact_names(result_type, capture_context=capture_context)
+    if outputs is None:
         return None
     return {
-        "return__result": f"root.steps.{provider_step_name}.artifacts.result",
-        "return__context": f"root.steps.{provider_step_name}.artifacts.context",
+        name: f"root.steps.{provider_step_name}.artifacts.{artifact}"
+        for name, artifact in outputs.items()
     }
 
 

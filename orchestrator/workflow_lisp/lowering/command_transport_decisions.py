@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import fields, is_dataclass
 from typing import Any, Literal
 
@@ -18,6 +18,13 @@ from ..wcc.model import (
 from .pure_projection import is_pure_projection_expr
 
 
+RUNTIME_REFERENCE = object()
+
+
+def is_direct_reference(value: Any) -> bool:
+    return isinstance(value, str) or value is RUNTIME_REFERENCE
+
+
 WccBindingKind = Literal["alias", "expansion_projection", "whole_value", "request_projection", "if_projection"]
 SurfaceBindingKind = Literal["match", "projection", "expression"]
 
@@ -31,7 +38,7 @@ def is_inline_let_binding_expr(expr: Any) -> bool:
 
 
 def pure_projection_binding_candidate(resolved_binding: Any) -> Any | None:
-    if resolved_binding is None or isinstance(resolved_binding, (str, Mapping)):
+    if resolved_binding is None or is_direct_reference(resolved_binding) or isinstance(resolved_binding, Mapping):
         return None
     return resolved_binding if is_pure_projection_expr(resolved_binding) else None
 
@@ -58,7 +65,7 @@ def wcc_binding_materialization(
     owner's already available Name binding, never a reconstructed projection.
     """
     if expansion_owned and is_pure_projection_expr(expr):
-        if isinstance(expr, NameExpr) and isinstance(existing_ref, str):
+        if isinstance(expr, NameExpr) and is_direct_reference(existing_ref):
             return "alias", existing_ref
         return "expansion_projection", expr
     return _wcc_resolved_binding_materialization(
@@ -78,7 +85,7 @@ def _wcc_resolved_binding_materialization(
         if provider_context_demand and _provider_context_requires_whole_value(expr, resolved_binding):
             return "whole_value", expr
         if request_input_demand:
-            if isinstance(resolved_binding, (str, LiteralExpr)):
+            if is_direct_reference(resolved_binding) or isinstance(resolved_binding, LiteralExpr):
                 return "alias", resolved_binding
             return "request_projection", expr
     if isinstance(expr, IfExpr):
@@ -222,3 +229,51 @@ def _wcc_continuation_binding_demands(
 
     body_demand(root)
     return by_body_id
+
+
+def direct_output_leaves_available(leaf_availability: Iterable[bool]) -> bool:
+    """A shortcut requires availability of every projected boundary leaf."""
+    return all(leaf_availability)
+
+
+def schema1_iteration_private_override_applies(
+    procedure: Any, *, iteration_scope: Any, workflow_name: str,
+    default_type_env: Any, typed_procedures: Mapping[str, Any],
+    procedure_type_envs: Mapping[str, Any], workflow_signatures: Mapping[str, Any],
+) -> bool:
+    """Surface-only iteration override, with the existing private eligibility."""
+    from ..expression_traversal import walk_expr
+    from ..expressions import LoopRecurExpr
+    from ..procedures import ProcedureLoweringMode, procedure_type_env_for
+    from ..procedure_specialization import (
+        _procedure_private_body_valid, _procedure_private_boundary_valid,
+    )
+
+    if not (
+        procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE
+        and iteration_scope is not None
+        and not workflow_name.startswith("%composition.")
+        and not any(isinstance(node, LoopRecurExpr) for node in walk_expr(procedure.typed_body.expr))
+    ):
+        return False
+    procedure_type_env = procedure_type_env_for(
+        procedure, procedure_type_envs=procedure_type_envs, default=default_type_env,
+    )
+    return _procedure_private_boundary_valid(
+        procedure, type_env=procedure_type_env,
+    ) and _procedure_private_body_valid(
+        procedure, typed_procedures_by_name=typed_procedures,
+        type_env=procedure_type_env, procedure_type_envs=procedure_type_envs,
+        workflow_signatures_by_name=workflow_signatures,
+    )
+
+
+def compiler_owned_pure_let(expr: Any, *, target_dsl_version: str) -> bool:
+    from ..expression_traversal import walk_expr
+    from ..syntax import ProcedureExpansionFrame, target_dsl_supports_pure_call_composition
+
+    return (
+        target_dsl_supports_pure_call_composition(target_dsl_version)
+        and any(isinstance(frame, ProcedureExpansionFrame) for node in walk_expr(expr) for frame in node.expansion_stack)
+        and is_pure_projection_expr(expr)
+    )

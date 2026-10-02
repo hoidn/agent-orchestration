@@ -11,13 +11,12 @@ from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from ..contracts import derive_structured_result_contract, derive_workflow_boundary_fields
 from ..definitions import RecordDef, RecordField
 from ..effects import EMPTY_EFFECT_SUMMARY
-from ..expression_traversal import iter_child_exprs
 from ..expressions import FieldAccessExpr, MatchExpr, NameExpr
 from ..spans import SourceSpan
 from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef, render_type_ref
 from ..typecheck import TypedExpr
 from ..workflows import TypedWorkflowDef, WorkflowDef, WorkflowParam, WorkflowSignature
-from .composition_graph import CompositionScope, build_fragment, fragment_requires_helper_boundary
+from .command_control_summary import branch_control_summary, control_facts_for_context
 from .context import (
     _compile_error,
     _copy_context_with_composition_scope,
@@ -308,32 +307,21 @@ def _control_lower_match_expr_impl(
                 binding_name=arm.binding_name,
                 binding_type=arm_binding_type,
             )
+        arm_locals = _match_arm_local_values(
+            local_values=local_values, binding_name=arm.binding_name,
+            binding_terminal=binding_terminal, binding_type=arm_binding_type,
+        )
+        requires_helper = branch_control_summary(
+            arm.body, result_type=result_type, facts=control_facts_for_context(arm_context), local_values=arm_locals,
+        )
         case_steps, case_terminal = _lower_conditional_branch_expr(
             arm.body,
             result_type=result_type,
             step_name=case_name,
             context=arm_context,
-            local_values=_match_arm_local_values(
-                local_values=local_values,
-                binding_name=arm.binding_name,
-                binding_terminal=binding_terminal,
-                binding_type=arm_binding_type,
-            ),
+            local_values=arm_locals,
         )
-        case_fragment = build_fragment(
-            emitted_steps=case_steps,
-            scope=CompositionScope(
-                scope_id=case_name,
-                parent_scope_id=context.composition_scope_id,
-                kind="match_case",
-                owner_step_name=match_step_name,
-                resume_identity_hint=case_name,
-            ),
-            output_refs=case_terminal.output_refs,
-            hidden_inputs=case_terminal.hidden_inputs,
-            leaf_terminal=case_terminal,
-        )
-        if fragment_requires_helper_boundary(case_fragment):
+        if requires_helper:
             case_steps, case_terminal = _hoist_match_case_fragment_to_helper(
                 match_expr=match_expr,
                 branch_expr=arm.body,
@@ -341,12 +329,7 @@ def _control_lower_match_expr_impl(
                 result_type=result_type,
                 case_name=case_name,
                 context=arm_context,
-                local_values=_match_arm_local_values(
-                    local_values=local_values,
-                    binding_name=arm.binding_name,
-                    binding_terminal=binding_terminal,
-                    binding_type=arm_binding_type,
-                ),
+                local_values=arm_locals,
                 span=arm.body.span,
                 form_path=arm.body.form_path,
             )
@@ -896,38 +879,9 @@ def _helper_capture_names(
     *,
     context: _LoweringContext,
 ) -> tuple[str, ...]:
-    used_names: set[str] = set()
+    from .command_control_decisions import helper_capture_names
 
-    def walk(node: Any, bound_names: frozenset[str]) -> None:
-        if isinstance(node, NameExpr):
-            if node.name in context.local_type_bindings and node.name not in bound_names:
-                used_names.add(node.name)
-            return
-        if isinstance(node, FieldAccessExpr) and isinstance(node.base, NameExpr):
-            if node.base.name in context.local_type_bindings and node.base.name not in bound_names:
-                used_names.add(node.base.name)
-            walk(node.base, bound_names)
-            return
-        if isinstance(node, LetStarExpr):
-            child_bound = set(bound_names)
-            for binding_name, binding_expr in node.bindings:
-                walk(binding_expr, frozenset(child_bound))
-                child_bound.add(binding_name)
-            walk(node.body, frozenset(child_bound))
-            return
-        # schema1_compatibility: legacy branch-local ref analysis walks authored match expressions.
-        if isinstance(node, MatchExpr):
-            walk(node.subject, bound_names)
-            for arm in node.arms:
-                walk(arm.body, bound_names | {arm.binding_name})
-            return
-        for child in iter_child_exprs(node):
-            walk(child, bound_names)
-
-    from ..expressions import LetStarExpr
-
-    walk(expr, frozenset())
-    return tuple(name for name in context.local_type_bindings if name in used_names)
+    return helper_capture_names(expr, local_type_bindings=context.local_type_bindings)
 
 
 def _helper_capture_boundary_type(
@@ -938,13 +892,13 @@ def _helper_capture_boundary_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> TypeRef:
-    if isinstance(capture_type, VariantCaseTypeRef):
-        union_type = context.type_env.resolve_type(
-            capture_type.union_name,
-            span=span,
-            form_path=form_path,
-        )
-        assert isinstance(union_type, UnionTypeRef)
+    from .command_control_decisions import helper_capture_payload
+
+    payload = helper_capture_payload(
+        capture_type, type_env=context.type_env, span=span, form_path=form_path,
+    )
+    if payload is not None:
+        payload_fields, payload_field_types = payload
         record_name = _generated_helper_variant_record_name(
             capture_name=capture_name,
             variant_type=capture_type,
@@ -959,11 +913,11 @@ def _helper_capture_boundary_type(
                         type_name=field.type_name,
                         span=field.span,
                     )
-                    for field in capture_type.definition.fields
+                    for field in payload_fields
                 ),
                 span=capture_type.definition.span,
             ),
-            field_types=dict(union_type.variant_field_types[capture_type.variant_name]),
+            field_types=dict(payload_field_types),
         )
     return capture_type
 

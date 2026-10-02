@@ -6678,13 +6678,13 @@ def _lower_wcc_procedure_call(
         span=value.metadata.source_span,
         form_path=value.metadata.form_path,
     )
-    specialization_bindings: dict[str, Any] = {}
-    for kind in ("workflow_ref_bindings", "proc_ref_bindings", "value_bindings"):
-        specialization_bindings.update(dict(getattr(procedure.specialization, kind, {})))
-    child_locals = {**dict(local_values), **specialization_bindings}
+    from ..lowering.command_control_decisions import inline_procedure_bindings, procedure_specialization_bindings
+
+    specialization_bindings = procedure_specialization_bindings(procedure)
     arg_values = tuple(_resolve_wcc_inline_expr_value(arg_expr, local_values=local_values) for arg_expr in arg_exprs)
-    for arg_value, (param_name, _) in zip(arg_values, procedure.signature.params, strict=True):
-        child_locals[param_name] = arg_value
+    child_locals = inline_procedure_bindings(
+        procedure, caller_values=local_values, actual_values=arg_values,
+    )
 
     prefix_ordinal = context.inline_call_counters.get(value.callee_name, 0) + 1
     context.inline_call_counters[value.callee_name] = prefix_ordinal

@@ -640,12 +640,9 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
     if isinstance(expr, LoopStateUpdateExpr):
         return _loop_state_update_inline_value(expr, local_values=local_values)
     if isinstance(expr, LetStarExpr):
-        child_locals = dict(local_values)
-        for binding_name, binding_expr in expr.bindings:
-            resolved_binding = _resolve_inline_expr_value(binding_expr, local_values=child_locals)
-            if resolved_binding is None:
-                return expr
-            child_locals[binding_name] = resolved_binding
+        child_locals = _resolve_inline_let_bindings(expr.bindings, local_values=local_values)
+        if child_locals is None:
+            return expr
         return _resolve_inline_expr_value(expr.body, local_values=child_locals)
     if isinstance(expr, IfExpr):
         condition_value = _resolve_inline_expr_value(expr.condition_expr, local_values=local_values)
@@ -682,6 +679,19 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
             local_values=local_values,
         )
     return expr
+
+
+def _resolve_inline_let_bindings(
+    bindings: tuple[tuple[str, Any], ...], *, local_values: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve a suffix's aliases in order, without constructing another AST."""
+    child_locals = dict(local_values)
+    for name, expr in bindings:
+        value = _resolve_inline_expr_value(expr, local_values=child_locals)
+        if value is None:
+            return None
+        child_locals[name] = value
+    return child_locals
 
 
 def _loop_state_seed_inline_value(
@@ -1086,27 +1096,62 @@ def _inline_expr_field_value(
 ) -> Any:
     """Resolve one projected leaf from an inline branch expression."""
 
+    bound_record_fields = isinstance(expr, UnionVariantExpr) and context is not None and target_dsl_supports_generic_unions(
+        context.type_env.target_dsl_version,
+    )
+    selected = inline_expr_projection_source(
+        expr, field_path=field_path, bound_record_fields=bound_record_fields,
+    )
+    phase_target_values = None
+    if context is not None and isinstance(selected, PhaseTargetExpr):
+        phase_target_values = {
+            selected.target_name: _phase_target_inline_ref(selected, context=context),
+        }
+    return inline_expr_field_value(
+        expr, field_path=field_path, local_values=local_values,
+        bound_record_fields=bound_record_fields, phase_target_values=phase_target_values,
+    )
+
+
+def inline_expr_projection_source(
+    expr: Any, *, field_path: tuple[str, ...], bound_record_fields: bool,
+) -> Any:
     if isinstance(expr, RecordExpr):
-        value = _record_expr_value_at_path(expr, field_path)
-        if isinstance(value, PhaseTargetExpr) and context is not None:
-            return _phase_target_inline_ref(value, context=context)
-        return _resolve_inline_expr_value(value, local_values=local_values)
+        return _record_expr_value_at_path(expr, field_path)
     if isinstance(expr, UnionVariantExpr):
-        value = _union_variant_expr_value_at_path(
-            expr,
-            field_path,
-            bound_record_fields=context is not None
-            and target_dsl_supports_generic_unions(context.type_env.target_dsl_version),
+        return _union_variant_expr_value_at_path(
+            expr, field_path, bound_record_fields=bound_record_fields,
         )
-        if isinstance(value, PhaseTargetExpr) and context is not None:
-            return _phase_target_inline_ref(value, context=context)
-        return _resolve_inline_expr_value(value, local_values=local_values)
-    if isinstance(expr, PhaseTargetExpr) and context is not None:
-        return _phase_target_inline_ref(expr, context=context)
-    value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if field_path:
-        return _resolve_nested_local_value(value, field_path)
-    return value
+    return expr
+
+
+def inline_expr_field_value(
+    expr: Any, *, field_path: tuple[str, ...], local_values: Mapping[str, Any],
+    bound_record_fields: bool, phase_target_values: Mapping[str, Any] | None,
+) -> Any:
+    """Pure projected-leaf resolution using explicit phase availability."""
+    selected = inline_expr_projection_source(
+        expr, field_path=field_path, bound_record_fields=bound_record_fields,
+    )
+    if isinstance(selected, PhaseTargetExpr) and phase_target_values is not None:
+        return phase_target_values.get(selected.target_name)
+    if isinstance(expr, LetStarExpr):
+        return inline_let_field_value(
+            expr.bindings, body=expr.body, field_path=field_path, local_values=local_values,
+        )
+    value = _resolve_inline_expr_value(selected, local_values=local_values)
+    if isinstance(expr, (RecordExpr, UnionVariantExpr)):
+        return value
+    return _resolve_nested_local_value(value, field_path) if field_path else value
+
+
+def inline_let_field_value(bindings: tuple[tuple[str, Any], ...], *, body: Any, field_path: tuple[str, ...], local_values: Mapping[str, Any]) -> Any:
+    """Project a complete suffix using the same resolved-value path as a Let node."""
+    child_values = _resolve_inline_let_bindings(bindings, local_values=local_values)
+    if child_values is None:
+        return None
+    value = _resolve_inline_expr_value(body, local_values=child_values)
+    return _resolve_nested_local_value(value, field_path) if field_path else value
 
 
 def _phase_target_inline_ref(expr: PhaseTargetExpr, *, context: _LoweringContext) -> str:
