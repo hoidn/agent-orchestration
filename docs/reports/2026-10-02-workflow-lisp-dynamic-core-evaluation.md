@@ -51,6 +51,25 @@ merge/source pins and result are in
 in `producer-integration.log`. The earlier shared-owner broad run described
 below preceded this merge; frozen DC-0 comparison controls remain unchanged.
 
+**DC-2 synchronization, 2026-10-02:** integration
+`f572a82a896c50002f1da2ee701aaaaf8661ea3c` merged cleanly at
+`a55a035dc1c1b1d6df206faca886479638dd4aac`; source control branch remains
+`0f1bbc46`. Independent code review by `/root/review_code_dynamic_core_utility`
+(Sol 6.1 high) passed with 17 narrow tests. This two-file slice extracts the
+captured-byte validation owners in `output_contract.py` and their tests; it
+preserves public wrapper behavior and the candidate's existing byte-forwarding
+hook. No local replacement was implemented and no dirty upstream work imported.
+
+Fresh coordinator integration: **17 passed in 2.39s**, then **127 passed in
+7.38s**, exit 0, using tmux and `-q -n 16 --dist=worksteal` for the combined
+output-contract, candidate boundary/core, typed improve and evaluated CLI
+modules. These include real public helper run/resume. Commands, exact runtime
+revision and unchanged before/after owner hashes are in
+`/tmp/orc-dc2-execution-0jczbaqn/upstream-result.json`; outputs are
+`upstream-narrow.log` and `upstream-integrated.log`. Frozen control sources and
+their qualification pin remain unchanged; this behavior-preserving extraction
+does not re-pin controls, finish Task 6 or pass a dynamic gate.
+
 | Control | Exact owner and evidence limit |
 | --- | --- |
 | Typed improve | `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc` at target 2.33; `tests/test_workflow_lisp_improve_stdlib.py` and `tests/workflow_lisp_improve_stdlib_sources.py` own command-backed full helper outcomes and public legacy run/resume. Internal bundle execution and public execution are separately identified below |

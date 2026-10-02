@@ -121,11 +121,13 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest import, 2026-10-02: reviewed integration `9bb4b207` imported at merge
-`d4dc1ea7`, following R12-A integration `0d7e4bc6` at `18a442da`. The new slice
-retains producer lowering schema in typed snapshots; 12 affected cases passed.
-The preceding R12-A import passed 55 command-template/control cases and three
-public/helper checks. Task 6 overall remains open. Exact source pins, commands,
+Latest import, 2026-10-02: integration `f572a82a` imported at merge `a55a035d`
+after independent code review PASS. Its captured-document validation extraction
+preserves the existing public wrappers; 17 narrow and 127 integrated cases
+passed, including real public helper run/resume. Earlier `9bb4b207` at
+`d4dc1ea7` retains producer lowering schema in typed snapshots (12 affected
+cases passed); R12-A `0d7e4bc6` at `18a442da` passed 55 command-template/control
+cases and three public/helper checks. Task 6 overall remains open. Exact source pins, commands,
 metadata and evidence limits are in the single report's synchronization section;
 these results do not pass a dynamic gate or advance frozen comparison controls.
 
