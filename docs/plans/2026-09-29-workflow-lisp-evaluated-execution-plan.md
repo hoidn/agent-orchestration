@@ -392,9 +392,11 @@ Tasks 1–5, then follow the
 (including early Phase 6a evidence) → DC-U → DC-3 production readiness → DC-P
 → one selected Phase 6b migration → Phase 7 retirement.**
 
-Execution has started: DC-0 qualification passed independent review; the bounded
-DC-1a pure mechanism sub-batch is complete and reviewed; DC-1b qualification is next. Its boundary/dispatch counterpart
-reuses upstream boundary/dispatch delivery, with resume optional; see the [execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md).
+DC-0 and the pure mechanism are complete; experimental source composition now
+uses ordinary functions with inferred captures and real compiled leaves. DC-F
+remains pending; the [runnable specimen](../../experiments/dynamic_core_evaluation/README.md)
+shows the surface before full typed Phase 3 or W3 delivery. The boundary adapter
+reuses existing execution owners, with resume omitted; see the [execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md).
 Each gate needs evidence and an explicit owner continue/revise/
 stop disposition. Continue activates only its named successor; revise names one
 bounded correction and one reevaluation, then stop or fresh owner allocation;

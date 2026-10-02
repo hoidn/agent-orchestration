@@ -1,7 +1,8 @@
 # Dynamic-Core Evaluation: Execution Evidence
 
-Status: DC-0 and DC-1a complete and independently reviewed; DC-1b qualification
-is executing, with authored DC-1c next before DC-F. No DC-F/DC-U/DC-P disposition. This report records actual source inspection,
+Status: DC-0 and DC-1a/b/c implementation, verification and independent review
+complete; DC-F evidence ready for the owner decision. No DC-F/DC-U/DC-P
+disposition. This report records actual source inspection,
 test collection and coordinator-supplied control execution. The
 [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns selection; the [proposal](../design/workflow_lisp_dynamic_core_proposal.md)
@@ -35,6 +36,20 @@ Results: **55 passed in 1.90s** and **3 passed in 1.59s**, including a real publ
 legacy run. Output is in the coordinator tool transcript; no saved log is claimed.
 These are synchronization controls, not dynamic boundary evidence, and do not
 re-pin the earlier comparison controls or erase the inherited red baseline.
+
+**Second DC-1 synchronization, 2026-10-02:** reviewed integration
+`9bb4b207d453fa7b0d9f1b141c9a0bfdd22125ff` was merged at
+`d4dc1ea7595a8216026c36f015aec1497fd4e06b`. Integrated implementation
+`abb3d5e92cf673118caa2c9ac6a8193125423aba` carries source
+`a143378912ef173cc46094f90277d1bfc46f0681`: both Stage 3 constructors retain
+the typed snapshot's producer lowering schema. Upstream Task 6 remains open;
+this imports a reviewed reusable fix, not a second local implementation.
+The eight affected selectors (12 collected parameterizations) passed **12 in
+6.13s**, exit 0, using `-q -n 16 --dist=worksteal` in tmux. Exact command,
+merge/source pins and result are in
+`/tmp/orc-dc1b-execution-0a7ozwwm/producer-integration-result.json`, with output
+in `producer-integration.log`. The earlier shared-owner broad run described
+below preceded this merge; frozen DC-0 comparison controls remain unchanged.
 
 | Control | Exact owner and evidence limit |
 | --- | --- |
@@ -308,18 +323,20 @@ method, reread the result between strict validation and shared validation, or
 accept already-coerced state as evidence. The reviewed §6.2 contract fixes the adapter shape below; no boundary success
 is claimed from inspection.
 
-**Immediate successor DC-1c:** use the existing S-expression reader for a bounded
+**Original DC-1c handoff (implemented; receipts below):** use the existing S-expression reader for a bounded
 source frontend and a checked-in `.orc` specimen combining an unannotated helper,
 returned/stored/selected closures and two real typed boundary calls. Existing
 `defrecord`/`defunion`/`defpath` and prompt/command contracts retain their owners.
 Freeze exact source forms and frontend cases after the leaf bridge contract;
-execute this visible composition proof immediately after DC-1b and before DC-F.
+execute independent source lowering alongside DC-1b after seam qualification,
+then verify the combined composition before DC-F.
 Do not postpone authoring evidence behind full Phase 3/W3 or treat an authored
 JSON artifact as the requested language improvement.
 
 ### DC-1b Reviewed Finite Scope
 
-The following **24 frozen cases** refine E01–E12; none has executed. Two case
+The following **24 frozen cases** refine E01–E12; this table is the
+pre-execution contract, with actual receipts and corrections in §7. Two case
 IDs per family, with explicit invalid vectors inside the indicated cases. The
 [proposal §6.2](../design/workflow_lisp_dynamic_core_proposal.md#62-fresh-compiled-leaf-boundary-contract)
 owns semantics; change the count explicitly if collection exposes accidental
@@ -411,8 +428,9 @@ invocation overhead, repeated calls and surviving partial writes as costs.
 ### DC-1c Source Scope
 
 Reviewed finite handoff; proposal §6.3 and this scope passed independent review
-by `/root/design_orc_showcase`. Run after
-DC-1b review and before DC-F; no extra owner permission is needed to complete
+by `/root/design_orc_showcase`. Independent source lowering may execute in
+parallel with DC-1b against the frozen artifact/grammar; its combined source/leaf
+verification follows DC-1b review and precedes DC-F. No extra owner permission is needed to complete
 this already selected feasibility evidence. These are **12 source cases**
 S01–S12, not execution receipts or a full language conformance suite:
 
@@ -468,8 +486,8 @@ clarifying immutable-capture evidence and read-only refusal. The separately
 assigned `/root/w3_planset_review` reviewer also passed §6.2 and requested the
 explicit read-only closure assertion retained in E10a; that review covered the
 preceding draft, not the final documentation diff. The coordinator accepted the
-final seven-path handoff listed above. DC-1c
-remains the immediate successor; no DC-F disposition is recorded.
+final seven-path handoff listed above. At qualification, DC-1c was the immediate
+successor; its later implementation receipt is below. No DC-F disposition is recorded.
 
 On 2026-10-02 independent reviews passed after bounded corrections:
 
@@ -544,8 +562,136 @@ isolated experiment; the earlier inherited red baseline is not reclassified.
 The public CLI controls are the orchestrator smoke, while the serialized demo
 is candidate integration evidence, not public dynamic-language support.
 
-Next: qualify the fixed compiled-leaf route described in §5, using actual shared
+At DC-1a completion, the next step was to qualify the fixed compiled-leaf route
+described in §5, using actual shared
 input/prompt/output owners and fresh invocations. Keep checking upstream before
 that selection/integration. Lost tracking/resume are permitted tradeoffs to
 measure, not blockers; no second performer or recovery engine is authorized.
 DC-1a completion does not activate DC-2 or select adoption.
+
+
+## 7. DC-1b / DC-1c Execution And Feasibility Review
+
+The [source frontend](../../experiments/dynamic_core_evaluation/source.py) uses
+existing reader/type owners, infers lexical captures and admits the same
+versioned artifact. The [runnable specimen and command](../../experiments/dynamic_core_evaluation/README.md)
+show ordinary source composition with a real provider followed by a command;
+this is an experimental driver, not public `orchestrator run` support.
+The [leaf bridge](../../experiments/dynamic_core_evaluation/leaf_bridge.py) uses
+fresh compiled workflows through the existing full executor. The only shared
+production edit is four added lines accepting/forwarding `document_bytes` in
+`WorkflowExecutor._apply_expected_outputs_contract`, so strict raw validation
+and the existing publisher consume the same byte snapshot.
+
+Authors: DC-1b remains Luna 6 xhigh
+(`/root/design_dynamic_core_roadmap/impl_code_dynamic_core_pure`). The coordinator
+implemented the four DC-1c paths after the tool refused another implementation
+thread; this is an explicit capacity exception, not a Luna attribution.
+Independent source code/conformity review by
+`/root/design_dynamic_core_roadmap` (Astra 6 xhigh): **PASS**, including a fresh
+**12 passed in 3.52s**. The coordinator separately inspected the bridge, artifact,
+evaluator and exact shared-hook diff. After the corrections below, independent
+boundary code/conformity review by `/root/design_dynamic_core_roadmap` also
+passed: seven strengthened cases passed in 3.56s, with no open findings. No separate Sol code-review result is claimed.
+
+Source regressions reproduced a valid literal effect ID rejected as a reserved
+binder and raw recursion errors from deep reader/type inputs. The fixes keep
+operation identifiers separate from lexical binders and catch frontend depth
+failures once at the source entry boundary. Unknown types preserve the existing
+compiler diagnostic; ordinary call arity remains a runtime check. Source tests
+cover both selected and unselected bad-arity calls. Concrete RED/GREEN logs are
+in `/tmp/orc-dc1b-execution-0a7ozwwm/source-effect-name-red.log`,
+`source-pure-reviewed.log`, `source-depth-red.log`, `source-type-depth-red.log`
+and `source-type-depth-green.log`. Initial missing-module failures are not
+behavioral RED evidence.
+
+The first boundary run collected exactly **24** and passed **24 in 5.60s**
+after fixing test assumptions about workspace-relative log paths; the retained
+pure module passed **48 in 1.08s**. These author-reported results are in the
+session transcript. Independent conformity found coverage gaps despite GREEN:
+E11b needed an actual required UTF-8 output file, E11a an original-document
+mutation after snapshotting, E02b capture use after a later write, E04b dispatched
+failure context, and E09b/E10a/E12b stronger rejection/publication assertions.
+These are corrections inside the frozen 24 IDs, not new functionality or a
+passed feasibility gate.
+
+Shared default-behavior verification: four narrow command/provider/required-file/
+variant selectors passed **4 in 1.17s** (`shared-narrow.log`); the seven affected
+modules passed **217 in 6.46s**, exit 0, in tmux with
+`python -m pytest -q -n 16 --dist=worksteal` (`shared-broad.log` and
+`shared-broad-result.json`, including command and source hashes). That broader
+run preceded the second producer-schema import in §1. Counts overlap with the
+candidate/public controls and must not be added together. The shared-hook diff
+and these receipts form the reusable upstream handoff; no upstream worktree was
+modified and no second performer was created.
+
+
+### Final Combined Verification
+
+Code commit: `53032343663737969456531040bacf7bebc9bdb2`, based on the reviewed
+upstream import `d4dc1ea7`. Final source hashes matched before/after verification
+and immediately before commit. Logs and the command/hash receipt are under
+`/tmp/orc-dc1b-execution-0a7ozwwm/`:
+
+| Check | Fresh result / evidence |
+| --- | --- |
+| Collect three candidate modules | 84 cases, exit 0; `final-collect.log` |
+| Candidate 48 pure + 24 boundary + 12 source, nine public CLI controls, 71 routing checks | **164 passed in 8.18s**, exit 0; `final-candidate.log`, `final-result.json` |
+| Exact README shell command, extracted without rewriting | Exit 0; `readme-final-command.sh`, `readme-final.log`; actual provider → command dispatches |
+| Final code/conformity review | Independent source and boundary PASS; coordinator inspected final diff and verified unchanged hashes; no open finding |
+| Final documentation update | 71 routing cases passed in 1.58s (`final-docs.log`); 21 changed local links/anchors and `git diff --check` passed; independent `/root/design_orc_showcase` review PASS |
+
+The combined pytest command is:
+
+```bash
+python -m pytest -q -n 16 --dist=worksteal \
+  tests/experiments/test_dynamic_core_evaluation.py \
+  tests/experiments/test_dynamic_core_boundaries.py \
+  tests/experiments/test_dynamic_core_source.py \
+  tests/test_workflow_evaluated_cli.py \
+  tests/test_workflow_lisp_drain_roadmap_routing.py
+```
+
+The README run uses `goal="reject draft"`, `rubric="clarity"` and a declared
+input document containing `DOC_A`. Its returned feedback is
+`reject draft | clarity | reject draft|clarity|DOC_A | draft`; it executes
+**53 nodes**, with seven code definitions in a 2705-byte admitted artifact.
+Artifact digest:
+`sha256:de1dea648ad510972b3856955ed602f3ce7ffd5c7ffe16ec64318688b1286257`.
+It retains **two separate legacy leaf states** in
+`/tmp/orc-dynamic-source-fj1tq_qh`. The approval branch is separately covered
+by S01 and executes only the provider. These are deterministic local
+subprocesses, not a paid-provider quality or performance study.
+
+The final upstream check still found integration `9bb4b207` and source
+`0f1bbc46`; no additional reviewed commit was available. The four-line optional
+byte-forwarding hook in `53032343` is the reusable upstream handoff; its default
+behavior checks and exact source hash are in the receipts above. No external
+publication or upstream worktree mutation occurred.
+
+### DC-F Decision Packet
+
+| Feasibility obligation | Evidence |
+| --- | --- |
+| Ordinary lexical composition | P01–P12 and S01–S12; one helper accepts scalar/record values, inferred captures survive shadowing and later result-file replacement, real provider data selects a stored/passed callable |
+| Fresh actual effects | E01–E03/E06–E08 plus README; real shared provider and command owners, fresh run locations, repeated prefix after failure |
+| Strict boundary contracts | B01–B12/E09/E11/E12; raw invalid data rejected before publication, one captured validation snapshot, document snapshot survives original mutation, missing/non-UTF-8 required `:out` refuses |
+| Closed admission and permissions | A01–A18/E04/E10/S08–S10/S12; malformed artifacts, unlinked/inline hosts/non-leaves and read-only dispatch refuse |
+| Bounded execution | D01–D06/E05/S07; deterministic node accounting, recursion exhaustion, completed effect does not reset budget |
+| Honest failure semantics | E03/E06/E08/E12; no stale result success, failed later calls repeat the successful prefix on restart; partial writes remain |
+
+Adverse evidence is part of this result: restarting repeats external calls;
+ordinary output files are not rolled back or proven fresh; dynamic call/operand
+errors can occur after an expensive effect; each leaf retains legacy state and
+compiler/startup machinery. There is no candidate resume, static effect analysis,
+public target, complete source-map diagnostics or demonstrated net deletion.
+The bridge exposes existing `return__…` wire keys. Full improve/search protocols,
+the four paired author edits and utility versus the implemented typed baseline
+and proposed W3 remain untested here. They belong to DC-2; these omissions do not become delivered
+capabilities because feasibility checks passed.
+
+Independent feasibility review: **PASS**. Coordinator recommendation:
+**continue to DC-2** to measure those benefits and costs. Owner disposition: **pending**; no date/owner
+approval is invented. The only proposed successor is the plan's finite DC-2
+consumer/authoring comparison, preserving the frozen controls and upstream
+synchronization cadence. DC-U, DC-P and production migration remain unselected.

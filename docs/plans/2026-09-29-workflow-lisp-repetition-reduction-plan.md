@@ -48,8 +48,8 @@ delivery, not a separately scheduled feature. The
 [parent delivery sequence](2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 owns scheduling. The branch's
 [dynamic evaluation plan](2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-now qualifies DC-1b after reviewed DC-0/DC-1a completion, with DC-F/DC-U/DC-P still
-pending. Effect tracking/resumability may be traded for composition gains;
+now includes experimental source functions/closures and real compiled leaves
+after reviewed DC-0/DC-1a completion, with DC-F/DC-U/DC-P still pending. Effect tracking/resumability may be traded for composition gains;
 their preservation is not a candidate prerequisite. Task 4 and Phase 6a
 feed the typed comparison for DC-U. If the typed route is retained, Phase 3
 provides its runtime and Phase 4c delivers Tasks 11–14 after the open decisions

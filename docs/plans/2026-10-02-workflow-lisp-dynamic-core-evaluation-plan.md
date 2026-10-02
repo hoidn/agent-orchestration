@@ -121,11 +121,11 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest check, 2026-10-02: reviewed integration `0d7e4bc6` imported at merge
-`18a442da`; R12 source `0f1bbc46` and integrated code `a780639c` have the same
-stable patch ID. All 14 imported source/test hashes match the upstream receipt.
-R12-A is complete; Task 6 overall remains open. Fresh affected checks passed
-55 command-template/control cases and three public/helper checks. Exact commands,
+Latest import, 2026-10-02: reviewed integration `9bb4b207` imported at merge
+`d4dc1ea7`, following R12-A integration `0d7e4bc6` at `18a442da`. The new slice
+retains producer lowering schema in typed snapshots; 12 affected cases passed.
+The preceding R12-A import passed 55 command-template/control cases and three
+public/helper checks. Task 6 overall remains open. Exact source pins, commands,
 metadata and evidence limits are in the single report's synchronization section;
 these results do not pass a dynamic gate or advance frozen comparison controls.
 
@@ -134,7 +134,7 @@ these results do not pass a dynamic gate or advance frozen comparison controls.
 | Tranche | Current state | Entry / bounded exit |
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
-| DC-1 — feasibility spike | DC-1a complete and reviewed; DC-1b boundary/dispatch qualification executing; DC-1c authored composition follows immediately | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
+| DC-1 — feasibility spike | DC-1a/b/c implemented and reviewed; DC-F owner disposition pending | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Pending DC-F continue | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
@@ -162,9 +162,9 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-1b qualification after reviewed DC-0/DC-1a completion, immediately followed
-by DC-1c source authoring before DC-F; existing executable selectors have no new
-item to consume.
+the DC-F owner disposition on the reviewed combined evidence;
+DC-1a/b/c implementation and verification are complete. Existing
+executable selectors have no new item to consume.
 
 ## DC-0: Qualify Scope And Controls
 
@@ -237,18 +237,19 @@ rather than inventing one inside implementation.
 conformity and quality review. Final candidate checks: 48 passed; serialized
 closure/generic-helper demo passed; nine unchanged public CLI controls passed.
 [Execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#6-dc-1a-execution-evidence)
-separates these results from the still-pending full DC-F matrix. Next is DC-1b
-qualification of fresh leaf execution through existing complete contract owners;
-freeze its exact cases/API before implementation. Then execute **DC-1c authored
-composition** using the existing S-expression reader, before DC-F: a checked-in
-`.orc` specimen must define an ordinary unannotated helper, create/return/store/
-select a closure using a real validated leaf result, and call a second typed
-boundary. Preserve existing boundary declarations and their contract compiler;
-do not introduce another schema language. Its finite frontend contract and case
-list are reviewed after the leaf seam is fixed. JSON construction alone cannot
-satisfy this source proof or demonstrate authoring utility. Neither slice waits
-for full typed Phase 3 or W3 delivery; completing DC-1b proceeds to this visible
-source slice under the current continuation instruction. No new gate is passed here.
+separates the pure results from the later combined DC-F evidence in report §7. DC-1b's fixed
+compiled-leaf seam and DC-1c's source grammar/cases were subsequently qualified.
+**DC-1c authored composition is now implemented and independently reviewed**:
+the [runnable specimen](../../experiments/dynamic_core_evaluation/README.md)
+defines unannotated helpers, returns/stores/selects closures using a real
+validated leaf result and calls a second typed boundary. Existing declarations,
+reader and contract compiler retain their owners. This source proof precedes
+full typed Phase 3 or W3 delivery; it does not establish full consumer utility.
+The combined evidence passed: 84 candidate cases, nine public CLI controls and
+71 documentation-routing cases, plus the exact README demonstration. Code is
+committed at `53032343`; the single report records independent review and
+limitations. Only DC-F's explicit owner disposition remains; no gate is passed
+by these results.
 
 **DC-1b bounded handoff:** [report §5](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-1b-reviewed-finite-scope)
 freezes 24 cases E01a–E12b, exact commands and ownership. Modify only candidate
@@ -262,15 +263,17 @@ the default path and all 48 pure cases. Proposal §6.2 passed independent Design
 review; Design independently passed the finite case matrix and the coordinator
 accepted the final path handoff. The distinct reviewer assessed §6.2 and the
 preceding case draft, not this final documentation diff.
-Then record actual receipts and continue directly to DC-1c; tests alone do not
-select DC-F or DC-2.
+Record actual receipts with DC-1c's source/leaf integration evidence; tests alone
+do not select DC-F or DC-2.
 
 **DC-1c bounded handoff:** proposal §6.3 owns the experimental source grammar;
 [report §5](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-1c-source-scope)
 records twelve source cases and four new paths. Reuse the existing reader and
 DC-1b leaves; infer captures and lower to the same checked artifact. Qualify
-this scope while DC-1b executes, then implement it immediately after DC-1b's
-review. Its runnable specimen and before/after excerpt are required before
+this scope while DC-1b executes. Independent source lowering may proceed in
+parallel against the frozen artifact contract, on its four exclusive paths;
+combined source/leaf verification follows DC-1b review. Its runnable specimen
+and before/after excerpt are required before
 DC-F; public syntax, full consumer migration and production adoption remain
 outside this slice. Independent source-contract and finite-scope review passed;
 ordinary call arity remains a runtime check, with explicit S08 evidence.
@@ -282,16 +285,16 @@ single report above. Before creation, DC-0 records exact module/fixture paths an
 exclusive shared-owner edits. No new production evaluator/CLI route is authorized
 merely by these planned paths.
 
-- [ ] Write failing behavioral/admission cases for the matrix below and run
+- [x] Write failing behavioral/admission cases for the matrix below and run
   `python -m pytest --collect-only -q tests/experiments/test_dynamic_core_evaluation.py`.
-- [ ] Implement ordinary dynamic values/functions/lexical closures in the bounded
+- [x] Implement ordinary dynamic values/functions/lexical closures in the bounded
   candidate after importing the required upstream shared progress; reuse the
   pure catalog and admitted effect boundaries. One helper body must work
   with different internal values without specialization.
-- [ ] Replace candidate P5 with checked lexical scope/code targets, schema and
+- [x] Replace candidate P5 with checked lexical scope/code targets, schema and
   effect bindings and versioned artifact read-back; never disable
   validation or lower dynamic functions back into typed specialization.
-- [ ] Run the narrow module, correct only demonstrated defects, run one orchestrator
+- [x] Run the narrow module, correct only demonstrated defects, run one orchestrator
   or demo integration smoke, and record the exact invocation and limitations.
   Spike-driver evidence is labeled experimental, never public production support.
 - [ ] Obtain independent code/design review of feasibility and record DC-F's owner
