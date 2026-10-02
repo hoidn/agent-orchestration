@@ -15,6 +15,7 @@ import time
 from typing import Any, Iterator
 
 from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
+from orchestrator.workflow.evaluated.closure_evidence import validate_implementation_evidence
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
 _CLASSES = {"command", "provider", "run_ref"}
@@ -132,6 +133,13 @@ def _object(value: Any, field: str) -> dict[str, Any]:
     return value
 
 
+def _implementation_files(value: Any) -> None:
+    try:
+        validate_implementation_evidence(value)
+    except (TypeError, ValueError) as exc:
+        raise _inconsistent(str(exc)) from exc
+
+
 class _Reducer:
     def __init__(self, site_classes: Mapping[str, str]) -> None:
         if not isinstance(site_classes, Mapping) or any(
@@ -217,7 +225,7 @@ class _Reducer:
             raise _inconsistent("a completed terminal cannot be reopened by started")
         _digest(row["input_digest"], "input_digest")
         self._parts(row["input_parts"])
-        _object(row["implementation_files"], "implementation_files")
+        _implementation_files(row["implementation_files"])
         _text(row["result_path"], "result_path")
         _finite_time(row["time"])
         self.next_ordinal[identity] = attempt + 1
@@ -244,7 +252,7 @@ class _Reducer:
         self._same_input(started.data, row)
         _digest(row["input_digest"], "input_digest")
         self._parts(row["input_parts"])
-        _object(row["implementation_files"], "implementation_files")
+        _implementation_files(row["implementation_files"])
         _text(row["result_path"], "result_path")
         _digest(row["result_digest"], "result_digest")
         _finite_time(row["time"])
@@ -440,6 +448,8 @@ def append_record(path: Path, record: Mapping[str, Any]) -> JournalEntry:
     kind = record.get("record")
     if not isinstance(kind, str) or kind not in _RECORDS:
         raise _inconsistent("record kind is missing or unknown")
+    if kind in {"started", "committed"}:
+        _implementation_files(record.get("implementation_files"))
     fd = _open_append(path)
     start = os.fstat(fd).st_size
     try:

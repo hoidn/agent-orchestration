@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow.evaluated.closure as closure_module
 import orchestrator.workflow.evaluated.memo as memo_module
 from orchestrator.workflow.evaluated.memo import (
     MemoError,
@@ -14,6 +16,7 @@ from orchestrator.workflow.evaluated.memo import (
     memo_writer_lock,
     read_memo,
     repair_torn_tail,
+    reduce_memo,
 )
 
 
@@ -134,6 +137,87 @@ def test_complete_invalid_rows_are_inconsistent_not_torn(tmp_path: Path, raw: by
         read_memo(journal, SITES)
 
     assert error.value.code == "memo_inconsistent"
+
+
+@pytest.mark.parametrize(
+    "implementation_files",
+    [
+        {"[ \"workspace\", \"script.py\", null ]": {"kind": "file", "digest": DIGEST}},
+        {"[\"workspace\",\"script.py\",true]": {"kind": "file", "digest": DIGEST}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "file", "digest": DIGEST, "extra": "x"}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "file", "digest": DIGEST, "target": "../outside"}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "directory", "target": "script.py"}},
+    ],
+)
+@pytest.mark.parametrize("kind", ["started", "committed"])
+def test_append_rejects_malformed_implementation_evidence_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    implementation_files: dict,
+    kind: str,
+) -> None:
+    journal = tmp_path / "memo.jsonl"
+    before = _write(journal, _started(FETCH))
+    record = _started(FETCH) if kind == "started" else _committed(FETCH)
+    record["implementation_files"] = implementation_files
+
+    def unexpected_open(_path: Path) -> int:
+        pytest.fail("invalid evidence reached journal open")
+
+    monkeypatch.setattr(memo_module, "_open_append", unexpected_open)
+    with pytest.raises(MemoError) as error:
+        append_record(journal, record)
+
+    assert error.value.code == "memo_inconsistent"
+    assert journal.read_bytes() == before
+
+
+def test_nonempty_implementation_evidence_round_trips_without_live_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal = tmp_path / "memo.jsonl"
+    workspace = tmp_path / "workspace"
+    source = workspace / "src" / "declared.py"
+    file_target = workspace / "src" / "resolved.py"
+    directory = workspace / "bin" / "tool"
+    directory_target = workspace / "bin" / "resolved-tool"
+    source.parent.mkdir(parents=True)
+    directory.parent.mkdir(parents=True)
+    source.write_text("source", encoding="utf-8")
+    file_target.write_text("target", encoding="utf-8")
+    directory.mkdir()
+    directory_target.mkdir()
+    evidence = {
+        '["workspace","bin/tool",2]': {
+            "kind": "directory",
+            "digest": DIGEST,
+            "target": "bin/resolved-tool",
+        },
+        '["workspace","src/declared.py",null]': {
+            "kind": "file",
+            "digest": DIGEST,
+            "target": "src/resolved.py",
+        },
+    }
+
+    journal.touch()
+    with memo_writer_lock(tmp_path):
+        append_record(journal, {**_started(FETCH), "implementation_files": evidence})
+        append_record(journal, _committed(FETCH, implementation_files=evidence))
+    shutil.rmtree(workspace)
+
+    def no_live_resolution(*_args, **_kwargs):
+        pytest.fail("memo read attempted live closure resolution or hashing")
+
+    monkeypatch.setattr(closure_module, "resolve_command_evidence", no_live_resolution)
+    monkeypatch.setattr(closure_module, "_file_digest", no_live_resolution)
+    raw = journal.read_bytes()
+    reduced = reduce_memo(raw, SITES)
+    snapshot = read_memo(journal, SITES)
+
+    assert reduced.active_commits[FETCH].data["value"] == {"ok": True}
+    assert snapshot.latest_starts[FETCH].data["implementation_files"] == evidence
+    assert snapshot.active_commits[FETCH].data["implementation_files"] == evidence
 
 
 def test_invalidation_uses_byte_anchor_preserves_prefix_and_allows_future_retry(tmp_path: Path) -> None:

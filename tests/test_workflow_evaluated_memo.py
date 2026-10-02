@@ -203,6 +203,31 @@ def test_carriage_return_is_content_not_a_record_boundary(tmp_path: Path) -> Non
     assert journal.read_bytes() == raw
 
 
+@pytest.mark.parametrize(
+    "implementation_files",
+    [
+        {"[ \"workspace\", \"script.py\", null ]": {"kind": "file", "digest": DIGEST}},
+        {"[\"workspace\",\"script.py\",true]": {"kind": "file", "digest": DIGEST}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "file", "digest": DIGEST, "extra": "x"}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "file", "digest": DIGEST, "target": "../outside"}},
+        {"[\"workspace\",\"script.py\",null]": {"kind": "directory", "target": "script.py"}},
+    ],
+)
+def test_reader_rejects_malformed_implementation_evidence_without_repair(
+    tmp_path: Path, implementation_files: dict
+) -> None:
+    journal = tmp_path / "memo.jsonl"
+    started = _started(FETCH)
+    started["implementation_files"] = implementation_files
+    raw = _write(journal, started)
+
+    with pytest.raises(MemoError) as error:
+        read_memo(journal, SITES)
+
+    assert error.value.code == "memo_inconsistent"
+    assert journal.read_bytes() == raw
+
+
 @pytest.mark.parametrize("proof", [None, [], "proof"])
 def test_reducer_requires_structured_proof_for_checked_coordinator_site(tmp_path: Path, proof) -> None:
     journal = tmp_path / "memo.jsonl"
