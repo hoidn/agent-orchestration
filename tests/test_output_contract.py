@@ -1487,3 +1487,211 @@ def test_validate_output_bundle_relpath_nested_path_normalizes_under_root_when_t
 
     artifacts = validate_output_bundle(bundle, workspace=tmp_path)
     assert artifacts == {"report_path": "artifacts/work/runs/report.md"}
+
+
+def test_output_bundle_document_bytes_keep_path_values_in_workspace(tmp_path: Path):
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    workspace = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    (workspace / "docs" / "plans").mkdir(parents=True)
+    (workspace / "docs" / "reports").mkdir(parents=True)
+    (workspace / "docs" / "plans" / "plan.md").write_text("plan\n")
+    (workspace / "docs" / "reports" / "summary.md").write_text("summary\n")
+    result_path = state_dir / "attempts" / "7" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_bytes(
+        json.dumps(
+            {
+                "plan": "docs/plans/plan.md",
+                "reports": ["docs/reports/summary.md"],
+            }
+        ).encode("utf-8")
+    )
+    contract = {
+        "path": "attempts/7/result.json",
+        "fields": [
+            {
+                "name": "plan_path",
+                "json_pointer": "/plan",
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            },
+            {
+                "name": "report_paths",
+                "json_pointer": "/reports",
+                "type": "list",
+                "items": {
+                    "type": "relpath",
+                    "under": "docs/reports",
+                    "must_exist_target": True,
+                },
+            },
+        ],
+    }
+    state_files = WorkspaceFiles(state_dir)
+    owner = WorkspaceFiles(workspace)
+    result_relative = Path("attempts/7/result.json")
+    read_paths: list[Path] = []
+    original_read = state_files.read
+
+    def counted_read(path: str | Path) -> bytes:
+        read_paths.append(Path(path))
+        return original_read(path)
+
+    state_files.read = counted_read
+    try:
+        result_bytes = state_files.read(result_relative)
+        assert read_paths == [result_relative]
+        assert output_contract_module._validate_output_bundle_document_bytes(
+            contract,
+            result_bytes,
+            owner,
+        ) == {
+            "plan_path": "docs/plans/plan.md",
+            "report_paths": ["docs/reports/summary.md"],
+        }
+    finally:
+        owner.close()
+        state_files.close()
+
+
+def test_variant_output_document_bytes_reject_run_root_only_path_with_subject(
+    tmp_path: Path,
+):
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    workspace = tmp_path / "workspace"
+    state_dir = tmp_path / "state"
+    workspace.mkdir()
+    (state_dir / "docs" / "reports").mkdir(parents=True)
+    (state_dir / "docs" / "reports" / "summary.md").write_text("summary\n")
+    result_bytes = json.dumps(
+        {
+            "status": "COMPLETED",
+            "report": "docs/reports/summary.md",
+        }
+    ).encode("utf-8")
+    contract = {
+        "path": "attempts/7/result.json",
+        "discriminant": {
+            "name": "status",
+            "json_pointer": "/status",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "report_path",
+                        "json_pointer": "/report",
+                        "type": "relpath",
+                        "under": "docs/reports",
+                        "must_exist_target": True,
+                        "source_map_subject": _variant_field_subject(
+                            "COMPLETED", "report_path"
+                        ),
+                    }
+                ]
+            },
+            "BLOCKED": {"fields": []},
+        },
+    }
+    owner = WorkspaceFiles(workspace)
+    try:
+        with pytest.raises(OutputContractError) as exc_info:
+            output_contract_module._validate_variant_output_bundle_document_bytes(
+                contract,
+                result_bytes,
+                owner,
+            )
+    finally:
+        owner.close()
+
+    violation = exc_info.value.violations[0]
+    assert violation["type"] == "variant_field_type_invalid"
+    assert violation["context"]["path"] == "attempts/7/result.json"
+    assert violation["subject_refs"] == [
+        _variant_field_subject("COMPLETED", "report_path")
+    ]
+
+
+@pytest.mark.parametrize("variant", [False, True], ids=["record", "variant"])
+def test_legacy_document_bytes_wrapper_keeps_workspace_guard_without_reread(
+    tmp_path: Path,
+    variant: bool,
+):
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    owner = WorkspaceFiles(workspace)
+    read_paths: list[Path] = []
+
+    def unexpected_read(path: str | Path) -> bytes:
+        read_paths.append(Path(path))
+        raise OSError("captured result bytes must not be read again")
+
+    owner.read = unexpected_read
+    if variant:
+        contract = {
+            "path": "attempts/7/result.json",
+            "discriminant": {
+                "name": "status",
+                "json_pointer": "/status",
+                "type": "enum",
+                "allowed": ["COMPLETED"],
+            },
+            "variants": {
+                "COMPLETED": {
+                    "fields": [
+                        {
+                            "name": "report",
+                            "json_pointer": "/report",
+                            "type": "string",
+                        }
+                    ]
+                }
+            },
+        }
+        validate = validate_variant_output_bundle
+        result_bytes = b'{"status":"COMPLETED","report":"ready"}'
+        expected = {"status": "COMPLETED", "report": "ready"}
+    else:
+        contract = {
+            "path": "attempts/7/result.json",
+            "fields": [
+                {
+                    "name": "decision",
+                    "json_pointer": "/report",
+                    "type": "string",
+                }
+            ],
+        }
+        validate = validate_output_bundle
+        result_bytes = b'{"report":"ready"}'
+        expected = {"decision": "ready"}
+
+    try:
+        assert validate(
+            contract,
+            workspace,
+            workspace_files=owner,
+            document_bytes=result_bytes,
+        ) == expected
+        assert read_paths == []
+
+        contract["path"] = str(tmp_path / "state" / "attempts" / "7" / "result.json")
+        with pytest.raises(OutputContractError) as exc_info:
+            validate(
+                contract,
+                workspace,
+                workspace_files=owner,
+                document_bytes=result_bytes,
+            )
+        assert exc_info.value.violations[0]["type"] == "invalid_bundle_path"
+        assert read_paths == []
+    finally:
+        owner.close()
