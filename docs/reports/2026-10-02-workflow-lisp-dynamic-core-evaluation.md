@@ -1,7 +1,7 @@
 # Dynamic-Core Evaluation: Execution Evidence
 
 Status: DC-0 and DC-1a complete and independently reviewed; DC-1b qualification
-is next. No DC-F/DC-U/DC-P disposition. This report records actual source inspection,
+is executing, with authored DC-1c next before DC-F. No DC-F/DC-U/DC-P disposition. This report records actual source inspection,
 test collection and coordinator-supplied control execution. The
 [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
 owns selection; the [proposal](../design/workflow_lisp_dynamic_core_proposal.md)
@@ -10,12 +10,31 @@ owns candidate semantics. Planned cases below are not passed tests.
 ## 1. Pinned Controls And Synchronization
 
 Qualification/control pin: `4b69ee00d4c6204dd816b4caa02b9fee1dae25e8`, branch
-`design/orc-dynamic-core-evaluation`. At this session's start the coordinator
+`design/orc-dynamic-core-evaluation`. At DC-0 session start the coordinator
 checked `feat/orc-phase3-execution` at `44c2d559` and
-`feat/orc-phase3-r12-control` at `7af8ebf6`; both are integrated. There is no
+`feat/orc-phase3-r12-control` at `7af8ebf6`; both are integrated. At that check there was no
 additional committed shared slice to import. Dirty upstream control work is
 excluded. Keep this control pin distinct from later synchronized integration
 heads; explicitly re-pin affected comparisons if shared behavior changes.
+
+**DC-1b synchronization, 2026-10-02:** the coordinator merged reviewed integration
+`0d7e4bc6f826b6f3002c2806bc7287a6e065ce76` cleanly at
+`18a442da95df9de6a3f927ee99c067021c89d11a`. R12 source `0f1bbc46` and integrated
+code `a780639c` share stable patch ID
+`acf0c682851c47a464aeef5ae2c0840b2cd262cb`; all 14 imported source/test hashes match
+the upstream receipt. Metadata was read from
+`/tmp/orc-dc1b-execution-0a7ozwwm/upstream.json`. R12-A is complete; Task 6 overall
+remains open. No dirty upstream files were imported. Fresh coordinator commands:
+
+```bash
+python -m pytest -q tests/test_workflow_lisp_command_templates.py tests/test_workflow_lisp_command_control.py
+python -m pytest -q tests/test_workflow_lisp_improve_stdlib.py::test_public_run_returns_the_improvement_through_the_public_entry tests/test_workflow_lisp_procedures.py::test_wcc_m4_lowerer_uses_supplied_resolved_procedure_tuple tests/test_workflow_lisp_procedures.py::test_wcc_effectful_proc_pure_terminal_materializes_root_result
+```
+
+Results: **55 passed in 1.90s** and **3 passed in 1.59s**, including a real public
+legacy run. Output is in the coordinator tool transcript; no saved log is claimed.
+These are synchronization controls, not dynamic boundary evidence, and do not
+re-pin the earlier comparison controls or erase the inherited red baseline.
 
 | Control | Exact owner and evidence limit |
 | --- | --- |
@@ -263,7 +282,9 @@ validation/publication. Its existing API takes a real `LoadedWorkflowBundle`
 and `StateManager`, rather than a dynamic artifact or standalone effect request.
 
 Qualify a minimal adapter that invokes a fixed, compiled `.orc` boundary leaf
-as a fresh execution: obtain `workflow_runtime_input_contracts`, use
+as a fresh execution: obtain `workflow_public_input_contracts` (not the runtime/private input map),
+derive strict descriptors from those same compiled contracts with
+`transport_descriptor_for_schema`, validate dynamic values before the coercive
 `bind_workflow_inputs`, initialize a fresh run with those bound inputs, call
 `WorkflowExecutor.execute(on_error="stop")` without resume, and consume its
 validated `workflow_outputs`. This can exercise real registered provider and
@@ -274,8 +295,131 @@ in the candidate; only the declared boundary leaf uses the existing compiler.
 The retained legacy leaf state and invocation overhead count as costs, and this
 seam proves neither dynamic `.orc` authoring nor production readiness or net
 deletion. A subprocess-only callback cannot substitute for the complete boundary.
+Qualification found a further limitation: `output_contract` can coerce raw
+Bool/Int strings and flatten away extra record fields. Validating the already
+normalized `workflow_outputs` therefore cannot prove strict provider output.
+The coordinator selected a strict raw-return gate before artifact publication,
+using the descriptor from the same compiled boundary. A minimal optional
+`document_bytes` argument in `WorkflowExecutor._apply_expected_outputs_contract`
+will forward the exact captured bytes to the existing `validate_output_bundle`
+and `validate_variant_output_bundle` APIs, which already accept that argument.
+Default behavior remains unchanged. The experimental adapter must not copy the
+method, reread the result between strict validation and shared validation, or
+accept already-coerced state as evidence. The reviewed §6.2 contract fixes the adapter shape below; no boundary success
+is claimed from inspection.
+
+**Immediate successor DC-1c:** use the existing S-expression reader for a bounded
+source frontend and a checked-in `.orc` specimen combining an unannotated helper,
+returned/stored/selected closures and two real typed boundary calls. Existing
+`defrecord`/`defunion`/`defpath` and prompt/command contracts retain their owners.
+Freeze exact source forms and frontend cases after the leaf bridge contract;
+execute this visible composition proof immediately after DC-1b and before DC-F.
+Do not postpone authoring evidence behind full Phase 3/W3 or treat an authored
+JSON artifact as the requested language improvement.
+
+### DC-1b Reviewed Finite Scope
+
+The following **24 frozen cases** refine E01–E12; none has executed. Two case
+IDs per family, with explicit invalid vectors inside the indicated cases. The
+[proposal §6.2](../design/workflow_lisp_dynamic_core_proposal.md#62-fresh-compiled-leaf-boundary-contract)
+owns semantics; change the count explicitly if collection exposes accidental
+parameter expansion. Use real
+compiled leaves and a registered deterministic subprocess provider, without live
+paid calls or mocking `ProviderExecutor.prepare_invocation`/`execute`.
+
+| Case | Required observation |
+| --- | --- |
+| E01a | Valid provider result selects and invokes an ordinary closure |
+| E01b | Valid command result selects a closure through the same strict boundary seam |
+| E02a | Capture the validated record, store/pass the closure, and use it in a second leaf call |
+| E02b | A valid tagged leaf result feeds a returned closure; it retains its snapshot despite later shadowing or another leaf changing the original result file |
+| E03a | Failure before external action has zero dispatches; fresh invocation starts from entry |
+| E03b | Failure after the first action preserves its observed side effect; fresh invocation repeats it |
+| E04a | Unknown/unlinked leaf is refused before dispatch, including an unreachable reference |
+| E04b | Failed leaf reports dynamic caller/expression/selected-code context without leaking input values |
+| E05a | Exhaustion before the effect node or its required argument evaluations prevents launch |
+| E05b | A completed effect does not reset the node budget; a separate invocation has a new budget |
+| E06a | A pre-existing runtime-owned bundle cannot satisfy a fresh missing-result invocation |
+| E06b | Two successful calls use distinct fresh run/result locations and do not reuse state |
+| E07a | Changed ordinary input is bound and observed on the next fresh invocation |
+| E07b | Changed document contents are resnapshotted on the next fresh invocation |
+| E08a | A successful prefix repeats after a later leaf failure; record exact subprocess dispatch count |
+| E08b | Failure may retain an ordinary output/external write; no rollback or cross-run no-repeat claim |
+| E09a | Before launch reject missing/extra inputs, Bool-as-Int, numeric strings, wrong nested/tagged fields and closures; accept declared Float normalization from Int |
+| E09b | Before publication reject raw Bool/Int strings, missing/extra/nested/inactive fields and non-finite values; valid strict and shared validation use one captured byte snapshot even after file replacement |
+| E10a | Closed registry refuses missing/extra/non-leaf bindings; artifact data cannot supply a command/provider/host callable. A read-only invocation refuses an effect reached through a closure before dispatch |
+| E10b | Actual workspace/path owner refuses escape/symlink misuse before launch or result consumption; no broader sandbox promise |
+| E11a | Existing prompt/document machinery renders declared semantic input and captures a document snapshot; no literal prompt wording assertions |
+| E11b | Existing required-output and artifact/path checks reject absent required output and accept a valid handoff |
+| E12a | Missing or wrong-path structured result fails; stdout JSON cannot substitute |
+| E12b | Malformed/duplicate-key raw JSON refuses and never publishes a successful candidate result |
+
+**APIs and patch ownership.** Only the delegated implementer may edit:
+
+- `experiments/dynamic_core_evaluation/program.py` and `evaluator.py`: preserve
+  `/1`; admit `/2` with closed `effects` names and the single effect node,
+  registry linking, read-only refusal and existing per-node budget/call context.
+- New `experiments/dynamic_core_evaluation/leaf_bridge.py`: qualify one direct
+  `ProviderResultExpr`/`CommandResultExpr` leaf; use `compile_stage3_entrypoint`,
+  `linked_module_type_environment`, `compiler_normalized_type_descriptor`,
+  `workflow_public_input_contracts`, `transport_descriptor_for_schema`,
+  `validate_transport_value`, `bind_workflow_inputs`, fresh `StateManager` and
+  full `WorkflowExecutor`. Guard strict raw output before shared publication and
+  return the immutable validated wire-key `workflow_outputs`; no inverse codec.
+- `orchestrator/workflow/executor.py`: exclusively the optional `document_bytes`
+  keyword and its forwarding to both existing validators inside
+  `_apply_expected_outputs_contract`. No other production behavior, duplicate
+  hook body, global monkeypatch or additional execution mode. The coordinator
+  explicitly authorized this shared-owner extension; record its reusable diff
+  and verification for the upstream owner before final integration.
+- New `tests/experiments/test_dynamic_core_boundaries.py`: exactly E01a–E12b;
+  fixture source `experiments/dynamic_core_evaluation/fixtures/leaf.orc` and deterministic
+  registered provider/command script
+  `experiments/dynamic_core_evaluation/fixtures/scripted_leaf.py`. These fixtures retain
+  real existing boundary declarations; they contain no candidate controller.
+
+The coordinator assigns these paths to an implementation agent after independent
+scope review; this qualification records no invented author. Recheck upstream
+before that handoff. No frontend paths are in DC-1b; Design freezes DC-1c while
+this adapter executes so visible authored composition follows without a new
+planning cycle.
+
+**Verification commands, proposed (not receipts):** run from the worktree root.
+The first test run should reproduce concrete absent/refusing behavior before
+implementation; a missing module alone is not behavioral RED evidence.
+
+```bash
+python -m pytest --collect-only -q tests/experiments/test_dynamic_core_boundaries.py
+python -m pytest -q tests/experiments/test_dynamic_core_boundaries.py
+python -m pytest -q tests/experiments/test_dynamic_core_evaluation.py tests/test_workflow_evaluated_cli.py
+python -m pytest -q tests/test_workflow_output_contract_integration.py::test_command_step_persists_artifacts_when_contract_is_valid tests/test_workflow_output_contract_integration.py::test_provider_step_persists_artifacts_when_contract_is_valid tests/test_workflow_output_contract_integration.py::test_command_step_fails_when_expected_output_missing tests/test_output_contract_collections.py::test_validate_variant_output_bundle_supports_collection_shared_and_variant_fields
+```
+
+Collection expects 24 new cases; retain 48 pure plus nine public controls. The
+four shared-owner selectors preserve default command/provider/required-output/
+variant behavior; the new E09b snapshot assertion exercises opt-in forwarding.
+E01/E02 run actual leaf subprocesses and supply candidate integration evidence;
+the nine public controls supply the existing orchestrator smoke. Run one
+serialized artifact→registered leaf→closure→second leaf demo using the checked-in
+fixture and record its exact command/output, not just mocked invocation counts.
+
+Keep the existing 48 pure cases unchanged. Preserve old-target semantics and run
+focused shared-owner regressions plus an actual subprocess integration/demo;
+unit stubs cannot discharge E01/E02/E09/E11. Record inherited leaf state and
+invocation overhead, repeated calls and surviving partial writes as costs.
 
 ### Review State
+
+On 2026-10-02 `/root/planning_dynamic_core_sequence` independently reviewed
+proposal §6.2: **PASS**. API/source checks cover the compiler-owned descriptors,
+public input filtering, same-byte strict/shared output validation before
+publication, closed registry and fresh-run semantics. `/root/design_dynamic_core_roadmap` independently passed the 24-case scope after
+clarifying immutable-capture evidence and read-only refusal. The separately
+assigned `/root/w3_planset_review` reviewer also passed §6.2 and requested the
+explicit read-only closure assertion retained in E10a; that review covered the
+preceding draft, not the final documentation diff. The coordinator accepted the
+final seven-path handoff listed above. DC-1c
+remains the immediate successor; no DC-F disposition is recorded.
 
 On 2026-10-02 independent reviews passed after bounded corrections:
 
@@ -288,7 +432,7 @@ On 2026-10-02 independent reviews passed after bounded corrections:
   captures, closed admission, deterministic budget and shared-owner limits match
   the inspected implementation; no unresolved blocking contract finding remains.
 
-The coordinator selected **DC-1a only** and assigned its three paths to
+The initial DC-0 disposition selected **DC-1a only** and assigned its three paths to
 `/root/design_dynamic_core_roadmap/impl_code_dynamic_core_pure` (Luna 6 xhigh).
 The owner tradeoff amendment changes later integration criteria, not the reviewed
 48-case pure contract. On 2026-10-02 `/root/design_dynamic_core_roadmap` independently
@@ -298,7 +442,8 @@ integration separate from fresh execution. The coordinator independently
 reviewed the proposal amendment; its retry wording was narrowed to existing
 within-invocation rules, with no cross-run no-repeat guarantee. All three DC gates
 remain pending. No production target, live-study allocation
-or shared implementation ownership transfer is selected by this qualification.
+or general shared implementation ownership transfer follows. The later DC-1b
+handoff above authorizes only its explicitly bounded shared hook extension.
 
 ## 6. DC-1a Execution Evidence
 

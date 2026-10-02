@@ -121,18 +121,20 @@ Never silently advance a pinned experiment baseline: explicitly re-pin and rerun
 affected paired cases after a relevant update. Synchronization neither approves
 a DC gate nor requires waiting for all of typed Phase 3.
 
-Latest check, 2026-10-02: R12 source `7af8ebf6`; integration source `44c2d559`.
-Imported documentation commits `08cf53d3` and `44c2d559`, preserving the dynamic
-overlay; runtime/tests remain unchanged from the initial integration receipt.
-R12 control/capture work remains with its upstream owner until committed and
-reviewed. Documentation verification is recorded with this amendment's commit.
+Latest check, 2026-10-02: reviewed integration `0d7e4bc6` imported at merge
+`18a442da`; R12 source `0f1bbc46` and integrated code `a780639c` have the same
+stable patch ID. All 14 imported source/test hashes match the upstream receipt.
+R12-A is complete; Task 6 overall remains open. Fresh affected checks passed
+55 command-template/control cases and three public/helper checks. Exact commands,
+metadata and evidence limits are in the single report's synchronization section;
+these results do not pass a dynamic gate or advance frozen comparison controls.
 
 ## Finite Tranches And Decision Record
 
 | Tranche | Current state | Entry / bounded exit |
 | --- | --- | --- |
 | DC-0 — qualify exact scope and controls | Complete; independent Design and qualification reviews PASS | Produce the inventory, pinned controls, exact finite case list and reviewed spike patch scope below; do not implement a production target |
-| DC-1 — feasibility spike | DC-1a complete and reviewed; DC-1b boundary/dispatch qualification next | One isolated non-resuming candidate, finite feasibility matrix, independent review and DC-F evidence; stop at DC-F |
+| DC-1 — feasibility spike | DC-1a complete and reviewed; DC-1b boundary/dispatch qualification executing; DC-1c authored composition follows immediately | One isolated non-resuming candidate, real strict boundaries and an authored `.orc` specimen, independent review and DC-F evidence; stop at DC-F |
 | DC-2 — utility comparison | Pending DC-F continue | Full improve and paired-search protocols, four paired author edits and diagnostic/complexity assessment; stop at DC-U |
 | DC-3 — production readiness | Pending DC-U continue | Only the named release scope, approved version contracts and required shared runtime qualification; stop at DC-P |
 | Phase 6b / 7 — migration / retirement | Pending DC-P authorization | One selected destination, explicit maintained-consumer and existing-run dispositions |
@@ -160,7 +162,8 @@ No result, test count, reviewer recommendation or document publication selects
 continue automatically. There is no new machine manifest: machine tranche and
 ready/pending/completed/blocked count deltas are all **0**, the five research
 units remain unchanged, and no active run is mutated. The human next task is
-DC-1b qualification after reviewed DC-0/DC-1a completion; existing executable selectors have no new
+DC-1b qualification after reviewed DC-0/DC-1a completion, immediately followed
+by DC-1c source authoring before DC-F; existing executable selectors have no new
 item to consume.
 
 ## DC-0: Qualify Scope And Controls
@@ -236,7 +239,31 @@ closure/generic-helper demo passed; nine unchanged public CLI controls passed.
 [Execution evidence](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#6-dc-1a-execution-evidence)
 separates these results from the still-pending full DC-F matrix. Next is DC-1b
 qualification of fresh leaf execution through existing complete contract owners;
-freeze its exact cases/API before implementation. No new gate is passed here.
+freeze its exact cases/API before implementation. Then execute **DC-1c authored
+composition** using the existing S-expression reader, before DC-F: a checked-in
+`.orc` specimen must define an ordinary unannotated helper, create/return/store/
+select a closure using a real validated leaf result, and call a second typed
+boundary. Preserve existing boundary declarations and their contract compiler;
+do not introduce another schema language. Its finite frontend contract and case
+list are reviewed after the leaf seam is fixed. JSON construction alone cannot
+satisfy this source proof or demonstrate authoring utility. Neither slice waits
+for full typed Phase 3 or W3 delivery; completing DC-1b proceeds to this visible
+source slice under the current continuation instruction. No new gate is passed here.
+
+**DC-1b bounded handoff:** [report §5](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-1b-reviewed-finite-scope)
+freezes 24 cases E01a–E12b, exact commands and ownership. Modify only candidate
+`program.py`/`evaluator.py`, add `leaf_bridge.py`, `fixtures/leaf.orc`,
+`fixtures/scripted_leaf.py`
+and `tests/experiments/test_dynamic_core_boundaries.py`. The one shared edit is
+optional `document_bytes` forwarding in
+`WorkflowExecutor._apply_expected_outputs_contract`, explicitly authorized by
+the coordinator and returned as reusable evidence to its upstream owner. Preserve
+the default path and all 48 pure cases. Proposal §6.2 passed independent Design
+review; Design independently passed the finite case matrix and the coordinator
+accepted the final path handoff. The distinct reviewer assessed §6.2 and the
+preceding case draft, not this final documentation diff.
+Then record actual receipts and continue directly to DC-1c; tests alone do not
+select DC-F or DC-2.
 
 **Artifacts:** create `experiments/dynamic_core_evaluation/` only when this task
 runs; use a minimal candidate module and `.orc` specimens there, and

@@ -438,6 +438,106 @@ a test callback as evidence of an actual provider/command boundary. Ordinary
 DC-F/DC-U obligations; this pure subprofile cannot waive them. Its original
 value/schema/admission/budget cases do not change when resume is omitted.
 
+### 6.2 Fresh Compiled-Leaf Boundary Contract
+
+The next bounded slice links dynamic composition to existing, fixed `.orc`
+boundary leaves. It reuses the full workflow executor, not just its subprocess
+launcher. This retains the existing compiler, prompt/document/output contracts
+and leaf-local state; their invocation and maintenance cost is part of the
+comparison. It creates no public target, candidate memo or recovery capability.
+
+**Closed experimental operation.** Artifact `workflow-lisp/dynamic-spike/2`
+retains §6.1 and adds exactly `effects`, a list of unique nonempty operation
+identifiers. Its additional node is
+`{"k":"effect","name":identifier,"inputs":node}`. Check its identifier
+against the declared list in every body, including unreachable bodies. Version 1
+keeps its pure vocabulary. Execution links the complete list to an explicitly
+supplied trusted leaf registry before evaluating any node; missing/extra or
+non-leaf bindings refuse `dynamic_effect_unlinked`. The artifact alone does not
+pin or authorize external implementations: the execution input is the artifact
+plus this registered, freshly compiled leaf set. Record their source/binding
+identities with evidence; do not imply checkpoint-compatible linking.
+
+Evaluate the inputs node once, require an ordinary record keyed by the leaf's
+public wire input names, and reject closures at this boundary. Charge the effect
+node and evaluated operands by §6.1; dispatch and return do not reset the budget.
+A read-only invocation refuses `dynamic_effect_forbidden` before dispatch,
+including effects reached through closures. Use one synchronous `LeafBridge`
+owned by the experiment, not a generic callback/plugin backend. Registry lookup,
+input validation and dispatch have no host-call escape exposed to the program.
+
+**Leaf qualification and ownership.** Compile through
+`compile_stage3_entrypoint(..., validate_shared=True)`. Select a real
+`LoadedWorkflowBundle` and its corresponding typed workflow. This slice admits
+only a direct `ProviderResultExpr` or `CommandResultExpr` body with exactly one
+ordinary effect; no child runs, sessions, coordinator policies, loops or further
+effectful computation inside the leaf. Pure argument/prompt construction and
+the compiler's output projections remain owned by that compiler. Derive the
+whole return descriptor from `typed_workflow.signature.return_type_ref` using
+`compiler_normalized_type_descriptor` and `linked_module_type_environment` from
+that same compilation. Never accept a separately authored return schema.
+
+Use `workflow_public_input_contracts` to exclude private runtime bindings;
+derive strict input descriptors with `transport_descriptor_for_schema`, check
+ordinary values using `validate_transport_value`, then call `bind_workflow_inputs`
+with `finite_floats=True`. This first check prevents the CLI-oriented binder from
+coercing strings to numbers/Bool. The existing binder and executor still own
+path containment/existence, private inputs and document/output obligations;
+the shape kernel alone is not a path validator. Missing/extra arguments fail
+before any leaf launch.
+
+Create a fresh `StateManager` for each call, initialize it with the real source
+path, `workflow_context(bundle)` and bound inputs, then use
+`WorkflowExecutor(..., max_retries=0).execute(on_error="stop")` without resume.
+Register deterministic subprocess providers through the existing provider
+registry; never mock `prepare_invocation`/`execute` to claim real transport.
+Each call has a fresh run/bundle location. Preserve the executor's existing
+within-invocation retry, path, environment and execution permissions.
+
+**Strict output before publication, with one snapshot.** Legacy output contracts
+can coerce scalar strings and project away extra record fields. Checking their
+already-normalized `workflow_outputs` cannot prove a strict dynamic boundary.
+A narrow experimental executor adapter therefore guards the existing
+`_apply_expected_outputs_contract` hook for its one admitted effect:
+
+1. For a successful external action, resolve its runtime-bound bundle path using
+   the executor's existing resolver and read bytes through its `WorkspaceFiles`.
+   Missing/wrong-path/nonregular files fail; stdout and caller-supplied bytes
+   cannot supply the snapshot. Reuse the experiment's strict JSON decoding rules
+   for duplicate keys/nonfinite data, then call the existing strict kernel with
+   the compiled whole return descriptor. Preserve path checks in their owners.
+2. Pass **those same bytes** to the original hook. The only shared production
+   extension is an optional `document_bytes` keyword on that hook, forwarded to
+   the already snapshot-capable `validate_output_bundle` and
+   `validate_variant_output_bundle`. Its default preserves every existing caller.
+   Do not duplicate the method, validator, projection or publication machinery.
+3. A strict failure returns a failed/exit-code-2 result without successful
+   artifacts; otherwise the original hook still checks required `:out` files,
+   paths, variants and joint publication. The snapshot consumed by that owner
+   must be the one checked strictly, even if the file changes after capture.
+
+Only a completed leaf returns its validated `workflow_outputs` as an immutable
+dynamic record. Keep the existing wire keys, including generated return names;
+do not invent an inverse projection or claim this wire-shaped adapter is the
+final authoring interface. Failure raises `dynamic_effect_failed` with operation,
+leaf run identity, artifact expression location and dynamic call context; do not
+return a domain false/blocked value or leak raw output through diagnostics.
+Invalid input uses `dynamic_boundary_invalid`. Leaf state, logs and partial
+external writes may remain after failure; none is a candidate checkpoint, and
+a fresh candidate invocation may repeat earlier effects.
+
+The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
+owns the finite E01–E12 cases and the explicit shared-hook ownership transfer.
+Candidate code stays in `program.py`, `evaluator.py` and one `leaf_bridge.py`
+under `experiments/dynamic_core_evaluation/`; real leaf/provider fixtures and
+their test module belong to that finite scope. Full DC-F additionally requires
+the immediately following authored-surface slice: reuse `reader.read_sexpr_text`
+for one experimental `.orc` composition specimen with unannotated ordinary
+helpers, inferred lexical captures and first-class closures, lowered to the
+same checked artifact. Keep boundary declarations in the existing compiled leaf
+module. Freeze that small grammar before coding it; JSON authoring and fixed
+typed leaf syntax alone cannot satisfy this source-level obligation.
+
 ## 7. Errors, Owners, And Deletions
 
 | Check | Candidate timing and consequence |
