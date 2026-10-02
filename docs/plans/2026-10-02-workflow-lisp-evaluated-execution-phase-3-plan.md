@@ -105,10 +105,12 @@ The coordinator's fresh pre-change narrow baseline at `71fbbb74` passed `tests/t
 
 **Files:** Create `orchestrator/workflow/evaluated/__init__.py`, `orchestrator/workflow/evaluated/values.py`, `tests/test_workflow_evaluated_values.py`. Modify `orchestrator/workflow/pure_expr.py` only if a tiny shared callable extraction is necessary; extend `tests/test_workflow_pure_catalog_agreement.py`.
 
-- [ ] RED: extend catalog agreement with closed values and typed operands, including finite-number refusals and path/record/list/union/optional values. Add values with more than 256 aggregate nodes; wrong Bool/Int substitution must refuse.
-- [ ] Run `tests/test_workflow_evaluated_values.py` and `tests/test_workflow_pure_catalog_agreement.py`; record intended failure.
-- [ ] Implement the minimum typed value/dependency carrier and immutable lexical lookup. Delegate operators to the existing catalog payload evaluator; preserve closed `list_map` and `path_join` semantics. Expose a narrow existing coercion helper if needed. Keep pure shape/refinement validation separate from filesystem checks at the owning input/effect boundary; `_coerce_value` alone does not validate a new effect result.
-- [ ] GREEN same modules; assert errors point to the failing application and include actual operands, not only the enclosing pure region. Carry a stored committed path through pure values with its original existence validator instrumented to fail if called; Task 3 extends this proof through call projections, and Tasks 8/10 prove public replay/read-only reconstruction while new invalid path inputs/results still refuse at their owning boundary. Inspect diff/size/complexity; review and commit owned paths.
+- [x] RED: extend catalog agreement with closed values and typed operands, including finite-number refusals and path/record/list/union/optional values. Add values with more than 256 aggregate nodes; wrong Bool/Int substitution must refuse.
+- [x] Run `tests/test_workflow_evaluated_values.py` and `tests/test_workflow_pure_catalog_agreement.py`; record intended failure.
+- [x] Implement the minimum typed value/dependency carrier and immutable lexical lookup. Delegate operators to the existing catalog payload evaluator; preserve closed `list_map` and `path_join` semantics. Expose a narrow existing coercion helper if needed. Keep pure shape/refinement validation separate from filesystem checks at the owning input/effect boundary; `_coerce_value` alone does not validate a new effect result.
+- [x] GREEN same modules; assert errors point to the failing application and include actual operands, not only the enclosing pure region. Carry a stored committed path through pure values with its original existence validator instrumented to fail if called; Task 3 extends this proof through call projections, and Tasks 8/10 prove public replay/read-only reconstruction while new invalid path inputs/results still refuse at their owning boundary. Inspect diff/size/complexity; review and commit owned paths.
+
+Execution receipt (2026-10-02): integrated at `da19e2bb7e5bb853fc99a35dfb56e6241e96bc96` after independent conformity and quality PASS; coordinator verification on the integration worktree: **258 passed**. This closes Task 1 only; structured control and public runtime remain later tasks.
 
 ## Task 2: Structured Evaluation And Checked Identities
 
