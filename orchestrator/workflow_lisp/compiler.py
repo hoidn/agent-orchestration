@@ -1171,6 +1171,9 @@ def compile_stage3_module(
             module_workflow_signatures={
                 module_name: state.workflow_catalog.signatures_by_name
             },
+            producer_lowering_schema=lowering_schema_for_route(
+                normalized_lowering_route
+            ),
         )
         if standalone_source_path is None:
             raise RuntimeError("standalone module probe was not recorded in the source trace")
@@ -3785,6 +3788,9 @@ def _compile_stage3_graph(
                 imported_programs=imported_programs,
                 module_workflow_signatures=module_workflow_signatures,
                 local_definition_dids=local_definition_dids,
+                producer_lowering_schema=lowering_schema_for_route(
+                    normalized_lowering_route
+                ),
             )
         result = Stage3CompileResult(
             module=definition_module,
